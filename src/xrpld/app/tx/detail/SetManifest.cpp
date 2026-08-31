@@ -34,21 +34,86 @@
 
 namespace ripple {
 
-bool
-isUnsignedSetManifest(STTx const& tx) noexcept
+static bool
+hasManifestAuthorityMarkers(STTx const& tx) noexcept
 {
     try
     {
         return tx.getTxnType() == ttMANIFEST_SET &&
             tx.isFieldPresent(sfSigningPubKey) &&
             tx.getSigningPubKey().empty() &&
-            tx.isFieldPresent(sfTxnSignature) && tx.getSignature().empty() &&
-            !tx.isFieldPresent(sfSigners);
+            tx.isFieldPresent(sfTxnSignature) && tx.getSignature().empty();
     }
     catch (std::exception const&)
     {
         return false;
     }
+}
+
+bool
+isUnsignedSetManifest(STTx const& tx) noexcept
+{
+    try
+    {
+        return hasManifestAuthorityMarkers(tx) && !tx.isFieldPresent(sfSigners);
+    }
+    catch (std::exception const&)
+    {
+        return false;
+    }
+}
+
+/** Build the only permitted manifest-authorized outer transaction.
+
+    `fee` is supplied by the caller so preflight can cheaply certify every
+    other byte before a ledger fee schedule is available. checkFee() pins that
+    final value later.
+ */
+static STTx
+canonicalUnsignedSetManifest(
+    STObject const& manifest,
+    AccountID const& account,
+    std::optional<std::uint32_t> networkID,
+    XRPAmount fee)
+{
+    return STTx(ttMANIFEST_SET, [&](STObject& obj) {
+        obj.setAccountID(sfAccount, account);
+        obj.setFieldU32(sfSequence, 0);
+        if (networkID)
+            obj.setFieldU32(sfNetworkID, *networkID);
+        obj.setFieldAmount(sfFee, fee);
+        obj.setFieldVL(sfSigningPubKey, Blob{});
+        obj.setFieldVL(sfTxnSignature, Blob{});
+
+        obj.peekFieldObject(sfManifest) = manifest;
+    });
+}
+
+/** Cheap full-envelope shape gate for manifest-only authority.
+
+    The field-count comparison rejects ordinary extension attacks (Memos,
+    tags, bounds, Signers, and future optional common fields) before copying
+    their contents or verifying either manifest signature. The byte comparison
+    then pins every admitted field, its encoded size, and its representation.
+    Fee is mirrored here and pinned to its one value by checkFee().
+ */
+static bool
+hasCanonicalUnsignedSetManifestShape(STTx const& tx)
+{
+    auto const& manifest =
+        const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+    auto const canonical = canonicalUnsignedSetManifest(
+        manifest,
+        tx.getAccountID(sfAccount),
+        tx[~sfNetworkID],
+        tx[sfFee].xrp());
+
+    if (tx.getCount() != canonical.getCount())
+        return false;
+
+    auto const actualBytes = tx.getSerializer();
+    auto const canonicalBytes = canonical.getSerializer();
+    return actualBytes.slice() == canonicalBytes.slice();
 }
 
 std::optional<std::uint32_t>
@@ -84,6 +149,24 @@ SetManifest::preflight(PreflightContext const& ctx)
         return temINVALID_FLAG;
     }
 
+    // Empty single-signing fields nominate manifest-only authority. Check the
+    // complete shape even if a relayer also attached Signers: the canonical
+    // envelope has none, so that extension is rejected before any crypto.
+    bool const manifestAuthorityCandidate = hasManifestAuthorityMarkers(tx);
+    if (manifestAuthorityCandidate && !hasCanonicalUnsignedSetManifestShape(tx))
+    {
+        JLOG(j.warn()) << "SetManifest: non-canonical unsigned envelope.";
+        return temMALFORMED;
+    }
+    bool const manifestAuthorized = isUnsignedSetManifest(tx);
+
+    // Authenticate the cheapest available outer authority before doing any
+    // further work. For the manifest-authorized lane this verifies the two
+    // manifest signatures exactly once. For the account-authorized lane it
+    // rejects a bad outer signature before spending work on the manifest.
+    if (auto const ret = preflight2(ctx); !isTesSuccess(ret))
+        return ret;
+
     // rules:
     // 1. sfManifest must match the manifest template and be validly signed
     // 2. the signingpubkey must match the master r-address
@@ -102,7 +185,10 @@ SetManifest::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (!manifest->verify())
+    // preflight2 already verified the manifest-authorized lane. An ordinary
+    // account signature authenticates only the envelope, so that lane still
+    // needs the manifest's own signatures checked here.
+    if (!manifestAuthorized && !manifest->verify())
     {
         JLOG(j.warn())
             << "SetManifest: invalid manifest passed (manifest.verify failed).";
@@ -121,29 +207,7 @@ SetManifest::preflight(PreflightContext const& ctx)
     // 3. not already revoked will be checked in preclaim because it depends on
     // lgr state
 
-    // 4. The manifest signature is the only authority in this lane, so the
-    // outer transaction must not be malleable by its relayer. Pin every
-    // optional field that ordinary account signing would otherwise
-    // authenticate. preflight0 already pins NetworkID to the configured
-    // network; sfFee is pinned to one computed value in checkFee(), where the
-    // ledger fee schedule is available.
-    if (isUnsignedSetManifest(tx) &&
-        (tx.getFieldU32(sfSequence) != 0 || tx.isFieldPresent(sfFlags) ||
-         tx.isFieldPresent(sfSourceTag) || tx.isFieldPresent(sfPreviousTxnID) ||
-         tx.isFieldPresent(sfLastLedgerSequence) ||
-         tx.isFieldPresent(sfAccountTxnID) ||
-         tx.isFieldPresent(sfOperationLimit) || tx.isFieldPresent(sfMemos) ||
-         tx.isFieldPresent(sfTicketSequence) ||
-         tx.isFieldPresent(sfEmitDetails) ||
-         tx.isFieldPresent(sfFirstLedgerSequence) ||
-         tx.isFieldPresent(sfHookParameters) || tx.isFieldPresent(sfHookName)))
-    {
-        JLOG(j.warn())
-            << "SetManifest: envelope must be unsigned with Sequence 0.";
-        return temMALFORMED;
-    }
-
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -484,22 +548,16 @@ makeSetManifestTx(
         if (!man || !man->verify())
             return std::nullopt;
 
-        auto const encode = [&](XRPAmount fee) {
-            return serializeHex(STTx(ttMANIFEST_SET, [&](STObject& obj) {
-                obj.setAccountID(sfAccount, calcAccountID(man->masterKey));
-                obj.setFieldU32(sfSequence, 0);
-                obj.setFieldU32(sfNetworkID, networkID);
-                obj.setFieldAmount(sfFee, fee);
-                obj.setFieldVL(sfSigningPubKey, std::vector<std::uint8_t>{});
-                obj.setFieldVL(sfTxnSignature, std::vector<std::uint8_t>{});
+        SerialIter manifestIter{manifest};
+        STObject const manifestObject{manifestIter, sfManifest};
 
-                // sfManifest is soeREQUIRED, so STObject::set(SOTemplate) has
-                // already materialised it as a present, empty object. Fill
-                // that one in: emitting a second is a duplicate field, which
-                // STObject::set(SerialIter&) rejects on the way back in.
-                SerialIter mit{manifest};
-                obj.peekFieldObject(sfManifest).set(mit);
-            }));
+        auto const encode = [&](XRPAmount fee) {
+            return serializeHex(canonicalUnsignedSetManifest(
+                manifestObject,
+                calcAccountID(man->masterKey),
+                networkID > 1024 ? std::optional<std::uint32_t>{networkID}
+                                 : std::nullopt,
+                fee));
         };
 
         // calculateBaseFee() takes a parsed transaction, so encode once with a
