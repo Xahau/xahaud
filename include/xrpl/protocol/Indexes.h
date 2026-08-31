@@ -376,6 +376,10 @@ permissionedDomain(uint256 const& domainID) noexcept;
 Keylet
 manifest(PublicKey const& pk) noexcept;
 
+/** The thin index from an active signing key to its canonical manifest. */
+Keylet
+manifestSigningKey(PublicKey const& pk) noexcept;
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:
