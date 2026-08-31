@@ -34,6 +34,32 @@
 
 namespace ripple {
 
+bool
+isUnsignedSetManifest(STTx const& tx) noexcept
+{
+    try
+    {
+        return tx.getTxnType() == ttMANIFEST_SET &&
+            tx.isFieldPresent(sfSigningPubKey) &&
+            tx.getSigningPubKey().empty() &&
+            tx.isFieldPresent(sfTxnSignature) && tx.getSignature().empty() &&
+            !tx.isFieldPresent(sfSigners);
+    }
+    catch (std::exception const&)
+    {
+        return false;
+    }
+}
+
+std::optional<std::uint32_t>
+onLedgerManifestSequence(ReadView const& view, PublicKey const& masterKey)
+{
+    auto const sle = view.read(keylet::manifest(masterKey));
+    if (!sle)
+        return std::nullopt;
+    return sle->getFieldU32(sfSequence);
+}
+
 TxConsequences
 SetManifest::makeTxConsequences(PreflightContext const& ctx)
 {
@@ -95,17 +121,20 @@ SetManifest::preflight(PreflightContext const& ctx)
     // 3. not already revoked will be checked in preclaim because it depends on
     // lgr state
 
-    // 4. the envelope carries no account signature: authority comes solely
-    // from the manifest's own master/ephemeral signatures, which do not cover
-    // the envelope. Pin every envelope field a relayer could otherwise choose.
-    // The shape below must match the one checkValidity() recognises, or the
-    // txn falls through to the ordinary signature path and is rejected there.
-    // sfFee cannot be bounded here because the computed base fee is not in
-    // scope until preclaim; checkFee() bounds it instead.
-    if (!tx.isFieldPresent(sfSigningPubKey) || !tx.getSigningPubKey().empty() ||
-        !tx.isFieldPresent(sfTxnSignature) || !tx.getSignature().empty() ||
-        tx.isFieldPresent(sfSigners) || tx.isFieldPresent(sfAccountTxnID) ||
-        tx.isFieldPresent(sfTicketSequence) || tx.getFieldU32(sfSequence) != 0)
+    // 4. Manifest-only authority is the canonical update lane. Pin every
+    // optional field that ordinary account signing would otherwise
+    // authenticate. sfFee is checked against the one computed value in
+    // checkFee(), where the ledger fee schedule is available.
+    if (isUnsignedSetManifest(tx) &&
+        (tx.getFieldU32(sfSequence) != 0 || tx.isFieldPresent(sfFlags) ||
+         tx.isFieldPresent(sfSourceTag) || tx.isFieldPresent(sfPreviousTxnID) ||
+         tx.isFieldPresent(sfLastLedgerSequence) ||
+         tx.isFieldPresent(sfAccountTxnID) ||
+         tx.isFieldPresent(sfOperationLimit) || tx.isFieldPresent(sfMemos) ||
+         tx.isFieldPresent(sfTicketSequence) ||
+         tx.isFieldPresent(sfEmitDetails) ||
+         tx.isFieldPresent(sfFirstLedgerSequence) ||
+         tx.isFieldPresent(sfHookParameters) || tx.isFieldPresent(sfHookName)))
     {
         JLOG(j.warn())
             << "SetManifest: envelope must be unsigned with Sequence 0.";
@@ -135,6 +164,20 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     auto const newManifest = deserializeManifest(newObj, ctx.j);
     if (!newManifest)
         return tefINTERNAL;  // preflight already parsed this successfully
+
+    // Manifest-only authority may rotate or revoke an existing registration,
+    // but it cannot create the registration. Distinguish a genuinely empty
+    // slot from a corrupt AccountRoot that forgot an extant manifest object.
+    if (isUnsignedSetManifest(ctx.tx) && !sle->isFieldPresent(sfManifestID))
+    {
+        if (ctx.view.exists(keylet::manifest(newManifest->masterKey)))
+            return tefBAD_LEDGER;
+
+        JLOG(ctx.j.trace())
+            << "SetManifest: unsigned envelope cannot create manifest slot. "
+            << id;
+        return tefBAD_AUTH;
+    }
 
     // Replay protection. A byte-identical resubmission is rejected as
     // tefALREADY by checkPriorTxAndLastLedger, but sfFee may vary within the
@@ -204,6 +247,14 @@ SetManifest::doApply()
     // Both of these were established in preflight.
     if (!manifest || calcAccountID(manifest->masterKey) != account_)
         return tefINTERNAL;
+
+    // preclaim is the public stateful refusal. Keep the mutation boundary
+    // independently fail-closed so no future alternate apply path can turn an
+    // unsigned manifest into a first registration.
+    if (isUnsignedSetManifest(ctx_.tx) && !sle->isFieldPresent(sfManifestID))
+        return view().exists(keylet::manifest(manifest->masterKey))
+            ? tefBAD_LEDGER
+            : tefINTERNAL;
 
     // A manifest is stored twice so it can be found from either key:
     //   keylet::manifest(masterKey)  -> obj1, sfManifestID -> obj2
@@ -312,7 +363,7 @@ SetManifest::calculateBaseFee(ReadView const& view, STTx const& tx)
     return Transactor::calculateBaseFee(view, tx) + manifestFee;
 }
 
-/** The most sfFee may be: the same 1.2x headroom Submit applies.
+/** The canonical unsigned sfFee: the same 1.2x headroom Submit applies.
 
     Kept in one place so the value Submit writes and the value preclaim will
     accept cannot drift apart.
@@ -326,22 +377,26 @@ manifestFeeCeiling(XRPAmount baseFee)
 TER
 SetManifest::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
 {
-    // A ceiling is required because the envelope carries no account signature,
-    // so sfFee is chosen by whoever relays the txn -- and manifests are public:
-    // they are gossiped over the peer protocol and embedded in published UNLs,
-    // so the relayer need not be the master key holder. Uncapped, any observer
-    // of a not-yet-recorded manifest could wrap it with sfFee set to that
-    // validator's entire balance. The 20% band is headroom against a fee floor
-    // that has risen since the txn was built, and bounds what an attacker can
-    // burn to the same 20%.
-    if (ctx.tx[sfFee].xrp() > manifestFeeCeiling(baseFee))
+    // Account-signed SetManifest transactions use ordinary fee semantics.
+    // Their outer signature authenticates the chosen Fee, and they may enter
+    // TxQ like any other account transaction.
+    if (!isUnsignedSetManifest(ctx.tx))
+        return Transactor::checkFee(ctx, baseFee);
+
+    // The manifest signature does not cover the outer transaction, so every
+    // valid relayer must derive the same Fee from the ledger fee schedule and
+    // manifest size. The 20% headroom remains, but is one exact value rather
+    // than a malleable band. Account-signed transactions returned above and
+    // authenticate their independently chosen Fee normally.
+    if (ctx.tx[sfFee].xrp() != manifestFeeCeiling(baseFee))
     {
-        JLOG(ctx.j.trace()) << "SetManifest: fee above ceiling: "
+        JLOG(ctx.j.trace()) << "SetManifest: non-canonical unsigned fee: "
                             << to_string(ctx.tx[sfFee].xrp());
         return temBAD_FEE;
     }
 
-    // Floor and balance are the ordinary rules.
+    // Balance remains an ordinary rule. The exact canonical value is already
+    // at or above the ordinary base-fee floor by construction.
     return Transactor::checkFee(ctx, baseFee);
 }
 

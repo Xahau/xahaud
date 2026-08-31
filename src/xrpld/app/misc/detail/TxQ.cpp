@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpl/basics/mulDiv.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
@@ -1953,13 +1954,10 @@ TxQ::tryDirectApply(
     const bool isFirstImport = !sleAccount &&
         view.rules().enabled(featureImport) && tx->getTxnType() == ttIMPORT;
 
-    // A manifest txn is pinned to sfSequence 0 (Transactor::checkSeqProxy), so
-    // it can never match the account sequence. Direct-apply it like a first
-    // Import: letting it fall through to the queue would reject it outright on
-    // sequence rather than hold it. Manifests are therefore exempt from fee
-    // escalation, since requiredFeeLevel is not consulted for them.
+    // Only the manifest-authorized lane is pinned to sfSequence 0. An
+    // account-signed SetManifest uses ordinary queue and fee behavior.
     const bool isManifest = view.rules().enabled(featureOnChainManifests) &&
-        tx->getTxnType() == ttMANIFEST_SET;
+        isUnsignedSetManifest(*tx);
 
     const bool bypassQueue = isFirstImport || isManifest;
 

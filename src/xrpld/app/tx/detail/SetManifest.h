@@ -24,17 +24,39 @@
 #include <xrpld/core/Config.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/PublicKey.h>
+
+#include <optional>
 
 namespace ripple {
 
-/** Encode the transaction that publishes `manifest` on-ledger.
+/** Return whether a SetManifest envelope uses manifest-only authority.
 
-    A manifest transaction carries no account signature, so the protocol pins
-    the whole envelope: Sequence must be 0, SigningPubKey and TxnSignature must
-    be empty, and Fee must fall between the computed base fee and a ceiling
-    above it. SetManifest::preflight and SetManifest::checkFee reject anything
-    else. Every caller that submits a manifest builds it here so those rules
-    cannot drift apart from the ones the transactor enforces.
+    This is the one shared lane discriminator. An account-signed SetManifest
+    follows ordinary transaction signature, sequence, fee, and TxQ rules.
+    Only the exact empty outer-signature shape is eligible for the special
+    manifest-authorized lane; SetManifest::preflight pins its remaining
+    envelope fields.
+*/
+bool
+isUnsignedSetManifest(STTx const& tx) noexcept;
+
+/** Return the current on-ledger sequence for a registered master key.
+
+    Absence is the anti-entropy boundary: background publication may update an
+    existing registration but must never bootstrap one.
+*/
+std::optional<std::uint32_t>
+onLedgerManifestSequence(ReadView const& view, PublicKey const& masterKey);
+
+/** Encode a manifest-authorized update transaction for `manifest`.
+
+    This lane carries no account signature and can update only an existing
+    manifest slot. Sequence must be 0, SigningPubKey and TxnSignature must be
+    empty, optional common fields must be absent, and Fee must equal the one
+    computed canonical value. SetManifest::preflight and SetManifest::checkFee
+    reject anything else.
+    Initial registration uses an ordinary account-signed SetManifest instead.
 
     Returns hex rather than an STTx because the manifest is appended to the
     encoded transaction verbatim, behind its object marker, instead of being
