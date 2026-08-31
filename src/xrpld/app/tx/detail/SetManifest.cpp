@@ -570,8 +570,9 @@ SetManifest::checkFee(PreclaimContext const& ctx, XRPAmount baseFee)
     // exact payload bytes gives every relayer the same Fee and therefore the
     // same txid, independent of fee votes or local load. If that Fee is below
     // the current minimum, ordinary checking below returns telINSUF_FEE_P.
-    // Manifest gossip carries immediate authority independently; this wrapper
-    // can retry unchanged when load falls to establish ledger durability.
+    // That result does not warm ManifestCache or broadcast TMManifests: live
+    // rotations travel with validations, and this wrapper retries unchanged
+    // when load falls so the ledger can remember.
     if (ctx.tx[sfFee].xrp() !=
         canonicalUnsignedSetManifestFee(ctx.view.rules(), manifest))
     {

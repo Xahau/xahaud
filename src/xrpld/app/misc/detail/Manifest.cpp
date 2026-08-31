@@ -476,6 +476,12 @@ ManifestCache::applyLedger(
     ReadView const& view,
     hash_set<PublicKey> const& masterKeys)
 {
+    // ledgerAuthoritative tie-breaks must not run on unvalidated open-ledger
+    // bytes: a SetManifest that later fails to survive consensus would stick
+    // because a higher cache sequence skips the next validated applyLedger.
+    if (view.open())
+        return 0;
+
     std::size_t accepted = 0;
 
     for (auto const& pk : masterKeys)
@@ -522,6 +528,12 @@ ManifestCache::applyLedgerSigningKey(
     // list while the caller was deciding to ask.
     if (auto const known = held())
         return known;
+
+    // Same stickiness as applyLedger(): do not feed open-ledger objects to
+    // applyManifest(..., true). Callers that need a mapping wait for the
+    // validated ledger, which is also what beginConsensus reconciles.
+    if (view.open())
+        return std::nullopt;
 
     {
         std::lock_guard lock{mutex_};

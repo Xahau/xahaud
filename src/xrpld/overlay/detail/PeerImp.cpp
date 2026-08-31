@@ -21,7 +21,6 @@
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
-#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
@@ -2624,11 +2623,26 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         // An on-ledger signing-key index may make an otherwise unknown naked
         // validation relevant. Do not read the ledger on the peer strand: the
         // verification job first makes the sender pay for a valid signature,
-        // then performs the bounded cold lookup.
-        auto const openLedger = app_.openLedger().current();
+        // then performs the bounded cold lookup against the validated ledger.
+        auto const validatedLedger =
+            app_.getLedgerMaster().getValidatedLedger();
         bool const mayResolveFromLedger = !manifestContext && !isTrusted &&
             masterKey == signingKey && !app_.validators().listed(signingKey) &&
-            openLedger && openLedger->rules().enabled(featureOnChainManifests);
+            validatedLedger &&
+            validatedLedger->rules().enabled(featureOnChainManifests);
+
+        // A naked validation with neither a trusted/listed mapping nor a
+        // validated-ledger probe to run cannot contribute to consensus.
+        // Drop it before it claims the validation hash; a later verified
+        // pair can then be processed normally.
+        if (!manifestContext && !isTrusted && masterKey == signingKey &&
+            !app_.validators().listed(signingKey) && !mayResolveFromLedger)
+        {
+            JLOG(p_journal_.debug())
+                << "manifest_validation naked_unknown_dropped peer=" << id_
+                << " signing=" << toBase58(TokenType::NodePublic, signingKey);
+            return;
+        }
 
         // If the operator has specified that untrusted validations be dropped
         // then this happens here I.e. before further wasting CPU verifying the
@@ -2664,12 +2678,18 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         }
 
         auto const key = sha512Half(makeSlice(m->validation()));
+        // MVP1 keeps a pair from occupying the validation hash until both
+        // signatures pass. MVC1 does the same for a cold ledger probe: a miss
+        // must not poison a later verified pair of these exact bytes.
         auto const suppressionKey = manifestContext
             ? sha512Half(
                   std::uint32_t{0x4d565031},  // "MVP1"
                   makeSlice(m->validation()),
                   makeSlice(manifestContext->message->list(0).stobject()))
-            : key;
+            : mayResolveFromLedger ? sha512Half(
+                                         std::uint32_t{0x4d564331},  // "MVC1"
+                                         makeSlice(m->validation()))
+                                   : key;
 
         if (auto [added, relayed] =
                 app_.getHashRouter().addSuppressionPeerWithStatus(
@@ -2679,7 +2699,9 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
             // A previously relayed copy of these exact bytes has already
             // passed validation. Repair this particular naked sender even
             // though another peer won global admission for the hash.
-            if (!manifestContext && relayed)
+            // Cold-probe suppression lives in MVC1, which is never marked
+            // relayed; still offer repair if the first probe resolved.
+            if (!manifestContext && (relayed || mayResolveFromLedger))
                 sendManifestRepairForSigningKey(val->getSignerPublic());
 
             // Count unique messages (Slots has it's own 'HashRouter'), which a
@@ -2736,10 +2758,15 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
                  val,
                  m,
                  key,
-                 manifestContext = std::move(manifestContext)]() mutable {
+                 manifestContext = std::move(manifestContext),
+                 delayValidationHash = mayResolveFromLedger]() mutable {
                     if (auto peer = pairedPeer ? pairedPeer : weak.lock())
                         peer->checkValidation(
-                            val, key, m, std::move(manifestContext));
+                            val,
+                            key,
+                            m,
+                            std::move(manifestContext),
+                            delayValidationHash);
                 });
         }
         catch (...)
@@ -3467,7 +3494,8 @@ PeerImp::checkValidation(
     std::shared_ptr<STValidation> const& val,
     uint256 const& key,
     std::shared_ptr<protocol::TMValidation> const& packet,
-    std::optional<PendingManifest> manifestContext)
+    std::optional<PendingManifest> manifestContext,
+    bool delayValidationHash)
 {
     bool const pairedJob = manifestContext.has_value();
     // The queued job owns the moved association. This scope guard is its
@@ -3497,11 +3525,11 @@ PeerImp::checkValidation(
 
         if (unresolved)
         {
-            auto const view = app_.openLedger().current();
+            auto const ledger = app_.getLedgerMaster().getValidatedLedger();
             auto const master =
-                view && view->rules().enabled(featureOnChainManifests)
+                ledger && ledger->rules().enabled(featureOnChainManifests)
                 ? app_.validatorManifests().applyLedgerSigningKey(
-                      *view, signingKey)
+                      *ledger, signingKey)
                 : std::nullopt;
             if (!master)
             {
@@ -3513,10 +3541,26 @@ PeerImp::checkValidation(
                     Resource::feeUselessData, "unknown validation signing key");
                 return;
             }
+        }
 
-            // The validated ledger supplied the missing association. Carry
-            // its manifest on the onward relay and repair the naked sender;
-            // the TxQ is not part of this live recovery path.
+        // Strand occupied MVC1, not the validation hash. Claim the hash only
+        // after the signer resolved so a miss cannot front-run a later pair.
+        if (delayValidationHash)
+        {
+            if (auto [added, relayed] =
+                    app_.getHashRouter().addSuppressionPeerWithStatus(key, id_);
+                !added)
+            {
+                if (reduceRelayReady() && relayed &&
+                    (stopwatch().now() - *relayed) < reduce_relay::IDLED)
+                    overlay_.updateSlotAndSquelch(
+                        key,
+                        val->getSignerPublic(),
+                        id_,
+                        protocol::mtVALIDATION);
+                return;
+            }
+
             if (auto const snapshot =
                     app_.validatorManifests().getManifestSnapshot(signingKey);
                 snapshot && !snapshot->revoked() && snapshot->signingKey &&

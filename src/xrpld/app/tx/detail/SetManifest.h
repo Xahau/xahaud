@@ -80,8 +80,8 @@ canonicalUnsignedSetManifestFee(Rules const& rules, STObject const& manifest);
 
 /** Return the current on-ledger sequence for a registered master key.
 
-    Absence is the anti-entropy boundary: background publication may update an
-    existing registration but must never bootstrap one.
+    Absence means the master is unregistered: an unsigned wrapper may update
+    an existing slot but must never create one.
 */
 std::optional<std::uint32_t>
 onLedgerManifestSequence(ReadView const& view, PublicKey const& masterKey);

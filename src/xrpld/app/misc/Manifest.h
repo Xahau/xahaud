@@ -521,6 +521,7 @@ public:
         Probes the locally trusted master-key set on each validated ledger
         rather than scanning transactions. This common path costs one SHAMap
         read per key and also catches manifests published in skipped ledgers.
+        An open ledger is ignored.
 
         @param view Ledger to read from
         @param masterKeys Master public keys to probe for
@@ -545,9 +546,11 @@ public:
         Anything found is fed through applyManifest(). The answer is read back
         out of the cache after signature and key-role checks; at equal sequence
         the validated ledger is authoritative over conflicting gossip bytes.
+        An open ledger is not probed: unvalidated SetManifest bytes must not
+        become ledger-authoritative.
 
-        A key is probed at most once per ledger, and a key that resolves is
-        answered from the cache thereafter without any ledger read.
+        A key is probed at most once per validated ledger, and a key that
+        resolves is answered from the cache thereafter without any ledger read.
 
         @param view Ledger to read from
         @param signingKey Ephemeral public key to resolve

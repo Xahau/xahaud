@@ -21,7 +21,6 @@
 #include <xrpld/app/ledger/InboundLedger.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
-#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -196,9 +195,9 @@ handleNewValidation(
     // trusted set is next recomputed.
     if (app.validatorManifests().getMasterKey(signingKey) == signingKey)
     {
-        if (auto const view = app.openLedger().current();
-            view && view->rules().enabled(featureOnChainManifests))
-            app.validatorManifests().applyLedgerSigningKey(*view, signingKey);
+        if (auto const ledger = app.getLedgerMaster().getValidatedLedger();
+            ledger && ledger->rules().enabled(featureOnChainManifests))
+            app.validatorManifests().applyLedgerSigningKey(*ledger, signingKey);
     }
 
     // Ensure validation is marked as trusted if signer currently trusted

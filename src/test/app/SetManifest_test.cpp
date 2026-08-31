@@ -704,8 +704,8 @@ struct SetManifest_test : public beast::unit_test::suite
         submit(env, signedEnvelope(env, makeManifest(master, eph1, 1), master));
         env.close();
 
-        // Isolate ledger retrieval from the live application cache, which is
-        // now intentionally freshened at transaction ingress.
+        // Isolate ledger retrieval from the live application cache.
+        // Unapplied SetManifest wrappers do not warm ManifestCache.
         ManifestCache cache{env.app().journal("SetManifest_test")};
 
         // Gossip may arrive first. A different valid manifest at the same
@@ -771,11 +771,17 @@ struct SetManifest_test : public beast::unit_test::suite
         env.close();
 
         submit(env, signedEnvelope(env, makeManifest(master, eph1, 1), master));
-        env.close();
 
-        // Isolate cold signing-key retrieval from the live application cache,
-        // which is now intentionally freshened at transaction ingress.
         ManifestCache cache{env.app().journal("SetManifest_test")};
+
+        // Open-ledger occupancy is not consensus. A probe here would feed
+        // applyManifest(..., true) and the higher cache sequence would then
+        // skip the next validated applyLedger if the transaction later fails.
+        BEAST_EXPECT(!cache.applyLedgerSigningKey(*env.current(), eph1.pk()));
+        BEAST_EXPECT(cache.getMasterKey(eph1.pk()) == eph1.pk());
+        BEAST_EXPECT(cache.applyLedger(*env.current(), {master.pk()}) == 0);
+
+        env.close();
 
         // The situation applyLedger() cannot serve: a validation arrives
         // signed by eph1 and the node holds no manifest naming it, so the

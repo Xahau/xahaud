@@ -692,7 +692,8 @@ private:
         std::shared_ptr<STValidation> const& val,
         uint256 const& key,
         std::shared_ptr<protocol::TMValidation> const& packet,
-        std::optional<PendingManifest> manifestContext);
+        std::optional<PendingManifest> manifestContext,
+        bool delayValidationHash);
 
     /** Consume the connection's sole active verification-obligation token.
 

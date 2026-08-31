@@ -1962,10 +1962,11 @@ TxQ::tryDirectApply(
 
     // Sequence 0 keeps canonical wrappers independent of mutable account
     // state, but it does not buy manifest updates priority during fee
-    // escalation. They are rare, deterministic transactions: manifest gossip
-    // carries immediate authority while the validator/anti-entropy path
-    // retries this txid for ledger durability. Account authority remains free
-    // to sign an ordinary higher-fee wrapper.
+    // escalation. They are rare, deterministic transactions whose only job
+    // is paid durability. Live rotation travels with validations; a
+    // fee-blocked wrapper must not warm ManifestCache or broadcast
+    // TMManifests. Account authority remains free to sign an ordinary
+    // higher-fee wrapper.
     bool const bypassSequence = isFirstImport || isManifest;
 
     // Don't attempt to direct apply if the account is not in the ledger.
@@ -2051,10 +2052,10 @@ TxQ::tryDirectApply(
         if (!isTesSuccess(pcresult.ter))
             return ApplyResult{pcresult.ter, false};
 
-        // A valid canonical update simply rides out the fee storm. Do not
-        // enqueue it and do not manufacture fee variants; anti-entropy retries
-        // the same deterministic transaction after the open-ledger level
-        // falls.
+        // A valid canonical update simply waits. Do not enqueue it and do
+        // not manufacture fee variants; the same txid retries after the
+        // open-ledger level falls. Fee-blocked wrappers do not warm the
+        // cache and do not gossip.
         return ApplyResult{telINSUF_FEE_P, false};
     }
     return {};
