@@ -30,6 +30,14 @@
 
 namespace ripple {
 
+/** Return whether empty outer signatures nominate manifest-only authority.
+
+    This deliberately includes malformed candidates with attached Signers so
+    ingress can reject their non-canonical envelope before multisign work.
+*/
+bool
+hasManifestAuthorityMarkers(STTx const& tx) noexcept;
+
 /** Return whether a SetManifest envelope uses manifest-only authority.
 
     This is the one shared lane discriminator. An account-signed SetManifest
@@ -40,6 +48,14 @@ namespace ripple {
 */
 bool
 isUnsignedSetManifest(STTx const& tx) noexcept;
+
+/** Return whether every outer byte has the manifest-authorized shape.
+
+    The supplied Fee and NetworkID are mirrored here; their contextual values
+    are pinned later by checkFee and preflight0 respectively.
+*/
+bool
+hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept;
 
 /** Return the current on-ledger sequence for a registered master key.
 
