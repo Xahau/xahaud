@@ -75,9 +75,17 @@ checkValidity(
         return {Validity::Valid, ""};
     }
 
-    if (rules.enabled(featureOnChainManifests) && isUnsignedSetManifest(tx) &&
-        tx.isFieldPresent(sfManifest))
+    if (rules.enabled(featureOnChainManifests) &&
+        hasManifestAuthorityMarkers(tx))
     {
+        // This path runs at RPC/overlay ingress, before transactor preflight.
+        // The DoS ordering is deliberate: structural nonsense must not buy
+        // either manifest-signature checks or attached multisign work.
+        if (!hasCanonicalUnsignedSetManifestShape(tx))
+            return {
+                Validity::SigBad,
+                "Manifest-authorized envelope is not canonical"};
+
         // perform alternative signature check over manifest
         STObject const& manObj = const_cast<ripple::STTx&>(tx)
                                      .getField(sfManifest)

@@ -789,16 +789,24 @@ struct SetManifest_test : public beast::unit_test::suite
                 temINVALID);
 
             // Envelope shape is cheaper than either manifest signature. Even
-            // with the same bad manifest, an added Memo is rejected first.
+            // at RPC/overlay ingress, the same bad manifest plus a Memo is
+            // rejected for its envelope before signature work.
+            auto const badWithMemo =
+                envelope(env, bad, master.id(), [](STObject& obj) {
+                    obj.setFieldArray(sfMemos, STArray(sfMemos, 1));
+                    STObject memo{sfMemo};
+                    memo.setFieldVL(sfMemoData, Blob{0x01});
+                    obj.peekFieldArray(sfMemos).emplace_back(std::move(memo));
+                });
+            auto const [validity, reason] = checkValidity(
+                env.app().getHashRouter(),
+                *badWithMemo,
+                env.current()->rules(),
+                env.app().config());
+            BEAST_EXPECT(validity == Validity::SigBad);
             BEAST_EXPECT(
-                applyDirect(
-                    env, envelope(env, bad, master.id(), [](STObject& obj) {
-                        obj.setFieldArray(sfMemos, STArray(sfMemos, 1));
-                        STObject memo{sfMemo};
-                        memo.setFieldVL(sfMemoData, Blob{0x01});
-                        obj.peekFieldArray(sfMemos).emplace_back(
-                            std::move(memo));
-                    })) == temMALFORMED);
+                reason == "Manifest-authorized envelope is not canonical");
+            BEAST_EXPECT(applyDirect(env, badWithMemo) == temMALFORMED);
         }
 
         // The envelope's account must be the manifest's master key.

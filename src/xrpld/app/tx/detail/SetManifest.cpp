@@ -34,7 +34,7 @@
 
 namespace ripple {
 
-static bool
+bool
 hasManifestAuthorityMarkers(STTx const& tx) noexcept
 {
     try
@@ -97,23 +97,30 @@ canonicalUnsignedSetManifest(
     then pins every admitted field, its encoded size, and its representation.
     Fee is mirrored here and pinned to its one value by checkFee().
  */
-static bool
-hasCanonicalUnsignedSetManifestShape(STTx const& tx)
+bool
+hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept
 {
-    auto const& manifest =
-        const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
-    auto const canonical = canonicalUnsignedSetManifest(
-        manifest,
-        tx.getAccountID(sfAccount),
-        tx[~sfNetworkID],
-        tx[sfFee].xrp());
+    try
+    {
+        auto const& manifest =
+            const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+        auto const canonical = canonicalUnsignedSetManifest(
+            manifest,
+            tx.getAccountID(sfAccount),
+            tx[~sfNetworkID],
+            tx[sfFee].xrp());
 
-    if (tx.getCount() != canonical.getCount())
+        if (tx.getCount() != canonical.getCount())
+            return false;
+
+        auto const actualBytes = tx.getSerializer();
+        auto const canonicalBytes = canonical.getSerializer();
+        return actualBytes.slice() == canonicalBytes.slice();
+    }
+    catch (std::exception const&)
+    {
         return false;
-
-    auto const actualBytes = tx.getSerializer();
-    auto const canonicalBytes = canonical.getSerializer();
-    return actualBytes.slice() == canonicalBytes.slice();
+    }
 }
 
 std::optional<std::uint32_t>
