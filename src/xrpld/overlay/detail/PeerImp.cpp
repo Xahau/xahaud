@@ -2626,7 +2626,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         // then performs the bounded cold lookup against the validated ledger.
         auto const validatedLedger =
             app_.getLedgerMaster().getValidatedLedger();
-        bool const mayResolveFromLedger = !manifestContext && !isTrusted &&
+        bool const mayResolveFromLedger = !manifestContext &&
+            !pendingManifest_ && !manifestVerificationInFlight_ && !isTrusted &&
             masterKey == signingKey && !app_.validators().listed(signingKey) &&
             validatedLedger &&
             validatedLedger->rules().enabled(featureOnChainManifests);
@@ -2729,7 +2730,9 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         }();
 
         std::weak_ptr<PeerImp> weak = shared_from_this();
-        auto pairedPeer = manifestContext ? shared_from_this() : nullptr;
+        auto pairedPeer = (manifestContext || mayResolveFromLedger)
+            ? shared_from_this()
+            : nullptr;
         bool const pairedJob = manifestContext.has_value();
         if (pairedJob)
         {
@@ -2745,6 +2748,12 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
             JLOG(p_journal_.debug())
                 << "manifest_validation candidate_claimed peer=" << id_
                 << " state=verification_in_flight";
+        }
+        else if (mayResolveFromLedger)
+        {
+            // The same one-in-flight token covers a cold ledger probe.
+            // Otherwise each unknown signing key would mint a validation job.
+            manifestVerificationInFlight_ = true;
         }
 
         bool queued = false;
@@ -2771,12 +2780,12 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         }
         catch (...)
         {
-            if (pairedJob)
+            if (pairedJob || mayResolveFromLedger)
                 finishManifestVerification();
             throw;
         }
 
-        if (!queued && pairedJob)
+        if (!queued && (pairedJob || mayResolveFromLedger))
         {
             finishManifestVerification();
             JLOG(p_journal_.debug())
@@ -3498,11 +3507,11 @@ PeerImp::checkValidation(
     bool delayValidationHash)
 {
     bool const pairedJob = manifestContext.has_value();
-    // The queued job owns the moved association. This scope guard is its
-    // all-exits terminal: success, refusal, and exception consume the active
-    // connection token exactly once.
-    scope_exit finishPairVerification([this, pairedJob]() {
-        if (pairedJob)
+    // The queued job owns the moved association, or the connection's cold
+    // probe token. This scope guard is its all-exits terminal: success,
+    // refusal, and exception consume the active connection token exactly once.
+    scope_exit finishPairVerification([this, pairedJob, delayValidationHash]() {
+        if (pairedJob || delayValidationHash)
             finishManifestVerification();
     });
 
