@@ -51,11 +51,14 @@ onLedgerManifestSequence(ReadView const& view, PublicKey const& masterKey);
 
 /** Encode a manifest-authorized update transaction for `manifest`.
 
-    This lane carries no account signature and can update only an existing
-    manifest slot. Sequence must be 0, SigningPubKey and TxnSignature must be
-    empty, optional common fields must be absent, and Fee must equal the one
-    computed canonical value. SetManifest::preflight and SetManifest::checkFee
-    reject anything else.
+    This lane carries no account signature: the manifest signature is its only
+    authority. Consequently the outer transaction cannot leave relayer-chosen
+    bytes that produce multiple transaction IDs for the same authorization.
+    It can update only an existing manifest slot; Sequence must be 0,
+    SigningPubKey and TxnSignature must be empty, optional common fields must
+    be absent, NetworkID must be the network's canonical value, and Fee must
+    equal the one computed value. SetManifest::preflight, preflight0, and
+    SetManifest::checkFee reject anything else.
     Initial registration uses an ordinary account-signed SetManifest instead.
 
     Returns hex rather than an STTx because the manifest is appended to the

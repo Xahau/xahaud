@@ -468,7 +468,8 @@ ManifestCache::applyLedger(
             seq && *seq >= sle->getFieldU32(sfSequence))
             continue;
 
-        if (auto mo = manifestFromSLE(*sle, j_); mo &&
+        if (auto mo = manifestFromSLE(*sle, j_); mo && mo->masterKey == pk &&
+            sle->getAccountID(sfAccount) == calcAccountID(mo->masterKey) &&
             applyManifest(std::move(*mo)) == ManifestDisposition::accepted)
             ++accepted;
     }
@@ -517,17 +518,21 @@ ManifestCache::applyLedgerSigningKey(
         iter->second = seq;
     }
 
-    auto const sle = view.read(keylet::manifest(signingKey));
-    if (!sle)
+    auto const sleIndex = view.read(keylet::manifestSigningKey(signingKey));
+    if (!sleIndex)
         return std::nullopt;
 
-    // Every manifest is written at both its master and its ephemeral keylet,
-    // so an object here is either the manifest naming signingKey as its
-    // ephemeral key -- the case worth having -- or the manifest of a master
-    // key that is what was asked about. Ingesting either is correct, and
-    // applyManifest() verifies both signatures, so nothing found here can
-    // assert a binding its key holder did not sign for.
-    if (auto mo = manifestFromSLE(*sle, j_))
+    auto const manifestID = sleIndex->getFieldH256(sfManifestID);
+    auto const sleManifest = view.read(Keylet{ltMANIFEST, manifestID});
+    if (!sleManifest)
+        return std::nullopt;
+
+    // Follow the thin index only when the full signed object points back to
+    // the key asked for and occupies its canonical master-key location.
+    if (auto mo = manifestFromSLE(*sleManifest, j_); mo && mo->signingKey &&
+        *mo->signingKey == signingKey &&
+        keylet::manifest(mo->masterKey).key == manifestID &&
+        sleManifest->getAccountID(sfAccount) == calcAccountID(mo->masterKey))
         applyManifest(std::move(*mo));
 
     // Only a signing key resolves: a master key is its own master.

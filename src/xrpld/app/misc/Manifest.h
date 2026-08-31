@@ -461,9 +461,9 @@ public:
         peer gossip or in a published list. It is a third source of manifests,
         not a more trusted one.
 
-        Probes a known key set rather than scanning the ledger's transactions:
-        this costs one SHAMap read per key, and picks up manifests published in
-        ledgers this node never saw.
+        Probes the locally trusted master-key set on each validated ledger
+        rather than scanning transactions. This common path costs one SHAMap
+        read per key and also catches manifests published in skipped ledgers.
 
         @param view Ledger to read from
         @param masterKeys Master public keys to probe for
@@ -481,8 +481,9 @@ public:
 
         applyLedger() probes a known master key set, which cannot help a key
         this node has no manifest for: the master key is exactly what is
-        missing. SetManifest writes a second copy of every manifest keyed by
-        its ephemeral key, so that case is one read rather than a search.
+        missing. SetManifest writes a thin signing-key index pointing to the
+        one canonical master-key manifest, so this comparatively rare cache
+        miss is two bounded reads rather than a ledger search.
 
         Anything found is fed through applyManifest(), so an on-chain manifest
         faces the same signature check and the same staleness, revocation and

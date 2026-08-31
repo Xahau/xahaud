@@ -306,21 +306,22 @@ struct SetManifest_test : public beast::unit_test::suite
             onLedgerManifestSequence(*env.current(), master.pk()) == 1);
         env.close();
 
-        // A manifest is written twice so it can be found from either key, and
-        // each copy points at the other.
+        // The full manifest is canonical at the master key. The active
+        // signing key gets only the cold-lookup pointer.
         auto const byMaster = env.le(keylet::manifest(master.pk()));
-        auto const byEphemeral = env.le(keylet::manifest(ephemeral.pk()));
+        auto const byEphemeral =
+            env.le(keylet::manifestSigningKey(ephemeral.pk()));
         if (!BEAST_EXPECT(byMaster))
             return;
         if (!BEAST_EXPECT(byEphemeral))
             return;
 
         BEAST_EXPECT(byMaster->getAccountID(sfAccount) == master.id());
-        BEAST_EXPECT(byEphemeral->getAccountID(sfAccount) == master.id());
+        BEAST_EXPECT(byMaster->getType() == ltMANIFEST);
+        BEAST_EXPECT(byEphemeral->getType() == ltMANIFEST_SIGNING_KEY);
+        BEAST_EXPECT(byMaster->isFieldPresent(sfOwnerNode));
         BEAST_EXPECT(byMaster->getFieldU32(sfSequence) == 1);
-        BEAST_EXPECT(
-            byMaster->getFieldH256(sfManifestID) ==
-            keylet::manifest(ephemeral.pk()).key);
+        BEAST_EXPECT(!byMaster->isFieldPresent(sfManifestID));
         BEAST_EXPECT(
             byEphemeral->getFieldH256(sfManifestID) ==
             keylet::manifest(master.pk()).key);
@@ -337,6 +338,7 @@ struct SetManifest_test : public beast::unit_test::suite
         BEAST_EXPECT(
             sleAcct->getFieldH256(sfManifestID) ==
             keylet::manifest(master.pk()).key);
+        BEAST_EXPECT(sleAcct->getFieldU32(sfOwnerCount) == 1);
 
         // Account-signed registration consumed exactly one ordinary Sequence.
         BEAST_EXPECT(env.seq(master) == sequenceBefore + 1);
@@ -361,20 +363,26 @@ struct SetManifest_test : public beast::unit_test::suite
         submit(env, signedEnvelope(env, makeManifest(master, eph1, 1), master));
         env.close();
         auto const accountSequence = env.seq(master);
+        auto const ownerNode =
+            env.le(keylet::manifest(master.pk()))->getFieldU64(sfOwnerNode);
+        BEAST_EXPECT(env.ownerCount(master) == 1);
 
-        // Rotating the ephemeral key erases both old copies and writes two
-        // new ones, so the two can never drift apart.
+        // Rotation rewrites the canonical object and replaces the thin index.
         BEAST_EXPECT(
             engineResult(submit(env, makeManifest(master, eph2, 2))) ==
             "tesSUCCESS");
         env.close();
 
-        BEAST_EXPECT(!env.le(keylet::manifest(eph1.pk())));
-        if (!BEAST_EXPECT(env.le(keylet::manifest(eph2.pk()))))
+        BEAST_EXPECT(!env.le(keylet::manifestSigningKey(eph1.pk())));
+        if (!BEAST_EXPECT(env.le(keylet::manifestSigningKey(eph2.pk()))))
             return;
         BEAST_EXPECT(
             env.le(keylet::manifest(master.pk()))->getFieldU32(sfSequence) ==
             2);
+        BEAST_EXPECT(
+            env.le(keylet::manifest(master.pk()))->getFieldU64(sfOwnerNode) ==
+            ownerNode);
+        BEAST_EXPECT(env.ownerCount(master) == 1);
         BEAST_EXPECT(env.seq(master) == accountSequence);
 
         // The account-signed lane uses ordinary replay protection. A stale
@@ -388,7 +396,7 @@ struct SetManifest_test : public beast::unit_test::suite
                     makeManifest(master, eph3, 3),
                     master,
                     accountSequence - 1))) == "tefPAST_SEQ");
-        BEAST_EXPECT(!env.le(keylet::manifest(eph3.pk())));
+        BEAST_EXPECT(!env.le(keylet::manifestSigningKey(eph3.pk())));
 
         BEAST_EXPECT(
             engineResult(submit(
@@ -397,8 +405,12 @@ struct SetManifest_test : public beast::unit_test::suite
             "tesSUCCESS");
         env.close();
         BEAST_EXPECT(env.seq(master) == accountSequence + 1);
-        BEAST_EXPECT(!env.le(keylet::manifest(eph2.pk())));
-        BEAST_EXPECT(env.le(keylet::manifest(eph3.pk())));
+        BEAST_EXPECT(!env.le(keylet::manifestSigningKey(eph2.pk())));
+        BEAST_EXPECT(env.le(keylet::manifestSigningKey(eph3.pk())));
+        BEAST_EXPECT(
+            env.le(keylet::manifest(master.pk()))->getFieldU64(sfOwnerNode) ==
+            ownerNode);
+        BEAST_EXPECT(env.ownerCount(master) == 1);
 
         // Replaying older manifests through the unsigned lane is rejected by
         // manifest sequence, independently of the account Sequence.
@@ -438,22 +450,105 @@ struct SetManifest_test : public beast::unit_test::suite
             "tesSUCCESS");
         env.close();
 
-        // A revocation has no signing key, so only the master key's copy
-        // exists and it points at nothing.
+        // A revocation remains canonical, but has no active signing-key index.
         auto const byMaster = env.le(keylet::manifest(master.pk()));
         if (!BEAST_EXPECT(byMaster))
             return;
-        BEAST_EXPECT(!env.le(keylet::manifest(ephemeral.pk())));
+        BEAST_EXPECT(!env.le(keylet::manifestSigningKey(ephemeral.pk())));
         BEAST_EXPECT(!byMaster->isFieldPresent(sfManifestID));
         BEAST_EXPECT(!byMaster->isFieldPresent(sfSigningPubKey));
         BEAST_EXPECT(
             byMaster->getFieldU32(sfSequence) ==
             std::numeric_limits<std::uint32_t>::max());
+        BEAST_EXPECT(env.ownerCount(master) == 1);
 
         // Nothing supersedes a revocation.
         BEAST_EXPECT(
             engineResult(submit(env, makeManifest(master, ephemeral, 2))) ==
             "tefREVOKED_MANIFEST");
+    }
+
+    void
+    testOwnership(FeatureBitset features)
+    {
+        testcase("owner reserve and AccountDelete obligation");
+        using namespace jtx;
+
+        auto const master = Account("owner-master", KeyType::ed25519);
+        auto const ephemeral = Account("owner-ephemeral", KeyType::ed25519);
+
+        // The account-authorized registration creates one owned object, so
+        // merely funding the account's base reserve is not enough.
+        {
+            Env env{*this, makeConfig(), features};
+            auto const baseReserve = env.current()->fees().accountReserve(0);
+            env.fund(baseReserve, master);
+            env.close();
+
+            BEAST_EXPECT(
+                engineResult(submit(
+                    env,
+                    signedEnvelope(
+                        env, makeManifest(master, ephemeral, 1), master))) ==
+                "tecINSUFFICIENT_RESERVE");
+            env.close();
+
+            BEAST_EXPECT(env.ownerCount(master) == 0);
+            BEAST_EXPECT(!env.le(keylet::manifest(master.pk())));
+            BEAST_EXPECT(!env.le(keylet::manifestSigningKey(ephemeral.pk())));
+        }
+
+        // Once registered, the canonical manifest is deliberately an
+        // obligation. AccountDelete cannot erase it -- especially a terminal
+        // revocation -- until a future amendment defines safe expiry.
+        {
+            Env env{*this, makeConfig(), features};
+            auto const destination = Account("owner-destination");
+            env.fund(XRP(1000), master, destination);
+            env.close();
+
+            BEAST_EXPECT(
+                engineResult(submit(
+                    env,
+                    signedEnvelope(
+                        env, makeManifest(master, ephemeral, 1), master))) ==
+                "tesSUCCESS");
+            env.close();
+
+            auto const manifest = env.le(keylet::manifest(master.pk()));
+            if (!BEAST_EXPECT(manifest))
+                return;
+            BEAST_EXPECT(manifest->isFieldPresent(sfOwnerNode));
+            BEAST_EXPECT(env.ownerCount(master) == 1);
+
+            BEAST_EXPECT(
+                engineResult(submit(
+                    env,
+                    makeManifest(
+                        master,
+                        ephemeral,
+                        std::numeric_limits<std::uint32_t>::max()))) ==
+                "tesSUCCESS");
+            env.close();
+            BEAST_EXPECT(env.ownerCount(master) == 1);
+            BEAST_EXPECT(
+                env.le(keylet::manifest(master.pk()))
+                    ->getFieldU32(sfSequence) ==
+                std::numeric_limits<std::uint32_t>::max());
+
+            while (env.seq(master) + 255 > env.current()->seq())
+                env.close();
+
+            auto const accountDeleteFee{drops(env.current()->fees().increment)};
+            env(acctdelete(master, destination),
+                fee(accountDeleteFee),
+                ter(tecHAS_OBLIGATIONS));
+            env.close();
+
+            BEAST_EXPECT(env.le(master));
+            BEAST_EXPECT(env.le(keylet::manifest(master.pk())));
+            BEAST_EXPECT(env.ownerCount(master) == 1);
+        }
     }
 
     void
@@ -562,7 +657,7 @@ struct SetManifest_test : public beast::unit_test::suite
             master.pk());
         BEAST_EXPECT(cache.getSigningKey(master.pk()) == eph2.pk());
         BEAST_EXPECT(cache.getMasterKey(eph1.pk()) == eph1.pk());
-        BEAST_EXPECT(!env.le(keylet::manifest(eph1.pk())));
+        BEAST_EXPECT(!env.le(keylet::manifestSigningKey(eph1.pk())));
         BEAST_EXPECT(!cache.applyLedgerSigningKey(*env.closed(), eph1.pk()));
 
         // Asking again is answered from the cache, ahead of the per-ledger
@@ -571,9 +666,8 @@ struct SetManifest_test : public beast::unit_test::suite
             cache.applyLedgerSigningKey(*env.closed(), eph2.pk()) ==
             master.pk());
 
-        // A master key is not a signing key. The object at its keylet is a
-        // perfectly good manifest and is ingested, but it binds eph2, not the
-        // master key, so nothing is reported for the key asked about.
+        // A master key is not a signing key and therefore has no inverse
+        // index. Master-key reconciliation uses applyLedger() directly.
         BEAST_EXPECT(!cache.applyLedgerSigningKey(*env.closed(), master.pk()));
 
         // A revoked master publishes no ephemeral object at all, so this
@@ -585,7 +679,7 @@ struct SetManifest_test : public beast::unit_test::suite
                 master, eph2, std::numeric_limits<std::uint32_t>::max()));
         env.close();
 
-        BEAST_EXPECT(!env.le(keylet::manifest(eph2.pk())));
+        BEAST_EXPECT(!env.le(keylet::manifestSigningKey(eph2.pk())));
         BEAST_EXPECT(cache.applyLedger(*env.closed(), {master.pk()}) == 1);
         BEAST_EXPECT(cache.revoked(master.pk()));
     }
@@ -799,10 +893,9 @@ struct SetManifest_test : public beast::unit_test::suite
                          rawErase(view, keylet::manifest(master.pk()));
                      }) == tefBAD_LEDGER);
 
-        // The master copy survives but the ephemeral copy it points at is
-        // gone.
+        // The canonical object survives but its thin signing index is gone.
         BEAST_EXPECT(applyDirect(env, update, [&](OpenView& view) {
-                         rawErase(view, keylet::manifest(eph1.pk()));
+                         rawErase(view, keylet::manifestSigningKey(eph1.pk()));
                      }) == tefBAD_LEDGER);
 
         // The reverse: the account root has forgotten its manifest, so the
@@ -941,6 +1034,7 @@ public:
         testSubmission(sa);
         testUpdate(sa);
         testRevocation(sa);
+        testOwnership(sa);
         testRetrieval(sa);
         testSigningKeyRetrieval(sa);
         testMalformed(sa);
