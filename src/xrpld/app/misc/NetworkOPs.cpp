@@ -1181,7 +1181,6 @@ NetworkOPsImp::publishNewerManifests(ReadView const& ledger)
         auto const hex = makeSetManifestTx(
             makeSlice(held->second),
             app_.config().NETWORK_ID,
-            *app_.openLedger().current(),
             app_.journal("Manifest"));
 
         auto const blob = hex ? strUnHex(*hex) : std::nullopt;

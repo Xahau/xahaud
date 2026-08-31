@@ -54,10 +54,10 @@ struct SetManifest_test : public beast::unit_test::suite
     // A manifest transaction is unsigned, so the network id is mandatory and
     // the network must be one that requires it (id > 1024).
     static std::unique_ptr<Config>
-    makeConfig()
+    makeConfig(std::string fee = "10")
     {
         return jtx::network::makeNetworkConfig(
-            21337, "10", "1000000", "200000");
+            21337, std::move(fee), "1000000", "200000");
     }
 
     /** Builds a manifest signed by `master` nominating `ephemeral`.
@@ -175,13 +175,9 @@ struct SetManifest_test : public beast::unit_test::suite
                 });
         };
 
-        // The same two-pass pricing makeSetManifestTx() does: encode once with
-        // a placeholder purely to have something to measure, then encode at the
-        // ceiling checkFee() will accept.
-        auto const base = SetManifest::calculateBaseFee(
-            *env.current(), *build(XRPAmount{0}, false));
-
-        return build(mulRatio(base, 12, 10, /*roundUp*/ true), true);
+        SerialIter mit{makeSlice(manifest)};
+        STObject const manifestObject{mit, sfManifest};
+        return build(canonicalUnsignedSetManifestFee(manifestObject), true);
     }
 
     /** An ordinary account-signed SetManifest envelope.
@@ -420,6 +416,66 @@ struct SetManifest_test : public beast::unit_test::suite
         BEAST_EXPECT(
             engineResult(submit(env, makeManifest(master, eph1, 1))) ==
             "tefPAST_MANIFEST_SEQ");
+    }
+
+    void
+    testCanonicalFee(FeatureBitset features)
+    {
+        testcase("canonical unsigned fee");
+        using namespace jtx;
+
+        auto const master = Account("master", KeyType::ed25519);
+        auto const eph1 = Account("eph1", KeyType::ed25519);
+        auto const eph2 = Account("eph2", KeyType::ed25519);
+        auto const registration = makeManifest(master, eph1, 1);
+        auto const update = makeManifest(master, eph2, 2);
+
+        std::optional<std::string> ordinaryHex;
+        {
+            Env ordinary{*this, makeConfig("10"), features};
+            ordinaryHex = makeSetManifestTx(
+                makeSlice(update),
+                ordinary.app().config().NETWORK_ID,
+                ordinary.app().journal("SetManifest_test"));
+            if (!BEAST_EXPECT(ordinaryHex))
+                return;
+
+            auto const bytes = strUnHex(*ordinaryHex);
+            if (!BEAST_EXPECT(bytes))
+                return;
+            SerialIter txIter{makeSlice(*bytes)};
+            STTx const tx{std::ref(txIter)};
+            auto const& manifestObject =
+                const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+            BEAST_EXPECT(
+                tx[sfFee].xrp() ==
+                canonicalUnsignedSetManifestFee(manifestObject));
+            BEAST_EXPECT(
+                tx[sfFee].xrp().drops() ==
+                10 +
+                    static_cast<std::int64_t>(
+                        manifestObject.getSerializer().getDataLength()));
+        }
+
+        // The canonical wrapper is independent of the current ledger's voted
+        // reference fee. At a higher minimum the exact same txid waits; the
+        // anti-entropy loop retries it rather than minting fee variants.
+        Env expensive{*this, makeConfig("20"), features};
+        auto const expensiveHex = makeSetManifestTx(
+            makeSlice(update),
+            expensive.app().config().NETWORK_ID,
+            expensive.app().journal("SetManifest_test"));
+        BEAST_EXPECT(expensiveHex == ordinaryHex);
+
+        expensive.fund(XRP(1000), master);
+        expensive.close();
+        BEAST_EXPECT(
+            engineResult(submit(
+                expensive, signedEnvelope(expensive, registration, master))) ==
+            "tesSUCCESS");
+        expensive.close();
+        BEAST_EXPECT(
+            engineResult(submit(expensive, update)) == "telINSUF_FEE_P");
     }
 
     void
@@ -853,28 +909,28 @@ struct SetManifest_test : public beast::unit_test::suite
                     obj.setFieldU32(sfLastLedgerSequence, env.current()->seq());
                 })) == temMALFORMED);
 
-        // sfFee is the one envelope field preflight cannot bound, because the
-        // base fee is not in scope until preclaim. checkFee() caps it instead.
+        // sfFee is mirrored by the shape check and pinned to one protocol-fixed
+        // base-plus-payload value in checkFee().
         auto const priced = envelope(env, good, master.id());
-        auto const ceiling = priced->getFieldAmount(sfFee).xrp();
+        auto const canonicalFee = priced->getFieldAmount(sfFee).xrp();
 
         BEAST_EXPECT(
             applyDirect(
                 env, envelope(env, good, master.id(), [&](STObject& obj) {
-                    obj.setFieldAmount(sfFee, ceiling + XRPAmount{1});
+                    obj.setFieldAmount(sfFee, canonicalFee + XRPAmount{1});
                 })) == temBAD_FEE);
 
         BEAST_EXPECT(
             applyDirect(
                 env, envelope(env, good, master.id(), [&](STObject& obj) {
-                    obj.setFieldAmount(sfFee, ceiling - XRPAmount{1});
+                    obj.setFieldAmount(sfFee, canonicalFee - XRPAmount{1});
                 })) == temBAD_FEE);
 
-        // At the ceiling exactly, which is what Submit sends.
+        // At the canonical value exactly, which is what Submit sends.
         BEAST_EXPECT(
             applyDirect(
                 env, envelope(env, good, master.id(), [&](STObject& obj) {
-                    obj.setFieldAmount(sfFee, ceiling);
+                    obj.setFieldAmount(sfFee, canonicalFee);
                 })) == tesSUCCESS);
 
         // The account signature authenticates its envelope, so the signed
@@ -888,7 +944,7 @@ struct SetManifest_test : public beast::unit_test::suite
                     makeManifest(master, ephemeral, 2),
                     master,
                     std::nullopt,
-                    ceiling + XRPAmount{100})) == tesSUCCESS);
+                    canonicalFee + XRPAmount{100})) == tesSUCCESS);
     }
 
     void
@@ -1060,6 +1116,7 @@ public:
         auto const sa = supported_amendments();
         testSubmission(sa);
         testUpdate(sa);
+        testCanonicalFee(sa);
         testRevocation(sa);
         testOwnership(sa);
         testRetrieval(sa);
