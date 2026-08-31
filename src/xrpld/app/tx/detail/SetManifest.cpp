@@ -180,11 +180,13 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     }
 
     // Replay protection. A byte-identical resubmission is rejected as
-    // tefALREADY by checkPriorTxAndLastLedger, but sfFee may vary within the
-    // band checkFee() allows, so the same manifest can also arrive under a
-    // different txid. The strictly-increasing sequence test below is what
-    // covers that, both within this ledger and in every later one. Either
-    // result is tef, so a replay is never included and never claims a fee.
+    // tefALREADY by checkPriorTxAndLastLedger, but the same manifest can
+    // still arrive under a different txid: the canonical unsigned sfFee is
+    // one exact value per ledger (checkFee) yet tracks the fee schedule
+    // across ledgers, and the account-signed lane chooses its own envelope
+    // outright. The strictly-increasing sequence test below covers all of
+    // those, both within this ledger and in every later one. Either result
+    // is tef, so a replay is never included and never claims a fee.
     if (sle->isFieldPresent(sfManifestID))
     {
         // A dangling sfManifestID is a corrupt ledger; doApply reports it.
