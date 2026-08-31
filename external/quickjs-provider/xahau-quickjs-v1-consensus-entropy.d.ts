@@ -94,6 +94,17 @@ interface XFLProfileEnum {
 }
 
 /**
+ * Minimum commit/reveal entropy strength required by a draw. The values are
+ * strength-ordered and map directly to the raw Hook API.
+ */
+interface EntropyTierEnum {
+  readonly consensusFallback: 1;
+  readonly participantAligned: 2;
+  readonly validatorQuorum: 3;
+  readonly validatorFull: 4;
+}
+
+/**
  * Every transaction type a Hook can observe or emit.
  *
  * Hidden module-scope inventory for the frozen TransactionType runtime namespace.
@@ -488,9 +499,9 @@ interface HookReturnCodeEnum {
 
 declare global {
   /**
-   * Exact JavaScript surface implemented by the sealed xahau-quickjs-v1
-   * provider. The accompanying API artifact manifest closes this declaration,
-   * its broader specification, and the provider surface manifest by hash.
+   * Exact JavaScript surface implemented by the sealed
+   * xahau-quickjs-v1-consensus-entropy provider. This is the baseline v1
+   * surface plus the named consensus-entropy experiment.
    */
 
   /**
@@ -1245,6 +1256,19 @@ declare global {
   /** The two declarable profile codes: `1 | 2`. */
   type XFLProfile = (typeof XFLProfile)[keyof typeof XFLProfile];
 
+  /** Commit/reveal entropy strength required by an entropy operation. */
+  const EntropyTier: EntropyTierEnum;
+
+  /** The four usable commit/reveal entropy tiers: `1 | 2 | 3 | 4`. */
+  type EntropyTier = (typeof EntropyTier)[keyof typeof EntropyTier];
+
+  /** Metadata describing the commit/reveal entropy available to this Hook. */
+  interface ConsensusEntropyStatus {
+    readonly tier: EntropyTier;
+    readonly count: number;
+    readonly denominator: number;
+  }
+
   /**
    * The one-member artifact configuration: which arithmetic profile this
    * Hook's unmarked profile-sensitive operations use. Declared once, in
@@ -1783,6 +1807,27 @@ declare global {
     function param(name: StateKeyLike): HostResult<STBlob | undefined>;
     function param<T>(name: StateKeyLike, field: RecordField<T, number>): SchemaReadResult<T>;
     function param<T>(name: StateKeyLike, schema: BinarySchema<T>): SchemaReadResult<T>;
+  }
+
+  /** Consensus-derived entropy operations. */
+  namespace entropy {
+    /** Commit/reveal entropy operations. */
+    namespace cr {
+      /**
+       * Draw one unbiased zero-based face from `sides`, requiring at least
+       * `minimumTier`. A D6 therefore returns `0..5`.
+       */
+      function dice(
+        sides: number,
+        minimumTier: EntropyTier,
+      ): HostResult<number>;
+      /**
+       * Read the current entropy tier, contributor count, and active-view
+       * denominator. This is observational; `dice` separately enforces
+       * freshness and its mandatory minimum tier.
+       */
+      function status(): HostResult<ConsensusEntropyStatus>;
+    }
   }
 
   namespace state {

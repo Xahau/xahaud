@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shlex
@@ -13,7 +14,6 @@ from pathlib import Path
 
 
 SNAPSHOT_FILES = (
-    "jshookz_provider.manifest.cmake",
     "jshookz_provider.manifest.json",
     "jshookz_provider.native-abi.json",
     "jshookz_provider.wasm",
@@ -21,12 +21,11 @@ SNAPSHOT_FILES = (
 API_SNAPSHOT_FILES = {
     "python/jshookz/src/jshookz/types/api-artifacts.json": "api-artifacts.json",
     "python/jshookz/src/jshookz/types/hooks-api.d.ts": "hooks-api.d.ts",
-    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts":
-        "xahau-quickjs-v1.d.ts",
-    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json":
-        "xahau-quickjs-v1.surface.json",
-    "python/jshookz/src/jshookz/xfl_profile_ledger.ts":
-        "xfl-profile-ledger.ts",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1-consensus-entropy.d.ts": "xahau-quickjs-v1-consensus-entropy.d.ts",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1-consensus-entropy.surface.json": "xahau-quickjs-v1-consensus-entropy.surface.json",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts": "xahau-quickjs-v1.d.ts",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json": "xahau-quickjs-v1.surface.json",
+    "python/jshookz/src/jshookz/xfl_profile_ledger.ts": "xfl-profile-ledger.ts",
 }
 
 
@@ -41,12 +40,16 @@ def run(*args: str, cwd: Path, capture: bool = False) -> str:
     return completed.stdout.strip() if capture else ""
 
 
+def sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description=(
             "Build a committed jshookz checkout and copy its sealed "
-            "provider lock into Xahau. CI tracks jshookz main; the lock "
-            "is what must match."
+            "provider lock into Xahau. Consumers derive the immutable "
+            "release URL from the imported provider SHA-256."
         )
     )
     parser.add_argument("jshookz_checkout", type=Path)
@@ -72,8 +75,7 @@ def main() -> int:
     )
     if cli is None:
         parser.error(
-            "missing jshookz CLI under python/jshookz/.venv or "
-            "packages/jshookz/.venv"
+            "missing jshookz CLI under python/jshookz/.venv or packages/jshookz/.venv"
         )
     bundle = jshookz_root / "build/xahau-provider"
     destination = xahau_root / "external/quickjs-provider"
@@ -109,6 +111,34 @@ def main() -> int:
         shutil.copy2(jshookz_root / source, destination / name)
 
     manifest = json.loads((bundle / "jshookz_provider.manifest.json").read_text())
+    lock = {
+        "api_artifacts": {
+            "file": "api-artifacts.json",
+            "sha256": sha256(destination / "api-artifacts.json"),
+        },
+        "bytecode_abi_id": manifest["bytecode_abi_id"],
+        "manifest": {
+            "file": "jshookz_provider.manifest.json",
+            "schema": manifest["schema"],
+            "sha256": sha256(destination / "jshookz_provider.manifest.json"),
+        },
+        "native_abi": {
+            "file": "jshookz_provider.native-abi.json",
+            "sha256": sha256(destination / "jshookz_provider.native-abi.json"),
+        },
+        "product": manifest["source"]["product"],
+        "provider": {
+            "file": "jshookz_provider.wasm",
+            "sha256": manifest["provider"]["sha256"],
+            "size": manifest["provider"]["size"],
+        },
+        "runtime_profile_id": manifest["runtime_profile_id"],
+        "schema": "xahau.quickjs.provider-consumer-lock.v1",
+        "wasmtime_version": manifest["source"]["engine"]["version"],
+    }
+    (destination / "jshookz_provider.lock.json").write_text(
+        json.dumps(lock, indent=2, sort_keys=True) + "\n"
+    )
     wasi_sdk = os.environ.get("HOOKZ_WASI_SDK")
     if not wasi_sdk:
         try:

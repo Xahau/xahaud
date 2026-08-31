@@ -4,15 +4,15 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 bundle="${root}/external/quickjs-provider"
-manifest="${bundle}/jshookz_provider.manifest.json"
+lock="${bundle}/jshookz_provider.lock.json"
 provider="${bundle}/jshookz_provider.wasm"
 
 provider_sha=$(python3 -c \
   'import json,sys; print(json.load(open(sys.argv[1]))["provider"]["sha256"])' \
-  "${manifest}")
+  "${lock}")
 provider_size=$(python3 -c \
   'import json,sys; print(json.load(open(sys.argv[1]))["provider"]["size"])' \
-  "${manifest}")
+  "${lock}")
 provider_url="${XAHAU_QJS_PROVIDER_URL:-https://github.com/sublimator/jshookz/releases/download/provider-${provider_sha}/jshookz_provider.wasm}"
 
 verify_provider()

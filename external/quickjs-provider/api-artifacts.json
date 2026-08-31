@@ -1,8 +1,10 @@
 {
   "artifacts": {
-    "python/jshookz/src/jshookz/types/hooks-api.d.ts": "80f2007b9901d05b7b5457a89457e99594fdd42b4b2c86376fd2edc88761b182",
-    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts": "bb778d1fb60e230eb0f57936dfd4547a7012c052ce2bc293abe397b5e6047f72",
-    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json": "15ca1fb1eb423456b089d5824535fda2afae814c28e6f63b542a4b0382b36220",
+    "python/jshookz/src/jshookz/types/hooks-api.d.ts": "cfb5d6f0e4a4f5913546219f9583b19862fb806f2d292fb17916f305187535a6",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1-consensus-entropy.d.ts": "1c66247164b37ee1a3c34f0b6127ef87a811148f0e95a06a2e3353e433d5e5df",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1-consensus-entropy.surface.json": "6be8c7c1f800df060a8f43fff92deaaf3cb2e4f30f663a356705151d37d95761",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts": "fbe4536c6a3ca2e5b7134d1ec6a3305dfe21e25f15b40174341d75158ec7a42a",
+    "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json": "a880896471d5df8c4206d15fd8ff7017b05a8f894207667f501e5380ac09805a",
     "python/jshookz/src/jshookz/xfl_profile_ledger.ts": "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80"
   },
   "schema": "jshookz.api-artifacts.v1"

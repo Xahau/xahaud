@@ -70,14 +70,15 @@
     }
   },
   "declaration": {
-    "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts",
-    "sha256": "fbe4536c6a3ca2e5b7134d1ec6a3305dfe21e25f15b40174341d75158ec7a42a"
+    "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1-consensus-entropy.d.ts",
+    "sha256": "1c66247164b37ee1a3c34f0b6127ef87a811148f0e95a06a2e3353e433d5e5df"
   },
   "globals": {
     "AccountID": "object",
     "AccountRoot": "function",
     "Amount": "object",
     "Currency": "object",
+    "EntropyTier": "object",
     "Field": "object",
     "Hash": "object",
     "Hash128": "object",
@@ -121,6 +122,7 @@
     "cell": "function",
     "defineHookConfig": "function",
     "emit": "object",
+    "entropy": "object",
     "hook": "object",
     "ledger": "object",
     "otxn": "object",
@@ -147,6 +149,13 @@
     "emit.build": {
       "hookSet": "function",
       "payment": "function"
+    },
+    "entropy": {
+      "cr": "object"
+    },
+    "entropy.cr": {
+      "dice": "function",
+      "status": "function"
     },
     "hook": {
       "account": "function",
@@ -1062,6 +1071,12 @@
     },
     "Currency": {
       "from": "function"
+    },
+    "EntropyTier": {
+      "consensusFallback": "value",
+      "participantAligned": "value",
+      "validatorFull": "value",
+      "validatorQuorum": "value"
     },
     "Hash256": {
       "from": "function",

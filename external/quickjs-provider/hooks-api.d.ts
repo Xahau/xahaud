@@ -94,6 +94,17 @@ interface XFLProfileEnum {
 }
 
 /**
+ * Minimum commit/reveal entropy strength required by a draw. The values are
+ * strength-ordered and map directly to the raw Hook API.
+ */
+interface EntropyTierEnum {
+  readonly consensusFallback: 1;
+  readonly participantAligned: 2;
+  readonly validatorQuorum: 3;
+  readonly validatorFull: 4;
+}
+
+/**
  * Every transaction type a Hook can observe or emit.
  *
  * Hidden module-scope inventory for the frozen TransactionType runtime namespace.
@@ -482,6 +493,7 @@ interface HookReturnCodeEnum {
   readonly MEM_OVERLAP: -43;
   readonly TOO_MANY_STATE_MODIFICATIONS: -44;
   readonly TOO_MANY_NAMESPACES: -45;
+  readonly TOO_LITTLE_ENTROPY: -48;
   readonly INVALID_FLOAT: -10024;
 }
 
@@ -1489,6 +1501,18 @@ declare global {
   /** The two declarable profile codes: `1 | 2`. */
   type XFLProfile = (typeof XFLProfile)[keyof typeof XFLProfile];
 
+  /** Commit/reveal entropy strength required by an entropy operation. */
+  const EntropyTier: EntropyTierEnum;
+  /** The four usable commit/reveal entropy tiers: `1 | 2 | 3 | 4`. */
+  type EntropyTier = (typeof EntropyTier)[keyof typeof EntropyTier];
+
+  /** Metadata describing the commit/reveal entropy available to this Hook. */
+  interface ConsensusEntropyStatus {
+    readonly tier: EntropyTier;
+    readonly count: number;
+    readonly denominator: number;
+  }
+
   /**
    * The one-member artifact configuration: which arithmetic profile this
    * Hook's unmarked profile-sensitive operations use. Declared once, in
@@ -1837,6 +1861,26 @@ declare global {
     readonly CredentialIDs?: Vector256;
     readonly TransactionType: typeof TransactionType.Payment;
   }
+
+  /** Concrete transaction classes currently proven by the formatter. */
+  type SpecializedTransaction = Payment;
+
+  /**
+   * Strongest available transaction view for a requested discriminator.
+   * Unspecialized transaction kinds remain the format-proven base class.
+   */
+  type TransactionFor<Type extends TransactionType> =
+    Type extends TransactionType
+      ? Extract<
+            SpecializedTransaction,
+            { readonly TransactionType: Type }
+          > extends never
+        ? Transaction
+        : Extract<
+            SpecializedTransaction,
+            { readonly TransactionType: Type }
+          >
+      : never;
 
   /** Format-proven ledger-entry base. */
   class LedgerEntry extends STObject {
@@ -2344,10 +2388,11 @@ declare global {
     toHex(): HexString;
   }
   /** Typed-locator runtime noun (0085 close shape). */
-  const LedgerKeylet: RuntimeType<LedgerKeylet> & {
+  interface LedgerKeyletFactory extends RuntimeType<LedgerKeylet> {
     /** Import a raw 34-byte locator carrying no minted object-type claim. */
     fromRaw(value: BytesLike | STBlob): ParseResult<LedgerKeylet>;
-  };
+  }
+  const LedgerKeylet: LedgerKeyletFactory;
 
   namespace otxn {
     function raw(): HostResult<STBlob>;
@@ -2373,6 +2418,7 @@ declare global {
      * but the 16 is per originating transaction, not per hook.
      */
     function param(name: StateKeyLike): HostResult<STBlob | undefined>;
+    function param<T>(name: StateKeyLike, field: RecordField<T, number>): SchemaReadResult<T>;
     function param<T>(name: StateKeyLike, schema: BinarySchema<T>): SchemaReadResult<T>;
     /** Policied read: disposition declared at the site (`ReadPolicies`). */
     function param<T, const P extends ReadPolicies>(
@@ -2405,6 +2451,28 @@ declare global {
     function metaObject(): HostResult<TxMeta | undefined>;
     function metaHostObject(): HostResult<HostTxMeta | undefined>;
     function xpop(): HostResult<XPop | undefined>;
+  }
+
+  /** Consensus-derived entropy operations. */
+  namespace entropy {
+    /** Commit/reveal entropy operations. */
+    namespace cr {
+      /**
+       * Draw one unbiased zero-based face from `sides`, requiring at least
+       * `minimumTier`. A D6 therefore returns `0..5`.
+       */
+      function dice(
+        sides: number,
+        minimumTier: EntropyTier,
+      ): HostResult<number>;
+
+      /**
+       * Read the current entropy tier, contributor count, and active-view
+       * denominator. This is observational; `dice` separately enforces
+       * freshness and its mandatory minimum tier.
+       */
+      function status(): HostResult<ConsensusEntropyStatus>;
+    }
   }
 
   namespace state {
@@ -2825,9 +2893,13 @@ declare global {
      * The schema overload is the same triage as `state.get`: `!ok` is a
      * host code or a codec issue, `undefined` is absent, otherwise decoded.
      * `schema.byteLength` must be ≤ 256; the provider rejects a larger
-     * schema at runtime.
+     * schema at runtime. Parameter reads fetch the complete 256-byte host
+     * ceiling before local decoding because raw `hook_param` truncates to its
+     * output buffer; an oversized value therefore remains a parse failure
+     * instead of being accepted as a valid prefix.
      */
     function param(name: StateKeyLike): HostResult<STBlob | undefined>;
+    function param<T>(name: StateKeyLike, field: RecordField<T, number>): SchemaReadResult<T>;
     function param<T>(name: StateKeyLike, schema: BinarySchema<T>): SchemaReadResult<T>;
     /** Policied read: disposition declared at the site (`ReadPolicies`). */
     function param<T, const P extends ReadPolicies>(
@@ -2926,6 +2998,16 @@ declare global {
       message?: string | BytesLike | STBlob,
       code?: number,
     ): asserts condition;
+    /**
+     * Continue only for the requested originating transaction kind. The raw
+     * discriminator is checked before the originating object is materialized;
+     * a match returns the cached, strongest format-proven transaction view.
+     */
+    function requireTransaction<const Type extends TransactionType>(
+      type: Type,
+      message?: string | BytesLike | STBlob,
+      code?: number,
+    ): TransactionFor<Type>;
     /**
      * If `condition` is true, `accept`. If false, return and continue.
      */

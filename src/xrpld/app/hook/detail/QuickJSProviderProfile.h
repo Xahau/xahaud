@@ -40,6 +40,7 @@ struct NativeImportSignature
 extern std::array<std::uint8_t, 32> const providerSHA256;
 extern std::array<std::uint8_t, 32> const bytecodeABI;
 extern std::array<std::uint8_t, 32> const runtimeProfile;
+extern std::string_view const providerProduct;
 extern std::string_view const providerManifestSHA256;
 extern std::size_t const providerSize;
 extern std::uint16_t const hookApiVersion;

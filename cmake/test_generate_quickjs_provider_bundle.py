@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import shutil
 import subprocess
 import sys
@@ -17,29 +16,31 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = Path(__file__).with_name("GenerateQuickJSProviderBundle.py")
 BUNDLE = ROOT / "external" / "quickjs-provider"
 WASM_VERSION = "47.0.3"
-CMAKE_SET = re.compile(r'^set\(XAHAU_QUICKJS_([A-Z0-9_]+) "([^"]*)"\)\s*$')
+CONSUMER_LOCK = json.loads((BUNDLE / "jshookz_provider.lock.json").read_text())
+API_LOCK = json.loads((BUNDLE / "api-artifacts.json").read_text())["artifacts"]
 
 PIN = {
-    "provider_sha256": "e5cbece0888f609f06c577a2ef6cb7a125fefd08f4721c5c30e91c74e3ccef33",
-    "provider_size": "1256117",
-    "manifest_sha256": "f9a9028d4160249f15e385296489a53eb70fd1b65d0098b06dfa450ee51bcc0f",
-    "runtime_profile_id": "f96c8e75e477a294d00b407bd53030fc0ee1871f85896fd8ee80a1bdf0e3ec63",
-    "broad_declaration_sha256": "80f2007b9901d05b7b5457a89457e99594fdd42b4b2c86376fd2edc88761b182",
-    "exact_v1_declaration_sha256": "bb778d1fb60e230eb0f57936dfd4547a7012c052ce2bc293abe397b5e6047f72",
-    "surface_sha256": "15ca1fb1eb423456b089d5824535fda2afae814c28e6f63b542a4b0382b36220",
-    "xfl_profile_ledger_sha256": "cfcb68fe9a195f6e70c88a1b8f2d2936838b8c98b3d70cbe2cab9a53e056fd80",
-    "api_artifact_manifest_sha256": "37e90436d8f888d664901985c76f808121bc7e3f3a7cc330238db9f105ba544e",
-    "bytecode_abi": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
-    "native_abi": "4f1d2fb137e37d69214b100cfc80933466dd3cb040b2a3e8ec52cf387b291dda",
+    "product": CONSUMER_LOCK["product"],
+    "provider_sha256": CONSUMER_LOCK["provider"]["sha256"],
+    "provider_size": str(CONSUMER_LOCK["provider"]["size"]),
+    "manifest_sha256": CONSUMER_LOCK["manifest"]["sha256"],
+    "runtime_profile_id": CONSUMER_LOCK["runtime_profile_id"],
+    "broad_declaration_sha256": API_LOCK[
+        "python/jshookz/src/jshookz/types/hooks-api.d.ts"
+    ],
+    "exact_v1_declaration_sha256": API_LOCK[
+        "python/jshookz/src/jshookz/types/xahau-quickjs-v1.d.ts"
+    ],
+    "surface_sha256": API_LOCK[
+        "python/jshookz/src/jshookz/types/xahau-quickjs-v1.surface.json"
+    ],
+    "xfl_profile_ledger_sha256": API_LOCK[
+        "python/jshookz/src/jshookz/xfl_profile_ledger.ts"
+    ],
+    "api_artifact_manifest_sha256": CONSUMER_LOCK["api_artifacts"]["sha256"],
+    "bytecode_abi": CONSUMER_LOCK["bytecode_abi_id"],
+    "native_abi": CONSUMER_LOCK["native_abi"]["sha256"],
     "wasm_stack_bytes": "131072",
-}
-
-RECEIPT_B = {
-    "provider_sha256": "40f9ac0203afa9296196c627bc94e669ad789322ddc1e4ab58ba0cf6d32a5e21",
-    "provider_size": "1101461",
-    "runtime_profile_id": "60950ca8b6fe4dd2a35559367051998bc04f75e8aa41934dd4caad0de5a1c3ba",
-    "declaration_sha256": "56b4b2974b8a63a550721abd60350e392990762e76666f050b1a7c810e584957",
-    "surface_sha256": "b112346b95da74d04930ba86bd597e56a428e41e11581804ccc49907ae206eb0",
 }
 
 TYPED_IMPORT_ROWS = (
@@ -103,8 +104,8 @@ def json_path(bundle: Path) -> Path:
     return bundle / "jshookz_provider.manifest.json"
 
 
-def cmake_path(bundle: Path) -> Path:
-    return bundle / "jshookz_provider.manifest.cmake"
+def consumer_lock_path(bundle: Path) -> Path:
+    return bundle / "jshookz_provider.lock.json"
 
 
 def native_path(bundle: Path) -> Path:
@@ -121,6 +122,14 @@ def api_manifest_path(bundle: Path) -> Path:
 
 def broad_declaration_path(bundle: Path) -> Path:
     return bundle / "hooks-api.d.ts"
+
+
+def entropy_declaration_path(bundle: Path) -> Path:
+    return bundle / "xahau-quickjs-v1-consensus-entropy.d.ts"
+
+
+def entropy_surface_path(bundle: Path) -> Path:
+    return bundle / "xahau-quickjs-v1-consensus-entropy.surface.json"
 
 
 def exact_v1_declaration_path(bundle: Path) -> Path:
@@ -143,30 +152,37 @@ def write_json(bundle: Path, data: dict) -> None:
     json_path(bundle).write_text(json.dumps(data, indent=2) + "\n")
 
 
-def set_cmake(bundle: Path, key: str, value: str) -> None:
-    path = cmake_path(bundle)
-    lines = []
-    replaced = False
-    for line in path.read_text().splitlines():
-        match = CMAKE_SET.match(line)
-        if match and match.group(1) == key:
-            lines.append(f'set(XAHAU_QUICKJS_{key} "{value}")')
-            replaced = True
-        else:
-            lines.append(line)
-    if not replaced:
-        raise AssertionError(f"CMake lock is missing {key}")
-    path.write_text("\n".join(lines) + "\n")
+def set_lock(bundle: Path, key: str, value) -> None:
+    paths = {
+        "PRODUCT": ("product",),
+        "MANIFEST_SHA256": ("manifest", "sha256"),
+        "PROVIDER_SHA256": ("provider", "sha256"),
+        "PROVIDER_SIZE": ("provider", "size"),
+        "NATIVE_ABI_SHA256": ("native_abi", "sha256"),
+        "BYTECODE_ABI_ID": ("bytecode_abi_id",),
+        "RUNTIME_PROFILE_ID": ("runtime_profile_id",),
+        "WASMTIME_VERSION": ("wasmtime_version",),
+    }
+    if key not in paths:
+        raise AssertionError(f"consumer lock does not contain {key}")
+    path = consumer_lock_path(bundle)
+    data = json.loads(path.read_text())
+    target = data
+    keys = paths[key]
+    for part in keys[:-1]:
+        target = target[part]
+    target[keys[-1]] = int(value) if key == "PROVIDER_SIZE" else value
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
 def rehash_manifest(bundle: Path) -> None:
     digest = hashlib.sha256(json_path(bundle).read_bytes()).hexdigest()
-    set_cmake(bundle, "MANIFEST_SHA256", digest)
+    set_lock(bundle, "MANIFEST_SHA256", digest)
 
 
 def rehash_native(bundle: Path) -> None:
     digest = hashlib.sha256(native_path(bundle).read_bytes()).hexdigest()
-    set_cmake(bundle, "NATIVE_ABI_SHA256", digest)
+    set_lock(bundle, "NATIVE_ABI_SHA256", digest)
 
 
 def load_api_manifest(bundle: Path) -> dict:
@@ -214,6 +230,7 @@ def pin_holds(returncode: int, cpp: str) -> bool:
     if returncode != 0 or not cpp:
         return False
     required = [
+        f'std::string_view const providerProduct = "{PIN["product"]}";',
         hex_bytes(PIN["provider_sha256"]),
         f"std::size_t const providerSize = {PIN['provider_size']};",
         f'"{PIN["manifest_sha256"]}"',
@@ -262,11 +279,13 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             path.name
             for path in (
                 json_path(BUNDLE),
-                cmake_path(BUNDLE),
+                consumer_lock_path(BUNDLE),
                 native_path(BUNDLE),
                 wasm_path(BUNDLE),
                 api_manifest_path(BUNDLE),
                 broad_declaration_path(BUNDLE),
+                entropy_declaration_path(BUNDLE),
+                entropy_surface_path(BUNDLE),
                 exact_v1_declaration_path(BUNDLE),
                 surface_path(BUNDLE),
                 xfl_profile_ledger_path(BUNDLE),
@@ -296,6 +315,14 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
         self.assertIn(fragment, stderr)
         self.assertFalse(pin_holds(returncode, cpp), stderr)
 
+    def assert_generator_green(
+        self, mutator, wasmtime_version: str = WASM_VERSION
+    ) -> str:
+        returncode, stderr, cpp = self.mutate(mutator, wasmtime_version)
+        self.assertEqual(returncode, 0, stderr)
+        self.assertTrue(cpp, stderr)
+        return cpp
+
     def test_unmutated_lock_projects_pin_and_typed_exports(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             work = Path(tmp)
@@ -315,7 +342,7 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
 
     def test_provider_size_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "PROVIDER_SIZE", str(int(PIN["provider_size"]) - 1))
+            set_lock(bundle, "PROVIDER_SIZE", str(int(PIN["provider_size"]) - 1))
 
         self.assert_generator_red(mutate, "provider size disagrees")
 
@@ -326,13 +353,13 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             data["provider"]["size"] = value
             write_json(bundle, data)
             rehash_manifest(bundle)
-            set_cmake(bundle, "PROVIDER_SIZE", str(value))
+            set_lock(bundle, "PROVIDER_SIZE", str(value))
 
-        self.assert_generator_red(mutate, "provider size disagrees with the sealed F0")
+        self.assert_generator_red(mutate, "WASM does not match")
 
     def test_provider_sha_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            set_cmake(
+            set_lock(
                 bundle,
                 "PROVIDER_SHA256",
                 "00" + PIN["provider_sha256"][2:],
@@ -347,21 +374,19 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             data["provider"]["sha256"] = value
             write_json(bundle, data)
             rehash_manifest(bundle)
-            set_cmake(bundle, "PROVIDER_SHA256", value)
+            set_lock(bundle, "PROVIDER_SHA256", value)
 
-        self.assert_generator_red(
-            mutate, "provider SHA-256 disagrees with the sealed F0"
-        )
+        self.assert_generator_red(mutate, "WASM does not match")
 
     def test_manifest_sha_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            set_cmake(
+            set_lock(
                 bundle,
                 "MANIFEST_SHA256",
                 "00" + PIN["manifest_sha256"][2:],
             )
 
-        self.assert_generator_red(mutate, "JSON manifest does not match")
+        self.assert_generator_red(mutate, "manifest does not match the consumer lock")
 
     def test_coordinated_manifest_identity_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -370,11 +395,11 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             write_json(bundle, data)
             rehash_manifest(bundle)
 
-        self.assert_generator_red(mutate, "provider manifest SHA-256")
+        self.assert_generator_green(mutate)
 
     def test_runtime_profile_id_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            set_cmake(
+            set_lock(
                 bundle,
                 "RUNTIME_PROFILE_ID",
                 "00" + PIN["runtime_profile_id"][2:],
@@ -383,16 +408,35 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
         self.assert_generator_red(mutate, "runtime-profile ID disagrees")
 
     def test_coordinated_runtime_profile_id_mutation(self) -> None:
+        value = "00" + PIN["runtime_profile_id"][2:]
+
         def mutate(bundle: Path) -> None:
-            value = "00" + PIN["runtime_profile_id"][2:]
             data = load_json(bundle)
             data["runtime_profile_id"] = value
             write_json(bundle, data)
             rehash_manifest(bundle)
-            set_cmake(bundle, "RUNTIME_PROFILE_ID", value)
+            set_lock(bundle, "RUNTIME_PROFILE_ID", value)
+
+        cpp = self.assert_generator_green(mutate)
+        self.assertIn(hex_bytes(value), cpp)
+
+    def test_product_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            set_lock(bundle, "PRODUCT", "provider-consensus-entropy")
+
+        self.assert_generator_red(mutate, "provider product disagrees")
+
+    def test_coordinated_product_mutation(self) -> None:
+        def mutate(bundle: Path) -> None:
+            value = "provider-consensus-entropy"
+            data = load_json(bundle)
+            data["source"]["product"] = value
+            write_json(bundle, data)
+            rehash_manifest(bundle)
+            set_lock(bundle, "PRODUCT", value)
 
         self.assert_generator_red(
-            mutate, "runtime-profile ID disagrees with the sealed F0"
+            mutate, "provider product disagrees with the sealed F0"
         )
 
     def _coordinated_api_artifact_mutation(
@@ -407,13 +451,29 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             ).hexdigest()
             write_api_manifest(bundle, manifest)
 
-        self.assert_generator_red(mutate, fragment)
+        self.assert_generator_red(
+            mutate, "API artifact manifest disagrees with the consumer lock"
+        )
 
     def test_broad_declaration_identity_mutation(self) -> None:
         self._coordinated_api_artifact_mutation(
             "python/jshookz/src/jshookz/types/hooks-api.d.ts",
             broad_declaration_path,
             "hooks-api.d.ts disagrees with the sealed F0 table",
+        )
+
+    def test_entropy_declaration_identity_mutation(self) -> None:
+        self._coordinated_api_artifact_mutation(
+            "python/jshookz/src/jshookz/types/xahau-quickjs-v1-consensus-entropy.d.ts",
+            entropy_declaration_path,
+            "xahau-quickjs-v1-consensus-entropy.d.ts disagrees with the sealed F0 table",
+        )
+
+    def test_entropy_surface_identity_mutation(self) -> None:
+        self._coordinated_api_artifact_mutation(
+            "python/jshookz/src/jshookz/types/xahau-quickjs-v1-consensus-entropy.surface.json",
+            entropy_surface_path,
+            "xahau-quickjs-v1-consensus-entropy.surface.json disagrees with the sealed F0 table",
         )
 
     def test_exact_v1_declaration_identity_mutation(self) -> None:
@@ -442,7 +502,9 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             data = load_api_manifest(bundle)
             api_manifest_path(bundle).write_text(json.dumps(data, indent=4) + "\n")
 
-        self.assert_generator_red(mutate, "API artifact manifest SHA-256")
+        self.assert_generator_red(
+            mutate, "API artifact manifest disagrees with the consumer lock"
+        )
 
     def test_declaration_sha_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -466,34 +528,41 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
 
     def test_bytecode_abi_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "BYTECODE_ABI_ID", "00" + PIN["bytecode_abi"][2:])
+            set_lock(bundle, "BYTECODE_ABI_ID", "00" + PIN["bytecode_abi"][2:])
 
         self.assert_generator_red(mutate, "bytecode ABI disagrees")
 
     def test_coordinated_bytecode_abi_mutation(self) -> None:
+        value = "00" + PIN["bytecode_abi"][2:]
+
         def mutate(bundle: Path) -> None:
-            value = "00" + PIN["bytecode_abi"][2:]
             data = load_json(bundle)
             data["bytecode_abi_id"] = value
             write_json(bundle, data)
             rehash_manifest(bundle)
-            set_cmake(bundle, "BYTECODE_ABI_ID", value)
+            set_lock(bundle, "BYTECODE_ABI_ID", value)
 
-        self.assert_generator_red(mutate, "bytecode ABI disagrees with the sealed F0")
+        cpp = self.assert_generator_green(mutate)
+        self.assertIn(hex_bytes(value), cpp)
 
     def test_native_abi_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "NATIVE_ABI_SHA256", "00" + PIN["native_abi"][2:])
+            set_lock(bundle, "NATIVE_ABI_SHA256", "00" + PIN["native_abi"][2:])
 
         self.assert_generator_red(mutate, "native ABI snapshot does not match")
 
     def test_coordinated_native_abi_identity_mutation(self) -> None:
+        expected = ""
+
         def mutate(bundle: Path) -> None:
+            nonlocal expected
             path = native_path(bundle)
             path.write_bytes(path.read_bytes() + b"\n")
+            expected = hashlib.sha256(path.read_bytes()).hexdigest()
             rehash_native(bundle)
 
-        self.assert_generator_red(mutate, "native ABI SHA-256")
+        cpp = self.assert_generator_green(mutate)
+        self.assertIn(f'"{expected}"', cpp)
 
     def test_import_signature_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -603,37 +672,12 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
     def test_shared_memory_shape_mutation(self) -> None:
         self._memory_shape_mutation("shared", True)
 
-    def test_serialized_object_max_bytes_mutation(self) -> None:
-        def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "SERIALIZED_OBJECT_MAX_BYTES", "1048577")
-
-        self.assert_generator_red(mutate, "serialized_object_max_bytes")
-
-    def test_serialized_object_max_fields_mutation(self) -> None:
-        def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "SERIALIZED_OBJECT_MAX_FIELDS", "32769")
-
-        self.assert_generator_red(mutate, "serialized_object_max_fields")
-
-    def test_serialized_object_max_scopes_mutation(self) -> None:
-        def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "SERIALIZED_OBJECT_MAX_SCOPES", "32770")
-
-        self.assert_generator_red(mutate, "serialized_object_max_scopes")
-
-    def test_serialized_object_max_depth_mutation(self) -> None:
-        def mutate(bundle: Path) -> None:
-            set_cmake(bundle, "SERIALIZED_OBJECT_MAX_DEPTH", "11")
-
-        self.assert_generator_red(mutate, "serialized_object_max_depth")
-
-    def _coordinated_limit(self, json_key: str, cmake_key: str, value: int) -> None:
+    def _coordinated_limit(self, json_key: str, _lock_key: str, value: int) -> None:
         def mutate(bundle: Path) -> None:
             data = load_json(bundle)
             data["source"]["limits"][json_key] = value
             write_json(bundle, data)
             rehash_manifest(bundle)
-            set_cmake(bundle, cmake_key, str(value))
 
         self.assert_generator_red(mutate, "sealed F0 table")
 
@@ -690,7 +734,6 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             data["source"]["limits"]["host_work_meter"] = "other-meter"
             write_json(bundle, data)
             rehash_manifest(bundle)
-            set_cmake(bundle, "HOST_WORK_METER", "other-meter")
 
         self.assert_generator_red(mutate, "host_work_meter")
 
@@ -720,7 +763,6 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             data["source"]["execution"]["host_adapter_policy"] = "other-policy"
             write_json(bundle, data)
             rehash_manifest(bundle)
-            set_cmake(bundle, "HOST_ADAPTER_POLICY", "other-policy")
 
         self.assert_generator_red(mutate, "host_adapter_policy")
 
@@ -730,7 +772,6 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             data["source"]["artifact"]["hook_api_version"] = 2
             write_json(bundle, data)
             rehash_manifest(bundle)
-            set_cmake(bundle, "HOOK_API_VERSION", "2")
 
         self.assert_generator_red(mutate, "hook_api_version")
 
@@ -903,11 +944,9 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             data["source"]["engine"]["version"] = "48.0.0"
             write_json(bundle, data)
             rehash_manifest(bundle)
-            set_cmake(bundle, "WASMTIME_VERSION", "48.0.0")
+            set_lock(bundle, "WASMTIME_VERSION", "48.0.0")
 
-        self.assert_generator_red(
-            mutate, "Wasmtime version disagrees with the sealed F0", "48.0.0"
-        )
+        self.assert_generator_green(mutate, "48.0.0")
 
     def test_provider_memory_max_bytes_mutation(self) -> None:
         def mutate(bundle: Path) -> None:
@@ -928,33 +967,6 @@ class GenerateQuickJSProviderBundleTest(unittest.TestCase):
             rehash_manifest(bundle)
 
         self.assert_generator_red(mutate, "wasm_stack_bytes")
-
-    def test_stale_receipt_b_lock_control(self) -> None:
-        def mutate(bundle: Path) -> None:
-            data = load_json(bundle)
-            data["provider"]["sha256"] = RECEIPT_B["provider_sha256"]
-            data["provider"]["size"] = int(RECEIPT_B["provider_size"])
-            data["runtime_profile_id"] = RECEIPT_B["runtime_profile_id"]
-            data["javascript_surface"]["declaration_sha256"] = RECEIPT_B[
-                "declaration_sha256"
-            ]
-            data["javascript_surface"]["sha256"] = RECEIPT_B["surface_sha256"]
-            for collection in (
-                data["provider"]["exports"],
-                data["source"]["provider"]["allowed_exports"],
-            ):
-                for item in collection:
-                    if item["kind"] == "memory":
-                        item["minimum_pages"] = 6
-            write_json(bundle, data)
-            rehash_manifest(bundle)
-            set_cmake(bundle, "PROVIDER_SHA256", RECEIPT_B["provider_sha256"])
-            set_cmake(bundle, "PROVIDER_SIZE", RECEIPT_B["provider_size"])
-            set_cmake(bundle, "RUNTIME_PROFILE_ID", RECEIPT_B["runtime_profile_id"])
-
-        self.assert_generator_red(
-            mutate, "provider SHA-256 disagrees with the sealed F0"
-        )
 
 
 if __name__ == "__main__":

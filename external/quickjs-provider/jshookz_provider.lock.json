@@ -1,0 +1,25 @@
+{
+  "api_artifacts": {
+    "file": "api-artifacts.json",
+    "sha256": "6f3fe8e0761857b32009d13b9f625d05b595493321bda67f454e737ff08cb3a8"
+  },
+  "bytecode_abi_id": "75ea54f357d397c4b33899e495bb385dad975a43b1c4a7a2cead30474327d33e",
+  "manifest": {
+    "file": "jshookz_provider.manifest.json",
+    "schema": "xahau.quickjs.runtime-profile-lock.v1",
+    "sha256": "117b6a01d9508ed78ae445d62f9eab28e9057d8eedc630b3b36ab7379816f591"
+  },
+  "native_abi": {
+    "file": "jshookz_provider.native-abi.json",
+    "sha256": "972a12bac2add4335b4e02097ec2ed7276fbea5b31dd045e9ae04f38a1762157"
+  },
+  "product": "provider",
+  "provider": {
+    "file": "jshookz_provider.wasm",
+    "sha256": "4a2a5b60f5fcb7dc2f93fa5512192e030c90df9cca08c8d9e951c9f5e7e02e5e",
+    "size": 1258267
+  },
+  "runtime_profile_id": "1ec3cd174b7c58303c8fc2555ead8e82a835d85b118eaf46e9e5ad6c085a083d",
+  "schema": "xahau.quickjs.provider-consumer-lock.v1",
+  "wasmtime_version": "47.0.3"
+}
