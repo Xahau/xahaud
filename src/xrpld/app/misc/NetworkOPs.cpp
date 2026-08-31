@@ -1170,12 +1170,12 @@ NetworkOPsImp::publishNewerManifests(ReadView const& ledger)
         // Only for validators that have opted in by publishing on-ledger
         // already. Submitting spends the master key account's balance, so an
         // account that has never used the feature is left alone.
-        auto const sleMan = ledger.read(keylet::manifest(pk));
-        if (!sleMan)
+        auto const ledgerSequence = onLedgerManifestSequence(ledger, pk);
+        if (!ledgerSequence)
             continue;
 
         auto const held = app_.validatorManifests().getRawManifest(pk);
-        if (!held || held->first <= sleMan->getFieldU32(sfSequence))
+        if (!held || held->first <= *ledgerSequence)
             continue;
 
         auto const hex = makeSetManifestTx(

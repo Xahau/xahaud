@@ -111,6 +111,15 @@ struct SetManifest_test : public beast::unit_test::suite
         return env.rpc("json", "submit", to_string(params))[jss::result];
     }
 
+    /** Submits an already formed SetManifest transaction. */
+    static Json::Value
+    submit(jtx::Env& env, std::shared_ptr<STTx const> const& tx)
+    {
+        Serializer s;
+        tx->add(s);
+        return env.rpc("submit", strHex(s.slice()))[jss::result];
+    }
+
     static std::string
     engineResult(Json::Value const& result)
     {
@@ -173,6 +182,43 @@ struct SetManifest_test : public beast::unit_test::suite
             *env.current(), *build(XRPAmount{0}, false));
 
         return build(mulRatio(base, 12, 10, /*roundUp*/ true), true);
+    }
+
+    /** An ordinary account-signed SetManifest envelope.
+
+        This is the only lane allowed to create an account's first manifest
+        slot. It uses the account's current Sequence unless a test overrides
+        it, and its outer signature authenticates the complete transaction.
+    */
+    static std::shared_ptr<STTx const>
+    signedEnvelope(
+        jtx::Env& env,
+        std::string const& manifest,
+        jtx::Account const& account,
+        std::optional<std::uint32_t> sequence = std::nullopt,
+        std::optional<XRPAmount> fee = std::nullopt)
+    {
+        auto const build = [&](XRPAmount fee) {
+            auto tx =
+                std::make_shared<STTx>(ttMANIFEST_SET, [&](STObject& obj) {
+                    obj.setAccountID(sfAccount, account.id());
+                    obj.setFieldU32(
+                        sfSequence, sequence.value_or(env.seq(account)));
+                    obj.setFieldU32(sfNetworkID, env.app().config().NETWORK_ID);
+                    obj.setFieldAmount(sfFee, fee);
+                    obj.setFieldVL(sfSigningPubKey, account.pk().slice());
+
+                    SerialIter mit{makeSlice(manifest)};
+                    obj.peekFieldObject(sfManifest).set(mit);
+                });
+            tx->sign(account.pk(), account.sk());
+            return tx;
+        };
+
+        auto const probe = build(XRPAmount{0});
+        auto const baseFee =
+            SetManifest::calculateBaseFee(*env.current(), *probe);
+        return build(fee.value_or(baseFee));
     }
 
     /** A mutable copy of a ledger object, suitable for the RawView interface.
@@ -239,9 +285,25 @@ struct SetManifest_test : public beast::unit_test::suite
         env.fund(XRP(1000), master);
         env.close();
 
+        auto const first = makeManifest(master, ephemeral, 1);
+
+        // Possessing a valid manifest does not authorize creation of its
+        // account-backed slot. The refusal claims neither a fee nor Sequence.
+        auto const balanceBefore = env.balance(master);
+        auto const sequenceBefore = env.seq(master);
+        BEAST_EXPECT(!onLedgerManifestSequence(*env.current(), master.pk()));
+        BEAST_EXPECT(engineResult(submit(env, first)) == "tefBAD_AUTH");
+        BEAST_EXPECT(!env.le(keylet::manifest(master.pk())));
+        BEAST_EXPECT(!onLedgerManifestSequence(*env.current(), master.pk()));
+        BEAST_EXPECT(env.balance(master) == balanceBefore);
+        BEAST_EXPECT(env.seq(master) == sequenceBefore);
+
+        // First registration is an ordinary account-signed transaction.
         BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(master, ephemeral, 1))) ==
+            engineResult(submit(env, signedEnvelope(env, first, master))) ==
             "tesSUCCESS");
+        BEAST_EXPECT(
+            onLedgerManifestSequence(*env.current(), master.pk()) == 1);
         env.close();
 
         // A manifest is written twice so it can be found from either key, and
@@ -276,10 +338,8 @@ struct SetManifest_test : public beast::unit_test::suite
             sleAcct->getFieldH256(sfManifestID) ==
             keylet::manifest(master.pk()).key);
 
-        // The account sequence must be untouched: the transaction is unsigned
-        // and pinned to sequence 0, so consuming a sequence would let a third
-        // party burn the validator's sequence numbers -- and writing seq + 1
-        // would reset the account to 1.
+        // Account-signed registration consumed exactly one ordinary Sequence.
+        BEAST_EXPECT(env.seq(master) == sequenceBefore + 1);
         BEAST_EXPECT(sleAcct->getFieldU32(sfSequence) == env.seq(master));
     }
 
@@ -294,11 +354,13 @@ struct SetManifest_test : public beast::unit_test::suite
         auto const master = Account("master", KeyType::ed25519);
         auto const eph1 = Account("eph1", KeyType::ed25519);
         auto const eph2 = Account("eph2", KeyType::ed25519);
+        auto const eph3 = Account("eph3", KeyType::ed25519);
         env.fund(XRP(1000), master);
         env.close();
 
-        submit(env, makeManifest(master, eph1, 1));
+        submit(env, signedEnvelope(env, makeManifest(master, eph1, 1), master));
         env.close();
+        auto const accountSequence = env.seq(master);
 
         // Rotating the ephemeral key erases both old copies and writes two
         // new ones, so the two can never drift apart.
@@ -313,10 +375,33 @@ struct SetManifest_test : public beast::unit_test::suite
         BEAST_EXPECT(
             env.le(keylet::manifest(master.pk()))->getFieldU32(sfSequence) ==
             2);
+        BEAST_EXPECT(env.seq(master) == accountSequence);
 
-        // Replaying the manifest we just applied, and anything older, is
-        // rejected on sequence. This is what prevents replay: the transaction
-        // is unsigned, so nothing else would.
+        // The account-signed lane uses ordinary replay protection. A stale
+        // outer Sequence is rejected before the manifest sequence matters;
+        // the correct one both rotates the manifest and advances the account.
+        BEAST_EXPECT(
+            engineResult(submit(
+                env,
+                signedEnvelope(
+                    env,
+                    makeManifest(master, eph3, 3),
+                    master,
+                    accountSequence - 1))) == "tefPAST_SEQ");
+        BEAST_EXPECT(!env.le(keylet::manifest(eph3.pk())));
+
+        BEAST_EXPECT(
+            engineResult(submit(
+                env,
+                signedEnvelope(env, makeManifest(master, eph3, 3), master))) ==
+            "tesSUCCESS");
+        env.close();
+        BEAST_EXPECT(env.seq(master) == accountSequence + 1);
+        BEAST_EXPECT(!env.le(keylet::manifest(eph2.pk())));
+        BEAST_EXPECT(env.le(keylet::manifest(eph3.pk())));
+
+        // Replaying older manifests through the unsigned lane is rejected by
+        // manifest sequence, independently of the account Sequence.
         BEAST_EXPECT(
             engineResult(submit(env, makeManifest(master, eph2, 2))) ==
             "tefPAST_MANIFEST_SEQ");
@@ -338,7 +423,9 @@ struct SetManifest_test : public beast::unit_test::suite
         env.fund(XRP(1000), master);
         env.close();
 
-        submit(env, makeManifest(master, ephemeral, 1));
+        submit(
+            env,
+            signedEnvelope(env, makeManifest(master, ephemeral, 1), master));
         env.close();
 
         BEAST_EXPECT(
@@ -383,7 +470,7 @@ struct SetManifest_test : public beast::unit_test::suite
         env.fund(XRP(1000), master);
         env.close();
 
-        submit(env, makeManifest(master, eph1, 1));
+        submit(env, signedEnvelope(env, makeManifest(master, eph1, 1), master));
         env.close();
 
         auto& cache = env.app().validatorManifests();
@@ -442,7 +529,7 @@ struct SetManifest_test : public beast::unit_test::suite
         env.fund(XRP(1000), master);
         env.close();
 
-        submit(env, makeManifest(master, eph1, 1));
+        submit(env, signedEnvelope(env, makeManifest(master, eph1, 1), master));
         env.close();
 
         auto& cache = env.app().validatorManifests();
@@ -539,11 +626,16 @@ struct SetManifest_test : public beast::unit_test::suite
 
         // An ephemeral key already claimed by a different account would
         // collide with -- and clobber -- that account's manifest object.
-        submit(env, makeManifest(master, ephemeral, 1));
+        submit(
+            env,
+            signedEnvelope(env, makeManifest(master, ephemeral, 1), master));
         env.close();
 
         BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(other, ephemeral, 1))) ==
+            engineResult(submit(
+                env,
+                signedEnvelope(
+                    env, makeManifest(other, ephemeral, 1), other))) ==
             "tecDUPLICATE");
     }
 
@@ -562,6 +654,16 @@ struct SetManifest_test : public beast::unit_test::suite
         env.close();
 
         auto const good = makeManifest(master, ephemeral, 1);
+
+        // Establish the slot through the account-authorized lane so the
+        // unsigned envelopes below exercise update-envelope validation.
+        BEAST_EXPECT(
+            engineResult(submit(
+                env,
+                signedEnvelope(
+                    env, makeManifest(master, ephemeral, 0), master))) ==
+            "tesSUCCESS");
+        env.close();
 
         // Sanity check: the unmodified envelope is the one Submit builds, so
         // every rejection below is attributable to the tweak and nothing else.
@@ -607,16 +709,28 @@ struct SetManifest_test : public beast::unit_test::suite
                       obj.setFieldH256(sfAccountTxnID, uint256{1});
                   }},
                  {"TicketSequence",
-                  [](STObject& obj) { obj.setFieldU32(sfTicketSequence, 1); }},
-                 {"SigningPubKey", [&](STObject& obj) {
-                      obj.setFieldVL(sfSigningPubKey, master.pk().slice());
-                  }}})
+                  [](STObject& obj) { obj.setFieldU32(sfTicketSequence, 1); }}})
         {
             BEAST_EXPECTS(
                 applyDirect(env, envelope(env, good, master.id(), tweak)) ==
                     temMALFORMED,
                 name);
         }
+
+        // A non-empty signing key changes lanes. Without the corresponding
+        // account signature this is an invalid ordinary signed transaction,
+        // not a canonical unsigned envelope.
+        BEAST_EXPECT(
+            applyDirect(
+                env, envelope(env, good, master.id(), [&](STObject& obj) {
+                    obj.setFieldVL(sfSigningPubKey, master.pk().slice());
+                })) == temINVALID);
+
+        BEAST_EXPECT(
+            applyDirect(
+                env, envelope(env, good, master.id(), [&](STObject& obj) {
+                    obj.setFieldU32(sfLastLedgerSequence, env.current()->seq());
+                })) == temMALFORMED);
 
         // sfFee is the one envelope field preflight cannot bound, because the
         // base fee is not in scope until preclaim. checkFee() caps it instead.
@@ -629,12 +743,31 @@ struct SetManifest_test : public beast::unit_test::suite
                     obj.setFieldAmount(sfFee, ceiling + XRPAmount{1});
                 })) == temBAD_FEE);
 
+        BEAST_EXPECT(
+            applyDirect(
+                env, envelope(env, good, master.id(), [&](STObject& obj) {
+                    obj.setFieldAmount(sfFee, ceiling - XRPAmount{1});
+                })) == temBAD_FEE);
+
         // At the ceiling exactly, which is what Submit sends.
         BEAST_EXPECT(
             applyDirect(
                 env, envelope(env, good, master.id(), [&](STObject& obj) {
                     obj.setFieldAmount(sfFee, ceiling);
                 })) == tesSUCCESS);
+
+        // The account signature authenticates its envelope, so the signed
+        // lane deliberately uses ordinary configurable-fee semantics rather
+        // than the canonical unsigned Fee.
+        BEAST_EXPECT(
+            applyDirect(
+                env,
+                signedEnvelope(
+                    env,
+                    makeManifest(master, ephemeral, 2),
+                    master,
+                    std::nullopt,
+                    ceiling + XRPAmount{100})) == tesSUCCESS);
     }
 
     void
@@ -652,7 +785,9 @@ struct SetManifest_test : public beast::unit_test::suite
         env.close();
 
         BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(master, eph1, 1))) ==
+            engineResult(submit(
+                env,
+                signedEnvelope(env, makeManifest(master, eph1, 1), master))) ==
             "tesSUCCESS");
         env.close();
 
@@ -711,9 +846,12 @@ struct SetManifest_test : public beast::unit_test::suite
         for (int i = 0; i < 4; ++i)
         {
             BEAST_EXPECT(
-                engineResult(
-                    submit(env, makeManifest(masters[i], ephs[i], 1))) ==
-                "tesSUCCESS");
+                engineResult(submit(
+                    env,
+                    signedEnvelope(
+                        env,
+                        makeManifest(masters[i], ephs[i], 1),
+                        masters[i]))) == "tesSUCCESS");
             env.close();
         }
 

@@ -21,6 +21,7 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
+#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 
@@ -74,12 +75,8 @@ checkValidity(
         return {Validity::Valid, ""};
     }
 
-    if (rules.enabled(featureOnChainManifests) &&
-        tx.getTxnType() == ttMANIFEST_SET &&
-        tx.isFieldPresent(sfTxnSignature) &&
-        tx.getFieldVL(sfTxnSignature).empty() &&
-        tx.isFieldPresent(sfSigningPubKey) &&
-        tx.getFieldVL(sfSigningPubKey).empty() && tx.isFieldPresent(sfManifest))
+    if (rules.enabled(featureOnChainManifests) && isUnsignedSetManifest(tx) &&
+        tx.isFieldPresent(sfManifest))
     {
         // perform alternative signature check over manifest
         STObject const& manObj = const_cast<ripple::STTx&>(tx)

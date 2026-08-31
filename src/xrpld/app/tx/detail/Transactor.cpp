@@ -25,6 +25,7 @@
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/SetHook.h>
+#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpld/core/Config.h>
@@ -604,11 +605,10 @@ Transactor::checkSeqProxy(
         return terNO_ACCOUNT;
     }
 
-    // A manifest txn is derived deterministically from the manifest alone, so
-    // it cannot depend on account state: preflight pins sfSequence to 0 and the
-    // account sequence is neither checked here nor consumed below.
+    // Only the manifest-authorized lane is independent of account sequence.
+    // Account-signed SetManifest transactions use ordinary replay protection.
     if (view.rules().enabled(featureOnChainManifests) &&
-        tx.getTxnType() == ttMANIFEST_SET)
+        isUnsignedSetManifest(tx))
         return tesSUCCESS;
 
     SeqProxy const a_seq = SeqProxy::sequence((*sle)[sfSequence]);
@@ -762,15 +762,15 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
     if (ctx_.isEmittedTxn())
         return tesSUCCESS;
 
-    // Manifest txns get the same treatment: pinned to sfSequence 0 and not
-    // signed by the account, so they neither consume nor reset its sequence.
+    // Manifest-authorized txns are pinned to sfSequence 0 and not signed by
+    // the account, so they neither consume nor reset its sequence.
     // Doing so would be actively harmful -- the write below is
     // seqProx.value() + 1, which for a seq-0 txn sets the account sequence to
     // 1 and makes every previously used sequence replayable. Handling it here
     // rather than in apply() also covers reset(), which re-consumes on the
     // tec / failed-invariant path.
     if (view().rules().enabled(featureOnChainManifests) &&
-        ctx_.tx.getTxnType() == ttMANIFEST_SET)
+        isUnsignedSetManifest(ctx_.tx))
         return tesSUCCESS;
 
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();
@@ -916,10 +916,11 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getTxnType() == ttIMPORT)
         return tesSUCCESS;
 
-    // pass ttMANIFEST_SETs, their signatures are checked in preflight against
-    // the manifest's internal key logic
+    // The manifest-authorized lane is checked in preflight against the
+    // manifest's internal key logic. Account-signed SetManifest transactions
+    // continue through the ordinary single- or multi-signature path.
     if (ctx.view.rules().enabled(featureOnChainManifests) &&
-        ctx.tx.getTxnType() == ttMANIFEST_SET)
+        isUnsignedSetManifest(ctx.tx))
         return tesSUCCESS;
 
     if (ctx.flags & tapDRY_RUN)

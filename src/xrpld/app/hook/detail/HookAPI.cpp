@@ -528,6 +528,16 @@ HookAPI::emit(Slice const& txBlob) const
 
     ripple::TxType txType = stpTrans->getTxnType();
 
+    // SetManifest's account-signed lane must consume ordinary account replay
+    // protection, while its manifest-authorized lane is reserved for the
+    // protocol's canonical update envelope. Hook emission is neither.
+    if (txType == ttMANIFEST_SET)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Hooks cannot emit SetManifest transactions.";
+        return Unexpected(EMISSION_FAILURE);
+    }
+
     ripple::uint256 const& hookCanEmit = hookCtx.result.hookCanEmit;
     if (!hook::canEmit(txType, hookCanEmit))
     {
