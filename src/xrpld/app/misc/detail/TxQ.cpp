@@ -2048,7 +2048,7 @@ TxQ::tryDirectApply(
             return ApplyResult{pfresult.ter, false};
 
         auto const pcresult = preclaim(pfresult, app, view);
-        if (!pcresult.likelyToClaimFee)
+        if (!isTesSuccess(pcresult.ter))
             return ApplyResult{pcresult.ter, false};
 
         // A valid canonical update simply rides out the fee storm. Do not

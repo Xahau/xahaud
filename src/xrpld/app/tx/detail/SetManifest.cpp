@@ -122,6 +122,22 @@ hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept
     }
 }
 
+bool
+hasCanonicalUnsignedSetManifestFee(STTx const& tx, Rules const& rules) noexcept
+{
+    try
+    {
+        auto const& manifest =
+            const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+        return tx[sfFee].xrp() ==
+            canonicalUnsignedSetManifestFee(rules, manifest);
+    }
+    catch (std::exception const&)
+    {
+        return false;
+    }
+}
+
 std::optional<std::uint32_t>
 onLedgerManifestSequence(ReadView const& view, PublicKey const& masterKey)
 {
@@ -163,6 +179,12 @@ SetManifest::preflight(PreflightContext const& ctx)
     {
         JLOG(j.warn()) << "SetManifest: non-canonical unsigned envelope.";
         return temMALFORMED;
+    }
+    if (manifestAuthorityCandidate &&
+        !hasCanonicalUnsignedSetManifestFee(tx, ctx.rules))
+    {
+        JLOG(j.warn()) << "SetManifest: non-canonical unsigned fee.";
+        return temBAD_FEE;
     }
     bool const manifestAuthorized = isUnsignedSetManifest(tx);
 

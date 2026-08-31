@@ -86,6 +86,14 @@ checkValidity(
                 Validity::SigBad,
                 "Manifest-authorized envelope is not canonical"};
 
+        // Fee is the last otherwise-malleable outer field. Pin it before
+        // verifying either manifest signature so changing eight cheap bytes
+        // cannot mint fresh txids that repeat expensive crypto.
+        if (!hasCanonicalUnsignedSetManifestFee(tx, rules))
+            return {
+                Validity::SigBad,
+                "Manifest-authorized envelope has non-canonical fee"};
+
         // perform alternative signature check over manifest
         STObject const& manObj = const_cast<ripple::STTx&>(tx)
                                      .getField(sfManifest)

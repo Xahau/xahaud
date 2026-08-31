@@ -57,6 +57,15 @@ isUnsignedSetManifest(STTx const& tx) noexcept;
 bool
 hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept;
 
+/** Return whether an unsigned SetManifest carries its one canonical Fee.
+
+    Kept separate from the structural shape check so transactor preflight can
+    report temBAD_FEE precisely, while overlay ingress can reject fee variants
+    before either manifest signature is verified.
+*/
+bool
+hasCanonicalUnsignedSetManifestFee(STTx const& tx, Rules const& rules) noexcept;
+
 /** Return the ruleset-fixed Fee for a manifest-authorized update.
 
     This is deliberately independent of the current ledger fee schedule: one
