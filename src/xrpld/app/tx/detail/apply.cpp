@@ -75,8 +75,9 @@ checkValidity(
         return {Validity::Valid, ""};
     }
 
-    if (rules.enabled(featureOnChainManifests) &&
-        hasManifestAuthorityMarkers(tx))
+    bool const manifestAuthorized = rules.enabled(featureOnChainManifests) &&
+        hasManifestAuthorityMarkers(tx);
+    if (manifestAuthorized)
     {
         // This path runs at RPC/overlay ingress, before transactor preflight.
         // The DoS ordering is deliberate: structural nonsense must not buy
@@ -93,21 +94,6 @@ checkValidity(
             return {
                 Validity::SigBad,
                 "Manifest-authorized envelope has non-canonical fee"};
-
-        // perform alternative signature check over manifest
-        STObject const& manObj = const_cast<ripple::STTx&>(tx)
-                                     .getField(sfManifest)
-                                     .downcast<STObject>();
-
-        auto man = deserializeManifest(manObj);
-        if (!man.has_value() || !man->verify())
-            return {Validity::SigBad, "Manifest signature is bad"};
-
-        std::string reason;
-        if (!passesLocalChecks(tx, reason))
-            return {Validity::SigGoodOnly, reason};
-
-        return {Validity::Valid, ""};
     }
 
     if (flags & SF_SIGBAD)
@@ -116,17 +102,35 @@ checkValidity(
 
     if (!(flags & SF_SIGGOOD))
     {
-        // Don't know signature state. Check it.
-        auto const requireCanonicalSig =
-            rules.enabled(featureRequireFullyCanonicalSig)
-            ? STTx::RequireFullyCanonicalSig::yes
-            : STTx::RequireFullyCanonicalSig::no;
-
-        auto const sigVerify = tx.checkSign(requireCanonicalSig, rules);
-        if (!sigVerify)
+        if (manifestAuthorized)
         {
-            router.setFlags(id, SF_SIGBAD);
-            return {Validity::SigBad, sigVerify.error()};
+            // The canonical txid makes the ordinary HashRouter signature
+            // receipt safe to reuse when PeerImp hands the same transaction
+            // to NetworkOPs.
+            STObject const& manObj = const_cast<ripple::STTx&>(tx)
+                                         .getField(sfManifest)
+                                         .downcast<STObject>();
+            auto man = deserializeManifest(manObj);
+            if (!man || !man->verify())
+            {
+                router.setFlags(id, SF_SIGBAD);
+                return {Validity::SigBad, "Manifest signature is bad"};
+            }
+        }
+        else
+        {
+            // Don't know signature state. Check it.
+            auto const requireCanonicalSig =
+                rules.enabled(featureRequireFullyCanonicalSig)
+                ? STTx::RequireFullyCanonicalSig::yes
+                : STTx::RequireFullyCanonicalSig::no;
+
+            auto const sigVerify = tx.checkSign(requireCanonicalSig, rules);
+            if (!sigVerify)
+            {
+                router.setFlags(id, SF_SIGBAD);
+                return {Validity::SigBad, sigVerify.error()};
+            }
         }
         router.setFlags(id, SF_SIGGOOD);
     }

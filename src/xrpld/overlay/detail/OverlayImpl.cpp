@@ -629,6 +629,53 @@ OverlayImpl::onPeerDeactivate(Peer::id_t id)
 }
 
 void
+OverlayImpl::ingestManifest(std::string const& serialized)
+{
+    if (!applyAndPublishManifest(serialized, journal_))
+        return;
+
+    protocol::TMManifests relay;
+    relay.add_list()->set_stobject(serialized);
+    for_each([m = std::make_shared<Message>(relay, protocol::mtMANIFESTS)](
+                 std::shared_ptr<PeerImp>&& p) { p->send(m); });
+}
+
+bool
+OverlayImpl::applyAndPublishManifest(
+    std::string const& serialized,
+    beast::Journal journal)
+{
+    auto mo = deserializeManifest(serialized);
+    if (!mo)
+    {
+        JLOG(journal.debug()) << "Malformed manifest: " << strHex(serialized);
+        return false;
+    }
+
+    auto const result = app_.validatorManifests().applyManifest(std::move(*mo));
+    if (result != ManifestDisposition::accepted)
+        return false;
+
+    // applyManifest moves the Manifest into the cache. Rebuild the view used
+    // for publication and optional local durability from its original bytes.
+    mo = deserializeManifest(serialized);
+    XRPL_ASSERT(
+        mo,
+        "ripple::OverlayImpl::applyAndPublishManifest : manifest "
+        "deserialization succeeded");
+
+    app_.getOPs().pubManifest(*mo);
+
+    if (app_.validators().listed(mo->masterKey))
+    {
+        auto db = app_.getWalletDB().checkoutDb();
+        addValidatorManifest(*db, serialized);
+    }
+
+    return true;
+}
+
+void
 OverlayImpl::onManifests(
     std::shared_ptr<protocol::TMManifests> const& m,
     std::shared_ptr<PeerImp> const& from)
@@ -641,42 +688,8 @@ OverlayImpl::onManifests(
     for (std::size_t i = 0; i < n; ++i)
     {
         auto& s = m->list().Get(i).stobject();
-
-        if (auto mo = deserializeManifest(s))
-        {
-            auto const serialized = mo->serialized;
-
-            auto const result =
-                app_.validatorManifests().applyManifest(std::move(*mo));
-
-            if (result == ManifestDisposition::accepted)
-            {
-                relay.add_list()->set_stobject(s);
-
-                // N.B.: this is important; the applyManifest call above moves
-                //       the loaded Manifest out of the optional so we need to
-                //       reload it here.
-                mo = deserializeManifest(serialized);
-                XRPL_ASSERT(
-                    mo,
-                    "ripple::OverlayImpl::onManifests : manifest "
-                    "deserialization succeeded");
-
-                app_.getOPs().pubManifest(*mo);
-
-                if (app_.validators().listed(mo->masterKey))
-                {
-                    auto db = app_.getWalletDB().checkoutDb();
-                    addValidatorManifest(*db, serialized);
-                }
-            }
-        }
-        else
-        {
-            JLOG(journal.debug())
-                << "Malformed manifest #" << i + 1 << ": " << strHex(s);
-            continue;
-        }
+        if (applyAndPublishManifest(s, journal))
+            relay.add_list()->set_stobject(s);
     }
 
     if (!relay.list().empty())

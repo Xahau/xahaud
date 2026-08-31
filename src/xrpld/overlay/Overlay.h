@@ -35,6 +35,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <type_traits>
 
 namespace boost {
@@ -185,6 +186,10 @@ public:
         uint256 const& hash,
         std::optional<std::reference_wrapper<protocol::TMTransaction>> m,
         std::set<Peer::id_t> const& toSkip) = 0;
+
+    /** Admit and relay one locally authenticated validator manifest. */
+    virtual void
+    ingestManifest(std::string const& serialized) = 0;
 
     /** Visit every active peer.
      *

@@ -462,15 +462,16 @@ ManifestCache::applyLedger(
         if (!sle)
             continue;
 
-        // Cheap reject before rebuilding: applyManifest() would call this
-        // stale anyway, and the signature check is the expensive part.
+        // Higher-sequence gossip remains manifest-final. At equal sequence we
+        // must reconstruct the ledger value because consensus breaks the tie.
         if (auto const seq = getSequence(pk);
-            seq && *seq >= sle->getFieldU32(sfSequence))
+            seq && *seq > sle->getFieldU32(sfSequence))
             continue;
 
         if (auto mo = manifestFromSLE(*sle, j_); mo && mo->masterKey == pk &&
             sle->getAccountID(sfAccount) == calcAccountID(mo->masterKey) &&
-            applyManifest(std::move(*mo)) == ManifestDisposition::accepted)
+            applyManifest(std::move(*mo), true) ==
+                ManifestDisposition::accepted)
             ++accepted;
     }
 
@@ -533,7 +534,7 @@ ManifestCache::applyLedgerSigningKey(
         *mo->signingKey == signingKey &&
         keylet::manifest(mo->masterKey).key == manifestID &&
         sleManifest->getAccountID(sfAccount) == calcAccountID(mo->masterKey))
-        applyManifest(std::move(*mo));
+        applyManifest(std::move(*mo), true);
 
     // Only a signing key resolves: a master key is its own master.
     return held();
@@ -542,6 +543,12 @@ ManifestCache::applyLedgerSigningKey(
 ManifestDisposition
 ManifestCache::applyManifest(Manifest m)
 {
+    return applyManifest(std::move(m), false);
+}
+
+ManifestDisposition
+ManifestCache::applyManifest(Manifest m, bool ledgerAuthoritative)
+{
     // Check the manifest against the conditions that do not require a
     // `unique_lock` (write lock) on the `mutex_`. Since the signature can be
     // relatively expensive, the `checkSignature` parameter determines if the
@@ -549,14 +556,26 @@ ManifestCache::applyManifest(Manifest m)
     // comment below), `checkSignature` only needs to be set to true on the
     // first run.
     auto prewriteCheck =
-        [this, &m](auto const& iter, bool checkSignature, auto const& lock)
-        -> std::optional<ManifestDisposition> {
+        [this, &m, ledgerAuthoritative](
+            auto const& iter,
+            bool checkSignature,
+            auto const& lock) -> std::optional<ManifestDisposition> {
         XRPL_ASSERT(
             lock.owns_lock(),
             "ripple::ManifestCache::applyManifest::prewriteCheck : locked");
         (void)lock;  // not used. parameter is present to ensure the mutex is
                      // locked when the lambda is called.
-        if (iter != map_.end() && m.sequence <= iter->second.sequence)
+        bool const ledgerTieBreak = iter != map_.end() && ledgerAuthoritative &&
+            m.sequence == iter->second.sequence &&
+            m.serialized != iter->second.serialized;
+
+        // This cache only converges on the validated ledger here. Treating a
+        // conflicting signed manifest as equivocation or grounds for delisting
+        // belongs to validator-list policy, not this ingestion path.
+
+        if (iter != map_.end() &&
+            (m.sequence < iter->second.sequence ||
+             (m.sequence == iter->second.sequence && !ledgerTieBreak)))
         {
             // We received a manifest whose sequence number is not strictly
             // greater than the one we already know about. This can happen in
@@ -617,7 +636,8 @@ ManifestCache::applyManifest(Manifest m)
             // Sanity check: the ephemeral key of this manifest should not be
             // used as the master or ephemeral key of another manifest:
             if (auto const x = signingToMasterKeys_.find(*m.signingKey);
-                x != signingToMasterKeys_.end())
+                x != signingToMasterKeys_.end() &&
+                !(ledgerTieBreak && x->second == m.masterKey))
             {
                 JLOG(j_.warn())
                     << to_string(m)
@@ -695,7 +715,8 @@ ManifestCache::applyManifest(Manifest m)
             m.sequence,
             iter->second.sequence);
 
-    signingToMasterKeys_.erase(*iter->second.signingKey);
+    if (iter->second.signingKey)
+        signingToMasterKeys_.erase(*iter->second.signingKey);
 
     if (!revoked)
         signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);

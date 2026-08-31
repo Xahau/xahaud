@@ -299,6 +299,9 @@ public:
         std::shared_ptr<protocol::TMManifests> const& m,
         std::shared_ptr<PeerImp> const& from);
 
+    void
+    ingestManifest(std::string const& serialized) override;
+
     static bool
     isPeerUpgrade(http_request_type const& request);
 
@@ -439,6 +442,11 @@ public:
     }
 
 private:
+    bool
+    applyAndPublishManifest(
+        std::string const& serialized,
+        beast::Journal journal);
+
     void
     squelch(
         PublicKey const& validator,

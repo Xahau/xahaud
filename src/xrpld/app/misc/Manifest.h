@@ -321,6 +321,9 @@ private:
     void
     touch(PublicKey const& masterKey) const;
 
+    ManifestDisposition
+    applyManifest(Manifest m, bool ledgerAuthoritative);
+
     std::atomic<std::uint32_t> seq_{0};
 
 public:
@@ -455,11 +458,10 @@ public:
     /** Ingest manifests published on-ledger.
 
         Reads keylet::manifest() for each supplied master key, reconstructs any
-        manifest found and feeds it through applyManifest(), so an on-chain
-        manifest is subject to exactly the same staleness, revocation and
-        key-reuse rules -- and the same signature check -- as one arriving by
-        peer gossip or in a published list. It is a third source of manifests,
-        not a more trusted one.
+        manifest found and feeds it through applyManifest(). Higher sequences
+        still propagate immediately from any source; if two different valid
+        manifests have the same sequence, the validated ledger is the
+        network-wide tie-breaker.
 
         Probes the locally trusted master-key set on each validated ledger
         rather than scanning transactions. This common path costs one SHAMap
@@ -485,12 +487,9 @@ public:
         one canonical master-key manifest, so this comparatively rare cache
         miss is two bounded reads rather than a ledger search.
 
-        Anything found is fed through applyManifest(), so an on-chain manifest
-        faces the same signature check and the same staleness, revocation and
-        key-reuse rules as one arriving by gossip. The ledger is a transport
-        here, not an authority: the answer is read back out of the cache rather
-        than taken from the ledger object, because applyManifest() may decline
-        it.
+        Anything found is fed through applyManifest(). The answer is read back
+        out of the cache after signature and key-role checks; at equal sequence
+        the validated ledger is authoritative over conflicting gossip bytes.
 
         A key is probed at most once per ledger, and a key that resolves is
         answered from the cache thereafter without any ledger read.

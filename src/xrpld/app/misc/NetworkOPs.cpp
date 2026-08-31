@@ -317,6 +317,8 @@ private:
     checkLastClosedLedger(const Overlay::PeerSequence&, uint256& networkClosed);
     void
     publishNewerManifests(ReadView const& ledger);
+    void
+    harvestManifest(STTx const& tx, ReadView const& ledger);
 
 public:
     bool
@@ -1229,6 +1231,50 @@ NetworkOPsImp::publishNewerManifests(ReadView const& ledger)
 }
 
 void
+NetworkOPsImp::harvestManifest(STTx const& tx, ReadView const& ledger)
+{
+    if (!ledger.rules().enabled(featureOnChainManifests) ||
+        !isUnsignedSetManifest(tx))
+        return;
+
+    auto const& manifestObject =
+        const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+    auto manifest = deserializeManifest(manifestObject);
+    if (!manifest)
+    {
+        // checkValidity() has already parsed and authenticated these bytes.
+        // Reaching this branch would mean the two admission paths disagree.
+        JLOG(m_journal.error())
+            << "harvestManifest: authenticated manifest no longer parses";
+        return;
+    }
+
+    auto const sequence = manifest->sequence;
+    auto const masterKey = manifest->masterKey;
+
+    // A valid but old wrapper must not roll a wiped or unlisted cache behind
+    // the durable ledger state. The cache check also prevents local retries of
+    // one fee-blocked transaction from filling the manifest job queue.
+    if (auto const onLedger = onLedgerManifestSequence(ledger, masterKey);
+        onLedger && *onLedger >= sequence)
+        return;
+    if (auto const held = app_.validatorManifests().getRawManifest(masterKey);
+        held && held->first >= sequence)
+        return;
+
+    auto serialized = std::move(manifest->serialized);
+    m_job_queue.addJob(
+        jtMANIFEST,
+        "harvestSetManifest",
+        [this, serialized = std::move(serialized)]() {
+            // Immediate manifest gossip carries the signing authority even
+            // when ordinary load postpones the canonical transaction. The
+            // unchanged transaction remains the later durability mechanism.
+            app_.overlay().ingestManifest(serialized);
+        });
+}
+
+void
 NetworkOPsImp::processTransaction(
     std::shared_ptr<Transaction>& transaction,
     bool bUnlimited,
@@ -1286,6 +1332,8 @@ NetworkOPsImp::processTransaction(
         app_.getHashRouter().setFlags(transaction->getID(), SF_BAD);
         return;
     }
+
+    harvestManifest(*transaction->getSTransaction(), *view);
 
     // canonicalize can change our pointer
     app_.getMasterTransaction().canonicalize(&transaction);

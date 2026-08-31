@@ -20,6 +20,7 @@
 #include <test/jtx.h>
 #include <test/jtx/network.h>
 #include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
@@ -428,9 +429,12 @@ struct SetManifest_test : public beast::unit_test::suite
         using namespace jtx;
 
         auto const master = Account("master", KeyType::ed25519);
+        auto const otherMaster = Account("other-master", KeyType::ed25519);
         auto const eph1 = Account("eph1", KeyType::ed25519);
         auto const eph2 = Account("eph2", KeyType::ed25519);
+        auto const otherEph = Account("other-eph", KeyType::ed25519);
         auto const registration = makeManifest(master, eph1, 1);
+        auto const otherRegistration = makeManifest(otherMaster, otherEph, 1);
         auto const update = makeManifest(master, eph2, 2);
 
         std::optional<std::string> ordinaryHex;
@@ -489,22 +493,55 @@ struct SetManifest_test : public beast::unit_test::suite
         // and retries with the same txid once ordinary load subsides.
         auto escalatedConfig = makeConfig("10");
         escalatedConfig->section("transaction_queue")
-            .set("minimum_txn_in_ledger_standalone", "1");
+            .set("minimum_txn_in_ledger_standalone", "3");
         Env escalated{*this, std::move(escalatedConfig), features};
-        escalated.fund(XRP(1000), master);
+        escalated.fund(XRP(1000), master, otherMaster);
         escalated.close();
         BEAST_EXPECT(
             engineResult(submit(
                 escalated, signedEnvelope(escalated, registration, master))) ==
             "tesSUCCESS");
+        BEAST_EXPECT(
+            engineResult(submit(
+                escalated,
+                signedEnvelope(escalated, otherRegistration, otherMaster))) ==
+            "tesSUCCESS");
         escalated.close();
+
+        // The live cache already knows that otherMaster is a master key, so
+        // the collision below is rejected by both the manifest plane and the
+        // ledger without contaminating the later rotation control.
+        auto otherHeld = deserializeManifest(otherRegistration);
+        BEAST_EXPECT(otherHeld);
+        if (!otherHeld)
+            return;
+        BEAST_EXPECT(
+            escalated.app().validatorManifests().applyManifest(
+                std::move(*otherHeld)) == ManifestDisposition::accepted);
 
         // High-fee ordinary traffic establishes load without itself queuing.
         escalated(noop(master), fee(XRP(1)));
         escalated(noop(master), fee(XRP(1)));
         escalated(noop(master), fee(XRP(1)));
+        escalated(noop(master), fee(XRP(1)));
+        escalated(noop(master), fee(XRP(1)));
+
+        // A genuine preclaim failure remains precise under load; it must not
+        // be rewritten as fee pressure merely because it could claim a fee.
+        BEAST_EXPECT(
+            engineResult(
+                submit(escalated, makeManifest(master, otherMaster, 2))) ==
+            "tecDUPLICATE");
         BEAST_EXPECT(
             engineResult(submit(escalated, update)) == "telINSUF_FEE_P");
+
+        // The manifest authority is useful immediately even though ordinary
+        // load has postponed its durable transaction. Run only the manifest
+        // job lane before inspecting the cache.
+        escalated.app().getJobQueue().rendezvous();
+        auto const held =
+            escalated.app().validatorManifests().getRawManifest(master.pk());
+        BEAST_EXPECT(held && held->first == 2);
         BEAST_EXPECT(
             escalated.le(keylet::manifest(master.pk()))
                 ->getFieldU32(sfSequence) == 1);
@@ -666,18 +703,28 @@ struct SetManifest_test : public beast::unit_test::suite
         submit(env, signedEnvelope(env, makeManifest(master, eph1, 1), master));
         env.close();
 
-        auto& cache = env.app().validatorManifests();
+        // Isolate ledger retrieval from the live application cache, which is
+        // now intentionally freshened at transaction ingress.
+        ManifestCache cache{env.app().journal("SetManifest_test")};
 
-        // Nothing has fed the cache yet, so an unknown key maps to itself.
-        BEAST_EXPECT(cache.getMasterKey(eph1.pk()) == eph1.pk());
+        // Gossip may arrive first. A different valid manifest at the same
+        // sequence is provisional until a validated ledger breaks the tie.
+        auto conflict = deserializeManifest(makeManifest(master, eph2, 1));
+        BEAST_EXPECT(conflict);
+        if (!conflict)
+            return;
+        BEAST_EXPECT(
+            cache.applyManifest(std::move(*conflict)) ==
+            ManifestDisposition::accepted);
+        BEAST_EXPECT(cache.getSigningKey(master.pk()) == eph2.pk());
 
         // Reading the ledger resolves both directions of the mapping. The
-        // manifest is reconstructed from the ledger object and verified, so a
-        // lossy round trip would fail here rather than be accepted.
+        // validated ledger wins the equal-sequence conflict.
         BEAST_EXPECT(cache.applyLedger(*env.closed(), {master.pk()}) == 1);
         BEAST_EXPECT(cache.getMasterKey(eph1.pk()) == master.pk());
         BEAST_EXPECT(cache.getSigningKey(master.pk()) == eph1.pk());
         BEAST_EXPECT(cache.getSequence(master.pk()) == 1);
+        BEAST_EXPECT(cache.getMasterKey(eph2.pk()) == eph2.pk());
 
         // Applying the same ledger again is a no-op: the cache is already at
         // that sequence.
@@ -725,7 +772,9 @@ struct SetManifest_test : public beast::unit_test::suite
         submit(env, signedEnvelope(env, makeManifest(master, eph1, 1), master));
         env.close();
 
-        auto& cache = env.app().validatorManifests();
+        // Isolate cold signing-key retrieval from the live application cache,
+        // which is now intentionally freshened at transaction ingress.
+        ManifestCache cache{env.app().journal("SetManifest_test")};
 
         // The situation applyLedger() cannot serve: a validation arrives
         // signed by eph1 and the node holds no manifest naming it, so the
@@ -969,6 +1018,23 @@ struct SetManifest_test : public beast::unit_test::suite
         BEAST_EXPECT(
             feeReason == "Manifest-authorized envelope has non-canonical fee");
         BEAST_EXPECT(applyDirect(env, nonCanonicalFee) == temBAD_FEE);
+
+        // The canonical envelope has one txid, so its manifest signatures and
+        // local checks use the ordinary HashRouter receipts across ingress
+        // layers rather than being repeated in NetworkOPs.
+        auto const cacheProbe =
+            envelope(env, makeManifest(master, ephemeral, 1234), master.id());
+        auto const [cacheValidity, cacheReason] = checkValidity(
+            env.app().getHashRouter(),
+            *cacheProbe,
+            env.current()->rules(),
+            env.app().config());
+        BEAST_EXPECT(cacheValidity == Validity::Valid);
+        BEAST_EXPECT(cacheReason.empty());
+        auto const cacheFlags =
+            env.app().getHashRouter().getFlags(cacheProbe->getTransactionID());
+        BEAST_EXPECT(cacheFlags & SF_PRIVATE2);
+        BEAST_EXPECT(cacheFlags & SF_PRIVATE4);
 
         BEAST_EXPECT(
             applyDirect(
