@@ -378,6 +378,9 @@ ManifestCache::getManifestSnapshot(PublicKey const& pk) const
     if (manifest == map_.end())
         return std::nullopt;
 
+    // This is the live validation prerequisite path, so it is the strongest
+    // evidence that recoverable residue remains useful.
+    touch(masterKey);
     auto const& current = manifest->second;
     return Snapshot{
         current.masterKey,
@@ -427,18 +430,75 @@ ManifestCache::touch(PublicKey const& masterKey) const
 }
 
 void
+ManifestCache::eraseUnlocked(PublicKey const& masterKey)
+{
+    auto const iter = map_.find(masterKey);
+    if (iter == map_.end())
+        return;
+
+    if (iter->second.signingKey)
+        signingToMasterKeys_.erase(*iter->second.signingKey);
+    map_.erase(iter);
+    evictable_.erase(masterKey);
+    lastUsed_.erase(masterKey);
+}
+
+bool
+ManifestCache::evictOneUnlocked()
+{
+    if (evictable_.empty())
+        return false;
+
+    auto victim = evictable_.begin();
+    auto victimTick = std::numeric_limits<std::uint64_t>::max();
+    for (auto iter = evictable_.begin(); iter != evictable_.end(); ++iter)
+    {
+        auto const used = lastUsed_.find(*iter);
+        auto const tick = used == lastUsed_.end()
+            ? 0
+            : used->second.load(std::memory_order_relaxed);
+        if (tick < victimTick)
+        {
+            victim = iter;
+            victimTick = tick;
+        }
+    }
+
+    auto const masterKey = *victim;
+    eraseUnlocked(masterKey);
+    return true;
+}
+
+void
 ManifestCache::pin(hash_set<PublicKey> keys)
 {
     std::lock_guard lock{mutex_};
 
-    if (keys == pinned_)
-        return;
-
+    bool changed = keys != pinned_;
     pinned_ = std::move(keys);
 
-    // The pinned set is part of what a gossip message contains, so a change to
-    // it has to invalidate any message cached against this sequence.
-    ++seq_;
+    // pin() is the sole demotion boundary. An incoming unlisted manifest can
+    // never demote protected state, while identities removed from local policy
+    // become recoverable residue and therefore count against the hard cap.
+    for (auto const& [masterKey, manifest] : map_)
+    {
+        (void)manifest;
+        if (configured_.contains(masterKey) || pinned_.contains(masterKey))
+            changed = evictable_.erase(masterKey) != 0 || changed;
+        else
+            changed = evictable_.insert(masterKey).second || changed;
+    }
+
+    while (evictable_.size() > evictableLimit_)
+    {
+        if (!evictOneUnlocked())
+            break;
+        changed = true;
+    }
+
+    // Protection changes affect both resolution and the bounded gossip view.
+    if (changed)
+        ++seq_;
 }
 
 namespace {
@@ -498,7 +558,8 @@ ManifestCache::applyLedger(
 
         if (auto mo = manifestFromSLE(*sle, j_); mo && mo->masterKey == pk &&
             sle->getAccountID(sfAccount) == calcAccountID(mo->masterKey) &&
-            applyManifest(std::move(*mo), true) ==
+            applyManifest(
+                std::move(*mo), true, ManifestRetention::protected_) ==
                 ManifestDisposition::accepted)
             ++accepted;
     }
@@ -569,7 +630,7 @@ ManifestCache::applyLedgerSigningKey(
         *mo->signingKey == signingKey &&
         keylet::manifest(mo->masterKey).key == manifestID &&
         sleManifest->getAccountID(sfAccount) == calcAccountID(mo->masterKey))
-        applyManifest(std::move(*mo), true);
+        applyManifest(std::move(*mo), true, ManifestRetention::evictable);
 
     // Only a signing key resolves: a master key is its own master.
     return held();
@@ -631,12 +692,22 @@ ManifestCache::checkKeyRoles(Manifest const& m) const
 ManifestDisposition
 ManifestCache::applyManifest(Manifest m)
 {
-    return applyManifest(std::move(m), false);
+    return applyManifest(std::move(m), false, ManifestRetention::protected_);
 }
 
 ManifestDisposition
-ManifestCache::applyManifest(Manifest m, bool ledgerAuthoritative)
+ManifestCache::applyManifest(Manifest m, ManifestRetention retention)
 {
+    return applyManifest(std::move(m), false, retention);
+}
+
+ManifestDisposition
+ManifestCache::applyManifest(
+    Manifest m,
+    bool ledgerAuthoritative,
+    ManifestRetention retention)
+{
+    bool const protect = retention == ManifestRetention::protected_;
     // Check the manifest against the conditions that do not require a
     // `unique_lock` (write lock) on the `mutex_`. Since the signature can be
     // relatively expensive, the `checkSignature` parameter determines if the
@@ -706,13 +777,28 @@ ManifestCache::applyManifest(Manifest m, bool ledgerAuthoritative)
 
     {
         std::shared_lock sl{mutex_};
-        if (auto d =
-                prewriteCheck(map_.find(m.masterKey), /*checkSig*/ true, sl))
-            return *d;
+        auto const iter = map_.find(m.masterKey);
+        if (auto d = prewriteCheck(iter, /*checkSig*/ true, sl))
+        {
+            // A stale protected application still promotes a retained
+            // evictable row. Defer that policy mutation to the write lock.
+            if (!protect || *d != ManifestDisposition::stale ||
+                !evictable_.contains(m.masterKey))
+                return *d;
+        }
     }
 
     std::unique_lock sl{mutex_};
     auto const iter = map_.find(m.masterKey);
+
+    if (protect && iter != map_.end() && m.sequence <= iter->second.sequence &&
+        !(ledgerAuthoritative && m.sequence == iter->second.sequence &&
+          m.serialized != iter->second.serialized))
+    {
+        if (evictable_.erase(m.masterKey) != 0)
+            ++seq_;
+        return ManifestDisposition::stale;
+    }
     // Since we released the previously held read lock, it's possible that the
     // collections have been written to. This means we need to run
     // `prewriteCheck` again. This re-does work, but `prewriteCheck` is
@@ -724,6 +810,14 @@ ManifestCache::applyManifest(Manifest m, bool ledgerAuthoritative)
     // deadlock.
     if (auto d = prewriteCheck(iter, /*checkSig*/ false, sl))
         return *d;
+
+    if (iter == map_.end() && !protect)
+    {
+        if (evictableLimit_ == 0)
+            return ManifestDisposition::stale;
+        if (evictable_.size() >= evictableLimit_ && !evictOneUnlocked())
+            return ManifestDisposition::stale;
+    }
 
     bool const revoked = m.revoked();
     // This is the first manifest we are seeing for a master key. This should
@@ -737,10 +831,13 @@ ManifestCache::applyManifest(Manifest m, bool ledgerAuthoritative)
             signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
 
         // Kept in step with map_ so touch() never has to insert; see
-        // lastUsed_.
-        lastUsed_.try_emplace(m.masterKey, 0);
+        // lastUsed_. New rows begin most-recent so capacity admission cannot
+        // immediately discard the row it just paid to verify.
+        lastUsed_.try_emplace(m.masterKey, ++tick_);
 
         auto masterKey = m.masterKey;
+        if (!protect)
+            evictable_.insert(masterKey);
         map_.emplace(std::move(masterKey), std::move(m));
 
         // Increment sequence to invalidate cached manifest messages
@@ -766,6 +863,9 @@ ManifestCache::applyManifest(Manifest m, bool ledgerAuthoritative)
         signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
 
     iter->second = std::move(m);
+    if (protect)
+        evictable_.erase(iter->first);
+    touch(iter->first);
     // Something has changed. Keep track of it.
     seq_++;
 
@@ -776,7 +876,8 @@ void
 ManifestCache::load(DatabaseCon& dbCon, std::string const& dbTable)
 {
     auto db = dbCon.checkoutDb();
-    ripple::getManifests(*db, dbTable, *this, j_);
+    ripple::getManifests(
+        *db, dbTable, *this, ManifestRetention::protected_, j_);
 }
 
 bool
@@ -786,7 +887,14 @@ ManifestCache::load(
     std::string const& configManifest,
     std::vector<std::string> const& configRevocation)
 {
-    load(dbCon, dbTable);
+    {
+        // Wallet rows reflect a previous trust view. Load them directly into
+        // the bounded residue; current lists will promote relevant masters at
+        // the first pin() reconciliation.
+        auto db = dbCon.checkoutDb();
+        ripple::getManifests(
+            *db, dbTable, *this, ManifestRetention::evictable, j_);
+    }
 
     if (!configManifest.empty())
     {
@@ -802,11 +910,15 @@ ManifestCache::load(
             JLOG(j_.warn()) << "Configured manifest revokes public key";
         }
 
-        if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
+        auto const masterKey = mo->masterKey;
+        if (applyManifest(std::move(*mo), ManifestRetention::protected_) ==
+            ManifestDisposition::invalid)
         {
             JLOG(j_.error()) << "Manifest in config was rejected";
             return false;
         }
+        std::unique_lock lock{mutex_};
+        configured_.insert(masterKey);
     }
 
     if (!configRevocation.empty())
@@ -831,11 +943,15 @@ ManifestCache::load(
             return false;
         }
 
-        if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
+        auto const masterKey = mo->masterKey;
+        if (applyManifest(std::move(*mo), ManifestRetention::protected_) ==
+            ManifestDisposition::invalid)
         {
             JLOG(j_.error()) << "Invalid validator key revocation in config";
             return false;
         }
+        std::unique_lock lock{mutex_};
+        configured_.insert(masterKey);
     }
 
     return true;

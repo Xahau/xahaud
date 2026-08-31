@@ -246,6 +246,14 @@ enum class ManifestDisposition {
     invalid
 };
 
+/** Retention class for an accepted validator manifest.
+
+    Protected entries are required by current local policy or configuration.
+    Everything else is recoverable residue and shares one bounded population.
+    Retention does not grant validator-list membership or consensus weight.
+*/
+enum class ManifestRetention : std::uint8_t { evictable, protected_ };
+
 inline std::string
 to_string(ManifestDisposition m)
 {
@@ -301,6 +309,12 @@ private:
     /** Master public keys stored by current ephemeral public key. */
     hash_map<PublicKey, PublicKey> signingToMasterKeys_;
 
+    /** Retained masters not protected by current local policy. */
+    hash_set<PublicKey> evictable_;
+
+    /** Masters supplied directly by local validator configuration. */
+    hash_set<PublicKey> configured_;
+
     /** Master keys always offered to a peer, whatever their recency.
 
         Set by pin(); in practice the master keys on the configured validator
@@ -311,10 +325,10 @@ private:
     /** Recency of use, keyed by master public key.
 
         The structure of this map is guarded by mutex_ exactly as map_ is:
-        entries are created next to it in applyManifest() and are never
-        removed. The counters themselves are atomic, so recording a hit is a
-        write to an atomic rather than a structural modification and is legal
-        while only a shared lock is held.
+        entries are created next to it in applyManifest() and removed only
+        with the corresponding manifest row. The counters themselves are
+        atomic, so recording a hit is a write to an atomic rather than a
+        structural modification and is legal while only a shared lock is held.
 
         This is deliberately not a second mutex. A second mutex would have to
         be ordered against mutex_, and that ordering would be an unenforced
@@ -322,6 +336,8 @@ private:
     */
     hash_map<PublicKey, std::atomic<std::uint64_t>> mutable lastUsed_;
     std::atomic<std::uint64_t> mutable tick_{0};
+
+    std::size_t const evictableLimit_;
 
     /** Ephemeral keys already probed against the ledger, and where.
 
@@ -344,7 +360,18 @@ private:
     touch(PublicKey const& masterKey) const;
 
     ManifestDisposition
-    applyManifest(Manifest m, bool ledgerAuthoritative);
+    applyManifest(
+        Manifest m,
+        bool ledgerAuthoritative,
+        ManifestRetention retention);
+
+    /** Remove one complete cache row while holding mutex_ exclusively. */
+    void
+    eraseUnlocked(PublicKey const& masterKey);
+
+    /** Remove the least recently used evictable row. */
+    bool
+    evictOneUnlocked();
 
     std::atomic<std::uint32_t> seq_{0};
 
@@ -354,6 +381,9 @@ private:
         bool allowSameMasterSigningKey = false) const;
 
 public:
+    /** Maximum recoverable residue retained by a production cache. */
+    static constexpr std::size_t evictableLimit = 1000;
+
     /** Ceiling on the unpinned manifests offered to a newly connected peer. */
     static constexpr std::size_t gossipLimit = 64;
 
@@ -366,8 +396,9 @@ public:
     static constexpr std::size_t probeLimit = 4096;
 
     explicit ManifestCache(
-        beast::Journal j = beast::Journal(beast::Journal::getNullSink()))
-        : j_(j)
+        beast::Journal j = beast::Journal(beast::Journal::getNullSink()),
+        std::size_t const maxEvictable = evictableLimit)
+        : j_(j), evictableLimit_(maxEvictable)
     {
     }
 
@@ -479,6 +510,15 @@ public:
     */
     ManifestDisposition
     applyManifest(Manifest m);
+
+    /** Add a manifest with an explicit retention class.
+
+        New evictable identities displace the least recently used evictable
+        row at capacity. Existing protected identities are never demoted by
+        ingress; pin() alone reconciles protection with local policy.
+    */
+    ManifestDisposition
+    applyManifest(Manifest m, ManifestRetention retention);
 
     /** Set the master keys that are always offered to peers.
 

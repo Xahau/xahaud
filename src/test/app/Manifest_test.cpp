@@ -1106,6 +1106,89 @@ public:
                 ManifestDisposition::badMasterKey);
         }
 
+        {
+            testcase("bounded evictable retention");
+
+            ManifestCache bounded{
+                beast::Journal(beast::Journal::getNullSink()), 2};
+
+            struct TestManifest
+            {
+                Manifest manifest;
+                PublicKey signingKey;
+            };
+            auto make = [this]() {
+                auto const master = randomSecretKey();
+                auto const signing = randomKeyPair(KeyType::secp256k1);
+                return TestManifest{
+                    makeManifest(
+                        master,
+                        KeyType::ed25519,
+                        signing.second,
+                        KeyType::secp256k1,
+                        0),
+                    signing.first};
+            };
+
+            auto a = make();
+            auto b = make();
+            auto c = make();
+            auto protectedManifest = make();
+
+            BEAST_EXPECT(
+                bounded.applyManifest(
+                    clone(a.manifest), ManifestRetention::evictable) ==
+                ManifestDisposition::accepted);
+            BEAST_EXPECT(
+                bounded.applyManifest(
+                    clone(b.manifest), ManifestRetention::evictable) ==
+                ManifestDisposition::accepted);
+
+            // Touch a after b, then admit c. The complete b row must go:
+            // master bytes, reverse signing-key mapping, and recency entry.
+            BEAST_EXPECT(bounded.getRawManifest(a.manifest.masterKey));
+            BEAST_EXPECT(
+                bounded.applyManifest(
+                    clone(c.manifest), ManifestRetention::evictable) ==
+                ManifestDisposition::accepted);
+            BEAST_EXPECT(!bounded.getManifestSnapshot(b.manifest.masterKey));
+            BEAST_EXPECT(bounded.getMasterKey(b.signingKey) == b.signingKey);
+
+            // Protected rows do not consume residue capacity and survive
+            // churn. pin() is the sole policy boundary that can demote them.
+            BEAST_EXPECT(
+                bounded.applyManifest(clone(protectedManifest.manifest)) ==
+                ManifestDisposition::accepted);
+            bounded.pin({protectedManifest.manifest.masterKey});
+
+            auto d = make();
+            BEAST_EXPECT(
+                bounded.applyManifest(
+                    clone(d.manifest), ManifestRetention::evictable) ==
+                ManifestDisposition::accepted);
+            BEAST_EXPECT(bounded.getManifestSnapshot(
+                protectedManifest.manifest.masterKey));
+
+            bounded.pin({});
+            std::size_t retained = 0;
+            bounded.for_each_manifest(
+                [&](std::size_t n) { retained = n; }, [](Manifest const&) {});
+            BEAST_EXPECT(retained == 2);
+            BEAST_EXPECT(bounded.getManifestSnapshot(
+                protectedManifest.manifest.masterKey));
+
+            // An evicted identity is recoverable and re-enters only by paying
+            // the ordinary manifest verification path again.
+            BEAST_EXPECT(
+                bounded.applyManifest(
+                    clone(b.manifest), ManifestRetention::evictable) ==
+                ManifestDisposition::accepted);
+            BEAST_EXPECT(bounded.getManifestSnapshot(b.manifest.masterKey));
+            bounded.for_each_manifest(
+                [&](std::size_t n) { retained = n; }, [](Manifest const&) {});
+            BEAST_EXPECT(retained == 2);
+        }
+
         testLoadStore(cache);
         testGetSignature();
         testGetKeys();

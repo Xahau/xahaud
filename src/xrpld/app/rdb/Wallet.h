@@ -58,6 +58,7 @@ makeTestWalletDB(
  * @param dbTable Name of the database table from which the manifest will be
  *        extracted.
  * @param mCache Cache for storing the manifest.
+ * @param retention Retention assigned to loaded rows.
  * @param j Journal.
  */
 void
@@ -65,6 +66,7 @@ getManifests(
     soci::session& session,
     std::string const& dbTable,
     ManifestCache& mCache,
+    ManifestRetention retention,
     beast::Journal j);
 
 /**

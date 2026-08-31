@@ -27,6 +27,7 @@
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Feature.h>
@@ -8483,15 +8484,38 @@ private:
         return std::string(static_cast<char const*>(s.data()), s.size());
     }
 
-    // A manifest transaction carries no account signature, so it cannot be
-    // submitted through env() the way a signed transaction can. Returns the
-    // resulting transaction id so the caller can inspect its metadata.
+    // First registration requires the manifest owner's ordinary account
+    // signature. Build that valid envelope here while retaining the manifest's
+    // own master/signing-key authority for the stake-holder relationship under
+    // test. Returns the transaction id so the caller can inspect its metadata.
     uint256
-    submitManifest(jtx::Env& env, std::string const& manifest)
+    submitManifest(
+        jtx::Env& env,
+        jtx::Account const& account,
+        std::string const& manifest)
     {
-        Json::Value params;
-        params[jss::manifest] = strHex(manifest);
-        auto const jrr = env.rpc("json", "submit", to_string(params));
+        auto const build = [&](XRPAmount fee) {
+            auto tx =
+                std::make_shared<STTx>(ttMANIFEST_SET, [&](STObject& obj) {
+                    obj.setAccountID(sfAccount, account.id());
+                    obj.setFieldU32(sfSequence, env.seq(account));
+                    obj.setFieldU32(sfNetworkID, env.app().config().NETWORK_ID);
+                    obj.setFieldAmount(sfFee, fee);
+                    obj.setFieldVL(sfSigningPubKey, account.pk().slice());
+
+                    SerialIter mit{makeSlice(manifest)};
+                    obj.peekFieldObject(sfManifest).set(mit);
+                });
+            tx->sign(account.pk(), account.sk());
+            return tx;
+        };
+
+        auto const probe = build(XRPAmount{0});
+        auto const tx =
+            build(SetManifest::calculateBaseFee(*env.current(), *probe));
+        Serializer s;
+        tx->add(s);
+        auto const jrr = env.rpc("submit", strHex(s.slice()));
 
         auto const& result = jrr[jss::result];
 
@@ -8555,8 +8579,8 @@ private:
 
             setTSHHook(env, ephemeral, testStrong);
 
-            auto const txHash =
-                submitManifest(env, makeManifestString(master, ephemeral, 1));
+            auto const txHash = submitManifest(
+                env, master, makeManifestString(master, ephemeral, 1));
             env.close();
 
             // A strong hook on a weak stake holder is never reached.
@@ -8582,6 +8606,7 @@ private:
 
             auto const txHash = submitManifest(
                 env,
+                master,
                 makeManifestString(
                     master,
                     ephemeral,

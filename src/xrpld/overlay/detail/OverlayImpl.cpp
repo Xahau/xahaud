@@ -678,8 +678,10 @@ OverlayImpl::onManifests(
                 continue;
             }
 
-            auto const result =
-                app_.validatorManifests().applyManifest(std::move(*mo));
+            auto const result = app_.validatorManifests().applyManifest(
+                std::move(*mo),
+                listed ? ManifestRetention::protected_
+                       : ManifestRetention::evictable);
 
             if (result == ManifestDisposition::invalid)
                 from->charge(
