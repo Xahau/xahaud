@@ -956,11 +956,19 @@ struct SetManifest_test : public beast::unit_test::suite
         auto const priced = envelope(env, good, master.id());
         auto const canonicalFee = priced->getFieldAmount(sfFee).xrp();
 
+        auto const nonCanonicalFee =
+            envelope(env, good, master.id(), [&](STObject& obj) {
+                obj.setFieldAmount(sfFee, canonicalFee + XRPAmount{1});
+            });
+        auto const [feeValidity, feeReason] = checkValidity(
+            env.app().getHashRouter(),
+            *nonCanonicalFee,
+            env.current()->rules(),
+            env.app().config());
+        BEAST_EXPECT(feeValidity == Validity::SigBad);
         BEAST_EXPECT(
-            applyDirect(
-                env, envelope(env, good, master.id(), [&](STObject& obj) {
-                    obj.setFieldAmount(sfFee, canonicalFee + XRPAmount{1});
-                })) == temBAD_FEE);
+            feeReason == "Manifest-authorized envelope has non-canonical fee");
+        BEAST_EXPECT(applyDirect(env, nonCanonicalFee) == temBAD_FEE);
 
         BEAST_EXPECT(
             applyDirect(
