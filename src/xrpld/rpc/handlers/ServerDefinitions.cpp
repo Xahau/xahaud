@@ -546,24 +546,11 @@ doServerDefinitions(RPC::JsonContext& context)
             features[to_string(h)][jss::majority] =
                 t.time_since_epoch().count();
 
-        // Amendment activation has two independent sources; surface both so a
-        // consumer isn't misled by a node that force-enables amendments:
-        //   ledger_enabled : recorded in the on-ledger Amendments object
-        //                    (network-canonical; what the table reports as
-        //                    "enabled")
-        //   cfg_forced     : force-activated via the [features] config stanza
-        //                    (node-local; active in the Rules regardless of the
-        //                    ledger, casts no votes, never written on-ledger)
-        //   enabled        : effective for transaction processing on this
-        //                    server, i.e. ledger_enabled || cfg_forced
+        // getJson's enabled is on-ledger; [features] also apply here.
         for (auto const& name : features.getMemberNames())
         {
             Json::Value& entry = features[name];
-            bool const ledgerEnabled = entry[jss::enabled].asBool();
-            entry[jss::ledger_enabled] = ledgerEnabled;
-            entry[jss::cfg_forced] = false;
-            // entry[jss::enabled] is left == ledgerEnabled here; only
-            // cfg_forced amendments below flip it.
+            entry[jss::ledger_enabled] = entry[jss::enabled].asBool();
         }
         for (auto const& h : context.app.config().features)
         {
@@ -575,8 +562,7 @@ doServerDefinitions(RPC::JsonContext& context)
             }
             if (!entry.isMember(jss::ledger_enabled))
                 entry[jss::ledger_enabled] = false;
-            entry[jss::cfg_forced] = true;
-            entry[jss::enabled] = true;  // ledger_enabled || cfg_forced
+            entry[jss::enabled] = true;
         }
 
         lastFeatures = features;
