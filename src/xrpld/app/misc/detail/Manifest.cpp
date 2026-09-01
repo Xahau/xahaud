@@ -615,16 +615,17 @@ ManifestCache::applyLedgerSigningKey(
         probed_.emplace(signingKey, seq);
     }
 
-    auto const sleManifest = view.read(keylet::manifest(signingKey));
-    if (!sleManifest)
+    auto const sle = view.read(keylet::manifest(signingKey));
+    if (!sle)
         return std::nullopt;
 
-    // Active manifests are complete under both their master and signing keys.
-    // This cold path therefore needs one bounded state lookup; applyManifest()
-    // verifies the signed binding before admitting it to the local cache.
-    if (auto mo = manifestFromSLE(*sleManifest, j_); mo && mo->signingKey &&
-        *mo->signingKey == signingKey &&
-        sleManifest->getAccountID(sfAccount) == calcAccountID(mo->masterKey))
+    // Every manifest is written at both its master and its ephemeral keylet,
+    // so an object here is either the manifest naming signingKey as its
+    // ephemeral key -- the case worth having -- or the manifest of a master
+    // key that is what was asked about. Ingesting either is correct, and
+    // applyManifest() verifies both signatures, so nothing found here can
+    // assert a binding its key holder did not sign for.
+    if (auto mo = manifestFromSLE(*sle, j_))
         applyManifest(std::move(*mo), true, ManifestRetention::evictable);
 
     // Only a signing key resolves: a master key is its own master.

@@ -825,8 +825,9 @@ struct SetManifest_test : public beast::unit_test::suite
             cache.applyLedgerSigningKey(*env.closed(), eph2.pk()) ==
             master.pk());
 
-        // A master key is not a signing key and therefore has no inverse
-        // index. Master-key reconciliation uses applyLedger() directly.
+        // A master key is not a signing key. The object at its keylet is a
+        // perfectly good manifest and is ingested, but it binds eph2, not the
+        // master key, so nothing is reported for the key asked about.
         BEAST_EXPECT(!cache.applyLedgerSigningKey(*env.closed(), master.pk()));
 
         // A revoked master publishes no ephemeral object at all, so this
