@@ -615,20 +615,15 @@ ManifestCache::applyLedgerSigningKey(
         probed_.emplace(signingKey, seq);
     }
 
-    auto const sleIndex = view.read(keylet::manifestSigningKey(signingKey));
-    if (!sleIndex)
-        return std::nullopt;
-
-    auto const manifestID = sleIndex->getFieldH256(sfManifestID);
-    auto const sleManifest = view.read(Keylet{ltMANIFEST, manifestID});
+    auto const sleManifest = view.read(keylet::manifest(signingKey));
     if (!sleManifest)
         return std::nullopt;
 
-    // Follow the thin index only when the full signed object points back to
-    // the key asked for and occupies its canonical master-key location.
+    // Active manifests are complete under both their master and signing keys.
+    // This cold path therefore needs one bounded state lookup; applyManifest()
+    // verifies the signed binding before admitting it to the local cache.
     if (auto mo = manifestFromSLE(*sleManifest, j_); mo && mo->signingKey &&
         *mo->signingKey == signingKey &&
-        keylet::manifest(mo->masterKey).key == manifestID &&
         sleManifest->getAccountID(sfAccount) == calcAccountID(mo->masterKey))
         applyManifest(std::move(*mo), true, ManifestRetention::evictable);
 

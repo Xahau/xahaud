@@ -223,24 +223,6 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
-/** A thin lookup from a validator's active signing key to its canonical
-    manifest object.
-
-    The complete signed manifest exists only once, at keylet::manifest(master).
-    That is the common read path: locally trusted master keys are reconciled
-    against every validated ledger. This derived index serves the inverse,
-    comparatively rare path where a validation arrives under a signing key
-    missing from the local manifest cache. Paying one extra ledger read there
-    avoids duplicating the complete signed payload on the common path.
-
-    \sa keylet::manifestSigningKey
- */
-LEDGER_ENTRY(ltMANIFEST_SIGNING_KEY, 0x0056, ManifestSigningKey, manifest_signing_key, ({
-    {sfManifestID,          soeREQUIRED},
-    {sfPreviousTxnID,       soeREQUIRED},
-    {sfPreviousTxnLgrSeq,   soeREQUIRED},
-}))
-
 /** A ledger object which describes an account.
 
     \sa keylet::account
@@ -613,7 +595,10 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
 
 LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
     {sfAccount,             soeREQUIRED},
-    {sfOwnerNode,           soeREQUIRED},
+    /* The master-key copy is the owned object. The signing-key copy is a
+       complete derived lookup and points back to its owner without pretending
+       to occupy the owner's directory a second time. */
+    {sfOwnerNode,           soeOPTIONAL},
     {sfPublicKey,           soeREQUIRED},
     {sfSigningPubKey,       soeOPTIONAL}, /* may be absent if the master is revoked */
     {sfSequence,            soeREQUIRED},
@@ -627,6 +612,9 @@ LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
        by any node reading it (see ManifestCache::applyLedger). */
     {sfMasterSignature,     soeREQUIRED},
     {sfSignature,           soeOPTIONAL}, /* absent if the master is revoked */
+    /* Active manifests are stored under both keys. Each copy points at the
+       other; a terminal revocation has only the owned master-key copy. */
+    {sfManifestID,          soeOPTIONAL},
     {sfPreviousTxnID,       soeREQUIRED},
     {sfPreviousTxnLgrSeq,   soeREQUIRED},
 }))

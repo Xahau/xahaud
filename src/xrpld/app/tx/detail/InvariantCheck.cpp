@@ -613,7 +613,6 @@ LedgerEntryTypesMatch::visitEntry(
             case ltCREDENTIAL:
             case ltPERMISSIONED_DOMAIN:
             case ltMANIFEST:
-            case ltMANIFEST_SIGNING_KEY:
                 break;
             default:
                 invalidTypeAdded_ = true;

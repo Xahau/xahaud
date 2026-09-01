@@ -272,9 +272,12 @@ SetManifest::preclaim(PreclaimContext const& ctx)
             sleOld->getAccountID(sfAccount) != id)
             return tefBAD_LEDGER;
     }
-    else if (ctx.view.exists(canonical))
+    else if (auto const occupied = ctx.view.read(canonical))
     {
-        return tefBAD_LEDGER;
+        // With one namespace for both lookup directions, this master key may
+        // already be another account's active signing key.
+        return occupied->getAccountID(sfAccount) == id ? tefBAD_LEDGER
+                                                       : tecDUPLICATE;
     }
 
     // Manifest-only authority may rotate or revoke an existing registration,
@@ -316,33 +319,14 @@ SetManifest::preclaim(PreclaimContext const& ctx)
         }
     }
 
-    // On-chain equivalent of the badMasterKey/badEphemeralKey sanity checks in
-    // ManifestCache::applyManifest. Separate ledger namespaces no longer make
-    // master/signing-key reuse collide accidentally, so preserve that global
-    // key-role exclusion explicitly.
-    if (ctx.view.exists(keylet::manifestSigningKey(newManifest->masterKey)))
-    {
-        JLOG(ctx.j.warn())
-            << "SetManifest: Master key is already another manifest's "
-               "signing key. "
-            << id;
-        return tecDUPLICATE;
-    }
-
+    // Both lookup directions share one namespace and contain the complete
+    // manifest. Occupancy therefore enforces the same master/signing role
+    // exclusion as ManifestCache without a separate index object.
     if (newManifest->signingKey)
     {
-        if (ctx.view.exists(keylet::manifest(*newManifest->signingKey)))
-        {
-            JLOG(ctx.j.warn())
-                << "SetManifest: Signing key is already another manifest's "
-                   "master key. "
-                << id;
-            return tecDUPLICATE;
-        }
-
-        auto const sleIndex =
-            ctx.view.read(keylet::manifestSigningKey(*newManifest->signingKey));
-        if (sleIndex && sleIndex->getFieldH256(sfManifestID) != canonical.key)
+        auto const occupied =
+            ctx.view.read(keylet::manifest(*newManifest->signingKey));
+        if (occupied && occupied->getAccountID(sfAccount) != id)
         {
             JLOG(ctx.j.warn())
                 << "SetManifest: Signing key is already claimed by another "
@@ -384,11 +368,11 @@ SetManifest::doApply()
     bool const creating = !sle->isFieldPresent(sfManifestID);
     std::optional<std::uint64_t> ownerNode;
 
-    // One complete manifest lives at the stable master-key keylet because
-    // locally trusted masters are the common reconciliation path on every
-    // validated ledger. The active signing key has only a thin pointer: that
-    // inverse lookup is needed on the comparatively rare validation-cache
-    // miss. Validate and erase the old pair before publishing the replacement.
+    // Active manifests live under both their master and signing keys. The
+    // duplication keeps both lookup directions to one state-tree walk; at
+    // validator-scale cardinality that is simpler than a pointer chase. Only
+    // the stable master-key copy is owned and charged a reserve. Validate and
+    // erase the old pair before publishing the replacement.
     if (sle->isFieldPresent(sfManifestID))
     {
         if (sle->getFieldH256(sfManifestID) != canonical.key)
@@ -403,6 +387,8 @@ SetManifest::doApply()
             return tefBAD_LEDGER;
         }
 
+        if (!sleManifest->isFieldPresent(sfOwnerNode))
+            return tefBAD_LEDGER;
         ownerNode = sleManifest->getFieldU64(sfOwnerNode);
 
         if (sleManifest->isFieldPresent(sfSigningPubKey))
@@ -412,17 +398,25 @@ SetManifest::doApply()
                 return tefBAD_LEDGER;
 
             auto const oldSigning = PublicKey(makeSlice(bytes));
-            auto const oldIndex =
-                view().peek(keylet::manifestSigningKey(oldSigning));
-            if (!oldIndex ||
-                oldIndex->getFieldH256(sfManifestID) != canonical.key)
+            auto const oldCopy = view().peek(keylet::manifest(oldSigning));
+            if (!sleManifest->isFieldPresent(sfManifestID) ||
+                sleManifest->getFieldH256(sfManifestID) !=
+                    keylet::manifest(oldSigning).key ||
+                !oldCopy || oldCopy->getAccountID(sfAccount) != account_ ||
+                oldCopy->isFieldPresent(sfOwnerNode) ||
+                !oldCopy->isFieldPresent(sfManifestID) ||
+                oldCopy->getFieldH256(sfManifestID) != canonical.key)
             {
-                JLOG(j_.error()) << "SetManifest: Signing-key index missing "
+                JLOG(j_.error()) << "SetManifest: Signing-key copy missing "
                                     "or misdirected !! "
                                  << strHex(canonical.key);
                 return tefBAD_LEDGER;
             }
-            view().erase(oldIndex);
+            view().erase(oldCopy);
+        }
+        else if (sleManifest->isFieldPresent(sfManifestID))
+        {
+            return tefBAD_LEDGER;
         }
 
         view().erase(sleManifest);
@@ -432,17 +426,14 @@ SetManifest::doApply()
         return tefBAD_LEDGER;
     }
 
-    std::optional<Keylet> signingIndex;
+    std::optional<Keylet> signingCopy;
     if (manifest->signingKey)
-        signingIndex = keylet::manifestSigningKey(*manifest->signingKey);
+        signingCopy = keylet::manifest(*manifest->signingKey);
 
-    // Preclaim enforces cross-role uniqueness. Recheck the actual mutation
-    // targets after removing this account's old index.
+    // Preclaim enforces cross-role uniqueness. Recheck the two actual mutation
+    // targets after removing this account's old copies.
     if (view().exists(canonical) ||
-        (signingIndex && view().exists(*signingIndex)) ||
-        view().exists(keylet::manifestSigningKey(manifest->masterKey)) ||
-        (manifest->signingKey &&
-         view().exists(keylet::manifest(*manifest->signingKey))))
+        (signingCopy && view().exists(*signingCopy)))
     {
         JLOG(j_.error()) << "SetManifest: Manifest keylet already occupied !! "
                          << strHex(canonical.key);
@@ -451,8 +442,8 @@ SetManifest::doApply()
 
     if (creating)
     {
-        // Registration creates one durable account obligation. The thin
-        // signing-key index is derived lookup data and consumes no second
+        // Registration creates one durable account obligation. The full
+        // signing-key copy is derived lookup data and consumes no second
         // reserve. Rotation and revocation retain this same directory entry.
         auto const balance = STAmount((*sle)[sfBalance]).xrp();
         auto const reserve =
@@ -476,30 +467,35 @@ SetManifest::doApply()
     // Field *presence* is copied faithfully: sfVersion is soeDEFAULT in the
     // manifest format, so materialising an absent one would alter the signed
     // payload and break verification.
-    auto sleManifest = std::make_shared<SLE>(canonical);
-    sleManifest->setAccountID(sfAccount, account_);
-    sleManifest->setFieldU64(sfOwnerNode, *ownerNode);
-    sleManifest->setFieldU32(sfSequence, obj.getFieldU32(sfSequence));
-    sleManifest->setFieldVL(sfPublicKey, obj.getFieldVL(sfPublicKey));
-    sleManifest->setFieldVL(
-        sfMasterSignature, obj.getFieldVL(sfMasterSignature));
-    if (obj.isFieldPresent(sfVersion))
-        sleManifest->setFieldU16(sfVersion, obj.getFieldU16(sfVersion));
-    if (obj.isFieldPresent(sfSigningPubKey))
-        sleManifest->setFieldVL(
-            sfSigningPubKey, obj.getFieldVL(sfSigningPubKey));
-    if (obj.isFieldPresent(sfSignature))
-        sleManifest->setFieldVL(sfSignature, obj.getFieldVL(sfSignature));
-    if (obj.isFieldPresent(sfDomain))
-        sleManifest->setFieldVL(sfDomain, obj.getFieldVL(sfDomain));
-    view().insert(sleManifest);
+    auto const write = [&](Keylet const& keylet,
+                           std::optional<std::uint64_t> const owner,
+                           std::optional<uint256> const other) {
+        auto copy = std::make_shared<SLE>(keylet);
+        copy->setAccountID(sfAccount, account_);
+        if (owner)
+            copy->setFieldU64(sfOwnerNode, *owner);
+        copy->setFieldU32(sfSequence, obj.getFieldU32(sfSequence));
+        copy->setFieldVL(sfPublicKey, obj.getFieldVL(sfPublicKey));
+        copy->setFieldVL(sfMasterSignature, obj.getFieldVL(sfMasterSignature));
+        if (obj.isFieldPresent(sfVersion))
+            copy->setFieldU16(sfVersion, obj.getFieldU16(sfVersion));
+        if (obj.isFieldPresent(sfSigningPubKey))
+            copy->setFieldVL(sfSigningPubKey, obj.getFieldVL(sfSigningPubKey));
+        if (obj.isFieldPresent(sfSignature))
+            copy->setFieldVL(sfSignature, obj.getFieldVL(sfSignature));
+        if (obj.isFieldPresent(sfDomain))
+            copy->setFieldVL(sfDomain, obj.getFieldVL(sfDomain));
+        if (other)
+            copy->setFieldH256(sfManifestID, *other);
+        view().insert(copy);
+    };
 
-    if (signingIndex)
-    {
-        auto sleIndex = std::make_shared<SLE>(*signingIndex);
-        sleIndex->setFieldH256(sfManifestID, canonical.key);
-        view().insert(sleIndex);
-    }
+    write(
+        canonical,
+        ownerNode,
+        signingCopy ? std::optional<uint256>{signingCopy->key} : std::nullopt);
+    if (signingCopy)
+        write(*signingCopy, std::nullopt, canonical.key);
 
     sle->setFieldH256(sfManifestID, canonical.key);
     view().update(sle);

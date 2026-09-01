@@ -2620,7 +2620,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         auto const candidateListed = manifestContext &&
             app_.validators().listed(manifestContext->masterKey);
 
-        // An on-ledger signing-key index may make an otherwise unknown naked
+        // An on-ledger signing-key copy may make an otherwise unknown naked
         // validation relevant. Do not read the ledger on the peer strand: the
         // verification job first makes the sender pay for a valid signature,
         // then performs the bounded cold lookup against the validated ledger.
