@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """Project the sealed QuickJS bundle into one C++ translation unit."""
 
-from __future__ import annotations
-
+# HBB executes this build-time projector with Enterprise Linux 8's Python 3.6.
 import argparse
 import hashlib
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List, Optional, Tuple
 
 CHUNK = 64
 WASM_VALTYPE = {"i32", "i64"}
@@ -137,13 +136,13 @@ SURFACE_KEYS = frozenset(
 NESTED_SURFACE_KEYS = frozenset({"declaration", "manifest", "schema"})
 
 
-def _import_row(name: str, params: list[str], results: list[str]) -> dict[str, Any]:
+def _import_row(name: str, params: List[str], results: List[str]) -> Dict[str, Any]:
     return {"module": "env", "name": name, "params": params, "results": results}
 
 
 def _function_export(
-    name: str, params: list[str], results: list[str]
-) -> dict[str, Any]:
+    name: str, params: List[str], results: List[str]
+) -> Dict[str, Any]:
     return {"kind": "function", "name": name, "params": params, "results": results}
 
 
@@ -228,7 +227,7 @@ def quote(value: str) -> str:
     return json.dumps(value)
 
 
-def parse_consumer_lock(path: Path) -> dict[str, Any]:
+def parse_consumer_lock(path: Path) -> Dict[str, Any]:
     lock = json.loads(path.read_text())
     expected_keys = {
         "api_artifacts",
@@ -267,8 +266,8 @@ def parse_consumer_lock(path: Path) -> dict[str, Any]:
 
 
 def project_lock_values(
-    consumer: dict[str, Any], profile: dict[str, Any]
-) -> dict[str, str]:
+    consumer: Dict[str, Any], profile: Dict[str, Any]
+) -> Dict[str, str]:
     source = profile.get("source", {})
     if not isinstance(source, dict):
         raise LockError("QuickJS provider manifest is missing source")
@@ -320,13 +319,13 @@ def hex_bytes(value: str) -> str:
     return ", ".join(f"0x{value[i : i + 2]}" for i in range(0, 64, 2))
 
 
-def require(lock_values: dict[str, str], key: str) -> str:
+def require(lock_values: Dict[str, str], key: str) -> str:
     if key not in lock_values:
         raise LockError(f"QuickJS consumer projection missing {key}")
     return lock_values[key]
 
 
-def require_int(lock_values: dict[str, str], key: str) -> int:
+def require_int(lock_values: Dict[str, str], key: str) -> int:
     return int(require(lock_values, key))
 
 
@@ -344,7 +343,7 @@ def require_sealed(actual: object, expected: object, label: str) -> None:
         )
 
 
-def validate_api_artifacts(bundle: Path, lock_values: dict[str, str]) -> dict[str, str]:
+def validate_api_artifacts(bundle: Path, lock_values: Dict[str, str]) -> Dict[str, str]:
     manifest_path = bundle / "api-artifacts.json"
     manifest = json.loads(manifest_path.read_text())
     if not isinstance(manifest, dict) or set(manifest) != {"artifacts", "schema"}:
@@ -359,7 +358,7 @@ def validate_api_artifacts(bundle: Path, lock_values: dict[str, str]) -> dict[st
             "API artifact manifest file set disagrees with the consumer bundle"
         )
 
-    identities: dict[str, str] = {}
+    identities: Dict[str, str] = {}
     for source_path, artifact in API_ARTIFACTS.items():
         identity_name, local_name = artifact
         actual_digest = hashlib.sha256((bundle / local_name).read_bytes()).hexdigest()
@@ -398,14 +397,14 @@ def join_types(values: object, label: str) -> str:
     return ",".join(values)
 
 
-def wasm_signature(params: object, results: object, label: str) -> list[str]:
+def wasm_signature(params: object, results: object, label: str) -> List[str]:
     join_types(params, f"{label} params")
     join_types(results, f"{label} results")
     assert isinstance(params, list) and isinstance(results, list)
     return [WASM_BYTE[item] for item in results] + [WASM_BYTE[item] for item in params]
 
 
-def embed_body(data: bytes | None) -> str:
+def embed_body(data: Optional[bytes]) -> str:
     if data is None:
         return (
             "std::span<std::uint8_t const>\n"
@@ -439,7 +438,7 @@ def embed_body(data: bytes | None) -> str:
     )
 
 
-def format_export_row(item: dict[str, Any]) -> str:
+def format_export_row(item: Dict[str, Any]) -> str:
     kind = item["kind"]
     name = item["name"]
     if kind == "memory":
@@ -469,13 +468,13 @@ def format_export_row(item: dict[str, Any]) -> str:
     return "{" + ", ".join(fields) + "}"
 
 
-def require_typed_exports(exports: object, label: str) -> list[dict[str, Any]]:
+def require_typed_exports(exports: object, label: str) -> List[Dict[str, Any]]:
     if not isinstance(exports, list) or not all(
         isinstance(item, dict) for item in exports
     ):
         raise LockError(f"{label} must be a list of typed export rows")
-    names: list[str] = []
-    memory_rows: list[dict[str, Any]] = []
+    names: List[str] = []
+    memory_rows: List[Dict[str, Any]] = []
     for item in exports:
         kind = item.get("kind")
         name = item.get("name")
@@ -509,12 +508,12 @@ def require_typed_exports(exports: object, label: str) -> list[dict[str, Any]]:
     return exports
 
 
-def require_typed_imports(imports: object, label: str) -> list[dict[str, Any]]:
+def require_typed_imports(imports: object, label: str) -> List[Dict[str, Any]]:
     if not isinstance(imports, list) or not all(
         isinstance(item, dict) for item in imports
     ):
         raise LockError(f"{label} must be a list of typed import rows")
-    names: list[str] = []
+    names: List[str] = []
     for item in imports:
         module = item.get("module")
         name = item.get("name")
@@ -529,7 +528,7 @@ def require_typed_imports(imports: object, label: str) -> list[dict[str, Any]]:
     return imports
 
 
-def require_build(build: object, label: str) -> dict[str, Any]:
+def require_build(build: object, label: str) -> Dict[str, Any]:
     if not isinstance(build, dict):
         raise LockError(f"{label} is missing build metadata")
     stack = build.get("wasm_stack_bytes")
@@ -547,7 +546,7 @@ def require_build(build: object, label: str) -> dict[str, Any]:
 
 
 def cross_compare_int(
-    lock_values: dict[str, str], key: str, actual: object, label: str
+    lock_values: Dict[str, str], key: str, actual: object, label: str
 ) -> int:
     expected = require_int(lock_values, key)
     if actual != expected:
@@ -559,7 +558,7 @@ def cross_compare_int(
 
 
 def cross_compare_str(
-    lock_values: dict[str, str], key: str, actual: object, label: str
+    lock_values: Dict[str, str], key: str, actual: object, label: str
 ) -> str:
     expected = require(lock_values, key)
     if str(actual) != expected:
@@ -571,12 +570,19 @@ def cross_compare_str(
 
 
 def validate_lock(
-    profile: dict[str, Any],
-    native: dict[str, Any],
-    lock_values: dict[str, str],
+    profile: Dict[str, Any],
+    native: Dict[str, Any],
+    lock_values: Dict[str, str],
     wasmtime_version: str,
-    api_identities: dict[str, str],
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any], str, str, int]:
+    api_identities: Dict[str, str],
+) -> Tuple[
+    List[Dict[str, Any]],
+    List[Dict[str, Any]],
+    Dict[str, Any],
+    str,
+    str,
+    int,
+]:
     schema = require(lock_values, "MANIFEST_SCHEMA")
     if (
         schema != "xahau.quickjs.runtime-profile-lock.v1"
@@ -854,11 +860,11 @@ def validate_lock(
 def render_source(
     *,
     provenance: str,
-    lock_values: dict[str, str],
-    native: dict[str, Any],
-    provider_imports: list[dict[str, Any]],
-    provider_exports: list[dict[str, Any]],
-    native_imports: list[dict[str, Any]],
+    lock_values: Dict[str, str],
+    native: Dict[str, Any],
+    provider_imports: List[Dict[str, Any]],
+    provider_exports: List[Dict[str, Any]],
+    native_imports: List[Dict[str, Any]],
     declaration_sha: str,
     surface_sha: str,
     broad_declaration_sha: str,
@@ -867,7 +873,7 @@ def render_source(
     manifest_sha: str,
     expected_sha: str,
     expected_size: int,
-    wasm_bytes: bytes | None,
+    wasm_bytes: Optional[bytes],
     actual_native: str,
 ) -> str:
     provider_names = [item["name"] for item in provider_imports]
@@ -1087,7 +1093,7 @@ def project_bundle(bundle: Path, wasmtime_version: str, output: Path) -> int:
     ):
         fingerprint.update(path.read_bytes())
     fingerprint.update(wasmtime_version.encode())
-    wasm_bytes: bytes | None = None
+    wasm_bytes: Optional[bytes] = None
     if wasm_path.is_file():
         wasm_bytes = wasm_path.read_bytes()
         digest = hashlib.sha256(wasm_bytes).hexdigest()
