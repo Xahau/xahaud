@@ -90,7 +90,6 @@ enum class LedgerNameSpace : std::uint16_t {
     MPTOKEN_ISSUANCE = '~',
     MPTOKEN = 't',
     MANIFEST = 'M',
-    MANIFEST_SIGNING_KEY = LEDGER_NAMESPACE2(0x01, 'M'),
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
 
@@ -676,14 +675,6 @@ Keylet
 manifest(PublicKey const& pk) noexcept
 {
     return {ltMANIFEST, indexHash(LedgerNameSpace::MANIFEST, pk.slice())};
-}
-
-Keylet
-manifestSigningKey(PublicKey const& pk) noexcept
-{
-    return {
-        ltMANIFEST_SIGNING_KEY,
-        indexHash(LedgerNameSpace::MANIFEST_SIGNING_KEY, pk.slice())};
 }
 
 }  // namespace keylet

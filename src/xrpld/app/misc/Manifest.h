@@ -506,9 +506,9 @@ public:
 
         applyLedger() probes a known master key set, which cannot help a key
         this node has no manifest for: the master key is exactly what is
-        missing. SetManifest writes a thin signing-key index pointing to the
-        one canonical master-key manifest, so this comparatively rare cache
-        miss is two bounded reads rather than a ledger search.
+        missing. SetManifest stores the complete active manifest under both
+        keys, so this comparatively rare cache miss is one bounded state lookup
+        rather than a ledger search or pointer chase.
 
         Anything found is fed through applyManifest(), so an on-chain manifest
         faces the same signature check and the same staleness, revocation and
