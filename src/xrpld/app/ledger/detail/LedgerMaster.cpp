@@ -313,7 +313,7 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
             {
                 using namespace std::chrono_literals;
                 auto const now = app_.timeKeeper().closeTime();
-                if (*first > now && (*first - now) <= 1min)
+                if (*first > now && (*first - now) <= 5min)
                 {
                     // Shut down just before the amendment activates to
                     // avoid processing ledgers with unknown fields.
