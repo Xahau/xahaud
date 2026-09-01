@@ -130,7 +130,4 @@ generated
 # Suggested in-tree build directory
 /.build/
 
-# x-testnet runtime state; scenario definitions remain tracked.
-/.testnet/output/
-/.testnet/nodes/
 /testnet/
