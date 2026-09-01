@@ -368,11 +368,9 @@ SetManifest::doApply()
     bool const creating = !sle->isFieldPresent(sfManifestID);
     std::optional<std::uint64_t> ownerNode;
 
-    // Active manifests live under both their master and signing keys. The
-    // duplication keeps both lookup directions to one state-tree walk; at
-    // validator-scale cardinality that is simpler than a pointer chase. Only
-    // the stable master-key copy is owned and charged a reserve. Validate and
-    // erase the old pair before publishing the replacement.
+    // A manifest is stored twice so it can be found from either key. Each copy
+    // points at the other, and both are erased and rewritten on every update.
+    // Only the stable master-key copy is owned and charged a reserve.
     if (sle->isFieldPresent(sfManifestID))
     {
         if (sle->getFieldH256(sfManifestID) != canonical.key)

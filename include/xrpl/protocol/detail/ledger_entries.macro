@@ -595,9 +595,7 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
 
 LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
     {sfAccount,             soeREQUIRED},
-    /* The master-key copy is the owned object. The signing-key copy is a
-       complete derived lookup and points back to its owner without pretending
-       to occupy the owner's directory a second time. */
+    /* Present only on the owned master-key copy. */
     {sfOwnerNode,           soeOPTIONAL},
     {sfPublicKey,           soeREQUIRED},
     {sfSigningPubKey,       soeOPTIONAL}, /* may be absent if the master is revoked */
@@ -612,9 +610,7 @@ LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
        by any node reading it (see ManifestCache::applyLedger). */
     {sfMasterSignature,     soeREQUIRED},
     {sfSignature,           soeOPTIONAL}, /* absent if the master is revoked */
-    /* Active manifests are stored under both keys. Each copy points at the
-       other; a terminal revocation has only the owned master-key copy. */
-    {sfManifestID,          soeOPTIONAL},
+    {sfManifestID,          soeOPTIONAL}, /* pointer to the identical other copy on the other key */
     {sfPreviousTxnID,       soeREQUIRED},
     {sfPreviousTxnLgrSeq,   soeREQUIRED},
 }))
