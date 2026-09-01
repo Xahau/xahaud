@@ -276,8 +276,9 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     {
         // With one namespace for both lookup directions, this master key may
         // already be another account's active signing key.
-        return occupied->getAccountID(sfAccount) == id ? tefBAD_LEDGER
-                                                       : tecDUPLICATE;
+        if (occupied->getAccountID(sfAccount) == id)
+            return tefBAD_LEDGER;
+        return tecDUPLICATE;
     }
 
     // Manifest-only authority may rotate or revoke an existing registration,
