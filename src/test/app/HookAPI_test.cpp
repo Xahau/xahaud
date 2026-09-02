@@ -3941,310 +3941,119 @@ public:
 
         auto const _source_object =
             *strUnHex("81140000000000000000000000000000000000000000");
+
+        std::vector<std::pair<uint32_t, std::string>> const data_list = {
+            {// UINT16 Version
+             sfVersion.getCode(),
+             "10100001"},
+            {// UINT32 Sequence
+             sfSequence.getCode(),
+             "2400000001"},
+            // UINT64
+            {// Uint64 ExchangeRate
+             sfExchangeRate.getCode(),
+             "360000000000000001"},
+            {// UINT256 EmailHash
+             sfEmailHash.getCode(),
+             "4100000000000000000000000000000000"},
+            {// UINT256 ObjectID
+             sfObjectID.getCode(),
+             "5E000000000000000000000000000000000000000000000000000000000000000"
+             "0"},
+            {// Amount NativeAmount
+             sfAmount.getCode(),
+             "61999999999999999999999999999999999999999999999999999999999999999"
+             "999999999999999999999999999999999"},
+            {// Amount IOUAmount
+             sfAmount.getCode(),
+             "614999999999999999"},
+            {// Object AmountEntry
+             sfAmountEntry.getCode(),
+             "E05B614000000000000064E1"},
+            {// Array Memos
+             sfMemos.getCode(),
+             "F9EA7D04DEADBEEFE1F1"},
+            {// UINT8 TickSize
+             sfTickSize.getCode(),
+             "00101001"},
+            {// UINT160 TakerPaysCurrency
+             sfTakerPaysCurrency.getCode(),
+             "01110000000000000000000000005553440000000000"},
+            {// PathSet Paths
+             sfPaths.getCode(),
+             "0112300000000000000000000000005553440000000000054F6F784A58F9EFB0A"
+             "9EB90B83464F9D166461900"},
+            {// Vector256 Amendments
+             sfAmendments.getCode(),
+             "03132042426C4D4F1009EE67080A9B7965B44656D7714D104A72F9B4369F97ABF"
+             "044EE"},
+            {// Issue ClaimCurrency
+             sfClaimCurrency.getCode(),
+             "05180000000000000000000000005553440000000000054F6F784A58F9EFB0A9E"
+             "B90B83464F9D1664619"},
+            {// XChainBridge Native-Native
+             sfXChainBridge.getCode(),
+             "011914AE123A8556F3CF91154711376AFB0F894F832B3D000000000000"
+             "000000000000000000000000000014AE123A8556F3CF91154711376AFB"
+             "0F894F832B3D0000000000000000000000000000000000000000"},
+            {// Currency BaseAsset
+             sfBaseAsset.getCode(),
+             "011A0000000000000000000000005553440000000000"},
+        };
+        bool returnError = false;
+        for (auto const& data : data_list)
         {
-            // use UINT16
             auto source_object = _source_object;
-            auto field_object = *strUnHex("10100001");
-            // Version: 1
+            auto field_object = *strUnHex(data.second);
+            auto field_id = data.first;
 
-            auto const result = api.sto_emplace(
-                source_object, field_object, sfVersion.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            field_object.insert(
-                field_object.end(), source_object.begin(), source_object.end());
-            BEAST_EXPECT(result.value() == field_object);
+            // test invalid insert
+            // all should return error after fixHookAPISType Amendment
+            auto const fo = Blob{field_object.begin(), field_object.end() - 1};
+            auto const result1 = api.sto_emplace(source_object, fo, field_id);
+            auto const so =
+                Blob{source_object.begin(), source_object.end() - 1};
+            auto const result2 = api.sto_emplace(so, field_object, field_id);
 
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfVersion.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
+            auto ft = field_object;
+            ft.push_back(0);
+            auto const result3 = api.sto_emplace(source_object, ft, field_id);
+
+            returnError = !result1.has_value() && !result2.has_value() &&
+                !result3.has_value();
         }
 
+        if (env.closed()->rules().enabled(fixHookAPISType))
+            BEAST_EXPECT(returnError);
+        else
+            BEAST_EXPECT(!returnError);
+
+        for (auto const& data : data_list)
         {
-            // use UINT32
             auto source_object = _source_object;
-            auto field_object = *strUnHex("2400000001");
-            // Sequence: 1
-
-            auto const result = api.sto_emplace(
-                source_object, field_object, sfSequence.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            field_object.insert(
-                field_object.end(), source_object.begin(), source_object.end());
-            BEAST_EXPECT(result.value() == field_object);
-
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfSequence.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // use UINT64
-            auto source_object = _source_object;
-            auto field_object = *strUnHex("360000000000000001");
-            // ExchangeRate: 1
-
-            auto const result = api.sto_emplace(
-                source_object, field_object, sfExchangeRate.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            field_object.insert(
-                field_object.end(), source_object.begin(), source_object.end());
-            BEAST_EXPECT(result.value() == field_object);
-
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfExchangeRate.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // use UINT128
-            auto source_object = _source_object;
-            auto field_object = *strUnHex("4100000000000000000000000000000000");
-            // EmailHash: 1
-
-            auto const result = api.sto_emplace(
-                source_object, field_object, sfEmailHash.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            field_object.insert(
-                field_object.end(), source_object.begin(), source_object.end());
-            BEAST_EXPECT(result.value() == field_object);
-
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfEmailHash.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // use UINT256
-            auto source_object = _source_object;
-            auto field_object = *strUnHex(
-                "5E000000000000000000000000000000000000000000000000000000000000"
-                "0000");
-            // ObjectID:
-            // "0000000000000000000000000000000000000000000000000000000000000000"
-
-            auto const result = api.sto_emplace(
-                source_object, field_object, sfObjectID.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            field_object.insert(
-                field_object.end(), source_object.begin(), source_object.end());
-            BEAST_EXPECT(result.value() == field_object);
-
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfObjectID.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // use AMOUNT
-            auto source_object = _source_object;
-
-            auto nativeamount = *strUnHex(
-                "61999999999999999999999999999999999999999999999999999999999999"
-                "999999999999999999999999999999999999");
-            auto iouamount = *strUnHex("614999999999999999");
-
-            for (auto field_object : {nativeamount, iouamount})
-            {
-                auto const result = api.sto_emplace(
-                    source_object, field_object, sfAmount.getCode());
-                BEAST_EXPECT(result.has_value());
-                BEAST_EXPECT(
-                    result.value().size() ==
-                    source_object.size() + field_object.size());
-                field_object.insert(
-                    field_object.end(),
-                    source_object.begin(),
-                    source_object.end());
-                BEAST_EXPECT(result.value() == field_object);
-
-                auto const erase_result = api.sto_emplace(
-                    result.value(), std::nullopt, sfAmount.getCode());
-                BEAST_EXPECT(erase_result.has_value());
-                BEAST_EXPECT(
-                    erase_result.value().size() == _source_object.size());
-                BEAST_EXPECT(erase_result.value() == _source_object);
-            }
-        }
-
-        {
-            // OBJECT
-            auto source_object = _source_object;
-            auto field_object = *strUnHex("E05B614000000000000064E1");
-            // {"AmountEntry": {"Amount": "100"}}
-
-            auto const result = api.sto_emplace(
-                source_object, field_object, sfAmountEntry.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            source_object.insert(
-                source_object.end(), field_object.begin(), field_object.end());
-            BEAST_EXPECT(result.value() == source_object);
-
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfAmountEntry.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // ARRAY
-            auto source_object = _source_object;
-            auto field_object = *strUnHex("F9EA7D04DEADBEEFE1F1");
-            // {"Memos": [{"Memo":{ "MemoData": "DEADBEEF" }}]}
+            auto field_object = *strUnHex(data.second);
+            auto field_id = data.first;
 
             auto const result =
-                api.sto_emplace(source_object, field_object, sfMemos.getCode());
-            BEAST_EXPECT(result.has_value());
+                api.sto_emplace(source_object, field_object, field_id);
+            BEAST_EXPECTS(result.has_value(), data.second);
+            auto const r = result.value();
             BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            source_object.insert(
-                source_object.end(), field_object.begin(), field_object.end());
-            BEAST_EXPECT(result.value() == source_object);
+                r.size() == source_object.size() + field_object.size());
+            field_object.insert(
+                field_id < sfAccount.getCode() ? field_object.end()
+                                               : field_object.begin(),
+                source_object.begin(),
+                source_object.end());
+            BEAST_EXPECT(r == field_object);
 
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfMemos.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // UINT8
-            auto source_object = _source_object;
-            auto field_object = *strUnHex("00101001");
-            // {"TickSize": 1}
-
-            auto const result = api.sto_emplace(
-                source_object, field_object, sfTickSize.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            source_object.insert(
-                source_object.end(), field_object.begin(), field_object.end());
-            BEAST_EXPECT(result.value() == source_object);
-
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfTickSize.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // UINT160
-            auto source_object = _source_object;
-            auto field_object =
-                *strUnHex("01110000000000000000000000005553440000000000");
-            // {"TakerPaysCurrency": "0000000000000000000000005553440000000000"}
-
-            auto const result = api.sto_emplace(
-                source_object, field_object, sfTakerPaysCurrency.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            source_object.insert(
-                source_object.end(), field_object.begin(), field_object.end());
-            BEAST_EXPECT(result.value() == source_object);
-
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfTakerPaysCurrency.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // PATHSET
-            auto source_object = _source_object;
-            auto field_object = *strUnHex(
-                "0112300000000000000000000000005553440000000000054F6F784A58F9EF"
-                "B0A9EB90B83464F9D166461900");
-            // {"Paths": [[{ "currency": "USD", "issuer":
-            // "rVnYNK9yuxBz4uP8zC8LEFokM2nqH3poc" }]]}
-
-            auto const result =
-                api.sto_emplace(source_object, field_object, sfPaths.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            source_object.insert(
-                source_object.end(), field_object.begin(), field_object.end());
-            BEAST_EXPECT(result.value() == source_object);
-
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfPaths.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // VECTOR256
-            auto source_object = _source_object;
-            auto field_object = *strUnHex(
-                "03132042426C4D4F1009EE67080A9B7965B44656D7714D104A72F9B4369F97"
-                "ABF044EE");
-            // {"Amendments":["42426C4D4F1009EE67080A9B7965B44656D7714D104A72F9B4369F97ABF044EE"]}
-
-            auto const result = api.sto_emplace(
-                source_object, field_object, sfAmendments.getCode());
-            BEAST_EXPECT(result.has_value());
-            BEAST_EXPECT(
-                result.value().size() ==
-                source_object.size() + field_object.size());
-            source_object.insert(
-                source_object.end(), field_object.begin(), field_object.end());
-            BEAST_EXPECT(result.value() == source_object);
-
-            auto const erase_result = api.sto_emplace(
-                result.value(), std::nullopt, sfAmendments.getCode());
-            BEAST_EXPECT(erase_result.has_value());
-            BEAST_EXPECT(erase_result.value().size() == _source_object.size());
-            BEAST_EXPECT(erase_result.value() == _source_object);
-        }
-
-        {
-            // UINT96
-        }
-
-        {
-            // UINT384
-        }
-
-        {
-            // UINT512
+            // test erase
+            auto const erase_result =
+                api.sto_emplace(result.value(), std::nullopt, field_id);
+            BEAST_EXPECTS(erase_result.has_value(), data.second);
+            auto const er = erase_result.value();
+            BEAST_EXPECT(er.size() == _source_object.size());
+            BEAST_EXPECT(er == _source_object);
         }
     }
 
@@ -4281,6 +4090,38 @@ public:
             BEAST_EXPECT(
                 api.sto_subarray(Bytes{0xF0, 0x5C, 0xF1}, 0).error() ==
                 PARSE_ERROR);
+        }
+
+        {
+            // Invalid: wrapped array has an invalid end marker.
+            // should be "F9EA7D02BEEFE1F1" {Memos:[{Memo:{MemoData:"BEEF"}}]}
+            auto const invalid_end_marker = *strUnHex("F9EA7D02BEEFE100");
+            auto const result = api.sto_subarray(invalid_end_marker, 0);
+            if (env.closed()->rules().enabled(fixHookAPISType))
+            {
+                BEAST_EXPECT(!result.has_value());
+                BEAST_EXPECT(result.error() == PARSE_ERROR);
+            }
+            else
+            {
+                BEAST_EXPECT(result.value() == std::make_pair(1u, 6u));
+            }
+        }
+
+        {
+            // Invalid: the first element is valid but a following element is
+            // truncated.
+            auto const invalid_tail = *strUnHex("F9EA7D02BEEFE1EA7D02BEEFF1");
+            auto const result = api.sto_subarray(invalid_tail, 0);
+            if (env.closed()->rules().enabled(fixHookAPISType))
+            {
+                BEAST_EXPECT(!result.has_value());
+                BEAST_EXPECT(result.error() == PARSE_ERROR);
+            }
+            else
+            {
+                BEAST_EXPECT(result.value() == std::make_pair(1u, 6u));
+            }
         }
 
         {
@@ -4336,6 +4177,25 @@ public:
             BEAST_EXPECT(
                 api.sto_subfield(Bytes{0xFF, 0xFF, 0xFF, 0xFF}, 0).error() ==
                 PARSE_ERROR);
+        }
+
+        {
+            // Invalid: the requested field is valid but a later field is
+            // truncated.
+            auto const data = *strUnHex(
+                "240000000181140000000000000000000000000000000000000000");
+            auto const invalid_tail = Blob{data.begin(), data.end() - 1};
+            auto const result =
+                api.sto_subfield(invalid_tail, sfSequence.getCode());
+            if (env.closed()->rules().enabled(fixHookAPISType))
+            {
+                BEAST_EXPECT(!result.has_value());
+                BEAST_EXPECT(result.error() == PARSE_ERROR);
+            }
+            else
+            {
+                BEAST_EXPECT(result.value() == std::make_pair(1u, 4u));
+            }
         }
 
         {
@@ -4397,34 +4257,17 @@ public:
         // { AmountEntry: {Amount: "100"} }
         auto const amountEntry = *strUnHex("E05B614000000000000064E1");
 
-        BEAST_EXPECT(api.sto_validate(memos).value() == true);
-        BEAST_EXPECT(api.sto_validate(amounts).value() == true);
-        BEAST_EXPECT(api.sto_validate(memo).value() == true);
-        BEAST_EXPECT(api.sto_validate(amountEntry).value() == true);
+        for (auto const& data : {memos, amounts, memo, amountEntry})
+        {
+            // Valid data
+            BEAST_EXPECT(api.sto_validate(data).value() == true);
 
-        // Invalid data
-        BEAST_EXPECT(
-            api.sto_validate(Bytes{0xFF, 0xFF, 0xFF, 0xFF}).value() == false);
-
-        Bytes const i_memos(&memos[0], &memos[memos.size() - 1]);
-        Bytes const i_amounts(&amounts[0], &amounts[amounts.size() - 1]);
-        Bytes const i_memo(&memo[0], &memo[memo.size() - 1]);
-        Bytes const i_amountEntry(
-            &amountEntry[0], &amountEntry[amountEntry.size() - 1]);
-        BEAST_EXPECT(api.sto_validate(i_memos).value() == false);
-        BEAST_EXPECT(api.sto_validate(i_amounts).value() == false);
-        BEAST_EXPECT(api.sto_validate(i_memo).value() == false);
-        BEAST_EXPECT(api.sto_validate(i_amountEntry).value() == false);
-
-        Bytes const i2_memos(&memos[1], &memos[memos.size()]);
-        Bytes const i2_amounts(&amounts[1], &amounts[amounts.size()]);
-        Bytes const i2_memo(&memo[1], &memo[memo.size()]);
-        Bytes const i2_amountEntry(
-            &amountEntry[1], &amountEntry[amountEntry.size()]);
-        BEAST_EXPECT(api.sto_validate(i_memos).value() == false);
-        BEAST_EXPECT(api.sto_validate(i_amounts).value() == false);
-        BEAST_EXPECT(api.sto_validate(i_memo).value() == false);
-        BEAST_EXPECT(api.sto_validate(i_amountEntry).value() == false);
+            // Invalid data
+            auto const partial_data = Blob{data.begin(), data.end() - 1};
+            BEAST_EXPECT(api.sto_validate(partial_data).value() == false);
+            auto const partial_data2 = Blob{data.begin() + 1, data.end()};
+            BEAST_EXPECT(api.sto_validate(partial_data2).value() == false);
+        }
     }
 
     void
@@ -4917,9 +4760,12 @@ public:
         test_state_set(features);
 
         test_sto_emplace(features);
+        test_sto_emplace(features - fixHookAPISType);
         // test_sto_erase(features); // tested in test_sto_emplace
         test_sto_subarray(features);
+        test_sto_subarray(features - fixHookAPISType);
         test_sto_subfield(features);
+        test_sto_subfield(features - fixHookAPISType);
         test_sto_validate(features);
 
         test_trace(features);

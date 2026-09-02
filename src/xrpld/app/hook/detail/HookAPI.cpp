@@ -101,6 +101,14 @@ HookAPI::sto_subfield(Bytes const& data, uint32_t field_id) const
     if (data.size() < 2)
         return Unexpected(TOO_SMALL);
 
+    if (hookCtx.applyCtx.view().rules().enabled(fixHookAPISType))
+    {
+        // validate the data
+        auto const valid = sto_validate(data);
+        if (!valid || !valid.value())
+            return Unexpected(PARSE_ERROR);
+    }
+
     unsigned char* start = const_cast<unsigned char*>(data.data());
     unsigned char* upto = start;
     unsigned char* end = start + data.size();
@@ -164,6 +172,18 @@ HookAPI::sto_subarray(Bytes const& data, uint32_t index_id) const
     unsigned char* start = const_cast<unsigned char*>(data.data());
     unsigned char* upto = start;
     unsigned char* end = start + data.size();
+
+    if (hookCtx.applyCtx.view().rules().enabled(fixHookAPISType))
+    {
+        // check if the array has valid trailing data
+        if ((*upto & 0xF0U) == 0xF0U && *(end - 1) != 0xF1U)
+            return Unexpected(PARSE_ERROR);
+
+        // validate the array
+        auto const valid = sto_validate(data);
+        if (!valid || !valid.value())
+            return Unexpected(PARSE_ERROR);
+    }
 
     // unwrap the array if it is wrapped,
     // by removing a byte from the start and end
@@ -259,6 +279,13 @@ HookAPI::sto_emplace(
             return Unexpected(TOO_SMALL);
     }
 
+    if (hookCtx.applyCtx.view().rules().enabled(fixHookAPISType))
+    {
+        auto const source_valid = sto_validate(source_object);
+        if (!source_valid || !source_valid.value())
+            return Unexpected(PARSE_ERROR);
+    }
+
     if (field_object.has_value() &&
         hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
     {
@@ -278,6 +305,9 @@ HookAPI::sto_emplace(
             hookCtx.applyCtx.view().rules(),
             0);
         if (!length)
+            return Unexpected(PARSE_ERROR);
+        if (hookCtx.applyCtx.view().rules().enabled(fixHookAPISType) &&
+            length.value() != field_object->size())
             return Unexpected(PARSE_ERROR);
         if ((type << 16) + field != field_id)
         {
@@ -3066,6 +3096,9 @@ HookAPI::get_stobject_length(
                 if (flag & 0x20)  // issuer
                     length += 20;
 
+                if (rules.enabled(fixHookAPISType) && upto + length > end)
+                    return Unexpected(pe_unexpected_end);
+
                 int next_flag = *(upto + length);
                 if (next_flag == 0x00 || next_flag == 0xff)
                     // end of Path step
@@ -3089,6 +3122,8 @@ HookAPI::get_stobject_length(
         auto zero20 = std::array<char, 20>{0};
         // if first 20 byte is all zeros return 20
         // else return 40
+        if (rules.enabled(fixHookAPISType) && end - upto < 20)
+            return Unexpected(pe_unexpected_end);
         if (memcmp(upto, zero20.data(), 20) == 0)
             length = 20;
         else
@@ -3101,6 +3136,8 @@ HookAPI::get_stobject_length(
         length = 1;    // Door Account1 prefix length
         length += 20;  // Door Account1 length
         // Door Issue1
+        if (rules.enabled(fixHookAPISType) && end - upto < length + 20)
+            return Unexpected(pe_unexpected_end);
         if (memcmp(upto + length, zero20.data(), 20) == 0)
             length += 20;  // only Currency
         else
@@ -3110,6 +3147,8 @@ HookAPI::get_stobject_length(
         length += 1;   // Door Account2 prefix length
         length += 20;  // Door Account2 length
         // Door Issue2
+        if (rules.enabled(fixHookAPISType) && end - upto < length + 20)
+            return Unexpected(pe_unexpected_end);
         if (memcmp(upto + length, zero20.data(), 20) == 0)
             length += 20;  // only Currency
         else
@@ -3130,6 +3169,10 @@ HookAPI::get_stobject_length(
             length,
             payload_start,
             payload_length);
+
+        if (rules.enabled(fixHookAPISType) && length > end - upto)
+            return Unexpected(pe_unexpected_end);
+
         return length + (upto - start);
     }
 
