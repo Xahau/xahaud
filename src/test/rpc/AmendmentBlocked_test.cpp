@@ -19,15 +19,52 @@
 
 #include <test/jtx.h>
 #include <test/jtx/WSClient.h>
+#include <test/jtx/envconfig.h>
+#include <xrpld/app/main/AmendmentBlocked.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/ConfigSections.h>
+#include <xrpl/basics/FileUtilities.h>
+#include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/jss.h>
+#include <boost/filesystem/operations.hpp>
 
 namespace ripple {
 
 class AmendmentBlocked_test : public beast::unit_test::suite
 {
+    void
+    testReceiptFile()
+    {
+        testcase("amendment blocked receipt");
+        using namespace test::jtx;
+        beast::temp_dir td;
+        Env env{*this, envconfig([&](std::unique_ptr<Config> config) {
+                    config->NODE_SIZE = 0;
+                    config->setupControl(true, true, false);
+                    config->CONFIG_DIR = td.path();
+                    config->legacy("database_path", td.path());
+                    return config;
+                })};
+
+        auto const path = amendmentBlockedFilePath(env.app().config());
+        BEAST_EXPECT(path.filename() == amendmentBlockedFileName);
+        BEAST_EXPECT(!boost::filesystem::exists(path));
+
+        env.app().getOPs().setAmendmentBlocked();
+        BEAST_EXPECT(env.app().isStopping());
+        BEAST_EXPECT(boost::filesystem::exists(path));
+
+        boost::system::error_code readError;
+        auto const contents = getFileContents(readError, path);
+        BEAST_EXPECT(!readError);
+        BEAST_EXPECT(
+            contents.find("XAHAUD STOPPED: UPGRADE REQUIRED") !=
+            std::string::npos);
+        BEAST_EXPECT(contents.find("Upgrade xahaud") != std::string::npos);
+        BEAST_EXPECT(contents.find("Delete this file") != std::string::npos);
+    }
+
     void
     testBlockedMethods()
     {
@@ -250,6 +287,7 @@ public:
     void
     run() override
     {
+        testReceiptFile();
         testBlockedMethods();
     }
 };

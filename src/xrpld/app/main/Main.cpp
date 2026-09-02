@@ -16,6 +16,7 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
+#include <xrpld/app/main/AmendmentBlocked.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/DBInit.h>
 #include <xrpld/app/rdb/Vacuum.h>
@@ -809,6 +810,19 @@ run(int argc, char** argv)
     // No arguments. Run server.
     if (!vm.count("parameters"))
     {
+        auto const blockedFile = amendmentBlockedFilePath(*config);
+        if (boost::filesystem::exists(blockedFile))
+        {
+            std::cerr << "XAHAUD CANNOT START: UPGRADE REQUIRED\n"
+                      << "This version of xahaud does not support a network "
+                         "amendment.\n"
+                      << "1. Upgrade xahaud to a version that supports the "
+                         "amendment.\n"
+                      << "2. Delete " << blockedFile << ".\n"
+                      << "3. Start xahaud again.\n";
+            return 0;
+        }
+
         // TODO: this comment can be removed in a future release -
         // say 1.7 or higher
         if (config->had_trailing_comments())

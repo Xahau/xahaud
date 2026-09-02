@@ -28,6 +28,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/main/AmendmentBlocked.h>
 #include <xrpld/app/main/LoadManager.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/DeliverMax.h>
@@ -1636,13 +1637,27 @@ NetworkOPsImp::setAmendmentBlocked()
     setMode(OperatingMode::CONNECTED);
     if (!app_.config().standalone())
     {
+        auto const blockedFile = amendmentBlockedFilePath(app_.config());
+        if (auto const ec = writeAmendmentBlockedFile(app_.config()))
+        {
+            JLOG(m_journal.fatal())
+                << "Could not write amendment-blocked receipt " << blockedFile
+                << ": " << ec.message();
+        }
+        else
+        {
+            JLOG(m_journal.fatal())
+                << "Amendment-blocked receipt written to " << blockedFile;
+        }
         JLOG(m_journal.fatal())
-            << "One or more unsupported amendments activated. "
-               "Shutting down. Upgrade the server to remain "
-               "compatible with the network.";
+            << "This version of xahaud does not support a network amendment. "
+               "The amendment will activate soon or is already active. "
+               "The server will stop. Upgrade xahaud before you restart the "
+               "server.";
         app_.signalStop(
-            "One or more unsupported amendments activated. "
-            "Server must be upgraded to remain compatible with the network.");
+            "Unsupported network amendment. Upgrade xahaud before you restart "
+            "the server. Recovery instructions: " +
+            blockedFile.string());
     }
 }
 
