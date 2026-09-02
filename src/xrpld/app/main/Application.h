@@ -27,7 +27,9 @@
 #include <xrpl/beast/utility/PropertyStream.h>
 #include <xrpl/protocol/Protocol.h>
 #include <boost/asio.hpp>
+#include <boost/filesystem/path.hpp>
 #include <boost/program_options.hpp>
+#include <boost/system/error_code.hpp>
 #include <memory>
 #include <mutex>
 
@@ -278,6 +280,12 @@ make_Application(
     std::unique_ptr<Config> config,
     std::unique_ptr<Logs> logs,
     std::unique_ptr<TimeKeeper> timeKeeper);
+
+boost::filesystem::path
+amendmentBlockedFilePath(Config const& config);
+
+boost::system::error_code
+writeAmendmentBlockedFile(Config const& config);
 
 }  // namespace ripple
 

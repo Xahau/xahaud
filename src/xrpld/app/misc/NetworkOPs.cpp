@@ -28,7 +28,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
-#include <xrpld/app/main/AmendmentBlocked.h>
+#include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/LoadManager.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/DeliverMax.h>

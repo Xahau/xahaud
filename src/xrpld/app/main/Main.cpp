@@ -16,7 +16,6 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
-#include <xrpld/app/main/AmendmentBlocked.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/DBInit.h>
 #include <xrpld/app/rdb/Vacuum.h>

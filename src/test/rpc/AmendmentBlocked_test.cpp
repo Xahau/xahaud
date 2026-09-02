@@ -20,7 +20,7 @@
 #include <test/jtx.h>
 #include <test/jtx/WSClient.h>
 #include <test/jtx/envconfig.h>
-#include <xrpld/app/main/AmendmentBlocked.h>
+#include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/basics/FileUtilities.h>
@@ -48,7 +48,7 @@ class AmendmentBlocked_test : public beast::unit_test::suite
                 })};
 
         auto const path = amendmentBlockedFilePath(env.app().config());
-        BEAST_EXPECT(path.filename() == amendmentBlockedFileName);
+        BEAST_EXPECT(path.filename() == "README_AMENDMENT_BLOCKED");
         BEAST_EXPECT(!boost::filesystem::exists(path));
 
         env.app().getOPs().setAmendmentBlocked();

@@ -59,6 +59,7 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/shamap/NodeFamily.h>
 #include <xrpl/basics/ByteUtilities.h>
+#include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/ResolverAsio.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
@@ -2371,6 +2372,33 @@ Application::Application() : beast::PropertyStream::Source("app")
 }
 
 //------------------------------------------------------------------------------
+
+boost::filesystem::path
+amendmentBlockedFilePath(Config const& config)
+{
+    return config.CONFIG_DIR / "README_AMENDMENT_BLOCKED";
+}
+
+boost::system::error_code
+writeAmendmentBlockedFile(Config const& config)
+{
+    static constexpr char contents[] =
+        "XAHAUD STOPPED: UPGRADE REQUIRED\n"
+        "\n"
+        "This version of xahaud does not support a network amendment.\n"
+        "The amendment will activate soon or is already active.\n"
+        "Do not start this version of xahaud again.\n"
+        "\n"
+        "To restart the server:\n"
+        "1. Upgrade xahaud to a version that supports the amendment.\n"
+        "2. Delete this file.\n"
+        "3. Start xahaud again.\n"
+        "\n";
+
+    boost::system::error_code ec;
+    writeFileContents(ec, amendmentBlockedFilePath(config), contents);
+    return ec;
+}
 
 std::unique_ptr<Application>
 make_Application(
