@@ -67,14 +67,6 @@ FROM ghcr.io/phusion/holy-build-box:4.0.1-amd64
 
 ARG BUILD_CORES=8
 
-# Pin uv and its managed Python so build-time CMake helpers do not depend on
-# Enterprise Linux 8's system Python.
-COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /uvx /usr/local/bin/
-ENV UV_PYTHON_BIN_DIR=/usr/local/bin
-RUN uv python install 3.13.13 --default && \
-    uv --version && \
-    python3 --version
-
 # Enable repositories and install dependencies
 RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
     dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb && \

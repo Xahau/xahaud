@@ -78,8 +78,12 @@ jobs:
       - name: Fetch and verify the sealed provider release
         run: bin/fetch-jshookz-provider
 
-      - name: Prove generator-lock mutation reds
-        run: python3 cmake/test_generate_quickjs_provider_bundle.py
+      - name: Prove receipt mutation reds
+        run: |
+          cmake \
+            -DQUICKJS_PROVIDER_RECEIPT=external/quickjs-provider/jshookz_provider.receipt \
+            -DQUICKJS_RECEIPT_TEST_TMP="$RUNNER_TEMP/quickjs-receipt-tests" \
+            -P cmake/TestQuickJSProviderReceipt.cmake
 
       - name: Configure Conan for Xahau
         run: |

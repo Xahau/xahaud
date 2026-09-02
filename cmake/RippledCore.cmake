@@ -175,7 +175,9 @@ if(xrpld)
   )
   target_sources(rippled PRIVATE ${sources})
   add_dependencies(rippled xahau_quickjs_refresh_provider)
-  target_sources(rippled PRIVATE "${XAHAU_QUICKJS_PROVIDER_VALUES_SOURCE}")
+  target_sources(rippled PRIVATE
+    "${XAHAU_QUICKJS_PROVIDER_VALUES_SOURCE}"
+    "${XAHAU_QUICKJS_PROVIDER_EMBED_SOURCE}")
 
   if(tests)
     file(GLOB_RECURSE sources CONFIGURE_DEPENDS

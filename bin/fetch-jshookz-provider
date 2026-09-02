@@ -4,33 +4,47 @@ set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 bundle="${root}/external/quickjs-provider"
-lock="${bundle}/jshookz_provider.lock.json"
+receipt="${bundle}/jshookz_provider.receipt"
 provider="${bundle}/jshookz_provider.wasm"
 
-provider_sha=$(python3 -c \
-  'import json,sys; print(json.load(open(sys.argv[1]))["provider"]["sha256"])' \
-  "${lock}")
-provider_size=$(python3 -c \
-  'import json,sys; print(json.load(open(sys.argv[1]))["provider"]["size"])' \
-  "${lock}")
-provider_url="${XAHAU_QJS_PROVIDER_URL:-https://github.com/sublimator/jshookz/releases/download/provider-${provider_sha}/jshookz_provider.wasm}"
+sha256_file()
+{
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+receipt_value()
+{
+  awk -v key="$1" '
+    $1 == key {
+      if (found || NF != 2) exit 2
+      value = $2
+      found = 1
+    }
+    END {
+      if (!found) exit 1
+      print value
+    }
+  ' "${receipt}"
+}
+
+provider_sha=$(receipt_value provider_sha256)
+provider_size=$(receipt_value provider_size)
+receipt_sha=$(sha256_file "${receipt}")
+provider_url="${XAHAU_QJS_PROVIDER_URL:-https://github.com/sublimator/jshookz/releases/download/provider-${receipt_sha}/jshookz_provider.wasm}"
 
 verify_provider()
 {
-  python3 - "$1" "${provider_sha}" "${provider_size}" <<'PY'
-import hashlib
-from pathlib import Path
-import sys
-
-provider = Path(sys.argv[1]).read_bytes()
-expected_sha = sys.argv[2]
-expected_size = int(sys.argv[3])
-actual_sha = hashlib.sha256(provider).hexdigest()
-if actual_sha != expected_sha or len(provider) != expected_size:
-    raise SystemExit(
-        f"provider lock mismatch: sha256={actual_sha} size={len(provider)}"
-    )
-PY
+  actual_sha=$(sha256_file "$1")
+  actual_size=$(wc -c <"$1" | tr -d '[:space:]')
+  if [[ "${actual_sha}" != "${provider_sha}" ||
+        "${actual_size}" != "${provider_size}" ]]; then
+    echo "provider receipt mismatch: sha256=${actual_sha} size=${actual_size}" >&2
+    return 1
+  fi
 }
 
 if [[ -f "${provider}" ]] && verify_provider "${provider}"; then
