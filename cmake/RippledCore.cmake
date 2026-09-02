@@ -58,6 +58,7 @@ target_link_libraries(xrpl.imports.main
     OpenSSL::Crypto
     Ripple::boost
     wasmedge::wasmedge
+    wasmtime::wasmtime
     Ripple::opts
     Ripple::syslibs
     absl::random_random

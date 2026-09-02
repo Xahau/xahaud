@@ -54,6 +54,7 @@ git checkout src/libxrpl/protocol/BuildInfo.cpp &&
 sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)$(if [ -n "$4" ]; then echo "+$4"; fi)\"/g src/libxrpl/protocol/BuildInfo.cpp  &&
 conan export external/snappy --version 1.1.10 --user xahaud --channel stable &&
 conan export external/soci --version 4.0.3 --user xahaud --channel stable &&
+conan export external/wasmtime --version 44.0.1 --user xahaud --channel stable &&
 cd release-build &&
 # Install dependencies - tool_requires in conanfile.py handles glibc 2.28 compatibility
 # for build tools (protoc, grpc plugins, b2) in HBB environment

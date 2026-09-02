@@ -22,6 +22,7 @@ class Xrpl(ConanFile):
         'unity': [True, False],
         'xrpld': [True, False],
         'with_wasmedge': [True, False],
+        'with_wasmtime': [True, False],
         'tool_requires_b2': [True, False],
     }
 
@@ -53,6 +54,7 @@ class Xrpl(ConanFile):
         'unity': False,
         'xrpld': False,
         'with_wasmedge': True,
+        'with_wasmtime': True,
         'tool_requires_b2': False,
 
         'date/*:header_only': False,
@@ -121,6 +123,8 @@ class Xrpl(ConanFile):
 
         if self.options.with_wasmedge:
             self.requires('wasmedge/0.11.2@xahaud/stable')
+        if self.options.with_wasmtime:
+            self.requires('wasmtime/44.0.1@xahaud/stable')
         if self.options.jemalloc:
             self.requires('jemalloc/5.3.0')
         if self.options.rocksdb:

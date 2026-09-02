@@ -205,6 +205,12 @@ It patches their CMake to correctly import its dependencies.
    conan export external/wasmedge --version 0.11.2 --user xahaud --channel stable
    ```
 
+7. Export our [Conan recipe for Wasmtime](./external/wasmtime).
+
+   ```
+   conan export external/wasmtime --version 44.0.1 --user xahaud --channel stable
+   ```
+
 Export our [Conan recipe for NuDB](./external/nudb).
 It fixes some source files to add missing `#include`s.
 

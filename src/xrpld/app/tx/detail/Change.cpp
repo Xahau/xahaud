@@ -18,6 +18,8 @@
 //==============================================================================
 
 #include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/hook/detail/WasmEdgeEngine.h>
+#include <xrpld/app/hook/detail/WasmtimeEngine.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
@@ -637,9 +639,12 @@ Change::activateXahauGenesis()
                 return;
             }
 
-            std::optional<std::string> result2 =
-                hook::HookExecutor::validateWasm(
-                    wasmBytes.data(), (size_t)wasmBytes.size());
+            auto wasmValidator =
+                ctx_.view().rules().enabled(featureWasmtimeEngine)
+                ? hook::makeWasmtimeEngine()
+                : hook::makeWasmEdgeEngine();
+            std::optional<std::string> result2 = wasmValidator->validate(
+                wasmBytes.data(), (size_t)wasmBytes.size());
 
             if (result2)
             {
