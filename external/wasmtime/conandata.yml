@@ -1,0 +1,27 @@
+sources:
+  47.0.3:
+    Linux:
+      armv8:
+        sha256: c1ef99bb4ef0151282f339e22a67f8229d9ab336f9a17387e65f140b79c45be1
+        url: https://github.com/bytecodealliance/wasmtime/releases/download/v47.0.3/wasmtime-v47.0.3-aarch64-linux-c-api.tar.xz
+      x86_64:
+        sha256: aaa3621f2a3d8393696702897f8f78a1cc504437d500701496d560125aefd732
+        url: https://github.com/bytecodealliance/wasmtime/releases/download/v47.0.3/wasmtime-v47.0.3-x86_64-linux-c-api.tar.xz
+    Macos:
+      armv8:
+        sha256: 1854c8f03a764c89afe77fa88d9092ab89a368e527cd27a12959b1d91152324e
+        url: https://github.com/bytecodealliance/wasmtime/releases/download/v47.0.3/wasmtime-v47.0.3-aarch64-macos-c-api.tar.xz
+      x86_64:
+        sha256: 627622087b77b92c163e826ec6ebf834a70d78735828043edf7ace263f8a9e62
+        url: https://github.com/bytecodealliance/wasmtime/releases/download/v47.0.3/wasmtime-v47.0.3-x86_64-macos-c-api.tar.xz
+    MinGW:
+      x86_64:
+        sha256: 355a0c7b49b92bb011e74a4047cc1186271aeb8c8cfcc4360248caaf3c4d5f38
+        url: https://github.com/bytecodealliance/wasmtime/releases/download/v47.0.3/wasmtime-v47.0.3-x86_64-mingw-c-api.zip
+    Windows:
+      armv8:
+        sha256: 57107b14b28ac2152e903501fe1722007b90fc11ccd63ad6d62ed574c5dd90db
+        url: https://github.com/bytecodealliance/wasmtime/releases/download/v47.0.3/wasmtime-v47.0.3-aarch64-windows-c-api.zip
+      x86_64:
+        sha256: 952dfbc864295eccc89caa92bc303686017ca4ea205a1f21878809f374bb77c5
+        url: https://github.com/bytecodealliance/wasmtime/releases/download/v47.0.3/wasmtime-v47.0.3-x86_64-windows-c-api.zip

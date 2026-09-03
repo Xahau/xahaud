@@ -1,12 +1,12 @@
 #ifndef APPLY_HOOK_INCLUDED
 #define APPLY_HOOK_INCLUDED 1
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/HookHostMacros.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpl/basics/Blob.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/hook/Enum.h>
-#include <xrpl/hook/Macro.h>
 #include <xrpl/hook/Misc.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TER.h>
@@ -104,6 +104,7 @@ apply(
                                             used for caching (one day) */
     ripple::uint256 const&
         hookHash, /* hash of the actual hook byte code, used for metadata */
+    uint16_t hookApiVersion,
     ripple::uint256 const& hookCanEmit,
     ripple::uint256 const& hookNamespace,
     ripple::Blob const& wasm,

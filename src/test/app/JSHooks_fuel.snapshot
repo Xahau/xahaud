@@ -1,0 +1,14 @@
+bytecode_validation 55789
+callback_execution 127396
+f0_native_matrix 6861614
+host_work_exhaustion 42470516
+ledger_context 100101
+malformed_bytecode_validation 14145
+memory_growth 7575653
+nearest_even_bypass 204618
+payment_execution 60722
+state_rollback 80383
+xfl_add_subtract 291576
+xfl_divide_by_zero 189803
+xfl_fixed_divide 196249
+xfl_multiply 194379

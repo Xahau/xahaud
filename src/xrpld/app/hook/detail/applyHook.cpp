@@ -1,4 +1,5 @@
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -9,6 +10,7 @@
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/hook/HookArtifact.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
@@ -19,7 +21,6 @@
 #include <string>
 #include <utility>
 #include <vector>
-#include <wasmedge/wasmedge.h>
 
 using namespace ripple;
 
@@ -1021,6 +1022,7 @@ hook::apply(
                                             used for caching (one day) */
     ripple::uint256 const&
         hookHash, /* hash of the actual hook byte code, used for metadata */
+    uint16_t hookApiVersion,
     ripple::uint256 const& hookCanEmit,
     ripple::uint256 const& hookNamespace,
     ripple::Blob const& wasm,
@@ -1082,10 +1084,54 @@ hook::apply(
 
     auto const& j = applyCtx.app.journal("View");
 
-    HookExecutor executor{hookCtx};
+    auto const artifact = hook::artifact::parse(makeSlice(wasm));
+    if (!artifact || artifact->hookApiVersion != hookApiVersion)
+    {
+        JLOG(j.warn())
+            << "HookError[" << HC_ACC()
+            << "]: Stored Hook artifact is invalid or disagrees with "
+               "sfHookApiVersion"
+            << (artifact ? "" : ": ")
+            << (artifact ? std::string_view{}
+                         : hook::artifact::toString(artifact.error()));
+        hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+        return hookCtx.result;
+    }
 
-    executor.executeWasm(
-        wasm.data(), (size_t)wasm.size(), isCallback, wasmParam, j);
+    std::optional<HookExecutor> executor;
+    switch (artifact->kind)
+    {
+        case hook::artifact::Kind::legacyWasm: {
+            executor.emplace(hookCtx);
+            executor->executeWasm(
+                artifact->payload.data(),
+                artifact->payload.size(),
+                isCallback,
+                wasmParam,
+                j);
+            break;
+        }
+
+        case hook::artifact::Kind::quickJSBytecode: {
+            auto runtime = findQuickJSRuntime(*artifact);
+            if (!runtime)
+            {
+                JLOG(j.warn())
+                    << "HookError[" << HC_ACC()
+                    << "]: QuickJS runtime profile is not registered";
+                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+                break;
+            }
+            executeQuickJSBytecode(
+                hookCtx,
+                runtime,
+                std::span{artifact->payload.data(), artifact->payload.size()},
+                isCallback,
+                wasmParam,
+                j);
+            break;
+        }
+    }
 
     JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: "
                     << (hookCtx.result.exitType == hook_api::ExitType::ROLLBACK
@@ -1111,7 +1157,7 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (!j.trace())
+    if (!jh.trace())
         return 0ULL;
 
     if (read_len > 128)
@@ -1125,16 +1171,16 @@ DEFINE_HOOK_FUNCTION(
 
         if (read_len > 0)
         {
-            j.trace() << "HookTrace[" << HC_ACC() << "]: "
-                      << std::string_view(
-                             (const char*)memory + read_ptr, read_len)
-                      << ": " << number;
+            JLOG(jh.trace())
+                << "HookTrace[" << HC_ACC() << "]: "
+                << std::string_view((const char*)memory + read_ptr, read_len)
+                << ": " << number;
 
             return 0ULL;
         }
     }
 
-    j.trace() << "HookTrace[" << HC_ACC() << "]: " << number;
+    JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: " << number;
     return 0ULL;
     HOOK_TEARDOWN();
 }
@@ -1154,7 +1200,7 @@ DEFINE_HOOK_FUNCTION(
         NOT_IN_BOUNDS(dread_ptr, dread_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (!j.trace())
+    if (!jh.trace())
         return 0ULL;
 
     if (mread_len > 128)
@@ -1214,8 +1260,9 @@ DEFINE_HOOK_FUNCTION(
 
     if (out_len > 0)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: "
-                  << std::string_view((const char*)output_storage, out_len);
+        JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: "
+                         << std::string_view(
+                                (const char*)output_storage, out_len);
     }
 
     return 0ULL;
@@ -2634,6 +2681,11 @@ DEFINE_HOOK_FUNCTION(
 
     auto tx_blob = res.value();
 
+    if (frameCtx.writeContract() ==
+            hook::HookGuestMemory::WriteContract::fixedBuffer &&
+        tx_blob.size() > write_len)
+        return TOO_SMALL;
+
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr,
         tx_blob.size(),
@@ -3403,7 +3455,7 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
 
-    if (!j.trace())
+    if (!jh.trace())
         return 0ULL;
 
     if (read_len > 128)
@@ -3420,8 +3472,8 @@ DEFINE_HOOK_FUNCTION(
 
     if (float1 == 0)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
-                  << ": Float 0*10^(0) <ZERO>";
+        JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: " << messageKey
+                         << ": Float 0*10^(0) <ZERO>";
         return 0ULL;
     }
 
@@ -3432,14 +3484,14 @@ DEFINE_HOOK_FUNCTION(
         man.value() > maxMantissa || exp.value() < minExponent ||
         exp.value() > maxExponent)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
-                  << ": Float <INVALID>";
+        JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]: " << messageKey
+                         << ": Float <INVALID>";
         return 0ULL;
     }
 
-    j.trace() << "HookTrace[" << HC_ACC() << "]:" << messageKey << ": Float "
-              << (neg ? "-" : "") << man.value() << "*10^(" << exp.value()
-              << ")";
+    JLOG(jh.trace()) << "HookTrace[" << HC_ACC() << "]:" << messageKey
+                     << ": Float " << (neg ? "-" : "") << man.value() << "*10^("
+                     << exp.value() << ")";
     return 0ULL;
 
     HOOK_TEARDOWN();

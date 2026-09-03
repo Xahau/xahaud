@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""Build and import one committed jshookz provider snapshot into Xahau."""
+
+from __future__ import annotations
+
+import argparse
+import os
+import shlex
+import subprocess
+from pathlib import Path
+
+
+def run(*args: str, cwd: Path, capture: bool = False) -> str:
+    completed = subprocess.run(
+        args,
+        cwd=cwd,
+        check=True,
+        text=True,
+        stdout=subprocess.PIPE if capture else None,
+    )
+    return completed.stdout.strip() if capture else ""
+
+
+def read_receipt(path: Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    for line in path.read_text().splitlines():
+        key, value = line.split(" ")
+        values[key] = value
+    return values
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Build a committed jshookz checkout and export its sealed "
+            "consumer bundle into Xahau. Consumers derive the immutable "
+            "release URL from the imported receipt SHA-256."
+        )
+    )
+    parser.add_argument("jshookz_checkout", type=Path)
+    parser.add_argument(
+        "--no-build",
+        action="store_true",
+        help="export an already-built provider without rebuilding it",
+    )
+    args = parser.parse_args()
+
+    xahau_root = Path(__file__).resolve().parents[1]
+    jshookz_root = args.jshookz_checkout.expanduser().resolve()
+    cli = next(
+        (
+            candidate
+            for candidate in (
+                jshookz_root / "python/jshookz/.venv/bin/jshookz",
+                jshookz_root / "packages/jshookz/.venv/bin/jshookz",
+            )
+            if candidate.is_file()
+        ),
+        None,
+    )
+    if cli is None:
+        parser.error(
+            "missing jshookz CLI under python/jshookz/.venv or packages/jshookz/.venv"
+        )
+    bundle = jshookz_root / "build/xahau-provider-bundle"
+    destination = xahau_root / "external/quickjs-provider"
+
+    dirty = run(
+        "git",
+        "status",
+        "--porcelain",
+        "--untracked-files=no",
+        cwd=jshookz_root,
+        capture=True,
+    )
+    if dirty:
+        parser.error(
+            "jshookz checkout has uncommitted tracked changes; commit them "
+            "before creating a pinned snapshot"
+        )
+
+    commit = run("git", "rev-parse", "HEAD", cwd=jshookz_root, capture=True)
+    if not args.no_build:
+        run(str(cli), "build", "provider", cwd=jshookz_root)
+    run(
+        str(cli),
+        "export-bundle",
+        "provider",
+        "-o",
+        str(destination),
+        cwd=jshookz_root,
+    )
+    receipt = read_receipt(destination / "jshookz_provider.receipt")
+    wasi_sdk = os.environ.get("HOOKZ_WASI_SDK")
+    if not wasi_sdk:
+        try:
+            wasi_sdk = str(
+                Path(
+                    run(
+                        "mise",
+                        "where",
+                        "wasi-sdk",
+                        cwd=jshookz_root,
+                        capture=True,
+                    )
+                )
+                / "wasi-sdk"
+            )
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            wasi_sdk = "/path/to/wasi-sdk"
+
+    print(f"jshookz commit:     {commit}")
+    print(f"provider sha256:    {receipt['provider_sha256']}")
+    print(f"bytecode ABI:       {receipt['bytecode_abi_id']}")
+    print(f"runtime profile:    {receipt['runtime_profile_id']}")
+    print("snapshot imported; regenerate fixtures and run the focused suite with:")
+    print(
+        "  env "
+        f"JSHOOKZ_HOOK_COMPILER={shlex.quote(f'{cli} compile-hook')} "
+        f"HOOKZ_WASI_SDK={shlex.quote(wasi_sdk)} "
+        f"XAHAU_QJS_PROVIDER_WASM={shlex.quote(str(bundle / 'jshookz_provider.wasm'))} "
+        "XAHAU_REQUIRE_QJS_PROVIDER_TESTS=1 "
+        "XAHAU_UPDATE_QJS_FUEL_SNAPSHOT=1 "
+        "x-run-tests --compile-hooks src/test/app/JSHooks_test.cpp "
+        "--build-dir build --ccache -- "
+        "ripple.app.JSHooks,ripple.app.QuickJSHostPolicy,"
+        "ripple.app.HookGuestMemory,ripple.app.HookAPI"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

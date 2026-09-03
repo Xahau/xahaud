@@ -1,0 +1,83 @@
+#include <xrpld/app/hook/detail/quickjs/QuickJSHostPolicy.h>
+#include <utility>
+
+namespace hook::quickjs {
+namespace {
+
+template <class Tuple, std::size_t... Indices>
+std::array<NativeScalarKind, maxImportParameters>
+nativeParameterKinds(std::index_sequence<Indices...>) noexcept
+{
+    std::array<NativeScalarKind, maxImportParameters> result{};
+    ((result[Indices] = nativeScalarKind<std::tuple_element_t<Indices, Tuple>>),
+     ...);
+    return result;
+}
+
+template <QuickJSV1ImportId Id>
+QuickJSV1ImportDescriptor
+makeV1Descriptor()
+{
+    using Traits = V1ImportTraits<Id>;
+    constexpr auto parameterCount =
+        std::tuple_size_v<typename Traits::Parameters>;
+    static_assert(parameterCount <= maxImportParameters);
+    return {
+        .id = Id,
+        .module = Traits::module,
+        .name = Traits::name,
+        .amendment = Traits::amendment(),
+        .nativeResult = nativeScalarKind<typename Traits::Return>,
+        .nativeParameters = nativeParameterKinds<typename Traits::Parameters>(
+            std::make_index_sequence<parameterCount>{}),
+        .parameterCount = static_cast<std::uint8_t>(parameterCount),
+        .measure = Traits::measure,
+        .terminal = Traits::terminal,
+        .rawOperationVersion = Traits::rawOperationVersion};
+}
+
+std::array<QuickJSV1ImportDescriptor, quickJSV1ImportCount> const&
+v1SnapshotStorage()
+{
+    static std::array<QuickJSV1ImportDescriptor, quickJSV1ImportCount> const
+        value{
+            makeV1Descriptor<QuickJSV1ImportId::accept>(),
+            makeV1Descriptor<QuickJSV1ImportId::rollback>(),
+            makeV1Descriptor<QuickJSV1ImportId::ledger_seq>(),
+            makeV1Descriptor<QuickJSV1ImportId::ledger_last_time>(),
+            makeV1Descriptor<QuickJSV1ImportId::ledger_last_hash>(),
+            makeV1Descriptor<QuickJSV1ImportId::ledger_nonce>(),
+            makeV1Descriptor<QuickJSV1ImportId::fee_base>(),
+            makeV1Descriptor<QuickJSV1ImportId::otxn_type>(),
+            makeV1Descriptor<QuickJSV1ImportId::otxn_id>(),
+            makeV1Descriptor<QuickJSV1ImportId::otxn_param>(),
+            makeV1Descriptor<QuickJSV1ImportId::otxn_slot>(),
+            makeV1Descriptor<QuickJSV1ImportId::slot_size>(),
+            makeV1Descriptor<QuickJSV1ImportId::slot>(),
+            makeV1Descriptor<QuickJSV1ImportId::slot_set>(),
+            makeV1Descriptor<QuickJSV1ImportId::slot_clear>(),
+            makeV1Descriptor<QuickJSV1ImportId::hook_account>(),
+            makeV1Descriptor<QuickJSV1ImportId::hook_param>(),
+            makeV1Descriptor<QuickJSV1ImportId::hook_again>(),
+            makeV1Descriptor<QuickJSV1ImportId::trace>(),
+            makeV1Descriptor<QuickJSV1ImportId::state>(),
+            makeV1Descriptor<QuickJSV1ImportId::state_foreign>(),
+            makeV1Descriptor<QuickJSV1ImportId::state_foreign_set>(),
+            makeV1Descriptor<QuickJSV1ImportId::state_set>(),
+            makeV1Descriptor<QuickJSV1ImportId::prepare>(),
+            makeV1Descriptor<QuickJSV1ImportId::etxn_details>(),
+            makeV1Descriptor<QuickJSV1ImportId::etxn_fee_base>(),
+            makeV1Descriptor<QuickJSV1ImportId::etxn_reserve>(),
+            makeV1Descriptor<QuickJSV1ImportId::emit>()};
+    return value;
+}
+
+}  // namespace
+
+std::span<QuickJSV1ImportDescriptor const>
+quickJSHostPolicyV1Snapshot() noexcept
+{
+    return v1SnapshotStorage();
+}
+
+}  // namespace hook::quickjs

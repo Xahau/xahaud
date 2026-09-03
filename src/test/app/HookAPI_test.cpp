@@ -19,11 +19,17 @@
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/HookHostFunction.h>
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
+#include <algorithm>
+#include <array>
+#include <bit>
+#include <cstring>
 #include <limits>
 #include <tuple>
 #include <vector>
@@ -153,6 +159,90 @@ public:
             auto const result2 =
                 api.emit(Slice(result.value().data(), result.value().size()));
             BEAST_EXPECT(result2.has_value());
+
+            testcase("QuickJS prepare fixed buffer");
+            auto const source = s.slice();
+            auto const preparedSize = result.value().size();
+
+            auto invokeHostPrepare =
+                [&](std::size_t writeLength,
+                    hook::HookGuestMemory::WriteContract contract =
+                        hook::HookGuestMemory::WriteContract::fixedBuffer) {
+                    auto rawHookCtx = makeStubHookContext(
+                        applyCtx,
+                        alice.id(),
+                        alice.id(),
+                        {
+                            .expected_etxn_count = 1,
+                        });
+                    std::vector<std::uint8_t> memory(
+                        preparedSize + source.size(), 0xA5);
+                    std::memcpy(
+                        memory.data() + preparedSize,
+                        source.data(),
+                        source.size());
+                    auto const before = memory;
+                    hook::HookGuestMemory guestMemory{
+                        memory.data(),
+                        memory.size(),
+                        nullptr,
+                        nullptr,
+                        contract};
+                    std::array<hook::HookHostValue, 4> inputs{
+                        hook::HookHostValue::u32(0),
+                        hook::HookHostValue::u32(
+                            static_cast<std::uint32_t>(writeLength)),
+                        hook::HookHostValue::u32(
+                            static_cast<std::uint32_t>(preparedSize)),
+                        hook::HookHostValue::u32(
+                            static_cast<std::uint32_t>(source.size()))};
+                    hook::HookHostValue output{};
+                    auto const* operation =
+                        hook::findHookHostFunction("prepare");
+                    auto const status = operation
+                        ? operation->function(
+                              &rawHookCtx,
+                              guestMemory,
+                              inputs.data(),
+                              inputs.size(),
+                              &output,
+                              1)
+                        : hook::HookHostCallStatus::trap;
+                    return std::tuple{
+                        status, output, std::move(memory), before};
+                };
+
+            auto [exactStatus, exactResult, exactMemory, exactBefore] =
+                invokeHostPrepare(preparedSize);
+            BEAST_EXPECT(exactStatus == hook::HookHostCallStatus::success);
+            BEAST_EXPECT(exactResult.kind == hook::HookHostValueKind::i64);
+            BEAST_EXPECT(exactResult.asI64() == preparedSize);
+            BEAST_EXPECT(exactMemory != exactBefore);
+            BEAST_EXPECT(std::equal(
+                result.value().begin(),
+                result.value().end(),
+                exactMemory.begin()));
+
+            auto [shortStatus, shortResult, shortMemory, shortBefore] =
+                invokeHostPrepare(preparedSize - 1);
+            BEAST_EXPECT(shortStatus == hook::HookHostCallStatus::success);
+            BEAST_EXPECT(
+                std::bit_cast<std::int64_t>(shortResult.asI64()) ==
+                static_cast<std::int64_t>(TOO_SMALL));
+            BEAST_EXPECT(shortMemory == shortBefore);
+
+            testcase("Legacy C prepare actual-size copy");
+            auto [legacyStatus, legacyResult, legacyMemory, legacyBefore] =
+                invokeHostPrepare(
+                    preparedSize - 1,
+                    hook::HookGuestMemory::WriteContract::legacyActualSize);
+            BEAST_EXPECT(legacyStatus == hook::HookHostCallStatus::success);
+            BEAST_EXPECT(legacyResult.asI64() == preparedSize);
+            BEAST_EXPECT(legacyMemory != legacyBefore);
+            BEAST_EXPECT(std::equal(
+                result.value().begin(),
+                result.value().end(),
+                legacyMemory.begin()));
         }
     }
 
@@ -2943,7 +3033,10 @@ public:
             BEAST_EXPECT(newSlot == 112);
             BEAST_EXPECT(hookCtx.slot.contains(112));
             BEAST_EXPECT(hookCtx.slot[112].entry != nullptr);
-            // TODO: test slot content
+            BEAST_EXPECT(hookCtx.slot[112].storage != nullptr);
+            BEAST_EXPECT(
+                hookCtx.slot[112].entry == hookCtx.slot[112].storage.get());
+            BEAST_EXPECT(hookCtx.slot[112].entry->isEquivalent(tx));
         }
 
         {
@@ -2958,7 +3051,37 @@ public:
             BEAST_EXPECT(newSlot == 200);
             BEAST_EXPECT(hookCtx.slot.contains(200));
             BEAST_EXPECT(hookCtx.slot[newSlot].entry != nullptr);
-            // TODO: test slot content
+            BEAST_EXPECT(hookCtx.slot[newSlot].storage != nullptr);
+            BEAST_EXPECT(
+                hookCtx.slot[newSlot].entry ==
+                hookCtx.slot[newSlot].storage.get());
+            BEAST_EXPECT(hookCtx.slot[newSlot].entry->isEquivalent(tx));
+        }
+
+        {
+            // Emit-failure callbacks expose that object, not applyCtx.tx.
+            STObject emitFailure(sfGeneric);
+            emitFailure.setFieldU16(sfTransactionType, ttACCOUNT_SET);
+            emitFailure.setFieldU32(sfSequence, 42);
+            StubHookContext stubCtx{.emitFailure = emitFailure};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result = api.otxn_slot(0);
+            BEAST_EXPECT(result.has_value());
+            if (result)
+            {
+                auto const newSlot = result.value();
+                BEAST_EXPECT(newSlot > 0);
+                BEAST_EXPECT(hookCtx.slot.contains(newSlot));
+                BEAST_EXPECT(hookCtx.slot[newSlot].entry != nullptr);
+                BEAST_EXPECT(hookCtx.slot[newSlot].storage != nullptr);
+                BEAST_EXPECT(
+                    hookCtx.slot[newSlot].entry ==
+                    hookCtx.slot[newSlot].storage.get());
+                BEAST_EXPECT(*hookCtx.slot[newSlot].entry == emitFailure);
+                BEAST_EXPECT(*hookCtx.slot[newSlot].entry != tx);
+            }
         }
     }
 

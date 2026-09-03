@@ -25,6 +25,7 @@
 #include <boost/beast/core/string.hpp>
 #include <boost/filesystem.hpp>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -165,6 +166,8 @@ private:
     beast::severities::Severity thresh_;
     File file_;
     bool silent_ = false;
+    using Transform = std::function<std::string(std::string const&)>;
+    Transform transform_;
 
 public:
     Logs(beast::severities::Severity level);
@@ -202,6 +205,28 @@ public:
         std::string const& partition,
         std::string const& text,
         bool console);
+
+    /** Rewrite test log lines. Not synchronized.
+     *
+     *  Test-only. Installed once for the life of Logs. Empty is a null check.
+     */
+    void
+    setTransform(Transform fn)
+    {
+        transform_ = std::move(fn);
+    }
+
+    bool
+    hasTransform() const
+    {
+        return static_cast<bool>(transform_);
+    }
+
+    std::string
+    applyTransform(std::string const& text) const
+    {
+        return transform_ ? transform_(text) : text;
+    }
 
     std::string
     rotate();

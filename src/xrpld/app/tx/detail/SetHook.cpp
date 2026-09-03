@@ -19,6 +19,7 @@
 
 #include <xrpld/app/tx/detail/SetHook.h>
 
+#include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
@@ -28,6 +29,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
+#include <xrpl/hook/HookArtifact.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STAccount.h>
@@ -41,6 +43,7 @@
 #include <functional>
 #include <optional>
 #include <ostream>
+#include <span>
 #include <stack>
 #include <stdio.h>
 #include <string>
@@ -57,6 +60,63 @@
 namespace ripple {
 
 using GrantKey = std::pair<uint256, std::optional<AccountID>>;
+
+namespace {
+
+enum class ArtifactInstallability {
+    allowed,
+    apiMismatch,
+    amendmentDisabled,
+    unsupportedProfile,
+};
+
+ArtifactInstallability
+artifactInstallability(
+    hook::artifact::View const& artifact,
+    std::uint16_t declaredApiVersion,
+    Rules const& rules)
+{
+    if (artifact.hookApiVersion != declaredApiVersion)
+        return ArtifactInstallability::apiMismatch;
+
+    switch (artifact.kind)
+    {
+        case hook::artifact::Kind::legacyWasm:
+            return declaredApiVersion == 0
+                ? ArtifactInstallability::allowed
+                : ArtifactInstallability::apiMismatch;
+
+        case hook::artifact::Kind::quickJSBytecode:
+            if (declaredApiVersion != 1)
+                return ArtifactInstallability::apiMismatch;
+            if (!rules.enabled(featureJSHooks))
+                return ArtifactInstallability::amendmentDisabled;
+            // Consensus eligibility must not read the process-local registry.
+            if (hook::artifact::isCurrentQuickJS(artifact))
+                return ArtifactInstallability::allowed;
+            return ArtifactInstallability::unsupportedProfile;
+    }
+    return ArtifactInstallability::unsupportedProfile;
+}
+
+std::string_view
+toString(ArtifactInstallability result)
+{
+    switch (result)
+    {
+        case ArtifactInstallability::allowed:
+            return "allowed";
+        case ArtifactInstallability::apiMismatch:
+            return "artifact and sfHookApiVersion disagree";
+        case ArtifactInstallability::amendmentDisabled:
+            return "JSHooks is disabled";
+        case ArtifactInstallability::unsupportedProfile:
+            return "QuickJS bytecode ABI or runtime profile is unsupported";
+    }
+    return "unknown artifact installation policy";
+}
+
+}  // namespace
 
 bool
 validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
@@ -445,9 +505,16 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (version != 0)
+            auto const hasCreateCode = hookSetObj.isFieldPresent(sfCreateCode);
+            Blob hook =
+                hasCreateCode ? hookSetObj.getFieldVL(sfCreateCode) : Blob{};
+            auto const artifact = hook::artifact::parse(makeSlice(hook));
+            if (artifact &&
+                artifact->kind == hook::artifact::Kind::legacyWasm &&
+                version != 0)
             {
-                // we currently only accept api version 0
+                // Reject version != 0 before HookOn so tesMALFORMED codes stay
+                // stable.
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
                     << "]: Malformed transaction: SetHook "
@@ -524,10 +591,65 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
             // finally validate web assembly byte code
             {
-                if (!hookSetObj.isFieldPresent(sfCreateCode))
+                if (!hasCreateCode)
                     return {};
 
-                Blob hook = hookSetObj.getFieldVL(sfCreateCode);
+                if (!artifact)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::WASM_INVALID << ")["
+                        << HS_ACC() << "]: Malformed Hook artifact: "
+                        << hook::artifact::toString(artifact.error());
+                    return false;
+                }
+
+                auto const installability =
+                    artifactInstallability(*artifact, version, ctx.rules);
+                if (installability != ArtifactInstallability::allowed)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::API_INVALID << ")["
+                        << HS_ACC() << "]: Hook artifact cannot be installed: "
+                        << toString(installability);
+                    return false;
+                }
+
+                if (artifact->kind == hook::artifact::Kind::quickJSBytecode)
+                {
+                    auto const runtime = hook::findQuickJSRuntime(*artifact);
+                    hook::QuickJSModuleValidation validation;
+                    auto const validationError = hook::validateQuickJSBytecode(
+                        runtime,
+                        std::span{
+                            artifact->payload.data(), artifact->payload.size()},
+                        validation);
+                    if (validationError || !runtime)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::WASM_INVALID << ")["
+                            << HS_ACC() << "]: Invalid QuickJS Hook bytecode: "
+                            << (validationError ? *validationError
+                                                : "runtime is not registered");
+                        return false;
+                    }
+                    if (validation.xflArithmeticProfile !=
+                        artifact->xflArithmeticProfile)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::WASM_INVALID << ")["
+                            << HS_ACC()
+                            << "]: QuickJS Hook XFL arithmetic profile "
+                               "disagrees between envelope and module";
+                        return false;
+                    }
+
+                    // Bill the armed invocation-fuel ceiling; host-work
+                    // pricing is a later consensus change.
+                    auto const units =
+                        hook::currentQuickJSRuntimeProfile().invocationFuel;
+                    return std::pair<uint64_t, uint64_t>{
+                        units, validation.hasCallback ? units : 0};
+                }
 
                 // RH NOTE: validateGuards has a generic non-rippled specific
                 // interface so it can be used in other projects (i.e. tooling).
@@ -594,7 +716,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
                 std::optional<std::string> result2 =
                     hook::HookExecutor::validateWasm(
-                        hook.data(), (size_t)hook.size());
+                        artifact->payload.data(), artifact->payload.size());
 
                 if (result2)
                 {
@@ -713,13 +835,39 @@ SetHook::preclaim(ripple::PreclaimContext const& ctx)
 
         auto const& hash = hookSetObj.getFieldH256(sfHookHash);
         {
-            if (!ctx.view.exists(keylet::hookDefinition(hash)))
+            auto const definition = ctx.view.read(keylet::hookDefinition(hash));
+            if (!definition)
             {
                 JLOG(ctx.j.trace()) << "HookSet(" << hook::log::HOOK_DEF_MISSING
                                     << ")[" << HS_ACC()
                                     << "]: Malformed transaction: No hook "
                                        "exists with the specified hash.";
                 return terNO_HOOK;
+            }
+
+            if (!definition->isFieldPresent(sfCreateCode) ||
+                !definition->isFieldPresent(sfHookApiVersion))
+                return tefBAD_LEDGER;
+
+            auto const code = definition->getFieldVL(sfCreateCode);
+            auto const artifact = hook::artifact::parse(makeSlice(code));
+            if (!artifact)
+                return tefBAD_LEDGER;
+
+            auto const installability = artifactInstallability(
+                *artifact,
+                definition->getFieldU16(sfHookApiVersion),
+                ctx.view.rules());
+            if (installability == ArtifactInstallability::apiMismatch)
+                return tefBAD_LEDGER;
+            if (installability != ArtifactInstallability::allowed)
+            {
+                JLOG(ctx.j.trace())
+                    << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
+                    << "]: HookHash targets a definition that is not "
+                       "installable: "
+                    << toString(installability);
+                return temDISABLED;
             }
         }
     }
@@ -793,8 +941,8 @@ SetHook::preflight(PreflightContext const& ctx)
         }
 
         if (hookSetObj.isFieldPresent(sfCreateCode) &&
-            hookSetObj.getFieldVL(sfCreateCode).size() >
-                hook::maxHookWasmSize())
+            !hook::artifact::fitsCreateCodeSizeLimit(
+                makeSlice(hookSetObj.getFieldVL(sfCreateCode))))
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::WASM_TOO_BIG << ")[" << HS_ACC()
@@ -1307,7 +1455,6 @@ SetHook::setHook()
         .app = ctx_.app,
         .rules = ctx_.view().rules()};
 
-    const int blobMax = hook::maxHookWasmSize();
     auto const accountKeylet = keylet::account(account_);
     auto const hookKeylet = keylet::hook(account_);
 
@@ -1588,6 +1735,9 @@ SetHook::setHook()
                 if (!oldDefSLE || !oldHook)
                     return tecNO_ENTRY;
 
+                // Installed hooks may still be updated after their profile
+                // stops accepting CREATE.
+
                 // initially carry over the prior non-array values, whatever
                 // those were
                 newHook.setFieldH256(
@@ -1755,7 +1905,8 @@ SetHook::setHook()
                 ripple::Blob wasmBytes =
                     hookSetObj->get().getFieldVL(sfCreateCode);
 
-                if (wasmBytes.size() > blobMax)
+                if (!hook::artifact::fitsCreateCodeSizeLimit(
+                        makeSlice(wasmBytes)))
                 {
                     JLOG(ctx.j.warn())
                         << "HookSet(" << hook::log::WASM_TOO_BIG << ")["
@@ -1932,6 +2083,22 @@ SetHook::setHook()
                            "which does not exist on ledger";
                     return tecNO_ENTRY;
                 }
+
+                // CREATE-dedup and hash INSTALL must see a still-installable
+                // definition.
+                if (!newDefSLE->isFieldPresent(sfCreateCode) ||
+                    !newDefSLE->isFieldPresent(sfHookApiVersion))
+                    return tefBAD_LEDGER;
+                auto const definitionCode = newDefSLE->getFieldVL(sfCreateCode);
+                auto const definitionArtifact =
+                    hook::artifact::parse(makeSlice(definitionCode));
+                if (!definitionArtifact)
+                    return tefBAD_LEDGER;
+                if (artifactInstallability(
+                        *definitionArtifact,
+                        newDefSLE->getFieldU16(sfHookApiVersion),
+                        view().rules()) != ArtifactInstallability::allowed)
+                    return tefBAD_LEDGER;
 
                 // decrement the hook definition and mark it for deletion if
                 // appropriate

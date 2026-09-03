@@ -42,7 +42,19 @@ Json::Value
 hso(std::vector<uint8_t> const& wasmBytes, void (*f)(Json::Value& jv) = 0);
 
 Json::Value
+hsoVersioned(
+    std::vector<uint8_t> const& hookCode,
+    std::uint16_t apiVersion,
+    void (*f)(Json::Value& jv) = 0);
+
+Json::Value
 hso(std::string const& wasmHex, void (*f)(Json::Value& jv) = 0);
+
+Json::Value
+hsoVersioned(
+    std::string const& hookCodeHex,
+    std::uint16_t apiVersion,
+    void (*f)(Json::Value& jv) = 0);
 
 Json::Value
 hso_delete(void (*f)(Json::Value& jv) = 0);
@@ -97,7 +109,6 @@ struct StubHookContext
     std::map<uint32_t, uint32_t> guard_map{};
     StubHookResult result = {};
     std::optional<ripple::STObject> emitFailure = std::nullopt;
-    const hook::HookExecutor* module = 0;
 };
 
 // Overload that takes external stateMap to avoid dangling reference

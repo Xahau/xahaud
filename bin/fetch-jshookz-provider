@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+bundle="${root}/external/quickjs-provider"
+receipt="${bundle}/jshookz_provider.receipt"
+provider="${bundle}/jshookz_provider.wasm"
+
+sha256_file()
+{
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+receipt_value()
+{
+  awk -v key="$1" '
+    $1 == key {
+      if (found || NF != 2) exit 2
+      value = $2
+      found = 1
+    }
+    END {
+      if (!found) exit 1
+      print value
+    }
+  ' "${receipt}"
+}
+
+provider_sha=$(receipt_value provider_sha256)
+provider_size=$(receipt_value provider_size)
+receipt_sha=$(sha256_file "${receipt}")
+provider_url="${XAHAU_QJS_PROVIDER_URL:-https://github.com/sublimator/jshookz/releases/download/provider-${receipt_sha}/jshookz_provider.wasm}"
+
+verify_provider()
+{
+  actual_sha=$(sha256_file "$1")
+  actual_size=$(wc -c <"$1" | tr -d '[:space:]')
+  if [[ "${actual_sha}" != "${provider_sha}" ||
+        "${actual_size}" != "${provider_size}" ]]; then
+    echo "provider receipt mismatch: sha256=${actual_sha} size=${actual_size}" >&2
+    return 1
+  fi
+}
+
+if [[ -f "${provider}" ]] && verify_provider "${provider}"; then
+  echo "Using locked JSHookz provider: ${provider}"
+  exit 0
+fi
+
+temporary_provider="${provider}.tmp"
+trap 'rm -f "${temporary_provider}"' EXIT
+curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
+  "${provider_url}" --output "${temporary_provider}"
+verify_provider "${temporary_provider}"
+mv "${temporary_provider}" "${provider}"
+trap - EXIT

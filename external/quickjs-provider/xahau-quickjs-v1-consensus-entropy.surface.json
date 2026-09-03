@@ -1,0 +1,1504 @@
+{
+  "byte_policies": {
+    "AccountID.from": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "AccountID.fromHex": {
+      "0": "hexString"
+    },
+    "Currency.from": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "Hash256.from": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "Hash256.fromHex": {
+      "0": "hexString"
+    },
+    "LedgerKeylet.fromRaw": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "STBlob.equals": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "STBlob.from": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "STBlob.fromHex": {
+      "0": "hexString"
+    },
+    "accept": {
+      "0": "lifecycleMessage"
+    },
+    "emit.prepare": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "emit.tx": {
+      "0": "bytesLikeOrSTBlob"
+    },
+    "hook.param": {
+      "0": "stateKeyLike"
+    },
+    "otxn.param": {
+      "0": "stateKeyLike"
+    },
+    "rollback": {
+      "0": "lifecycleMessage"
+    },
+    "state.ForeignAccessor.del": {
+      "0": "stateKeyLike"
+    },
+    "state.ForeignAccessor.get": {
+      "0": "stateKeyLike"
+    },
+    "state.ForeignAccessor.set": {
+      "0": "stateKeyLike",
+      "1": "stateValueLike"
+    },
+    "state.del": {
+      "0": "stateKeyLike"
+    },
+    "state.get": {
+      "0": "stateKeyLike"
+    },
+    "state.set": {
+      "0": "stateKeyLike",
+      "1": "stateValueLike"
+    },
+    "util.sha512h": {
+      "0": "bytesLikeOrSTBlob"
+    }
+  },
+  "declaration": {
+    "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1-consensus-entropy.d.ts",
+    "sha256": "882aa6da0e3a8e9cd1e335f324fc6769a2ef2b34d4421dfe24341d213091aa15"
+  },
+  "globals": {
+    "AccountID": "object",
+    "AccountRoot": "function",
+    "Amount": "object",
+    "Currency": "object",
+    "EntropyTier": "object",
+    "Field": "object",
+    "Hash": "object",
+    "Hash128": "object",
+    "Hash160": "object",
+    "Hash192": "object",
+    "Hash256": "object",
+    "HookDefinition": "function",
+    "HookLedger": "function",
+    "HookReturnCode": "object",
+    "IOUAmount": "object",
+    "Issue": "object",
+    "LedgerEntry": "function",
+    "LedgerEntryType": "object",
+    "LedgerKeylet": "object",
+    "MPTAmount": "object",
+    "NativeAmount": "object",
+    "Path": "object",
+    "PathHop": "object",
+    "PathSet": "object",
+    "Payment": "function",
+    "Result": "object",
+    "STArray": "object",
+    "STBlob": "object",
+    "STObject": "function",
+    "SerializedField": "object",
+    "Transaction": "function",
+    "TransactionResult": "object",
+    "TransactionType": "object",
+    "UInt": "object",
+    "UInt16": "object",
+    "UInt32": "object",
+    "UInt64": "object",
+    "UInt8": "object",
+    "URIToken": "function",
+    "Vector256": "object",
+    "VoidResult": "object",
+    "XChainBridge": "object",
+    "XFLDecimal": "object",
+    "XFLProfile": "object",
+    "accept": "function",
+    "cell": "function",
+    "defineHookConfig": "function",
+    "emit": "object",
+    "entropy": "object",
+    "hook": "object",
+    "ledger": "object",
+    "otxn": "object",
+    "record": "function",
+    "rollback": "function",
+    "state": "object",
+    "trace": "function",
+    "util": "object"
+  },
+  "namespaces": {
+    "accept": {
+      "require": "function",
+      "requireTransaction": "function",
+      "unlessPresent": "function",
+      "unlessTruthy": "function",
+      "when": "function"
+    },
+    "emit": {
+      "build": "object",
+      "prepare": "function",
+      "reserve": "function",
+      "tx": "function"
+    },
+    "emit.build": {
+      "hookSet": "function",
+      "payment": "function"
+    },
+    "entropy": {
+      "cr": "object"
+    },
+    "entropy.cr": {
+      "dice": "function",
+      "status": "function"
+    },
+    "hook": {
+      "account": "function",
+      "again": "function",
+      "mode": "function",
+      "param": "function"
+    },
+    "ledger": {
+      "feeBase": "value",
+      "lastHash": "value",
+      "lastTime": "value",
+      "lookup": "function",
+      "nonce": "function",
+      "sequence": "value"
+    },
+    "otxn": {
+      "id": "function",
+      "object": "function",
+      "param": "function",
+      "type": "function"
+    },
+    "record": {
+      "accountID": "function",
+      "bytes": "function",
+      "hash": "function",
+      "padding": "function",
+      "u16le": "function",
+      "u32le": "function",
+      "u64le": "function",
+      "u8": "function",
+      "xflle": "function"
+    },
+    "rollback": {
+      "onAllFail": "function",
+      "onAnyFail": "function",
+      "onFail": "function",
+      "requirePresent": "function",
+      "requireTruthy": "function",
+      "when": "function"
+    },
+    "state": {
+      "del": "function",
+      "foreign": "function",
+      "get": "function",
+      "set": "function"
+    },
+    "util": {
+      "decodeObject": "function",
+      "keylet": "object",
+      "safeDecodeObject": "function",
+      "sha512h": "function",
+      "validateObject": "function"
+    },
+    "util.keylet": {
+      "account": "function",
+      "fees": "function",
+      "hook": "function",
+      "hookDefinition": "function",
+      "uriToken": "function"
+    }
+  },
+  "prototypes": {
+    "AccountID": {
+      "members": {
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "AccountID.from(new Uint8Array(20))"
+    },
+    "AccountRoot": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Account",
+          "Balance",
+          "Flags",
+          "LedgerEntryType",
+          "OwnerCount",
+          "PreviousTxnID",
+          "PreviousTxnLgrSeq",
+          "Sequence"
+        ],
+        "extensible": false,
+        "own": [
+          "Account",
+          "Balance",
+          "Flags",
+          "LedgerEntryType",
+          "OwnerCount",
+          "PreviousTxnID",
+          "PreviousTxnLgrSeq",
+          "Sequence"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "AMMID": "optional-value",
+        "Account": "value",
+        "AccountIndex": "optional-value",
+        "AccountTxnID": "optional-value",
+        "Balance": "value",
+        "BurnedNFTokens": "optional-value",
+        "Cron": "optional-value",
+        "Domain": "optional-value",
+        "EmailHash": "optional-value",
+        "FirstNFTokenSequence": "optional-value",
+        "Flags": "value",
+        "GovernanceFlags": "optional-value",
+        "GovernanceMarks": "optional-value",
+        "HookNamespaces": "optional-value",
+        "HookStateCount": "optional-value",
+        "HookStateScale": "optional-value",
+        "ImportSequence": "optional-value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "MessageKey": "optional-value",
+        "MintedNFTokens": "optional-value",
+        "NFTokenMinter": "optional-value",
+        "OwnerCount": "value",
+        "PreviousTxnID": "value",
+        "PreviousTxnLgrSeq": "value",
+        "RegularKey": "optional-value",
+        "Remarks": "optional-value",
+        "RewardAccumulator": "optional-value",
+        "RewardLgrFirst": "optional-value",
+        "RewardLgrLast": "optional-value",
+        "RewardTime": "optional-value",
+        "Sequence": "value",
+        "TickSize": "optional-value",
+        "TicketCount": "optional-value",
+        "TouchCount": "optional-value",
+        "TransferRate": "optional-value",
+        "WalletLocator": "optional-value",
+        "WalletSize": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('1100612200000000240000000125000000012D000000005500000000000000000000000000000000000000000000000000000000000000006240000000000F42408114B5F762798A53D543A014CAF8B297CFF8F2F937E8'))"
+    },
+    "Amount": {
+      "members": {
+        "asIOU": "function",
+        "asMPT": "function",
+        "asNative": "function",
+        "byteLength": "value",
+        "compare": "function",
+        "currency": "value",
+        "drops": "value",
+        "equals": "function",
+        "isIOU": "function",
+        "isMPT": "function",
+        "isNative": "function",
+        "issue": "value",
+        "issuer": "value",
+        "kind": "value",
+        "mptIssuanceId": "value",
+        "toBytes": "function",
+        "toString": "function",
+        "toXFL": "function",
+        "value": "value"
+      },
+      "own": [
+        "asIOU",
+        "asMPT",
+        "asNative",
+        "byteLength",
+        "compare",
+        "currency",
+        "drops",
+        "equals",
+        "isIOU",
+        "isMPT",
+        "isNative",
+        "issue",
+        "issuer",
+        "kind",
+        "mptIssuanceId",
+        "toBytes",
+        "toString",
+        "toXFL",
+        "value"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('61D4838D7EA4C680000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8')).Amount"
+    },
+    "Currency": {
+      "members": {
+        "byteLength": "value",
+        "equals": "function",
+        "isNative": "value",
+        "toBytes": "function",
+        "toHex": "function",
+        "toString": "function"
+      },
+      "own": [
+        "byteLength",
+        "equals",
+        "isNative",
+        "toBytes",
+        "toHex",
+        "toString"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('BaseAsset', new Uint8Array(20)).BaseAsset"
+    },
+    "Hash128": {
+      "members": {
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteLength",
+        "compare",
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('EmailHash', new Uint8Array(16)).EmailHash"
+    },
+    "Hash160": {
+      "members": {
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteLength",
+        "compare",
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('TakerPaysCurrency', new Uint8Array(20)).TakerPaysCurrency"
+    },
+    "Hash192": {
+      "members": {
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteLength",
+        "compare",
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('MPTokenIssuanceID', new Uint8Array(24)).MPTokenIssuanceID"
+    },
+    "Hash256": {
+      "members": {
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "isZero": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteLength",
+        "compare",
+        "equals",
+        "isZero",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "Hash256.from(new Uint8Array(32))"
+    },
+    "HookDefinition": {
+      "frozen": true,
+      "members": {
+        "Flags": "value",
+        "HookHash": "value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "Remarks": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('110044101400002200000000250000000130130000000000000001554444444444444444444444444444444444444444444444444444444444444444501F111111111111111111111111111111111111111111111111111111111111111150202222222222222222222222222222222222222222222222222222222222222222502133333333333333333333333333333333333333333333333333333333333333336840000000000000007B0100F013F1'))"
+    },
+    "HookLedger": {
+      "frozen": true,
+      "members": {
+        "Flags": "value",
+        "Hooks": "value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "Remarks": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('11004822000000002500000001340000000000000000550000000000000000000000000000000000000000000000000000000000000000FBEE501F1111111111111111111111111111111111111111111111111111111111111111E1F1'))"
+    },
+    "Issue": {
+      "members": {
+        "currency": "value",
+        "equals": "function",
+        "issuer": "value",
+        "kind": "value",
+        "mptIssuanceId": "value",
+        "toBytes": "function"
+      },
+      "own": [
+        "currency",
+        "equals",
+        "issuer",
+        "kind",
+        "mptIssuanceId",
+        "toBytes"
+      ],
+      "probe": "util.decodeObject(new Uint8Array()).withField('LockingChainIssue', new Uint8Array(20)).LockingChainIssue"
+    },
+    "LedgerEntry": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Flags",
+          "Indexes",
+          "LedgerEntryType",
+          "RootIndex"
+        ],
+        "extensible": false,
+        "own": [
+          "Flags",
+          "Indexes",
+          "LedgerEntryType",
+          "RootIndex"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "Flags": "value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "Remarks": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('1100642200000000580000000000000000000000000000000000000000000000000000000000000000011300'))"
+    },
+    "LedgerKeylet": {
+      "members": {
+        "byteLength": "value",
+        "toBytes": "function",
+        "toHex": "function",
+        "type": "value"
+      },
+      "own": [
+        "byteLength",
+        "toBytes",
+        "toHex",
+        "type"
+      ],
+      "probe": "util.keylet.account(AccountID.zero)"
+    },
+    "Path": {
+      "members": {
+        "[Symbol.iterator]": "function",
+        "at": "function",
+        "length": "value"
+      },
+      "own": [
+        "[Symbol.iterator]",
+        "at",
+        "length"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011201B5F762798A53D543A014CAF8B297CFF8F2F937E800')).Paths.at(0)"
+    },
+    "PathHop": {
+      "members": {
+        "account": "value",
+        "currency": "value",
+        "issuer": "value"
+      },
+      "own": [
+        "account",
+        "currency",
+        "issuer"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011201B5F762798A53D543A014CAF8B297CFF8F2F937E800')).Paths.at(0).at(0)"
+    },
+    "PathSet": {
+      "members": {
+        "[Symbol.iterator]": "function",
+        "at": "function",
+        "length": "value",
+        "toBytes": "function"
+      },
+      "own": [
+        "[Symbol.iterator]",
+        "at",
+        "length",
+        "toBytes"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011201B5F762798A53D543A014CAF8B297CFF8F2F937E800')).Paths"
+    },
+    "Payment": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Account",
+          "Amount",
+          "Destination",
+          "Fee",
+          "Flags",
+          "Sequence",
+          "SigningPubKey",
+          "TransactionType"
+        ],
+        "extensible": false,
+        "own": [
+          "Account",
+          "Amount",
+          "Destination",
+          "Fee",
+          "Flags",
+          "Sequence",
+          "SigningPubKey",
+          "TransactionType"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "Account": "value",
+        "AccountTxnID": "optional-value",
+        "Amount": "value",
+        "CredentialIDs": "optional-value",
+        "DeliverMin": "optional-value",
+        "Destination": "value",
+        "DestinationTag": "optional-value",
+        "EmitDetails": "optional-value",
+        "Fee": "value",
+        "FirstLedgerSequence": "optional-value",
+        "Flags": "value",
+        "HookName": "optional-value",
+        "HookParameters": "optional-value",
+        "InvoiceID": "optional-value",
+        "LastLedgerSequence": "optional-value",
+        "Memos": "optional-value",
+        "NetworkID": "optional-value",
+        "OperationLimit": "optional-value",
+        "Paths": "optional-value",
+        "PreviousTxnID": "optional-value",
+        "SendMax": "optional-value",
+        "Sequence": "value",
+        "Signers": "optional-value",
+        "SigningPubKey": "value",
+        "SourceTag": "optional-value",
+        "TicketSequence": "optional-value",
+        "TransactionType": "value",
+        "TxnSignature": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('12000024000000016140000000000F424068400000000000000A73008114B5F762798A53D543A014CAF8B297CFF8F2F937E88314B5F762798A53D543A014CAF8B297CFF8F2F937E8'))"
+    },
+    "RecordField": {
+      "members": {
+        "byteLength": "value"
+      },
+      "own": [
+        "byteLength"
+      ],
+      "probe": "record.u8()"
+    },
+    "RecordSchema": {
+      "members": {
+        "byteLength": "value",
+        "encode": "function",
+        "name": "value",
+        "parse": "function",
+        "patch": "function",
+        "safeEncode": "function",
+        "safeParse": "function"
+      },
+      "own": [
+        "byteLength",
+        "encode",
+        "name",
+        "parse",
+        "patch",
+        "safeEncode",
+        "safeParse"
+      ],
+      "probe": "record('SurfaceRecord', 1, [['value', record.u8()]])"
+    },
+    "Result": {
+      "frozen": true,
+      "members": {
+        "okMapOr": "function",
+        "okOr": "function",
+        "okOrHandle": "function"
+      },
+      "own": [
+        "okMapOr",
+        "okOr",
+        "okOrHandle"
+      ],
+      "probe": "UInt64.from(0n)"
+    },
+    "STArray": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "0"
+        ],
+        "extensible": false,
+        "own": [
+          "0",
+          "length"
+        ]
+      },
+      "members": {
+        "[Symbol.iterator]": "function",
+        "at": "function",
+        "length": "value",
+        "toJSON": "function"
+      },
+      "own": [
+        "[Symbol.iterator]",
+        "at",
+        "toJSON"
+      ],
+      "probe": "util.decodeObject(new Uint8Array([0xF9, 0xEA, 0x22, 0, 0, 0, 1, 0xE1, 0xF1])).Memos"
+    },
+    "STBlob": {
+      "members": {
+        "byteAt": "function",
+        "byteLength": "value",
+        "equals": "function",
+        "toBytes": "function",
+        "toHex": "function"
+      },
+      "own": [
+        "byteAt",
+        "byteLength",
+        "equals",
+        "toBytes",
+        "toHex"
+      ],
+      "probe": "STBlob.from(new Uint8Array(0))"
+    },
+    "STObject": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Flags"
+        ],
+        "extensible": false,
+        "own": [
+          "Flags"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor",
+        "fieldBytes",
+        "get",
+        "has",
+        "toBytes",
+        "toJSON",
+        "withField",
+        "withoutField"
+      ],
+      "probe": "util.decodeObject(new Uint8Array([0x22, 0, 0, 0, 9]))"
+    },
+    "ScalarSchema": {
+      "members": {
+        "byteLength": "value",
+        "encode": "function",
+        "name": "value",
+        "parse": "function",
+        "safeEncode": "function",
+        "safeParse": "function"
+      },
+      "own": [
+        "byteLength",
+        "encode",
+        "name",
+        "parse",
+        "safeEncode",
+        "safeParse"
+      ],
+      "probe": "cell('SurfaceScalar', record.u8())"
+    },
+    "Transaction": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Account",
+          "Fee",
+          "Flags",
+          "Sequence",
+          "SigningPubKey",
+          "TransactionType"
+        ],
+        "extensible": false,
+        "own": [
+          "Account",
+          "Fee",
+          "Flags",
+          "Sequence",
+          "SigningPubKey",
+          "TransactionType"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "Account": "value",
+        "AccountTxnID": "optional-value",
+        "EmitDetails": "optional-value",
+        "Fee": "value",
+        "FirstLedgerSequence": "optional-value",
+        "Flags": "value",
+        "HookName": "optional-value",
+        "HookParameters": "optional-value",
+        "LastLedgerSequence": "optional-value",
+        "Memos": "optional-value",
+        "NetworkID": "optional-value",
+        "OperationLimit": "optional-value",
+        "PreviousTxnID": "optional-value",
+        "Sequence": "value",
+        "Signers": "optional-value",
+        "SigningPubKey": "value",
+        "SourceTag": "optional-value",
+        "TicketSequence": "optional-value",
+        "TransactionType": "value",
+        "TxnSignature": "optional-value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('120003240000000168400000000000000A73008114B5F762798A53D543A014CAF8B297CFF8F2F937E8'))"
+    },
+    "UInt": {
+      "members": {
+        "add": "function",
+        "bits": "value",
+        "byteLength": "value",
+        "compare": "function",
+        "equals": "function",
+        "hasFlag": "function",
+        "isZero": "function",
+        "saturatingAdd": "function",
+        "saturatingSubtract": "function",
+        "subtract": "function",
+        "toBigInt": "function",
+        "toBytes": "function",
+        "toNumber": "function",
+        "toString": "function",
+        "wrappingAdd": "function",
+        "wrappingMultiply": "function",
+        "wrappingSubtract": "function"
+      },
+      "own": [
+        "add",
+        "bits",
+        "byteLength",
+        "compare",
+        "equals",
+        "hasFlag",
+        "isZero",
+        "saturatingAdd",
+        "saturatingSubtract",
+        "subtract",
+        "toBigInt",
+        "toBytes",
+        "toNumber",
+        "toString",
+        "wrappingAdd",
+        "wrappingMultiply",
+        "wrappingSubtract"
+      ],
+      "probe": "UInt8.zero"
+    },
+    "URIToken": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "Flags",
+          "Issuer",
+          "LedgerEntryType",
+          "Owner",
+          "OwnerNode",
+          "PreviousTxnID",
+          "PreviousTxnLgrSeq",
+          "URI"
+        ],
+        "extensible": false,
+        "own": [
+          "Flags",
+          "Issuer",
+          "LedgerEntryType",
+          "Owner",
+          "OwnerNode",
+          "PreviousTxnID",
+          "PreviousTxnLgrSeq",
+          "URI"
+        ]
+      },
+      "frozen": true,
+      "members": {
+        "Amount": "optional-value",
+        "Destination": "optional-value",
+        "Digest": "optional-value",
+        "Flags": "value",
+        "Issuer": "value",
+        "LedgerEntryType": "value",
+        "LedgerIndex": "optional-value",
+        "Owner": "value",
+        "OwnerNode": "value",
+        "PreviousTxnID": "value",
+        "PreviousTxnLgrSeq": "value",
+        "Remarks": "optional-value",
+        "URI": "value",
+        "fieldBytes": "function",
+        "get": "function",
+        "has": "function",
+        "toBytes": "function",
+        "toJSON": "function",
+        "withField": "function",
+        "withoutField": "function"
+      },
+      "own": [
+        "constructor"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('110055220000000025000000013400000000000000005500000000000000000000000000000000000000000000000000000000000000007501008214B5F762798A53D543A014CAF8B297CFF8F2F937E88414B5F762798A53D543A014CAF8B297CFF8F2F937E8'))"
+    },
+    "Vector256": {
+      "exotic": {
+        "array": false,
+        "enumerable": [
+          "0"
+        ],
+        "extensible": false,
+        "own": [
+          "0",
+          "length"
+        ]
+      },
+      "members": {
+        "[Symbol.iterator]": "function",
+        "at": "function",
+        "length": "value",
+        "toBytes": "function"
+      },
+      "own": [
+        "[Symbol.iterator]",
+        "at",
+        "toBytes"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011320000102030405060708090A0B0C0D0E0F101112131415161718191A1B1C1D1E1F')).Indexes"
+    },
+    "VoidResult": {
+      "frozen": true,
+      "members": {
+        "moot": "function",
+        "okMapOr": "function",
+        "okOr": "function",
+        "okOrHandle": "function"
+      },
+      "own": [
+        "moot"
+      ],
+      "probe": "state.set('surface-probe', new Uint8Array(0))"
+    },
+    "XChainBridge": {
+      "members": {
+        "IssuingChainDoor": "value",
+        "IssuingChainIssue": "value",
+        "LockingChainDoor": "value",
+        "LockingChainIssue": "value",
+        "equals": "function",
+        "toBytes": "function"
+      },
+      "own": [
+        "IssuingChainDoor",
+        "IssuingChainIssue",
+        "LockingChainDoor",
+        "LockingChainIssue",
+        "equals",
+        "toBytes"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('011914B5F762798A53D543A014CAF8B297CFF8F2F937E8000000000000000000000000000000000000000014B5F762798A53D543A014CAF8B297CFF8F2F937E80000000000000000000000000000000000000000')).XChainBridge"
+    },
+    "XFLDecimal": {
+      "members": {
+        "add": "function",
+        "compare": "function",
+        "divide": "function",
+        "equals": "function",
+        "isNegative": "function",
+        "isZero": "function",
+        "multiply": "function",
+        "negate": "function",
+        "sign": "function",
+        "subtract": "function"
+      },
+      "own": [
+        "add",
+        "compare",
+        "divide",
+        "equals",
+        "isNegative",
+        "isZero",
+        "multiply",
+        "negate",
+        "sign",
+        "subtract"
+      ],
+      "probe": "util.decodeObject(STBlob.fromHex('61D4838D7EA4C680000000000000000000000000005553440000000000B5F762798A53D543A014CAF8B297CFF8F2F937E8')).Amount.toXFL()"
+    },
+    "state.ForeignAccessor": {
+      "members": {
+        "del": "function",
+        "get": "function",
+        "set": "function"
+      },
+      "own": [
+        "del",
+        "get",
+        "set"
+      ],
+      "probe": "state.foreign(AccountID.zero, Hash256.zero)"
+    }
+  },
+  "schema": "jshookz.javascript-surface.v1",
+  "statics": {
+    "AccountID": {
+      "from": "function",
+      "fromHex": "function",
+      "one": "value",
+      "zero": "value"
+    },
+    "AccountRoot": {},
+    "Amount": {
+      "drops": "function",
+      "iou": "function"
+    },
+    "Currency": {
+      "from": "function"
+    },
+    "EntropyTier": {
+      "consensusFallback": "value",
+      "participantAligned": "value",
+      "validatorFull": "value",
+      "validatorQuorum": "value"
+    },
+    "Hash256": {
+      "from": "function",
+      "fromHex": "function",
+      "zero": "value"
+    },
+    "HookDefinition": {},
+    "HookLedger": {},
+    "HookReturnCode": {
+      "ALREADY_SET": "value",
+      "CANT_RETURN_NEGATIVE": "value",
+      "COMPLEX_NOT_SUPPORTED": "value",
+      "DIVISION_BY_ZERO": "value",
+      "DOESNT_EXIST": "value",
+      "DOES_NOT_MATCH": "value",
+      "EMISSION_FAILURE": "value",
+      "EXPONENT_OVERSIZED": "value",
+      "EXPONENT_UNDERSIZED": "value",
+      "FEE_TOO_LARGE": "value",
+      "GUARD_VIOLATION": "value",
+      "INTERNAL_ERROR": "value",
+      "INVALID_ACCOUNT": "value",
+      "INVALID_ARGUMENT": "value",
+      "INVALID_FIELD": "value",
+      "INVALID_FLOAT": "value",
+      "INVALID_KEY": "value",
+      "INVALID_TXN": "value",
+      "MANTISSA_OVERSIZED": "value",
+      "MANTISSA_UNDERSIZED": "value",
+      "MEM_OVERLAP": "value",
+      "NOT_AN_AMOUNT": "value",
+      "NOT_AN_ARRAY": "value",
+      "NOT_AN_OBJECT": "value",
+      "NOT_AUTHORIZED": "value",
+      "NOT_A_STRING": "value",
+      "NOT_IMPLEMENTED": "value",
+      "NOT_IOU_AMOUNT": "value",
+      "NO_FREE_SLOTS": "value",
+      "NO_SUCH_KEYLET": "value",
+      "OUT_OF_BOUNDS": "value",
+      "PARSE_ERROR": "value",
+      "PREREQUISITE_NOT_MET": "value",
+      "PREVIOUS_FAILURE_PREVENTS_RETRY": "value",
+      "RC_ACCEPT": "value",
+      "RC_ROLLBACK": "value",
+      "RESERVE_INSUFFICIENT": "value",
+      "SUCCESS": "value",
+      "TOO_BIG": "value",
+      "TOO_LITTLE_ENTROPY": "value",
+      "TOO_MANY_EMITTED_TXN": "value",
+      "TOO_MANY_NAMESPACES": "value",
+      "TOO_MANY_NONCES": "value",
+      "TOO_MANY_PARAMS": "value",
+      "TOO_MANY_STATE_MODIFICATIONS": "value",
+      "TOO_SMALL": "value",
+      "XFL_OVERFLOW": "value"
+    },
+    "Issue": {
+      "iou": "function"
+    },
+    "LedgerEntry": {},
+    "LedgerEntryType": {
+      "AMM": "value",
+      "AccountRoot": "value",
+      "Amendments": "value",
+      "Bridge": "value",
+      "Check": "value",
+      "Credential": "value",
+      "Cron": "value",
+      "DID": "value",
+      "DepositPreauth": "value",
+      "DirectoryNode": "value",
+      "EmittedTxn": "value",
+      "Escrow": "value",
+      "FeeSettings": "value",
+      "Hook": "value",
+      "HookDefinition": "value",
+      "HookState": "value",
+      "ImportVLSequence": "value",
+      "LedgerHashes": "value",
+      "MPToken": "value",
+      "MPTokenIssuance": "value",
+      "NFTokenOffer": "value",
+      "NFTokenPage": "value",
+      "NegativeUNL": "value",
+      "Offer": "value",
+      "Oracle": "value",
+      "PayChannel": "value",
+      "PermissionedDomain": "value",
+      "RippleState": "value",
+      "SignerList": "value",
+      "Ticket": "value",
+      "UNLReport": "value",
+      "URIToken": "value",
+      "XChainOwnedClaimID": "value",
+      "XChainOwnedCreateAccountClaimID": "value"
+    },
+    "LedgerKeylet": {
+      "fromRaw": "function"
+    },
+    "Payment": {},
+    "STBlob": {
+      "from": "function",
+      "fromHex": "function"
+    },
+    "STObject": {},
+    "Transaction": {},
+    "TransactionResult": {
+      "tecAMM_ACCOUNT": "value",
+      "tecAMM_BALANCE": "value",
+      "tecAMM_EMPTY": "value",
+      "tecAMM_FAILED": "value",
+      "tecAMM_INVALID_TOKENS": "value",
+      "tecAMM_NOT_EMPTY": "value",
+      "tecARRAY_EMPTY": "value",
+      "tecARRAY_TOO_LARGE": "value",
+      "tecBAD_CREDENTIALS": "value",
+      "tecCANT_ACCEPT_OWN_NFTOKEN_OFFER": "value",
+      "tecCLAIM": "value",
+      "tecCRYPTOCONDITION_ERROR": "value",
+      "tecDIR_FULL": "value",
+      "tecDST_TAG_NEEDED": "value",
+      "tecDUPLICATE": "value",
+      "tecEMPTY_DID": "value",
+      "tecEXPIRED": "value",
+      "tecFAILED_PROCESSING": "value",
+      "tecFROZEN": "value",
+      "tecHAS_HOOK_STATE": "value",
+      "tecHAS_OBLIGATIONS": "value",
+      "tecHOOK_REJECTED": "value",
+      "tecIMMUTABLE": "value",
+      "tecINCOMPLETE": "value",
+      "tecINSUFFICIENT_FUNDS": "value",
+      "tecINSUFFICIENT_PAYMENT": "value",
+      "tecINSUFFICIENT_RESERVE": "value",
+      "tecINSUFF_FEE": "value",
+      "tecINSUF_RESERVE_LINE": "value",
+      "tecINSUF_RESERVE_OFFER": "value",
+      "tecINSUF_RESERVE_SELLER": "value",
+      "tecINTERNAL": "value",
+      "tecINVALID_UPDATE_TIME": "value",
+      "tecINVARIANT_FAILED": "value",
+      "tecKILLED": "value",
+      "tecLAST_POSSIBLE_ENTRY": "value",
+      "tecLOCKED": "value",
+      "tecMAX_SEQUENCE_REACHED": "value",
+      "tecNEED_MASTER_KEY": "value",
+      "tecNFTOKEN_BUY_SELL_MISMATCH": "value",
+      "tecNFTOKEN_OFFER_TYPE_MISMATCH": "value",
+      "tecNO_ALTERNATIVE_KEY": "value",
+      "tecNO_AUTH": "value",
+      "tecNO_DST": "value",
+      "tecNO_DST_INSUF_NATIVE": "value",
+      "tecNO_ENTRY": "value",
+      "tecNO_ISSUER": "value",
+      "tecNO_LINE": "value",
+      "tecNO_LINE_INSUF_RESERVE": "value",
+      "tecNO_LINE_REDUNDANT": "value",
+      "tecNO_PERMISSION": "value",
+      "tecNO_REGULAR_KEY": "value",
+      "tecNO_SUITABLE_NFTOKEN_PAGE": "value",
+      "tecNO_TARGET": "value",
+      "tecOBJECT_NOT_FOUND": "value",
+      "tecOVERSIZE": "value",
+      "tecOWNERS": "value",
+      "tecPATH_DRY": "value",
+      "tecPATH_PARTIAL": "value",
+      "tecPRECISION_LOSS": "value",
+      "tecREQUIRES_FLAG": "value",
+      "tecTOKEN_PAIR_NOT_FOUND": "value",
+      "tecTOO_MANY_REMARKS": "value",
+      "tecTOO_SOON": "value",
+      "tecUNFUNDED": "value",
+      "tecUNFUNDED_ADD": "value",
+      "tecUNFUNDED_AMM": "value",
+      "tecUNFUNDED_OFFER": "value",
+      "tecUNFUNDED_PAYMENT": "value",
+      "tecXCHAIN_ACCOUNT_CREATE_PAST": "value",
+      "tecXCHAIN_ACCOUNT_CREATE_TOO_MANY": "value",
+      "tecXCHAIN_BAD_CLAIM_ID": "value",
+      "tecXCHAIN_BAD_PUBLIC_KEY_ACCOUNT_PAIR": "value",
+      "tecXCHAIN_BAD_TRANSFER_ISSUE": "value",
+      "tecXCHAIN_CLAIM_NO_QUORUM": "value",
+      "tecXCHAIN_CREATE_ACCOUNT_DISABLED": "value",
+      "tecXCHAIN_CREATE_ACCOUNT_NONXRP_ISSUE": "value",
+      "tecXCHAIN_INSUFF_CREATE_AMOUNT": "value",
+      "tecXCHAIN_NO_CLAIM_ID": "value",
+      "tecXCHAIN_NO_SIGNERS_LIST": "value",
+      "tecXCHAIN_PAYMENT_FAILED": "value",
+      "tecXCHAIN_PROOF_UNKNOWN_KEY": "value",
+      "tecXCHAIN_REWARD_MISMATCH": "value",
+      "tecXCHAIN_SELF_COMMIT": "value",
+      "tecXCHAIN_SENDING_ACCOUNT_MISMATCH": "value",
+      "tecXCHAIN_WRONG_CHAIN": "value",
+      "tefALREADY": "value",
+      "tefBAD_ADD_AUTH": "value",
+      "tefBAD_AUTH": "value",
+      "tefBAD_AUTH_MASTER": "value",
+      "tefBAD_LEDGER": "value",
+      "tefBAD_QUORUM": "value",
+      "tefBAD_SIGNATURE": "value",
+      "tefCREATED": "value",
+      "tefEXCEPTION": "value",
+      "tefFAILURE": "value",
+      "tefIMPORT_BLACKHOLED": "value",
+      "tefINTERNAL": "value",
+      "tefINVALID_LEDGER_FIX_TYPE": "value",
+      "tefINVARIANT_FAILED": "value",
+      "tefMASTER_DISABLED": "value",
+      "tefMAX_LEDGER": "value",
+      "tefNFTOKEN_IS_NOT_TRANSFERABLE": "value",
+      "tefNONDIR_EMIT": "value",
+      "tefNOT_MULTI_SIGNING": "value",
+      "tefNO_AUTH_REQUIRED": "value",
+      "tefNO_TICKET": "value",
+      "tefPAST_IMPORT_SEQ": "value",
+      "tefPAST_IMPORT_VL_SEQ": "value",
+      "tefPAST_SEQ": "value",
+      "tefTOO_BIG": "value",
+      "tefWRONG_PRIOR": "value",
+      "telBAD_DOMAIN": "value",
+      "telBAD_PATH_COUNT": "value",
+      "telBAD_PUBLIC_KEY": "value",
+      "telCAN_NOT_QUEUE": "value",
+      "telCAN_NOT_QUEUE_BALANCE": "value",
+      "telCAN_NOT_QUEUE_BLOCKED": "value",
+      "telCAN_NOT_QUEUE_BLOCKS": "value",
+      "telCAN_NOT_QUEUE_FEE": "value",
+      "telCAN_NOT_QUEUE_FULL": "value",
+      "telCAN_NOT_QUEUE_IMPORT": "value",
+      "telENV_RPC_FAILED": "value",
+      "telFAILED_PROCESSING": "value",
+      "telIMPORT_VL_KEY_NOT_RECOGNISED": "value",
+      "telINSUF_FEE_P": "value",
+      "telLOCAL_ERROR": "value",
+      "telNETWORK_ID_MAKES_TX_NON_CANONICAL": "value",
+      "telNON_LOCAL_EMITTED_TXN": "value",
+      "telNO_DST_PARTIAL": "value",
+      "telREQUIRES_NETWORK_ID": "value",
+      "telWRONG_NETWORK": "value",
+      "temARRAY_EMPTY": "value",
+      "temARRAY_TOO_LARGE": "value",
+      "temBAD_AMM_TOKENS": "value",
+      "temBAD_AMOUNT": "value",
+      "temBAD_CURRENCY": "value",
+      "temBAD_EXPIRATION": "value",
+      "temBAD_FEE": "value",
+      "temBAD_ISSUER": "value",
+      "temBAD_LIMIT": "value",
+      "temBAD_NFTOKEN_TRANSFER_FEE": "value",
+      "temBAD_OFFER": "value",
+      "temBAD_PATH": "value",
+      "temBAD_PATH_LOOP": "value",
+      "temBAD_QUORUM": "value",
+      "temBAD_REGKEY": "value",
+      "temBAD_SEND_NATIVE_LIMIT": "value",
+      "temBAD_SEND_NATIVE_MAX": "value",
+      "temBAD_SEND_NATIVE_NO_DIRECT": "value",
+      "temBAD_SEND_NATIVE_PARTIAL": "value",
+      "temBAD_SEND_NATIVE_PATHS": "value",
+      "temBAD_SEQUENCE": "value",
+      "temBAD_SIGNATURE": "value",
+      "temBAD_SIGNER": "value",
+      "temBAD_SRC_ACCOUNT": "value",
+      "temBAD_TICK_SIZE": "value",
+      "temBAD_TRANSFER_FEE": "value",
+      "temBAD_TRANSFER_RATE": "value",
+      "temBAD_WEIGHT": "value",
+      "temCANNOT_PREAUTH_SELF": "value",
+      "temDISABLED": "value",
+      "temDST_IS_SRC": "value",
+      "temDST_NEEDED": "value",
+      "temEMPTY_DID": "value",
+      "temHOOK_DATA_TOO_LARGE": "value",
+      "temINVALID": "value",
+      "temINVALID_ACCOUNT_ID": "value",
+      "temINVALID_COUNT": "value",
+      "temINVALID_FLAG": "value",
+      "temMALFORMED": "value",
+      "temREDUNDANT": "value",
+      "temRIPPLE_EMPTY": "value",
+      "temSEQ_AND_TICKET": "value",
+      "temUNCERTAIN": "value",
+      "temUNKNOWN": "value",
+      "temXCHAIN_BAD_PROOF": "value",
+      "temXCHAIN_BRIDGE_BAD_ISSUES": "value",
+      "temXCHAIN_BRIDGE_BAD_MIN_ACCOUNT_CREATE_AMOUNT": "value",
+      "temXCHAIN_BRIDGE_BAD_REWARD_AMOUNT": "value",
+      "temXCHAIN_BRIDGE_NONDOOR_OWNER": "value",
+      "temXCHAIN_EQUAL_DOOR_ACCOUNTS": "value",
+      "temXCHAIN_TOO_MANY_ATTESTATIONS": "value",
+      "terFUNDS_SPENT": "value",
+      "terINSUF_FEE_B": "value",
+      "terLAST": "value",
+      "terNO_ACCOUNT": "value",
+      "terNO_AMM": "value",
+      "terNO_AUTH": "value",
+      "terNO_HOOK": "value",
+      "terNO_LINE": "value",
+      "terNO_RIPPLE": "value",
+      "terOWNERS": "value",
+      "terPRE_SEQ": "value",
+      "terPRE_TICKET": "value",
+      "terQUEUED": "value",
+      "terRETRY": "value",
+      "tesPARTIAL": "value",
+      "tesSUCCESS": "value"
+    },
+    "TransactionType": {
+      "AMMBid": "value",
+      "AMMClawback": "value",
+      "AMMCreate": "value",
+      "AMMDelete": "value",
+      "AMMDeposit": "value",
+      "AMMVote": "value",
+      "AMMWithdraw": "value",
+      "AccountDelete": "value",
+      "AccountSet": "value",
+      "CheckCancel": "value",
+      "CheckCash": "value",
+      "CheckCreate": "value",
+      "ClaimReward": "value",
+      "Clawback": "value",
+      "Contract": "value",
+      "CredentialAccept": "value",
+      "CredentialCreate": "value",
+      "CredentialDelete": "value",
+      "Cron": "value",
+      "CronSet": "value",
+      "DIDDelete": "value",
+      "DIDSet": "value",
+      "DepositPreauth": "value",
+      "EmitFailure": "value",
+      "EnableAmendment": "value",
+      "EscrowCancel": "value",
+      "EscrowCreate": "value",
+      "EscrowFinish": "value",
+      "GenesisMint": "value",
+      "Import": "value",
+      "Invoke": "value",
+      "LedgerStateFix": "value",
+      "MPTokenAuthorize": "value",
+      "MPTokenIssuanceCreate": "value",
+      "MPTokenIssuanceDestroy": "value",
+      "MPTokenIssuanceSet": "value",
+      "NFTokenAcceptOffer": "value",
+      "NFTokenBurn": "value",
+      "NFTokenCancelOffer": "value",
+      "NFTokenCreateOffer": "value",
+      "NFTokenMint": "value",
+      "NFTokenModify": "value",
+      "NicknameSet": "value",
+      "OfferCancel": "value",
+      "OfferCreate": "value",
+      "OracleDelete": "value",
+      "OracleSet": "value",
+      "Payment": "value",
+      "PaymentChannelClaim": "value",
+      "PaymentChannelCreate": "value",
+      "PaymentChannelFund": "value",
+      "PermissionedDomainDelete": "value",
+      "PermissionedDomainSet": "value",
+      "Remit": "value",
+      "SetFee": "value",
+      "SetHook": "value",
+      "SetRegularKey": "value",
+      "SetRemarks": "value",
+      "SignerListSet": "value",
+      "SpinalTap": "value",
+      "TicketCreate": "value",
+      "TrustSet": "value",
+      "UNLModify": "value",
+      "UNLReport": "value",
+      "URITokenBurn": "value",
+      "URITokenBuy": "value",
+      "URITokenCancelSellOffer": "value",
+      "URITokenCreateSellOffer": "value",
+      "URITokenMint": "value",
+      "XChainAccountCreateCommit": "value",
+      "XChainAddAccountCreateAttestation": "value",
+      "XChainAddClaimAttestation": "value",
+      "XChainClaim": "value",
+      "XChainCommit": "value",
+      "XChainCreateBridge": "value",
+      "XChainCreateClaimID": "value",
+      "XChainModifyBridge": "value"
+    },
+    "UInt16": {
+      "from": "function",
+      "max": "value",
+      "mulDiv": "function",
+      "zero": "value"
+    },
+    "UInt32": {
+      "from": "function",
+      "max": "value",
+      "mulDiv": "function",
+      "zero": "value"
+    },
+    "UInt64": {
+      "from": "function",
+      "max": "value",
+      "mulDiv": "function",
+      "mulDivXfl": "function",
+      "zero": "value"
+    },
+    "UInt8": {
+      "from": "function",
+      "max": "value",
+      "mulDiv": "function",
+      "zero": "value"
+    },
+    "URIToken": {},
+    "XFLDecimal": {
+      "from": "function",
+      "zero": "value"
+    },
+    "XFLProfile": {
+      "nearestEvenV1": "value",
+      "xahauFloatV1": "value"
+    }
+  }
+}

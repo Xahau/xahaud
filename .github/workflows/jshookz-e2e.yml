@@ -1,0 +1,153 @@
+# Consumer proof for the sealed JSHookz provider release and real Xahau Env.
+name: JSHookz provider consumer
+
+on:
+  push:
+    branches: [jshookz]
+  # PRs targeting jshookz/dev currently duplicate the branch-push e2e
+  # (different github.ref, so concurrency does not cancel). Re-enable later.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: jshookz-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  XAHAUD_SCRIPTS_REF: e41a712c68a613d95a8911cbf89711db2d95aa3b
+  XAHAU_QJS_PROVIDER_WASM: ${{ github.workspace }}/external/quickjs-provider/jshookz_provider.wasm
+  XAHAU_REQUIRE_QJS_PROVIDER_TESTS: "1"
+  CC: gcc-13
+  CXX: g++-13
+  CCACHE_DIR: /github/home/.ccache-cache
+  CMAKE_BUILD_PARALLEL_LEVEL: "2"
+
+jobs:
+  env-proof:
+    runs-on: [self-hosted, generic, 20.04]
+    timeout-minutes: 120
+    container:
+      image: ubuntu:24.04
+      volumes:
+        - /home/runner/.conan-cache:/.conan-cache
+        - /home/runner/.ccache-cache:/github/home/.ccache-cache
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install checkout prerequisite
+        run: |
+          apt-get update
+          apt-get install -y git
+
+      - name: Check out Xahau integration
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check out public xahaud-scripts
+        uses: actions/checkout@v4
+        with:
+          repository: sublimator/xahaud-scripts
+          ref: ${{ env.XAHAUD_SCRIPTS_REF }}
+          path: .deps/xahaud-scripts
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v7
+
+      - name: Install native tools
+        run: |
+          apt-get install -y \
+            build-essential ccache clang-format-18 cmake curl g++-13 gcc-13 \
+            libsqlite3-dev ninja-build pkg-config python3 xz-utils
+          ln -sf /usr/bin/clang-format-18 /usr/local/bin/clang-format
+          ln -sf /usr/bin/gcov-13 /usr/local/bin/gcov
+          uv python install 3.13
+          uv tool install --python 3.13 conan==2.21.0
+          uv tool install --python 3.13 'gcovr>=7,<9'
+
+      - name: Install the Xahau test runner
+        run: |
+          uv tool install --python 3.13 --force \
+            --from .deps/xahaud-scripts xahaud-scripts
+          x-run-tests --help >/dev/null
+
+      - name: Fetch and verify the sealed provider release
+        run: bin/fetch-jshookz-provider
+
+      - name: Prove receipt mutation reds
+        run: |
+          cmake \
+            -DQUICKJS_PROVIDER_RECEIPT=external/quickjs-provider/jshookz_provider.receipt \
+            -DQUICKJS_RECEIPT_TEST_TMP="$RUNNER_TEMP/quickjs-receipt-tests" \
+            -P cmake/TestQuickJSProviderReceipt.cmake
+
+      - name: Configure Conan for Xahau
+        run: |
+          mkdir -p \
+            /.conan-cache/conan2 \
+            /.conan-cache/conan2_download \
+            /.conan-cache/conan2_sources
+          mkdir -p "$HOME/.conan2"
+          printf '%s\n' \
+            'core.cache:storage_path=/.conan-cache/conan2' \
+            'core.download:download_cache=/.conan-cache/conan2_download' \
+            'core.sources:download_cache=/.conan-cache/conan2_sources' \
+            > "$HOME/.conan2/global.conf"
+          mkdir -p "$HOME/.conan2/profiles"
+          cat > "$HOME/.conan2/profiles/default" <<'EOF'
+          [settings]
+          arch=x86_64
+          build_type=Debug
+          compiler=gcc
+          compiler.cppstd=20
+          compiler.libcxx=libstdc++11
+          compiler.version=13
+          os=Linux
+
+          [buildenv]
+          CC=/usr/bin/gcc-13
+          CXX=/usr/bin/g++-13
+
+          [conf]
+          tools.build:compiler_executables={"c": "/usr/bin/gcc-13", "cpp": "/usr/bin/g++-13"}
+
+          [options]
+          &:xrpld=True
+          &:tests=True
+          date/*:use_system_tz_db=True
+          EOF
+          conan remote add --force xrplf https://conan.ripplex.io
+          conan profile show
+          conan export external/snappy --version 1.1.10 \
+            --user xahaud --channel stable
+          conan export external/soci --version 4.0.3 \
+            --user xahaud --channel stable
+          conan export external/wasmedge --version 0.11.2 \
+            --user xahaud --channel stable
+          conan export external/wasmtime --version 47.0.3 \
+            --user xahaud --channel stable
+
+      - name: Build Xahau and run the authoritative Env suite
+        run: |
+          x-run-tests \
+            --build-type Coverage \
+            --build-dir build-jshookz-e2e \
+            --reconfigure-build \
+            --ccache \
+            -j 2 \
+            -- \
+            ripple.app.JSHooks,ripple.app.QuickJSHostPolicy,ripple.app.HookGuestMemory,ripple.app.HookAPI,ripple.app.HookWasmtimeHostCatalogue,ripple.app.HookArtifact
+
+      - name: Upload JSHookz coverage
+        uses: codecov/codecov-action@v5
+        with:
+          files: build-jshookz-e2e/coverage/coverage.json
+          fail_ci_if_error: true
+          disable_search: true
+          verbose: true
+          plugins: noop
+          use_oidc: true

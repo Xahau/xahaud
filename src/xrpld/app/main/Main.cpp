@@ -16,6 +16,7 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
+#include <xrpld/app/hook/QuickJSHookRuntime.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/DBInit.h>
 #include <xrpld/app/rdb/Vacuum.h>
@@ -46,6 +47,7 @@
 #include <boost/process.hpp>
 #include <boost/program_options.hpp>
 
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -833,7 +835,49 @@ run(int argc, char** argv)
         auto app = make_Application(
             std::move(config), std::move(logs), std::make_unique<TimeKeeper>());
 
-        if (!app->setup(vm))
+        // Compile the sealed QuickJS provider on a background thread while
+        // the application sets itself up, and await it before start: the
+        // contract in QuickJSHookRuntime.h. A node that cannot register its
+        // sealed provider must not stay up, or it disagrees with its peers on
+        // every QuickJS artifact.
+        auto const quickJSProfile = hook::currentQuickJSRuntimeProfile();
+        auto const quickJSProvider = hook::embeddedQuickJSProvider();
+        auto quickJSJournal = app->logs().journal("QuickJS");
+        auto const quickJSLaunched = std::chrono::steady_clock::now();
+        if (quickJSProvider.empty())
+        {
+            JLOG(quickJSJournal.fatal())
+                << "No QuickJS provider is embedded in this build";
+            return -1;
+        }
+        if (auto const refused = hook::launchQuickJSRuntimeRegistration(
+                quickJSProfile,
+                Blob{quickJSProvider.begin(), quickJSProvider.end()}))
+        {
+            JLOG(quickJSJournal.fatal())
+                << "QuickJS provider registration refused: " << *refused;
+            return -1;
+        }
+
+        auto const setupComplete = app->setup(vm);
+
+        if (auto const error =
+                hook::awaitQuickJSRuntimeRegistration(quickJSProfile))
+        {
+            JLOG(quickJSJournal.fatal())
+                << "QuickJS provider registration failed: " << *error;
+            return -1;
+        }
+        JLOG(quickJSJournal.info())
+            << "QuickJS provider registered: " << quickJSProvider.size()
+            << " bytes, runtime profile "
+            << strHex(quickJSProfile.runtimeProfile) << ", awaited "
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - quickJSLaunched)
+                   .count()
+            << " ms after launch";
+
+        if (!setupComplete)
             return -1;
 
         // With our configuration parsed, ensure we have

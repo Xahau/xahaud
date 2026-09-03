@@ -1,0 +1,16 @@
+{
+  "ast_parser": "clang version 9.0.0 (https://github.com/llvm/llvm-project 0399d5a9682b3cef71c653373e38890c63c4c365)",
+  "declaration_count": 75,
+  "declaration_sha256": "83b077aa763f1a3bbbc38cc3669039ec9fcbc7543f5c1c63226bfd4bfbf94eb0",
+  "declaration_source": "hook/extern.h",
+  "schema": 1,
+  "source_sha256": "28f252fea72ed9b381e610f01597f267a8b253e696b9f33d33b5746aa0a32420",
+  "wasm_compiler": "clang version 9.0.0 (https://github.com/llvm/llvm-project 0399d5a9682b3cef71c653373e38890c63c4c365)",
+  "wasm_sha256": "4e79d2917fab669b6b6915a531d75e3c285ac958f75cec4fc2a7f454a50b0242",
+  "wasm_size": 7507,
+  "wasmcc_flags": [
+    "-O2",
+    "-Wl,--allow-undefined",
+    "-Wl,--export-all"
+  ]
+}
