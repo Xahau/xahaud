@@ -577,7 +577,7 @@ declare global {
   type JSTruthy<T> = Exclude<T, JSFalsy>;
   /** A successful, non-nullish value; falsy-but-present values qualify. */
   type Present<T> = Exclude<T, null | undefined>;
-  /** A provider-minted value with one canonical ledger representation. */
+  /** A provider-minted value accepted by the native serialized-byte registry. */
   type SerializedType = (
     | { readonly [__providerValueBrand]: string }
     | { readonly [__stObjectBrand]: void }
@@ -782,6 +782,8 @@ declare global {
     readonly [__providerValueBrand]: `UInt${Bits}`;
     readonly bits: Bits;
     readonly byteLength: Bits extends 8 ? 1 : Bits extends 16 ? 2 : Bits extends 32 ? 4 : 8;
+    /** Canonical fixed-width, big-endian ledger bytes. */
+    toBytes(): Uint8Array;
     toBigInt(): bigint;
     toString(): string;
     /** Conversion is total through 32 bits; UInt64 may exceed JS safe integer. */
@@ -2366,6 +2368,15 @@ declare global {
     readonly rawFlags: number;
 
     /**
+     * Identity of the transaction actually being applied for this
+     * callback. In an EmitFailure callback that is the EmitFailure
+     * wrapper's own computed id, whereas `otxn.id()` names the failed
+     * emitted transaction the wrapper carries; outside EmitFailure the two
+     * coincide. Read lazily: no host call unless accessed.
+     */
+    readonly invocationId: Hash256;
+
+    /**
      * Correlation id for this callback's transaction. When `applied`, the
      * originating transaction id. When not applied, `sfEmittedTxnID` when
      * present, else the originating id when available. Returns `undefined`
@@ -2395,7 +2406,8 @@ declare global {
   const LedgerKeylet: LedgerKeyletFactory;
 
   namespace otxn {
-    function raw(): HostResult<STBlob>;
+    /** Serialized originating transaction bytes; total, like `object()`. */
+    function raw(): STBlob;
     /**
      * Minted originating transaction. Total getters. Existence is an
      * execution invariant.
@@ -2407,9 +2419,20 @@ declare global {
      */
     function hostObject(): HostTx;
     function type(): TransactionType;
-    function id(flags?: number): HostResult<Hash256>;
-    function generation(): HostResult<number>;
-    function burden(): HostResult<bigint>;
+    /**
+     * Originating transaction id. Total: an executing Hook always has one,
+     * exactly as `otxn.object()` and `otxn.type()` do; a negative raw host
+     * status is an execution invariant failure and raises. In an
+     * EmitFailure callback this is the failed emitted transaction's hash,
+     * the same transaction `type()` and `object()` describe there.
+     */
+    function id(): Hash256;
+    /**
+     * Emission generation and burden carried by the originating
+     * transaction: total, defaulting to 0 and 1 when it was not emitted.
+     */
+    function generation(): number;
+    function burden(): bigint;
     /**
      * Transaction-carried hook parameters (`otxn_param`). Names and values
      * are blobs. Absent and empty are the same host status (`DOESNT_EXIST`)
@@ -2448,9 +2471,9 @@ declare global {
     /**
      * Minted originating-transaction metadata, if the host supplied it.
      */
-    function metaObject(): HostResult<TxMeta | undefined>;
-    function metaHostObject(): HostResult<HostTxMeta | undefined>;
-    function xpop(): HostResult<XPop | undefined>;
+    function metaObject(): TxMeta | undefined;
+    function metaHostObject(): HostTxMeta | undefined;
+    function xpop(): XPop | undefined;
   }
 
   /** Consensus-derived entropy operations. */
@@ -2525,7 +2548,6 @@ declare global {
     /** String parts are encoded as UTF-8 state-key text. */
     function key(part: string | BytePart, options?: KeyOptions): STBlob;
     function key(parts: readonly (string | BytePart)[], options?: KeyOptions): STBlob;
-    function get(key: string | BytesLike | STBlob | Hash256 | AccountID): HostResult<STBlob | undefined>;
     function get(key: StateKeyLike): HostResult<STBlob | undefined>;
     function get<T>(key: StateKeyLike, schema: BinarySchema<T>): StateReadResult<T>;
     /** Policied read: disposition declared at the site (`ReadPolicies`). */
@@ -2536,12 +2558,7 @@ declare global {
     ): PolicyRead<T, P>;
     function getMany(keys: readonly StateKeyLike[]): HostResult<readonly (STBlob | undefined)[]>;
     function getMany<const T extends BatchKeys>(keys: T): HostResult<BatchValues<T>>;
-    function set(
-      key: string | BytesLike | STBlob | Hash256 | AccountID,
-      value: string | BytesLike | STBlob | Hash256 | AccountID,
-    ): HostVoidResult;
     function set(key: StateKeyLike, value: StateValueLike): HostVoidResult;
-    function del(key: string | BytesLike | STBlob | Hash256 | AccountID): HostVoidResult;
     function del(key: StateKeyLike): HostVoidResult;
     function setMany(items: readonly Put[]): HostVoidResult;
     /**
@@ -2776,7 +2793,13 @@ declare global {
     function details(): HostResult<STBlob>;
     function feeBase(transaction: BytesLike | STBlob | EmittedTransaction): HostResult<Drops>;
     function nonce(): HostResult<Hash256>;
-    function generation(): HostResult<number>;
+    /** Generation the next emitted transaction will carry: total. */
+    function generation(): number;
+    /**
+     * Burden the next emitted transaction will carry. A conforming call can
+     * observe host failure: `PREREQUISITE_NOT_MET` before `emit.reserve`,
+     * `FEE_TOO_LARGE` when the multiplied burden overflows.
+     */
     function burden(): HostResult<bigint>;
   }
 
@@ -2852,7 +2875,8 @@ declare global {
     const feeBase: Drops;
     function nonce(): HostResult<Hash256>;
     function accountRoot(account: AccountID): HostResult<AccountRoot | undefined>;
-    function unlReport(): HostResult<UNLReport | undefined>;
+    /** Present when the ledger carries a UNL report; absence is the only non-success. */
+    function unlReport(): UNLReport | undefined;
     /**
      * Host-backed ledger object. Outer `HostResult` is existence; field
      * reads on the handle are crossings.
@@ -2876,8 +2900,9 @@ declare global {
   namespace hook {
     /** Hook account for this invocation; provider construction is total. */
     function account(): AccountID;
-    function hash(): HostResult<Hash256>;
-    function position(): HostResult<number>;
+    /** Hash and chain position of the executing Hook: total invocation facts. */
+    function hash(): Hash256;
+    function position(): number;
     function mode(): HookExecutionMode;
     function hashAt(position: number): HostResult<Hash256 | undefined>;
     /**
@@ -3047,19 +3072,22 @@ declare global {
     ): void;
 
     /**
-     * Apply a contract-owned terminal policy to a result whose failure does not
-     * already carry a Hook status.
+     * Apply terminal policy to a Result. A numeric `error.code` is preserved
+     * as the terminal status; `fallbackCode` applies only when the failure does
+     * not already carry one. This also makes mixed host/local error unions
+     * safe: host failures keep their exact status while local failures use the
+     * contract-owned fallback.
      */
     function onFail<T, Error>(
       result: Result<T, Error>,
       message: string | BytesLike | STBlob,
-      code?: number,
+      fallbackCode?: number,
     ): T;
-    /** Effect form with a contract-owned policy for uncoded domains. */
+    /** Effect form; a carried status wins and the fallback serves uncoded domains. */
     function onFail<Error>(
       result: VoidResult<Error>,
       message: string | BytesLike | STBlob,
-      code?: number,
+      fallbackCode?: number,
     ): void;
 
     /**
@@ -3127,18 +3155,18 @@ declare global {
       results: readonly HostVoidResult[],
       message?: string | BytesLike | STBlob,
     ): readonly undefined[];
-    /** Domain effect form with a contract-owned policy. */
+    /** Domain effect form; a carried status wins over the fallback. */
     function onAnyFail<Error>(
       results: readonly VoidResult<Error>[],
       message: string | BytesLike | STBlob,
-      code: number,
+      fallbackCode: number,
     ): readonly undefined[];
 
-    /** Apply a contract-owned rollback policy when any domain result failed. */
+    /** Roll back on the first failure; a carried status wins over the fallback. */
     function onAnyFail<T, Error>(
       results: readonly Result<T, Error>[],
       message: string | BytesLike | STBlob,
-      code: number,
+      fallbackCode: number,
     ): readonly T[];
 
     /**

@@ -47,3 +47,17 @@ cmake -S . -B build \
 
 If the WASM is absent, configuration remains possible but the generated embed
 is empty and the daemon refuses to start.
+
+## Fuel snapshot
+
+Exact native execution measurements live together in
+`src/test/app/JSHooks_fuel.snapshot`. They are consumer-side values because
+they cover the provider, Wasmtime, Xahau's native host, and the compiled test
+Hooks together; they are not producer release metadata.
+
+`bin/update-jshookz-snapshot` prints one authoritative `x-run-tests` command
+with `XAHAU_UPDATE_QJS_FUEL_SNAPSHOT=1`. That run compiles the current Hook
+fixtures, executes every JSHooks measurement, echoes the complete sorted
+`key value` snapshot, and rewrites the file only after the suite reaches its
+end. A normal run reads the snapshot and fails if a named value changes or a
+row is missing or added.

@@ -120,6 +120,7 @@ def main() -> int:
         f"HOOKZ_WASI_SDK={shlex.quote(wasi_sdk)} "
         f"XAHAU_QJS_PROVIDER_WASM={shlex.quote(str(bundle / 'jshookz_provider.wasm'))} "
         "XAHAU_REQUIRE_QJS_PROVIDER_TESTS=1 "
+        "XAHAU_UPDATE_QJS_FUEL_SNAPSHOT=1 "
         "x-run-tests --compile-hooks src/test/app/JSHooks_test.cpp "
         "--build-dir build --ccache -- "
         "ripple.app.JSHooks,ripple.app.QuickJSHostPolicy,"

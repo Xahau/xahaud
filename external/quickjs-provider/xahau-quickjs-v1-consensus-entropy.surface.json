@@ -71,7 +71,7 @@
   },
   "declaration": {
     "path": "python/jshookz/src/jshookz/types/xahau-quickjs-v1-consensus-entropy.d.ts",
-    "sha256": "1c66247164b37ee1a3c34f0b6127ef87a811148f0e95a06a2e3353e433d5e5df"
+    "sha256": "882aa6da0e3a8e9cd1e335f324fc6769a2ef2b34d4421dfe24341d213091aa15"
   },
   "globals": {
     "AccountID": "object",
@@ -879,6 +879,7 @@
         "saturatingSubtract": "function",
         "subtract": "function",
         "toBigInt": "function",
+        "toBytes": "function",
         "toNumber": "function",
         "toString": "function",
         "wrappingAdd": "function",
@@ -897,6 +898,7 @@
         "saturatingSubtract",
         "subtract",
         "toBigInt",
+        "toBytes",
         "toNumber",
         "toString",
         "wrappingAdd",
