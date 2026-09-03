@@ -300,7 +300,13 @@ BaseHTTPPeer<Handler, Impl>::do_read(yield_context do_yield)
 {
     complete_ = false;
     error_code ec;
-    start_timer();
+    // Do not treat an established keep-alive waiting for its next request as
+    // an unfinished loopback request.
+    if (request_count_ == 0)
+        start_timer();
+    else
+        boost::beast::get_lowest_layer(impl().stream_)
+            .expires_after(std::chrono::seconds(timeoutSeconds));
     boost::beast::http::async_read(
         impl().stream_, read_buf_, message_, do_yield[ec]);
     cancel_timer();
