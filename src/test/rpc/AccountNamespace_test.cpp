@@ -225,7 +225,6 @@ public:
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
         testErrors(all);
-        testErrors(all - featureHookFeeV2);
     }
 };
 

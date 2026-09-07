@@ -65,17 +65,14 @@ namespace hook_api {
 
 #pragma push_macro("HOOK_API_DEFINITION")
 #undef HOOK_API_DEFINITION
-#undef HOOK_API_COST
 
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
 #define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
     DECLARE_HOOK_FUNCTION(                                                 \
         RETURN_TYPE, FUNCTION_NAME, HOOK_WRAP_PARAMS PARAMS_TUPLE);
-#define HOOK_API_COST(...)
 
 #include <xrpl/hook/hook_api.macro>
 
-#undef HOOK_API_COST
 #undef HOOK_API_DEFINITION
 #undef HOOK_WRAP_PARAMS
 #pragma pop_macro("HOOK_API_DEFINITION")
@@ -137,10 +134,10 @@ computeExecutionFee(uint64_t instructionCount);
 int64_t
 computeCreationFee(uint64_t byteCount);
 
-constexpr uint32_t MICRO_DROPS_PER_DROP{1'000'000};
-
+// HookFeeV2: converts a hook's cost units (see hook_api::api_call_cost) into
+// drops, rounding up
 XRPAmount
-hookCostToFee(ReadView const& view, uint64_t hookCost);
+hookCostToFee(uint64_t hookCost);
 
 std::optional<std::pair<uint64_t, uint64_t>>
 doValidateGuards(
@@ -288,14 +285,14 @@ gatherHookParameters(
     beast::Journal const& j_);
 
 // RH TODO: call destruct for these on rippled shutdown
-#define ADD_HOOK_FUNCTION(F, ctx, cost)                    \
+#define ADD_HOOK_FUNCTION(F, ctx)                          \
     {                                                      \
         WasmEdge_FunctionInstanceContext* hf =             \
             WasmEdge_FunctionInstanceCreate(               \
                 hook_api::WasmFunctionType##F,             \
                 hook_api::WasmFunction##F,                 \
                 (void*)(&ctx),                             \
-                cost);                                     \
+                0);                                        \
         WasmEdge_ModuleInstanceAddFunction(                \
             importObj, hook_api::WasmFunctionName##F, hf); \
     }
@@ -487,17 +484,14 @@ public:
 
 #pragma push_macro("HOOK_API_DEFINITION")
 #undef HOOK_API_DEFINITION
-#undef HOOK_API_COST
 
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
 #define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
-    ADD_HOOK_FUNCTION(FUNCTION_NAME, ctx, 0);
-#define HOOK_API_COST(...)
+    ADD_HOOK_FUNCTION(FUNCTION_NAME, ctx);
 
 #include <xrpl/hook/hook_api.macro>
 
 #undef HOOK_API_DEFINITION
-#undef HOOK_API_COST
 #undef HOOK_WRAP_PARAMS
 #pragma pop_macro("HOOK_API_DEFINITION")
 

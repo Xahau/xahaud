@@ -35,8 +35,6 @@ struct Fees
     XRPAmount reserve{0};    // Reserve base (drops)
     XRPAmount increment{0};  // Reserve increment (drops)
 
-    std::uint32_t hookGasPrice{0};  // price per cost unit for hooks
-
     explicit Fees() = default;
     Fees(Fees const&) = default;
     Fees&

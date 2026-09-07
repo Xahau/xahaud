@@ -244,15 +244,6 @@ Ledger::Ledger(
                 sle->at(sfReserveIncrement) = *f;
             sle->at(sfReferenceFeeUnits) = Config::FEE_UNITS_DEPRECATED;
         }
-
-        // rules_ covers config.features (unit tests), amendments covers
-        // a FRESH start where the desired amendments are pre-enabled.
-        if (rules_.enabled(featureHookFeeV2) ||
-            std::find(amendments.begin(), amendments.end(), featureHookFeeV2) !=
-                amendments.end())
-        {
-            sle->at(sfHookGasPrice) = config.FEES.hook_gas_price;
-        }
         rawInsert(sle);
     }
 
@@ -671,7 +662,6 @@ Ledger::setup()
         {
             bool oldFees = false;
             bool newFees = false;
-            bool hookFees = false;
             {
                 auto const baseFee = sle->at(~sfBaseFee);
                 auto const reserveBase = sle->at(~sfReserveBase);
@@ -705,25 +695,11 @@ Ledger::setup()
                 assign(fees_.increment, reserveIncrementXRP);
                 newFees = baseFeeXRP || reserveBaseXRP || reserveIncrementXRP;
             }
-            {
-                auto const hookGasPrice = sle->at(~sfHookGasPrice);
-                auto assign = [](std::uint32_t& dest,
-                                 std::optional<std::uint32_t> const& src) {
-                    if (src)
-                        dest = src.value();
-                };
-                assign(fees_.hookGasPrice, hookGasPrice);
-                hookFees = !!hookGasPrice;
-            }
             if (oldFees && newFees)
                 // Should be all of one or the other, but not both
                 ret = false;
             if (!rules_.enabled(featureXRPFees) && newFees)
                 // Can't populate the new fees before the amendment is enabled
-                ret = false;
-            if (!rules_.enabled(featureHookFeeV2) && hookFees)
-                // Can't populate the Hook Fee V2 before the amendment is
-                // enabled
                 ret = false;
         }
     }
@@ -744,8 +720,7 @@ void
 Ledger::defaultFees(Config const& config)
 {
     XRPL_ASSERT(
-        fees_.base == 0 && fees_.reserve == 0 && fees_.increment == 0 &&
-            fees_.hookGasPrice == 0,
+        fees_.base == 0 && fees_.reserve == 0 && fees_.increment == 0,
         "ripple::Ledger::defaultFees : zero fees");
     if (fees_.base == 0)
         fees_.base = config.FEES.reference_fee;
@@ -753,9 +728,6 @@ Ledger::defaultFees(Config const& config)
         fees_.reserve = config.FEES.account_reserve;
     if (fees_.increment == 0)
         fees_.increment = config.FEES.owner_reserve;
-
-    if (fees_.hookGasPrice == 0)
-        fees_.hookGasPrice = config.FEES.hook_gas_price;
 }
 
 std::shared_ptr<SLE>

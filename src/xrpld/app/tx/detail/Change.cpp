@@ -152,16 +152,6 @@ Change::preclaim(PreclaimContext const& ctx)
                     ctx.tx.isFieldPresent(sfReserveIncrementDrops))
                     return temDISABLED;
             }
-            if (ctx.view.rules().enabled(featureHookFeeV2))
-            {
-                if (!ctx.tx.isFieldPresent(sfHookGasPrice))
-                    return temMALFORMED;
-            }
-            else
-            {
-                if (ctx.tx.isFieldPresent(sfHookGasPrice))
-                    return temDISABLED;
-            }
             return tesSUCCESS;
         case ttAMENDMENT:
         case ttUNL_MODIFY:
@@ -1046,8 +1036,6 @@ Change::applyFee()
         set(feeObject, ctx_.tx, sfReserveBase);
         set(feeObject, ctx_.tx, sfReserveIncrement);
     }
-    if (view().rules().enabled(featureHookFeeV2))
-        set(feeObject, ctx_.tx, sfHookGasPrice);
 
     view().update(feeObject);
 

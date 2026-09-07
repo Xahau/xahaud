@@ -496,7 +496,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     // transaction.
     do
     {
-        hookExecutionFee += hook::hookCostToFee(view, hookCost);
+        hookExecutionFee += hook::hookCostToFee(hookCost);
 
         if (accumulator * burden < accumulator)
             break;
@@ -1801,7 +1801,7 @@ Transactor::doTSH(
                 view, ctx_.tx, klTshHook, false, !canRollback);
             XRPAmount tshFeeDrops{tshFee.first};
 
-            tshFeeDrops += hook::hookCostToFee(view, tshFee.second);
+            tshFeeDrops += hook::hookCostToFee(tshFee.second);
 
             // no hooks to execute, skip tsh
             if (tshFeeDrops == 0)

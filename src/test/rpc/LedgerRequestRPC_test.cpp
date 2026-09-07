@@ -310,13 +310,10 @@ public:
     {
         using namespace test::jtx;
         using namespace std::chrono_literals;
-        Env env{
-            *this,
-            envconfig([](std::unique_ptr<Config> cfg) {
-                cfg->NODE_SIZE = 0;
-                return cfg;
-            }),
-            supported_amendments() - featureHookFeeV2};
+        Env env{*this, envconfig([](std::unique_ptr<Config> cfg) {
+                    cfg->NODE_SIZE = 0;
+                    return cfg;
+                })};
         Account const gw{"gateway"};
         auto const USD = gw["USD"];
         env.fund(XRP(100000), gw);

@@ -115,7 +115,6 @@ TYPED_SFIELD(sfLockCount,                UINT32,    49)
 TYPED_SFIELD(sfFirstNFTokenSequence,     UINT32,    50)
 TYPED_SFIELD(sfOracleDocumentID,         UINT32,    51)
 
-TYPED_SFIELD(sfHookGasPrice,             UINT32,    92)
 TYPED_SFIELD(sfStartTime,                UINT32,    93)
 TYPED_SFIELD(sfRepeatCount,              UINT32,    94)
 TYPED_SFIELD(sfDelaySeconds,             UINT32,    95)

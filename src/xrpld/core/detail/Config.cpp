@@ -1194,13 +1194,6 @@ setup_FeeVote(Section const& section)
         if (set(temp, "owner_reserve", section))
             setup.owner_reserve = temp;
     }
-    {
-        std::uint32_t temp;
-        if (set(temp, "hook_gas_price", section))
-        {
-            setup.hook_gas_price = temp;
-        }
-    }
     return setup;
 }
 }  // namespace ripple
