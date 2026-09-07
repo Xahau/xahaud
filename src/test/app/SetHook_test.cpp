@@ -102,8 +102,7 @@ using JSSMap =
         if (env.current()->rules().enabled(featureHookFeeV2))                 \
         {                                                                     \
             auto const actualCost = hookSLE->getFieldU64(sfHookCost);         \
-            auto const calculatedFee =                                        \
-                hook::hookCostToFee(actualCost);                              \
+            auto const calculatedFee = hook::hookCostToFee(actualCost);       \
             BEAST_EXPECTS(                                                    \
                 actualCost > 0, "Hook cost should be greater than 0");        \
             BEAST_EXPECTS(                                                    \
