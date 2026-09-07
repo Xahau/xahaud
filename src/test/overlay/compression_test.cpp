@@ -624,13 +624,25 @@ public:
     void
     run() override
     {
-        testManifestFrameLimit();
         testProtocol();
         testHandshake();
     }
 };
 
 BEAST_DEFINE_TESTSUITE_MANUAL(compression, ripple_data, ripple);
+
+// Keep the small ingress regression in ordinary CI, independently of the
+// manual suite's large compression fixtures.
+class manifest_frame_test : public compression_test
+{
+    void
+    run() override
+    {
+        testManifestFrameLimit();
+    }
+};
+
+BEAST_DEFINE_TESTSUITE(manifest_frame, ripple_data, ripple);
 
 }  // namespace test
 }  // namespace ripple
