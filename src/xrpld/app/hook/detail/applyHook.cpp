@@ -739,13 +739,14 @@ hook::computeCreationFee(uint64_t byteCount)
 }
 
 XRPAmount
-hook::hookCostToFee(uint64_t hookCost)
+hook::hookCostToFee(ReadView const& view, uint64_t hookCost)
 {
-    // round up, and avoid overflow: the quotient of a uint64 by 10 always
-    // fits in an int64
-    uint64_t const drops = hookCost / hook_api::cost_units_per_drop +
-        (hookCost % hook_api::cost_units_per_drop != 0);
-    return XRPAmount{static_cast<XRPAmount::value_type>(drops)};
+    XRPAmount fee{0};
+    auto const HOOK_GAS_PRICE = view.fees().hookGasPrice;
+    double const gas_cost =
+        double(HOOK_GAS_PRICE) / double(hook::MICRO_DROPS_PER_DROP);
+    fee = uint64_t(hookCost * gas_cost);
+    return fee;
 }
 
 std::optional<std::pair<uint64_t, uint64_t>>

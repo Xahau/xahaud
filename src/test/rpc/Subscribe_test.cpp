@@ -316,7 +316,9 @@ public:
         using namespace std::chrono_literals;
         using namespace jtx;
         Env env(
-            *this, supported_amendments() - featureXahauGenesis - featureTouch);
+            *this,
+            supported_amendments() - featureXahauGenesis - featureTouch -
+                featureHookFeeV2);
         auto wsc = makeWSClient(env.app().config());
         Json::Value stream{Json::objectValue};
 
