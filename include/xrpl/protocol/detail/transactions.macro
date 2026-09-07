@@ -501,8 +501,14 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
 }))
 
 /** This transaction type updates a hook definition */
-TRANSACTION(ttHOOK_DEFINITION_UPDATE, 91, HookDefinitionUpdate, ({
+TRANSACTION(ttHOOK_DEFINITION_UPDATE, 90, HookDefinitionUpdate, ({
     {sfHookHash, soeREQUIRED},
+    
+}))
+/* sfAccount is supplied by TxFormats::commonFields; listing it here as well
+   makes the SOTemplate reject the format at construction. */
+TRANSACTION(ttMANIFEST_SET, 91, SetManifest, ({
+    {sfManifest, soeREQUIRED},
 }))
 
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
