@@ -2033,9 +2033,11 @@ ValidatorList::updateTrusted(
             trustChanges.added.insert(calcNodeID(val.first));
     }
 
-    // If there were any changes, we need to update the ephemeral signing
-    // keys:
-    if (!trustChanges.added.empty() || !trustChanges.removed.empty())
+    // Rebuilt on every call rather than only when membership changed: a
+    // manifest that rotates a validator's ephemeral key changes no membership
+    // at all, so a membership-gated rebuild would leave trustedSigningKeys_
+    // stale and the rotated validator's validations would stop counting. This
+    // is a handful of map lookups over the UNL.
     {
         trustedSigningKeys_.clear();
 

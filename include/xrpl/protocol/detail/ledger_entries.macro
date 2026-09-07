@@ -262,6 +262,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
+    {sfManifestID,           soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.
@@ -590,6 +591,26 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
     {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
+    {sfAccount,             soeREQUIRED},
+    {sfPublicKey,           soeREQUIRED},
+    {sfSigningPubKey,       soeOPTIONAL}, /* may be absent if the master is revoked */
+    {sfSequence,            soeREQUIRED},
+    /* sfVersion defaults to 0 and is omitted from the signed payload when
+       absent. Storing it unconditionally would change the bytes and break
+       signature verification when the manifest is reconstructed. */
+    {sfVersion,             soeOPTIONAL},
+    {sfDomain,              soeOPTIONAL},
+    /* The signatures are mirrored so the object is a lossless copy of the
+       manifest and can be independently verified, and re-served to peers,
+       by any node reading it (see ManifestCache::applyLedger). */
+    {sfMasterSignature,     soeREQUIRED},
+    {sfSignature,           soeOPTIONAL}, /* absent if the master is revoked */
+    {sfManifestID,          soeOPTIONAL}, /* pointer to the identical other copy on the other key */
+    {sfPreviousTxnID,       soeREQUIRED},
+    {sfPreviousTxnLgrSeq,   soeREQUIRED},
 }))
 
 #undef EXPAND
