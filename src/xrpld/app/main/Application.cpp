@@ -2380,24 +2380,56 @@ amendmentBlockedFilePath(Config const& config)
 }
 
 boost::system::error_code
-writeAmendmentBlockedFile(Config const& config)
+writeAmendmentBlockedFile(
+    Config const& config,
+    std::vector<std::string> const& amendments)
 {
-    static constexpr char contents[] =
-        "XAHAUD STOPPED: UPGRADE REQUIRED\n"
-        "\n"
-        "This version of xahaud does not support a network amendment.\n"
-        "The amendment will activate soon or is already active.\n"
-        "Do not start this version of xahaud again.\n"
-        "\n"
-        "To restart the server:\n"
-        "1. Upgrade xahaud to a version that supports the amendment.\n"
-        "2. Delete this file.\n"
-        "3. Start xahaud again.\n"
-        "\n";
+    using namespace std::chrono;
+
+    std::ostringstream ss;
+    ss << "XAHAUD STOPPED: UPGRADE REQUIRED\n"
+       << "\n"
+       << "Stopped at:  "
+       << to_string_iso(time_point_cast<seconds>(system_clock::now())) << "\n"
+       << "This build:  " << BuildInfo::getVersionString() << "\n"
+       << "\n";
+
+    if (amendments.empty())
+    {
+        ss << "One or more network amendments are not supported by this "
+              "build.\n";
+    }
+    else
+    {
+        ss << "Amendments this build does not support:\n";
+        for (auto const& amendment : amendments)
+            ss << "  " << amendment << "\n";
+    }
+
+    ss << "\n"
+       << "The network has moved to rules this build does not implement, so "
+          "the\n"
+       << "server stopped rather than keep serving ledgers it cannot read.\n"
+       << "\n"
+       << "To get back in sync:\n"
+       << "1. Upgrade xahaud to a version that supports the amendments "
+          "above.\n"
+       << "2. Start xahaud again. This file is removed automatically on "
+          "start.\n"
+       << "\n"
+       << "Starting this build again without upgrading will stop the server "
+          "again\n"
+       << "and rewrite this file. Nothing needs to be deleted by hand.\n";
 
     boost::system::error_code ec;
-    writeFileContents(ec, amendmentBlockedFilePath(config), contents);
+    writeFileContents(ec, amendmentBlockedFilePath(config), ss.str());
     return ec;
+}
+
+bool
+removeAmendmentBlockedFile(Config const& config, boost::system::error_code& ec)
+{
+    return boost::filesystem::remove(amendmentBlockedFilePath(config), ec);
 }
 
 std::unique_ptr<Application>

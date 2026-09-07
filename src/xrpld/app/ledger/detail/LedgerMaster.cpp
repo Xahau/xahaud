@@ -289,12 +289,47 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
     app_.getSHAMapStore().onLedgerClosed(getValidatedLedger());
     mLedgerHistory.validatedLedger(l, consensusHash);
     app_.getAmendmentTable().doValidatedLedger(l);
+
+    using namespace std::chrono_literals;
+
+    // How far ahead of the expected activation time to stop the server.
+    // firstUnsupportedExpected() is only a lower bound on activation: the
+    // amendment goes live at the first flag ledger at or after that time, so
+    // stopping early is harmless while stopping late risks being handed a
+    // ledger we cannot deserialize.
+    constexpr auto amendmentShutdownLeadTime = 5min;
+
     if (!app_.getOPs().isBlocked())
     {
+        auto const firstUnsupported =
+            app_.getAmendmentTable().firstUnsupportedExpected();
+
         if (app_.getAmendmentTable().hasUnsupportedEnabled())
         {
             JLOG(m_journal.error()) << "One or more unsupported amendments "
                                        "activated: server blocked.";
+            app_.getOPs().setAmendmentBlocked();
+        }
+        else if (
+            firstUnsupported &&
+            app_.timeKeeper().closeTime() + amendmentShutdownLeadTime >=
+                *firstUnsupported)
+        {
+            // Activation is imminent, or the expected time has already passed
+            // and we are only waiting on the next flag ledger. Shut down now,
+            // while we can still deserialize the ledgers we are handed.
+            //
+            // This is deliberately checked on every validated ledger rather
+            // than only on flag ledgers: the lead time above is much shorter
+            // than the flag ledger interval, so a flag-ledger-only check would
+            // usually skip straight over the window.
+            //
+            // The comparison must not be written as (*first - now), because
+            // NetClock::rep is unsigned and wraps once the expected time is in
+            // the past -- which is the most dangerous case, not the safest.
+            JLOG(m_journal.error())
+                << "Unsupported amendment expected to activate at "
+                << to_string(*firstUnsupported) << ". Shutting down.";
             app_.getOPs().setAmendmentBlocked();
         }
         else if (!app_.getOPs().isAmendmentWarned() || l->isFlagLedger())
@@ -308,31 +343,14 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
             // this message may be logged more than once per session, because
             // the node will otherwise function normally, and this gives
             // operators an opportunity to see and resolve the warning.
-            if (auto const first =
-                    app_.getAmendmentTable().firstUnsupportedExpected())
+            if (firstUnsupported)
             {
-                using namespace std::chrono_literals;
-                auto const now = app_.timeKeeper().closeTime();
-                if (*first > now && (*first - now) <= 5min)
-                {
-                    // Shut down just before the amendment activates to
-                    // avoid processing ledgers with unknown fields.
-                    JLOG(m_journal.error())
-                        << "Unsupported amendment activating imminently "
-                           "at "
-                        << to_string(*first) << ". Shutting down.";
-                    app_.getOPs().setAmendmentBlocked();
-                }
-                else
-                {
-                    JLOG(m_journal.error())
-                        << "One or more unsupported amendments "
-                           "reached majority. Upgrade before "
-                        << to_string(*first)
-                        << " to prevent your server from "
-                           "becoming amendment blocked.";
-                    app_.getOPs().setAmendmentWarned();
-                }
+                JLOG(m_journal.error()) << "One or more unsupported amendments "
+                                           "reached majority. Upgrade before "
+                                        << to_string(*firstUnsupported)
+                                        << " to prevent your server from "
+                                           "becoming amendment blocked.";
+                app_.getOPs().setAmendmentWarned();
             }
             else
                 app_.getOPs().clearAmendmentWarned();
