@@ -4704,7 +4704,6 @@ private:
                 *this,
                 network::makeNetworkConfig(21337, "10", "1000000", "200000"),
                 features};
-
             auto const account = Account("alice");
             auto const destination = Account("bob");
             env.fund(XRP(1000), account, destination);
@@ -8086,7 +8085,6 @@ private:
                 *this,
                 network::makeNetworkConfig(21337, "10", "1000000", "200000"),
                 features};
-
             bool const withIOUIssuerWeakTSH =
                 env.current()->rules().enabled(featureIOUIssuerWeakTSH);
 

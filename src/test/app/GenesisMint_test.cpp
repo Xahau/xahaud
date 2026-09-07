@@ -95,7 +95,6 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace std::literals::chrono_literals;
 
         Env env{*this, envconfig(), features};
-
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const invoker = Account("invoker");
@@ -140,7 +139,6 @@ struct GenesisMint_test : public beast::unit_test::suite
             features,
             nullptr,
             beast::severities::kDisabled};
-
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         auto const invoker = Account("invoker");
@@ -648,7 +646,6 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace std::literals::chrono_literals;
 
         Env env{*this, envconfig(), features};
-
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
@@ -671,7 +668,6 @@ struct GenesisMint_test : public beast::unit_test::suite
         using namespace std::literals::chrono_literals;
 
         Env env{*this, envconfig(), features};
-
         auto const alice = Account("alice");
         auto const bob = Account("bob");
         env.fund(XRP(10000), alice, bob);
