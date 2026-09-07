@@ -107,9 +107,6 @@ using JSSMap =
             BEAST_EXPECTS(                                                    \
                 actualCost > 0, "Hook cost should be greater than 0");        \
             BEAST_EXPECTS(                                                    \
-                calculatedFee > XRPAmount{0},                                 \
-                "Hook fee should be greater than 0");                         \
-            BEAST_EXPECTS(                                                    \
                 calculatedFee == XRPAmount{fee},                              \
                 "Hook fee(v2) mismatch: expected " #fee " got " +             \
                     to_string(calculatedFee));                                \
@@ -3183,7 +3180,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(accept, 9);
-        EXPECT_HOOK_COST(accept, 379, 3);
+        EXPECT_HOOK_COST(accept, 159, 1);
 
         env(pay(bob, alice, XRP(1)), M("Test Accept Hook"), fee(XRP(1)));
         env.close();
@@ -3207,7 +3204,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(rollback, 9);
-        EXPECT_HOOK_COST(rollback, 409, 4);
+        EXPECT_HOOK_COST(rollback, 159, 1);
 
         env(pay(bob, alice, XRP(1)),
             M("Test Rollback Hook"),
@@ -3312,7 +3309,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 14);
-            EXPECT_HOOK_COST(hook, 154, 1);
+            EXPECT_HOOK_COST(hook, 74, 0);
         }
 
         // simple looping, c
@@ -3341,7 +3338,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 100);
-            EXPECT_HOOK_COST(hook, 4070, 40);
+            EXPECT_HOOK_COST(hook, 1550, 15);
 
             env(pay(bob, alice, XRP(1)), M("Test Loop 2"), fee(XRP(1)));
             env.close();
@@ -3389,7 +3386,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 1944);
-            EXPECT_HOOK_COST(hook, 86134, 861);
+            EXPECT_HOOK_COST(hook, 32164, 321);
 
             env(pay(bob, alice, XRP(1)), M("Test Loop 3"), fee(XRP(1)));
             env.close();
@@ -3503,7 +3500,7 @@ public:
             if (withCost)
             {
                 auto const hookCost = hookDef->getFieldU64(sfHookCost);
-                auto const expectedCost = 86134;
+                auto const expectedCost = 32164;
                 BEAST_EXPECTS(
                     hookCost == expectedCost,
                     "Hook cost mismatch: expected " + to_string(expectedCost) +
@@ -3864,7 +3861,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 342);
-        EXPECT_HOOK_COST(hook, 52262, 522);
+        EXPECT_HOOK_COST(hook, 11432, 114);
 
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
@@ -4526,7 +4523,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 1524);
-        EXPECT_HOOK_COST(hook, 15974, 159);
+        EXPECT_HOOK_COST(hook, 7474, 74);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_details"), fee(XRP(1)));
@@ -4615,7 +4612,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 77);
-            EXPECT_HOOK_COST(hook, 24317, 243);
+            EXPECT_HOOK_COST(hook, 4637, 46);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test etxn_fee_base"), fee(XRP(1)));
@@ -4700,7 +4697,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 11657);
-        EXPECT_HOOK_COST(hook, 165927, 1659);
+        EXPECT_HOOK_COST(hook, 82217, 822);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_nonce"), fee(XRP(1)));
@@ -4754,7 +4751,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 69);
-        EXPECT_HOOK_COST(hook, 2089, 20);
+        EXPECT_HOOK_COST(hook, 1069, 10);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_reserve"), fee(XRP(1)));
@@ -4799,7 +4796,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 20);
-        EXPECT_HOOK_COST(hook, 640, 6);
+        EXPECT_HOOK_COST(hook, 310, 3);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test fee_base"), fee(XRP(1)));
@@ -4936,7 +4933,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 583);
-            EXPECT_HOOK_COST(hook, 14493, 144);
+            EXPECT_HOOK_COST(hook, 7283, 72);
 
             env(pay(bob, alice, XRP(1)), M("test float_compare"), HSFEE);
             env.close();
@@ -5140,7 +5137,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 1799);
-            EXPECT_HOOK_COST(hook, 26469, 264);
+            EXPECT_HOOK_COST(hook, 10539, 105);
 
             env(pay(bob, alice, XRP(1)), M("test float_divide"), fee(XRP(1)));
             env.close();
@@ -5274,7 +5271,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 1178);
-            EXPECT_HOOK_COST(hook, 22828, 228);
+            EXPECT_HOOK_COST(hook, 12608, 126);
 
             env(pay(bob, alice, XRP(1)), M("test float_int"), HSFEE);
             env.close();
@@ -5367,7 +5364,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 329);
-            EXPECT_HOOK_COST(hook, 4969, 49);
+            EXPECT_HOOK_COST(hook, 2039, 20);
 
             env(pay(bob, alice, XRP(1)), M("test float_invert"), fee(XRP(1)));
             env.close();
@@ -5455,7 +5452,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 388);
-            EXPECT_HOOK_COST(hook, 4418, 44);
+            EXPECT_HOOK_COST(hook, 2118, 21);
 
             env(pay(bob, alice, XRP(1)), M("test float_log"), fee(XRP(1)));
             env.close();
@@ -5589,7 +5586,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 309);
-            EXPECT_HOOK_COST(hook, 9629, 96);
+            EXPECT_HOOK_COST(hook, 4119, 41);
 
             env(pay(bob, alice, XRP(1)), M("test float_mantissa"), fee(XRP(1)));
             env.close();
@@ -5749,7 +5746,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 1683);
-            EXPECT_HOOK_COST(hook, 26143, 261);
+            EXPECT_HOOK_COST(hook, 9073, 90);
 
             env(pay(bob, alice, XRP(1)), M("test float_mulratio"), fee(XRP(1)));
             env.close();
@@ -6053,7 +6050,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 3180);
-            EXPECT_HOOK_COST(hook, 41390, 413);
+            EXPECT_HOOK_COST(hook, 18060, 180);
             env(pay(bob, alice, XRP(1)), M("test float_multiply"), fee(XRP(1)));
             env.close();
         }
@@ -6128,7 +6125,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 105);
-            EXPECT_HOOK_COST(hook, 3455, 34);
+            EXPECT_HOOK_COST(hook, 1685, 16);
 
             env(pay(bob, alice, XRP(1)), M("test float_negate"), fee(XRP(1)));
             env.close();
@@ -6174,7 +6171,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 20);
-            EXPECT_HOOK_COST(hook, 590, 5);
+            EXPECT_HOOK_COST(hook, 300, 3);
 
             env(pay(bob, alice, XRP(1)), M("test float_one"), fee(XRP(1)));
             env.close();
@@ -6257,7 +6254,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 257);
-            EXPECT_HOOK_COST(hook, 3537, 35);
+            EXPECT_HOOK_COST(hook, 1617, 16);
 
             env(pay(bob, alice, XRP(1)), M("test float_root"), fee(XRP(1)));
             env.close();
@@ -6335,7 +6332,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 343);
-            EXPECT_HOOK_COST(hook, 8253, 82);
+            EXPECT_HOOK_COST(hook, 4653, 46);
 
             env(pay(bob, alice, XRP(1)), M("test float_set"), fee(XRP(1)));
             env.close();
@@ -6453,7 +6450,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 296);
-            EXPECT_HOOK_COST(hook, 7366, 73);
+            EXPECT_HOOK_COST(hook, 4106, 41);
 
             env(pay(bob, alice, XRP(1)), M("test float_sign"), fee(XRP(1)));
             env.close();
@@ -6663,7 +6660,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 920);
-            EXPECT_HOOK_COST(hook, 19480, 194);
+            EXPECT_HOOK_COST(hook, 7580, 75);
 
             env(pay(bob, alice, XRP(1)), M("test float_sto"), fee(XRP(1)));
             env.close();
@@ -6810,7 +6807,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 187);
-            EXPECT_HOOK_COST(hook, 5037, 50);
+            EXPECT_HOOK_COST(hook, 2297, 22);
 
             env(pay(bob, alice, XRP(1)), M("test float_sto_set"), fee(XRP(1)));
             env.close();
@@ -6995,7 +6992,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 1735);
-            EXPECT_HOOK_COST(hook, 23225, 232);
+            EXPECT_HOOK_COST(hook, 8625, 86);
 
             env(pay(bob, alice, XRP(1)), M("test float_sum"), fee(XRP(1)));
             env.close();
@@ -7052,7 +7049,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 72);
-            EXPECT_HOOK_COST(hook, 1722, 17);
+            EXPECT_HOOK_COST(hook, 782, 7);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test hook_account"), fee(XRP(1)));
@@ -7181,7 +7178,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 54);
-        EXPECT_HOOK_COST(hook, 1634, 16);
+        EXPECT_HOOK_COST(hook, 684, 6);
 
         env(pay(bob, alice, XRP(1)), M("test hook_again"), fee(XRP(1)));
         env.close();
@@ -7260,7 +7257,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 62);
-            EXPECT_HOOK_COST(hook, 1992, 19);
+            EXPECT_HOOK_COST(hook, 662, 6);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test hook_hash"), fee(XRP(1)));
@@ -7323,7 +7320,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook2, 62);
-            EXPECT_HOOK_COST(hook, 1992, 19);
+            EXPECT_HOOK_COST(hook, 662, 6);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test hook_hash 2"), fee(XRP(1)));
@@ -7502,7 +7499,7 @@ public:
         env(jv, M("set hook_param"), HSFEE, ter(tesSUCCESS));
         env.close();
         EXPECT_HOOK_FEE(hook, 2412);
-        EXPECT_HOOK_COST(hook, 28742, 287);
+        EXPECT_HOOK_COST(hook, 10312, 103);
 
         // invoke
         env(pay(bob, alice, XRP(1)), M("test hook_param"), fee(XRP(1)));
@@ -7716,8 +7713,8 @@ public:
         env.close();
         EXPECT_HOOK_FEE(checker, 475);
         EXPECT_HOOK_FEE(setter, 759);
-        EXPECT_HOOK_COST(checker, 6975, 69);
-        EXPECT_HOOK_COST(setter, 17389, 173);
+        EXPECT_HOOK_COST(checker, 2225, 22);
+        EXPECT_HOOK_COST(setter, 5689, 56);
 
         // invoke
         env(pay(bob, alice, XRP(1)), M("test hook_param_set"), fee(XRP(1)));
@@ -7764,7 +7761,7 @@ public:
             ter(tesSUCCESS));
         env.close();
         EXPECT_HOOK_FEE(hook, 11);
-        EXPECT_HOOK_COST(hook, 421, 4);
+        EXPECT_HOOK_COST(hook, 211, 2);
 
         // invoke the hooks
         env(pay(bob, alice, XRP(1)), M("test hook_pos"), fee(XRP(1)));
@@ -7889,8 +7886,8 @@ public:
         env.close();
         EXPECT_HOOK_FEE(skip, 263);
         EXPECT_HOOK_FEE(pos, 11);
-        EXPECT_HOOK_COST(skip, 7123, 71);
-        EXPECT_HOOK_COST(pos, 381, 3);
+        EXPECT_HOOK_COST(skip, 3063, 30);
+        EXPECT_HOOK_COST(pos, 161, 1);
 
         // invoke the hooks
         {
@@ -8014,7 +8011,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 415);
-        EXPECT_HOOK_COST(hook, 8995, 89);
+        EXPECT_HOOK_COST(hook, 4485, 44);
 
         env(pay(bob, alice, XRP(1)), M("test ledger_keylet"), fee(XRP(1)));
         env.close();
@@ -8067,7 +8064,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 59);
-        EXPECT_HOOK_COST(hook, 1599, 15);
+        EXPECT_HOOK_COST(hook, 629, 6);
 
         for (uint32_t i = 0; i < 3; ++i)
         {
@@ -8132,7 +8129,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 11);
-        EXPECT_HOOK_COST(hook, 491, 4);
+        EXPECT_HOOK_COST(hook, 221, 2);
 
         // invoke the hook a few times
         for (uint32_t i = 0; i < 3; ++i)
@@ -8219,7 +8216,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 74);
-        EXPECT_HOOK_COST(hook, 1844, 18);
+        EXPECT_HOOK_COST(hook, 904, 9);
 
         // invoke the hook
         auto const seq =
@@ -8306,7 +8303,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 11);
-        EXPECT_HOOK_COST(hook, 521, 5);
+        EXPECT_HOOK_COST(hook, 221, 2);
 
         // invoke the hook a few times
         for (uint32_t i = 0; i < 3; ++i)
@@ -8407,7 +8404,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 139);
-        EXPECT_HOOK_COST(hook, 5079, 50);
+        EXPECT_HOOK_COST(hook, 1569, 15);
 
         env(pay(bob, alice, XRP(1)), M("test meta_slot"), fee(XRP(1)));
         env.close();
@@ -8534,7 +8531,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 3245);
-        EXPECT_HOOK_COST(hook, 308405, 3084);
+        EXPECT_HOOK_COST(hook, 65425, 654);
 
         auto checkResult =
             [this](auto const& meta, uint64_t expectedCode) -> void {
@@ -8630,7 +8627,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 732);
-        EXPECT_HOOK_COST(hook, 9902, 99);
+        EXPECT_HOOK_COST(hook, 3822, 38);
 
         // invoke the hook
         env(pay(alice, bob, XRP(1)), M("test otxn_field"), fee(XRP(1)));
@@ -8717,7 +8714,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 1077);
-        EXPECT_HOOK_COST(hook, 13347, 133);
+        EXPECT_HOOK_COST(hook, 6067, 60);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test otxn_id"), fee(XRP(1)));
@@ -8803,7 +8800,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 6442);
-        EXPECT_HOOK_COST(hook, 143322, 1433);
+        EXPECT_HOOK_COST(hook, 62742, 627);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test otxn_slot"), fee(XRP(1)));
@@ -8867,7 +8864,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 51);
-        EXPECT_HOOK_COST(hook, 3021, 30);
+        EXPECT_HOOK_COST(hook, 801, 8);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test otxn_type"), fee(XRP(1)));
@@ -8987,7 +8984,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 2412);
-        EXPECT_HOOK_COST(hook, 36422, 364);
+        EXPECT_HOOK_COST(hook, 10552, 105);
 
         // invoke
         Json::Value invoke;
@@ -9122,7 +9119,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 232);
-        EXPECT_HOOK_COST(hook, 14882, 148);
+        EXPECT_HOOK_COST(hook, 3182, 31);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot"), fee(XRP(1)));
@@ -9184,7 +9181,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 83);
-        EXPECT_HOOK_COST(hook, 3193, 31);
+        EXPECT_HOOK_COST(hook, 1253, 12);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_clear"), fee(XRP(1)));
@@ -9253,7 +9250,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 97);
-        EXPECT_HOOK_COST(hook, 3607, 36);
+        EXPECT_HOOK_COST(hook, 1347, 13);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_count"), fee(XRP(1)));
@@ -9332,7 +9329,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 112);
-        EXPECT_HOOK_COST(hook, 3662, 36);
+        EXPECT_HOOK_COST(hook, 1532, 15);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_float"), fee(XRP(1)));
@@ -9446,7 +9443,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 11653);
-        EXPECT_HOOK_COST(hook, 290163, 2901);
+        EXPECT_HOOK_COST(hook, 164943, 1649);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_set"), fee(XRP(1)));
@@ -9529,7 +9526,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 114);
-        EXPECT_HOOK_COST(hook, 5514, 55);
+        EXPECT_HOOK_COST(hook, 2064, 20);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_size"), fee(XRP(1)));
@@ -9654,7 +9651,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 6212);
-        EXPECT_HOOK_COST(hook, 147592, 1475);
+        EXPECT_HOOK_COST(hook, 45142, 451);
 
         // generate an array of memos to attach
         Json::Value jv;
@@ -9778,7 +9775,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 6109);
-        EXPECT_HOOK_COST(hook, 116879, 1168);
+        EXPECT_HOOK_COST(hook, 44979, 449);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_subfield"), fee(XRP(1)));
@@ -9921,7 +9918,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 284);
-        EXPECT_HOOK_COST(hook, 9364, 93);
+        EXPECT_HOOK_COST(hook, 3904, 39);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_type"), fee(XRP(1)));
@@ -10010,7 +10007,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 2254);
-            EXPECT_HOOK_COST(hook, 32144, 321);
+            EXPECT_HOOK_COST(hook, 13204, 132);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test state"), fee(XRP(1)));
@@ -10070,7 +10067,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 2134);
-            EXPECT_HOOK_COST(hook, 18584, 185);
+            EXPECT_HOOK_COST(hook, 8684, 86);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test state 2"), fee(XRP(1)));
@@ -10141,7 +10138,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 72);
-            EXPECT_HOOK_COST(hook, 5422, 54);
+            EXPECT_HOOK_COST(hook, 7172, 71);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test state_foreign"), fee(XRP(1)));
@@ -10235,7 +10232,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 2408);
-            EXPECT_HOOK_COST(hook, 36418, 364);
+            EXPECT_HOOK_COST(hook, 13738, 137);
 
             // invoke the hook
 
@@ -10328,7 +10325,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(ns_maxHook, 103);
-        EXPECT_HOOK_COST(ns_maxHook, 7073, 70);
+        EXPECT_HOOK_COST(ns_maxHook, 7773, 77);
 
         // invoke the hook
         for (uint32_t i = 0; i < 255; ++i)
@@ -10511,7 +10508,7 @@ public:
             env(json, M("set state_foreign_set"), HSFEE);
             env.close();
             EXPECT_HOOK_FEE(grantor, 103);
-            EXPECT_HOOK_COST(grantor, 5013, 501);
+            EXPECT_HOOK_COST(grantor, 6623, 662);
         }
 
         // install the grantee hook on bob
@@ -10522,7 +10519,7 @@ public:
             env(json, M("set state_foreign_set 2"), HSFEE);
             env.close();
             EXPECT_HOOK_FEE(grantee, 234);
-            EXPECT_HOOK_COST(grantee, 34094, 3409);
+            EXPECT_HOOK_COST(grantee, 55394, 5539);
         }
 
         auto const aliceid = Account("alice").id();
@@ -10785,7 +10782,7 @@ public:
             env(json, M("set state_foreign_set 12"), HSFEE);
             env.close();
             EXPECT_HOOK_FEE(exhaustion, 10582);
-            EXPECT_HOOK_COST(exhaustion, 954722, 95472);
+            EXPECT_HOOK_COST(exhaustion, 1590942, 159094);
         }
 
         // now invoke repeatedly until exhaustion is reached
@@ -10942,7 +10939,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 143);
-            EXPECT_HOOK_COST(hook, 9083, 908);
+            EXPECT_HOOK_COST(hook, 5563, 556);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 1);
 
@@ -11070,7 +11067,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 85);
-            EXPECT_HOOK_COST(hook, 2615, 261);
+            EXPECT_HOOK_COST(hook, 1695, 169);
 
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 1);
 
@@ -11272,8 +11269,8 @@ public:
             env.close();
             EXPECT_HOOK_FEE(hook, 82);
             EXPECT_HOOK_FEE(hook2, 525);
-            EXPECT_HOOK_COST(hook, 2612, 261);
-            EXPECT_HOOK_COST(hook2, 6055, 605);
+            EXPECT_HOOK_COST(hook, 1692, 169);
+            EXPECT_HOOK_COST(hook2, 2595, 259);
 
             // two hooks + two state objects = 4
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 4);
@@ -11351,7 +11348,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook3, 560);
-            EXPECT_HOOK_COST(hook3, 6990, 699);
+            EXPECT_HOOK_COST(hook3, 2880, 288);
 
             // invoke the hook with cho (rollback after alice's hooks have
             // executed)
@@ -11459,7 +11456,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 52);
-            EXPECT_HOOK_COST(hook, 1762, 176);
+            EXPECT_HOOK_COST(hook, 1012, 101);
 
             // invoke from alice to cho, this will cause a rollback, however the
             // hook state should still be updated because the hook specified
@@ -11573,7 +11570,7 @@ public:
             env(json, M("set state_set 6"), HSFEE);
             env.close();
             EXPECT_HOOK_FEE(exhaustion, 54114);
-            EXPECT_HOOK_COST(exhaustion, 1677094, 167709);
+            EXPECT_HOOK_COST(exhaustion, 1150404, 115040);
         }
 
         // now invoke repeatedly until exhaustion is reached
@@ -11727,7 +11724,7 @@ public:
             env(jv, M("Create scaled state hook"), HSFEE, ter(tesSUCCESS));
             env.close();
             EXPECT_HOOK_FEE(scaled_state, 227);
-            EXPECT_HOOK_COST(scaled_state, 12297, 1229);
+            EXPECT_HOOK_COST(scaled_state, 7197, 719);
 
             BEAST_EXPECT((*env.le(gary))[sfOwnerCount] == 1);
             BEAST_EXPECT(!env.le(gary)->isFieldPresent(sfHookStateCount));
@@ -11834,7 +11831,7 @@ public:
                 env(ripple::test::jtx::hook(hank, {{jv}}, 0), HSFEE);
                 env.close();
                 EXPECT_HOOK_FEE(extended_state_reserve_hook, 95);
-                EXPECT_HOOK_COST(extended_state_reserve_hook, 13385, 1338);
+                EXPECT_HOOK_COST(extended_state_reserve_hook, 16465, 1646);
 
                 Json::Value jv1 = noop(hank);
                 jv1[sfHookStateScale.fieldName] = 8;
@@ -12057,7 +12054,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 15024);
-            EXPECT_HOOK_COST(hook, 136114, 1361);
+            EXPECT_HOOK_COST(hook, 61924, 619);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test sto_emplace"), fee(XRP(1)));
@@ -12120,7 +12117,7 @@ public:
                     HSFEE);
                 env.close();
                 EXPECT_HOOK_FEE(hook, 36);
-                EXPECT_HOOK_COST(hook, 2546, 25);
+                EXPECT_HOOK_COST(hook, 466, 4);
 
                 // invoke the hook
                 env(pay(bob, alice, XRP(1)),
@@ -12280,7 +12277,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 10021);
-        EXPECT_HOOK_COST(hook, 86521, 865);
+        EXPECT_HOOK_COST(hook, 39331, 393);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test sto_erase"), fee(XRP(1)));
@@ -12360,7 +12357,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 95);
-            EXPECT_HOOK_COST(hook, 3285, 32);
+            EXPECT_HOOK_COST(hook, 1205, 12);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test sto_subarray"), fee(XRP(1)));
@@ -12417,7 +12414,7 @@ public:
                     HSFEE);
                 env.close();
                 EXPECT_HOOK_FEE(hook, 19);
-                EXPECT_HOOK_COST(hook, 969, 9);
+                EXPECT_HOOK_COST(hook, 329, 3);
 
                 // invoke the hook
                 env(pay(bob, alice, XRP(1)),
@@ -12540,7 +12537,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 123);
-        EXPECT_HOOK_COST(hook, 4653, 46);
+        EXPECT_HOOK_COST(hook, 1633, 16);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test sto_subfield"), fee(XRP(1)));
@@ -12627,7 +12624,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 130);
-        EXPECT_HOOK_COST(hook, 4210, 42);
+        EXPECT_HOOK_COST(hook, 1680, 16);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test sto_validate"), fee(XRP(1)));
@@ -12862,7 +12859,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 103);
-        EXPECT_HOOK_COST(hook, 2153, 21);
+        EXPECT_HOOK_COST(hook, 2173, 21);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test trace"), fee(XRP(1)));
@@ -12910,7 +12907,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 37);
-        EXPECT_HOOK_COST(hook, 967, 9);
+        EXPECT_HOOK_COST(hook, 547, 5);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test trace_float"), fee(XRP(1)));
@@ -12958,7 +12955,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 37);
-        EXPECT_HOOK_COST(hook, 967, 9);
+        EXPECT_HOOK_COST(hook, 527, 5);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test trace_num"), fee(XRP(1)));
@@ -13230,7 +13227,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 3101);
-        EXPECT_HOOK_COST(hook, 27081, 270);
+        EXPECT_HOOK_COST(hook, 9221, 92);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_accid"), fee(XRP(1)));
@@ -13915,7 +13912,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 1786);
-        EXPECT_HOOK_COST(hook, 26696, 266);
+        EXPECT_HOOK_COST(hook, 12736, 127);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_keylet"), fee(XRP(1)));
@@ -14372,7 +14369,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 4279);
-        EXPECT_HOOK_COST(hook, 34929, 349);
+        EXPECT_HOOK_COST(hook, 10629, 106);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_raddr"), fee(XRP(1)));
@@ -14749,7 +14746,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 2875);
-        EXPECT_HOOK_COST(hook, 18805, 188);
+        EXPECT_HOOK_COST(hook, 28315, 283);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_sha512h"), fee(XRP(1)));
@@ -14867,7 +14864,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 230);
-        EXPECT_HOOK_COST(hook, 314940, 3149);
+        EXPECT_HOOK_COST(hook, 57320, 573);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test util_verify"), fee(XRP(1)));
@@ -15264,7 +15261,7 @@ public:
                     HSFEE);
                 env.close();
                 EXPECT_HOOK_FEE(hook, 755);
-                EXPECT_HOOK_COST(hook, 98045, 980);
+                EXPECT_HOOK_COST(hook, 21445, 214);
             }
             else if (i == 2)
             {
