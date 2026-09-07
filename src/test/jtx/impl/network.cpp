@@ -48,12 +48,10 @@ makeNetworkConfig(
             {"reference_fee = " + fee,
              "account_reserve = " + a_res,
              "owner_reserve = " + o_res,
-             "hook_gas_price = 1"});
+             "hook_gas_price = " + g_res});
         auto setup = setup_FeeVote(config);
         cfg->FEES = setup;
         cfg->section("voting") = config;
-        // override hook gas price for doVoting
-        cfg->section("voting").set("hook_gas_price", g_res);
         return cfg;
     });
 }

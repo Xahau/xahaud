@@ -2047,14 +2047,6 @@ public:
         testcase("ledger_entry Request Hook State");
         using namespace test::jtx;
         Env env{*this};
-        if (env.current()->rules().enabled(featureHookFeeV2))
-        {
-            for (int i = 0; i < 257; ++i)
-                env.close();
-            env.close();
-            BEAST_EXPECT(
-                env.le(keylet::fees())->getFieldU32(sfHookGasPrice) > 0);
-        }
         Account const alice{"alice"};
         Account const bob{"bob"};
         env.fund(XRP(10000), alice, bob);
@@ -3400,7 +3392,8 @@ public:
                 return cfg;
             }),
             supported_amendments() - featureXahauGenesis -
-                fixProvisionalDoubleThreading - fixHookAPI20251128};
+                fixProvisionalDoubleThreading - fixHookAPI20251128 -
+                featureHookFeeV2};
 
         Json::Value jv;
         jv[jss::ledger_index] = "current";

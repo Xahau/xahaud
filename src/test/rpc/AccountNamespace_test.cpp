@@ -34,14 +34,6 @@ public:
 
         using namespace jtx;
         Env env(*this);
-        if (env.current()->rules().enabled(featureHookFeeV2))
-        {
-            for (int i = 0; i < 257; ++i)
-                env.close();
-            env.close();
-            BEAST_EXPECT(
-                env.le(keylet::fees())->getFieldU32(sfHookGasPrice) > 0);
-        }
 
         Account const alice{"alice"};
         Account const bob{"bob"};

@@ -245,10 +245,12 @@ Ledger::Ledger(
             sle->at(sfReferenceFeeUnits) = Config::FEE_UNITS_DEPRECATED;
         }
 
-        if (std::find(amendments.begin(), amendments.end(), featureHookFeeV2) !=
-            amendments.end())
+        // rules_ covers config.features (unit tests), amendments covers
+        // a FRESH start where the desired amendments are pre-enabled.
+        if (rules_.enabled(featureHookFeeV2) ||
+            std::find(amendments.begin(), amendments.end(), featureHookFeeV2) !=
+                amendments.end())
         {
-            // TODO: want to set sfHookGasPrice when running unittest.
             sle->at(sfHookGasPrice) = config.FEES.hook_gas_price;
         }
         rawInsert(sle);

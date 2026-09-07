@@ -133,23 +133,6 @@ private:
         jv[jss::Flags] = hsfOVERRIDE;
     }
 
-    // Close the ledger until doVoting for FeatureHookFeeV2 is called
-    void
-    incLgrSeqForGasPriceEnabled(jtx::Env& env)
-    {
-        if (!env.current()->rules().enabled(featureHookFeeV2))
-            return;
-
-        BEAST_EXPECT(!env.le(keylet::fees())->isFieldPresent(sfHookGasPrice));
-
-        auto const seq = env.current()->info().seq;
-        BEAST_EXPECT(seq <= 256);
-        for (int i = seq; i <= 256; ++i)
-            env.close();
-        env.close();
-        BEAST_EXPECT(env.le(keylet::fees())->getFieldU32(sfHookGasPrice) > 0);
-    }
-
 public:
 // This is a large fee, large enough that we can set most small test hooks
 // without running into fee issues we only want to test fee code specifically in
@@ -292,12 +275,10 @@ public:
                 {"reference_fee = " + fee,
                  "account_reserve = " + a_res,
                  "owner_reserve = " + o_res,
-                 "hook_gas_price = 1000"});
+                 "hook_gas_price = " + g_res});
             auto setup = setup_FeeVote(config);
             cfg->FEES = setup;
             cfg->section("voting") = config;
-            // override hook gas price for doVoting
-            cfg->section("voting").set("hook_gas_price", g_res);
             return cfg;
         });
     }
@@ -315,7 +296,6 @@ public:
             features,
             nullptr,
             beast::severities::kDisabled};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const gw = Account{"gateway"};
@@ -960,7 +940,6 @@ public:
         testcase("Checks malformed nsdelete operation");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         bool const fixNS = env.current()->rules().enabled(fixNSDelete);
         bool const hasHookCanEmit =
@@ -1258,7 +1237,6 @@ public:
             0x6aU, 0x24U, 0x00U, 0x0bU};
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
         bool const fixNS = env.current()->rules().enabled(fixNSDelete);
 
         auto const bob = Account{"bob"};
@@ -1347,7 +1325,6 @@ public:
             makePageCapConfig(
                 features, 21337, "10", "1000000", "200000", "1000000", 0),
             features};
-        incLgrSeqForGasPriceEnabled(env);
 
         bool const hasFix = env.current()->rules().enabled(fixPageCap);
 
@@ -1436,7 +1413,6 @@ public:
         testcase("Test hook on v2");
         using namespace jtx;
         Env env{*this, features - featureHookFeeV2};
-        incLgrSeqForGasPriceEnabled(env);
 
         bool const hookOnV2 = env.current()->rules().enabled(featureHookOnV2);
 
@@ -1777,7 +1753,6 @@ public:
         auto const USD = alice["USD"];
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         env.fund(XRP(10000), alice, bob);
         env.close();
@@ -3168,7 +3143,6 @@ public:
         testcase("Test accept() hookapi");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3192,7 +3166,6 @@ public:
         testcase("Test rollback() hookapi");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -3219,7 +3192,6 @@ public:
         testcase("Test guards");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -3452,7 +3424,6 @@ public:
                 *this,
                 withCost ? features | featureHookFeeV2
                          : features - featureHookFeeV2};
-            incLgrSeqForGasPriceEnabled(env);
 
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
@@ -3526,7 +3497,6 @@ public:
         testcase("Test emit");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4426,7 +4396,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4597,7 +4566,6 @@ public:
                 f = f - fixHookAPI20251128;
 
             Env env{*this, f};
-            incLgrSeqForGasPriceEnabled(env);
 
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
@@ -4642,7 +4610,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4711,7 +4678,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4764,7 +4730,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4808,7 +4773,6 @@ public:
         testcase("Test float_compare");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -4946,7 +4910,6 @@ public:
         testcase("Test float_divide");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -5150,7 +5113,6 @@ public:
         testcase("Test float_int");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -5284,7 +5246,6 @@ public:
         testcase("Test float_invert");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -5377,7 +5338,6 @@ public:
         testcase("Test float_log");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -5465,7 +5425,6 @@ public:
         testcase("Test float_mantissa");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -5599,7 +5558,6 @@ public:
         testcase("Test float_mulratio");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -5759,7 +5717,6 @@ public:
         testcase("Test float_multiply");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -6062,7 +6019,6 @@ public:
         testcase("Test float_negate");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -6138,7 +6094,6 @@ public:
         testcase("Test float_one");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -6184,7 +6139,6 @@ public:
         testcase("Test float_root");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -6267,7 +6221,6 @@ public:
         testcase("Test float_set");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -6345,7 +6298,6 @@ public:
         testcase("Test float_sign");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -6463,7 +6415,6 @@ public:
         testcase("Test float_sto");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -6673,7 +6624,6 @@ public:
         testcase("Test float_sto_set");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -6820,7 +6770,6 @@ public:
         testcase("Test float_sum");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -7007,7 +6956,6 @@ public:
 
         auto const test = [&](Account alice) -> void {
             Env env{*this, features};
-            incLgrSeqForGasPriceEnabled(env);
 
             auto const bob = Account{"bob"};
             env.fund(XRP(10000), alice);
@@ -7134,7 +7082,6 @@ public:
         testcase("Test hook_again");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -7216,7 +7163,6 @@ public:
 
         auto const test = [&](Account alice) -> void {
             Env env{*this, features};
-            incLgrSeqForGasPriceEnabled(env);
 
             auto const bob = Account{"bob"};
             env.fund(XRP(10000), alice);
@@ -7381,7 +7327,6 @@ public:
         testcase("Test hook_param");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -7512,7 +7457,6 @@ public:
         testcase("Test hook_param_set");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -7727,7 +7671,6 @@ public:
         testcase("Test hook_pos");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -7790,7 +7733,6 @@ public:
         testcase("Test hook_skip");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -7918,7 +7860,6 @@ public:
         testcase("Test ledger_keylet");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -8024,7 +7965,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -8102,7 +8042,6 @@ public:
         testcase("Test ledger_last_time");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -8174,7 +8113,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -8276,7 +8214,6 @@ public:
         testcase("Test ledger_seq");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -8339,7 +8276,6 @@ public:
         testcase("Test meta_slot");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -8436,7 +8372,6 @@ public:
             *this,
             network::makeNetworkVLConfig(21337, keys),
             features - featureHooksUpdate1};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const master = Account("masterpassphrase");
         env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
@@ -8565,7 +8500,6 @@ public:
         testcase("Test otxn_field");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -8639,7 +8573,6 @@ public:
         testcase("Test otxn_id");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -8726,7 +8659,6 @@ public:
         testcase("Test otxn_slot");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -8812,7 +8744,6 @@ public:
         testcase("Test otxn_type");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -8887,7 +8818,6 @@ public:
         testcase("Test otxn_param");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -9014,7 +8944,6 @@ public:
         testcase("Test slot");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -9131,7 +9060,6 @@ public:
         testcase("Test slot_clear");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -9193,7 +9121,6 @@ public:
         testcase("Test slot_count");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -9262,7 +9189,6 @@ public:
         testcase("Test slot_float");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -9341,7 +9267,6 @@ public:
         testcase("Test slot_set");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -9455,7 +9380,6 @@ public:
         testcase("Test slot_size");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -9539,7 +9463,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -9683,7 +9606,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -9788,7 +9710,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -9931,7 +9852,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -10081,7 +10001,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -10311,7 +10230,6 @@ public:
         HASH_WASM(ns_maxHook);
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -10368,7 +10286,6 @@ public:
             *this,
             network::makeNetworkConfig(21137, "10", "200000000", "50000000"),
             features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const david = Account("david");  // grantee generic
         auto const cho = Account{"cho"};      // invoker
@@ -10843,7 +10760,6 @@ public:
             *this,
             network::makeNetworkConfig(21137, "10", "200000000", "50000000"),
             features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -11870,7 +11786,6 @@ public:
 
         {
             Env env{*this, features};
-            incLgrSeqForGasPriceEnabled(env);
 
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
@@ -12103,7 +12018,6 @@ public:
             for (auto f : {features, features - fixHookAPI20251128})
             {
                 Env env{*this, f};
-                incLgrSeqForGasPriceEnabled(env);
                 bool const hasFix =
                     env.current()->rules().enabled(fixHookAPI20251128);
 
@@ -12149,7 +12063,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -12293,7 +12206,6 @@ public:
         auto const alice = Account{"alice"};
         {
             Env env{*this, features};
-            incLgrSeqForGasPriceEnabled(env);
 
             env.fund(XRP(10000), alice);
             env.fund(XRP(10000), bob);
@@ -12403,7 +12315,6 @@ public:
                     *this,
                     isfixHookAPI20251128 ? features | fixHookAPI20251128
                                          : features - fixHookAPI20251128};
-                incLgrSeqForGasPriceEnabled(env);
                 env.fund(XRP(10000), alice, bob);
                 env.close();
 
@@ -12462,7 +12373,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -12550,7 +12460,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -12662,7 +12571,6 @@ public:
                  })
             {
                 Env env{*this, feature};
-                incLgrSeqForGasPriceEnabled(env);
 
                 env.fund(XRP(10000), alice, bob);
                 env.close();
@@ -12818,7 +12726,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -12872,7 +12779,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -12920,7 +12826,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -12966,7 +12871,6 @@ public:
     {
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -13240,7 +13144,6 @@ public:
         using namespace jtx;
 
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -13924,7 +13827,6 @@ public:
         testcase("Test util_raddr");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -14381,7 +14283,6 @@ public:
         testcase("Test util_sha512h");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -14758,7 +14659,6 @@ public:
         testcase("Test util_verify");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -14876,7 +14776,6 @@ public:
         testcase("test HookCanEmit");
         using namespace jtx;
         Env env{*this, features};
-        incLgrSeqForGasPriceEnabled(env);
 
         auto const caller = Account{"caller"};
         auto const alice = Account{"alice"};

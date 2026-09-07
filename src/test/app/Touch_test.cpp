@@ -431,14 +431,6 @@ private:
             *this,
             network::makeNetworkConfig(21337, "10", "1000000", "200000"),
             features};
-        if (env.current()->rules().enabled(featureHookFeeV2))
-        {
-            for (int i = 0; i < 257; ++i)
-                env.close();
-            env.close();
-            BEAST_EXPECT(
-                env.le(keylet::fees())->getFieldU32(sfHookGasPrice) > 0);
-        }
 
         auto const alice = Account("alice");
         auto const issuer = env.master;
