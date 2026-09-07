@@ -1970,10 +1970,6 @@ NetworkOPsImp::beginConsensus(
         app_.overlay(),
         app_.getHashRouter());
 
-    // Pin the trusted master keys so they are always offered to a new peer and
-    // cannot be crowded out of the gossip set by more recently used manifests.
-    app_.validatorManifests().pin(app_.validators().getTrustedMasterKeys());
-
     if (!changes.added.empty() || !changes.removed.empty())
     {
         app_.getValidations().trustChanged(changes.added, changes.removed);

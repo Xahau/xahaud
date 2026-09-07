@@ -383,6 +383,98 @@ public:
     }
 
     void
+    testManifestFrameLimit()
+    {
+        testcase("manifest frame limits before payload allocation");
+        struct Handler
+        {
+            bool
+            compressionEnabled() const
+            {
+                return true;
+            }
+            void
+            onMessageUnknown(std::uint16_t)
+            {
+            }
+            void
+            onMessageBegin(
+                std::uint16_t,
+                std::shared_ptr<google::protobuf::Message> const&,
+                std::size_t,
+                std::size_t,
+                bool)
+            {
+            }
+            void
+            onMessage(std::shared_ptr<google::protobuf::Message> const&)
+            {
+                ++received;
+            }
+            void
+            onMessageEnd(
+                std::uint16_t,
+                std::shared_ptr<google::protobuf::Message> const&)
+            {
+            }
+            int received = 0;
+        } handler;
+
+        auto check = [&](std::uint32_t wire,
+                         std::uint32_t plain,
+                         bool compressed,
+                         bool reject,
+                         std::uint16_t type = protocol::mtMANIFESTS) {
+            std::vector<std::uint8_t> header(compressed ? 10 : 6);
+            auto put = [&](std::size_t offset, std::uint32_t value) {
+                for (int i = 3; i >= 0; --i)
+                {
+                    header[offset + i] = value & 0xff;
+                    value >>= 8;
+                }
+            };
+            put(0, wire);
+            header[4] = type >> 8;
+            header[5] = type & 0xff;
+            if (compressed)
+            {
+                header[0] |= 0x90;
+                put(6, plain);
+            }
+            std::size_t hint = 0;
+            auto const result = invokeProtocolMessage(
+                boost::asio::buffer(header), handler, hint);
+            BEAST_EXPECT(result.first == 0);
+            BEAST_EXPECT(
+                result.second ==
+                (reject ? make_error_code(boost::system::errc::message_size)
+                        : boost::system::error_code{}));
+            BEAST_EXPECT(handler.received == 0);
+        };
+        check(maxManifestMessageSize, maxManifestMessageSize, false, false);
+        check(maxManifestMessageSize + 1, 0, false, true);
+        check(1, maxManifestMessageSize + 1, true, true);
+        check(maxManifestMessageSize + 1, 1, true, true);
+        check(maxManifestMessageSize, maxManifestMessageSize, true, false);
+        check(
+            maxManifestMessageSize + 1,
+            0,
+            false,
+            false,
+            protocol::mtLEDGER_DATA);
+
+        auto const msg = buildManifests(1);
+        Message packet{*msg, protocol::mtMANIFESTS};
+        auto const& bytes = packet.getBuffer(Compressed::Off);
+        std::size_t hint = 0;
+        auto const result =
+            invokeProtocolMessage(boost::asio::buffer(bytes), handler, hint);
+        BEAST_EXPECT(!result.second);
+        BEAST_EXPECT(result.first == bytes.size());
+        BEAST_EXPECT(handler.received == 1);
+    }
+
+    void
     testProtocol()
     {
         auto thresh = beast::severities::Severity::kInfo;
@@ -532,6 +624,7 @@ public:
     void
     run() override
     {
+        testManifestFrameLimit();
         testProtocol();
         testHandshake();
     }

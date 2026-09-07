@@ -422,8 +422,9 @@ public:
         , validatorManifests_(
               std::make_unique<ManifestCache>(logs_->journal("ManifestCache")))
 
-        , publisherManifests_(
-              std::make_unique<ManifestCache>(logs_->journal("ManifestCache")))
+        , publisherManifests_(std::make_unique<ManifestCache>(
+              logs_->journal("ManifestCache"),
+              std::numeric_limits<std::size_t>::max()))
 
         , validators_(std::make_unique<ValidatorList>(
               *validatorManifests_,
@@ -1345,9 +1346,7 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         if (validatorKeys_.configInvalid())
             return false;
 
-        if (!validatorManifests_->load(
-                getWalletDB(),
-                "ValidatorManifests",
+        if (!validatorManifests_->loadConfig(
                 validatorKeys_.manifest,
                 config().section(SECTION_VALIDATOR_KEY_REVOCATION).values()))
         {
@@ -1379,6 +1378,10 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
             return false;
         }
     }
+
+    // Pin local/listed identities before restoring the old wallet, so its
+    // unlisted rows cannot evict a configured validator's persisted revocation.
+    validatorManifests_->load(getWalletDB(), "ValidatorManifests");
 
     if (!validatorSites_->load(
             config().section(SECTION_VALIDATOR_LIST_SITES).values()))

@@ -18,11 +18,15 @@
 //==============================================================================
 #include <test/jtx.h>
 #include <test/jtx/Env.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/overlay/detail/OverlayImpl.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/peerfinder/detail/SlotImp.h>
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/Sign.h>
+
+#include <condition_variable>
 
 namespace ripple {
 
@@ -119,6 +123,31 @@ private:
         ~PeerTest() = default;
 
         void
+        charge(Resource::Charge const& fee, std::string const& context) override
+        {
+            PeerImp::charge(fee, context);
+            if (context == "manifest batch")
+            {
+                std::lock_guard lock{chargeMutex_};
+                ++batchesCharged_;
+                chargeReady_.notify_all();
+            }
+        }
+
+        bool
+        waitCharges(unsigned batches)
+        {
+            std::unique_lock lock{chargeMutex_};
+            return chargeReady_.wait_for(lock, std::chrono::seconds{5}, [&]() {
+                return batchesCharged_ >= batches;
+            });
+        }
+
+        std::mutex chargeMutex_;
+        std::condition_variable chargeReady_;
+        unsigned batchesCharged_ = 0;
+
+        void
         run() override
         {
         }
@@ -141,7 +170,7 @@ private:
         }
         inline static std::size_t sid_ = 0;
         inline static std::uint16_t queueTx_ = 0;
-        inline static std::uint16_t sendTx_ = 0;
+        inline static std::atomic<std::uint16_t> sendTx_{0};
     };
 
     std::uint16_t lid_{0};
@@ -241,8 +270,107 @@ private:
     }
 
     void
+    testManifestIngress()
+    {
+        testcase("bounded manifest ingress and job backlog");
+        jtx::Env env{*this};
+        std::vector<std::shared_ptr<PeerTest>> peers;
+        std::uint16_t disabled = 0;
+        lid_ = 0;
+        rid_ = 1;
+        addPeer(env, peers, disabled);
+        auto const peer = peers.front();
+        auto& cache = env.app().validatorManifests();
+        std::vector<PublicKey> masters;
+        std::vector<std::string> blobs;
+        for (int i = 0; i < 5; ++i)
+        {
+            auto const master = randomKeyPair(KeyType::ed25519);
+            auto const signer = randomKeyPair(KeyType::secp256k1);
+            STObject st{sfGeneric};
+            st[sfSequence] = 1;
+            st[sfPublicKey] = master.first;
+            st[sfSigningPubKey] = signer.first;
+            sign(st, HashPrefix::manifest, KeyType::secp256k1, signer.second);
+            sign(
+                st,
+                HashPrefix::manifest,
+                KeyType::ed25519,
+                master.second,
+                sfMasterSignature);
+            auto const bytes = st.getSerializer();
+            blobs.emplace_back(
+                static_cast<char const*>(bytes.data()), bytes.size());
+            masters.push_back(master.first);
+        }
+        auto packet = [&](int key, int n = 1) {
+            auto m = std::make_shared<protocol::TMManifests>();
+            for (int i = 0; i < n; ++i)
+                m->add_list()->set_stobject(blobs[key]);
+            return m;
+        };
+        auto send = [&](auto const& m) {
+            peer->onMessageBegin(
+                protocol::mtMANIFESTS,
+                m,
+                m->ByteSizeLong(),
+                m->ByteSizeLong(),
+                false);
+            peer->onMessage(m);
+            peer->onMessageEnd(protocol::mtMANIFESTS, m);
+        };
+        send(packet(0, maxManifestEntries + 1));
+        auto oversized = packet(0);
+        oversized->add_list()->set_stobject(
+            std::string(maxManifestSize + 1, 'x'));
+        send(oversized);
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(!cache.getRawManifest(masters[0]));
+        send(packet(0, maxManifestEntries));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(cache.getRawManifest(masters[0]));
+
+        // Hold the cache's read lock to keep the first job from committing.
+        // Two batches may be outstanding; a third cannot grow the backlog.
+        cache.for_each_manifest([&](Manifest const&) {
+            send(packet(1));
+            send(packet(2));
+            send(packet(3));
+        });
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(cache.getRawManifest(masters[1]));
+        BEAST_EXPECT(cache.getRawManifest(masters[2]));
+        BEAST_EXPECT(!cache.getRawManifest(masters[3]));
+        send(packet(3));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(cache.getRawManifest(masters[3]));
+
+        auto invalid = packet(4);
+        invalid->mutable_list(0)->mutable_stobject()->back() ^= 1;
+        send(invalid);
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(!cache.getRawManifest(masters[4]));
+        send(packet(4));
+        env.app().getJobQueue().rendezvous();
+        BEAST_EXPECT(cache.getRawManifest(masters[4]));
+
+        // Completion must charge on the strand: an overloaded peer really
+        // disconnects, instead of merely accumulating an off-thread balance.
+        BEAST_EXPECT(peer->waitCharges(6));
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto consumer = overlay.resourceManager().newInboundEndpoint(
+            peer->getRemoteAddress());
+        consumer.charge(Resource::feeDrop * 200);
+        auto const drops = overlay.getPeerDisconnectCharges();
+        send(packet(4));
+        BEAST_EXPECT(peer->waitCharges(7));
+        BEAST_EXPECT(overlay.getPeerDisconnectCharges() == drops + 1);
+    }
+
+    void
     run() override
     {
+        testManifestIngress();
         bool log = false;
         std::set<Peer::id_t> skip = {0, 1, 2, 3, 4};
         testConfig(log);

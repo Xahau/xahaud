@@ -287,11 +287,16 @@ private:
     */
     hash_set<PublicKey> pinned_;
 
+    // Configured identities survive publisher-list changes as well as eviction.
+    hash_set<PublicKey> configured_;
+    hash_set<PublicKey> evictable_;
+    std::size_t const evictableLimit_;
+
     /** Recency of use, keyed by master public key.
 
         The structure of this map is guarded by mutex_ exactly as map_ is:
-        entries are created next to it in applyManifest() and are never
-        removed. The counters themselves are atomic, so recording a hit is a
+        entries are created and evicted with the corresponding manifest.
+        The counters themselves are atomic, so recording a hit is a
         write to an atomic rather than a structural modification and is legal
         while only a shared lock is held.
 
@@ -313,6 +318,7 @@ private:
         mutex_ in exclusive mode.
     */
     hash_map<PublicKey, std::uint32_t> probed_;
+    std::uint32_t probedLedger_ = 0;
 
     /** Record that a manifest was looked up.
 
@@ -321,22 +327,30 @@ private:
     void
     touch(PublicKey const& masterKey) const;
 
+    // Caller holds mutex_ exclusively; erase all indexes together.
+    void
+    evictOne();
+
     std::atomic<std::uint32_t> seq_{0};
 
 public:
+    /** Unlisted on-ledger manifests are recoverable after eviction.
+
+        Off-ledger identities outside local lists have best-effort retention.
+        Publisher caches can opt out: their population comes from configuration.
+    */
+    static constexpr std::size_t evictableLimit = 1024;
+
     /** Ceiling on the unpinned manifests offered to a newly connected peer. */
     static constexpr std::size_t gossipLimit = 64;
 
-    /** Ceiling on remembered ephemeral key probes before they are dropped.
-
-        A cache of negatives, so dropping it costs at most one extra ledger
-        read per key.
-    */
+    /** Ceiling on distinct cold ledger probes per ledger. */
     static constexpr std::size_t probeLimit = 4096;
 
     explicit ManifestCache(
-        beast::Journal j = beast::Journal(beast::Journal::getNullSink()))
-        : j_(j)
+        beast::Journal j = beast::Journal(beast::Journal::getNullSink()),
+        std::size_t maxEvictable = evictableLimit)
+        : j_(j), evictableLimit_(maxEvictable)
     {
     }
 
@@ -422,7 +436,7 @@ public:
     ManifestDisposition
     applyManifest(Manifest m);
 
-    /** Set the master keys that are always offered to peers.
+    /** Protect listed master keys from eviction and offer them to peers.
 
         Replaces any previous set. Bumps sequence() when the set actually
         changes, so a cached gossip message built from it is rebuilt.
@@ -526,6 +540,13 @@ public:
     load(
         DatabaseCon& dbCon,
         std::string const& dbTable,
+        std::string const& configManifest,
+        std::vector<std::string> const& configRevocation);
+
+    /** Load local identities before lists are pinned and wallet rows restored.
+     */
+    bool
+    loadConfig(
         std::string const& configManifest,
         std::vector<std::string> const& configRevocation);
 
@@ -648,7 +669,7 @@ public:
         for (auto const& [key, manifest] : map_)
         {
             (void)manifest;
-            if (pinned_.count(key))
+            if (pinned_.count(key) || configured_.count(key))
                 continue;
             auto const used = lastUsed_.find(key);
             ranked.emplace_back(
@@ -666,11 +687,16 @@ public:
             [](auto const& a, auto const& b) { return a.first > b.first; });
 
         // An upper bound: a pinned key need not have a manifest yet.
-        pf(pinned_.size() + keep);
+        pf(pinned_.size() + configured_.size() + keep);
 
         for (auto const& key : pinned_)
             if (auto const iter = map_.find(key); iter != map_.end())
                 f(iter->second);
+
+        for (auto const& key : configured_)
+            if (!pinned_.contains(key))
+                if (auto const iter = map_.find(key); iter != map_.end())
+                    f(iter->second);
 
         for (std::size_t i = 0; i < keep; ++i)
             f(map_.find(*ranked[i].second)->second);

@@ -244,6 +244,105 @@ public:
     }
 
     void
+    testEviction()
+    {
+        testcase("bounded unlisted retention");
+        ManifestCache cache{beast::Journal{beast::Journal::getNullSink()}, 2};
+        std::vector<Manifest> manifests;
+        std::vector<SecretKey> masters;
+        for (int i = 0; i < 6; ++i)
+        {
+            masters.push_back(randomSecretKey());
+            manifests.push_back(makeManifest(
+                masters.back(),
+                KeyType::ed25519,
+                randomSecretKey(),
+                KeyType::secp256k1,
+                1));
+        }
+        auto add = [&](int i) {
+            BEAST_EXPECT(
+                cache.applyManifest(clone(manifests[i])) ==
+                ManifestDisposition::accepted);
+        };
+        auto count = [&]() {
+            std::size_t n = 0;
+            cache.for_each_manifest([&](Manifest const&) { ++n; });
+            return n;
+        };
+        cache.pin({manifests[0].masterKey});
+        add(0);
+        add(1);
+        add(2);
+        BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(
+            cache.getMasterKey(*manifests[1].signingKey) ==
+            manifests[1].masterKey);
+        add(3);
+        BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(!cache.getRawManifest(manifests[2].masterKey));
+        BEAST_EXPECT(
+            cache.getMasterKey(*manifests[2].signingKey) ==
+            *manifests[2].signingKey);
+        BEAST_EXPECT(cache.getRawManifest(manifests[1].masterKey));
+
+        // Bad signatures cannot displace a useful row or create recency state.
+        BEAST_EXPECT(
+            cache.applyManifest(makeManifest(
+                masters[4],
+                KeyType::ed25519,
+                randomSecretKey(),
+                KeyType::secp256k1,
+                2,
+                true)) == ManifestDisposition::invalid);
+        BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(cache.getRawManifest(manifests[3].masterKey));
+
+        auto rotation = makeManifest(
+            masters[1],
+            KeyType::ed25519,
+            randomSecretKey(),
+            KeyType::secp256k1,
+            2);
+        BEAST_EXPECT(
+            cache.applyManifest(clone(rotation)) ==
+            ManifestDisposition::accepted);
+        BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(
+            cache.getMasterKey(*manifests[1].signingKey) ==
+            *manifests[1].signingKey);
+        BEAST_EXPECT(
+            cache.getMasterKey(*rotation.signingKey) == rotation.masterKey);
+
+        // A listed revocation remains terminal under cache pressure.
+        BEAST_EXPECT(
+            cache.applyManifest(makeRevocation(masters[0], KeyType::ed25519)) ==
+            ManifestDisposition::accepted);
+        add(4);
+        add(5);
+        BEAST_EXPECT(cache.revoked(manifests[0].masterKey));
+        BEAST_EXPECT(
+            cache.applyManifest(clone(manifests[0])) ==
+            ManifestDisposition::stale);
+        BEAST_EXPECT(count() == 3);
+
+        // List removal makes that row count against the same fixed capacity.
+        auto const seq = cache.sequence();
+        cache.pin({});
+        BEAST_EXPECT(cache.sequence() > seq);
+        BEAST_EXPECT(count() == 2);
+
+        // Locally configured keys remain protected even with no current VL.
+        BEAST_EXPECT(
+            cache.loadConfig(base64_encode(manifests[0].serialized), {}));
+        cache.pin({});
+        for (int i = 1; i < 6; ++i)
+            cache.applyManifest(clone(manifests[i]));
+        BEAST_EXPECT(cache.getRawManifest(manifests[0].masterKey));
+        BEAST_EXPECT(count() == 3);
+    }
+
+    void
     testLoadStore(ManifestCache& m)
     {
         testcase("load/store");
@@ -279,6 +378,21 @@ public:
                 sort(getPopulatedManifests(m)));
 
             auto& app = env.app();
+
+            // Wallet restore obeys the same bound. Listed high-water marks
+            // survive even when an old database contains more unlisted rows.
+            m.save(*dbCon, "ValidatorManifests", [](PublicKey const&) {
+                return true;
+            });
+            ManifestCache bounded{env.journal, 1};
+            auto const protectedKey = inManifests.front()->masterKey;
+            bounded.pin({protectedKey});
+            bounded.load(*dbCon, "ValidatorManifests");
+            BEAST_EXPECT(getPopulatedManifests(bounded).size() <= 2);
+            BEAST_EXPECT(
+                bounded.getRawManifest(protectedKey) ==
+                m.getRawManifest(protectedKey));
+
             auto unl = std::make_unique<ValidatorList>(
                 m,
                 m,
@@ -1073,6 +1187,7 @@ public:
                 ManifestDisposition::badMasterKey);
         }
 
+        testEviction();
         testLoadStore(cache);
         testGetSignature();
         testGetKeys();

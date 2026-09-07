@@ -405,6 +405,31 @@ ManifestCache::touch(PublicKey const& masterKey) const
 }
 
 void
+ManifestCache::evictOne()
+{
+    auto victim = evictable_.end();
+    auto oldest = std::numeric_limits<std::uint64_t>::max();
+    for (auto it = evictable_.begin(); it != evictable_.end(); ++it)
+    {
+        auto const used = lastUsed_.at(*it).load(std::memory_order_relaxed);
+        if (victim == evictable_.end() || used < oldest)
+        {
+            victim = it;
+            oldest = used;
+        }
+    }
+    if (victim == evictable_.end())
+        return;
+    auto const row = map_.find(*victim);
+    if (row->second.signingKey)
+        signingToMasterKeys_.erase(*row->second.signingKey);
+    lastUsed_.erase(*victim);
+    map_.erase(row);
+    evictable_.erase(victim);
+    ++seq_;
+}
+
+void
 ManifestCache::pin(hash_set<PublicKey> keys)
 {
     std::lock_guard lock{mutex_};
@@ -413,6 +438,16 @@ ManifestCache::pin(hash_set<PublicKey> keys)
         return;
 
     pinned_ = std::move(keys);
+
+    for (auto const& [key, manifest] : map_)
+    {
+        if (pinned_.contains(key) || configured_.contains(key))
+            evictable_.erase(key);
+        else
+            evictable_.insert(key);
+    }
+    while (evictable_.size() > evictableLimit_)
+        evictOne();
 
     // The pinned set is part of what a gossip message contains, so a change to
     // it has to invalidate any message cached against this sequence.
@@ -502,14 +537,20 @@ ManifestCache::applyLedgerSigningKey(
     {
         std::lock_guard lock{mutex_};
 
-        if (probed_.size() >= probeLimit)
-            probed_.clear();
-
-        // One read per key per ledger. Reaching here already cost the sender a
-        // signature and this node a verification, so the read is not the
-        // cheapest thing an unknown key can ask for; the cap is to stop
-        // repeating it, not to stop anyone.
         auto const seq = view.info().seq;
+        // A delayed job holding an older view must not reset a newer budget.
+        if (seq < probedLedger_)
+            return std::nullopt;
+        if (probedLedger_ != seq)
+        {
+            probed_.clear();
+            probedLedger_ = seq;
+        }
+
+        // Do not clear a full negative cache: cycling keys would reset the
+        // budget and allow unlimited reads during the same ledger.
+        if (probed_.size() >= probeLimit)
+            return std::nullopt;
         auto const [iter, inserted] = probed_.try_emplace(signingKey, seq);
         if (!inserted && iter->second == seq)
             return std::nullopt;
@@ -657,10 +698,19 @@ ManifestCache::applyManifest(Manifest m)
         return *d;
 
     bool const revoked = m.revoked();
-    // This is the first manifest we are seeing for a master key. This should
-    // only ever happen once per validator run.
+    // A new master, or one whose previous unlisted entry was evicted.
     if (iter == map_.end())
     {
+        bool const protectedKey =
+            pinned_.contains(m.masterKey) || configured_.contains(m.masterKey);
+        if (!protectedKey)
+        {
+            if (evictableLimit_ == 0)
+                return ManifestDisposition::stale;
+            if (evictable_.size() >= evictableLimit_)
+                evictOne();
+            evictable_.insert(m.masterKey);
+        }
         if (auto stream = j_.info())
             LOG_MANIFEST_ACTION(stream, "AcceptedNew", m.masterKey, m.sequence);
 
@@ -669,7 +719,7 @@ ManifestCache::applyManifest(Manifest m)
 
         // Kept in step with map_ so touch() never has to insert; see
         // lastUsed_.
-        lastUsed_.try_emplace(m.masterKey, 0);
+        lastUsed_.try_emplace(m.masterKey, ++tick_);
 
         auto masterKey = m.masterKey;
         map_.emplace(std::move(masterKey), std::move(m));
@@ -696,6 +746,7 @@ ManifestCache::applyManifest(Manifest m)
         signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
 
     iter->second = std::move(m);
+    touch(iter->first);
 
     // Something has changed. Keep track of it.
     seq_++;
@@ -717,12 +768,21 @@ ManifestCache::load(
     std::string const& configManifest,
     std::vector<std::string> const& configRevocation)
 {
+    if (!loadConfig(configManifest, configRevocation))
+        return false;
     load(dbCon, dbTable);
+    return true;
+}
 
+bool
+ManifestCache::loadConfig(
+    std::string const& configManifest,
+    std::vector<std::string> const& configRevocation)
+{
     if (!configManifest.empty())
     {
         auto mo = deserializeManifest(base64_decode(configManifest));
-        if (!mo)
+        if (!mo || !mo->verify())
         {
             JLOG(j_.error()) << "Malformed validator_token in config";
             return false;
@@ -733,6 +793,11 @@ ManifestCache::load(
             JLOG(j_.warn()) << "Configured manifest revokes public key";
         }
 
+        {
+            std::unique_lock lock{mutex_};
+            configured_.insert(mo->masterKey);
+            evictable_.erase(mo->masterKey);
+        }
         if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
         {
             JLOG(j_.error()) << "Manifest in config was rejected";
@@ -756,12 +821,18 @@ ManifestCache::load(
 
         auto mo = deserializeManifest(base64_decode(revocationStr));
 
-        if (!mo || !mo->revoked() ||
-            applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
+        if (!mo || !mo->revoked() || !mo->verify())
         {
             JLOG(j_.error()) << "Invalid validator key revocation in config";
             return false;
         }
+        {
+            std::unique_lock lock{mutex_};
+            configured_.insert(mo->masterKey);
+            evictable_.erase(mo->masterKey);
+        }
+        if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
+            return false;
     }
 
     return true;

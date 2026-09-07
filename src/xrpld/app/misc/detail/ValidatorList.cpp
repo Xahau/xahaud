@@ -277,6 +277,7 @@ ValidatorList::load(
 
     JLOG(j_.debug()) << "Loaded " << count << " entries";
 
+    pinManifestKeys(lock);
     return true;
 }
 
@@ -1073,7 +1074,7 @@ ValidatorList::updatePublisherList(
     PublicKey const& pubKey,
     PublisherList const& current,
     std::vector<PublicKey> const& oldList,
-    ValidatorList::lock_guard const&)
+    ValidatorList::lock_guard const& lock)
 {
     // Update keyListings_ for added and removed keys
     std::vector<PublicKey> const& publisherList = current.list;
@@ -1106,6 +1107,10 @@ ValidatorList::updatePublisherList(
             ++iOld;
         }
     }
+
+    // Protect all listed keys before accepting their embedded manifests,
+    // including keys below the trust threshold and revoked validators.
+    pinManifestKeys(lock);
 
     if (publisherList.empty())
     {
@@ -1509,7 +1514,7 @@ ValidatorList::localPublicKey() const
 
 bool
 ValidatorList::removePublisherList(
-    ValidatorList::lock_guard const&,
+    ValidatorList::lock_guard const& lock,
     PublicKey const& publisherKey,
     PublisherStatus reason)
 {
@@ -1539,7 +1544,18 @@ ValidatorList::removePublisherList(
     iList->second.current.list.clear();
     iList->second.status = reason;
 
+    pinManifestKeys(lock);
     return true;
+}
+
+void
+ValidatorList::pinManifestKeys(lock_guard const&)
+{
+    hash_set<PublicKey> keys;
+    keys.reserve(keyListings_.size());
+    for (auto const& [key, count] : keyListings_)
+        keys.insert(key);
+    validatorManifests_.pin(std::move(keys));
 }
 
 std::size_t

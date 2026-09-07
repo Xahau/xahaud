@@ -184,6 +184,60 @@ private:
     }
 
     void
+    testManifestProtection()
+    {
+        testcase("listed manifests survive cache pressure");
+        jtx::Env env{*this};
+        ManifestCache manifests{env.journal, 0};
+        ManifestCache publishers;
+        ValidatorList lists{
+            manifests,
+            publishers,
+            env.timeKeeper(),
+            env.app().config().legacy("database_path"),
+            env.journal};
+        auto const local = randomValidator();
+        auto const a = randomValidator();
+        auto const b = randomValidator();
+        auto const c = randomValidator();
+        auto const publisher = randomKeyPair(KeyType::ed25519);
+        auto const signer = randomKeyPair(KeyType::secp256k1);
+        auto const pubManifest = base64_encode(makeManifestString(
+            publisher.first, publisher.second, signer.first, signer.second, 1));
+        BEAST_EXPECT(lists.load(
+            {},
+            {toBase58(TokenType::NodePublic, local.masterPublic)},
+            {strHex(publisher.first), strHex(randomMasterKey())},
+            2));
+        BEAST_EXPECT(
+            manifests.applyManifest(std::move(
+                *deserializeManifest(base64_decode(local.manifest)))) ==
+            ManifestDisposition::accepted);
+        auto publish = [&](std::vector<Validator> const& members, int seq) {
+            auto const blob = makeList(
+                members,
+                seq,
+                env.timeKeeper().now().time_since_epoch().count() + 3600);
+            auto const result = lists.applyLists(
+                pubManifest, 1, {{blob, signList(blob, signer), {}}}, "test");
+            BEAST_EXPECT(result.bestDisposition() == ListDisposition::accepted);
+        };
+        publish({a, b}, 1);
+        BEAST_EXPECT(lists.listed(a.masterPublic));
+        BEAST_EXPECT(!lists.trusted(a.masterPublic));
+        BEAST_EXPECT(manifests.getMasterKey(a.signingPublic) == a.masterPublic);
+        BEAST_EXPECT(manifests.getMasterKey(b.signingPublic) == b.masterPublic);
+        publish({c}, 2);
+        BEAST_EXPECT(!manifests.getRawManifest(a.masterPublic));
+        BEAST_EXPECT(
+            manifests.getMasterKey(a.signingPublic) == a.signingPublic);
+        BEAST_EXPECT(!manifests.getRawManifest(b.masterPublic));
+        BEAST_EXPECT(manifests.getMasterKey(c.signingPublic) == c.masterPublic);
+        BEAST_EXPECT(
+            manifests.getMasterKey(local.signingPublic) == local.masterPublic);
+    }
+
+    void
     testGenesisQuorum()
     {
         testcase("Genesis Quorum");
@@ -4132,6 +4186,7 @@ public:
     run() override
     {
         testGenesisQuorum();
+        testManifestProtection();
         testConfigLoad();
         testApplyLists();
         testGetAvailable();

@@ -459,6 +459,39 @@ struct SetManifest_test : public beast::unit_test::suite
         BEAST_EXPECT(cache.getSigningKey(master.pk()) == eph1.pk());
         BEAST_EXPECT(cache.getSequence(master.pk()) == 1);
 
+        // Eviction removes the live binding; the next ledger can recover it
+        // solely from its signing-key copy, without a gossip prerequisite.
+        ManifestCache bounded{env.journal, 1};
+        BEAST_EXPECT(
+            bounded.applyLedgerSigningKey(*env.closed(), eph1.pk()) ==
+            master.pk());
+        auto other = deserializeManifest(makeManifest(stranger, eph2, 1));
+        BEAST_EXPECT(other);
+        bounded.applyManifest(std::move(*other));
+        BEAST_EXPECT(bounded.getMasterKey(eph1.pk()) == eph1.pk());
+        auto const previousLedger = env.closed();
+        env.close();
+        BEAST_EXPECT(
+            bounded.applyLedgerSigningKey(*env.closed(), eph1.pk()) ==
+            master.pk());
+
+        // Cycling past the negative-cache capacity must not reset the read
+        // budget. A real on-ledger key waits for the next ledger once full.
+        ManifestCache probes{env.journal};
+        for (std::size_t i = 0; i <= ManifestCache::probeLimit; ++i)
+        {
+            auto const key =
+                derivePublicKey(KeyType::secp256k1, randomSecretKey());
+            BEAST_EXPECT(!probes.applyLedgerSigningKey(*env.closed(), key));
+        }
+        BEAST_EXPECT(
+            !probes.applyLedgerSigningKey(*previousLedger, stranger.pk()));
+        BEAST_EXPECT(!probes.applyLedgerSigningKey(*env.closed(), eph1.pk()));
+        env.close();
+        BEAST_EXPECT(
+            probes.applyLedgerSigningKey(*env.closed(), eph1.pk()) ==
+            master.pk());
+
         // A key with no manifest on-ledger resolves to nothing and leaves the
         // cache untouched.
         BEAST_EXPECT(

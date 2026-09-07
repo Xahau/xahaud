@@ -36,6 +36,7 @@
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
+#include <xrpl/basics/scope.h>
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/protocol/digest.h>
 
@@ -1057,13 +1058,30 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
         return;
     }
 
-    if (s > 100)
-        fee_.update(Resource::feeModerateBurdenPeer, "oversize");
+    if (s > maxManifestEntries || m->ByteSizeLong() > maxManifestMessageSize ||
+        std::any_of(m->list().begin(), m->list().end(), [](auto const& item) {
+            return item.stobject().size() > maxManifestSize;
+        }))
+    {
+        fee_.update(Resource::feeInvalidData, "oversized manifests");
+        return;
+    }
 
-    app_.getJobQueue().addJob(
-        jtMANIFEST, "receiveManifests", [this, that = shared_from_this(), m]() {
-            overlay_.onManifests(m, that);
-        });
+    if (manifestJobs_.fetch_add(1) >= 2)
+    {
+        --manifestJobs_;
+        fee_.update(Resource::feeHeavyBurdenPeer, "manifest backlog");
+        return;
+    }
+    scope_exit rollbackJob([this]() { --manifestJobs_; });
+    if (app_.getJobQueue().addJob(
+            jtMANIFEST,
+            "receiveManifests",
+            [this, that = shared_from_this(), m]() {
+                scope_exit finished([this]() { --manifestJobs_; });
+                overlay_.onManifests(m, that);
+            }))
+        rollbackJob.release();
 }
 
 void

@@ -715,6 +715,10 @@ public:
         std::vector<std::shared_ptr<STValidation>>&& validations) const;
 
 private:
+    // Called with mutex_ held whenever listed membership changes.
+    void
+    pinManifestKeys(lock_guard const&);
+
     /** Return the number of configured validator list sites. */
     std::size_t
     count(shared_lock const&) const;

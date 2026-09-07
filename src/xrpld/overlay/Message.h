@@ -37,6 +37,13 @@ namespace ripple {
 
 constexpr std::size_t maximiumMessageSize = megabytes(64);
 
+// Manifests are small identity records, not bulk ledger data. Apply the frame
+// limit before allocating/decompressing its payload, and the entry limits
+// before queuing signature work. Outbound gossip uses the same limits.
+constexpr std::size_t maxManifestMessageSize = kilobytes(256);
+constexpr int maxManifestEntries = 256;
+constexpr std::size_t maxManifestSize = 1024;
+
 // VFALCO NOTE If we forward declare Message and write out shared_ptr
 //             instead of using the in-class type alias, we can remove the
 //             entire ripple.pb.h from the main headers.

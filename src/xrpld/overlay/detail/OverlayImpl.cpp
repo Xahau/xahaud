@@ -637,6 +637,7 @@ OverlayImpl::onManifests(
     auto const& journal = from->pjournal();
 
     protocol::TMManifests relay;
+    int cost = 0;
 
     for (std::size_t i = 0; i < n; ++i)
     {
@@ -648,6 +649,14 @@ OverlayImpl::onManifests(
 
             auto const result =
                 app_.validatorManifests().applyManifest(std::move(*mo));
+
+            // Even valid new identities consume signature work. Stale entries
+            // are cheaper, but replaying them forever is not free either.
+            cost += result == ManifestDisposition::stale
+                ? Resource::feeUselessData.cost()
+                : result == ManifestDisposition::invalid
+                ? Resource::feeInvalidSignature.cost()
+                : Resource::feeModerateBurdenPeer.cost();
 
             if (result == ManifestDisposition::accepted)
             {
@@ -673,11 +682,18 @@ OverlayImpl::onManifests(
         }
         else
         {
+            cost += Resource::feeInvalidData.cost();
             JLOG(journal.debug())
                 << "Malformed manifest #" << i + 1 << ": " << strHex(s);
             continue;
         }
     }
+
+    // charge() can disconnect only on the peer strand. One completion per
+    // bounded batch also avoids queuing a callback for every manifest.
+    boost::asio::post(from->strand_, [from, cost]() {
+        from->charge(Resource::Charge{cost, "manifests"}, "manifest batch");
+    });
 
     if (!relay.list().empty())
         for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS)](
@@ -1194,13 +1210,24 @@ OverlayImpl::getManifestsMessage()
         // ManifestCache::for_each_gossip_manifest for what is selected.
         // This message is only rebuilt when the cache sequence changes, so a
         // shift in which manifests are the most recently used does not by
-        // itself refresh it. That is acceptable: the pinned manifests are the
-        // ones a peer needs, and they are always included.
+        // itself refresh it. Listed/configured manifests are offered first;
+        // the packet limits below also apply to unusually large local lists.
         app_.validatorManifests().for_each_gossip_manifest(
-            [&tm](std::size_t s) { tm.mutable_list()->Reserve(s); },
+            [&tm](std::size_t s) {
+                tm.mutable_list()->Reserve(
+                    std::min<std::size_t>(s, maxManifestEntries));
+            },
             [&tm, &hr = app_.getHashRouter()](Manifest const& manifest) {
+                if (tm.list_size() >= maxManifestEntries ||
+                    manifest.serialized.size() > maxManifestSize)
+                    return;
                 tm.add_list()->set_stobject(
                     manifest.serialized.data(), manifest.serialized.size());
+                if (tm.ByteSizeLong() > maxManifestMessageSize)
+                {
+                    tm.mutable_list()->RemoveLast();
+                    return;
+                }
                 hr.addSuppression(manifest.hash());
             });
 
