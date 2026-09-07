@@ -20,6 +20,9 @@
 #include <test/jtx.h>
 #include <test/jtx/WSClient.h>
 #include <test/jtx/envconfig.h>
+#include <xrpld/app/consensus/RCLValidations.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -30,6 +33,7 @@
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/BuildInfo.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/filesystem/operations.hpp>
@@ -37,6 +41,8 @@
 #include <chrono>
 #include <cstring>
 #include <memory>
+#include <mutex>
+#include <stdexcept>
 #include <string>
 
 namespace ripple {
@@ -206,9 +212,8 @@ class AmendmentBlocked_test : public beast::unit_test::suite
         testcase("amendment blocked stops the server");
         using namespace test::jtx;
 
-        // NOTE: this is the only non-standalone Env in the test tree, and it
-        // has to be, because setAmendmentBlocked() deliberately does nothing
-        // in standalone mode. Consequences to be aware of when editing:
+        // A non-standalone Env is needed to exercise shutdown rather than
+        // only setting the blocked flag. Consequences when editing:
         // setup() arms the state timer, run() arms the deadlock detector, and
         // signalStop() below releases run() to tear the application down
         // concurrently with the rest of this function. Do all the assertions
@@ -258,6 +263,141 @@ class AmendmentBlocked_test : public beast::unit_test::suite
         BEAST_EXPECT(boost::filesystem::remove(path));
         env.app().getOPs().setAmendmentBlocked();
         BEAST_EXPECT(!boost::filesystem::exists(path));
+    }
+
+    void
+    checkJump(bool unsupported)
+    {
+        using namespace test::jtx;
+
+        beast::temp_dir td;
+        Env env{*this, envconfig([&](std::unique_ptr<Config> cfg) {
+                    cfg->setupControl(true, true, false);
+                    cfg->NODE_SIZE = 0;
+                    cfg->CONFIG_DIR = td.path();
+                    cfg->legacy("database_path", td.path());
+                    return cfg;
+                })};
+        auto& app = env.app();
+        auto& ops = app.getOPs();
+        auto& master = app.getLedgerMaster();
+        std::lock_guard lock(app.getMasterMutex());
+        auto const before = master.getClosedLedger();
+
+        // A direct child is not preferred over our LCL: consensus may be
+        // about to build it. Two ledgers ahead forces the JUMP path.
+        auto parent =
+            std::make_shared<Ledger>(*before, app.timeKeeper().closeTime());
+        parent->updateSkipList();
+        parent->setImmutable();
+        auto candidate =
+            std::make_shared<Ledger>(*parent, app.timeKeeper().closeTime());
+        candidate->updateSkipList();
+
+        if (unsupported)
+        {
+            auto const key = keylet::amendments();
+            auto const existing = candidate->read(key);
+            auto sle = existing ? std::make_shared<SLE>(*existing)
+                                : std::make_shared<SLE>(key);
+            STVector256 amendments;
+            if (sle->isFieldPresent(sfAmendments))
+                amendments = sle->getFieldV256(sfAmendments);
+            amendments.push_back(unsupportedAmendmentId());
+            sle->setFieldV256(sfAmendments, amendments);
+            if (existing)
+                candidate->rawReplace(sle);
+            else
+                candidate->rawInsert(sle);
+        }
+
+        // A serialized uint32 with an unknown field number. Insert raw bytes
+        // so the real transaction parser, reached through TxQ, must throw.
+        BEAST_EXPECT(SField::getField(STI_UINT32, 255).isInvalid());
+        auto tx = std::make_shared<Serializer>();
+        tx->add8(0x20);
+        tx->add8(255);
+        while (tx->getDataLength() < txMinSizeBytes)
+            tx->add8(0);
+        auto meta = std::make_shared<Serializer>();
+        meta->add8(0xE1);
+        auto const txID = sha512Half(tx->slice());
+        candidate->rawTxInsert(txID, tx, meta);
+        candidate->setImmutable();
+
+        bool unknownField = false;
+        try
+        {
+            candidate->txRead(txID);
+        }
+        catch (std::runtime_error const& e)
+        {
+            unknownField = std::string(e.what()).starts_with("Unknown field");
+        }
+        if (!BEAST_EXPECT(unknownField))
+            return;
+
+        master.storeLedger(candidate);
+        auto const keys = randomKeyPair(KeyType::secp256k1);
+        auto const nodeID = calcNodeID(keys.first);
+        auto validation = std::make_shared<STValidation>(
+            app.timeKeeper().closeTime(),
+            keys.first,
+            keys.second,
+            nodeID,
+            [&](STValidation& v) {
+                v.setFieldH256(sfLedgerHash, candidate->info().hash);
+                v.setFieldU32(sfLedgerSequence, candidate->seq());
+            });
+        // Add directly so ledger acceptance does not discover the amendment
+        // before JUMP has a chance to inspect the candidate itself.
+        BEAST_EXPECT(
+            app.getValidations().add(nodeID, RCLValidation{validation}) ==
+            ValStatus::current);
+        if (!BEAST_EXPECT(
+                app.getValidations().getPreferredLCL(
+                    RCLValidatedLedger{before, env.journal},
+                    master.getValidLedgerIndex(),
+                    {}) == candidate->info().hash))
+            return;
+
+        BEAST_EXPECT(!app.getAmendmentTable().hasUnsupportedEnabled());
+        BEAST_EXPECT(!app.getAmendmentTable().firstUnsupportedExpected());
+        BEAST_EXPECT(!ops.isAmendmentBlocked());
+        BEAST_EXPECT(!app.isStopping());
+        auto const receipt = amendmentBlockedFilePath(app.config());
+        BEAST_EXPECT(!boost::filesystem::exists(receipt));
+
+        bool threw = false;
+        try
+        {
+            ops.endConsensus({});
+        }
+        catch (std::runtime_error const& e)
+        {
+            threw = true;
+            BEAST_EXPECT(std::string(e.what()).starts_with("Unknown field"));
+        }
+        BEAST_EXPECT(threw == !unsupported);
+        BEAST_EXPECT(ops.isAmendmentBlocked() == unsupported);
+        BEAST_EXPECT(app.isStopping() == unsupported);
+        BEAST_EXPECT(boost::filesystem::exists(receipt) == unsupported);
+        BEAST_EXPECT(
+            master.getClosedLedger()->info().hash == before->info().hash);
+    }
+
+    void
+    testJumpStopsForUnsupportedAmendment()
+    {
+        testcase("JUMP to an unsupported ledger stops the server");
+        checkJump(/*unsupported=*/true);
+    }
+
+    void
+    testJumpRethrowsParsingError()
+    {
+        testcase("JUMP parsing errors without unsupported amendments escape");
+        checkJump(/*unsupported=*/false);
     }
 
     void
@@ -646,6 +786,8 @@ public:
         testReceiptFileHelpers();
         testStandaloneDoesNotStop();
         testShutdownOnBlock();
+        testJumpRethrowsParsingError();
+        testJumpStopsForUnsupportedAmendment();
         testWarnsOutsideShutdownWindow();
         testUnsupportedAmendmentReporting();
         testWarningVisibleWithoutAdmin();
