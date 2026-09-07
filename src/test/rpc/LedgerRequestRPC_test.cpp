@@ -316,7 +316,7 @@ public:
                 cfg->NODE_SIZE = 0;
                 return cfg;
             }),
-            supported_amendments() - featureHookFeeV2};
+            supported_amendments() - featureHookFeeV3};
         Account const gw{"gateway"};
         auto const USD = gw["USD"];
         env.fund(XRP(100000), gw);

@@ -2816,7 +2816,7 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
         l[jss::seq] = Json::UInt(lpClosed->info().seq);
         l[jss::hash] = to_string(lpClosed->info().hash);
 
-        auto const hookFeeV2 = lpClosed->rules().enabled(featureHookFeeV2);
+        auto const hookFeeV3 = lpClosed->rules().enabled(featureHookFeeV3);
 
         if (!human)
         {
@@ -2824,7 +2824,7 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
             l[jss::reserve_base] =
                 lpClosed->fees().accountReserve(0).jsonClipped();
             l[jss::reserve_inc] = lpClosed->fees().increment.jsonClipped();
-            if (hookFeeV2)
+            if (hookFeeV3)
                 l[jss::hook_gas_price] = lpClosed->fees().hookGasPrice;
             l[jss::close_time] = Json::Value::UInt(
                 lpClosed->info().closeTime.time_since_epoch().count());
@@ -2841,7 +2841,7 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
                 lpClosed->fees().accountReserve(0).decimalXRP();
             l[jss::reserve_inc_native] =
                 lpClosed->fees().increment.decimalXRP();
-            if (hookFeeV2)
+            if (hookFeeV3)
                 l[jss::hook_gas_price] = lpClosed->fees().hookGasPrice;
 
             if (auto const closeOffset = app_.timeKeeper().closeOffset();
@@ -3033,7 +3033,7 @@ NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
             jvObj[jss::reserve_inc] =
                 lpAccepted->fees().increment.jsonClipped();
 
-            if (lpAccepted->rules().enabled(featureHookFeeV2))
+            if (lpAccepted->rules().enabled(featureHookFeeV3))
                 jvObj[jss::hook_gas_price] = lpAccepted->fees().hookGasPrice;
 
             jvObj[jss::txn_count] = Json::UInt(alpAccepted->size());
@@ -4090,7 +4090,7 @@ NetworkOPsImp::subLedger(InfoSub::ref isrListener, Json::Value& jvResult)
         jvResult[jss::reserve_base] =
             lpClosed->fees().accountReserve(0).jsonClipped();
         jvResult[jss::reserve_inc] = lpClosed->fees().increment.jsonClipped();
-        if (lpClosed->rules().enabled(featureHookFeeV2))
+        if (lpClosed->rules().enabled(featureHookFeeV3))
             jvResult[jss::hook_gas_price] = lpClosed->fees().hookGasPrice;
     }
 

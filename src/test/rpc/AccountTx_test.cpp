@@ -118,7 +118,7 @@ class AccountTx_test : public beast::unit_test::suite
         Env env(
             *this,
             supported_amendments() - featureXahauGenesis - fixHookAPI20251128 -
-                featureHookFeeV2);
+                featureHookFeeV3);
         Account A1{"A1"};
         env.fund(XRP(10000), A1);
         env.close();

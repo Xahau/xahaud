@@ -318,7 +318,7 @@ public:
         Env env(
             *this,
             supported_amendments() - featureXahauGenesis - featureTouch -
-                featureHookFeeV2);
+                featureHookFeeV3);
         auto wsc = makeWSClient(env.app().config());
         Json::Value stream{Json::objectValue};
 

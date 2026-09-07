@@ -193,7 +193,7 @@ FeeVoteImpl::doValidation(
             sfReserveIncrement);
     }
 
-    if (rules.enabled(featureHookFeeV2))
+    if (rules.enabled(featureHookFeeV3))
     {
         auto vote = [&v, this](
                         auto const current,
@@ -303,7 +303,7 @@ FeeVoteImpl::doVoting(
             doVote(val, incReserveVote, sfReserveIncrement);
         }
     }
-    if (rules.enabled(featureHookFeeV2))
+    if (rules.enabled(featureHookFeeV3))
     {
         auto doVote = [](std::shared_ptr<STValidation> const& val,
                          detail::VotableValue<std::uint32_t>& value,
@@ -363,7 +363,7 @@ FeeVoteImpl::doVoting(
                         incReserveVote.current());
                 obj[sfReferenceFeeUnits] = Config::FEE_UNITS_DEPRECATED;
             }
-            if (rules.enabled(featureHookFeeV2))
+            if (rules.enabled(featureHookFeeV3))
                 obj[sfHookGasPrice] = hookGasPrice.first;
         });
 

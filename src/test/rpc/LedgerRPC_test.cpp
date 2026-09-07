@@ -3393,7 +3393,7 @@ public:
             }),
             supported_amendments() - featureXahauGenesis -
                 fixProvisionalDoubleThreading - fixHookAPI20251128 -
-                featureHookFeeV2};
+                featureHookFeeV3};
 
         Json::Value jv;
         jv[jss::ledger_index] = "current";

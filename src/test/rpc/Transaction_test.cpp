@@ -923,7 +923,7 @@ public:
             &Transaction_test::testBinaryRequest,
             this,
             supported_amendments() - featureXahauGenesis - fixHookAPI20251128 -
-                featureHookFeeV2));
+                featureHookFeeV3));
         return;
         FeatureBitset const all{supported_amendments()};
         testWithFeats(all);
@@ -939,7 +939,7 @@ public:
         forAllApiVersions(std::bind_front(
             &Transaction_test::testRequest,
             this,
-            features - featureXahauGenesis - featureTouch - featureHookFeeV2));
+            features - featureXahauGenesis - featureTouch - featureHookFeeV3));
     }
 };
 

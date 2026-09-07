@@ -247,8 +247,8 @@ Ledger::Ledger(
 
         // rules_ covers config.features (unit tests), amendments covers
         // a FRESH start where the desired amendments are pre-enabled.
-        if (rules_.enabled(featureHookFeeV2) ||
-            std::find(amendments.begin(), amendments.end(), featureHookFeeV2) !=
+        if (rules_.enabled(featureHookFeeV3) ||
+            std::find(amendments.begin(), amendments.end(), featureHookFeeV3) !=
                 amendments.end())
         {
             sle->at(sfHookGasPrice) = config.FEES.hook_gas_price;
@@ -721,8 +721,8 @@ Ledger::setup()
             if (!rules_.enabled(featureXRPFees) && newFees)
                 // Can't populate the new fees before the amendment is enabled
                 ret = false;
-            if (!rules_.enabled(featureHookFeeV2) && hookFees)
-                // Can't populate the Hook Fee V2 before the amendment is
+            if (!rules_.enabled(featureHookFeeV3) && hookFees)
+                // Can't populate the Hook Fee V3 before the amendment is
                 // enabled
                 ret = false;
         }

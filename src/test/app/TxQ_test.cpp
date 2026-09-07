@@ -5069,7 +5069,7 @@ public:
         // parentHash < txTree Hash < txMeta < PreviousTxnID
         testTieBreaking(
             all - fixProvisionalDoubleThreading - fixHookAPI20251128 -
-            featureHookFeeV2);
+            featureHookFeeV3);
         testAcctTxnID(all);
         testMaximum(all);
         testUnexpectedBalanceChange(all);
@@ -5091,7 +5091,7 @@ public:
         // parentHash < txTree Hash < txMeta < PreviousTxnID
         testFullQueueGapFill(
             all - fixProvisionalDoubleThreading - fixHookAPI20251128 -
-            featureHookFeeV2);
+            featureHookFeeV3);
         testSignAndSubmitSequence(all);
         testAccountInfo(all);
         testServerInfo(all);
