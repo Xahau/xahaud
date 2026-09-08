@@ -280,8 +280,7 @@ compute_wce(
 // expr under analysis begins and end_offset is where it ends returns {worst
 // case instruction count} if valid or {} if invalid may throw overflow_error,
 // length_error
-inline std::optional<
-    std::pair<uint64_t, uint64_t>>  // {instruction count, execution cost}
+inline std::optional<uint64_t>  // count or cost depending on returnCost
 check_guard(
     std::vector<uint8_t> const& wasm,
     int codesec,
@@ -291,6 +290,7 @@ check_guard(
     int last_import_idx,
     GuardLog guardLog,
     std::string guardLogAccStr,
+    bool returnCost,
     /* RH NOTE:
      * rules version is a bit field, so rule update 1 is 0x01, update 2 is 0x02
      * and update 3 is 0x04 ideally at rule version 3 all bits so far are set
@@ -825,9 +825,19 @@ check_guard(
         return {};
     }
 
-    GUARDLOG(hook::log::INSTRUCTION_COUNT)
-        << "GuardCheck "
-        << "Total worse-case execution count: " << instruction_count << "\n";
+    if (returnCost)
+    {
+        GUARDLOG(hook::log::INSTRUCTION_COUNT)
+            << "GuardCheck "
+            << "Total worse-case execution cost: " << execution_cost << "\n";
+    }
+    else
+    {
+        GUARDLOG(hook::log::INSTRUCTION_COUNT)
+            << "GuardCheck "
+            << "Total worse-case execution count: " << instruction_count
+            << "\n";
+    }
 
     if (instruction_count >= 0xFFFFU)
     {
@@ -839,7 +849,10 @@ check_guard(
             << "\n";
         return {};
     }
-    return std::pair<uint64_t, uint64_t>{instruction_count, execution_cost};
+    if (returnCost)
+        return execution_cost;
+    else
+        return instruction_count;
 }
 
 // RH TODO: reprogram this function to use REQUIRE/ADVANCE
@@ -1520,21 +1533,16 @@ validateGuards(
                     last_import_number,
                     guardLog,
                     guardLogAccStr,
+                    returnCost,
                     rulesVersion);
 
                 if (!valid)
                     return {};
 
                 if (hook_func_idx && *hook_func_idx == j)
-                    if (!returnCost)
-                        maxInstrCountHook = valid->first;
-                    else
-                        maxInstrCountHook = valid->second;
+                    maxInstrCountHook = *valid;
                 else if (cbak_func_idx && *cbak_func_idx == j)
-                    if (!returnCost)
-                        maxInstrCountCbak = valid->first;
-                    else
-                        maxInstrCountCbak = valid->second;
+                    maxInstrCountCbak = *valid;
                 else
                 {
                     if (DEBUG_GUARD)
