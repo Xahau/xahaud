@@ -28,6 +28,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/LoadManager.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/DeliverMax.h>
@@ -1701,11 +1702,68 @@ NetworkOPsImp::isAmendmentBlocked()
     return amendmentBlocked_;
 }
 
+// Render the unsupported amendments for the operator-facing receipt. This is
+// the only identification available: an amendment this build does not support
+// has no name here, so the id is what the operator matches against the
+// release notes.
+static std::vector<std::string>
+describeUnsupportedAmendments(AmendmentTable const& table)
+{
+    std::vector<std::string> lines;
+
+    for (auto const& amendment : table.unsupportedAmendments())
+    {
+        std::ostringstream ss;
+        ss << to_string(amendment.id);
+        if (amendment.expected)
+            ss << "  (expected to activate "
+               << to_string_iso(*amendment.expected) << ")";
+        else
+            ss << "  (already active)";
+        lines.push_back(ss.str());
+    }
+
+    return lines;
+}
+
 void
 NetworkOPsImp::setAmendmentBlocked()
 {
-    amendmentBlocked_ = true;
+    // Idempotent: this is reached from Change::applyAmendment (i.e. from the
+    // transaction application path, which is not guarded by isBlocked()) as
+    // well as from LedgerMaster::setValidLedger. Writing the receipt and
+    // logging once per process is enough, and it keeps the synchronous file
+    // write out of any subsequent ledger apply.
+    if (amendmentBlocked_.exchange(true))
+        return;
+
     setMode(OperatingMode::CONNECTED);
+    if (!app_.config().standalone())
+    {
+        auto const blockedFile = amendmentBlockedFilePath(app_.config());
+        if (auto const ec = writeAmendmentBlockedFile(
+                app_.config(),
+                describeUnsupportedAmendments(app_.getAmendmentTable())))
+        {
+            JLOG(m_journal.fatal())
+                << "Could not write amendment-blocked receipt " << blockedFile
+                << ": " << ec.message();
+        }
+        else
+        {
+            JLOG(m_journal.fatal())
+                << "Amendment-blocked receipt written to " << blockedFile;
+        }
+        JLOG(m_journal.fatal())
+            << "This version of xahaud does not support a network amendment. "
+               "The amendment will activate soon or is already active. "
+               "The server will stop. Upgrade xahaud before you restart the "
+               "server.";
+        app_.signalStop(
+            "Unsupported network amendment. Upgrade xahaud before you restart "
+            "the server. Details: " +
+            blockedFile.string());
+    }
 }
 
 inline bool
@@ -1851,6 +1909,27 @@ NetworkOPsImp::checkLastClosedLedger(
     return true;
 }
 
+// True if `view` enables an amendment this binary does not implement. Reads
+// only the amendments ledger entry, so it is safe to call once transaction
+// deserialization is already known to be failing.
+static bool
+ledgerHasUnsupportedAmendments(
+    AmendmentTable const& table,
+    ReadView const& view)
+{
+    auto const sle = view.read(keylet::amendments());
+    if (!sle || !sle->isFieldPresent(sfAmendments))
+        return false;
+
+    for (auto const& amendment : sle->getFieldV256(sfAmendments))
+    {
+        if (!table.isSupported(amendment))
+            return true;
+    }
+
+    return false;
+}
+
 void
 NetworkOPsImp::switchLastClosedLedger(
     std::shared_ptr<Ledger const> const& newLCL)
@@ -1861,8 +1940,32 @@ NetworkOPsImp::switchLastClosedLedger(
 
     clearNeedNetworkLedger();
 
-    // Update fee computations.
-    app_.getTxQ().processClosedLedger(app_, *newLCL, true);
+    // Update fee computations. May throw if the ledger contains
+    // transactions with fields unknown to this binary (e.g. after an
+    // unsupported amendment activates). Catch to allow graceful shutdown.
+    try
+    {
+        app_.getTxQ().processClosedLedger(app_, *newLCL, true);
+    }
+    catch (std::runtime_error const& e)
+    {
+        // Do not decide this on amendmentBlocked_ alone. A JUMP can happen
+        // before any validated ledger has been processed -- e.g. immediately
+        // after a restart, which is precisely the case that crashed -- so the
+        // flag may still be clear here. Ask the ledger itself instead.
+        // Anything else is a real bug and must propagate.
+        if (!amendmentBlocked_ &&
+            !ledgerHasUnsupportedAmendments(app_.getAmendmentTable(), *newLCL))
+            throw;
+
+        JLOG(m_journal.error()) << "Failed to process closed ledger "
+                                << newLCL->info().seq << ": " << e.what();
+
+        // No-op if we are already blocked; otherwise this starts the
+        // shutdown that should have been started before activation.
+        setAmendmentBlocked();
+        return;
+    }
 
     // Caller must own master lock
     {
@@ -2538,7 +2641,7 @@ NetworkOPsImp::getServerInfo(bool human, bool admin, bool counters)
                 "may be incorrectly configured or some [validator_list_sites] "
                 "may be unreachable.";
         }
-        if (admin && isAmendmentWarned())
+        if (isAmendmentWarned())
         {
             Json::Value& w = warnings.append(Json::objectValue);
             w[jss::id] = warnRPC_UNSUPPORTED_MAJORITY;
