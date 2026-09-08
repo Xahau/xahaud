@@ -429,7 +429,7 @@ public:
         @param m Manifest to add
 
         @return `ManifestDisposition::accepted` if successful, or
-                `stale` or `invalid` otherwise
+                the disposition explaining why admission was refused
 
         @par Thread Safety
 
