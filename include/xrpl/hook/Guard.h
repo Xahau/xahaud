@@ -825,20 +825,6 @@ check_guard(
         return {};
     }
 
-    if (returnCost)
-    {
-        GUARDLOG(hook::log::INSTRUCTION_COUNT)
-            << "GuardCheck "
-            << "Total worse-case execution cost: " << execution_cost << "\n";
-    }
-    else
-    {
-        GUARDLOG(hook::log::INSTRUCTION_COUNT)
-            << "GuardCheck "
-            << "Total worse-case execution count: " << instruction_count
-            << "\n";
-    }
-
     if (instruction_count >= 0xFFFFU)
     {
         GUARDLOG(hook::log::INSTRUCTION_EXCESS)
@@ -1540,9 +1526,23 @@ validateGuards(
                     return {};
 
                 if (hook_func_idx && *hook_func_idx == j)
+                {
+                    GUARDLOG(hook::log::INSTRUCTION_COUNT)
+                        << "GuardCheck "
+                        << "Total hook worse-case execution "
+                        << (returnCost ? "cost: " : "count: ") << *valid
+                        << "\n";
                     maxInstrCountHook = *valid;
+                }
                 else if (cbak_func_idx && *cbak_func_idx == j)
+                {
+                    GUARDLOG(hook::log::INSTRUCTION_COUNT)
+                        << "GuardCheck "
+                        << "Total cbak worse-case execution "
+                        << (returnCost ? "cost: " : "count: ") << *valid
+                        << "\n";
                     maxInstrCountCbak = *valid;
+                }
                 else
                 {
                     if (DEBUG_GUARD)
