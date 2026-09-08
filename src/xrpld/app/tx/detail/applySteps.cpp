@@ -64,6 +64,7 @@
 #include <xrpld/app/tx/detail/Remit.h>
 #include <xrpld/app/tx/detail/SetAccount.h>
 #include <xrpld/app/tx/detail/SetHook.h>
+#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/app/tx/detail/SetOracle.h>
 #include <xrpld/app/tx/detail/SetRegularKey.h>
 #include <xrpld/app/tx/detail/SetRemarks.h>

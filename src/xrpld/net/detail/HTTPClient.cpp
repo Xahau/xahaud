@@ -122,12 +122,20 @@ public:
         mComplete = complete;
         mTimeout = timeout;
 
+        // Bind a non-owning `this` (not shared_from_this()) into mBuild.
+        // mBuild is a member, so capturing a shared_ptr to self here would
+        // form a reference cycle (this -> mBuild -> shared_ptr<this>) that
+        // never breaks, leaking the object and its socket FD after the
+        // request completes. mBuild is only ever invoked from
+        // handleRequest(), which always runs inside an async handler that
+        // already holds a shared_from_this(), so the object is guaranteed
+        // alive whenever mBuild fires — a raw `this` is safe.
         request(
             bSSL,
             deqSites,
             std::bind(
                 &HTTPClientImp::makeGet,
-                shared_from_this(),
+                this,
                 strPath,
                 std::placeholders::_1,
                 std::placeholders::_2),
@@ -393,8 +401,12 @@ public:
         if (boost::regex_match(strHeader, smMatch, reBody))  // we got some body
             mBody = smMatch[1];
 
+        bool const hasContentLength =
+            boost::regex_match(strHeader, smMatch, reSize);
+        mReceivedContentLength = hasContentLength;
+
         std::size_t const responseSize = [&] {
-            if (boost::regex_match(strHeader, smMatch, reSize))
+            if (hasContentLength)
                 return beast::lexicalCast<std::size_t>(
                     std::string(smMatch[1]), maxResponseSize_);
             return maxResponseSize_;
@@ -445,22 +457,24 @@ public:
             JLOG(j_.trace()) << "Read error: " << mShutdown.message();
 
             invokeComplete(mShutdown);
+            return;
         }
-        else
-        {
-            if (mShutdown)
-            {
-                JLOG(j_.trace()) << "Complete.";
-            }
-            else
-            {
-                mResponse.commit(bytes_transferred);
-                std::string strBody{
-                    {std::istreambuf_iterator<char>(&mResponse)},
-                    std::istreambuf_iterator<char>()};
-                invokeComplete(ecResult, mStatus, mBody + strBody);
-            }
-        }
+
+        // Either the read completed normally or it ended at EOF. EOF is a
+        // successful completion for EOF-delimited responses, but it is an
+        // error when the server promised a Content-Length and closed early.
+        JLOG(j_.trace()) << "Complete.";
+
+        mResponse.commit(bytes_transferred);
+        std::string strBody{
+            {std::istreambuf_iterator<char>(&mResponse)},
+            std::istreambuf_iterator<char>()};
+
+        auto completeEc = ecResult;
+        if (completeEc == boost::asio::error::eof && !mReceivedContentLength)
+            completeEc.clear();
+
+        invokeComplete(completeEc, mStatus, mBody + strBody);
     }
 
     // Call cancel the deadline timer and invoke the completion routine.
@@ -516,6 +530,7 @@ private:
     boost::asio::streambuf mHeader;
     boost::asio::streambuf mResponse;
     std::string mBody;
+    bool mReceivedContentLength = false;
     const unsigned short mPort;
     std::size_t const maxResponseSize_;
     int mStatus;
