@@ -660,8 +660,6 @@ OverlayImpl::onManifests(
 
             if (result == ManifestDisposition::accepted)
             {
-                relay.add_list()->set_stobject(s);
-
                 // N.B.: this is important; the applyManifest call above moves
                 //       the loaded Manifest out of the optional so we need to
                 //       reload it here.
@@ -670,6 +668,11 @@ OverlayImpl::onManifests(
                     mo,
                     "ripple::OverlayImpl::onManifests : manifest "
                     "deserialization succeeded");
+
+                // Eviction can make old gossip a new cache entry. Allow that
+                // recovery without restarting relay while its hash is held.
+                if (app_.getHashRouter().shouldRelay(mo->hash()))
+                    relay.add_list()->set_stobject(s);
 
                 app_.getOPs().pubManifest(*mo);
 
@@ -696,8 +699,11 @@ OverlayImpl::onManifests(
     });
 
     if (!relay.list().empty())
-        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS)](
-                     std::shared_ptr<PeerImp>&& p) { p->send(m2); });
+        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS),
+                  source = from->id()](std::shared_ptr<PeerImp>&& p) {
+            if (p->id() != source)
+                p->send(m2);
+        });
 }
 
 void

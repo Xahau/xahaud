@@ -368,8 +368,84 @@ private:
     }
 
     void
+    testManifestRicochet()
+    {
+        testcase("relearning an evicted manifest does not restart relay");
+        jtx::Env env{*this};
+        auto& cache = env.app().validatorManifests();
+        auto make = [](auto const& master, std::uint32_t seq) {
+            auto const signer = randomKeyPair(KeyType::secp256k1);
+            STObject st{sfGeneric};
+            st[sfSequence] = seq;
+            st[sfPublicKey] = master.first;
+            st[sfSigningPubKey] = signer.first;
+            sign(st, HashPrefix::manifest, KeyType::secp256k1, signer.second);
+            sign(
+                st,
+                HashPrefix::manifest,
+                KeyType::ed25519,
+                master.second,
+                sfMasterSignature);
+            auto const bytes = st.getSerializer();
+            return std::string(
+                static_cast<char const*>(bytes.data()), bytes.size());
+        };
+        std::vector<std::shared_ptr<PeerTest>> peers;
+        std::uint16_t disabled = 3;
+        PeerTest::init();
+        PeerTest::sid_ = 1;
+        lid_ = 0;
+        rid_ = 1;
+        for (int i = 0; i < 3; ++i)
+            addPeer(env, peers, disabled);
+        auto send = [&](std::string const& blob) {
+            auto packet = std::make_shared<protocol::TMManifests>();
+            packet->add_list()->set_stobject(blob);
+            auto const& peer = peers.front();
+            peer->onMessageBegin(
+                protocol::mtMANIFESTS,
+                packet,
+                packet->ByteSizeLong(),
+                packet->ByteSizeLong(),
+                false);
+            peer->onMessage(packet);
+            peer->onMessageEnd(protocol::mtMANIFESTS, packet);
+            env.app().getJobQueue().rendezvous();
+        };
+        auto const master = randomKeyPair(KeyType::ed25519);
+        auto const first = make(master, 1);
+        send(first);
+        auto const sentInitially = PeerTest::sendTx_.load();
+        BEAST_EXPECT(sentInitially >= 2);
+        BEAST_EXPECT(cache.getSequence(master.first) == 1);
+
+        // Cache pressure removes the identity, but must not erase the separate
+        // fact that we recently relayed these exact bytes.
+        for (std::size_t i = 0; i < ManifestCache::evictableLimit; ++i)
+        {
+            auto manifest =
+                deserializeManifest(make(randomKeyPair(KeyType::ed25519), 1));
+            BEAST_EXPECT(
+                cache.applyManifest(std::move(*manifest)) ==
+                ManifestDisposition::accepted);
+        }
+        BEAST_EXPECT(!cache.getRawManifest(master.first));
+        send(first);
+        BEAST_EXPECT(cache.getSequence(master.first) == 1);
+        BEAST_EXPECT(PeerTest::sendTx_ == sentInitially);
+
+        // A real rotation is a different signed manifest and still propagates.
+        send(make(master, 2));
+        BEAST_EXPECT(cache.getSequence(master.first) == 2);
+        BEAST_EXPECT(PeerTest::sendTx_ == sentInitially * 2);
+        BEAST_EXPECT(sentInitially == 2);  // Do not echo back to the sender.
+        BEAST_EXPECT(peers.front()->waitCharges(3));
+    }
+
+    void
     run() override
     {
+        testManifestRicochet();
         testManifestIngress();
         bool log = false;
         std::set<Peer::id_t> skip = {0, 1, 2, 3, 4};
