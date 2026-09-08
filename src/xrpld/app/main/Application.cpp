@@ -1379,8 +1379,8 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         }
     }
 
-    // Pin local/listed identities before restoring the old wallet, so its
-    // unlisted rows cannot evict a configured validator's persisted revocation.
+    // Establish which identities bypass the admission cap before restoring
+    // the old wallet, so local revocation history is not refused at capacity.
     validatorManifests_->load(getWalletDB(), "ValidatorManifests");
 
     if (!validatorSites_->load(

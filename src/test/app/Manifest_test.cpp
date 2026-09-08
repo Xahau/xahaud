@@ -244,10 +244,10 @@ public:
     }
 
     void
-    testEviction()
+    testAdmissionLimit()
     {
-        testcase("bounded unlisted retention");
-        ManifestCache cache{beast::Journal{beast::Journal::getNullSink()}, 2};
+        testcase("capacity rejects new identities without forgetting history");
+        ManifestCache cache{beast::Journal{beast::Journal::getNullSink()}, 3};
         std::vector<Manifest> manifests;
         std::vector<SecretKey> masters;
         for (int i = 0; i < 6; ++i)
@@ -278,15 +278,18 @@ public:
         BEAST_EXPECT(
             cache.getMasterKey(*manifests[1].signingKey) ==
             manifests[1].masterKey);
-        add(3);
+        BEAST_EXPECT(
+            cache.applyManifest(clone(manifests[3])) ==
+            ManifestDisposition::full);
         BEAST_EXPECT(count() == 3);
-        BEAST_EXPECT(!cache.getRawManifest(manifests[2].masterKey));
+        BEAST_EXPECT(cache.getRawManifest(manifests[2].masterKey));
         BEAST_EXPECT(
             cache.getMasterKey(*manifests[2].signingKey) ==
-            *manifests[2].signingKey);
+            manifests[2].masterKey);
         BEAST_EXPECT(cache.getRawManifest(manifests[1].masterKey));
 
-        // Bad signatures cannot displace a useful row or create recency state.
+        // A full cache refuses unknown unlisted identities before checking
+        // their signatures; the refusal cannot displace an admitted row.
         BEAST_EXPECT(
             cache.applyManifest(makeManifest(
                 masters[4],
@@ -294,9 +297,9 @@ public:
                 randomSecretKey(),
                 KeyType::secp256k1,
                 2,
-                true)) == ManifestDisposition::invalid);
+                true)) == ManifestDisposition::full);
         BEAST_EXPECT(count() == 3);
-        BEAST_EXPECT(cache.getRawManifest(manifests[3].masterKey));
+        BEAST_EXPECT(!cache.getRawManifest(manifests[3].masterKey));
 
         auto rotation = makeManifest(
             masters[1],
@@ -314,32 +317,49 @@ public:
         BEAST_EXPECT(
             cache.getMasterKey(*rotation.signingKey) == rotation.masterKey);
 
-        // A listed revocation remains terminal under cache pressure.
+        // Both listed and unlisted admitted identities can revoke at capacity.
         BEAST_EXPECT(
             cache.applyManifest(makeRevocation(masters[0], KeyType::ed25519)) ==
             ManifestDisposition::accepted);
-        add(4);
-        add(5);
+        BEAST_EXPECT(
+            cache.applyManifest(makeRevocation(masters[1], KeyType::ed25519)) ==
+            ManifestDisposition::accepted);
+        for (int i = 3; i < 6; ++i)
+            BEAST_EXPECT(
+                cache.applyManifest(clone(manifests[i])) ==
+                ManifestDisposition::full);
         BEAST_EXPECT(cache.revoked(manifests[0].masterKey));
+        BEAST_EXPECT(cache.revoked(manifests[1].masterKey));
+        BEAST_EXPECT(
+            cache.applyManifest(clone(manifests[1])) ==
+            ManifestDisposition::stale);
+        BEAST_EXPECT(
+            cache.getMasterKey(*rotation.signingKey) == *rotation.signingKey);
         BEAST_EXPECT(
             cache.applyManifest(clone(manifests[0])) ==
             ManifestDisposition::stale);
         BEAST_EXPECT(count() == 3);
 
-        // List removal makes that row count against the same fixed capacity.
+        // Delisting does not discard a revocation or make space for a stranger.
         auto const seq = cache.sequence();
         cache.pin({});
         BEAST_EXPECT(cache.sequence() > seq);
-        BEAST_EXPECT(count() == 2);
-
-        // Locally configured keys remain protected even with no current VL.
-        BEAST_EXPECT(
-            cache.loadConfig(base64_encode(manifests[0].serialized), {}));
-        cache.pin({});
-        for (int i = 1; i < 6; ++i)
-            cache.applyManifest(clone(manifests[i]));
-        BEAST_EXPECT(cache.getRawManifest(manifests[0].masterKey));
         BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(cache.revoked(manifests[0].masterKey));
+
+        // Filling the cache cannot block a subsequently listed/configured key.
+        cache.pin({manifests[3].masterKey});
+        add(3);
+        cache.pin({});
+        BEAST_EXPECT(cache.getRawManifest(manifests[3].masterKey));
+        BEAST_EXPECT(
+            cache.loadConfig(base64_encode(manifests[4].serialized), {}));
+        cache.pin({});
+        BEAST_EXPECT(cache.getRawManifest(manifests[4].masterKey));
+        BEAST_EXPECT(
+            cache.applyManifest(clone(manifests[5])) ==
+            ManifestDisposition::full);
+        BEAST_EXPECT(count() == 5);
     }
 
     void
@@ -1187,7 +1207,7 @@ public:
                 ManifestDisposition::badMasterKey);
         }
 
-        testEviction();
+        testAdmissionLimit();
         testLoadStore(cache);
         testGetSignature();
         testGetKeys();

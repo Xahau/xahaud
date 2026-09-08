@@ -650,9 +650,10 @@ OverlayImpl::onManifests(
             auto const result =
                 app_.validatorManifests().applyManifest(std::move(*mo));
 
-            // Even valid new identities consume signature work. Stale entries
-            // are cheaper, but replaying them forever is not free either.
-            cost += result == ManifestDisposition::stale
+            // New identities refused at capacity and stale repeats skip
+            // signature work, but sending them continually is not free.
+            cost += (result == ManifestDisposition::stale ||
+                     result == ManifestDisposition::full)
                 ? Resource::feeUselessData.cost()
                 : result == ManifestDisposition::invalid
                 ? Resource::feeInvalidSignature.cost()
@@ -660,6 +661,8 @@ OverlayImpl::onManifests(
 
             if (result == ManifestDisposition::accepted)
             {
+                relay.add_list()->set_stobject(s);
+
                 // N.B.: this is important; the applyManifest call above moves
                 //       the loaded Manifest out of the optional so we need to
                 //       reload it here.
@@ -668,11 +671,6 @@ OverlayImpl::onManifests(
                     mo,
                     "ripple::OverlayImpl::onManifests : manifest "
                     "deserialization succeeded");
-
-                // Eviction can make old gossip a new cache entry. Allow that
-                // recovery without restarting relay while its hash is held.
-                if (app_.getHashRouter().shouldRelay(mo->hash()))
-                    relay.add_list()->set_stobject(s);
 
                 app_.getOPs().pubManifest(*mo);
 

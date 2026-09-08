@@ -228,10 +228,11 @@ private:
         BEAST_EXPECT(manifests.getMasterKey(a.signingPublic) == a.masterPublic);
         BEAST_EXPECT(manifests.getMasterKey(b.signingPublic) == b.masterPublic);
         publish({c}, 2);
-        BEAST_EXPECT(!manifests.getRawManifest(a.masterPublic));
-        BEAST_EXPECT(
-            manifests.getMasterKey(a.signingPublic) == a.signingPublic);
-        BEAST_EXPECT(!manifests.getRawManifest(b.masterPublic));
+        BEAST_EXPECT(!lists.listed(a.masterPublic));
+        BEAST_EXPECT(!lists.trusted(a.masterPublic));
+        BEAST_EXPECT(manifests.getRawManifest(a.masterPublic));
+        BEAST_EXPECT(manifests.getMasterKey(a.signingPublic) == a.masterPublic);
+        BEAST_EXPECT(manifests.getRawManifest(b.masterPublic));
         BEAST_EXPECT(manifests.getMasterKey(c.signingPublic) == c.masterPublic);
         BEAST_EXPECT(
             manifests.getMasterKey(local.signingPublic) == local.masterPublic);

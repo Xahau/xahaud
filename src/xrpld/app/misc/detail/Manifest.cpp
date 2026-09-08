@@ -405,31 +405,6 @@ ManifestCache::touch(PublicKey const& masterKey) const
 }
 
 void
-ManifestCache::evictOne()
-{
-    auto victim = evictable_.end();
-    auto oldest = std::numeric_limits<std::uint64_t>::max();
-    for (auto it = evictable_.begin(); it != evictable_.end(); ++it)
-    {
-        auto const used = lastUsed_.at(*it).load(std::memory_order_relaxed);
-        if (victim == evictable_.end() || used < oldest)
-        {
-            victim = it;
-            oldest = used;
-        }
-    }
-    if (victim == evictable_.end())
-        return;
-    auto const row = map_.find(*victim);
-    if (row->second.signingKey)
-        signingToMasterKeys_.erase(*row->second.signingKey);
-    lastUsed_.erase(*victim);
-    map_.erase(row);
-    evictable_.erase(victim);
-    ++seq_;
-}
-
-void
 ManifestCache::pin(hash_set<PublicKey> keys)
 {
     std::lock_guard lock{mutex_};
@@ -438,16 +413,6 @@ ManifestCache::pin(hash_set<PublicKey> keys)
         return;
 
     pinned_ = std::move(keys);
-
-    for (auto const& [key, manifest] : map_)
-    {
-        if (pinned_.contains(key) || configured_.contains(key))
-            evictable_.erase(key);
-        else
-            evictable_.insert(key);
-    }
-    while (evictable_.size() > evictableLimit_)
-        evictOne();
 
     // The pinned set is part of what a gossip message contains, so a change to
     // it has to invalidate any message cached against this sequence.
@@ -608,6 +573,13 @@ ManifestCache::applyManifest(Manifest m)
             return ManifestDisposition::stale;
         }
 
+        // Keep admitted history instead of cycling it through an LRU. This
+        // cheap gate runs under both locks, before crypto on the first pass.
+        if (iter == map_.end() && map_.size() >= cacheLimit_ &&
+            !pinned_.contains(m.masterKey) &&
+            !configured_.contains(m.masterKey))
+            return ManifestDisposition::full;
+
         if (checkSignature && !m.verify())
         {
             if (auto stream = j_.warn())
@@ -698,19 +670,9 @@ ManifestCache::applyManifest(Manifest m)
         return *d;
 
     bool const revoked = m.revoked();
-    // A new master, or one whose previous unlisted entry was evicted.
+    // This is the first manifest we are seeing for a master key.
     if (iter == map_.end())
     {
-        bool const protectedKey =
-            pinned_.contains(m.masterKey) || configured_.contains(m.masterKey);
-        if (!protectedKey)
-        {
-            if (evictableLimit_ == 0)
-                return ManifestDisposition::stale;
-            if (evictable_.size() >= evictableLimit_)
-                evictOne();
-            evictable_.insert(m.masterKey);
-        }
         if (auto stream = j_.info())
             LOG_MANIFEST_ACTION(stream, "AcceptedNew", m.masterKey, m.sequence);
 
@@ -796,7 +758,6 @@ ManifestCache::loadConfig(
         {
             std::unique_lock lock{mutex_};
             configured_.insert(mo->masterKey);
-            evictable_.erase(mo->masterKey);
         }
         if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
         {
@@ -829,7 +790,6 @@ ManifestCache::loadConfig(
         {
             std::unique_lock lock{mutex_};
             configured_.insert(mo->masterKey);
-            evictable_.erase(mo->masterKey);
         }
         if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
             return false;

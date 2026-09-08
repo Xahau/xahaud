@@ -368,9 +368,9 @@ private:
     }
 
     void
-    testManifestRicochet()
+    testManifestCapacityRelay()
     {
-        testcase("relearning an evicted manifest does not restart relay");
+        testcase("full cache preserves admission and relay history");
         jtx::Env env{*this};
         auto& cache = env.app().validatorManifests();
         auto make = [](auto const& master, std::uint32_t seq) {
@@ -419,17 +419,19 @@ private:
         BEAST_EXPECT(sentInitially >= 2);
         BEAST_EXPECT(cache.getSequence(master.first) == 1);
 
-        // Cache pressure removes the identity, but must not erase the separate
-        // fact that we recently relayed these exact bytes.
-        for (std::size_t i = 0; i < ManifestCache::evictableLimit; ++i)
+        // Fill the remaining capacity, then attempt one extra identity. The
+        // original row must remain, so replay cannot restart its broadcast.
+        for (std::size_t i = 0; i < ManifestCache::cacheLimit; ++i)
         {
             auto manifest =
                 deserializeManifest(make(randomKeyPair(KeyType::ed25519), 1));
             BEAST_EXPECT(
                 cache.applyManifest(std::move(*manifest)) ==
-                ManifestDisposition::accepted);
+                (i + 1 < ManifestCache::cacheLimit
+                     ? ManifestDisposition::accepted
+                     : ManifestDisposition::full));
         }
-        BEAST_EXPECT(!cache.getRawManifest(master.first));
+        BEAST_EXPECT(cache.getRawManifest(master.first));
         send(first);
         BEAST_EXPECT(cache.getSequence(master.first) == 1);
         BEAST_EXPECT(PeerTest::sendTx_ == sentInitially);
@@ -445,7 +447,7 @@ private:
     void
     run() override
     {
-        testManifestRicochet();
+        testManifestCapacityRelay();
         testManifestIngress();
         bool log = false;
         std::set<Peer::id_t> skip = {0, 1, 2, 3, 4};

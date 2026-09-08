@@ -242,7 +242,10 @@ enum class ManifestDisposition {
     badEphemeralKey,
 
     /// Timely, but invalid signature
-    invalid
+    invalid,
+
+    /// No room for a previously unseen unlisted identity
+    full
 };
 
 inline std::string
@@ -260,6 +263,8 @@ to_string(ManifestDisposition m)
             return "badEphemeralKey";
         case ManifestDisposition::invalid:
             return "invalid";
+        case ManifestDisposition::full:
+            return "full";
         default:
             return "unknown";
     }
@@ -287,16 +292,15 @@ private:
     */
     hash_set<PublicKey> pinned_;
 
-    // Configured identities survive publisher-list changes as well as eviction.
+    // Configured identities remain admissible independently of publisher lists.
     hash_set<PublicKey> configured_;
-    hash_set<PublicKey> evictable_;
-    std::size_t const evictableLimit_;
+    std::size_t const cacheLimit_;
 
     /** Recency of use, keyed by master public key.
 
         The structure of this map is guarded by mutex_ exactly as map_ is:
-        entries are created and evicted with the corresponding manifest.
-        The counters themselves are atomic, so recording a hit is a
+        entries are created next to it in applyManifest() and are never
+        removed. The counters themselves are atomic, so recording a hit is a
         write to an atomic rather than a structural modification and is legal
         while only a shared lock is held.
 
@@ -327,19 +331,17 @@ private:
     void
     touch(PublicKey const& masterKey) const;
 
-    // Caller holds mutex_ exclusively; erase all indexes together.
-    void
-    evictOne();
-
     std::atomic<std::uint32_t> seq_{0};
 
 public:
-    /** Unlisted on-ledger manifests are recoverable after eviction.
+    /** Stop admitting new unlisted identities at this total cache size.
 
-        Off-ledger identities outside local lists have best-effort retention.
-        Publisher caches can opt out: their population comes from configuration.
+        Existing entries are never evicted: rotations and revocations retain
+        their sequence history. Listed/configured identities may exceed the
+        threshold, so untrusted traffic cannot block local policy. Delisting
+        does not erase a previously admitted identity.
     */
-    static constexpr std::size_t evictableLimit = 1024;
+    static constexpr std::size_t cacheLimit = 1024;
 
     /** Ceiling on the unpinned manifests offered to a newly connected peer. */
     static constexpr std::size_t gossipLimit = 64;
@@ -349,8 +351,8 @@ public:
 
     explicit ManifestCache(
         beast::Journal j = beast::Journal(beast::Journal::getNullSink()),
-        std::size_t maxEvictable = evictableLimit)
-        : j_(j), evictableLimit_(maxEvictable)
+        std::size_t maxEntries = cacheLimit)
+        : j_(j), cacheLimit_(maxEntries)
     {
     }
 
@@ -436,7 +438,7 @@ public:
     ManifestDisposition
     applyManifest(Manifest m);
 
-    /** Protect listed master keys from eviction and offer them to peers.
+    /** Admit listed master keys at capacity and offer them to peers.
 
         Replaces any previous set. Bumps sequence() when the set actually
         changes, so a cached gossip message built from it is rebuilt.

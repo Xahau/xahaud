@@ -459,16 +459,17 @@ struct SetManifest_test : public beast::unit_test::suite
         BEAST_EXPECT(cache.getSigningKey(master.pk()) == eph1.pk());
         BEAST_EXPECT(cache.getSequence(master.pk()) == 1);
 
-        // Eviction removes the live binding; the next ledger can recover it
-        // solely from its signing-key copy, without a gossip prerequisite.
+        // At capacity, an unseen unlisted ledger identity is refused too.
+        // Listing it enables reconciliation without discarding the old row.
         ManifestCache bounded{env.journal, 1};
-        BEAST_EXPECT(
-            bounded.applyLedgerSigningKey(*env.closed(), eph1.pk()) ==
-            master.pk());
         auto other = deserializeManifest(makeManifest(stranger, eph2, 1));
         BEAST_EXPECT(other);
         bounded.applyManifest(std::move(*other));
+        BEAST_EXPECT(!bounded.applyLedgerSigningKey(*env.closed(), eph1.pk()));
         BEAST_EXPECT(bounded.getMasterKey(eph1.pk()) == eph1.pk());
+        bounded.pin({master.pk()});
+        BEAST_EXPECT(bounded.applyLedger(*env.closed(), {master.pk()}) == 1);
+        BEAST_EXPECT(bounded.getMasterKey(eph2.pk()) == stranger.pk());
         auto const previousLedger = env.closed();
         env.close();
         BEAST_EXPECT(
