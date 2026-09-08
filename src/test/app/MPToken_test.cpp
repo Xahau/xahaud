@@ -1174,11 +1174,11 @@ class MPToken_test : public beast::unit_test::suite
                 JsonOptions::none)[sfAffectedNodes.fieldName];
             // Issuer got 10 in the transfer fees
             BEAST_EXPECT(
-                meta[2u][sfModifiedNode.fieldName][sfFinalFields.fieldName]
+                meta[0u][sfModifiedNode.fieldName][sfFinalFields.fieldName]
                     [sfOutstandingAmount.fieldName] == "9990");
             // Destination account got 9'990
             BEAST_EXPECT(
-                meta[0u][sfModifiedNode.fieldName][sfFinalFields.fieldName]
+                meta[3u][sfModifiedNode.fieldName][sfFinalFields.fieldName]
                     [sfMPTAmount.fieldName] == "9990");
             // Source account spent 10'000
             BEAST_EXPECT(
@@ -1910,8 +1910,8 @@ class MPToken_test : public beast::unit_test::suite
             env.tx()->getJson(JsonOptions::none)[jss::hash].asString()};
         BEAST_EXPECTS(
             txHash ==
-                "42175D43E3D236A86B0F1B07182A1B2C78AD382372CFA09A48239C395FFFEE"
-                "30",
+                "61041108F0DAD50BAFD2F7B1102AC70B283EBDCED194CEBAF04D0184E4A70B"
+                "02",
             txHash);
         Json::Value const meta = env.rpc("tx", txHash)[jss::result][jss::meta];
         auto const id = meta[jss::mpt_issuance_id].asString();
@@ -1919,7 +1919,7 @@ class MPToken_test : public beast::unit_test::suite
         BEAST_EXPECT(meta.isMember(jss::mpt_issuance_id));
         BEAST_EXPECT(id == to_string(mptAlice.issuanceID()));
         BEAST_EXPECTS(
-            id == "00000001AE123A8556F3CF91154711376AFB0F894F832B3D", id);
+            id == "00000002AE123A8556F3CF91154711376AFB0F894F832B3D", id);
     }
 
     void

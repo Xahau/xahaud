@@ -554,8 +554,7 @@ Change::activateXahauGenesis()
         {
             sle = std::make_shared<SLE>(kl);
             sle->setAccountID(sfAccount, accid);
-            std::uint32_t const seqno{
-                sb.info().parentCloseTime.time_since_epoch().count()};
+            std::uint32_t const seqno = newAccountSeqNo(sb);
             sle->setFieldU32(sfSequence, seqno);
         }
 
