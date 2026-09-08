@@ -526,11 +526,7 @@ public:
     std::optional<PublicKey>
     applyLedgerSigningKey(ReadView const& view, PublicKey const& signingKey);
 
-    /** Populate manifest cache with manifests in database and config.
-
-        @param dbCon Database connection with dbTable
-
-        @param dbTable Database table
+    /** Load local identities before lists are pinned and wallet rows restored.
 
         @param configManifest Base64 encoded manifest for local node's
             validator keys
@@ -542,15 +538,6 @@ public:
 
         May be called concurrently
     */
-    bool
-    load(
-        DatabaseCon& dbCon,
-        std::string const& dbTable,
-        std::string const& configManifest,
-        std::vector<std::string> const& configRevocation);
-
-    /** Load local identities before lists are pinned and wallet rows restored.
-     */
     bool
     loadConfig(
         std::string const& configManifest,

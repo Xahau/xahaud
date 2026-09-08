@@ -815,19 +815,6 @@ ManifestCache::restoreListed(hash_set<PublicKey> const& keys)
 }
 
 bool
-ManifestCache::load(
-    DatabaseCon& dbCon,
-    std::string const& dbTable,
-    std::string const& configManifest,
-    std::vector<std::string> const& configRevocation)
-{
-    if (!loadConfig(configManifest, configRevocation))
-        return false;
-    load(dbCon, dbTable);
-    return true;
-}
-
-bool
 ManifestCache::loadConfig(
     std::string const& configManifest,
     std::vector<std::string> const& configRevocation)

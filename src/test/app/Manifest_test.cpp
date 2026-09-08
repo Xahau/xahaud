@@ -621,11 +621,7 @@ public:
                 std::vector<std::string> const emptyRevocation;
 
                 std::string const badManifest = "bad manifest";
-                BEAST_EXPECT(!loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    badManifest,
-                    emptyRevocation));
+                BEAST_EXPECT(!loaded.loadConfig(badManifest, emptyRevocation));
 
                 auto const sk = randomSecretKey();
                 auto const pk = derivePublicKey(KeyType::ed25519, sk);
@@ -634,11 +630,7 @@ public:
                 std::string const cfgManifest =
                     makeManifestString(pk, sk, kp.first, kp.second, 0);
 
-                BEAST_EXPECT(loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    cfgManifest,
-                    emptyRevocation));
+                BEAST_EXPECT(loaded.loadConfig(cfgManifest, emptyRevocation));
             }
             {
                 // load config revocation
@@ -647,11 +639,7 @@ public:
 
                 std::vector<std::string> const badRevocation = {
                     "bad revocation"};
-                BEAST_EXPECT(!loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    emptyManifest,
-                    badRevocation));
+                BEAST_EXPECT(!loaded.loadConfig(emptyManifest, badRevocation));
 
                 auto const sk = randomSecretKey();
                 auto const keyType = KeyType::ed25519;
@@ -660,29 +648,18 @@ public:
                 std::vector<std::string> const nonRevocation = {
                     makeManifestString(pk, sk, kp.first, kp.second, 0)};
 
-                BEAST_EXPECT(!loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    emptyManifest,
-                    nonRevocation));
+                BEAST_EXPECT(!loaded.loadConfig(emptyManifest, nonRevocation));
                 BEAST_EXPECT(!loaded.revoked(pk));
 
                 std::vector<std::string> const badSigRevocation = {
                     makeRevocationString(sk, keyType, true)};
-                BEAST_EXPECT(!loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    emptyManifest,
-                    badSigRevocation));
+                BEAST_EXPECT(
+                    !loaded.loadConfig(emptyManifest, badSigRevocation));
                 BEAST_EXPECT(!loaded.revoked(pk));
 
                 std::vector<std::string> const cfgRevocation = {
                     makeRevocationString(sk, keyType)};
-                BEAST_EXPECT(loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    emptyManifest,
-                    cfgRevocation));
+                BEAST_EXPECT(loaded.loadConfig(emptyManifest, cfgRevocation));
 
                 BEAST_EXPECT(loaded.revoked(pk));
             }

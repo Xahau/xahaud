@@ -354,20 +354,7 @@ private:
         {
             auto const master = randomKeyPair(KeyType::ed25519);
             auto const signer = randomKeyPair(KeyType::secp256k1);
-            STObject st{sfGeneric};
-            st[sfSequence] = 1;
-            st[sfPublicKey] = master.first;
-            st[sfSigningPubKey] = signer.first;
-            sign(st, HashPrefix::manifest, KeyType::secp256k1, signer.second);
-            sign(
-                st,
-                HashPrefix::manifest,
-                KeyType::ed25519,
-                master.second,
-                sfMasterSignature);
-            auto const bytes = st.getSerializer();
-            blobs.emplace_back(
-                static_cast<char const*>(bytes.data()), bytes.size());
+            blobs.push_back(signedManifest(master, signer, 1));
             masters.push_back(master.first);
         }
         cache.pin(hash_set<PublicKey>(masters.begin(), masters.end()));
@@ -447,21 +434,8 @@ private:
         jtx::Env env{*this};
         auto& cache = env.app().validatorManifests();
         auto make = [](auto const& master, std::uint32_t seq) {
-            auto const signer = randomKeyPair(KeyType::secp256k1);
-            STObject st{sfGeneric};
-            st[sfSequence] = seq;
-            st[sfPublicKey] = master.first;
-            st[sfSigningPubKey] = signer.first;
-            sign(st, HashPrefix::manifest, KeyType::secp256k1, signer.second);
-            sign(
-                st,
-                HashPrefix::manifest,
-                KeyType::ed25519,
-                master.second,
-                sfMasterSignature);
-            auto const bytes = st.getSerializer();
-            return std::string(
-                static_cast<char const*>(bytes.data()), bytes.size());
+            return signedManifest(
+                master, randomKeyPair(KeyType::secp256k1), seq);
         };
         std::vector<std::shared_ptr<PeerTest>> peers;
         std::uint16_t disabled = 3;
@@ -528,25 +502,7 @@ private:
         auto const master = randomKeyPair(KeyType::ed25519);
         auto const signer = randomKeyPair(KeyType::secp256k1);
         auto make = [&](std::uint32_t seq) {
-            STObject st{sfGeneric};
-            st[sfSequence] = seq;
-            st[sfPublicKey] = master.first;
-            if (seq != std::numeric_limits<std::uint32_t>::max())
-            {
-                st[sfSigningPubKey] = signer.first;
-                sign(
-                    st,
-                    HashPrefix::manifest,
-                    KeyType::secp256k1,
-                    signer.second);
-            }
-            sign(
-                st,
-                HashPrefix::manifest,
-                KeyType::ed25519,
-                master.second,
-                sfMasterSignature);
-            return st.getSerializer().getString();
+            return signedManifest(master, signer, seq);
         };
         std::vector<std::shared_ptr<PeerTest>> peers;
         PeerTest::init();
