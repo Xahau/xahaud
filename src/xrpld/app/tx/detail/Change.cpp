@@ -606,6 +606,7 @@ Change::activateXahauGenesis()
                 wasmBytes,  // wasm to verify
                 loggerStream,
                 "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                false,
                 hook_api::getImportWhitelist(ctx_.view().rules()),
                 hook_api::getGuardRulesVersion(ctx_.view().rules()));
 

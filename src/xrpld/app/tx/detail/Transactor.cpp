@@ -247,7 +247,7 @@ Transactor::Transactor(ApplyContext& ctx)
 
 // RH NOTE: this only computes one chain at a time, so if there is a receiving
 // side to a txn then it must seperately be computed by a second call here
-XRPAmount
+std::pair<XRPAmount, uint64_t>
 Transactor::calculateHookChainFee(
     ReadView const& view,
     STTx const& tx,
@@ -257,9 +257,10 @@ Transactor::calculateHookChainFee(
 {
     std::shared_ptr<SLE const> hookSLE = view.read(hookKeylet);
     if (!hookSLE)
-        return XRPAmount{0};
+        return std::make_pair(XRPAmount{0}, 0);
 
     XRPAmount fee{0};
+    uint64_t hookCost{0};
 
     auto const& hooks = hookSLE->getFieldArray(sfHooks);
 
@@ -310,19 +311,35 @@ Transactor::calculateHookChainFee(
         if (hook::canHook(tx.getTxnType(), hookOn) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
-            XRPAmount const toAdd{hookDef->getFieldAmount(sfFee).xrp().drops()};
+            if (hookDef->isFieldPresent(sfFee))
+            {
+                XRPAmount const toAdd{
+                    hookDef->getFieldAmount(sfFee).xrp().drops()};
 
-            // this overflow should never happen, if somehow it does
-            // fee is set to the largest possible valid xrp value to force
-            // fail the transaction
-            if (fee + toAdd < fee)
-                fee = XRPAmount{INITIAL_XRP.drops()};
+                // this overflow should never happen, if somehow it does
+                // fee is set to the largest possible valid xrp value to force
+                // fail the transaction
+                if (fee + toAdd < fee)
+                    fee = XRPAmount{INITIAL_XRP.drops()};
+                else
+                    fee += toAdd;
+            }
             else
-                fee += toAdd;
+            {
+                uint64_t const toAdd{hookDef->getFieldU64(sfHookCost)};
+
+                // this overflow should never happen, if somehow it does
+                // fee is set to the largest possible valid xrp value to force
+                // fail the transaction
+                if (hookCost + toAdd < hookCost)
+                    hookCost = std::numeric_limits<uint64_t>::max();
+                else
+                    hookCost += toAdd;
+            }
         }
     }
 
-    return fee;
+    return std::make_pair(fee, hookCost);
 }
 
 XRPAmount
@@ -348,6 +365,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
         tx.isFieldPresent(sfSigners) ? tx.getFieldArray(sfSigners).size() : 0;
 
     XRPAmount hookExecutionFee{0};
+    uint64_t hookCost{0};
     uint64_t burden{1};
     if (view.rules().enabled(featureHooks))
     {
@@ -370,18 +388,32 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
             std::shared_ptr<SLE const> hookDef =
                 view.read(keylet::hookDefinition(callbackHookHash));
 
-            if (hookDef && hookDef->isFieldPresent(sfHookCallbackFee))
+            if (hookDef)
             {
-                XRPAmount const toAdd{
-                    hookDef->getFieldAmount(sfHookCallbackFee).xrp().drops()};
+                if (hookDef->isFieldPresent(sfHookCallbackFee))
+                {
+                    XRPAmount const toAdd{
+                        hookDef->getFieldAmount(sfHookCallbackFee)
+                            .xrp()
+                            .drops()};
 
-                // this overflow should never happen, if somehow it does
-                // fee is set to the largest possible valid xrp value to force
-                // fail the transaction
-                if (hookExecutionFee + toAdd < hookExecutionFee)
-                    hookExecutionFee = XRPAmount{INITIAL_XRP.drops()};
-                else
-                    hookExecutionFee += toAdd;
+                    // this overflow should never happen, if somehow it does
+                    // fee is set to the largest possible valid xrp value to
+                    // force fail the transaction
+                    if (hookExecutionFee + toAdd < hookExecutionFee)
+                        hookExecutionFee = XRPAmount{INITIAL_XRP.drops()};
+                    else
+                        hookExecutionFee += toAdd;
+                }
+                if (hookDef->isFieldPresent(sfHookCallbackCost))
+                {
+                    uint64_t const toAdd{
+                        hookDef->getFieldU64(sfHookCallbackCost)};
+                    if (hookCost + toAdd < hookCost)
+                        hookCost = std::numeric_limits<uint64_t>::max();
+                    else
+                        hookCost += toAdd;
+                }
             }
 
             XRPL_ASSERT(
@@ -391,8 +423,12 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
             burden = emitDetails.getFieldU64(sfEmitBurden);
         }
         else
-            hookExecutionFee += calculateHookChainFee(
+        {
+            auto const hookChainFee = calculateHookChainFee(
                 view, tx, keylet::hook(tx.getAccountID(sfAccount)), true);
+            hookExecutionFee += hookChainFee.first;
+            hookCost += hookChainFee.second;
+        }
 
         // find any additional stakeholders whose hooks will be executed and
         // charged to this transaction
@@ -401,8 +437,12 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
         for (auto& [tshAcc, canRollback] : tsh)
             if (canRollback)
-                hookExecutionFee += calculateHookChainFee(
+            {
+                auto const hookChainFee = calculateHookChainFee(
                     view, tx, keylet::hook(tshAcc), false);
+                hookExecutionFee += hookChainFee.first;
+                hookCost += hookChainFee.second;
+            }
     }
 
     XRPAmount accumulator = baseFee;
@@ -456,6 +496,8 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     // transaction.
     do
     {
+        hookExecutionFee += hook::hookCostToFee(hookCost);
+
         if (accumulator * burden < accumulator)
             break;
 
@@ -1429,7 +1471,8 @@ Transactor::executeHookChain(
             return tecINTERNAL;
         }
 
-        bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee);
+        bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee) ||
+            hookDef->isFieldPresent(sfHookCallbackCost);
 
         try
         {
@@ -1534,7 +1577,8 @@ Transactor::doHookCallback(
         return;
     }
 
-    if (!hookDef->isFieldPresent(sfHookCallbackFee))
+    if (!hookDef->isFieldPresent(sfHookCallbackFee) &&
+        !hookDef->isFieldPresent(sfHookCallbackCost))
     {
         JLOG(j_.trace()) << "HookInfo[" << callbackAccountID
                          << "]: Callback specified by emitted txn "
@@ -1753,8 +1797,11 @@ Transactor::doTSH(
                 continue;
 
             // compute and deduct fees for the TSH if applicable
-            XRPAmount tshFeeDrops = calculateHookChainFee(
+            auto const tshFee = calculateHookChainFee(
                 view, ctx_.tx, klTshHook, false, !canRollback);
+            XRPAmount tshFeeDrops{tshFee.first};
+
+            tshFeeDrops += hook::hookCostToFee(tshFee.second);
 
             // no hooks to execute, skip tsh
             if (tshFeeDrops == 0)
@@ -1909,7 +1956,8 @@ Transactor::doAgainAsWeak(
                 stateMap,
                 ctx_,
                 hookAccountID,
-                hookDef->isFieldPresent(sfHookCallbackFee),
+                hookDef->isFieldPresent(sfHookCallbackFee) ||
+                    hookDef->isFieldPresent(sfHookCallbackCost),
                 false,
                 false,
                 2UL,  // param 2 = aaw

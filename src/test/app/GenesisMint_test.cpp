@@ -700,6 +700,7 @@ public:
         testWithFeats(sa);
         testWithFeats(sa - fixXahauV1);
         testWithFeats(sa - fixHookAPI20251128);
+        testWithFeats(sa - featureHookFeeV2);
     }
 };
 
