@@ -779,17 +779,21 @@ struct SetManifest_test : public beast::unit_test::suite
         cache.pin({masters[0].pk(), masters[1].pk()});
         BEAST_EXPECT(cache.sequence() == seq2);
 
-        // Everything is offered: two pinned plus two under the gossip limit.
+        // Ledger discoveries remain usable locally, but only listed identities
+        // are offered to peers. Reading a cached key cannot promote it to
+        // gossip.
+        BEAST_EXPECT(cache.getMasterKey(ephs[2].pk()) == masters[2].pk());
         std::size_t reserved = 0;
         std::vector<PublicKey> offered;
         cache.for_each_gossip_manifest(
             [&](std::size_t n) { reserved = n; },
             [&](Manifest const& m) { offered.push_back(m.masterKey); });
 
-        BEAST_EXPECT(reserved == 4);
-        BEAST_EXPECT(offered.size() == 4);
+        BEAST_EXPECT(reserved == 2);
+        BEAST_EXPECT(offered.size() == 2);
         BEAST_EXPECT(
-            hash_set<PublicKey>(offered.begin(), offered.end()) == all);
+            hash_set<PublicKey>(offered.begin(), offered.end()) ==
+            hash_set<PublicKey>({masters[0].pk(), masters[1].pk()}));
 
         // A pinned key with no manifest is counted in the reservation but not
         // offered, since the reservation is only an upper bound.
@@ -799,8 +803,9 @@ struct SetManifest_test : public beast::unit_test::suite
             [&](std::size_t n) { reserved = n; },
             [&](Manifest const& m) { offered.push_back(m.masterKey); });
 
-        BEAST_EXPECT(reserved == 5);
-        BEAST_EXPECT(offered.size() == 4);
+        BEAST_EXPECT(reserved == 2);
+        BEAST_EXPECT(offered.size() == 1);
+        BEAST_EXPECT(offered.front() == masters[0].pk());
     }
 
     void

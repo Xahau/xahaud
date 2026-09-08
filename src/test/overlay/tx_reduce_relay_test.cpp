@@ -303,6 +303,7 @@ private:
                 static_cast<char const*>(bytes.data()), bytes.size());
             masters.push_back(master.first);
         }
+        cache.pin(hash_set<PublicKey>(masters.begin(), masters.end()));
         auto packet = [&](int key, int n = 1) {
             auto m = std::make_shared<protocol::TMManifests>();
             for (int i = 0; i < n; ++i)
@@ -414,6 +415,7 @@ private:
         };
         auto const master = randomKeyPair(KeyType::ed25519);
         auto const first = make(master, 1);
+        cache.pin({master.first});
         send(first);
         auto const sentInitially = PeerTest::sendTx_.load();
         BEAST_EXPECT(sentInitially >= 2);
@@ -445,10 +447,88 @@ private:
     }
 
     void
+    testListedGossip()
+    {
+        testcase("only local-list gossip enters and leaves the cache");
+        jtx::Env env{*this};
+        auto& cache = env.app().validatorManifests();
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto const master = randomKeyPair(KeyType::ed25519);
+        auto const signer = randomKeyPair(KeyType::secp256k1);
+        auto make = [&](std::uint32_t seq) {
+            STObject st{sfGeneric};
+            st[sfSequence] = seq;
+            st[sfPublicKey] = master.first;
+            if (seq != std::numeric_limits<std::uint32_t>::max())
+            {
+                st[sfSigningPubKey] = signer.first;
+                sign(
+                    st,
+                    HashPrefix::manifest,
+                    KeyType::secp256k1,
+                    signer.second);
+            }
+            sign(
+                st,
+                HashPrefix::manifest,
+                KeyType::ed25519,
+                master.second,
+                sfMasterSignature);
+            return st.getSerializer().getString();
+        };
+        std::vector<std::shared_ptr<PeerTest>> peers;
+        PeerTest::init();
+        PeerTest::sid_ = 1;
+        lid_ = 0;
+        rid_ = 1;
+        std::uint16_t disabled = 3;
+        for (int i = 0; i < 3; ++i)
+            addPeer(env, peers, disabled);
+        auto send = [&](std::string const& blob) {
+            auto m = std::make_shared<protocol::TMManifests>();
+            m->add_list()->set_stobject(blob);
+            peers.front()->onMessage(m);
+            env.app().getJobQueue().rendezvous();
+        };
+        auto const first = make(1);
+        send(first);
+        BEAST_EXPECT(!cache.getRawManifest(master.first));
+        BEAST_EXPECT(PeerTest::sendTx_ == 0);
+        BEAST_EXPECT(!overlay.getManifestsMessage());
+
+        // Even a warm on-ledger-style mapping does not admit its gossip.
+        BEAST_EXPECT(
+            cache.applyManifest(*deserializeManifest(first)) ==
+            ManifestDisposition::accepted);
+        send(make(2));
+        BEAST_EXPECT(cache.getSequence(master.first) == 1);
+        BEAST_EXPECT(PeerTest::sendTx_ == 0);
+        BEAST_EXPECT(!overlay.getManifestsMessage());
+
+        cache.pin({master.first});
+        BEAST_EXPECT(overlay.getManifestsMessage());
+        // A listed rotation must use a fresh signing key (key-role rule).
+        auto const revocation = make(std::numeric_limits<std::uint32_t>::max());
+        send(revocation);
+        BEAST_EXPECT(cache.revoked(master.first));
+        BEAST_EXPECT(PeerTest::sendTx_ == 2);
+        auto listedMessage = overlay.getManifestsMessage();
+        BEAST_EXPECT(listedMessage);
+
+        cache.pin({});
+        BEAST_EXPECT(!overlay.getManifestsMessage());
+        send(revocation);
+        BEAST_EXPECT(PeerTest::sendTx_ == 2);
+        BEAST_EXPECT(cache.revoked(master.first));
+        BEAST_EXPECT(peers.front()->waitCharges(4));
+    }
+
+    void
     run() override
     {
         testManifestCapacityRelay();
         testManifestIngress();
+        testListedGossip();
         bool log = false;
         std::set<Peer::id_t> skip = {0, 1, 2, 3, 4};
         testConfig(log);

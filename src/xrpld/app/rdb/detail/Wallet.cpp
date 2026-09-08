@@ -41,11 +41,11 @@ makeTestWalletDB(
         setup, dbname.data(), std::array<std::string, 0>(), WalletDBInit, j);
 }
 
-void
-getManifests(
+static void
+readManifests(
     soci::session& session,
     std::string const& dbTable,
-    ManifestCache& mCache,
+    std::function<void(Manifest)> const& accept,
     beast::Journal j)
 {
     // Load manifests stored in database
@@ -59,19 +59,63 @@ getManifests(
         convert(sociRawData, serialized);
         if (auto mo = deserializeManifest(serialized))
         {
-            if (!mo->verify())
-            {
-                JLOG(j.warn()) << "Unverifiable manifest in db";
-                continue;
-            }
-
-            mCache.applyManifest(std::move(*mo));
+            accept(std::move(*mo));
         }
         else
         {
             JLOG(j.warn()) << "Malformed manifest in database";
         }
     }
+}
+
+void
+getManifests(
+    soci::session& session,
+    std::string const& dbTable,
+    ManifestCache& mCache,
+    beast::Journal j)
+{
+    readManifests(
+        session,
+        dbTable,
+        [&](Manifest m) {
+            if (m.verify())
+                mCache.applyManifest(std::move(m));
+            else
+                JLOG(j.warn()) << "Unverifiable manifest in db";
+        },
+        j);
+}
+
+hash_map<PublicKey, Manifest>
+getManifestsForKeys(
+    soci::session& session,
+    std::string const& dbTable,
+    hash_set<PublicKey> const& keys,
+    beast::Journal j)
+{
+    hash_map<PublicKey, Manifest> result;
+    if (keys.empty())
+        return result;
+    readManifests(
+        session,
+        dbTable,
+        [&](Manifest m) {
+            if (!keys.contains(m.masterKey))
+                return;
+            auto const it = result.find(m.masterKey);
+            if (it != result.end() && it->second.sequence >= m.sequence)
+                return;
+            if (!m.verify())
+            {
+                JLOG(j.warn()) << "Unverifiable manifest in db";
+                return;
+            }
+            auto const key = m.masterKey;
+            result.insert_or_assign(key, std::move(m));
+        },
+        j);
+    return result;
 }
 
 static void
@@ -95,19 +139,38 @@ saveManifests(
     std::string const& dbTable,
     std::function<bool(PublicKey const&)> const& isTrusted,
     hash_map<PublicKey, Manifest> const& map,
-    beast::Journal j)
+    beast::Journal j,
+    bool preserveUnloaded)
 {
+    hash_map<PublicKey, Manifest> previous;
+    if (preserveUnloaded)
+    {
+        hash_set<PublicKey> keys;
+        for (auto const& [key, manifest] : map)
+            if (isTrusted(key))
+                keys.insert(key);
+        previous = getManifestsForKeys(session, dbTable, keys, j);
+    }
     soci::transaction tr(session);
-    session << "DELETE FROM " << dbTable;
+    // A publisher's membership may not have arrived before shutdown. Do not
+    // erase saved high waters merely because they were not loaded this run.
+    if (!preserveUnloaded)
+        session << "DELETE FROM " << dbTable;
     for (auto const& v : map)
     {
-        // Save all revocation manifests,
-        // but only save trusted non-revocation manifests.
-        if (!v.second.revoked() && !isTrusted(v.second.masterKey))
+        // The selective validator cache saves only local identities. Preserve
+        // the publisher cache's existing retention of all revocations.
+        if ((preserveUnloaded || !v.second.revoked()) &&
+            !isTrusted(v.second.masterKey))
         {
             JLOG(j.info()) << "Untrusted manifest in cache not saved to db";
             continue;
         }
+
+        // Preserve the old table without appending duplicates each restart.
+        if (auto const it = previous.find(v.first);
+            it != previous.end() && it->second.sequence >= v.second.sequence)
+            continue;
 
         saveManifest(session, dbTable, v.second.serialized);
     }

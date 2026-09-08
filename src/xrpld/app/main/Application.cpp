@@ -1356,6 +1356,10 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
 
         publisherManifests_->load(getWalletDB(), "PublisherManifests");
 
+        // Attach saved history before list membership is established. Each
+        // newly listed master restores its high water before older list gossip.
+        validatorManifests_->loadListed(getWalletDB());
+
         // It is possible to have a valid ValidatorKeys object without
         // setting the signingKey or masterKey. This occurs if the
         // configuration file does not have either
@@ -1378,10 +1382,6 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
             return false;
         }
     }
-
-    // Establish which identities bypass the admission cap before restoring
-    // the old wallet, so local revocation history is not refused at capacity.
-    validatorManifests_->load(getWalletDB(), "ValidatorManifests");
 
     if (!validatorSites_->load(
             config().section(SECTION_VALIDATOR_LIST_SITES).values()))

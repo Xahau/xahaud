@@ -19,6 +19,7 @@
 
 #include <test/jtx.h>
 #include <xrpld/app/misc/ValidatorList.h>
+#include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/basics/base64.h>
@@ -236,6 +237,118 @@ private:
         BEAST_EXPECT(manifests.getMasterKey(c.signingPublic) == c.masterPublic);
         BEAST_EXPECT(
             manifests.getMasterKey(local.signingPublic) == local.masterPublic);
+    }
+
+    void
+    testListedWalletHistory()
+    {
+        testcase("publisher membership restores saved high waters first");
+        jtx::Env env{*this};
+        auto const master = randomKeyPair(KeyType::ed25519);
+        auto const signing = randomKeyPair(KeyType::secp256k1);
+        Validator const validator{
+            master.first,
+            signing.first,
+            base64_encode(makeManifestString(
+                master.first,
+                master.second,
+                signing.first,
+                signing.second,
+                1))};
+        auto const unrelated = randomValidator();
+        auto const publisher = randomKeyPair(KeyType::ed25519);
+        auto const pubSigner = randomKeyPair(KeyType::secp256k1);
+        auto const pubManifest = base64_encode(makeManifestString(
+            publisher.first,
+            publisher.second,
+            pubSigner.first,
+            pubSigner.second,
+            1));
+        auto& wallet = env.app().getWalletDB();
+        {
+            auto db = wallet.checkoutDb();
+            addValidatorManifest(*db, base64_decode(unrelated.manifest));
+            addValidatorManifest(*db, base64_decode(validator.manifest));
+            addValidatorManifest(
+                *db, makeRevocationString(master.first, master.second));
+        }
+        auto rows = [&]() {
+            auto db = wallet.checkoutDb();
+            int count;
+            *db << "SELECT COUNT(*) FROM ValidatorManifests;",
+                soci::into(count);
+            return count;
+        };
+        auto const saved = rows();
+        // A restart before any VL arrives must neither load nor erase the
+        // unrelated rows. A zero admission cap makes accidental admission fail.
+        {
+            ManifestCache cold{env.journal, 0};
+            cold.loadListed(wallet);
+            BEAST_EXPECT(!cold.getRawManifest(master.first));
+            BEAST_EXPECT(!cold.getRawManifest(unrelated.masterPublic));
+            cold.save(wallet, "ValidatorManifests", [](PublicKey const&) {
+                return false;
+            });
+        }
+        BEAST_EXPECT(rows() == saved);
+
+        ManifestCache manifests{env.journal, 0};
+        ManifestCache publishers;
+        manifests.loadListed(wallet);
+        ValidatorList lists{
+            manifests,
+            publishers,
+            env.timeKeeper(),
+            env.app().config().legacy("database_path"),
+            env.journal};
+        BEAST_EXPECT(lists.load({}, {}, {strHex(publisher.first)}));
+        auto const blob = makeList(
+            {validator},
+            1,
+            env.timeKeeper().now().time_since_epoch().count() + 3600);
+        auto const result = lists.applyLists(
+            pubManifest, 1, {{blob, signList(blob, pubSigner), {}}}, "test");
+        BEAST_EXPECT(result.bestDisposition() == ListDisposition::accepted);
+        BEAST_EXPECT(lists.listed(master.first));
+        BEAST_EXPECT(manifests.revoked(master.first));
+        BEAST_EXPECT(manifests.getMasterKey(signing.first) == signing.first);
+        lists.updateTrusted(
+            asNodeIDs({master.first}),
+            env.timeKeeper().now(),
+            env.app().getOPs(),
+            env.app().overlay(),
+            env.app().getHashRouter());
+        BEAST_EXPECT(!lists.trusted(master.first));
+        BEAST_EXPECT(!lists.trusted(signing.first));
+        BEAST_EXPECT(
+            manifests.applyGossipManifest(*deserializeManifest(base64_decode(
+                validator.manifest))) == ManifestDisposition::stale);
+        BEAST_EXPECT(!manifests.getRawManifest(unrelated.masterPublic));
+        manifests.save(wallet, "ValidatorManifests", [&](PublicKey const& key) {
+            return lists.listed(key);
+        });
+        BEAST_EXPECT(rows() == saved);
+
+        auto const local = randomValidator();
+        BEAST_EXPECT(manifests.loadConfig(local.manifest, {}));
+        for (int i = 0; i < 2; ++i)
+        {
+            manifests.save(
+                wallet, "ValidatorManifests", [&](PublicKey const& key) {
+                    return lists.listed(key);
+                });
+            BEAST_EXPECT(rows() == saved + 1);
+        }
+
+        ManifestCache restarted{env.journal, 0};
+        restarted.loadListed(wallet);
+        restarted.pin({master.first, local.masterPublic});
+        BEAST_EXPECT(restarted.revoked(master.first));
+        BEAST_EXPECT(
+            restarted.getManifest(local.masterPublic) ==
+            base64_decode(local.manifest));
+        BEAST_EXPECT(!restarted.getRawManifest(unrelated.masterPublic));
     }
 
     void
@@ -4188,6 +4301,7 @@ public:
     {
         testGenesisQuorum();
         testManifestProtection();
+        testListedWalletHistory();
         testConfigLoad();
         testApplyLists();
         testGetAvailable();

@@ -67,6 +67,16 @@ getManifests(
     ManifestCache& mCache,
     beast::Journal j);
 
+/** Read only the highest valid saved manifest for each requested local key.
+    Unrelated rows are scanned transiently, not retained or signature-checked.
+*/
+hash_map<PublicKey, Manifest>
+getManifestsForKeys(
+    soci::session& session,
+    std::string const& dbTable,
+    hash_set<PublicKey> const& keys,
+    beast::Journal j);
+
 /**
  * @brief saveManifests Saves all given manifests to the database.
  * @param session Session with the database.
@@ -74,6 +84,8 @@ getManifests(
  * @param isTrusted Callback that returns true if the key is trusted.
  * @param map Maps public keys to manifests.
  * @param j Journal.
+ * @param preserveUnloaded Keep unloaded history and save only local keys,
+ *        without duplicating versions already saved (validator cache).
  */
 void
 saveManifests(
@@ -81,7 +93,8 @@ saveManifests(
     std::string const& dbTable,
     std::function<bool(PublicKey const&)> const& isTrusted,
     hash_map<PublicKey, Manifest> const& map,
-    beast::Journal j);
+    beast::Journal j,
+    bool preserveUnloaded = false);
 
 /**
  * @brief addValidatorManifest Saves the manifest of a validator to the

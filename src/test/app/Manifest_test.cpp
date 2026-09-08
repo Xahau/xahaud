@@ -363,6 +363,54 @@ public:
     }
 
     void
+    testGossipMembership()
+    {
+        testcase("gossip membership is independent of cached identity");
+        ManifestCache cache;
+        auto const master = randomSecretKey();
+        auto manifest = makeManifest(
+            master, KeyType::ed25519, randomSecretKey(), KeyType::secp256k1, 1);
+        auto invalid = makeManifest(
+            master,
+            KeyType::ed25519,
+            randomSecretKey(),
+            KeyType::secp256k1,
+            2,
+            true);
+        BEAST_EXPECT(
+            cache.applyGossipManifest(clone(invalid)) ==
+            ManifestDisposition::unlisted);
+        BEAST_EXPECT(
+            cache.applyGossipManifest(clone(manifest)) ==
+            ManifestDisposition::unlisted);
+        cache.pin({manifest.masterKey});
+        BEAST_EXPECT(
+            cache.applyGossipManifest(clone(invalid)) ==
+            ManifestDisposition::invalid);
+        BEAST_EXPECT(
+            cache.applyGossipManifest(clone(manifest)) ==
+            ManifestDisposition::accepted);
+        cache.pin({});
+        BEAST_EXPECT(
+            cache.applyGossipManifest(makeRevocation(
+                master, KeyType::ed25519)) == ManifestDisposition::unlisted);
+        BEAST_EXPECT(!cache.revoked(manifest.masterKey));
+        BEAST_EXPECT(cache.loadConfig(base64_encode(manifest.serialized), {}));
+        BEAST_EXPECT(
+            cache.applyGossipManifest(makeRevocation(
+                master, KeyType::ed25519)) == ManifestDisposition::accepted);
+        BEAST_EXPECT(cache.revoked(manifest.masterKey));
+        std::size_t offered = 0;
+        cache.for_each_gossip_manifest(
+            [](std::size_t) {},
+            [&](Manifest const& m) {
+                BEAST_EXPECT(m.masterKey == manifest.masterKey && m.revoked());
+                ++offered;
+            });
+        BEAST_EXPECT(offered == 1);
+    }
+
+    void
     testLoadStore(ManifestCache& m)
     {
         testcase("load/store");
@@ -407,8 +455,8 @@ public:
             ManifestCache bounded{env.journal, 1};
             auto const protectedKey = inManifests.front()->masterKey;
             bounded.pin({protectedKey});
-            bounded.load(*dbCon, "ValidatorManifests");
-            BEAST_EXPECT(getPopulatedManifests(bounded).size() <= 2);
+            bounded.loadListed(*dbCon);
+            BEAST_EXPECT(getPopulatedManifests(bounded).size() == 1);
             BEAST_EXPECT(
                 bounded.getRawManifest(protectedKey) ==
                 m.getRawManifest(protectedKey));
@@ -1208,6 +1256,7 @@ public:
         }
 
         testAdmissionLimit();
+        testGossipMembership();
         testLoadStore(cache);
         testGetSignature();
         testGetKeys();

@@ -648,11 +648,13 @@ OverlayImpl::onManifests(
             auto const serialized = mo->serialized;
 
             auto const result =
-                app_.validatorManifests().applyManifest(std::move(*mo));
+                app_.validatorManifests().applyGossipManifest(std::move(*mo));
 
-            // New identities refused at capacity and stale repeats skip
-            // signature work, but sending them continually is not free.
+            // Unlisted gossip and stale repeats skip signature work, but
+            // sending them continually is not free. Other identities use
+            // on-ledger publication rather than this node as a gossip bridge.
             cost += (result == ManifestDisposition::stale ||
+                     result == ManifestDisposition::unlisted ||
                      result == ManifestDisposition::full)
                 ? Resource::feeUselessData.cost()
                 : result == ManifestDisposition::invalid
@@ -1212,10 +1214,9 @@ OverlayImpl::getManifestsMessage()
 
         // A bounded subset of the cache rather than all of it; see
         // ManifestCache::for_each_gossip_manifest for what is selected.
-        // This message is only rebuilt when the cache sequence changes, so a
-        // shift in which manifests are the most recently used does not by
-        // itself refresh it. Listed/configured manifests are offered first;
-        // the packet limits below also apply to unusually large local lists.
+        // Only listed/configured identities are offered. Membership changes
+        // invalidate this message along with changes to their manifests.
+        // Packet limits also apply to unusually large local lists.
         app_.validatorManifests().for_each_gossip_manifest(
             [&tm](std::size_t s) {
                 tm.mutable_list()->Reserve(
