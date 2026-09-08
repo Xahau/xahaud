@@ -304,6 +304,10 @@ private:
     // Attached at startup; the application owns the database for our lifetime.
     DatabaseCon* wallet_ = nullptr;
 
+    // Failed departing-history writes remain eligible for saving, not gossip.
+    // Sequence checks prevent an older successful write clearing a newer retry.
+    hash_map<PublicKey, std::uint32_t> pendingSave_;
+
     enum class Admission { normal, gossip, listedHistory };
 
     ManifestDisposition

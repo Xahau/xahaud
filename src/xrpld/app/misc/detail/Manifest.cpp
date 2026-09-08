@@ -407,40 +407,53 @@ ManifestCache::pin(hash_set<PublicKey> keys)
     DatabaseCon* wallet;
     {
         std::lock_guard lock{mutex_};
-        if (keys == pinned_)
+        if (keys == pinned_ && pendingSave_.empty())
             return;
         wallet = wallet_;
         if (wallet)
             for (auto const& key : pinned_)
                 if (!keys.contains(key) && !configured_.contains(key))
                     if (auto const it = map_.find(key); it != map_.end())
-                    {
-                        auto const& m = it->second;
-                        departing.emplace(
-                            key,
-                            Manifest{
-                                m.serialized,
-                                m.masterKey,
-                                m.signingKey,
-                                m.sequence,
-                                m.domain});
-                    }
-        pinned_ = std::move(keys);
-        ++seq_;
+                        pendingSave_.insert_or_assign(key, it->second.sequence);
+        for (auto const& [key, sequence] : pendingSave_)
+            if (auto const it = map_.find(key); it != map_.end())
+            {
+                auto const& m = it->second;
+                departing.emplace(
+                    key,
+                    Manifest{
+                        m.serialized,
+                        m.masterKey,
+                        m.signingKey,
+                        m.sequence,
+                        m.domain});
+            }
+        if (keys != pinned_)
+        {
+            pinned_ = std::move(keys);
+            ++seq_;
+        }
     }
     // Capture history as gossip eligibility is withdrawn. Publisher/ledger
     // updates may not yet have reached SQLite, and shutdown now sees this
     // identity as unlisted. No cache lock is held during the database write.
     if (wallet && !departing.empty())
     {
-        auto db = wallet->checkoutDb();
-        saveManifests(
-            *db,
-            "ValidatorManifests",
-            [](PublicKey const&) { return true; },
-            departing,
-            j_,
-            true);
+        {
+            auto db = wallet->checkoutDb();
+            saveManifests(
+                *db,
+                "ValidatorManifests",
+                [](PublicKey const&) { return true; },
+                departing,
+                j_,
+                true);
+        }
+        std::lock_guard lock{mutex_};
+        for (auto const& [key, manifest] : departing)
+            if (auto const it = pendingSave_.find(key);
+                it != pendingSave_.end() && it->second <= manifest.sequence)
+                pendingSave_.erase(it);
     }
 }
 
@@ -893,7 +906,8 @@ ManifestCache::save(
         [this, &isTrusted](PublicKey const& key) {
             // Membership is already mirrored here. Do not take ValidatorList's
             // lock while holding the cache lock (pin() takes them in reverse).
-            return wallet_ ? pinned_.contains(key) || configured_.contains(key)
+            return wallet_ ? pinned_.contains(key) ||
+                    configured_.contains(key) || pendingSave_.contains(key)
                            : isTrusted(key);
         },
         map_,

@@ -354,9 +354,13 @@ private:
     }
 
     void
-    testRevocationAfterDelisting()
+    testRevocationAfterDelisting(bool failSave = false, bool retry = false)
     {
-        testcase("new publisher revocation survives delisting and restart");
+        testcase(
+            failSave
+                ? (retry ? "failed departing-history save is retryable"
+                         : "shutdown preserves failed departing-history save")
+                : "new publisher revocation survives delisting and restart");
         jtx::Env env{*this};
         auto& wallet = env.app().getWalletDB();
         auto const master = randomKeyPair(KeyType::ed25519);
@@ -409,8 +413,40 @@ private:
             publish(lists, {old}, 1);
             publish(lists, {revoked}, 2);
             BEAST_EXPECT(cache.revoked(master.first));
-            publish(lists, {other}, 3);
+            if (failSave)
+            {
+                auto db = wallet.checkoutDb();
+                *db << "CREATE TRIGGER reject_departure BEFORE INSERT ON "
+                       "ValidatorManifests "
+                       "BEGIN SELECT RAISE(ABORT, 'test write failure'); END;";
+            }
+            bool failed = false;
+            try
+            {
+                publish(lists, {other}, 3);
+            }
+            catch (soci::soci_error const&)
+            {
+                failed = true;
+            }
+            BEAST_EXPECT(failed == failSave);
             BEAST_EXPECT(!lists.listed(master.first));
+            BEAST_EXPECT(
+                cache.applyGossipManifest(*deserializeManifest(revokedBytes)) ==
+                ManifestDisposition::unlisted);
+            if (failSave)
+            {
+                auto db = wallet.checkoutDb();
+                *db << "DROP TRIGGER reject_departure;";
+            }
+            if (retry)
+            {
+                cache.pin({other.masterPublic});
+                auto db = wallet.checkoutDb();
+                auto saved = getManifestsForKeys(
+                    *db, "ValidatorManifests", {master.first}, env.journal);
+                BEAST_EXPECT(saved.at(master.first).serialized == revokedBytes);
+            }
             cache.save(wallet, "ValidatorManifests", [](PublicKey const&) {
                 return false;
             });
@@ -4390,6 +4426,8 @@ public:
         testManifestProtection();
         testListedWalletHistory();
         testRevocationAfterDelisting();
+        testRevocationAfterDelisting(true, false);
+        testRevocationAfterDelisting(true, true);
         testConfigLoad();
         testApplyLists();
         testGetAvailable();
