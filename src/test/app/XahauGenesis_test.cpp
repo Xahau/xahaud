@@ -4835,6 +4835,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         std::string fee,
         std::string a_res,
         std::string o_res,
+        std::string g_res,
         uint32_t ledgerID)
     {
         using namespace jtx;
@@ -4942,7 +4943,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
             config.append(
                 {"reference_fee = " + fee,
                  "account_reserve = " + a_res,
-                 "owner_reserve = " + o_res});
+                 "owner_reserve = " + o_res,
+                 "hook_gas_price = " + g_res});
             auto setup = setup_FeeVote(config);
             cfg->FEES = setup;
 
@@ -4980,6 +4982,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 "10",
                 "1000000",
                 "200000",
+                "1000000",
                 0),
             features - featureXahauGenesis};
 
