@@ -1647,9 +1647,14 @@ ApplicationImp::run()
             return validators().listed(pubKey);
         });
 
+    // List updates restore wallet history while holding the list lock. Never
+    // call back into that lock from a save that already holds the wallet.
+    auto const publishers = validators().getTrustedPublisherKeys();
     publisherManifests_->save(
-        getWalletDB(), "PublisherManifests", [this](PublicKey const& pubKey) {
-            return validators().trustedPublisher(pubKey);
+        getWalletDB(),
+        "PublisherManifests",
+        [&publishers](PublicKey const& pubKey) {
+            return publishers.contains(pubKey);
         });
 
     // The order of these stop calls is delicate.

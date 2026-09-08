@@ -363,6 +363,94 @@ public:
     }
 
     void
+    testWalletCompaction()
+    {
+        testcase(
+            "selective wallet compaction preserves high waters and rolls back");
+        jtx::Env env{*this};
+        auto& wallet = env.app().getWalletDB();
+        auto const master = randomSecretKey();
+        std::vector<Manifest> versions;
+        for (int seq = 1; seq <= 4; ++seq)
+            versions.push_back(makeManifest(
+                master,
+                KeyType::ed25519,
+                randomSecretKey(),
+                KeyType::secp256k1,
+                seq,
+                seq == 4));
+        auto const unrelated = makeManifest(
+            randomSecretKey(),
+            KeyType::ed25519,
+            randomSecretKey(),
+            KeyType::secp256k1,
+            1);
+        ManifestCache cache{env.journal, 0};
+        BEAST_EXPECT(
+            cache.loadConfig(base64_encode(versions.front().serialized), {}));
+        cache.loadListed(wallet);
+        {
+            auto db = wallet.checkoutDb();
+            for (auto const& m : versions)
+                addValidatorManifest(*db, m.serialized);
+            addValidatorManifest(*db, unrelated.serialized);
+            *db << "CREATE TRIGGER reject_manifest_save BEFORE INSERT ON "
+                   "ValidatorManifests "
+                   "BEGIN SELECT RAISE(ABORT, 'test write failure'); END;";
+        }
+        auto count = [&](std::string const& sql) {
+            auto db = wallet.checkoutDb();
+            int n;
+            *db << sql, soci::into(n);
+            return n;
+        };
+        auto save = [&]() {
+            cache.save(wallet, "ValidatorManifests", [](PublicKey const&) {
+                return false;
+            });
+        };
+        bool failed = false;
+        try
+        {
+            save();
+        }
+        catch (soci::soci_error const&)
+        {
+            failed = true;
+        }
+        BEAST_EXPECT(failed);
+        BEAST_EXPECT(count("SELECT COUNT(*) FROM ValidatorManifests;") == 5);
+        BEAST_EXPECT(
+            count("SELECT COUNT(*) FROM sqlite_master WHERE "
+                  "name='ValidatorManifests_Compacting';") == 0);
+        {
+            auto db = wallet.checkoutDb();
+            *db << "DROP TRIGGER reject_manifest_save;";
+        }
+        for (int i = 0; i < 2; ++i)
+        {
+            save();
+            BEAST_EXPECT(
+                count("SELECT COUNT(*) FROM ValidatorManifests;") == 2);
+            BEAST_EXPECT(
+                count("SELECT COUNT(*) FROM sqlite_master WHERE "
+                      "name='ValidatorManifests_Compacting';") == 0);
+        }
+        ManifestCache restored{env.journal, 0};
+        restored.loadListed(wallet);
+        restored.pin({versions.front().masterKey});
+        BEAST_EXPECT(
+            restored.getManifest(versions.front().masterKey) ==
+            versions[2].serialized);
+        BEAST_EXPECT(!restored.getRawManifest(unrelated.masterKey));
+        auto db = wallet.checkoutDb();
+        auto kept = getManifestsForKeys(
+            *db, "ValidatorManifests", {unrelated.masterKey}, env.journal);
+        BEAST_EXPECT(
+            kept.at(unrelated.masterKey).serialized == unrelated.serialized);
+    }
+
+    void
     testGossipMembership()
     {
         testcase("gossip membership is independent of cached identity");
@@ -1257,6 +1345,7 @@ public:
 
         testAdmissionLimit();
         testGossipMembership();
+        testWalletCompaction();
         testLoadStore(cache);
         testGetSignature();
         testGetKeys();

@@ -434,6 +434,10 @@ public:
     ManifestDisposition
     applyGossipManifest(Manifest m);
 
+    /** Cheap admission hint; applyGossipManifest rechecks after queueing. */
+    bool
+    isGossipCandidate(Manifest const& m) const;
+
     /** Recover listed master keys' saved history and offer them to peers.
 
         Replaces any previous set. Bumps sequence() when the set actually

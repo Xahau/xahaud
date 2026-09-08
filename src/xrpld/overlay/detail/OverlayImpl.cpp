@@ -630,73 +630,45 @@ OverlayImpl::onPeerDeactivate(Peer::id_t id)
 
 void
 OverlayImpl::onManifests(
-    std::shared_ptr<protocol::TMManifests> const& m,
+    std::vector<Manifest> const& manifests,
     std::shared_ptr<PeerImp> const& from)
 {
-    auto const n = m->list_size();
-    auto const& journal = from->pjournal();
-
     protocol::TMManifests relay;
     int cost = 0;
 
-    for (std::size_t i = 0; i < n; ++i)
+    for (auto const& manifest : manifests)
     {
-        auto& s = m->list().Get(i).stobject();
-
-        if (auto mo = deserializeManifest(s))
+        auto const result =
+            app_.validatorManifests().applyGossipManifest(Manifest{
+                manifest.serialized,
+                manifest.masterKey,
+                manifest.signingKey,
+                manifest.sequence,
+                manifest.domain});
+        // Intake already charged for signature work. Only failed signatures
+        // add the remaining penalty; don't charge honest batches twice.
+        if (result == ManifestDisposition::invalid)
+            cost += Resource::feeInvalidSignature.cost() -
+                Resource::feeModerateBurdenPeer.cost();
+        if (result == ManifestDisposition::accepted)
         {
-            auto const serialized = mo->serialized;
-
-            auto const result =
-                app_.validatorManifests().applyGossipManifest(std::move(*mo));
-
-            // Unlisted gossip and stale repeats skip signature work, but
-            // sending them continually is not free. Other identities use
-            // on-ledger publication rather than this node as a gossip bridge.
-            cost += (result == ManifestDisposition::stale ||
-                     result == ManifestDisposition::unlisted ||
-                     result == ManifestDisposition::full)
-                ? Resource::feeUselessData.cost()
-                : result == ManifestDisposition::invalid
-                ? Resource::feeInvalidSignature.cost()
-                : Resource::feeModerateBurdenPeer.cost();
-
-            if (result == ManifestDisposition::accepted)
+            relay.add_list()->set_stobject(manifest.serialized);
+            app_.getOPs().pubManifest(manifest);
+            if (app_.validators().listed(manifest.masterKey))
             {
-                relay.add_list()->set_stobject(s);
-
-                // N.B.: this is important; the applyManifest call above moves
-                //       the loaded Manifest out of the optional so we need to
-                //       reload it here.
-                mo = deserializeManifest(serialized);
-                XRPL_ASSERT(
-                    mo,
-                    "ripple::OverlayImpl::onManifests : manifest "
-                    "deserialization succeeded");
-
-                app_.getOPs().pubManifest(*mo);
-
-                if (app_.validators().listed(mo->masterKey))
-                {
-                    auto db = app_.getWalletDB().checkoutDb();
-                    addValidatorManifest(*db, serialized);
-                }
+                auto db = app_.getWalletDB().checkoutDb();
+                addValidatorManifest(*db, manifest.serialized);
             }
-        }
-        else
-        {
-            cost += Resource::feeInvalidData.cost();
-            JLOG(journal.debug())
-                << "Malformed manifest #" << i + 1 << ": " << strHex(s);
-            continue;
         }
     }
 
     // charge() can disconnect only on the peer strand. One completion per
     // bounded batch also avoids queuing a callback for every manifest.
-    boost::asio::post(from->strand_, [from, cost]() {
-        from->charge(Resource::Charge{cost, "manifests"}, "manifest batch");
-    });
+    if (cost)
+        boost::asio::post(from->strand_, [from, cost]() {
+            from->charge(
+                Resource::Charge{cost, "manifests"}, "manifest verification");
+        });
 
     if (!relay.list().empty())
         for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS),
@@ -1202,8 +1174,8 @@ OverlayImpl::relay(
     return {};
 }
 
-std::shared_ptr<Message>
-OverlayImpl::getManifestsMessage()
+std::vector<std::shared_ptr<Message>>
+OverlayImpl::getManifestsMessages()
 {
     std::lock_guard g(manifestLock_);
 
@@ -1211,41 +1183,50 @@ OverlayImpl::getManifestsMessage()
         seq != manifestListSeq_)
     {
         protocol::TMManifests tm;
+        std::vector<std::shared_ptr<Message>> messages;
+        auto flush = [&]() {
+            if (tm.list_size())
+            {
+                messages.push_back(
+                    std::make_shared<Message>(tm, protocol::mtMANIFESTS));
+                tm.clear_list();
+            }
+        };
 
         // A bounded subset of the cache rather than all of it; see
         // ManifestCache::for_each_gossip_manifest for what is selected.
         // Only listed/configured identities are offered. Membership changes
         // invalidate this message along with changes to their manifests.
-        // Packet limits also apply to unusually large local lists.
+        // Packet limits split the set; they must not permanently omit its tail.
         app_.validatorManifests().for_each_gossip_manifest(
             [&tm](std::size_t s) {
                 tm.mutable_list()->Reserve(
                     std::min<std::size_t>(s, maxManifestEntries));
             },
-            [&tm, &hr = app_.getHashRouter()](Manifest const& manifest) {
-                if (tm.list_size() >= maxManifestEntries ||
-                    manifest.serialized.size() > maxManifestSize)
+            [&tm, &flush, &hr = app_.getHashRouter()](
+                Manifest const& manifest) {
+                if (manifest.serialized.size() > maxManifestSize)
                     return;
+                if (tm.list_size() == maxManifestEntries)
+                    flush();
                 tm.add_list()->set_stobject(
                     manifest.serialized.data(), manifest.serialized.size());
                 if (tm.ByteSizeLong() > maxManifestMessageSize)
                 {
                     tm.mutable_list()->RemoveLast();
-                    return;
+                    flush();
+                    tm.add_list()->set_stobject(manifest.serialized);
                 }
                 hr.addSuppression(manifest.hash());
             });
 
-        manifestMessage_.reset();
-
-        if (tm.list_size() != 0)
-            manifestMessage_ =
-                std::make_shared<Message>(tm, protocol::mtMANIFESTS);
+        flush();
+        manifestMessages_ = std::move(messages);
 
         manifestListSeq_ = seq;
     }
 
-    return manifestMessage_;
+    return manifestMessages_;
 }
 
 void

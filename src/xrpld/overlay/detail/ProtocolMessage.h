@@ -285,7 +285,9 @@ parseMessageContent(MessageHeader const& header, Buffers const& buffers)
         if (payloadSize == 0 || !m->ParseFromArray(payload.data(), payloadSize))
             return {};
     }
-    else if (!m->ParseFromZeroCopyStream(&stream))
+    // Several packets can share one TCP read. Do not parse into the next frame.
+    else if (!m->ParseFromBoundedZeroCopyStream(
+                 &stream, header.payload_wire_size))
         return {};
 
     return m;

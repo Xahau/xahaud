@@ -328,7 +328,9 @@ private:
         manifests.save(wallet, "ValidatorManifests", [&](PublicKey const& key) {
             return lists.listed(key);
         });
-        BEAST_EXPECT(rows() == saved);
+        BEAST_EXPECT(
+            rows() ==
+            saved - 1);  // One row replaces the old version and revocation.
 
         auto const local = randomValidator();
         BEAST_EXPECT(manifests.loadConfig(local.manifest, {}));
@@ -338,7 +340,7 @@ private:
                 wallet, "ValidatorManifests", [&](PublicKey const& key) {
                     return lists.listed(key);
                 });
-            BEAST_EXPECT(rows() == saved + 1);
+            BEAST_EXPECT(rows() == saved);
         }
 
         ManifestCache restarted{env.journal, 0};
@@ -349,6 +351,88 @@ private:
             restarted.getManifest(local.masterPublic) ==
             base64_decode(local.manifest));
         BEAST_EXPECT(!restarted.getRawManifest(unrelated.masterPublic));
+    }
+
+    void
+    testRevocationAfterDelisting()
+    {
+        testcase("new publisher revocation survives delisting and restart");
+        jtx::Env env{*this};
+        auto& wallet = env.app().getWalletDB();
+        auto const master = randomKeyPair(KeyType::ed25519);
+        auto const signer = randomKeyPair(KeyType::secp256k1);
+        Validator const old{
+            master.first,
+            signer.first,
+            base64_encode(makeManifestString(
+                master.first, master.second, signer.first, signer.second, 1))};
+        auto const revokedBytes =
+            makeRevocationString(master.first, master.second);
+        Validator const revoked{
+            master.first, signer.first, base64_encode(revokedBytes)};
+        auto const other = randomValidator();
+        auto const pub = randomKeyPair(KeyType::ed25519);
+        auto const pubSigner = randomKeyPair(KeyType::secp256k1);
+        auto const pubManifest = base64_encode(makeManifestString(
+            pub.first, pub.second, pubSigner.first, pubSigner.second, 1));
+        {
+            auto db = wallet.checkoutDb();
+            addValidatorManifest(*db, base64_decode(old.manifest));
+        }
+        auto publish = [&](ValidatorList& lists,
+                           std::vector<Validator> const& members,
+                           int seq) {
+            auto blob = makeList(
+                members,
+                seq,
+                env.timeKeeper().now().time_since_epoch().count() + 3600);
+            BEAST_EXPECT(
+                lists
+                    .applyLists(
+                        pubManifest,
+                        1,
+                        {{blob, signList(blob, pubSigner), {}}},
+                        "test")
+                    .bestDisposition() == ListDisposition::accepted);
+        };
+        {
+            ManifestCache cache{env.journal, 0};
+            ManifestCache publishers;
+            cache.loadListed(wallet);
+            ValidatorList lists{
+                cache,
+                publishers,
+                env.timeKeeper(),
+                env.app().config().legacy("database_path"),
+                env.journal};
+            BEAST_EXPECT(lists.load({}, {}, {strHex(pub.first)}));
+            publish(lists, {old}, 1);
+            publish(lists, {revoked}, 2);
+            BEAST_EXPECT(cache.revoked(master.first));
+            publish(lists, {other}, 3);
+            BEAST_EXPECT(!lists.listed(master.first));
+            cache.save(wallet, "ValidatorManifests", [](PublicKey const&) {
+                return false;
+            });
+        }
+        ManifestCache restarted{env.journal, 0};
+        ManifestCache publishers;
+        restarted.loadListed(wallet);
+        BEAST_EXPECT(!restarted.getRawManifest(master.first));
+        ValidatorList lists{
+            restarted,
+            publishers,
+            env.timeKeeper(),
+            env.app().config().legacy("database_path"),
+            env.journal};
+        BEAST_EXPECT(lists.load({}, {}, {strHex(pub.first)}));
+        publish(lists, {old}, 4);
+        BEAST_EXPECT(restarted.revoked(master.first));
+        BEAST_EXPECT(restarted.getMasterKey(signer.first) == signer.first);
+        auto db = wallet.checkoutDb();
+        auto saved = getManifestsForKeys(
+            *db, "ValidatorManifests", {master.first}, env.journal);
+        BEAST_EXPECT(saved.at(master.first).serialized == revokedBytes);
     }
 
     void
@@ -658,6 +742,9 @@ private:
             BEAST_EXPECT(!trustedKeys->trustedPublisher(pubRevokedPublic));
             BEAST_EXPECT(trustedKeys->trustedPublisher(legitKey1));
             BEAST_EXPECT(trustedKeys->trustedPublisher(legitKey2));
+            BEAST_EXPECT(
+                trustedKeys->getTrustedPublisherKeys() ==
+                hash_set<PublicKey>({legitKey1, legitKey2}));
             // 2 is the threshold for 3 publishers (even though 1 is revoked)
             BEAST_EXPECT(trustedKeys->getListThreshold() == 2);
         }
@@ -4302,6 +4389,7 @@ public:
         testGenesisQuorum();
         testManifestProtection();
         testListedWalletHistory();
+        testRevocationAfterDelisting();
         testConfigLoad();
         testApplyLists();
         testGetAvailable();

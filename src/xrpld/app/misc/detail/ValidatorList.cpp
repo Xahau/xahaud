@@ -1505,6 +1505,17 @@ ValidatorList::trustedPublisher(PublicKey const& identity) const
         publisherLists_.at(identity).status < PublisherStatus::revoked;
 }
 
+hash_set<PublicKey>
+ValidatorList::getTrustedPublisherKeys() const
+{
+    std::shared_lock lock{mutex_};
+    hash_set<PublicKey> keys;
+    for (auto const& [key, collection] : publisherLists_)
+        if (collection.status < PublisherStatus::revoked)
+            keys.insert(key);
+    return keys;
+}
+
 std::optional<PublicKey>
 ValidatorList::localPublicKey() const
 {

@@ -403,16 +403,45 @@ ManifestCache::pin(hash_set<PublicKey> keys)
     // possibly older embedded manifests. No database lock spans cache writes.
     restoreListed(added);
 
-    std::lock_guard lock{mutex_};
-
-    if (keys == pinned_)
-        return;
-
-    pinned_ = std::move(keys);
-
-    // The pinned set is part of what a gossip message contains, so a change to
-    // it has to invalidate any message cached against this sequence.
-    ++seq_;
+    hash_map<PublicKey, Manifest> departing;
+    DatabaseCon* wallet;
+    {
+        std::lock_guard lock{mutex_};
+        if (keys == pinned_)
+            return;
+        wallet = wallet_;
+        if (wallet)
+            for (auto const& key : pinned_)
+                if (!keys.contains(key) && !configured_.contains(key))
+                    if (auto const it = map_.find(key); it != map_.end())
+                    {
+                        auto const& m = it->second;
+                        departing.emplace(
+                            key,
+                            Manifest{
+                                m.serialized,
+                                m.masterKey,
+                                m.signingKey,
+                                m.sequence,
+                                m.domain});
+                    }
+        pinned_ = std::move(keys);
+        ++seq_;
+    }
+    // Capture history as gossip eligibility is withdrawn. Publisher/ledger
+    // updates may not yet have reached SQLite, and shutdown now sees this
+    // identity as unlisted. No cache lock is held during the database write.
+    if (wallet && !departing.empty())
+    {
+        auto db = wallet->checkoutDb();
+        saveManifests(
+            *db,
+            "ValidatorManifests",
+            [](PublicKey const&) { return true; },
+            departing,
+            j_,
+            true);
+    }
 }
 
 namespace {
@@ -542,6 +571,16 @@ ManifestDisposition
 ManifestCache::applyGossipManifest(Manifest m)
 {
     return applyManifest(std::move(m), Admission::gossip);
+}
+
+bool
+ManifestCache::isGossipCandidate(Manifest const& m) const
+{
+    std::shared_lock lock{mutex_};
+    if (!pinned_.contains(m.masterKey) && !configured_.contains(m.masterKey))
+        return false;
+    auto const it = map_.find(m.masterKey);
+    return it == map_.end() || m.sequence > it->second.sequence;
 }
 
 ManifestDisposition

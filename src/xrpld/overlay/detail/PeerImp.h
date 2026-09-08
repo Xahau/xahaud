@@ -169,8 +169,6 @@ private:
     protocol::TMStatusChange last_status_;
     Resource::Consumer usage_;
     ChargeWithContext fee_;
-    // Includes queued and running jobs; a fast sender cannot fill jtMANIFEST.
-    std::atomic<unsigned> manifestJobs_{0};
     std::shared_ptr<PeerFinder::Slot> const slot_;
     boost::beast::multi_buffer read_buffer_;
     http_request_type request_;

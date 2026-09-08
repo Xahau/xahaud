@@ -567,6 +567,10 @@ public:
     bool
     trustedPublisher(PublicKey const& identity) const;
 
+    /** Snapshot publisher membership before taking wallet/cache locks. */
+    hash_set<PublicKey>
+    getTrustedPublisherKeys() const;
+
     /** This function returns the local validator public key
      * or a std::nullopt
 

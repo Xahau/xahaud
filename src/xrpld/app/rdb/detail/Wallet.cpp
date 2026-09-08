@@ -45,13 +45,15 @@ static void
 readManifests(
     soci::session& session,
     std::string const& dbTable,
-    std::function<void(Manifest)> const& accept,
+    std::function<void(Manifest, std::int64_t)> const& accept,
     beast::Journal j)
 {
     // Load manifests stored in database
-    std::string const sql = "SELECT RawData FROM " + dbTable + ";";
+    std::string const sql = "SELECT rowid, RawData FROM " + dbTable + ";";
+    std::int64_t rowid;
     soci::blob sociRawData(session);
-    soci::statement st = (session.prepare << sql, soci::into(sociRawData));
+    soci::statement st =
+        (session.prepare << sql, soci::into(rowid), soci::into(sociRawData));
     st.execute();
     while (st.fetch())
     {
@@ -59,7 +61,7 @@ readManifests(
         convert(sociRawData, serialized);
         if (auto mo = deserializeManifest(serialized))
         {
-            accept(std::move(*mo));
+            accept(std::move(*mo), rowid);
         }
         else
         {
@@ -78,7 +80,7 @@ getManifests(
     readManifests(
         session,
         dbTable,
-        [&](Manifest m) {
+        [&](Manifest m, std::int64_t) {
             if (m.verify())
                 mCache.applyManifest(std::move(m));
             else
@@ -100,7 +102,7 @@ getManifestsForKeys(
     readManifests(
         session,
         dbTable,
-        [&](Manifest m) {
+        [&](Manifest m, std::int64_t) {
             if (!keys.contains(m.masterKey))
                 return;
             auto const it = result.find(m.masterKey);
@@ -142,35 +144,63 @@ saveManifests(
     beast::Journal j,
     bool preserveUnloaded)
 {
-    hash_map<PublicKey, Manifest> previous;
+    soci::transaction tr(session);
     if (preserveUnloaded)
     {
-        hash_set<PublicKey> keys;
+        hash_map<PublicKey, Manifest> retained;
         for (auto const& [key, manifest] : map)
             if (isTrusted(key))
-                keys.insert(key);
-        previous = getManifestsForKeys(session, dbTable, keys, j);
+                retained.emplace(
+                    key,
+                    Manifest{
+                        manifest.serialized,
+                        manifest.masterKey,
+                        manifest.signingKey,
+                        manifest.sequence,
+                        manifest.domain});
+
+        if (!retained.empty())
+        {
+            // Stage row IDs in SQLite, not an unbounded C++ vector. Keep the
+            // source table untouched while its read cursor is active. This
+            // table is created and dropped in one transaction, with no schema
+            // migration or persistent staging state.
+            auto const obsolete = dbTable + "_Compacting";
+            session << "CREATE TABLE " + obsolete +
+                    " (RowID INTEGER PRIMARY KEY);";
+            readManifests(
+                session,
+                dbTable,
+                [&](Manifest m, std::int64_t rowid) {
+                    auto const it = retained.find(m.masterKey);
+                    if (it == retained.end())
+                        return;
+                    if (m.sequence > it->second.sequence && m.verify())
+                        it->second = std::move(m);
+                    session
+                        << "INSERT INTO " + obsolete + " (RowID) VALUES (:id);",
+                        soci::use(rowid);
+                },
+                j);
+            session << "DELETE FROM " + dbTable +
+                    " WHERE rowid IN (SELECT RowID FROM " + obsolete + ");";
+            for (auto const& [key, manifest] : retained)
+                saveManifest(session, dbTable, manifest.serialized);
+            session << "DROP TABLE " + obsolete + ";";
+        }
+        tr.commit();
+        return;
     }
-    soci::transaction tr(session);
-    // A publisher's membership may not have arrived before shutdown. Do not
-    // erase saved high waters merely because they were not loaded this run.
-    if (!preserveUnloaded)
-        session << "DELETE FROM " << dbTable;
+
+    session << "DELETE FROM " << dbTable;
     for (auto const& v : map)
     {
-        // The selective validator cache saves only local identities. Preserve
-        // the publisher cache's existing retention of all revocations.
-        if ((preserveUnloaded || !v.second.revoked()) &&
-            !isTrusted(v.second.masterKey))
+        // Preserve the publisher cache's existing retention of all revocations.
+        if (!v.second.revoked() && !isTrusted(v.second.masterKey))
         {
             JLOG(j.info()) << "Untrusted manifest in cache not saved to db";
             continue;
         }
-
-        // Preserve the old table without appending duplicates each restart.
-        if (auto const it = previous.find(v.first);
-            it != previous.end() && it->second.sequence >= v.second.sequence)
-            continue;
 
         saveManifest(session, dbTable, v.second.serialized);
     }

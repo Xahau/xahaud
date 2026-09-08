@@ -36,7 +36,6 @@
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
-#include <xrpl/basics/scope.h>
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/protocol/digest.h>
 
@@ -871,7 +870,7 @@ PeerImp::doProtocolStart()
             });
     }
 
-    if (auto m = overlay_.getManifestsMessage())
+    for (auto const& m : overlay_.getManifestsMessages())
         send(m);
 
     setTimer();
@@ -1067,21 +1066,41 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
         return;
     }
 
-    if (manifestJobs_.fetch_add(1) >= 2)
+    std::vector<Manifest> candidates;
+    int cost = 0;
+    for (auto const& item : m->list())
     {
-        --manifestJobs_;
+        auto manifest = deserializeManifest(item.stobject());
+        if (!manifest)
+            cost += Resource::feeInvalidData.cost();
+        else if (!app_.validatorManifests().isGossipCandidate(*manifest))
+            cost += Resource::feeUselessData.cost();
+        else
+        {
+            cost += Resource::feeModerateBurdenPeer.cost();
+            candidates.push_back(std::move(*manifest));
+        }
+    }
+    // Pay for requested work before another packet can queue more. dispatch()
+    // is immediate on the receiving strand; cheap rejects never enter a job.
+    boost::asio::dispatch(strand_, [that = shared_from_this(), cost]() {
+        that->charge(Resource::Charge{cost, "manifests"}, "manifest intake");
+    });
+    if (candidates.empty() || detaching_ || gracefulClose_)
+        return;
+    if (app_.getJobQueue().getJobCountTotal(jtMANIFEST) >= maxManifestJobs)
+    {
         fee_.update(Resource::feeHeavyBurdenPeer, "manifest backlog");
         return;
     }
-    scope_exit rollbackJob([this]() { --manifestJobs_; });
-    if (app_.getJobQueue().addJob(
-            jtMANIFEST,
-            "receiveManifests",
-            [this, that = shared_from_this(), m]() {
-                scope_exit finished([this]() { --manifestJobs_; });
-                overlay_.onManifests(m, that);
-            }))
-        rollbackJob.release();
+    auto const batch =
+        std::make_shared<std::vector<Manifest>>(std::move(candidates));
+    app_.getJobQueue().addJob(
+        jtMANIFEST,
+        "receiveManifests",
+        [this, that = shared_from_this(), batch]() {
+            overlay_.onManifests(*batch, that);
+        });
 }
 
 void

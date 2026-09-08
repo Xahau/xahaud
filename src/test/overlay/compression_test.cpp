@@ -472,6 +472,18 @@ public:
         BEAST_EXPECT(!result.second);
         BEAST_EXPECT(result.first == bytes.size());
         BEAST_EXPECT(handler.received == 1);
+        std::vector<std::uint8_t> coalesced(bytes.begin(), bytes.end());
+        coalesced.insert(coalesced.end(), bytes.begin(), bytes.end());
+        auto first = invokeProtocolMessage(
+            boost::asio::buffer(coalesced), handler, hint);
+        BEAST_EXPECT(!first.second && first.first == bytes.size());
+        auto second = invokeProtocolMessage(
+            boost::asio::buffer(
+                coalesced.data() + first.first, coalesced.size() - first.first),
+            handler,
+            hint);
+        BEAST_EXPECT(!second.second && second.first == bytes.size());
+        BEAST_EXPECT(handler.received == 3);
     }
 
     void
