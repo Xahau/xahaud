@@ -116,6 +116,56 @@ URIToken::preflight(PreflightContext const& ctx)
         case ttURITOKEN_MINT: {
             if (flags & tfURITokenMintMask)
                 return temINVALID_FLAG;
+
+            // Validate TransferFee if the amendment is enabled
+            if (ctx.rules.enabled(featureURITokenTransferFee))
+            {
+                if (ctx.tx.isFieldPresent(sfTransferFee))
+                {
+                    auto const transferFee = ctx.tx.getFieldU16(sfTransferFee);
+                    if (transferFee == 0 || transferFee > 50000)
+                    {
+                        JLOG(ctx.j.warn())
+                            << "Malformed transaction: TransferFee "
+                               "must be between 1 and 50000.";
+                        return temBAD_TRANSFER_FEE;
+                    }
+                }
+
+                if (ctx.tx.isFieldPresent(sfTransferFeeRecipient))
+                {
+                    if (!ctx.tx.isFieldPresent(sfAccount))
+                        return tefINTERNAL;  // LCOV_EXCL_LINE
+
+                    auto const account = ctx.tx.getAccountID(sfAccount);
+                    auto const recipient =
+                        ctx.tx.getAccountID(sfTransferFeeRecipient);
+
+                    if (account == recipient)
+                    {
+                        JLOG(ctx.j.warn())
+                            << "Malformed transaction: TransferFeeRecipient is "
+                               "the same as the account.";
+                        return temMALFORMED;
+                    }
+
+                    if (!ctx.tx.isFieldPresent(sfTransferFee) ||
+                        ctx.tx.getFieldU16(sfTransferFee) == 0)
+                    {
+                        JLOG(ctx.j.warn())
+                            << "Malformed transaction: TransferFeeRecipient "
+                               "without TransferFee.";
+                        return temMALFORMED;
+                    }
+                }
+            }
+            else
+            {
+                // Amendment not enabled: reject if new fields present
+                if (ctx.tx.isFieldPresent(sfTransferFee) ||
+                    ctx.tx.isFieldPresent(sfTransferFeeRecipient))
+                    return temDISABLED;
+            }
             break;
         }
 
@@ -130,7 +180,7 @@ URIToken::preflight(PreflightContext const& ctx)
         }
 
         default:
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
     }
 
     // specifying self as a destination is always an error
@@ -185,7 +235,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
     auto const sle =
         ctx.view.read(keylet::account(ctx.tx.getAccountID(sfAccount)));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     switch (tt)
     {
@@ -194,6 +244,21 @@ URIToken::preclaim(PreclaimContext const& ctx)
             if (ctx.view.exists(
                     keylet::uritoken(acc, ctx.tx.getFieldVL(sfURI))))
                 return tecDUPLICATE;
+
+            // check that TransferFeeRecipient account exists
+            if (ctx.tx.isFieldPresent(sfTransferFeeRecipient))
+            {
+                auto const recipient =
+                    ctx.tx.getAccountID(sfTransferFeeRecipient);
+                auto const sleRecipient =
+                    ctx.view.read(keylet::account(recipient));
+                if (!sleRecipient)
+                    return tecNO_TARGET;
+
+                // AMMs can never receive an URIToken Fee.
+                if (sleRecipient->isFieldPresent(sfAMMID))
+                    return tecNO_PERMISSION;
+            }
 
             return tesSUCCESS;
         }
@@ -247,12 +312,12 @@ URIToken::preclaim(PreclaimContext const& ctx)
                     STAmount const fee = ctx.tx.getFieldAmount(sfFee).xrp();
 
                     if (needed + fee < needed)
-                        return tecINTERNAL;
+                        return tecINTERNAL;  // LCOV_EXCL_LINE
 
                     needed += fee;
 
                     if (needed + purchaseAmount < needed)
-                        return tecINTERNAL;
+                        return tecINTERNAL;  // LCOV_EXCL_LINE
 
                     needed += purchaseAmount;
 
@@ -262,7 +327,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
                 else if (purchaseAmount.native() || saleAmount->native())
                 {
                     // should not be able to happen
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
                 }
                 else
                 {
@@ -331,7 +396,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
         default: {
             JLOG(ctx.j.warn()) << "URIToken txid=" << ctx.tx.getTransactionID()
                                << " preclaim with tt = " << tt << "\n";
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
         }
     }
 }
@@ -347,7 +412,7 @@ URIToken::doApply()
 
     auto const sle = sb.peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     TxType const& tt = ctx_.tx.getTxnType();
 
@@ -418,7 +483,7 @@ URIToken::doApply()
             sleU->setAccountID(sfIssuer, account_);
 
             if (dest && !saleAmount)
-                return tefINTERNAL;
+                return tefINTERNAL;  // LCOV_EXCL_LINE
 
             if (dest)
                 sleU->setAccountID(sfDestination, *dest);
@@ -431,6 +496,24 @@ URIToken::doApply()
             if (ctx_.tx.isFieldPresent(sfDigest))
                 sleU->setFieldH256(sfDigest, ctx_.tx.getFieldH256(sfDigest));
 
+            // Copy TransferFee and TransferFeeRecipient to the ledger object
+            if (sb.rules().enabled(featureURITokenTransferFee))
+            {
+                if (ctx_.tx.isFieldPresent(sfTransferFee))
+                {
+                    auto const transferFee = ctx_.tx.getFieldU16(sfTransferFee);
+                    if (transferFee > 0)
+                    {
+                        sleU->setFieldU16(sfTransferFee, transferFee);
+
+                        if (ctx_.tx.isFieldPresent(sfTransferFeeRecipient))
+                            sleU->setAccountID(
+                                sfTransferFeeRecipient,
+                                ctx_.tx.getAccountID(sfTransferFeeRecipient));
+                    }
+                }
+            }
+
             if (flags & tfBurnable)
                 sleU->setFlag(tfBurnable);
 
@@ -442,7 +525,7 @@ URIToken::doApply()
                 << ": " << (page ? "success" : "failure");
 
             if (!page)
-                return tecDIR_FULL;
+                return tecDIR_FULL;  // LCOV_EXCL_LINE
 
             sleU->setFieldU64(sfOwnerNode, *page);
             sb.insert(sleU);
@@ -499,12 +582,12 @@ URIToken::doApply()
                     STAmount const fee = ctx_.tx.getFieldAmount(sfFee).xrp();
 
                     if (needed + fee < needed)
-                        return tecINTERNAL;
+                        return tecINTERNAL;  // LCOV_EXCL_LINE
 
                     needed += fee;
 
                     if (needed + purchaseAmount < needed)
-                        return tecINTERNAL;
+                        return tecINTERNAL;  // LCOV_EXCL_LINE
 
                     needed += purchaseAmount;
 
@@ -543,6 +626,124 @@ URIToken::doApply()
                     !isTesSuccess(result))
                     return result;
 
+                // Determine fee recipient
+                AccountID const feeRecipient =
+                    sleU->isFieldPresent(sfTransferFeeRecipient)
+                    ? sleU->getAccountID(sfTransferFeeRecipient)
+                    : *issuer;
+
+                // Apply URIToken transfer fee on qualifying secondary sales
+                if (sb.rules().enabled(featureURITokenTransferFee) &&
+                    sleU->isFieldPresent(sfTransferFee) &&
+                    account_ != *issuer && *owner != *issuer)
+                {
+                    auto const feeBips = sleU->getFieldU16(sfTransferFee);
+                    if (feeBips > 0)
+                    {
+                        // feeBips / 100000 as Rate (QUALITY_ONE = 1e9)
+                        Rate const feeRate{
+                            static_cast<std::uint32_t>(feeBips) * 10000u};
+
+                        STAmount feeAmt;
+                        if (purchaseAmount.native())
+                        {
+                            // XRP: use integer arithmetic for precision
+                            XRPAmount const purchaseDrops =
+                                purchaseAmount.xrp();
+                            XRPAmount const feeDrops{static_cast<std::int64_t>(
+                                (static_cast<__int128>(purchaseDrops.drops()) *
+                                 feeBips) /
+                                100000)};
+                            feeAmt = STAmount{feeDrops};
+                        }
+                        else
+                        {
+                            // IOU: the seller receives
+                            // purchaseAmount / iouTransferRate after the
+                            // IOU issuer's transfer fee. Calculate the
+                            // URIToken fee on that net received amount.
+                            auto const iouIssuer = purchaseAmount.getIssuer();
+                            auto const xferRate = transferRate(sb, iouIssuer);
+                            static Rate const parityRate(QUALITY_ONE);
+                            STAmount const netReceived =
+                                (xferRate == parityRate)
+                                ? purchaseAmount
+                                : divide(purchaseAmount, xferRate);
+                            feeAmt = multiplyRound(netReceived, feeRate, true);
+                        }
+
+                        if (feeAmt > beast::zero)
+                        {
+                            // Verify the fee recipient account exists
+                            // and (for IOU) has a valid trust line.
+                            // If any check fails, skip the fee — the
+                            // sale still succeeds.
+                            bool sendFee = true;
+
+                            // Check recipient account exists
+                            if (!sb.exists(keylet::account(feeRecipient)))
+                            {
+                                JLOG(j.trace())
+                                    << "URIToken: skipping transfer fee — "
+                                       "recipient account does not exist";
+                                sendFee = false;
+                            }
+
+                            // For IOU: check trust line and flags
+                            // (skip if recipient is the IOU issuer,
+                            // as issuers don't need trust lines for
+                            // their own IOUs)
+                            if (sendFee && !purchaseAmount.native() &&
+                                feeRecipient != purchaseAmount.getIssuer())
+                            {
+                                auto const& issue = purchaseAmount.issue();
+
+                                // Check trust line exists
+                                if (!sb.exists(keylet::line(
+                                        feeRecipient,
+                                        issue.account,
+                                        issue.currency)))
+                                {
+                                    JLOG(j.trace())
+                                        << "URIToken: skipping transfer fee — "
+                                           "recipient has no trust line";
+                                    sendFee = false;
+                                }
+
+                                // Check freeze/auth/ripple flags
+                                if (sendFee)
+                                {
+                                    TER const tlResult = trustTransferAllowed(
+                                        sb, {*owner, feeRecipient}, issue, j);
+                                    if (!isTesSuccess(tlResult))
+                                    {
+                                        JLOG(j.trace())
+                                            << "URIToken: skipping transfer "
+                                               "fee — recipient trust line "
+                                               "check failed: "
+                                            << tlResult;
+                                        sendFee = false;
+                                    }
+                                }
+                            }
+
+                            if (sendFee)
+                            {
+                                if (TER result = accountSend(
+                                        sb,
+                                        *owner,
+                                        feeRecipient,
+                                        feeAmt,
+                                        j,
+                                        WaiveTransferFee::Yes,
+                                        true);
+                                    !isTesSuccess(result))
+                                    return result;
+                            }
+                        }
+                    }
+                }
+
                 // add token to new owner dir
                 auto const newPage = sb.dirInsert(
                     keylet::ownerDir(account_),
@@ -554,7 +755,7 @@ URIToken::doApply()
                                  << (newPage ? "success" : "failure");
 
                 if (!newPage)
-                    return tecDIR_FULL;
+                    return tecDIR_FULL;  // LCOV_EXCL_LINE
 
                 // remove from current owner directory
                 if (!sb.dirRemove(
@@ -566,7 +767,7 @@ URIToken::doApply()
                     JLOG(j.fatal())
                         << "Could not remove URIToken from owner directory";
 
-                    return tefBAD_LEDGER;
+                    return tefBAD_LEDGER;  // LCOV_EXCL_LINE
                 }
 
                 // adjust owner counts
@@ -770,7 +971,7 @@ URIToken::doApply()
                     JLOG(j.warn())
                         << "URIToken txid=" << ctx_.tx.getTransactionID() << " "
                         << "finSellerBal < initSellerBal";
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
                 }
 
                 if (*finBuyerBal > *initBuyerBal)
@@ -778,7 +979,7 @@ URIToken::doApply()
                     JLOG(j.warn())
                         << "URIToken txid=" << ctx_.tx.getTransactionID() << " "
                         << "finBuyerBal > initBuyerBal";
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
                 }
 
                 if (*finBuyerBal < beast::zero)
@@ -786,7 +987,7 @@ URIToken::doApply()
                     JLOG(j.warn())
                         << "URIToken txid=" << ctx_.tx.getTransactionID() << " "
                         << "finBuyerBal < 0";
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
                 }
 
                 if (*finSellerBal < beast::zero)
@@ -794,7 +995,7 @@ URIToken::doApply()
                     JLOG(j.warn())
                         << "URIToken txid=" << ctx_.tx.getTransactionID() << " "
                         << "finSellerBal < 0";
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
                 }
 
                 // to this point no ledger changes have been made
@@ -816,7 +1017,7 @@ URIToken::doApply()
                 {
                     // nothing has happened at all and there is nothing to clean
                     // up we can just leave with DIR_FULL
-                    return tecDIR_FULL;
+                    return tecDIR_FULL;  // LCOV_EXCL_LINE
                 }
 
                 // Next create destination trustline where applicable. This
@@ -854,7 +1055,7 @@ URIToken::doApply()
                             JLOG(j.fatal())
                                 << "Could not remove URIToken from owner directory";
 
-                            return tefBAD_LEDGER;
+                            return tefBAD_LEDGER;  // LCOV_EXCL_LINE
                         }
 
                         // leave
@@ -899,7 +1100,7 @@ URIToken::doApply()
                             sb.erase(line);
                     }
 
-                    return tefBAD_LEDGER;
+                    return tefBAD_LEDGER;  // LCOV_EXCL_LINE
                 }
 
                 // above is all the things that could fail. we now have swapped
@@ -943,7 +1144,7 @@ URIToken::doApply()
                     // pass: buyer is issuer, no update required.
                 }
                 else
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 // update the seller's balance
                 if (isXRP(purchaseAmount))
@@ -968,7 +1169,7 @@ URIToken::doApply()
                     // pass: seller is issuer, no update required.
                 }
                 else
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 if (sleSrcLine)
                     sb.update(sleSrcLine);
@@ -1005,7 +1206,7 @@ URIToken::doApply()
             {
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";
-                return tefBAD_LEDGER;
+                return tefBAD_LEDGER;  // LCOV_EXCL_LINE
             }
 
             sb.erase(sleU);
@@ -1038,7 +1239,7 @@ URIToken::doApply()
         }
 
         default:
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
     }
 }
 

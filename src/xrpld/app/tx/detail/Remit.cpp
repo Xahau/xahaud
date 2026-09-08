@@ -180,7 +180,8 @@ Remit::preflight(PreflightContext const& ctx)
         for (auto const& mintElement : mint)
         {
             auto const& name = mintElement.getFName();
-            if (name != sfURI && name != sfFlags && name != sfDigest)
+            if (name != sfURI && name != sfFlags && name != sfDigest &&
+                name != sfTransferFee && name != sfTransferFeeRecipient)
             {
                 JLOG(ctx.j.trace()) << "Malformed transaction: sfMintURIToken "
                                        "contains invalid field.";
@@ -212,6 +213,35 @@ Remit::preflight(PreflightContext const& ctx)
         {
             if (mint.getFieldU32(sfFlags) & tfURITokenMintMask)
                 return temINVALID_FLAG;
+        }
+
+        if (mint.isFieldPresent(sfTransferFee))
+        {
+            if (!ctx.rules.enabled(featureURITokenTransferFee))
+                return temDISABLED;
+
+            auto const transferFee = mint.getFieldU16(sfTransferFee);
+            if (transferFee == 0 || transferFee > 50000)
+            {
+                JLOG(ctx.j.warn()) << "Malformed transaction: TransferFee "
+                                      "must be between 1 and 50000.";
+                return temBAD_TRANSFER_FEE;
+            }
+        }
+
+        if (mint.isFieldPresent(sfTransferFeeRecipient))
+        {
+            if (!ctx.rules.enabled(featureURITokenTransferFee))
+                return temDISABLED;
+
+            if (!mint.isFieldPresent(sfTransferFee) ||
+                mint.getFieldU16(sfTransferFee) == 0)
+            {
+                JLOG(ctx.j.warn()) << "Malformed transaction: "
+                                      "TransferFeeRecipient without "
+                                      "TransferFee.";
+                return temMALFORMED;
+            }
         }
     }
 
@@ -397,6 +427,30 @@ Remit::doApply()
         sleMint->setFieldU32(
             sfFlags,
             mint.isFieldPresent(sfFlags) ? mint.getFieldU32(sfFlags) : 0);
+
+        // Copy TransferFee and TransferFeeRecipient if present
+        if (sb.rules().enabled(featureURITokenTransferFee))
+        {
+            if (mint.isFieldPresent(sfTransferFee))
+            {
+                auto const transferFee = mint.getFieldU16(sfTransferFee);
+                if (transferFee > 0)
+                {
+                    sleMint->setFieldU16(sfTransferFee, transferFee);
+
+                    if (mint.isFieldPresent(sfTransferFeeRecipient))
+                    {
+                        auto const recipient =
+                            mint.getAccountID(sfTransferFeeRecipient);
+                        if (!sb.exists(keylet::account(recipient)))
+                            return tecNO_TARGET;
+
+                        sleMint->setAccountID(
+                            sfTransferFeeRecipient, recipient);
+                    }
+                }
+            }
+        }
 
         auto const page = sb.dirInsert(
             keylet::ownerDir(dstAccID), kl, describeOwnerDir(dstAccID));

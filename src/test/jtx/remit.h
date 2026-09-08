@@ -104,13 +104,21 @@ private:
     std::string uri_;
     std::optional<std::uint32_t> flags_;
     std::optional<std::string> digest_;
+    std::optional<std::uint16_t> transferFee_;
+    std::optional<jtx::Account> transferFeeRecipient_;
 
 public:
     explicit uri(
         std::string const& uri,
         std::optional<std::uint32_t> const& flags = std::nullopt,
-        std::optional<std::string> const& digest = std::nullopt)
-        : uri_(uri), flags_(flags), digest_(digest)
+        std::optional<std::string> const& digest = std::nullopt,
+        std::optional<std::uint16_t> const& transferFee = std::nullopt,
+        std::optional<jtx::Account> const& transferFeeRecipient = std::nullopt)
+        : uri_(uri)
+        , flags_(flags)
+        , digest_(digest)
+        , transferFee_(transferFee)
+        , transferFeeRecipient_(transferFeeRecipient)
     {
     }
 

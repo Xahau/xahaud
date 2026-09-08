@@ -305,6 +305,8 @@ TRANSACTION(ttURITOKEN_MINT, 45, URITokenMint, ({
     {sfDigest, soeOPTIONAL},
     {sfAmount, soeOPTIONAL},
     {sfDestination, soeOPTIONAL},
+    {sfTransferFee, soeOPTIONAL},
+    {sfTransferFeeRecipient, soeOPTIONAL},
 }))
 
 TRANSACTION(ttURITOKEN_BURN, 46, URITokenBurn, ({

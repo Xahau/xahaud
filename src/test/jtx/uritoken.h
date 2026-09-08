@@ -78,6 +78,36 @@ cancel(jtx::Account const& account, std::string const& id);
 Json::Value
 buy(jtx::Account const& account, std::string const& id);
 
+/** Sets the optional TransferFee on a JTx. */
+class xfee
+{
+private:
+    std::uint16_t fee_;
+
+public:
+    explicit xfee(std::uint16_t fee) : fee_(fee)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+/** Sets the optional TransferFeeRecipient on a JTx. */
+class xfee_recipient
+{
+private:
+    AccountID recipient_;
+
+public:
+    explicit xfee_recipient(AccountID const& recipient) : recipient_(recipient)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
 }  // namespace uritoken
 
 }  // namespace jtx
