@@ -1193,8 +1193,10 @@ OverlayImpl::getManifestsMessages()
             }
         };
 
-        // Only listed/configured identities are offered. Membership changes
-        // invalidate this message along with changes to their manifests.
+        // Offer all listed/configured manifests, without selecting recent
+        // unlisted extras; per-lookup recency tracking is no longer needed.
+        // Membership changes invalidate these messages along with changes
+        // to their manifests.
         // Packet limits split the set; they must not permanently omit its tail.
         app_.validatorManifests().for_each_gossip_manifest(
             [&tm](std::size_t s) {
