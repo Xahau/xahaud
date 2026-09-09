@@ -2071,7 +2071,11 @@ NetworkOPsImp::beginConsensus(
         closingInfo.parentCloseTime,
         *this,
         app_.overlay(),
-        app_.getHashRouter());
+        app_.getHashRouter(),
+        [this, &prevLedger](hash_set<PublicKey> const& candidates) {
+            if (prevLedger->rules().enabled(featureOnChainManifests))
+                app_.validatorManifests().applyLedger(*prevLedger, candidates);
+        });
 
     if (!changes.added.empty() || !changes.removed.empty())
     {

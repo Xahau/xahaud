@@ -136,55 +136,58 @@ saveManifest(
 }
 
 void
+compactManifests(
+    soci::session& session,
+    std::string const& dbTable,
+    std::function<bool(PublicKey const&)> const& shouldRetain,
+    hash_map<PublicKey, Manifest> const& map,
+    beast::Journal j)
+{
+    soci::transaction tr(session);
+    hash_map<PublicKey, Manifest> retained;
+    for (auto const& [key, manifest] : map)
+        if (shouldRetain(key))
+            retained.emplace(key, manifest.clone());
+
+    if (!retained.empty())
+    {
+        // Stage row IDs in SQLite, not an unbounded C++ vector. Keep the
+        // source table untouched while its read cursor is active. This
+        // table is created and dropped in one transaction, with no schema
+        // migration or persistent staging state.
+        auto const obsolete = dbTable + "_Compacting";
+        session << "CREATE TABLE " + obsolete + " (RowID INTEGER PRIMARY KEY);";
+        readManifests(
+            session,
+            dbTable,
+            [&](Manifest m, std::int64_t rowid) {
+                auto const it = retained.find(m.masterKey);
+                if (it == retained.end())
+                    return;
+                if (m.sequence > it->second.sequence && m.verify())
+                    it->second = std::move(m);
+                session << "INSERT INTO " + obsolete + " (RowID) VALUES (:id);",
+                    soci::use(rowid);
+            },
+            j);
+        session << "DELETE FROM " + dbTable +
+                " WHERE rowid IN (SELECT RowID FROM " + obsolete + ");";
+        for (auto const& [key, manifest] : retained)
+            saveManifest(session, dbTable, manifest.serialized);
+        session << "DROP TABLE " + obsolete + ";";
+    }
+    tr.commit();
+}
+
+void
 saveManifests(
     soci::session& session,
     std::string const& dbTable,
     std::function<bool(PublicKey const&)> const& isTrusted,
     hash_map<PublicKey, Manifest> const& map,
-    beast::Journal j,
-    bool preserveUnloaded)
+    beast::Journal j)
 {
     soci::transaction tr(session);
-    if (preserveUnloaded)
-    {
-        hash_map<PublicKey, Manifest> retained;
-        for (auto const& [key, manifest] : map)
-            if (isTrusted(key))
-                retained.emplace(key, manifest.clone());
-
-        if (!retained.empty())
-        {
-            // Stage row IDs in SQLite, not an unbounded C++ vector. Keep the
-            // source table untouched while its read cursor is active. This
-            // table is created and dropped in one transaction, with no schema
-            // migration or persistent staging state.
-            auto const obsolete = dbTable + "_Compacting";
-            session << "CREATE TABLE " + obsolete +
-                    " (RowID INTEGER PRIMARY KEY);";
-            readManifests(
-                session,
-                dbTable,
-                [&](Manifest m, std::int64_t rowid) {
-                    auto const it = retained.find(m.masterKey);
-                    if (it == retained.end())
-                        return;
-                    if (m.sequence > it->second.sequence && m.verify())
-                        it->second = std::move(m);
-                    session
-                        << "INSERT INTO " + obsolete + " (RowID) VALUES (:id);",
-                        soci::use(rowid);
-                },
-                j);
-            session << "DELETE FROM " + dbTable +
-                    " WHERE rowid IN (SELECT RowID FROM " + obsolete + ");";
-            for (auto const& [key, manifest] : retained)
-                saveManifest(session, dbTable, manifest.serialized);
-            session << "DROP TABLE " + obsolete + ";";
-        }
-        tr.commit();
-        return;
-    }
-
     session << "DELETE FROM " << dbTable;
     for (auto const& v : map)
     {

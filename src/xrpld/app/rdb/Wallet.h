@@ -84,8 +84,6 @@ getManifestsForKeys(
  * @param isTrusted Callback that returns true if the key is trusted.
  * @param map Maps public keys to manifests.
  * @param j Journal.
- * @param preserveUnloaded Keep unloaded history and save only local keys,
- *        without duplicating versions already saved (validator cache).
  */
 void
 saveManifests(
@@ -93,8 +91,21 @@ saveManifests(
     std::string const& dbTable,
     std::function<bool(PublicKey const&)> const& isTrusted,
     hash_map<PublicKey, Manifest> const& map,
-    beast::Journal j,
-    bool preserveUnloaded = false);
+    beast::Journal j);
+
+/** Save selected identities without deleting unrelated wallet history.
+
+    Keep the highest valid cache/disk version per selected master and compact
+    its old rows in one transaction. shouldRetain selects from map; unlike the
+    legacy saveManifests(), this never rewrites the whole table.
+*/
+void
+compactManifests(
+    soci::session& session,
+    std::string const& dbTable,
+    std::function<bool(PublicKey const&)> const& shouldRetain,
+    hash_map<PublicKey, Manifest> const& map,
+    beast::Journal j);
 
 /**
  * @brief addValidatorManifest Saves the manifest of a validator to the

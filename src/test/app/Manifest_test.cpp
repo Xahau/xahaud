@@ -433,11 +433,7 @@ public:
             *db << sql, soci::into(n);
             return n;
         };
-        auto save = [&]() {
-            cache.save(wallet, "ValidatorManifests", [](PublicKey const&) {
-                return false;
-            });
-        };
+        auto save = [&]() { cache.saveListed(); };
         bool failed = false;
         try
         {

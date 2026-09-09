@@ -31,6 +31,7 @@
 #include <boost/iterator/counting_iterator.hpp>
 #include <boost/range/adaptors.hpp>
 #include <boost/thread/shared_mutex.hpp>
+#include <functional>
 #include <mutex>
 #include <numeric>
 #include <shared_mutex>
@@ -474,6 +475,10 @@ public:
         @param seenValidators Set of NodeIDs of validators that have signed
         recently received validations
 
+        @param reconcileCandidates Optional synchronous reconciliation before
+        new trust is published, after pending lists rotate. Called under the
+        list lock; must not re-enter ValidatorList.
+
         @return TrustedKeyChanges instance with newly trusted or untrusted
         node identities.
 
@@ -487,7 +492,9 @@ public:
         NetClock::time_point closeTime,
         NetworkOPs& ops,
         Overlay& overlay,
-        HashRouter& hashRouter);
+        HashRouter& hashRouter,
+        std::function<void(hash_set<PublicKey> const&)> const&
+            reconcileCandidates = {});
 
     /** Get quorum value for current trusted key set
 

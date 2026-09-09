@@ -287,9 +287,7 @@ private:
             cold.loadListed(wallet);
             BEAST_EXPECT(!cold.getRawManifest(master.first));
             BEAST_EXPECT(!cold.getRawManifest(unrelated.masterPublic));
-            cold.save(wallet, "ValidatorManifests", [](PublicKey const&) {
-                return false;
-            });
+            cold.saveListed();
         }
         BEAST_EXPECT(rows() == saved);
 
@@ -325,9 +323,7 @@ private:
             manifests.applyGossipManifest(*deserializeManifest(base64_decode(
                 validator.manifest))) == ManifestDisposition::stale);
         BEAST_EXPECT(!manifests.getRawManifest(unrelated.masterPublic));
-        manifests.save(wallet, "ValidatorManifests", [&](PublicKey const& key) {
-            return lists.listed(key);
-        });
+        manifests.saveListed();
         BEAST_EXPECT(
             rows() ==
             saved - 1);  // One row replaces the old version and revocation.
@@ -336,10 +332,7 @@ private:
         BEAST_EXPECT(manifests.loadConfig(local.manifest, {}));
         for (int i = 0; i < 2; ++i)
         {
-            manifests.save(
-                wallet, "ValidatorManifests", [&](PublicKey const& key) {
-                    return lists.listed(key);
-                });
+            manifests.saveListed();
             BEAST_EXPECT(rows() == saved);
         }
 
@@ -447,9 +440,7 @@ private:
                     *db, "ValidatorManifests", {master.first}, env.journal);
                 BEAST_EXPECT(saved.at(master.first).serialized == revokedBytes);
             }
-            cache.save(wallet, "ValidatorManifests", [](PublicKey const&) {
-                return false;
-            });
+            cache.saveListed();
         }
         ManifestCache restarted{env.journal, 0};
         ManifestCache publishers;

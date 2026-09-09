@@ -1938,7 +1938,8 @@ ValidatorList::updateTrusted(
     NetClock::time_point closeTime,
     NetworkOPs& ops,
     Overlay& overlay,
-    HashRouter& hashRouter)
+    HashRouter& hashRouter,
+    std::function<void(hash_set<PublicKey> const&)> const& reconcileCandidates)
 {
     using namespace std::chrono_literals;
     if (timeKeeper_.now() > closeTime + 30s)
@@ -2029,6 +2030,20 @@ ValidatorList::updateTrusted(
     }
     if (good)
         ops.clearUNLBlocked();
+
+    // The per-round ledger pass covered the previously trusted set. A key can
+    // become eligible between rounds or in the pending-list rotation above;
+    // reconcile it now so a warm stale binding is never trusted for one round.
+    if (reconcileCandidates)
+    {
+        hash_set<PublicKey> candidates;
+        for (auto const& [key, count] : keyListings_)
+            if (count >= listThreshold_ && !trustedMasterKeys_.contains(key) &&
+                !validatorManifests_.revoked(key))
+                candidates.insert(key);
+        if (!candidates.empty())
+            reconcileCandidates(candidates);
+    }
 
     TrustChanges trustChanges;
 

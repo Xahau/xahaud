@@ -570,11 +570,10 @@ public:
     void
     loadListed(DatabaseCon& dbCon);
 
-    /** Save cached manifests to database.
+    /** Replace a table with selected cached manifests and all revocations.
 
-        With a wallet attached, save listed/configured and pending history,
-        preserve unrelated wallet rows, and ignore isTrusted. Otherwise use
-        isTrusted and retain revocations, as for the publisher cache.
+        This is the legacy/publisher save policy, independent of wallet
+        attachment. Use saveListed() for selective validator history.
 
         @param dbCon Database containing dbTable
 
@@ -589,6 +588,15 @@ public:
         DatabaseCon& dbCon,
         std::string const& dbTable,
         std::function<bool(PublicKey const&)> const& isTrusted);
+
+    /** Save listed/configured and pending history to the attached wallet.
+
+        Preserve unrelated rows. Requires loadListed() to have attached the
+        wallet; no caller-supplied trust predicate or ValidatorList lock is
+       used.
+    */
+    void
+    saveListed();
 
     /** Invokes the callback once for every populated manifest.
 

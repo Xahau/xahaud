@@ -432,13 +432,12 @@ ManifestCache::pin(hash_set<PublicKey> keys)
         try
         {
             auto db = wallet->checkoutDb();
-            saveManifests(
+            compactManifests(
                 *db,
                 "ValidatorManifests",
                 [](PublicKey const&) { return true; },
                 departing,
-                j_,
-                true);
+                j_);
         }
         catch (soci::soci_error const& e)
         {
@@ -886,20 +885,28 @@ ManifestCache::save(
     std::shared_lock lock{mutex_};
     auto db = dbCon.checkoutDb();
 
-    saveManifests(
+    saveManifests(*db, dbTable, isTrusted, map_, j_);
+}
+
+void
+ManifestCache::saveListed()
+{
+    std::shared_lock lock{mutex_};
+    if (!wallet_)
+        Throw<std::logic_error>("Validator manifest wallet is not attached");
+    auto db = wallet_->checkoutDb();
+
+    compactManifests(
         *db,
-        dbTable,
-        [this, &isTrusted](PublicKey const& key) {
+        "ValidatorManifests",
+        [this](PublicKey const& key) {
             // Membership is already mirrored here. Do not take ValidatorList's
             // lock while holding the cache lock (pin() takes them in reverse).
-            if (!wallet_)
-                return isTrusted(key);
             return pinned_.contains(key) || configured_.contains(key) ||
                 pendingSave_.contains(key);
         },
         map_,
-        j_,
-        wallet_ != nullptr);
+        j_);
 }
 
 // Clean up macros to avoid namespace pollution

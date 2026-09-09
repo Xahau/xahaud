@@ -1643,10 +1643,7 @@ ApplicationImp::run()
     validatorSites_->stop();
 
     // TODO Store manifests in manifests.sqlite instead of wallet.db
-    validatorManifests_->save(
-        getWalletDB(), "ValidatorManifests", [this](PublicKey const& pubKey) {
-            return validators().listed(pubKey);
-        });
+    validatorManifests_->saveListed();
 
     // List updates restore wallet history while holding the list lock. Never
     // call back into that lock from a save that already holds the wallet.
