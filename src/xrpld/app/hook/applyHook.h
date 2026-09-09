@@ -134,6 +134,18 @@ computeExecutionFee(uint64_t instructionCount);
 int64_t
 computeCreationFee(uint64_t byteCount);
 
+// HookFeeV2: converts a hook's cost units (see hook_api::api_call_cost) into
+// drops, rounding up
+XRPAmount
+hookCostToFee(uint64_t hookCost);
+
+std::optional<std::pair<uint64_t, uint64_t>>
+doValidateGuards(
+    STTx const& tx,
+    Blob const& wasm,
+    Rules const& rules,
+    beast::Journal const& j);
+
 struct HookResult
 {
     ripple::uint256 const hookSetTxnID;
