@@ -55,6 +55,13 @@ amts::operator()(Env& env, JTx& jt) const
 }
 
 void
+limit_amount::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfAmounts.jsonName][index_][sfAmountEntry.jsonName]
+         [sfLimitAmount.jsonName] = limit_.getJson(JsonOptions::none);
+}
+
+void
 blob::operator()(Env& env, JTx& jt) const
 {
     jt.jv[sfBlob.jsonName] = blob_;

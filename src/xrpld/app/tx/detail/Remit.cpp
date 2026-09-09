@@ -137,6 +137,39 @@ Remit::preflight(PreflightContext const& ctx)
                 return temBAD_CURRENCY;
             }
 
+            if (sEntry.isFieldPresent(sfLimitAmount))
+            {
+                if (!ctx.rules.enabled(featureRemitLimitAmount))
+                    return temDISABLED;
+
+                STAmount const limitAmount =
+                    sEntry.getFieldAmount(sfLimitAmount);
+
+                if (isXRP(amount) || isXRP(limitAmount))
+                {
+                    JLOG(ctx.j.warn()) << "Malformed transaction: "
+                                          "LimitAmount not allowed for XAH.";
+                    return temBAD_CURRENCY;
+                }
+
+                if (!isLegalNet(limitAmount) || limitAmount.signum() <= 0)
+                {
+                    JLOG(ctx.j.warn())
+                        << "Malformed transaction: bad LimitAmount: "
+                        << limitAmount.getFullText();
+                    return temBAD_AMOUNT;
+                }
+
+                if (limitAmount.getCurrency() != amount.getCurrency() ||
+                    limitAmount.getIssuer() != amount.getIssuer())
+                {
+                    JLOG(ctx.j.warn())
+                        << "Malformed transaction: LimitAmount currency/"
+                           "issuer must match Amount.";
+                    return temBAD_CURRENCY;
+                }
+            }
+
             if (isXRP(amount))
             {
                 if (nativeAlready)
@@ -564,8 +597,30 @@ Remit::doApply()
 
             // if the target trustline doesn't exist we need to create it and
             // pay its reserve
-            if (!sb.exists(
-                    keylet::line(dstAccID, issuerAccID, amount.getCurrency())))
+            bool const lineExisted = sb.exists(
+                keylet::line(dstAccID, issuerAccID, amount.getCurrency()));
+
+            // a LimitAmount is only permitted when it will set the limit of
+            // a trustline this Remit is creating: never allow it to
+            // overwrite an existing line's limit, and never allow it on a
+            // DefaultRipple destination, since that would let an attacker
+            // ripple worthless tokens through the issuer and mint its IOU
+            // (see StepChecks.h checkNoRipple: NoRipple only blocks
+            // rippling when both lines on the middle account have it set,
+            // and a DefaultRipple issuer's existing lines lack NoRipple).
+            // Reject the whole Remit rather than silently ignoring the
+            // LimitAmount, so nothing is transferred.
+            if (sEntry.isFieldPresent(sfLimitAmount) &&
+                sb.rules().enabled(featureRemitLimitAmount) &&
+                (lineExisted || (flags & lsfDefaultRipple)))
+            {
+                JLOG(j.warn())
+                    << "Remit: LimitAmount not permitted -- trustline "
+                       "already exists or destination is DefaultRipple.";
+                return tecNO_PERMISSION;
+            }
+
+            if (!lineExisted)
             {
                 if (nativeRemit + objectReserve < nativeRemit)
                     return tecINTERNAL;
@@ -584,6 +639,32 @@ Remit::doApply()
                     true);
                 !isTesSuccess(result))
                 return result;
+
+            // if this entry specifies a LimitAmount, set the destination's
+            // trust line limit. The check above already guarantees the line
+            // did not exist and the destination isn't DefaultRipple, and
+            // preflight already guarantees signum() > 0.
+            if (sb.rules().enabled(featureRemitLimitAmount) &&
+                sEntry.isFieldPresent(sfLimitAmount))
+            {
+                STAmount const limitAmount =
+                    sEntry.getFieldAmount(sfLimitAmount);
+                auto sleLine = sb.peek(
+                    keylet::line(dstAccID, issuerAccID, amount.getCurrency()));
+
+                if (!sleLine)
+                {
+                    JLOG(j.warn()) << "Remit: trustline does not exist.";
+                    return tefINTERNAL;  // LCOV_EXCL_LINE
+                }
+
+                bool const dstHigh = dstAccID > issuerAccID;
+                STAmount limitToSet(limitAmount);
+                limitToSet.setIssuer(dstAccID);
+                sleLine->setFieldAmount(
+                    dstHigh ? sfHighLimit : sfLowLimit, limitToSet);
+                sb.update(sleLine);
+            }
         }
     }
 
