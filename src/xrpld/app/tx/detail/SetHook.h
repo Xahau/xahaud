@@ -86,7 +86,7 @@ public:
     calculateBaseFee(ReadView const& view, STTx const& tx);
 
     static HookSetOperation
-    inferOperation(STObject const& hookSetObj);
+    inferOperation(SetHookCtx& ctx, STObject const& hookSetObj);
 
     static HookSetValidation
     validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj);
