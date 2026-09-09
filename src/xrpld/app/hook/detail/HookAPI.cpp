@@ -507,6 +507,8 @@ HookAPI::emit(Slice const& txBlob) const
     if (hookCtx.result.emittedTxn.size() >= hookCtx.expected_etxn_count)
         return Unexpected(TOO_MANY_EMITTED_TXN);
 
+    auto const s = j.trace();
+
     std::shared_ptr<STTx const> stpTrans;
     try
     {
@@ -515,14 +517,14 @@ HookAPI::emit(Slice const& txBlob) const
     }
     catch (std::exception const& e)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC() << "]: Failed " << e.what();
+        JLOG(s) << "HookEmit[" << HC_ACC() << "]: Failed " << e.what();
         return Unexpected(EMISSION_FAILURE);
     }
 
     if (isPseudoTx(*stpTrans))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: Attempted to emit pseudo txn.";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: Attempted to emit pseudo txn.";
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -531,8 +533,7 @@ HookAPI::emit(Slice const& txBlob) const
     ripple::uint256 const& hookCanEmit = hookCtx.result.hookCanEmit;
     if (!hook::canEmit(txType, hookCanEmit))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: Hook cannot emit this txn.";
+        JLOG(s) << "HookEmit[" << HC_ACC() << "]: Hook cannot emit this txn.";
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -554,8 +555,8 @@ HookAPI::emit(Slice const& txBlob) const
     if (!stpTrans->isFieldPresent(sfAccount) ||
         stpTrans->getAccountID(sfAccount) != hookCtx.result.account)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfAccount does not match hook account";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfAccount does not match hook account";
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -563,64 +564,62 @@ HookAPI::emit(Slice const& txBlob) const
     if (!stpTrans->isFieldPresent(sfSequence) ||
         stpTrans->getFieldU32(sfSequence) != 0)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfSequence missing or non-zero";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfSequence missing or non-zero";
         return Unexpected(EMISSION_FAILURE);
     }
 
     // rule 2: sfSigningPubKey must be present and 00...00
     if (!stpTrans->isFieldPresent(sfSigningPubKey))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfSigningPubKey missing";
+        JLOG(s) << "HookEmit[" << HC_ACC() << "]: sfSigningPubKey missing";
         return Unexpected(EMISSION_FAILURE);
     }
 
     auto const pk = stpTrans->getSigningPubKey();
     if (pk.size() != 33 && pk.size() != 0)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfSigningPubKey present but wrong size";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfSigningPubKey present but wrong size";
         return Unexpected(EMISSION_FAILURE);
     }
 
     for (int i = 0; i < pk.size(); ++i)
         if (pk[i] != 0)
         {
-            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                            << "]: sfSigningPubKey present but non-zero.";
+            JLOG(s) << "HookEmit[" << HC_ACC()
+                    << "]: sfSigningPubKey present but non-zero.";
             return Unexpected(EMISSION_FAILURE);
         }
 
     // rule 2.a: no signers
     if (stpTrans->isFieldPresent(sfSigners))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfSigners not allowed in emitted txns.";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfSigners not allowed in emitted txns.";
         return Unexpected(EMISSION_FAILURE);
     }
 
     // rule 2.b: ticketseq cannot be used
     if (stpTrans->isFieldPresent(sfTicketSequence))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfTicketSequence not allowed in emitted txns.";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfTicketSequence not allowed in emitted txns.";
         return Unexpected(EMISSION_FAILURE);
     }
 
     // rule 2.c sfAccountTxnID not allowed
     if (stpTrans->isFieldPresent(sfAccountTxnID))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfAccountTxnID not allowed in emitted txns.";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfAccountTxnID not allowed in emitted txns.";
         return Unexpected(EMISSION_FAILURE);
     }
 
     // rule 3: sfEmitDetails must be present and valid
     if (!stpTrans->isFieldPresent(sfEmitDetails))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfEmitDetails missing.";
+        JLOG(s) << "HookEmit[" << HC_ACC() << "]: sfEmitDetails missing.";
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -634,16 +633,15 @@ HookAPI::emit(Slice const& txBlob) const
         !emitDetails.isFieldPresent(sfEmitNonce) ||
         !emitDetails.isFieldPresent(sfEmitHookHash))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfEmitDetails malformed.";
+        JLOG(s) << "HookEmit[" << HC_ACC() << "]: sfEmitDetails malformed.";
         return Unexpected(EMISSION_FAILURE);
     }
 
     // rule 8: emit generation cannot exceed 10
     if (emitDetails.getFieldU32(sfEmitGeneration) >= 10)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfEmitGeneration was 10 or more.";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfEmitGeneration was 10 or more.";
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -662,68 +660,66 @@ HookAPI::emit(Slice const& txBlob) const
 
     if (gen != gen_proper)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfEmitGeneration provided in EmitDetails "
-                        << "not correct (" << gen << ") "
-                        << "should be " << gen_proper;
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfEmitGeneration provided in EmitDetails "
+                << "not correct (" << gen << ") "
+                << "should be " << gen_proper;
         return Unexpected(EMISSION_FAILURE);
     }
 
     uint64_t bur_proper = static_cast<uint64_t>(etxn_burden().value());
     if (bur != bur_proper)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfEmitBurden provided in EmitDetails "
-                        << "was not correct (" << bur << ") "
-                        << "should be " << bur_proper;
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfEmitBurden provided in EmitDetails "
+                << "was not correct (" << bur << ") "
+                << "should be " << bur_proper;
         return Unexpected(EMISSION_FAILURE);
     }
 
     if (pTxnID != applyCtx.tx.getTransactionID())
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfEmitParentTxnID provided in EmitDetails"
-                        << "was not correct";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfEmitParentTxnID provided in EmitDetails"
+                << "was not correct";
         return Unexpected(EMISSION_FAILURE);
     }
 
     if (hookCtx.nonce_used.find(nonce) == hookCtx.nonce_used.end())
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfEmitNonce provided in EmitDetails was not "
-                           "generated by nonce api";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfEmitNonce provided in EmitDetails was not "
+                   "generated by nonce api";
         return Unexpected(EMISSION_FAILURE);
     }
 
     if (callback && *callback != hookCtx.result.account)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfEmitCallback account must be the account of "
-                           "the emitting hook";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfEmitCallback account must be the account of "
+                   "the emitting hook";
         return Unexpected(EMISSION_FAILURE);
     }
 
     if (hash != hookCtx.result.hookHash)
     {
-        JLOG(j.trace())
-            << "HookEmit[" << HC_ACC()
-            << "]: sfEmitHookHash must be the hash of the emitting hook";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfEmitHookHash must be the hash of the emitting hook";
         return Unexpected(EMISSION_FAILURE);
     }
 
     // rule 4: sfTxnSignature must be absent
     if (stpTrans->isFieldPresent(sfTxnSignature))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfTxnSignature is present but should not be";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfTxnSignature is present but should not be";
         return Unexpected(EMISSION_FAILURE);
     }
 
     // rule 5: LastLedgerSeq must be present and after current ledger
     if (!stpTrans->isFieldPresent(sfLastLedgerSequence))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfLastLedgerSequence missing";
+        JLOG(s) << "HookEmit[" << HC_ACC() << "]: sfLastLedgerSequence missing";
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -731,15 +727,14 @@ HookAPI::emit(Slice const& txBlob) const
     uint32_t ledgerSeq = view.info().seq;
     if (tx_lls < ledgerSeq + 1)
     {
-        JLOG(j.trace())
-            << "HookEmit[" << HC_ACC()
-            << "]: sfLastLedgerSequence invalid (less than next ledger)";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfLastLedgerSequence invalid (less than next ledger)";
         return Unexpected(EMISSION_FAILURE);
     }
 
     if (tx_lls > ledgerSeq + 5)
     {
-        JLOG(j.trace())
+        JLOG(s)
             << "HookEmit[" << HC_ACC()
             << "]: sfLastLedgerSequence cannot be greater than current seq + 5";
         return Unexpected(EMISSION_FAILURE);
@@ -749,9 +744,9 @@ HookAPI::emit(Slice const& txBlob) const
     if (!stpTrans->isFieldPresent(sfFirstLedgerSequence) ||
         stpTrans->getFieldU32(sfFirstLedgerSequence) > tx_lls)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfFirstLedgerSequence must be present and <= "
-                           "LastLedgerSequence";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: sfFirstLedgerSequence must be present and <= "
+                   "LastLedgerSequence";
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -760,23 +755,21 @@ HookAPI::emit(Slice const& txBlob) const
 
     if (minfee < 0)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: Fee could not be calculated";
+        JLOG(s) << "HookEmit[" << HC_ACC() << "]: Fee could not be calculated";
         return Unexpected(EMISSION_FAILURE);
     }
 
     if (!stpTrans->isFieldPresent(sfFee))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: Fee missing from emitted tx";
+        JLOG(s) << "HookEmit[" << HC_ACC() << "]: Fee missing from emitted tx";
         return Unexpected(EMISSION_FAILURE);
     }
 
     int64_t fee = stpTrans->getFieldAmount(sfFee).xrp().drops();
     if (fee < minfee)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: Fee less than minimum required";
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: Fee less than minimum required";
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -785,8 +778,7 @@ HookAPI::emit(Slice const& txBlob) const
         std::make_shared<Transaction>(stpTrans, reason, applyCtx.app);
     if (tpTrans->getStatus() != NEW)
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: tpTrans->getStatus() != NEW";
+        JLOG(s) << "HookEmit[" << HC_ACC() << "]: tpTrans->getStatus() != NEW";
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -800,9 +792,9 @@ HookAPI::emit(Slice const& txBlob) const
 
     if (!isTesSuccess(preflightResult.ter))
     {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: Transaction preflight failure: "
-                        << transHuman(preflightResult.ter);
+        JLOG(s) << "HookEmit[" << HC_ACC()
+                << "]: Transaction preflight failure: "
+                << transHuman(preflightResult.ter);
         return Unexpected(EMISSION_FAILURE);
     }
 
