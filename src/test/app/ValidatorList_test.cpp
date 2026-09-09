@@ -240,9 +240,11 @@ private:
     }
 
     void
-    testListedWalletHistory()
+    testListedWalletHistory(bool failRead = false)
     {
-        testcase("publisher membership restores saved high waters first");
+        testcase(
+            failRead ? "failed wallet restore leaves list retryable"
+                     : "publisher membership restores saved high waters first");
         jtx::Env env{*this};
         auto const master = randomKeyPair(KeyType::ed25519);
         auto const signing = randomKeyPair(KeyType::secp256k1);
@@ -291,7 +293,7 @@ private:
         }
         BEAST_EXPECT(rows() == saved);
 
-        ManifestCache manifests{env.journal, 0};
+        ManifestCache manifests{env.journal, failRead ? 1u : 0u};
         ManifestCache publishers;
         manifests.loadListed(wallet);
         ValidatorList lists{
@@ -305,6 +307,49 @@ private:
             {validator},
             1,
             env.timeKeeper().now().time_since_epoch().count() + 3600);
+        if (failRead)
+        {
+            // An unlisted ledger discovery may hold an older binding than
+            // the revocation retained only in the selectively loaded wallet.
+            BEAST_EXPECT(
+                manifests.applyManifest(*deserializeManifest(base64_decode(
+                    validator.manifest))) == ManifestDisposition::accepted);
+            {
+                auto db = wallet.checkoutDb();
+                *db << "ALTER TABLE ValidatorManifests RENAME TO "
+                       "SavedManifests;";
+            }
+            bool threw = false;
+            try
+            {
+                lists.applyLists(
+                    pubManifest,
+                    1,
+                    {{blob, signList(blob, pubSigner), {}}},
+                    "test");
+            }
+            catch (soci::soci_error const&)
+            {
+                threw =
+                    true;  // Like the existing peer/site exception boundary.
+            }
+            {
+                auto db = wallet.checkoutDb();
+                *db << "ALTER TABLE SavedManifests RENAME TO "
+                       "ValidatorManifests;";
+            }
+            BEAST_EXPECT(threw);
+            BEAST_EXPECT(!lists.listed(master.first));
+            lists.updateTrusted(
+                asNodeIDs({master.first}),
+                env.timeKeeper().now(),
+                env.app().getOPs(),
+                env.app().overlay(),
+                env.app().getHashRouter());
+            BEAST_EXPECT(!lists.trusted(master.first));
+            // The same list below must still be accepted and restore the
+            // revocation; a failed read must not advance its sequence.
+        }
         auto const result = lists.applyLists(
             pubManifest, 1, {{blob, signList(blob, pubSigner), {}}}, "test");
         BEAST_EXPECT(result.bestDisposition() == ListDisposition::accepted);
@@ -4416,6 +4461,7 @@ public:
         testGenesisQuorum();
         testManifestProtection();
         testListedWalletHistory();
+        testListedWalletHistory(/* failRead = */ true);
         testRevocationAfterDelisting();
         testRevocationAfterDelisting(true, false);
         testRevocationAfterDelisting(true, true);

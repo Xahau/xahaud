@@ -728,7 +728,9 @@ public:
 private:
     // Called with mutex_ held whenever listed membership changes.
     void
-    pinManifestKeys(lock_guard const&);
+    pinManifestKeys(
+        lock_guard const&,
+        hash_map<PublicKey, std::size_t> const& listings);
 
     /** Return the number of configured validator list sites. */
     std::size_t

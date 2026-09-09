@@ -804,6 +804,8 @@ ManifestCache::restoreListed(hash_set<PublicKey> const& keys)
     if (!wallet || keys.empty())
         return;
 
+    // TODO: review wallet I/O error boundaries, including existing job-thread
+    // writes, separately. Unreadable history must not be treated as empty.
     auto restored = [&]() {
         auto db = wallet->checkoutDb();
         return getManifestsForKeys(*db, "ValidatorManifests", keys, j_);

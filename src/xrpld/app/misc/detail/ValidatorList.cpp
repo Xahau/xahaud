@@ -277,7 +277,7 @@ ValidatorList::load(
 
     JLOG(j_.debug()) << "Loaded " << count << " entries";
 
-    pinManifestKeys(lock);
+    pinManifestKeys(lock, keyListings_);
     return true;
 }
 
@@ -1076,7 +1076,8 @@ ValidatorList::updatePublisherList(
     std::vector<PublicKey> const& oldList,
     ValidatorList::lock_guard const& lock)
 {
-    // Update keyListings_ for added and removed keys
+    // Keep counts unchanged if pin() cannot restore a joining key's history.
+    auto listings = keyListings_;
     std::vector<PublicKey> const& publisherList = current.list;
     std::vector<std::string> const& manifests = current.manifests;
     auto iNew = publisherList.begin();
@@ -1087,7 +1088,7 @@ ValidatorList::updatePublisherList(
             (iNew != publisherList.end() && *iNew < *iOld))
         {
             // Increment list count for added keys
-            ++keyListings_[*iNew];
+            ++listings[*iNew];
             ++iNew;
         }
         else if (
@@ -1095,10 +1096,10 @@ ValidatorList::updatePublisherList(
             (iOld != oldList.end() && *iOld < *iNew))
         {
             // Decrement list count for removed keys
-            if (keyListings_[*iOld] <= 1)
-                keyListings_.erase(*iOld);
+            if (listings[*iOld] <= 1)
+                listings.erase(*iOld);
             else
-                --keyListings_[*iOld];
+                --listings[*iOld];
             ++iOld;
         }
         else
@@ -1110,7 +1111,8 @@ ValidatorList::updatePublisherList(
 
     // Protect all listed keys before accepting their embedded manifests,
     // including keys below the trust threshold and revoked validators.
-    pinManifestKeys(lock);
+    pinManifestKeys(lock, listings);
+    keyListings_ = std::move(listings);
 
     if (publisherList.empty())
     {
@@ -1190,8 +1192,10 @@ ValidatorList::applyList(
         return PublisherListStats{result};
     }
 
-    // Update publisher's list
-    auto& pubCollection = publisherLists_[pubKey];
+    // Peer/site callers catch wallet errors. Stage the list so a failed
+    // history restore cannot publish membership or consume its sequence;
+    // the same list can be retried through the existing submission paths.
+    auto pubCollection = publisherLists_[pubKey];
     auto const sequence = list[jss::sequence].asUInt();
     auto const accepted =
         (result == ListDisposition::accepted ||
@@ -1297,6 +1301,7 @@ ValidatorList::applyList(
         updatePublisherList(pubKey, pubCollection.current, oldList, lock);
     }
 
+    publisherLists_[pubKey] = std::move(pubCollection);
     return applyResult;
 }
 
@@ -1555,16 +1560,18 @@ ValidatorList::removePublisherList(
     iList->second.current.list.clear();
     iList->second.status = reason;
 
-    pinManifestKeys(lock);
+    pinManifestKeys(lock, keyListings_);
     return true;
 }
 
 void
-ValidatorList::pinManifestKeys(lock_guard const&)
+ValidatorList::pinManifestKeys(
+    lock_guard const&,
+    hash_map<PublicKey, std::size_t> const& listings)
 {
     hash_set<PublicKey> keys;
-    keys.reserve(keyListings_.size());
-    for (auto const& [key, count] : keyListings_)
+    keys.reserve(listings.size());
+    for (auto const& [key, count] : listings)
         keys.insert(key);
     validatorManifests_.pin(std::move(keys));
 }
@@ -1977,27 +1984,25 @@ ValidatorList::updateTrusted(
 
                 // Rotate the pending list in to current
                 auto sequence = iter->first;
-                auto& candidate = iter->second;
+                auto candidate = iter->second;
                 auto& current = collection.current;
                 XRPL_ASSERT(
                     candidate.validFrom <= closeTime,
                     "ripple::ValidatorList::updateTrusted : maximum time");
 
-                auto const oldList = current.list;
+                // As with immediate lists, restore history before committing
+                // current or consuming the pending list. Error policy is
+                // unchanged.
+                if (candidate.validUntil <= closeTime)
+                    candidate.list.clear();
+                updatePublisherList(pubKey, candidate, current.list, lock);
+
                 current = std::move(candidate);
                 if (collection.status != PublisherStatus::available)
                     collection.status = PublisherStatus::available;
                 XRPL_ASSERT(
                     current.sequence == sequence,
                     "ripple::ValidatorList::updateTrusted : sequence match");
-                // If the list is expired, remove the validators so they don't
-                // get processed in. The expiration check below will do the rest
-                // of the work
-                if (current.validUntil <= closeTime)
-                    current.list.clear();
-
-                updatePublisherList(pubKey, current, oldList, lock);
-
                 // Only broadcast the current, which will consequently only
                 // send to peers that don't understand v2, or which are
                 // unknown (unlikely). Those that do understand v2 should
