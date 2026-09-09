@@ -244,7 +244,13 @@
                                << "Tried to accept/rollback but specified "    \
                                   "memory outside of the wasm instance "       \
                                << "limit when specifying a reason string";     \
-                return OUT_OF_BOUNDS;                                          \
+                if (!view.rules().enabled(fixHookExitOutOfBounds))             \
+                    return OUT_OF_BOUNDS;                                      \
+                /* fixHookExitOutOfBounds: terminate as a rollback so the      \
+                   failure is visible in HookExecution metadata */             \
+                hookCtx.result.exitType = hook_api::ExitType::ROLLBACK;        \
+                hookCtx.result.exitCode = (int64_t)OUT_OF_BOUNDS;              \
+                return RC_ROLLBACK;                                            \
             }                                                                  \
             /* assembly script and some other languages use utf16 for strings  \
              */                                                                \

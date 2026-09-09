@@ -3127,6 +3127,81 @@ public:
     }
 
     void
+    test_exit_out_of_bounds(FeatureBitset features)
+    {
+        testcase("Test accept()/rollback() with out of bounds reason");
+        using namespace jtx;
+
+        // reason string pointer outside of wasm memory, then fall through
+        TestHook accept_oob_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+                accept(0xFFFFFF00U, 32, 42);
+                return 0;
+            }
+        )[test.hook]"];
+
+        TestHook rollback_oob_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+                rollback(0xFFFFFF00U, 32, 42);
+                return 0;
+            }
+        )[test.hook]"];
+
+        for (bool const withFix : {true, false})
+        {
+            for (auto const& hook_wasm : {accept_oob_wasm, rollback_oob_wasm})
+            {
+                Env env{
+                    *this,
+                    withFix ? features : features - fixHookExitOutOfBounds};
+
+                auto const alice = Account{"alice"};
+                auto const bob = Account{"bob"};
+                env.fund(XRP(10000), alice);
+                env.fund(XRP(10000), bob);
+
+                env(ripple::test::jtx::hook(alice, {{hso(hook_wasm)}}, 0),
+                    M("Install OOB exit hook"),
+                    HSFEE);
+                env.close();
+
+                env(pay(bob, alice, XRP(1)),
+                    M("Test OOB exit hook"),
+                    fee(XRP(1)),
+                    ter(tecHOOK_REJECTED));
+                env.close();
+
+                auto const meta = env.meta();
+                BEAST_REQUIRE(meta && meta->isFieldPresent(sfHookExecutions));
+                auto const& execs = meta->getFieldArray(sfHookExecutions);
+                BEAST_REQUIRE(execs.size() == 1);
+
+                // with the fix: ROLLBACK with OUT_OF_BOUNDS (-1)
+                // without: UNSET (fixXahauV3) with default -1
+                BEAST_EXPECT(
+                    execs[0].getFieldU8(sfHookResult) ==
+                    static_cast<uint8_t>(
+                        withFix ? hook_api::ExitType::ROLLBACK
+                                : hook_api::ExitType::UNSET));
+                BEAST_EXPECT(
+                    execs[0].getFieldU64(sfHookReturnCode) ==
+                    0x8000000000000001ULL);
+                BEAST_EXPECT(execs[0].getFieldVL(sfHookReturnString).empty());
+            }
+        }
+    }
+
+    void
     testGuards(FeatureBitset features)
     {
         testcase("Test guards");
@@ -15083,6 +15158,7 @@ public:
         testWasm(features);
         test_accept(features);
         test_rollback(features);
+        test_exit_out_of_bounds(features);
 
         testGuards(features);
 
