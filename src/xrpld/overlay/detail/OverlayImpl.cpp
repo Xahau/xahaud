@@ -1193,8 +1193,6 @@ OverlayImpl::getManifestsMessages()
             }
         };
 
-        // A bounded subset of the cache rather than all of it; see
-        // ManifestCache::for_each_gossip_manifest for what is selected.
         // Only listed/configured identities are offered. Membership changes
         // invalidate this message along with changes to their manifests.
         // Packet limits split the set; they must not permanently omit its tail.

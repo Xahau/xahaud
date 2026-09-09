@@ -902,9 +902,10 @@ ManifestCache::save(
         [this, &isTrusted](PublicKey const& key) {
             // Membership is already mirrored here. Do not take ValidatorList's
             // lock while holding the cache lock (pin() takes them in reverse).
-            return wallet_ ? pinned_.contains(key) ||
-                    configured_.contains(key) || pendingSave_.contains(key)
-                           : isTrusted(key);
+            if (!wallet_)
+                return isTrusted(key);
+            return pinned_.contains(key) || configured_.contains(key) ||
+                pendingSave_.contains(key);
         },
         map_,
         j_,

@@ -37,6 +37,7 @@
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
@@ -425,25 +426,16 @@ public:
                          bool compressed,
                          bool reject,
                          std::uint16_t type = protocol::mtMANIFESTS) {
-            std::vector<std::uint8_t> header(compressed ? 10 : 6);
-            auto put = [&](std::size_t offset, std::uint32_t value) {
-                for (int i = 3; i >= 0; --i)
-                {
-                    header[offset + i] = value & 0xff;
-                    value >>= 8;
-                }
-            };
-            put(0, wire);
-            header[4] = type >> 8;
-            header[5] = type & 0xff;
+            Serializer header;
+            header.add32(wire | (compressed ? 0x90000000u : 0u));
+            header.add16(type);
             if (compressed)
-            {
-                header[0] |= 0x90;
-                put(6, plain);
-            }
+                header.add32(plain);
             std::size_t hint = 0;
             auto const result = invokeProtocolMessage(
-                boost::asio::buffer(header), handler, hint);
+                boost::asio::buffer(header.data(), header.size()),
+                handler,
+                hint);
             BEAST_EXPECT(result.first == 0);
             BEAST_EXPECT(
                 result.second ==

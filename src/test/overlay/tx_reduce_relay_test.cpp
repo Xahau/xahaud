@@ -414,7 +414,7 @@ private:
         env.app().getJobQueue().rendezvous();
         BEAST_EXPECT(cache.getRawManifest(masters[4]));
 
-        // Completion must charge on the strand: an overloaded peer really
+        // Intake must charge on the strand: an overloaded peer really
         // disconnects, instead of merely accumulating an off-thread balance.
         BEAST_EXPECT(peer->waitCharges(7));
         auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
