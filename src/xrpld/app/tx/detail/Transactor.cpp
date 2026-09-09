@@ -448,7 +448,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     XRPAmount accumulator = baseFee;
 
     if (view.rules().enabled(featureHooks) &&
-        view.rules().enabled(fixXahauV1) && tx.isFieldPresent(sfHookParameters))
+        tx.isFieldPresent(sfHookParameters))
     {
         uint64_t paramBytes = 0;
         auto const& params = tx.getFieldArray(sfHookParameters);
@@ -754,8 +754,7 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
 
-    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks) &&
-        ctx.view.rules().enabled(fixXahauV2))
+    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks))
     {
         // check if the emitted txn exists on ledger and is in the emission
         // directory if not that's a re-apply so discard

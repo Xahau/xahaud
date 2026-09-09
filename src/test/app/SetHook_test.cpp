@@ -332,9 +332,7 @@ public:
         iv[jss::CreateCode] = "";
         jv[jss::Hooks][0U][jss::Hook] = iv;
 
-        bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-        auto const txResult = fixV1 ? ter(tesSUCCESS) : ter(tefBAD_LEDGER);
-        env(jv, HSFEE, txResult);
+        env(jv, HSFEE, ter(tesSUCCESS));
         env.close();
     }
 
@@ -3842,8 +3840,6 @@ public:
 
         env(invoke, M("test emit"), fee(XRP(1)));
 
-        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-
         std::optional<uint256> emithash;
         {
             auto meta = env.meta();  // meta can close
@@ -3853,9 +3849,7 @@ public:
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
             auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
-            BEAST_EXPECT(
-                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
-                                                                       : false);
+            BEAST_EXPECT(hookEmissions[0u].isFieldPresent(sfEmitNonce));
             BEAST_EXPECT(
                 hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
 
@@ -3950,8 +3944,7 @@ public:
                 BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
-                if (fixV2)
-                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             env.close();
             burden_expected *= 2U;
@@ -3975,8 +3968,7 @@ public:
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU64(sfHookReturnCode) ==
                     283);  // emission failure on first emit
-                if (fixV2)
-                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             BEAST_EXPECT(txcount == 256);
         }
@@ -4233,8 +4225,6 @@ public:
 
         env(invoke, M("test emit"), fee(XRP(1)));
 
-        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-
         std::optional<uint256> emithash;
         {
             auto meta = env.meta();  // meta can close
@@ -4244,9 +4234,7 @@ public:
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
             auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
-            BEAST_EXPECT(
-                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
-                                                                       : false);
+            BEAST_EXPECT(hookEmissions[0u].isFieldPresent(sfEmitNonce));
             BEAST_EXPECT(
                 hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
 
@@ -4341,8 +4329,7 @@ public:
                 BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
-                if (fixV2)
-                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             env.close();
             burden_expected *= 2U;
@@ -4366,8 +4353,7 @@ public:
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU64(sfHookReturnCode) ==
                     172);  // emission failure on first emit
-                if (fixV2)
-                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             BEAST_EXPECT(txcount == 256);
         }
@@ -7136,12 +7122,8 @@ public:
         BEAST_REQUIRE(hookExecutions.size() == 2);
 
         // get the data in the return code of the execution
-        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-        if (fixV2)
-        {
-            BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 5);
-            BEAST_EXPECT(hookExecutions[1].getFieldU32(sfFlags) == 0);
-        }
+        BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 5);
+        BEAST_EXPECT(hookExecutions[1].getFieldU32(sfFlags) == 0);
 
         BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
         BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
@@ -10248,19 +10230,13 @@ public:
                 fee(XRP(1)));
         }
 
-        // fixXahauV1
-        bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-        auto const txResult = fixV1 ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS);
         env(pay(bob, alice, XRP(1)),
             M("test state_foreign_set_max"),
             fee(XRP(1)),
-            ter(txResult));
+            ter(tecHOOK_REJECTED));
         env.close();
 
         // verify hook result
-        // TOO_MANY_NAMESPACES / -45
-        std::string const hookResult = fixV1 ? "800000000000002d" : "9";
-
         Json::Value params;
         params[jss::transaction] =
             env.tx()->getJson(JsonOptions::none)[jss::hash];
@@ -10268,7 +10244,9 @@ public:
         auto const meta = jrr[jss::result][jss::meta];
         auto const executions = meta[sfHookExecutions.jsonName];
         auto const execution = executions[0u][sfHookExecution.jsonName];
-        BEAST_EXPECT(execution[sfHookReturnCode.jsonName] == hookResult);
+        // TOO_MANY_NAMESPACES / -45
+        BEAST_EXPECT(
+            execution[sfHookReturnCode.jsonName] == "800000000000002d");
     }
 
     void
@@ -15442,16 +15420,15 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 8> const feats{
+        static std::array<FeatureBitset, 7> const feats{
             all,
             all - featureHookFeeV2,
-            all - fixXahauV2 - featureHookFeeV2,
-            all - fixXahauV1 - fixXahauV2 - featureHookFeeV2,
-            all - fixXahauV1 - fixXahauV2 - fixNSDelete - featureHookFeeV2,
-            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
+            all - fixNSDelete - featureHookFeeV2,
+            all - fixNSDelete - fixPageCap - featureHookFeeV2,
+            all - fixNSDelete - fixPageCap - featureHookCanEmit -
                 featureHookFeeV2,
-            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
-                featureExtendedHookState - featureHookFeeV2,
+            all - fixNSDelete - fixPageCap - featureExtendedHookState -
+                featureHookFeeV2,
             all - featureNamedHooks - featureHookFeeV2,
         };
 
@@ -15713,8 +15690,7 @@ SETHOOK_TEST(2, false)
 SETHOOK_TEST(3, false)
 SETHOOK_TEST(4, false)
 SETHOOK_TEST(5, false)
-SETHOOK_TEST(6, false)
-SETHOOK_TEST(7, true)
+SETHOOK_TEST(6, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
@@ -15723,7 +15699,6 @@ BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook6, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHook7, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M
