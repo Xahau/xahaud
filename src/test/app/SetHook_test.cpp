@@ -2000,11 +2000,35 @@ public:
             BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
         }
 
-        // Call named hook with the wrong hook name
+        // Call named hook with the wrong hook name (size == 0)
+        for (auto const fix : {true, false})
+        {
+            auto f = features - fixHookNameValidation;
+            if (fix)
+                f = f | fixHookNameValidation;
+            Env env{*this, f};
+
+            env.fund(XRP(10000), alice);
+            // execute both named and non-named hooks
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "";
+
+            auto const expected = fix ? ter(temMALFORMED) : ter(tesSUCCESS);
+            env(jv,
+                M("Call named hook with the wrong hook name (size == 0)"),
+                HSFEE,
+                ter(expected));
+            env.close();
+        }
+
+        // Call named hook with the wrong hook name (size > 0)
         {
             auto jv = invoke::invoke(alice);
             jv[jss::HookName] = "41424345";
-            env(jv, M("Call named hook with the wrong hook name"), HSFEE);
+            env(jv,
+                M("Call named hook with the wrong hook name (size > 0)"),
+                HSFEE);
             env.close();
             // execute only non-named hook
             BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
