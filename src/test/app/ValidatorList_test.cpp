@@ -429,7 +429,7 @@ private:
             {
                 failed = true;
             }
-            BEAST_EXPECT(failed == failSave);
+            BEAST_EXPECT(!failed);
             BEAST_EXPECT(!lists.listed(master.first));
             BEAST_EXPECT(
                 cache.applyGossipManifest(*deserializeManifest(revokedBytes)) ==

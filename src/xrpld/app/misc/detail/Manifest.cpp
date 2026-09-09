@@ -439,6 +439,7 @@ ManifestCache::pin(hash_set<PublicKey> keys)
     // identity as unlisted. No cache lock is held during the database write.
     if (wallet && !departing.empty())
     {
+        try
         {
             auto db = wallet->checkoutDb();
             saveManifests(
@@ -448,6 +449,14 @@ ManifestCache::pin(hash_set<PublicKey> keys)
                 departing,
                 j_,
                 true);
+        }
+        catch (soci::soci_error const& e)
+        {
+            // List changes also run on consensus jobs. Keep the pending save
+            // for retry instead of letting a wallet write failure escape.
+            JLOG(j_.error())
+                << "Failed to save departing validator manifests: " << e.what();
+            return;
         }
         std::lock_guard lock{mutex_};
         for (auto const& [key, manifest] : departing)
