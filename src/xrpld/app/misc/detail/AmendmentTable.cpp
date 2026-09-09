@@ -432,6 +432,11 @@ private:
     // will be enabled.
     std::optional<NetClock::time_point> firstUnsupportedExpected_;
 
+    // Unsupported amendments that have reached majority, and the time each
+    // is expected to activate. Recomputed alongside
+    // firstUnsupportedExpected_, so it clears when majority is lost.
+    std::vector<std::pair<uint256, NetClock::time_point>> unsupportedMajority_;
+
     beast::Journal const j_;
 
     // Database which persists veto/unveto vote
@@ -494,6 +499,9 @@ public:
 
     std::optional<NetClock::time_point>
     firstUnsupportedExpected() const override;
+
+    std::vector<UnsupportedAmendment>
+    unsupportedAmendments() const override;
 
     Json::Value
     getJson(bool isAdmin) const override;
@@ -807,6 +815,36 @@ AmendmentTableImpl::firstUnsupportedExpected() const
     return firstUnsupportedExpected_;
 }
 
+std::vector<AmendmentTable::UnsupportedAmendment>
+AmendmentTableImpl::unsupportedAmendments() const
+{
+    std::lock_guard lock(mutex_);
+
+    std::vector<UnsupportedAmendment> result;
+
+    // Already active.
+    for (auto const& [id, state] : amendmentMap_)
+    {
+        if (state.enabled && !state.supported)
+            result.push_back({id, std::nullopt});
+    }
+
+    // Reached majority, not yet active.
+    for (auto const& entry : unsupportedMajority_)
+    {
+        if (std::none_of(result.begin(), result.end(), [&entry](auto const& u) {
+                return u.id == entry.first;
+            }))
+            result.push_back({entry.first, entry.second});
+    }
+
+    std::sort(result.begin(), result.end(), [](auto const& a, auto const& b) {
+        return a.id < b.id;
+    });
+
+    return result;
+}
+
 std::vector<uint256>
 AmendmentTableImpl::doValidation(std::set<uint256> const& enabled) const
 {
@@ -967,6 +1005,7 @@ AmendmentTableImpl::doValidatedLedger(
     // if it's currently set. If it's not set when the loop is done, then any
     // prior unknown amendments have lost majority.
     firstUnsupportedExpected_.reset();
+    unsupportedMajority_.clear();
     for (auto const& [hash, time] : majority)
     {
         AmendmentState& s = add(hash, lock);
@@ -978,6 +1017,7 @@ AmendmentTableImpl::doValidatedLedger(
         {
             JLOG(j_.info()) << "Unsupported amendment " << hash
                             << " reached majority at " << to_string(time);
+            unsupportedMajority_.emplace_back(hash, time + majorityTime_);
             if (!firstUnsupportedExpected_ || firstUnsupportedExpected_ > time)
                 firstUnsupportedExpected_ = time;
         }
