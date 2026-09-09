@@ -1437,6 +1437,19 @@ public:
             deleteHook(alice);
             deleteHook(bob);
         }
+
+        // create with no hookOn fields
+        {
+            auto jv = hso(accept_wasm);
+            jv.removeMember(jss::HookOn);
+            jv.removeMember(jss::HookOnIncoming);
+            jv.removeMember(jss::HookOnOutgoing);
+            env(ripple::test::jtx::hook(alice, {{jv}}, 0),
+                M("Create with no hookOn fields"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+
         if (!hookOnV2)
             return;
 

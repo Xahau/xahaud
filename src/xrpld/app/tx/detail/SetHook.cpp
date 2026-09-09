@@ -59,6 +59,23 @@ namespace ripple {
 using GrantKey = std::pair<uint256, std::optional<AccountID>>;
 
 bool
+isHookOnFieldsPresent(STObject const& hookSetObj)
+{
+    if (hookSetObj.isFieldPresent(sfHookOn))
+    {
+        return true;
+    }
+    if (hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
+        hookSetObj.isFieldPresent(sfHookOnIncoming))
+    {
+        // sfHookOnOutgoing and sfHookOnIncoming must be present together,
+        // should be checked in validateHookOn()
+        return true;
+    }
+    return false;
+}
+
+bool
 validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
 {
     if (hookGrants.size() > 8)
@@ -204,6 +221,218 @@ validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
     return true;
 }
 
+bool
+validateHookOn(SetHookCtx& ctx, STObject const& hookSetObj)
+{
+    if (!hookSetObj.isFieldPresent(sfHookOn))
+    {
+        if (!ctx.rules.enabled(featureHookOnV2))
+        {
+            JLOG(ctx.j.trace())
+                << "HookSet(" << hook::log::HOOKON_MISSING << ")[" << HS_ACC()
+                << "]: Malformed transaction: SetHook must include "
+                   "sfHookOn before featureHookOnV2 is enabled.";
+            return false;
+        }
+
+        if (!hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
+            !hookSetObj.isFieldPresent(sfHookOnIncoming))
+        {
+            JLOG(ctx.j.trace())
+                << "HookSet(" << hook::log::HOOKON_MISSING << ")[" << HS_ACC()
+                << "]: Malformed transaction: SetHook must include "
+                   "sfHookOnOutgoing and sfHookOnIncoming "
+                   "when creating a new hook without sfHookOn.";
+            return false;
+        }
+
+        auto const outgoing = hookSetObj.getFieldH256(sfHookOnOutgoing);
+        auto const incoming = hookSetObj.getFieldH256(sfHookOnIncoming);
+        if (outgoing == incoming)
+        {
+            JLOG(ctx.j.trace())
+                << "HookSet(" << hook::log::HOOKON_MISSING << ")[" << HS_ACC()
+                << "]: Malformed transaction: SetHook outgoing and "
+                   "incoming hookon must be different.";
+            return false;
+        }
+    }
+    else
+    {
+        if (hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
+            hookSetObj.isFieldPresent(sfHookOnIncoming))
+        {
+            JLOG(ctx.j.trace())
+                << "HookSet(" << hook::log::HOOKON_MISSING << ")[" << HS_ACC()
+                << "]: Malformed transaction: SetHook must no"
+                   "include sfHookOnOutgoing and sfHookOnIncoming "
+                   "when creating a new hook with sfHookOn.";
+            return false;
+        }
+    }
+    return true;
+}
+
+bool
+validateCreateCode(SetHookCtx& ctx, Blob const& createCode)
+{
+    if (createCode.size() > hook::maxHookWasmSize())
+    {
+        JLOG(ctx.j.trace())
+            << "HookSet(" << hook::log::WASM_TOO_BIG << ")[" << HS_ACC()
+            << "]: Malformed transaction: SetHook operation would create "
+               "blob larger than max";
+        return false;
+    }
+    return true;
+}
+
+std::variant<bool, std::pair<uint64_t, uint64_t>>
+validateWasmCode(SetHookCtx& ctx, STObject const& hookSetObj)
+{
+    if (!hookSetObj.isFieldPresent(sfCreateCode))
+        // defensive check: this should never happen
+        return false;  // LCOV_EXCL_LINE
+
+    Blob hook = hookSetObj.getFieldVL(sfCreateCode);
+
+    // RH NOTE: validateGuards has a generic non-rippled specific
+    // interface so it can be used in other projects (i.e. tooling).
+    // As such the calling here is a bit convoluted.
+
+    std::optional<std::reference_wrapper<std::basic_ostream<char>>> logger;
+    std::ostringstream loggerStream;
+    std::string hsacc{""};
+    if (ctx.j.trace())
+    {
+        logger = loggerStream;
+        std::stringstream ss;
+        ss << HS_ACC();
+        hsacc = ss.str();
+    }
+
+    auto result = validateGuards(
+        hook,  // wasm to verify
+        logger,
+        hsacc,
+        hook_api::getImportWhitelist(ctx.rules),
+        hook_api::getGuardRulesVersion(ctx.rules));
+
+    if (ctx.j.trace())
+    {
+        // clunky but to get the stream to accept the output
+        // correctly we will split on new line and feed each line
+        // one by one into the trace stream beast::Journal should be
+        // updated to inherit from basic_ostream<char> then this
+        // wouldn't be necessary.
+
+        // is this a needless copy or does the compiler do copy
+        // elision here?
+        std::string s = loggerStream.str();
+
+        char* data = s.data();
+        size_t len = s.size();
+
+        char* last = data;
+        size_t i = 0;
+        for (; i < len; ++i)
+        {
+            if (data[i] == '\n')
+            {
+                data[i] = '\0';
+                ctx.j.trace() << last;
+                last = data + i;
+            }
+        }
+
+        if (last < data + i)
+            ctx.j.trace() << last;
+    }
+
+    if (!result)
+        return false;
+
+    JLOG(ctx.j.trace()) << "HookSet(" << hook::log::WASM_SMOKE_TEST << ")["
+                        << HS_ACC()
+                        << "]: Trying to wasm instantiate proposed hook "
+                        << "size = " << hook.size();
+
+    std::optional<std::string> result2 =
+        hook::HookExecutor::validateWasm(hook.data(), (size_t)hook.size());
+
+    if (result2)
+    {
+        // LCOV_EXCL_START
+        JLOG(ctx.j.trace())
+            << "HookSet(" << hook::log::WASM_TEST_FAILURE << ")[" << HS_ACC()
+            << "Tried to set a hook with invalid code. VM error: " << *result2;
+        return false;
+        // LCOV_EXCL_STOP
+    }
+
+    return *result;
+}
+
+bool
+validateHookAPIVersion(SetHookCtx& ctx, uint16_t apiVersion)
+{
+    if (apiVersion != 0)
+    {
+        JLOG(ctx.j.trace())
+            << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
+            << "]: Malformed transaction: SetHook sfHookApiVersion invalid. "
+               "(Try 0).";
+        return false;
+    }
+    return true;
+}
+
+bool
+validateHookSetFields(SetHookCtx& ctx, STObject const& hookSetObj)
+{
+    auto const& flags = hookSetObj.getFlags();
+
+    if (flags & ~(hsfOVERRIDE | hsfNSDELETE | hsfCOLLECT))
+    {
+        JLOG(ctx.j.trace())
+            << "HookSet(" << hook::log::FLAGS_INVALID << ")[" << HS_ACC()
+            << "]: Malformed transaction: SetHook operation specified invalid "
+               "flags";
+        return false;
+    }
+
+    if (hookSetObj.isFieldPresent(sfCreateCode) &&
+        !validateCreateCode(ctx, hookSetObj.getFieldVL(sfCreateCode)))
+    {
+        return false;
+    }
+
+    if (hookSetObj.isFieldPresent(sfHookGrants) &&
+        !validateHookGrants(ctx, hookSetObj.getFieldArray(sfHookGrants)))
+    {
+        return false;
+    }
+
+    if (hookSetObj.isFieldPresent(sfHookParameters) &&
+        !validateHookParams(ctx, hookSetObj.getFieldArray(sfHookParameters)))
+    {
+        return false;
+    }
+
+    if (isHookOnFieldsPresent(hookSetObj) && !validateHookOn(ctx, hookSetObj))
+    {
+        return false;
+    }
+
+    if (hookSetObj.isFieldPresent(sfHookApiVersion) &&
+        !validateHookAPIVersion(ctx, hookSetObj.getFieldU16(sfHookApiVersion)))
+    {
+        return false;
+    }
+
+    return true;
+}
+
 // infer which operation the user is attempting to execute from the present and
 // absent fields
 HookSetOperation
@@ -226,20 +455,15 @@ SetHook::inferOperation(STObject const& hookSetObj)
         !hasHash && !hasCode && !hookSetObj.isFieldPresent(sfHookGrants) &&
         !hookSetObj.isFieldPresent(sfHookNamespace) &&
         !hookSetObj.isFieldPresent(sfHookParameters) &&
-        !(hookSetObj.isFieldPresent(sfHookOn) ||
-          (hookSetObj.isFieldPresent(sfHookOnOutgoing) &&
-           hookSetObj.isFieldPresent(sfHookOnIncoming))) &&
+        !isHookOnFieldsPresent(hookSetObj) &&
         !hookSetObj.isFieldPresent(sfHookCanEmit) &&
         !hookSetObj.isFieldPresent(sfHookApiVersion) &&
         !hookSetObj.isFieldPresent(sfHookName) &&
         !hookSetObj.isFieldPresent(sfFlags))
         return hsoNOOP;
 
-    uint32_t flags = hookSetObj.isFieldPresent(sfFlags)
-        ? hookSetObj.getFieldU32(sfFlags)
-        : 0;
-
-    return hookSetObj.isFieldPresent(sfHookNamespace) && (flags & hsfNSDELETE)
+    return hookSetObj.isFieldPresent(sfHookNamespace) &&
+            (hookSetObj.isFlag(hsfNSDELETE))
         ? hsoNSDELETE
         : hsoUPDATE;
 }
@@ -250,9 +474,11 @@ SetHook::inferOperation(STObject const& hookSetObj)
 HookSetValidation
 SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 {
-    uint32_t flags = hookSetObj.isFieldPresent(sfFlags)
-        ? hookSetObj.getFieldU32(sfFlags)
-        : 0;
+    // validate the hook set fields
+    if (!validateHookSetFields(ctx, hookSetObj))
+        return false;
+
+    uint32_t flags = hookSetObj.getFlags();
 
     switch (inferOperation(hookSetObj))
     {
@@ -323,32 +549,10 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
-            if (flags & ~(hsfOVERRIDE | hsfNSDELETE | hsfCOLLECT))
-            {
-                JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::FLAGS_INVALID << ")["
-                    << HS_ACC()
-                    << "]: Malformed transaction: SetHook delete operation "
-                       "specified invalid flags";
-                return false;
-            }
-
             return true;
         }
 
         case hsoINSTALL: {
-            // validate hook params structure, if any
-            if (hookSetObj.isFieldPresent(sfHookParameters) &&
-                !validateHookParams(
-                    ctx, hookSetObj.getFieldArray(sfHookParameters)))
-                return false;
-
-            // validate hook grants structure, if any
-            if (hookSetObj.isFieldPresent(sfHookGrants) &&
-                !validateHookGrants(
-                    ctx, hookSetObj.getFieldArray(sfHookGrants)))
-                return false;
-
             // api version not allowed in update
             if (hookSetObj.isFieldPresent(sfHookApiVersion))
             {
@@ -359,6 +563,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
+            // hook params may be present if the user so chooses
+            // hook grants may be present if the user so chooses
             // namespace may be valid, if the user so chooses
             // hookon may be present if the user so chooses
             // flags may be present if the user so chooses
@@ -381,18 +587,6 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
-            // validate hook params structure
-            if (hookSetObj.isFieldPresent(sfHookParameters) &&
-                !validateHookParams(
-                    ctx, hookSetObj.getFieldArray(sfHookParameters)))
-                return false;
-
-            // validate hook grants structure
-            if (hookSetObj.isFieldPresent(sfHookGrants) &&
-                !validateHookGrants(
-                    ctx, hookSetObj.getFieldArray(sfHookGrants)))
-                return false;
-
             // api version not allowed in update
             if (hookSetObj.isFieldPresent(sfHookApiVersion))
             {
@@ -402,7 +596,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                        "sfHookApiVersion must not be included.";
                 return false;
             }
-
+            // hook param may be present if the user so chooses
+            // hook grants may be present if the user so chooses
             // namespace may be valid, if the user so chooses
             // hookon may be present if the user so chooses
             // flags may be present if the user so chooses
@@ -411,17 +606,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
         }
 
         case hsoCREATE: {
-            // validate hook params structure
-            if (hookSetObj.isFieldPresent(sfHookParameters) &&
-                !validateHookParams(
-                    ctx, hookSetObj.getFieldArray(sfHookParameters)))
-                return false;
-
-            // validate hook grants structure
-            if (hookSetObj.isFieldPresent(sfHookGrants) &&
-                !validateHookGrants(
-                    ctx, hookSetObj.getFieldArray(sfHookGrants)))
-                return false;
+            // hook param may be present if the user so chooses
+            // hook grants may be present if the user so chooses
 
             // ensure hooknamespace is present
             if (!hookSetObj.isFieldPresent(sfHookNamespace))
@@ -444,67 +630,16 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 return false;
             }
 
-            auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (version != 0)
-            {
-                // we currently only accept api version 0
-                JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::API_INVALID << ")[" << HS_ACC()
-                    << "]: Malformed transaction: SetHook "
-                       "sfHook->sfHookApiVersion invalid. (Try 0).";
-                return false;
-            }
-
             // validate sfHookOn
-            if (!hookSetObj.isFieldPresent(sfHookOn))
+            if (!isHookOnFieldsPresent(hookSetObj))
             {
-                if (!ctx.rules.enabled(featureHookOnV2))
-                {
-                    JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::HOOKON_MISSING << ")["
-                        << HS_ACC()
-                        << "]: Malformed transaction: SetHook must include "
-                           "sfHookOn before featureHookOnV2 is enabled.";
-                    return false;
-                }
-
-                if (!hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
-                    !hookSetObj.isFieldPresent(sfHookOnIncoming))
-                {
-                    JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::HOOKON_MISSING << ")["
-                        << HS_ACC()
-                        << "]: Malformed transaction: SetHook must include "
-                           "sfHookOnOutgoing and sfHookOnIncoming "
-                           "when creating a new hook without sfHookOn.";
-                    return false;
-                }
-
-                auto const outgoing = hookSetObj.getFieldH256(sfHookOnOutgoing);
-                auto const incoming = hookSetObj.getFieldH256(sfHookOnIncoming);
-                if (outgoing == incoming)
-                {
-                    JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::HOOKON_MISSING << ")["
-                        << HS_ACC()
-                        << "]: Malformed transaction: SetHook outgoing and "
-                           "incoming hookon must be different.";
-                    return false;
-                }
-            }
-            else
-            {
-                if (hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
-                    hookSetObj.isFieldPresent(sfHookOnIncoming))
-                {
-                    JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::HOOKON_MISSING << ")["
-                        << HS_ACC()
-                        << "]: Malformed transaction: SetHook must no"
-                           "include sfHookOnOutgoing and sfHookOnIncoming "
-                           "when creating a new hook with sfHookOn.";
-                    return false;
-                }
+                JLOG(ctx.j.trace())
+                    << "HookSet(" << hook::log::HOOKON_MISSING << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook must include "
+                       "sfHookOn or (sfHookOnOutgoing and sfHookOnIncoming) "
+                       "fields";
+                return false;
             }
 
             // validate sfHookCanEmit
@@ -517,97 +652,12 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             // validate sfHookName
             if (hookSetObj.isFieldPresent(sfHookName))
             {
-                auto name = hookSetObj.getFieldVL(sfHookName);
-                if (!validateHookName(name, ctx.j))
+                if (!validateHookName(hookSetObj.getFieldVL(sfHookName), ctx.j))
                     return false;
             }
 
             // finally validate web assembly byte code
-            {
-                if (!hookSetObj.isFieldPresent(sfCreateCode))
-                    return {};
-
-                Blob hook = hookSetObj.getFieldVL(sfCreateCode);
-
-                // RH NOTE: validateGuards has a generic non-rippled specific
-                // interface so it can be used in other projects (i.e. tooling).
-                // As such the calling here is a bit convoluted.
-
-                std::optional<std::reference_wrapper<std::basic_ostream<char>>>
-                    logger;
-                std::ostringstream loggerStream;
-                std::string hsacc{""};
-                if (ctx.j.trace())
-                {
-                    logger = loggerStream;
-                    std::stringstream ss;
-                    ss << HS_ACC();
-                    hsacc = ss.str();
-                }
-
-                auto result = validateGuards(
-                    hook,  // wasm to verify
-                    logger,
-                    hsacc,
-                    hook_api::getImportWhitelist(ctx.rules),
-                    hook_api::getGuardRulesVersion(ctx.rules));
-
-                if (ctx.j.trace())
-                {
-                    // clunky but to get the stream to accept the output
-                    // correctly we will split on new line and feed each line
-                    // one by one into the trace stream beast::Journal should be
-                    // updated to inherit from basic_ostream<char> then this
-                    // wouldn't be necessary.
-
-                    // is this a needless copy or does the compiler do copy
-                    // elision here?
-                    std::string s = loggerStream.str();
-
-                    char* data = s.data();
-                    size_t len = s.size();
-
-                    char* last = data;
-                    size_t i = 0;
-                    for (; i < len; ++i)
-                    {
-                        if (data[i] == '\n')
-                        {
-                            data[i] = '\0';
-                            ctx.j.trace() << last;
-                            last = data + i;
-                        }
-                    }
-
-                    if (last < data + i)
-                        ctx.j.trace() << last;
-                }
-
-                if (!result)
-                    return false;
-
-                JLOG(ctx.j.trace())
-                    << "HookSet(" << hook::log::WASM_SMOKE_TEST << ")["
-                    << HS_ACC()
-                    << "]: Trying to wasm instantiate proposed hook "
-                    << "size = " << hook.size();
-
-                std::optional<std::string> result2 =
-                    hook::HookExecutor::validateWasm(
-                        hook.data(), (size_t)hook.size());
-
-                if (result2)
-                {
-                    JLOG(ctx.j.trace())
-                        << "HookSet(" << hook::log::WASM_TEST_FAILURE << ")["
-                        << HS_ACC()
-                        << "Tried to set a hook with invalid code. VM error: "
-                        << *result2;
-                    return false;
-                }
-
-                return *result;
-            }
+            return validateWasmCode(ctx, hookSetObj);
         }
 
         case hsoINVALID:
@@ -789,17 +839,6 @@ SetHook::preflight(PreflightContext const& ctx)
                 << "HookSet(" << hook::log::HOOKS_ARRAY_BAD << ")[" << HS_ACC()
                 << "]: Malformed transaction: SetHook sfHooks contains obj "
                    "other than sfHook.";
-            return temMALFORMED;
-        }
-
-        if (hookSetObj.isFieldPresent(sfCreateCode) &&
-            hookSetObj.getFieldVL(sfCreateCode).size() >
-                hook::maxHookWasmSize())
-        {
-            JLOG(ctx.j.trace())
-                << "HookSet(" << hook::log::WASM_TOO_BIG << ")[" << HS_ACC()
-                << "]: Malformed transaction: SetHook operation would create "
-                   "blob larger than max";
             return temMALFORMED;
         }
 

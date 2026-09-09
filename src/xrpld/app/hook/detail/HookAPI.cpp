@@ -3051,31 +3051,37 @@ HookAPI::get_stobject_length(
         while (upto + length < end)
         {
             // iterate Path step
-            while (*(upto + length) & 0x01 || *(upto + length) & 0x10 ||
-                   *(upto + length) & 0x20)
+            while (*(upto + length) & STPathElement::typeAccount ||
+                   *(upto + length) & STPathElement::typeCurrency ||
+                   *(upto + length) & STPathElement::typeIssuer)
             {
                 int flag = *(upto + length++);
                 // flag shoud be 0x01 or 0x10 or 0x20 or those union
-                if (flag == 0 || flag & ~(0x01 | 0x10 | 0x20))
+                if (flag == 0 ||
+                    flag &
+                        ~(STPathElement::typeAccount |
+                          STPathElement::typeCurrency |
+                          STPathElement::typeIssuer))
                     return Unexpected(pe_unexpected_end);
-                if (flag & 0x01)  // account
+                if (flag & STPathElement::typeAccount)  // account
                     length += 20;
-                if (flag & 0x10)  // currency
+                if (flag & STPathElement::typeCurrency)  // currency
                     length += 20;
-                if (flag & 0x20)  // issuer
+                if (flag & STPathElement::typeIssuer)  // issuer
                     length += 20;
 
                 int next_flag = *(upto + length);
-                if (next_flag == 0x00 || next_flag == 0xff)
+                if (next_flag == STPathElement::typeNone ||
+                    next_flag == STPathElement::typeBoundary)
                     // end of Path step
                     break;
             }
 
             // continue or end of Paths
             int lastflag = *(upto + length++);
-            if (lastflag == 0xff)
+            if (lastflag == STPathElement::typeBoundary)
                 continue;  // continue byte
-            else if (lastflag == 0x00)
+            else if (lastflag == STPathElement::typeNone)
                 break;  // end byte
             else
                 return Unexpected(pe_unexpected_end);
@@ -3163,8 +3169,10 @@ HookAPI::get_stobject_length(
             if (upto >= end)
                 return Unexpected(pe_unexpected_end);
 
-            if ((*upto == 0xE1U && type == 0xEU) ||  // STI_OBJECT Maker
-                (*upto == 0xF1U && type == 0xFU))    // STI_ARRAY Maker
+            if ((type == STI_OBJECT &&
+                 *upto == (STI_OBJECT << 4 | 0x1U)) ||  // STI_OBJECT End Maker
+                (type == STI_ARRAY &&
+                 *upto == (STI_ARRAY << 4 | 0x1U)))  // STI_ARRAY EndMaker
             {
                 payload_length = upto - start - payload_start;
                 upto++;
