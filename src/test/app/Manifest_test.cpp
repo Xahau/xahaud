@@ -238,9 +238,38 @@ public:
     Manifest
     clone(Manifest const& m)
     {
-        Manifest m2(
-            m.serialized, m.masterKey, m.signingKey, m.sequence, m.domain);
-        return m2;
+        return m.clone();
+    }
+
+    void
+    testClone()
+    {
+        testcase("explicit clone preserves independent field values");
+        auto const master = randomNode();
+        auto const signer = randomNode();
+        std::string const bytes(128, 'x');
+        for (bool const revoked : {false, true})
+        {
+            auto const signingKey =
+                revoked ? std::nullopt : std::optional{signer};
+            auto const sequence =
+                revoked ? std::numeric_limits<std::uint32_t>::max() : 7u;
+            // clone copies fields as-is; it must not parse or normalize them.
+            Manifest const original{
+                bytes, master, signingKey, sequence, "validator.example"};
+            auto copied = original.clone();
+            BEAST_EXPECT(copied == original);
+            copied.serialized.clear();
+            copied.masterKey = signer;
+            copied.signingKey = revoked ? std::optional{signer} : std::nullopt;
+            copied.sequence = 0;
+            copied.domain.clear();
+            BEAST_EXPECT(original.serialized == bytes);
+            BEAST_EXPECT(original.masterKey == master);
+            BEAST_EXPECT(original.signingKey == signingKey);
+            BEAST_EXPECT(original.sequence == sequence);
+            BEAST_EXPECT(original.domain == "validator.example");
+        }
     }
 
     void
@@ -1320,6 +1349,7 @@ public:
                 ManifestDisposition::badMasterKey);
         }
 
+        testClone();
         testAdmissionLimit();
         testGossipMembership();
         testWalletCompaction();

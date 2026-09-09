@@ -126,6 +126,13 @@ struct Manifest
     Manifest&
     operator=(Manifest&& other) = default;
 
+    /// Explicit copy, so copying this otherwise move-only object stays visible.
+    Manifest
+    clone() const
+    {
+        return Manifest{serialized, masterKey, signingKey, sequence, domain};
+    }
+
     /// Returns `true` if manifest signature is valid
     bool
     verify() const;
@@ -290,10 +297,9 @@ private:
     /** Master public keys stored by current ephemeral public key. */
     hash_map<PublicKey, PublicKey> signingToMasterKeys_;
 
-    /** Master keys eligible for peer gossip.
+    /** Local list members: eligible for gossip and exempt from the cache cap.
 
-        Set by pin(); in practice the master keys on the configured validator
-        lists, which are the manifests consensus actually depends on.
+        Set by pin(). Includes listed keys below the consensus trust threshold.
     */
     hash_set<PublicKey> pinned_;
 
@@ -308,6 +314,7 @@ private:
     // Sequence checks prevent an older successful write clearing a newer retry.
     hash_map<PublicKey, std::uint32_t> pendingSave_;
 
+    // listedHistory restores before membership is exposed, bypassing the cap.
     enum class Admission { normal, gossip, listedHistory };
 
     ManifestDisposition
@@ -316,12 +323,10 @@ private:
     void
     restoreListed(hash_set<PublicKey> const& keys);
 
-    /** Ephemeral keys already probed against the ledger, and where.
+    /** Ephemeral keys probed at probedLedger_, capped at probeLimit.
 
-        Bounds the reads driven by incoming validations to one per key per
-        ledger. A key that resolves does not come back here: the mapping then
-        lives in signingToMasterKeys_ and applyLedgerSigningKey() answers from
-        it before reaching this map.
+        Cleared only for a newer ledger, never to make room: cycling keys must
+        not reset the budget. Resolved bindings bypass probing via the cache.
 
         Guarded by mutex_ in exclusive mode.
     */
@@ -442,10 +447,10 @@ public:
     bool
     isGossipCandidate(Manifest const& m) const;
 
-    /** Recover listed master keys' saved history and offer them to peers.
+    /** Replace gossip membership, restoring new keys before exposing them.
 
-        Replaces any previous set. Bumps sequence() when the set actually
-        changes, so a cached gossip message built from it is rebuilt.
+        Save departing history; failed writes retry on pin() or shutdown.
+        Membership changes bump sequence() to invalidate cached gossip.
 
         @param keys Master public keys to pin
 
@@ -556,16 +561,22 @@ public:
     void
     load(DatabaseCon& dbCon, std::string const& dbTable);
 
-    /** Restore only local identities, and recover newly listed masters before
-        their publisher's embedded manifests are accepted. Unrelated old wallet
-        rows remain on disk; they are not a source of unlisted cache entries.
+    /** Attach the wallet and restore current local identities.
+
+        The database must outlive this cache. Later pin() calls restore
+        joining keys and persist departing history. Unrelated rows stay
+        on disk, not in the unlisted cache.
     */
     void
     loadListed(DatabaseCon& dbCon);
 
     /** Save cached manifests to database.
 
-        @param dbCon Database connection with `ValidatorManifests` table
+        With a wallet attached, save listed/configured and pending history,
+        preserve unrelated wallet rows, and ignore isTrusted. Otherwise use
+        isTrusted and retain revocations, as for the publisher cache.
+
+        @param dbCon Database containing dbTable
 
         @param isTrusted Function that returns true if manifest is trusted
 

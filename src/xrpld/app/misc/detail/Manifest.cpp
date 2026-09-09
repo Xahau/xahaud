@@ -417,17 +417,7 @@ ManifestCache::pin(hash_set<PublicKey> keys)
                         pendingSave_.insert_or_assign(key, it->second.sequence);
         for (auto const& [key, sequence] : pendingSave_)
             if (auto const it = map_.find(key); it != map_.end())
-            {
-                auto const& m = it->second;
-                departing.emplace(
-                    key,
-                    Manifest{
-                        m.serialized,
-                        m.masterKey,
-                        m.signingKey,
-                        m.sequence,
-                        m.domain});
-            }
+                departing.emplace(key, it->second.clone());
         if (keys != pinned_)
         {
             pinned_ = std::move(keys);

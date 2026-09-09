@@ -639,12 +639,7 @@ OverlayImpl::onManifests(
     for (auto const& manifest : manifests)
     {
         auto const result =
-            app_.validatorManifests().applyGossipManifest(Manifest{
-                manifest.serialized,
-                manifest.masterKey,
-                manifest.signingKey,
-                manifest.sequence,
-                manifest.domain});
+            app_.validatorManifests().applyGossipManifest(manifest.clone());
         // Intake already charged for signature work. Only failed signatures
         // add the remaining penalty; don't charge honest batches twice.
         if (result == ManifestDisposition::invalid)

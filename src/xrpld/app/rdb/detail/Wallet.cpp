@@ -150,14 +150,7 @@ saveManifests(
         hash_map<PublicKey, Manifest> retained;
         for (auto const& [key, manifest] : map)
             if (isTrusted(key))
-                retained.emplace(
-                    key,
-                    Manifest{
-                        manifest.serialized,
-                        manifest.masterKey,
-                        manifest.signingKey,
-                        manifest.sequence,
-                        manifest.domain});
+                retained.emplace(key, manifest.clone());
 
         if (!retained.empty())
         {
