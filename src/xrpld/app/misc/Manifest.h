@@ -572,8 +572,8 @@ public:
 
     /** Replace a table with selected cached manifests and all revocations.
 
-        This is the legacy/publisher save policy, independent of wallet
-        attachment. Use saveListed() for selective validator history.
+        This is the legacy/publisher policy for caches without an attached
+        wallet. Attached validator caches must use saveListed().
 
         @param dbCon Database containing dbTable
 
@@ -589,11 +589,10 @@ public:
         std::string const& dbTable,
         std::function<bool(PublicKey const&)> const& isTrusted);
 
-    /** Save listed/configured and pending history to the attached wallet.
+    /** Save local history without rewriting unrelated wallet rows.
 
-        Preserve unrelated rows. Requires loadListed() to have attached the
-        wallet; no caller-supplied trust predicate or ValidatorList lock is
-       used.
+        Requires loadListed(). Selects listed/configured and pending identities;
+        never calls back into ValidatorList.
     */
     void
     saveListed();

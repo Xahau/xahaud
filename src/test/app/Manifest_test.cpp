@@ -468,11 +468,48 @@ public:
             restored.getManifest(versions.front().masterKey) ==
             versions[2].serialized);
         BEAST_EXPECT(!restored.getRawManifest(unrelated.masterKey));
-        auto db = wallet.checkoutDb();
-        auto kept = getManifestsForKeys(
-            *db, "ValidatorManifests", {unrelated.masterKey}, env.journal);
-        BEAST_EXPECT(
-            kept.at(unrelated.masterKey).serialized == unrelated.serialized);
+        {
+            auto db = wallet.checkoutDb();
+            auto kept = getManifestsForKeys(
+                *db, "ValidatorManifests", {unrelated.masterKey}, env.journal);
+            BEAST_EXPECT(
+                kept.at(unrelated.masterKey).serialized ==
+                unrelated.serialized);
+        }
+        // The wrong save API must refuse before a callback or database write,
+        // not silently rewrite unrelated history in the attached wallet.
+        int predicateCalls = 0;
+        bool modeRejected = false;
+        try
+        {
+            cache.save(wallet, "ValidatorManifests", [&](PublicKey const&) {
+                ++predicateCalls;
+                return false;
+            });
+        }
+        catch (std::logic_error const&)
+        {
+            modeRejected = true;
+        }
+        BEAST_EXPECT(modeRejected && predicateCalls == 0);
+        BEAST_EXPECT(count("SELECT COUNT(*) FROM ValidatorManifests;") == 2);
+    }
+
+    void
+    testSaveListedRequiresWallet()
+    {
+        testcase("selective save requires an attached wallet");
+        ManifestCache cache;
+        bool rejected = false;
+        try
+        {
+            cache.saveListed();
+        }
+        catch (std::logic_error const&)
+        {
+            rejected = true;
+        }
+        BEAST_EXPECT(rejected);
     }
 
     void
@@ -1349,6 +1386,7 @@ public:
         testAdmissionLimit();
         testGossipMembership();
         testWalletCompaction();
+        testSaveListedRequiresWallet();
         testLoadStore(cache);
         testGetSignature();
         testGetKeys();

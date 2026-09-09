@@ -883,6 +883,9 @@ ManifestCache::save(
     std::function<bool(PublicKey const&)> const& isTrusted)
 {
     std::shared_lock lock{mutex_};
+    if (wallet_)
+        Throw<std::logic_error>(
+            "Use saveListed() for an attached validator wallet");
     auto db = dbCon.checkoutDb();
 
     saveManifests(*db, dbTable, isTrusted, map_, j_);
