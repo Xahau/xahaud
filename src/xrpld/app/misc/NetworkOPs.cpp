@@ -2071,11 +2071,11 @@ NetworkOPsImp::beginConsensus(
         closingInfo.parentCloseTime,
         *this,
         app_.overlay(),
-        app_.getHashRouter());
-
-    // Pin the trusted master keys so they are always offered to a new peer and
-    // cannot be crowded out of the gossip set by more recently used manifests.
-    app_.validatorManifests().pin(app_.validators().getTrustedMasterKeys());
+        app_.getHashRouter(),
+        [this, &prevLedger](hash_set<PublicKey> const& candidates) {
+            if (prevLedger->rules().enabled(featureOnChainManifests))
+                app_.validatorManifests().applyLedger(*prevLedger, candidates);
+        });
 
     if (!changes.added.empty() || !changes.removed.empty())
     {

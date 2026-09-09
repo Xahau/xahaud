@@ -126,6 +126,13 @@ struct Manifest
     Manifest&
     operator=(Manifest&& other) = default;
 
+    /// Explicit copy, so copying this otherwise move-only object stays visible.
+    Manifest
+    clone() const
+    {
+        return Manifest{serialized, masterKey, signingKey, sequence, domain};
+    }
+
     /// Returns `true` if manifest signature is valid
     bool
     verify() const;
@@ -242,7 +249,13 @@ enum class ManifestDisposition {
     badEphemeralKey,
 
     /// Timely, but invalid signature
-    invalid
+    invalid,
+
+    /// No room for a previously unseen unlisted identity
+    full,
+
+    /// Peer gossip is only accepted for locally listed/configured identities
+    unlisted
 };
 
 inline std::string
@@ -260,6 +273,10 @@ to_string(ManifestDisposition m)
             return "badEphemeralKey";
         case ManifestDisposition::invalid:
             return "invalid";
+        case ManifestDisposition::full:
+            return "full";
+        case ManifestDisposition::unlisted:
+            return "unlisted";
         default:
             return "unknown";
     }
@@ -280,63 +297,61 @@ private:
     /** Master public keys stored by current ephemeral public key. */
     hash_map<PublicKey, PublicKey> signingToMasterKeys_;
 
-    /** Master keys always offered to a peer, whatever their recency.
+    /** Local list members: eligible for gossip and exempt from the cache cap.
 
-        Set by pin(); in practice the master keys on the configured validator
-        lists, which are the manifests consensus actually depends on.
+        Set by pin(). Includes listed keys below the consensus trust threshold.
     */
     hash_set<PublicKey> pinned_;
 
-    /** Recency of use, keyed by master public key.
+    // Configured identities remain admissible independently of publisher lists.
+    hash_set<PublicKey> configured_;
+    std::size_t const cacheLimit_;
 
-        The structure of this map is guarded by mutex_ exactly as map_ is:
-        entries are created next to it in applyManifest() and are never
-        removed. The counters themselves are atomic, so recording a hit is a
-        write to an atomic rather than a structural modification and is legal
-        while only a shared lock is held.
+    // Attached at startup; the application owns the database for our lifetime.
+    DatabaseCon* wallet_ = nullptr;
 
-        This is deliberately not a second mutex. A second mutex would have to
-        be ordered against mutex_, and that ordering would be an unenforced
-        invariant that any future caller could invert.
-    */
-    hash_map<PublicKey, std::atomic<std::uint64_t>> mutable lastUsed_;
-    std::atomic<std::uint64_t> mutable tick_{0};
+    // Failed departing-history writes remain eligible for saving, not gossip.
+    // Sequence checks prevent an older successful write clearing a newer retry.
+    hash_map<PublicKey, std::uint32_t> pendingSave_;
 
-    /** Ephemeral keys already probed against the ledger, and where.
+    // listedHistory restores before membership is exposed, bypassing the cap.
+    enum class Admission { normal, gossip, listedHistory };
 
-        Bounds the reads driven by incoming validations to one per key per
-        ledger. A key that resolves does not come back here: the mapping then
-        lives in signingToMasterKeys_ and applyLedgerSigningKey() answers from
-        it before reaching this map.
+    ManifestDisposition
+    applyManifest(Manifest m, Admission admission);
 
-        Unlike lastUsed_ this is written structurally, so it is guarded by
-        mutex_ in exclusive mode.
-    */
-    hash_map<PublicKey, std::uint32_t> probed_;
-
-    /** Record that a manifest was looked up.
-
-        @pre The caller holds mutex_, shared or exclusive.
-    */
     void
-    touch(PublicKey const& masterKey) const;
+    restoreListed(hash_set<PublicKey> const& keys);
+
+    /** Ephemeral keys probed at probedLedger_, capped at probeLimit.
+
+        Cleared only for a newer ledger, never to make room: cycling keys must
+        not reset the budget. Resolved bindings bypass probing via the cache.
+
+        Guarded by mutex_ in exclusive mode.
+    */
+    hash_set<PublicKey> probed_;
+    std::uint32_t probedLedger_ = 0;
 
     std::atomic<std::uint32_t> seq_{0};
 
 public:
-    /** Ceiling on the unpinned manifests offered to a newly connected peer. */
-    static constexpr std::size_t gossipLimit = 64;
+    /** Stop admitting new unlisted identities at this total cache size.
 
-    /** Ceiling on remembered ephemeral key probes before they are dropped.
-
-        A cache of negatives, so dropping it costs at most one extra ledger
-        read per key.
+        Peer gossip admits only listed/configured identities. This threshold
+        bounds additional cold ledger discoveries. Existing entries are never
+        evicted; listed/configured identities and their restored history may
+        exceed it. Delisting does not erase a previously admitted identity.
     */
+    static constexpr std::size_t cacheLimit = 1024;
+
+    /** Ceiling on distinct cold ledger probes per ledger. */
     static constexpr std::size_t probeLimit = 4096;
 
     explicit ManifestCache(
-        beast::Journal j = beast::Journal(beast::Journal::getNullSink()))
-        : j_(j)
+        beast::Journal j = beast::Journal(beast::Journal::getNullSink()),
+        std::size_t maxEntries = cacheLimit)
+        : j_(j), cacheLimit_(maxEntries)
     {
     }
 
@@ -413,7 +428,7 @@ public:
         @param m Manifest to add
 
         @return `ManifestDisposition::accepted` if successful, or
-                `stale` or `invalid` otherwise
+                the disposition explaining why admission was refused
 
         @par Thread Safety
 
@@ -422,10 +437,20 @@ public:
     ManifestDisposition
     applyManifest(Manifest m);
 
-    /** Set the master keys that are always offered to peers.
+    /** Apply peer gossip only for locally listed/configured master keys.
+        Membership is checked before signature work and again before insertion.
+    */
+    ManifestDisposition
+    applyGossipManifest(Manifest m);
 
-        Replaces any previous set. Bumps sequence() when the set actually
-        changes, so a cached gossip message built from it is rebuilt.
+    /** Cheap admission hint; applyGossipManifest rechecks after queueing. */
+    bool
+    isGossipCandidate(Manifest const& m) const;
+
+    /** Replace gossip membership, restoring new keys before exposing them.
+
+        Save departing history; failed writes retry on pin() or shutdown.
+        Membership changes bump sequence() to invalidate cached gossip.
 
         @param keys Master public keys to pin
 
@@ -506,11 +531,7 @@ public:
     std::optional<PublicKey>
     applyLedgerSigningKey(ReadView const& view, PublicKey const& signingKey);
 
-    /** Populate manifest cache with manifests in database and config.
-
-        @param dbCon Database connection with dbTable
-
-        @param dbTable Database table
+    /** Load local identities before lists are pinned and wallet rows restored.
 
         @param configManifest Base64 encoded manifest for local node's
             validator keys
@@ -523,9 +544,7 @@ public:
         May be called concurrently
     */
     bool
-    load(
-        DatabaseCon& dbCon,
-        std::string const& dbTable,
+    loadConfig(
         std::string const& configManifest,
         std::vector<std::string> const& configRevocation);
 
@@ -542,9 +561,21 @@ public:
     void
     load(DatabaseCon& dbCon, std::string const& dbTable);
 
-    /** Save cached manifests to database.
+    /** Attach the wallet and restore current local identities.
 
-        @param dbCon Database connection with `ValidatorManifests` table
+        The database must outlive this cache. Later pin() calls restore
+        joining keys and persist departing history. Unrelated rows stay
+        on disk, not in the unlisted cache.
+    */
+    void
+    loadListed(DatabaseCon& dbCon);
+
+    /** Replace a table with selected cached manifests and all revocations.
+
+        This is the legacy/publisher policy for caches without an attached
+        wallet. Attached validator caches must use saveListed().
+
+        @param dbCon Database containing dbTable
 
         @param isTrusted Function that returns true if manifest is trusted
 
@@ -557,6 +588,14 @@ public:
         DatabaseCon& dbCon,
         std::string const& dbTable,
         std::function<bool(PublicKey const&)> const& isTrusted);
+
+    /** Save local history without rewriting unrelated wallet rows.
+
+        Requires loadListed(). Selects listed/configured and pending identities;
+        never calls back into ValidatorList.
+    */
+    void
+    saveListed();
 
     /** Invokes the callback once for every populated manifest.
 
@@ -614,11 +653,9 @@ public:
 
     /** Invokes the callback for the manifests worth offering a new peer.
 
-        Offering the whole cache means offering everything the node has ever
-        seen, which grows without bound and is mostly of no use to the peer.
-        This offers the pinned set plus up to gossipLimit further manifests,
-        most recently used first. A manifest left out still reaches the peer by
-        ordinary relay if it turns out to be needed.
+        Gossip follows local list/configuration membership, not cache contents.
+        A cold ledger lookup must not turn into permissionless gossip merely
+        because its result was cached.
 
         @note Do not call ManifestCache member functions from within the
         callback. This can re-lock the mutex from the same thread, which is UB.
@@ -640,40 +677,17 @@ public:
     {
         std::shared_lock lock{mutex_};
 
-        // Rank the unpinned entries by recency and keep the head. Pointers
-        // into map_ stay valid: it is node based and the shared lock is held
-        // throughout.
-        std::vector<std::pair<std::uint64_t, PublicKey const*>> ranked;
-        ranked.reserve(map_.size());
-        for (auto const& [key, manifest] : map_)
-        {
-            (void)manifest;
-            if (pinned_.count(key))
-                continue;
-            auto const used = lastUsed_.find(key);
-            ranked.emplace_back(
-                used == lastUsed_.end()
-                    ? 0
-                    : used->second.load(std::memory_order_relaxed),
-                &key);
-        }
-
-        auto const keep = std::min(gossipLimit, ranked.size());
-        std::partial_sort(
-            ranked.begin(),
-            ranked.begin() + keep,
-            ranked.end(),
-            [](auto const& a, auto const& b) { return a.first > b.first; });
-
         // An upper bound: a pinned key need not have a manifest yet.
-        pf(pinned_.size() + keep);
+        pf(pinned_.size() + configured_.size());
 
         for (auto const& key : pinned_)
             if (auto const iter = map_.find(key); iter != map_.end())
                 f(iter->second);
 
-        for (std::size_t i = 0; i < keep; ++i)
-            f(map_.find(*ranked[i].second)->second);
+        for (auto const& key : configured_)
+            if (!pinned_.contains(key))
+                if (auto const iter = map_.find(key); iter != map_.end())
+                    f(iter->second);
     }
 };
 

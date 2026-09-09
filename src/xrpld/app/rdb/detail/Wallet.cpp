@@ -41,17 +41,19 @@ makeTestWalletDB(
         setup, dbname.data(), std::array<std::string, 0>(), WalletDBInit, j);
 }
 
-void
-getManifests(
+static void
+readManifests(
     soci::session& session,
     std::string const& dbTable,
-    ManifestCache& mCache,
+    std::function<void(Manifest, std::int64_t)> const& accept,
     beast::Journal j)
 {
     // Load manifests stored in database
-    std::string const sql = "SELECT RawData FROM " + dbTable + ";";
+    std::string const sql = "SELECT rowid, RawData FROM " + dbTable + ";";
+    std::int64_t rowid;
     soci::blob sociRawData(session);
-    soci::statement st = (session.prepare << sql, soci::into(sociRawData));
+    soci::statement st =
+        (session.prepare << sql, soci::into(rowid), soci::into(sociRawData));
     st.execute();
     while (st.fetch())
     {
@@ -59,19 +61,63 @@ getManifests(
         convert(sociRawData, serialized);
         if (auto mo = deserializeManifest(serialized))
         {
-            if (!mo->verify())
-            {
-                JLOG(j.warn()) << "Unverifiable manifest in db";
-                continue;
-            }
-
-            mCache.applyManifest(std::move(*mo));
+            accept(std::move(*mo), rowid);
         }
         else
         {
             JLOG(j.warn()) << "Malformed manifest in database";
         }
     }
+}
+
+void
+getManifests(
+    soci::session& session,
+    std::string const& dbTable,
+    ManifestCache& mCache,
+    beast::Journal j)
+{
+    readManifests(
+        session,
+        dbTable,
+        [&](Manifest m, std::int64_t) {
+            if (m.verify())
+                mCache.applyManifest(std::move(m));
+            else
+                JLOG(j.warn()) << "Unverifiable manifest in db";
+        },
+        j);
+}
+
+hash_map<PublicKey, Manifest>
+getManifestsForKeys(
+    soci::session& session,
+    std::string const& dbTable,
+    hash_set<PublicKey> const& keys,
+    beast::Journal j)
+{
+    hash_map<PublicKey, Manifest> result;
+    if (keys.empty())
+        return result;
+    readManifests(
+        session,
+        dbTable,
+        [&](Manifest m, std::int64_t) {
+            if (!keys.contains(m.masterKey))
+                return;
+            auto const it = result.find(m.masterKey);
+            if (it != result.end() && it->second.sequence >= m.sequence)
+                return;
+            if (!m.verify())
+            {
+                JLOG(j.warn()) << "Unverifiable manifest in db";
+                return;
+            }
+            auto const key = m.masterKey;
+            result.insert_or_assign(key, std::move(m));
+        },
+        j);
+    return result;
 }
 
 static void
@@ -90,6 +136,50 @@ saveManifest(
 }
 
 void
+compactManifests(
+    soci::session& session,
+    std::string const& dbTable,
+    std::function<bool(PublicKey const&)> const& shouldRetain,
+    hash_map<PublicKey, Manifest> const& map,
+    beast::Journal j)
+{
+    soci::transaction tr(session);
+    hash_map<PublicKey, Manifest> retained;
+    for (auto const& [key, manifest] : map)
+        if (shouldRetain(key))
+            retained.emplace(key, manifest.clone());
+
+    if (!retained.empty())
+    {
+        // Stage row IDs in SQLite, not an unbounded C++ vector. Keep the
+        // source table untouched while its read cursor is active. This
+        // table is created and dropped in one transaction, with no schema
+        // migration or persistent staging state.
+        auto const obsolete = dbTable + "_Compacting";
+        session << "CREATE TABLE " + obsolete + " (RowID INTEGER PRIMARY KEY);";
+        readManifests(
+            session,
+            dbTable,
+            [&](Manifest m, std::int64_t rowid) {
+                auto const it = retained.find(m.masterKey);
+                if (it == retained.end())
+                    return;
+                if (m.sequence > it->second.sequence && m.verify())
+                    it->second = std::move(m);
+                session << "INSERT INTO " + obsolete + " (RowID) VALUES (:id);",
+                    soci::use(rowid);
+            },
+            j);
+        session << "DELETE FROM " + dbTable +
+                " WHERE rowid IN (SELECT RowID FROM " + obsolete + ");";
+        for (auto const& [key, manifest] : retained)
+            saveManifest(session, dbTable, manifest.serialized);
+        session << "DROP TABLE " + obsolete + ";";
+    }
+    tr.commit();
+}
+
+void
 saveManifests(
     soci::session& session,
     std::string const& dbTable,
@@ -101,8 +191,7 @@ saveManifests(
     session << "DELETE FROM " << dbTable;
     for (auto const& v : map)
     {
-        // Save all revocation manifests,
-        // but only save trusted non-revocation manifests.
+        // Preserve the publisher cache's existing retention of all revocations.
         if (!v.second.revoked() && !isTrusted(v.second.masterKey))
         {
             JLOG(j.info()) << "Untrusted manifest in cache not saved to db";
