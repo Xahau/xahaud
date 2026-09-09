@@ -386,7 +386,7 @@ public:
     void
     testManifestFrameLimit()
     {
-        testcase("manifest frame limits before payload allocation");
+        testcase("manifest frame limits and legacy discard alignment");
         struct Handler
         {
             bool
@@ -442,12 +442,18 @@ public:
                 (reject ? make_error_code(boost::system::errc::message_size)
                         : boost::system::error_code{}));
             BEAST_EXPECT(handler.received == 0);
+            if (!reject)
+                BEAST_EXPECT(hint == wire);
         };
         check(maxManifestMessageSize, maxManifestMessageSize, false, false);
-        check(maxManifestMessageSize + 1, 0, false, true);
-        check(1, maxManifestMessageSize + 1, true, true);
-        check(maxManifestMessageSize + 1, 1, true, true);
+        check(maxManifestMessageSize + 1, 0, false, enforceManifestFrameLimit);
+        check(1, maxManifestMessageSize + 1, true, enforceManifestFrameLimit);
+        check(maxManifestMessageSize + 1, 1, true, enforceManifestFrameLimit);
         check(maxManifestMessageSize, maxManifestMessageSize, true, false);
+        // Legacy tolerance never bypasses the generic hard ceiling, even
+        // when only the compressed header (no payload) has arrived.
+        check(1, maximiumMessageSize + 1, true, true);
+        check(1, maximiumMessageSize + 1, true, true, protocol::mtLEDGER_DATA);
         check(
             maxManifestMessageSize + 1,
             0,
@@ -476,6 +482,47 @@ public:
             hint);
         BEAST_EXPECT(!second.second && second.first == bytes.size());
         BEAST_EXPECT(handler.received == 3);
+
+        for (bool const compressed : {false, true})
+        {
+            Serializer frame;
+            std::uint32_t const wire =
+                compressed ? 1u : maxManifestMessageSize + 1;
+            frame.add32(wire | (compressed ? 0x90000000u : 0u));
+            frame.add16(protocol::mtMANIFESTS);
+            if (compressed)
+                frame.add32(std::uint32_t(maxManifestMessageSize + 1));
+            // Deliberately invalid protobuf/LZ4. Discard must not decode it,
+            // nor consume the good frame coalesced behind it.
+            frame.addRaw(Blob(wire, 0xff));
+            auto const discardedSize = frame.size();
+            frame.addRaw(bytes.data(), bytes.size());
+            int const received = handler.received;
+            auto discarded = invokeProtocolMessage(
+                boost::asio::buffer(frame.data(), frame.size()), handler, hint);
+            BEAST_EXPECT(handler.received == received);
+            if (enforceManifestFrameLimit)
+            {
+                BEAST_EXPECT(discarded.first == 0);
+                BEAST_EXPECT(
+                    discarded.second ==
+                    make_error_code(boost::system::errc::message_size));
+            }
+            else
+            {
+                BEAST_EXPECT(!discarded.second);
+                BEAST_EXPECT(discarded.first == discardedSize);
+                auto next = invokeProtocolMessage(
+                    boost::asio::buffer(
+                        reinterpret_cast<std::uint8_t const*>(frame.data()) +
+                            discarded.first,
+                        frame.size() - discarded.first),
+                    handler,
+                    hint);
+                BEAST_EXPECT(!next.second && next.first == bytes.size());
+                BEAST_EXPECT(handler.received == received + 1);
+            }
+        }
     }
 
     void

@@ -361,11 +361,13 @@ invokeProtocolMessage(
     // whose size exceeds this may result in the connection being dropped. A
     // larger message size may be supported in the future or negotiated as
     // part of a protocol upgrade.
-    auto const sizeLimit = header->message_type == protocol::mtMANIFESTS
-        ? maxManifestMessageSize
-        : maximiumMessageSize;
-    if (header->payload_wire_size > sizeLimit ||
-        header->uncompressed_size > sizeLimit)
+    bool const oversizedManifest =
+        header->message_type == protocol::mtMANIFESTS &&
+        (header->payload_wire_size > maxManifestMessageSize ||
+         header->uncompressed_size > maxManifestMessageSize);
+    if (header->payload_wire_size > maximiumMessageSize ||
+        header->uncompressed_size > maximiumMessageSize ||
+        (enforceManifestFrameLimit && oversizedManifest))
     {
         result.second = make_error_code(boost::system::errc::message_size);
         return result;
@@ -386,6 +388,12 @@ invokeProtocolMessage(
         hint = header->total_wire_size - size;
         return result;
     }
+
+    // Old peers send their cache in one packet. Consume exactly that frame,
+    // without decompression, protobuf parsing or dispatch, and keep the link.
+    // Buffering is still bounded by the generic ceiling checked above.
+    if (oversizedManifest)
+        return {header->total_wire_size, {}};
 
     bool success;
 

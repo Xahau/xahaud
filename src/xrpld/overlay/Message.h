@@ -37,10 +37,13 @@ namespace ripple {
 
 constexpr std::size_t maximiumMessageSize = megabytes(64);
 
-// Manifests are small identity records, not bulk ledger data. Apply the frame
-// limit before allocating/decompressing its payload, and the entry limits
-// before queuing signature work. Outbound gossip uses the same limits.
+// Manifests are small identity records, not bulk ledger data. Bound parsing
+// and signature work; outbound gossip uses the same packet/entry limits.
 constexpr std::size_t maxManifestMessageSize = kilobytes(256);
+// TODO: negotiate xahau-onchain-manifests and requireProtocolFeature at the
+// agreed activation boundary before enabling disconnects. Until then, discard
+// oversized legacy cache dumps without parsing; the generic 64 MiB cap stays.
+constexpr bool enforceManifestFrameLimit = false;
 constexpr int maxManifestEntries = 256;
 constexpr std::size_t maxManifestSize = 1024;
 // Node-wide overload cutoff for bounded signature batches, not a per-peer
