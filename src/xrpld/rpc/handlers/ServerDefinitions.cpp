@@ -22,26 +22,14 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpld/rpc/detail/TransactionSign.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>
-#include <xrpl/protocol/LedgerFormats.h>
-#include <xrpl/protocol/RPCErr.h>
-#include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/algorithm/string.hpp>
 #include <magic_enum.hpp>
 #include <sstream>
-
-#define MAGIC_ENUM(x, _min, _max)               \
-    template <>                                 \
-    struct magic_enum::customize::enum_range<x> \
-    {                                           \
-        static constexpr int min = _min;        \
-        static constexpr int max = _max;        \
-    };
 
 #define MAGIC_ENUM_16(x)                        \
     template <>                                 \
@@ -58,15 +46,6 @@
         static constexpr bool is_flags = true;  \
     };
 
-MAGIC_ENUM(ripple::SerializedTypeID, -2, 10004);
-MAGIC_ENUM(ripple::LedgerEntryType, 0, 255);
-MAGIC_ENUM(ripple::TELcodes, -399, 300);
-MAGIC_ENUM(ripple::TEMcodes, -299, -200);
-MAGIC_ENUM(ripple::TEFcodes, -199, -100);
-MAGIC_ENUM(ripple::TERcodes, -99, -1);
-MAGIC_ENUM(ripple::TEScodes, 0, 1);
-MAGIC_ENUM(ripple::TECcodes, 100, 255);
-MAGIC_ENUM_16(ripple::TxType);
 MAGIC_ENUM_FLAG(ripple::UniversalFlags);
 MAGIC_ENUM_FLAG(ripple::AccountSetFlags);
 MAGIC_ENUM_FLAG(ripple::OfferCreateFlags);
@@ -192,24 +171,19 @@ private:
 
         ret[jss::TYPES]["Done"] = -1;
         std::map<int32_t, std::string> type_map{{-1, "Done"}};
-        for (auto const& entry : magic_enum::enum_entries<SerializedTypeID>())
+        for (auto const& [rawName, typeValue] : sTypeMap)
         {
-            const auto name = entry.second;
-            std::string type_name =
-                translate(name.data() + 4 /* remove STI_ */);
-            int32_t type_value = static_cast<int32_t>(entry.first);
-            ret[jss::TYPES][type_name] = type_value;
-            type_map[type_value] = type_name;
+            std::string typeName =
+                translate(std::string(rawName).substr(4) /* remove STI_ */);
+            ret[jss::TYPES][typeName] = typeValue;
+            type_map[typeValue] = typeName;
         }
 
         ret[jss::LEDGER_ENTRY_TYPES] = Json::objectValue;
         ret[jss::LEDGER_ENTRY_TYPES][jss::Invalid] = -1;
-        for (auto const& entry : magic_enum::enum_entries<LedgerEntryType>())
+        for (auto const& f : LedgerFormats::getInstance())
         {
-            const auto name = entry.second;
-            std::string type_name = translate(name.data() + 2 /* remove lt_ */);
-            int32_t type_value = static_cast<int32_t>(entry.first);
-            ret[jss::LEDGER_ENTRY_TYPES][type_name] = type_value;
+            ret[jss::LEDGER_ENTRY_TYPES][f.getName()] = f.getType();
         }
 
         ret[jss::FIELDS] = Json::arrayValue;
@@ -326,71 +300,16 @@ private:
         }
 
         ret[jss::TRANSACTION_RESULTS] = Json::objectValue;
-        for (auto const& entry : magic_enum::enum_entries<TELcodes>())
+        for (auto const& [code, terInfo] : transResults())
         {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
+            ret[jss::TRANSACTION_RESULTS][terInfo.first] = code;
         }
-        for (auto const& entry : magic_enum::enum_entries<TEMcodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-        for (auto const& entry : magic_enum::enum_entries<TEFcodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-        for (auto const& entry : magic_enum::enum_entries<TERcodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-        for (auto const& entry : magic_enum::enum_entries<TEScodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-        for (auto const& entry : magic_enum::enum_entries<TECcodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-
-        auto const translate_tt = [](std::string inp) -> std::string {
-            if (inp == "Amendment")
-                return "EnableAmendment";
-            if (inp == "Fee")
-                return "SetFee";
-            if (inp == "PaychanClaim")
-                return "PaymentChannelClaim";
-            if (inp == "PaychanCreate")
-                return "PaymentChannelCreate";
-            if (inp == "PaychanFund")
-                return "PaymentChannelFund";
-            if (inp == "RegularKeySet")
-                return "SetRegularKey";
-            if (inp == "HookSet")
-                return "SetHook";
-            if (inp == "RemarksSet")
-                return "SetRemarks";
-            return inp;
-        };
 
         ret[jss::TRANSACTION_TYPES] = Json::objectValue;
         ret[jss::TRANSACTION_TYPES][jss::Invalid] = -1;
-        for (auto const& entry : magic_enum::enum_entries<TxType>())
+        for (auto const& f : TxFormats::getInstance())
         {
-            const auto name = entry.second;
-            std::string type_name = translate_tt(translate(name.data() + 2));
-            int32_t type_value = static_cast<int32_t>(entry.first);
-            ret[jss::TRANSACTION_TYPES][type_name] = type_value;
+            ret[jss::TRANSACTION_TYPES][f.getName()] = f.getType();
         }
 
         // Transaction Flags:
