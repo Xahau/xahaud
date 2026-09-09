@@ -411,7 +411,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     XRPAmount accumulator = baseFee;
 
     if (view.rules().enabled(featureHooks) &&
-        view.rules().enabled(fixXahauV1) && tx.isFieldPresent(sfHookParameters))
+        tx.isFieldPresent(sfHookParameters))
     {
         uint64_t paramBytes = 0;
         auto const& params = tx.getFieldArray(sfHookParameters);
@@ -607,6 +607,13 @@ Transactor::checkSeqProxy(
         return terNO_ACCOUNT;
     }
 
+    // A manifest txn is derived deterministically from the manifest alone, so
+    // it cannot depend on account state: preflight pins sfSequence to 0 and the
+    // account sequence is neither checked here nor consumed below.
+    if (view.rules().enabled(featureOnChainManifests) &&
+        tx.getTxnType() == ttMANIFEST_SET)
+        return tesSUCCESS;
+
     SeqProxy const a_seq = SeqProxy::sequence((*sle)[sfSequence]);
 
     // pass all emitted tx provided their seq is 0
@@ -708,8 +715,7 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
 
-    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks) &&
-        ctx.view.rules().enabled(fixXahauV2))
+    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks))
     {
         // check if the emitted txn exists on ledger and is in the emission
         // directory if not that's a re-apply so discard
@@ -756,6 +762,17 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
 
     // do not update sequence of sfAccountTxnID for emitted tx
     if (ctx_.isEmittedTxn())
+        return tesSUCCESS;
+
+    // Manifest txns get the same treatment: pinned to sfSequence 0 and not
+    // signed by the account, so they neither consume nor reset its sequence.
+    // Doing so would be actively harmful -- the write below is
+    // seqProx.value() + 1, which for a seq-0 txn sets the account sequence to
+    // 1 and makes every previously used sequence replayable. Handling it here
+    // rather than in apply() also covers reset(), which re-consumes on the
+    // tec / failed-invariant path.
+    if (view().rules().enabled(featureOnChainManifests) &&
+        ctx_.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();
@@ -899,6 +916,12 @@ Transactor::checkSign(PreclaimContext const& ctx)
     // internal xpop txn
     if (ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT)
+        return tesSUCCESS;
+
+    // pass ttMANIFEST_SETs, their signatures are checked in preflight against
+    // the manifest's internal key logic
+    if (ctx.view.rules().enabled(featureOnChainManifests) &&
+        ctx.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
     if (ctx.flags & tapDRY_RUN)
