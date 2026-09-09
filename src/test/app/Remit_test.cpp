@@ -106,6 +106,36 @@ struct Remit_test : public beast::unit_test::suite
         return STAmount(iou, 0);
     }
 
+    static STAmount
+    lineLimit(
+        jtx::Env const& env,
+        jtx::Account const& account,
+        jtx::Account const& gw,
+        jtx::IOU const& iou)
+    {
+        auto const sle = env.le(keylet::line(account, gw, iou.currency));
+        if (!sle)
+            return STAmount(iou, 0);
+        bool const accountHigh = account.id() > gw.id();
+        return (*sle)[accountHigh ? sfHighLimit : sfLowLimit];
+    }
+
+    // Whether `account`'s own side of its line with `peer` has NoRipple set.
+    static bool
+    lineNoRipple(
+        jtx::Env const& env,
+        jtx::Account const& account,
+        jtx::Account const& peer,
+        jtx::IOU const& iou)
+    {
+        auto const sle = env.le(keylet::line(account, peer, iou.currency));
+        if (!sle)
+            return false;
+        bool const accountHigh = account.id() > peer.id();
+        return (sle->getFlags() &
+                (accountHigh ? lsfHighNoRipple : lsfLowNoRipple)) != 0;
+    }
+
     static bool
     validateSequence(
         jtx::Env const& env,
@@ -2925,6 +2955,425 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    testLimitAmount(FeatureBitset features)
+    {
+        testcase("limit amount");
+        using namespace jtx;
+
+        bool const enabled = features[featureRemitLimitAmount];
+
+        // Amendment disabled: LimitAmount is rejected outright.
+        if (!enabled)
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const gw = Account("gw");
+            auto const USD = gw["USD"];
+
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env.close();
+
+            env(remit::remit(alice, bob),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, USD(1000)),
+                ter(temDISABLED));
+            return;
+        }
+
+        // Malformed LimitAmount entries.
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const gw = Account("gw");
+            auto const gw2 = Account("gw2");
+            auto const USD = gw["USD"];
+            auto const EUR = gw["EUR"];
+            auto const USD2 = gw2["USD"];
+
+            env.fund(XRP(1000), alice, bob, gw, gw2);
+            env.close();
+            env.trust(USD(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env.close();
+
+            // LimitAmount is XAH.
+            env(remit::remit(alice, bob),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, XRP(10)),
+                ter(temBAD_CURRENCY));
+
+            // LimitAmount currency does not match Amount's currency.
+            env(remit::remit(alice, bob),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, EUR(1000)),
+                ter(temBAD_CURRENCY));
+
+            // LimitAmount issuer does not match Amount's issuer.
+            env(remit::remit(alice, bob),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, USD2(1000)),
+                ter(temBAD_CURRENCY));
+
+            // LimitAmount is negative.
+            env(remit::remit(alice, bob),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, USD(-1000)),
+                ter(temBAD_AMOUNT));
+
+            // LimitAmount is zero.
+            env(remit::remit(alice, bob),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, USD(0)),
+                ter(temBAD_AMOUNT));
+        }
+
+        // Situation 1: a Remit-created (Limit 0) trust line cannot receive
+        // a Payment from a third party; setting LimitAmount fixes this.
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const gw = Account("gw");
+            auto const USD = gw["USD"];
+
+            // alice/bob must not be DefaultRipple, or the LimitAmount gate
+            // (see Remit.cpp) silently skips setting the trust line limit.
+            // gw (the issuer) keeps DefaultRipple on, as any real gateway
+            // would, so its lines aren't automatically marked NoRipple.
+            env.fund(XRP(1000), noripple(alice, bob), carol, gw);
+            env.close();
+            env.trust(USD(100'000), carol);
+            env.close();
+            env(pay(gw, carol, USD(100)));
+            env.close();
+
+            // baseline: no LimitAmount, line created at Limit 0
+            env(remit::remit(gw, bob), remit::amts({USD(10)}), ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10));
+            BEAST_EXPECT(lineLimit(env, bob, gw, USD) == USD(0));
+
+            // a third party cannot pay into the Limit-0 line
+            env(pay(carol, bob, USD(5)), ter(tecPATH_DRY));
+            env.close();
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10));
+
+            // with LimitAmount, the same scenario succeeds
+            env(remit::remit(gw, alice),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, USD(1000)),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(lineLimit(env, alice, gw, USD) == USD(1000));
+
+            env(pay(carol, alice, USD(5)), ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(15));
+        }
+
+        // LimitAmount also works when the Remit sender is not the issuer.
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const gw = Account("gw");
+            auto const USD = gw["USD"];
+
+            env.fund(XRP(1000), noripple(bob), alice, gw);
+            env.close();
+            env.trust(USD(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(100)));
+            env.close();
+
+            env(remit::remit(alice, bob),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, USD(1000)),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10));
+            BEAST_EXPECT(lineLimit(env, bob, gw, USD) == USD(1000));
+        }
+
+        // Situation 2: a Remit-created (Limit 0, default flags) line is
+        // auto-deleted at balance zero; LimitAmount keeps it alive.
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const gw = Account("gw");
+            auto const USD = gw["USD"];
+
+            env.fund(XRP(1000), noripple(alice), bob, gw);
+            env.close();
+
+            // baseline: no LimitAmount
+            env(remit::remit(gw, bob), remit::amts({USD(10)}), ter(tesSUCCESS));
+            env.close();
+            auto const preOwnerCount = env.ownerCount(bob);
+            env(pay(bob, gw, USD(10)));
+            env.close();
+            BEAST_EXPECT(!env.le(keylet::line(bob, gw, USD.currency)));
+            BEAST_EXPECT(env.ownerCount(bob) < preOwnerCount);
+
+            // with LimitAmount, the line survives balance zero
+            env(remit::remit(gw, alice),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, USD(1000)),
+                ter(tesSUCCESS));
+            env.close();
+            auto const preAliceOwnerCount = env.ownerCount(alice);
+            env(pay(alice, gw, USD(10)));
+            env.close();
+            BEAST_EXPECT(env.le(keylet::line(alice, gw, USD.currency)));
+            BEAST_EXPECT(lineLimit(env, alice, gw, USD) == USD(1000));
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(0));
+            BEAST_EXPECT(env.ownerCount(alice) == preAliceOwnerCount);
+        }
+
+        // Existing line: LimitAmount must never overwrite an existing limit
+        // -- the whole Remit is rejected instead, so nothing is
+        // transferred.
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const gw = Account("gw");
+            auto const USD = gw["USD"];
+
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(50), bob);
+            env.close();
+            BEAST_EXPECT(lineLimit(env, bob, gw, USD) == USD(50));
+            auto const preBobUSD = env.balance(bob, USD.issue());
+
+            env(remit::remit(gw, bob),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, USD(1000)),
+                ter(tecNO_PERMISSION));
+            env.close();
+            BEAST_EXPECT(lineLimit(env, bob, gw, USD) == USD(50));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD);
+
+            // regression guard: the same Remit without LimitAmount still
+            // works normally against an existing line.
+            env(remit::remit(gw, bob), remit::amts({USD(10)}), ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(10));
+        }
+
+        // DefaultRipple destination: LimitAmount is rejected -- the whole
+        // Remit fails, no line is created, nothing is transferred.
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const gw = Account("gw");
+            auto const USD = gw["USD"];
+
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env(fset(bob, asfDefaultRipple));
+            env.close();
+            auto const preBobBal = env.balance(bob);
+
+            env(remit::remit(gw, bob),
+                remit::amts({USD(10)}),
+                remit::limit_amount(0, USD(1000)),
+                ter(tecNO_PERMISSION));
+            env.close();
+            BEAST_EXPECT(!env.le(keylet::line(bob, gw, USD.currency)));
+            BEAST_EXPECT(env.balance(bob) == preBobBal);
+
+            // regression guard: the same Remit without LimitAmount still
+            // works normally against a DefaultRipple destination.
+            env(remit::remit(gw, bob), remit::amts({USD(10)}), ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(10));
+        }
+    }
+
+    void
+    testLimitAmountRippling(FeatureBitset features)
+    {
+        testcase("limit amount rippling attack");
+        using namespace jtx;
+
+        // These scenarios only make sense with LimitAmount enabled.
+        if (!features[featureRemitLimitAmount])
+            return;
+
+        // Scenario A: attacker Remits to a DefaultRipple=true issuer (gw).
+        // The DefaultRipple gate must hold: gw's side of the new line
+        // must stay at Limit 0, and the attacker must not be able to
+        // ripple its own currency through gw into a genuine holder.
+        {
+            Env env{*this, features};
+            auto const gw = Account("gw");
+            auto const holder = Account("holder");
+            auto const attacker = Account("attacker");
+            auto const USDgw = gw["USD"];
+            auto const USDA = attacker["USD"];
+
+            env.fund(XRP(1000), gw, holder, attacker);
+            env.close();
+            env(fset(gw, asfDefaultRipple));
+            env.close();
+
+            env.trust(USDgw(1000), holder);
+            env.close();
+            env(pay(gw, holder, USDgw(100)));
+            env.close();
+
+            // attacker Remits USD_A(1) to gw with a large LimitAmount.
+            // OBSERVED: the whole Remit is now rejected (tecNO_PERMISSION)
+            // since gw is DefaultRipple -- no line is created at all, and
+            // nothing is transferred (not even the incidental USD_A(1)
+            // that used to land before this design change).
+            env(remit::remit(attacker, gw),
+                remit::amts({USDA(1)}),
+                remit::limit_amount(0, USDA(1'000'000)),
+                ter(tecNO_PERMISSION));
+            env.close();
+            BEAST_EXPECT(!env.le(keylet::line(gw, attacker, USDA.currency)));
+            BEAST_EXPECT(env.balance(gw, USDA.issue()) == USDA(0));
+
+            // Attack: attacker pays holder USD_gw, sourcing from its own
+            // USD_A, rippling through gw. OBSERVED: fails with tecPATH_DRY
+            // -- there is no gw-attacker line at all now (the Remit was
+            // rejected outright), so the SendMax leg has no liquidity.
+            env(pay(attacker, holder, USDgw(50)),
+                sendmax(USDA(50)),
+                path(gw),
+                ter(tecPATH_DRY));
+            env.close();
+            BEAST_EXPECT(env.balance(holder, USDgw.issue()) == USDgw(100));
+            BEAST_EXPECT(env.balance(gw, USDA.issue()) == USDA(0));
+
+            // Control: gw itself trusts USD_A directly (no Remit/gate
+            // involved) -- this is expected to actually allow the ripple,
+            // proving the attack vector is real when the limit is nonzero.
+            env(trust(gw, USDA(1'000'000)));
+            env.close();
+
+            // OBSERVED: succeeds once gw's limit is nonzero.
+            env(pay(attacker, holder, USDgw(50)),
+                sendmax(USDA(50)),
+                path(gw),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.balance(holder, USDgw.issue()) == USDgw(150));
+            // no incidental Remit transfer this time (the Remit was
+            // rejected above), so just the 50 from the attack.
+            BEAST_EXPECT(env.balance(gw, USDA.issue()) == USDA(50));
+        }
+
+        // Scenario B: attacker Remits to a plain (DefaultRipple=false)
+        // account (bob) which later becomes an issuer. Compare against
+        // bob self-granting the same trust via TrustSet.
+        {
+            Env env{*this, features};
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const attacker = Account("attacker");
+            auto const USDA = attacker["USD"];
+            auto const USDbob = bob["USD"];
+
+            env.fund(XRP(1000), noripple(bob), carol, attacker);
+            env.close();
+
+            // attacker Remits USD_A(1) to bob with a large LimitAmount.
+            env(remit::remit(attacker, bob),
+                remit::amts({USDA(1)}),
+                remit::limit_amount(0, USDA(1'000'000)),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(
+                lineLimit(env, bob, attacker, USDA) == USDA(1'000'000));
+            // the line was created while bob had DefaultRipple=false, so
+            // bob's own side is auto-marked NoRipple.
+            BEAST_EXPECT(lineNoRipple(env, bob, attacker, USDA));
+            BEAST_EXPECT(env.balance(bob, USDA.issue()) == USDA(1));
+
+            // bob becomes an issuer.
+            env(fset(bob, asfDefaultRipple));
+            env.close();
+            env(trust(carol, USDbob(1000)));
+            env.close();
+            // this line is created after bob's DefaultRipple is on, so
+            // bob's side is NOT auto-marked NoRipple.
+            BEAST_EXPECT(!lineNoRipple(env, bob, carol, USDbob));
+
+            // Attack: attacker pays carol USD_bob, sourcing from USD_A,
+            // rippling through bob. OBSERVED: succeeds -- checkNoRipple
+            // only blocks when BOTH legs at bob have NoRipple set, and
+            // here only the bob-attacker leg does, so the attacker mints
+            // USD_bob to carol despite the gate having fired on the other
+            // line.
+            env(pay(attacker, carol, USDbob(50)),
+                sendmax(USDA(50)),
+                path(bob),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.balance(carol, USDbob.issue()) == USDbob(50));
+            // 1 from the initial Remit transfer + 50 from the attack.
+            BEAST_EXPECT(env.balance(bob, USDA.issue()) == USDA(51));
+        }
+
+        // Comparison: identical to Scenario B, but bob grants the trust
+        // himself via TrustSet instead of via Remit+LimitAmount.
+        {
+            Env env{*this, features};
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const attacker = Account("attacker");
+            auto const USDA = attacker["USD"];
+            auto const USDbob = bob["USD"];
+
+            env.fund(XRP(1000), noripple(bob), carol, attacker);
+            env.close();
+
+            env(trust(bob, USDA(1'000'000)));
+            env.close();
+            // OBSERVED: unlike a Remit-created line, a self-initiated
+            // TrustSet does NOT auto-apply the "receiver DefaultRipple"
+            // NoRipple default to the initiator's own side -- that
+            // auto-behavior lives in the payment-credit path
+            // (trustCreate via rippleCreditIOU), not in SetTrust, which
+            // only sets NoRipple when tfSetNoRipple is explicitly passed.
+            // So bob's side here is NOT NoRipple, unlike Scenario B.
+            BEAST_EXPECT(!lineNoRipple(env, bob, attacker, USDA));
+
+            env(fset(bob, asfDefaultRipple));
+            env.close();
+            env(trust(carol, USDbob(1000)));
+            env.close();
+            BEAST_EXPECT(!lineNoRipple(env, bob, carol, USDbob));
+
+            // OBSERVED: succeeds, same as Scenario B -- the attack outcome
+            // (funds minted to carol) is identical either way, though the
+            // NoRipple flag state that produces it differs (see above).
+            env(pay(attacker, carol, USDbob(50)),
+                sendmax(USDA(50)),
+                path(bob),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.balance(carol, USDbob.issue()) == USDbob(50));
+            // no Remit was used here, so no incidental +1.
+            BEAST_EXPECT(env.balance(bob, USDA.issue()) == USDA(50));
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
@@ -2956,6 +3405,9 @@ public:
         auto const sa = supported_amendments();
         testWithFeats(sa - featureXahauGenesis);
         testWithFeats(sa);
+        testLimitAmount(sa);
+        testLimitAmount(sa - featureRemitLimitAmount);
+        testLimitAmountRippling(sa | featureRemitLimitAmount);
     }
 };
 
