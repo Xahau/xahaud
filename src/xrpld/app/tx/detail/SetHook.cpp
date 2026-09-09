@@ -61,9 +61,18 @@ using GrantKey = std::pair<uint256, std::optional<AccountID>>;
 bool
 isHookOnFieldsPresent(STObject const& hookSetObj)
 {
-    return hookSetObj.isFieldPresent(sfHookOn) ||
-        (hookSetObj.isFieldPresent(sfHookOnOutgoing) &&
-         hookSetObj.isFieldPresent(sfHookOnIncoming));
+    if (hookSetObj.isFieldPresent(sfHookOn))
+    {
+        return true;
+    }
+    if (hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
+        hookSetObj.isFieldPresent(sfHookOnIncoming))
+    {
+        // sfHookOnOutgoing and sfHookOnIncoming must be present together,
+        // should be checked in validateHookOn()
+        return true;
+    }
+    return false;
 }
 
 bool
@@ -282,7 +291,8 @@ std::variant<bool, std::pair<uint64_t, uint64_t>>
 validateWasmCode(SetHookCtx& ctx, STObject const& hookSetObj)
 {
     if (!hookSetObj.isFieldPresent(sfCreateCode))
-        return false;
+        // defensive check: this should never happen
+        return false;  // LCOV_EXCL_LINE
 
     Blob hook = hookSetObj.getFieldVL(sfCreateCode);
 
@@ -352,10 +362,12 @@ validateWasmCode(SetHookCtx& ctx, STObject const& hookSetObj)
 
     if (result2)
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.trace())
             << "HookSet(" << hook::log::WASM_TEST_FAILURE << ")[" << HS_ACC()
             << "Tried to set a hook with invalid code. VM error: " << *result2;
         return false;
+        // LCOV_EXCL_STOP
     }
 
     return *result;
