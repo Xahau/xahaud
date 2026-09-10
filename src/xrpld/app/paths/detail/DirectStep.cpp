@@ -44,7 +44,6 @@ protected:
     // Charge transfer fees when the prev step redeems
     Step const* const prevStep_ = nullptr;
     bool const isLast_;
-    //@@start issues-to-dst-member
     // This step is the delivered asset's issuer crediting the strand's
     // destination. Not the same as isLast_: the implied issuer-to-destination
     // step after a book or AMM is built without isLast, and isLast_ also
@@ -56,7 +55,6 @@ protected:
     // (its own USD line feeding a USD/EUR book that delivers EUR), and that
     // hop is capped like any intermediary hop.
     bool const issuesToDst_;
-    //@@end issues-to-dst-member
     beast::Journal const j_;
 
     struct Cache
@@ -112,11 +110,9 @@ public:
         , currency_(c)
         , prevStep_(ctx.prevStep)
         , isLast_(ctx.isLast)
-        //@@start issues-to-dst-init
         , issuesToDst_(
               dst == ctx.strandDst && src == ctx.strandDeliver.account &&
               c == ctx.strandDeliver.currency)
-        //@@end issues-to-dst-init
         , j_(ctx.j)
     {
     }
@@ -391,7 +387,6 @@ DirectIOfferCrossingStep::quality(ReadView const&, QualityDirection qDir) const
     return QUALITY_ONE;
 }
 
-//@@start recipient-limit-max-flow
 std::pair<IOUAmount, DebtDirection>
 DirectIPaymentStep::maxFlow(ReadView const& sb, IOUAmount const&) const
 {
@@ -415,9 +410,7 @@ DirectIPaymentStep::maxFlow(ReadView const& sb, IOUAmount const&) const
 
     return {amount, direction};
 }
-//@@end recipient-limit-max-flow
 
-//@@start offer-crossing-precedent
 std::pair<IOUAmount, DebtDirection>
 DirectIOfferCrossingStep::maxFlow(ReadView const& sb, IOUAmount const& desired)
     const
@@ -439,7 +432,6 @@ DirectIOfferCrossingStep::maxFlow(ReadView const& sb, IOUAmount const& desired)
 
     return maxPaymentFlow(sb);
 }
-//@@end offer-crossing-precedent
 
 TER
 DirectIPaymentStep::check(
@@ -481,7 +473,6 @@ DirectIPaymentStep::check(
         }
     }
 
-    //@@start recipient-limit-dry-test
     // The destination's limit does not apply to its issuer's step into it
     // (see maxFlow); a dry test against it would refuse a payment the
     // recipient is allowed to receive.
@@ -499,7 +490,6 @@ DirectIPaymentStep::check(
             }
         }
     }
-    //@@end recipient-limit-dry-test
     return tesSUCCESS;
 }
 
@@ -516,7 +506,6 @@ DirectIOfferCrossingStep::check(
 
 //------------------------------------------------------------------------------
 
-//@@start limit-reader-max-payment-flow
 template <class TDerived>
 std::pair<IOUAmount, DebtDirection>
 DirectStepI<TDerived>::maxPaymentFlow(ReadView const& sb) const
@@ -532,7 +521,6 @@ DirectStepI<TDerived>::maxPaymentFlow(ReadView const& sb) const
         creditLimit2(sb, dst_, src_, currency_) + srcOwed,
         DebtDirection::issues};
 }
-//@@end limit-reader-max-payment-flow
 
 template <class TDerived>
 DebtDirection

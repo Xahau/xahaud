@@ -3018,10 +3018,8 @@ struct Remit_test : public beast::unit_test::suite
         testURIToken(features);
         testOptionals(features);
         testDestAMM(features);
-        //@@start persist-wiring
         testPersistLine(features);
         testPersistLine(features - featureNoRecipientLimit);
-        //@@end persist-wiring
     }
 
 public:

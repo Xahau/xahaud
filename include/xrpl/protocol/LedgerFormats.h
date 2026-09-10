@@ -155,7 +155,6 @@ enum LedgerSpecificFlags {
     lsfPassive = 0x00010000,
     lsfSell = 0x00020000,  // True, offer was placed as a sell.
 
-    //@@start ripple-state-flags
     // ltRIPPLE_STATE
     lsfLowReserve = 0x00010000,  // True, if entry counts toward reserve.
     lsfHighReserve = 0x00020000,
@@ -171,7 +170,6 @@ enum LedgerSpecificFlags {
     lsfHighPersist = 0x10000000,    // True, high side keeps the line at zero
     lsfAMMNode = 0x01000000,     // True, trust line to AMM. Used by client
                                  // apps to identify payments via AMM.
-    //@@end ripple-state-flags
 
     // ltSIGNER_LIST
     lsfOneOwnerCount = 0x00010000,  // True, uses only one OwnerCount

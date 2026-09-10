@@ -562,7 +562,6 @@ Remit::doApply()
             if (availableFunds < srcAmt)
                 return tecUNFUNDED_PAYMENT;
 
-            //@@start remit-persist
             // if the target trustline doesn't exist we need to create it and
             // pay its reserve
             auto const lineKey =
@@ -603,7 +602,6 @@ Remit::doApply()
                     sb.update(sleLine);
                 }
             }
-            //@@end remit-persist
         }
     }
 

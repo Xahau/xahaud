@@ -91,7 +91,6 @@ SetTrust::preflight(PreflightContext const& ctx)
         }
     }
 
-    //@@start persist-preflight
     if (uTxFlags & (tfSetPersist | tfClearPersist))
     {
         // Persist flags are valid only under the amendment, and not both.
@@ -101,7 +100,6 @@ SetTrust::preflight(PreflightContext const& ctx)
             return temINVALID_FLAG;
         }
     }
-    //@@end persist-preflight
 
     STAmount const saLimitAmount(tx.getFieldAmount(sfLimitAmount));
 
@@ -354,10 +352,8 @@ SetTrust::doApply()
     bool const bClearFreeze = (uTxFlags & tfClearFreeze);
     bool const bSetDeepFreeze = (uTxFlags & tfSetDeepFreeze);
     bool const bClearDeepFreeze = (uTxFlags & tfClearDeepFreeze);
-    //@@start persist-flags
     bool const bSetPersist = (uTxFlags & tfSetPersist);
     bool const bClearPersist = (uTxFlags & tfClearPersist);
-    //@@end persist-flags
 
     auto viewJ = ctx_.app.journal("View");
 
@@ -524,12 +520,10 @@ SetTrust::doApply()
             uFlagsOut &= ~(bHigh ? lsfHighNoRipple : lsfLowNoRipple);
         }
 
-        //@@start persist-set-clear
         if (bSetPersist)
             uFlagsOut |= (bHigh ? lsfHighPersist : lsfLowPersist);
         else if (bClearPersist)
             uFlagsOut &= ~(bHigh ? lsfHighPersist : lsfLowPersist);
-        //@@end persist-set-clear
 
         // Have to use lsfNoFreeze to maintain pre-deep freeze behavior
         bool const bNoFreeze = sle->isFlag(lsfNoFreeze);
@@ -552,7 +546,6 @@ SetTrust::doApply()
         bool const bHighDefRipple =
             sleHighAccount->getFlags() & lsfDefaultRipple;
 
-        //@@start persist-reserve
         bool const bLowReserveSet = uLowQualityIn || uLowQualityOut ||
             ((uFlagsOut & lsfLowNoRipple) == 0) != bLowDefRipple ||
             (uFlagsOut & lsfLowFreeze) || (uFlagsOut & lsfLowPersist) ||
@@ -566,7 +559,6 @@ SetTrust::doApply()
         bool const bHighReserveClear = !bHighReserveSet;
 
         bool const bDefault = bLowReserveClear && bHighReserveClear;
-        //@@end persist-reserve
 
         bool const bLowReserved = (uFlagsIn & lsfLowReserve);
         bool const bHighReserved = (uFlagsIn & lsfHighReserve);
@@ -639,7 +631,6 @@ SetTrust::doApply()
             JLOG(j_.trace()) << "Modify ripple line";
         }
     }
-    //@@start persist-not-redundant
     // Line does not exist.
     else if (
         !saLimitAmount &&                  // Setting default limit.
@@ -653,7 +644,6 @@ SetTrust::doApply()
             << "Redundant: Setting non-existent ripple line to defaults.";
         return tecNO_LINE_REDUNDANT;
     }
-    //@@end persist-not-redundant
     else if (mPriorBalance < reserveCreate)  // Reserve is not scaled by load.
     {
         JLOG(j_.trace()) << "Delay transaction: Line does not exist. "
@@ -691,7 +681,6 @@ SetTrust::doApply()
             uQualityOut,
             viewJ);
 
-        //@@start persist-create
         if (isTesSuccess(terResult) && bSetPersist)
         {
             if (auto const sleLine = view().peek(k))
@@ -703,7 +692,6 @@ SetTrust::doApply()
                 view().update(sleLine);
             }
         }
-        //@@end persist-create
     }
 
     return terResult;

@@ -24,7 +24,6 @@
 
 namespace ripple {
 
-//@@start limit-contract
 // Trust line limits are consulted here and in creditLimit2, by the payment
 // engine's direct step, which applies them to intermediary hops and (with
 // featureNoRecipientLimit) not to the issuer's step into the destination.
@@ -33,7 +32,6 @@ namespace ripple {
 // never reads a limit; keep it that way so the invariant "a limit governs an
 // intermediary, never an account receiving its issuer's token" holds for
 // every transaction type without per-transactor exceptions.
-//@@end limit-contract
 STAmount
 creditLimit(
     ReadView const& view,

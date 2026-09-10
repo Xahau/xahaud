@@ -747,7 +747,6 @@ public:
         testDisallowIncoming(features);
         testTrustLineResetWithAuthFlag();
         testTrustLineDelete();
-        //@@start settrust-wiring
         testExceedTrustLineLimit(features);
         testExceedTrustLineLimit(features - featureNoRecipientLimit);
         testAuthFlagTrustLines();
@@ -755,7 +754,6 @@ public:
         testTrustLineLimitsWithRippling(features - featureNoRecipientLimit);
         testPersist(features);
         testPersist(features - featureNoRecipientLimit);
-        //@@end settrust-wiring
     }
 
 public:

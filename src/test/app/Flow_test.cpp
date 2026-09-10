@@ -960,7 +960,6 @@ struct Flow_test : public beast::unit_test::suite
         env.require(balance(alice, EUR(600)));
         aliceOffers = offersOnAccount(env, alice);
         BEAST_EXPECT(aliceOffers.size() == 1);
-        //@@start self-payment-gate
         // alice's EUR limit is 606 and she holds 600: the last step, gw2
         // issuing to alice, is capped at 6 EUR unless recipients are exempt
         // from their limit, in which case all 60 EUR cross.
@@ -972,7 +971,6 @@ struct Flow_test : public beast::unit_test::suite
             BEAST_EXPECT(offer[sfTakerGets] == (exempt ? EUR(540) : EUR(594)));
             BEAST_EXPECT(offer[sfTakerPays] == (exempt ? USD(450) : USD(495)));
         }
-        //@@end self-payment-gate
     }
     void
     testSelfFundedXRPEndpoint(bool consumeOffer, FeatureBitset features)
@@ -1589,20 +1587,16 @@ struct Flow_test : public beast::unit_test::suite
         testBookStep(features | ownerPaysFee);
         testTransferRate(features | ownerPaysFee);
         testSelfPayment1(features);
-        //@@start self-payment-wiring
         testSelfPayment2(features);
         testSelfPayment2(features - featureNoRecipientLimit);
-        //@@end self-payment-wiring
         testSelfFundedXRPEndpoint(false, features);
         testSelfFundedXRPEndpoint(true, features);
         testUnfundedOffer(features);
         testReexecuteDirectStep(features);
         testSelfPayLowQualityOffer(features);
         testTicketPay(features);
-        //@@start recipient-limit-wiring
         testRecipientLimit(features);
         testRecipientLimit(features - featureNoRecipientLimit);
-        //@@end recipient-limit-wiring
     }
 
     void

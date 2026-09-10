@@ -761,7 +761,6 @@ public:
             find_paths(env, "alice", "bob", Account("bob")["USD"](25));
         BEAST_EXPECT(std::get<0>(result).empty());
 
-        //@@start path-issue5-gate
         // alice issuing her own USD to bob, who has no limit on her, is
         // refused; with featureNoRecipientLimit bob's limit does not cap
         // his issuer and the payment succeeds.
@@ -775,7 +774,6 @@ public:
         env.require(balance("alice", Account("bob")["USD"](exempt ? -25 : 0)));
         env.require(balance("alice", Account("dan")["USD"](0)));
         env.require(balance("bob", Account("alice")["USD"](exempt ? 25 : 0)));
-        //@@end path-issue5-gate
         env.require(balance("bob", Account("carol")["USD"](-75)));
         env.require(balance("bob", Account("dan")["USD"](0)));
         env.require(balance("carol", Account("bob")["USD"](75)));
@@ -1535,11 +1533,9 @@ public:
         alternative_paths_consume_best_transfer();
         alternative_paths_consume_best_transfer_first();
         alternative_paths_limit_returned_paths_to_best_quality();
-        //@@start path-wiring
         issues_path_negative_issue(jtx::supported_amendments());
         issues_path_negative_issue(
             jtx::supported_amendments() - featureNoRecipientLimit);
-        //@@end path-wiring
         issues_path_negative_ripple_client_issue_23_smaller();
         issues_path_negative_ripple_client_issue_23_larger();
         via_offers_via_gateway();

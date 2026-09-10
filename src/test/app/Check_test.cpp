@@ -529,7 +529,6 @@ class Check_test : public beast::unit_test::suite
             env.close();
             env(check::create(gw1, alice, USD(50)), ter(tecFROZEN));
             env.close();
-            //@@start check-create-gate
             // A pure issue cannot be frozen; what refused this payment was
             // alice's limit of zero, which no longer caps her issuer under
             // NoRecipientLimit.
@@ -537,7 +536,6 @@ class Check_test : public beast::unit_test::suite
                 ter(features[featureNoRecipientLimit] ? TER(tesSUCCESS)
                                                       : TER(tecPATH_DRY)));
             env.close();
-            //@@end check-create-gate
 
             // Clear that freeze.
             env(trust(alice, USD(0), tfClearFreeze));
@@ -743,7 +741,6 @@ class Check_test : public beast::unit_test::suite
             // bob sets up the trust line, but not at a high enough limit.
             env(trust(bob, USD(9.5)));
             env.close();
-            //@@start check-cash-gate
             if (!cashCheckMakesTrustLine && !features[featureNoRecipientLimit])
             {
                 // If cashing a check is allowed to exceed the trust line
@@ -754,7 +751,6 @@ class Check_test : public beast::unit_test::suite
                 env(check::cash(bob, chkId1, USD(10)), ter(tecPATH_PARTIAL));
                 env.close();
             }
-            //@@end check-cash-gate
 
             // bob sets the trust line limit high enough but asks for more
             // than the check's SendMax.
@@ -840,7 +836,6 @@ class Check_test : public beast::unit_test::suite
                 // a payment to bob cannot exceed that trust line, but cashing
                 // a check can.
 
-                //@@start check-payment-gate
                 // Payment of 20 USD fails, unless recipients are exempt
                 // from their limit, in which case it succeeds and is undone
                 // so the check below still tells the same story.
@@ -857,7 +852,6 @@ class Check_test : public beast::unit_test::suite
                     env(pay(gw, bob, USD(20)), ter(tecPATH_PARTIAL));
                     env.close();
                 }
-                //@@end check-payment-gate
 
                 uint256 const chkId20{getCheckIndex(gw, env.seq(gw))};
                 env(check::create(gw, bob, USD(20)));
@@ -1003,7 +997,6 @@ class Check_test : public beast::unit_test::suite
 
             // bob tries to cash the check again but fails because his trust
             // limit is too low.
-            //@@start check-auth-cash-gate
             bool const exceedsLimit =
                 cashCheckMakesTrustLine || features[featureNoRecipientLimit];
             if (!exceedsLimit)
@@ -1024,7 +1017,6 @@ class Check_test : public beast::unit_test::suite
             //    exceed the trust limit and bob gets the full transfer.
             env(check::cash(bob, chkId, check::DeliverMin(USD(4))));
             STAmount const bobGot = exceedsLimit ? USD(7) : USD(5);
-            //@@end check-auth-cash-gate
             verifyDeliveredAmount(env, bobGot);
             env.require(balance(alice, USD(8) - bobGot));
             env.require(balance(bob, bobGot));
@@ -2719,13 +2711,11 @@ class Check_test : public beast::unit_test::suite
         testEnabled(features);
         testCreateValid(features);
         testCreateDisallowIncoming(features);
-        //@@start check-wiring
         testCreateInvalid(features);
         testCreateInvalid(features - featureNoRecipientLimit);
         testCashXRP(features);
         testCashIOU(features);
         testCashIOU(features - featureNoRecipientLimit);
-        //@@end check-wiring
         testCashXferFee(features);
         testCashQuality(features);
         testCashInvalid(features);

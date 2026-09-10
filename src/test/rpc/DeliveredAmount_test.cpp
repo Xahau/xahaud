@@ -206,7 +206,6 @@ class DeliveredAmount_test : public beast::unit_test::suite
             env(pay(gw, alice, XRP(50)));
             checkDeliveredAmount.adjCountersSuccess();
 
-            //@@start delivered-rpc-gate
             // Without recipient limits, the partial-payment flag does
             // not prevent the issuer from delivering the full amount.
             bool const exempt = features[featureNoRecipientLimit];
@@ -222,7 +221,6 @@ class DeliveredAmount_test : public beast::unit_test::suite
             else
                 checkDeliveredAmount.adjCountersFail();
             env.require(balance(carol, USD(exempt ? 9999999 : 0)));
-            //@@end delivered-rpc-gate
         }
 
         auto wsc = makeWSClient(env.app().config());
@@ -293,7 +291,6 @@ class DeliveredAmount_test : public beast::unit_test::suite
         env(pay(gw, alice, XRP(50)));
         checkDeliveredAmount.adjCountersSuccess();
 
-        //@@start delivered-subscribe-gate
         // Without recipient limits, the partial-payment flag does
         // not prevent the issuer from delivering the full amount.
         bool const exempt = features[featureNoRecipientLimit];
@@ -309,7 +306,6 @@ class DeliveredAmount_test : public beast::unit_test::suite
         else
             checkDeliveredAmount.adjCountersFail();
         env.require(balance(carol, USD(exempt ? 9999999 : 0)));
-        //@@end delivered-subscribe-gate
 
         env.close();
         std::string index;
@@ -334,10 +330,8 @@ public:
         FeatureBitset const all{supported_amendments() - featureXahauGenesis};
         testTxDeliveredAmountRPC(all);
         testAccountDeliveredAmountSubscribe(all);
-        //@@start delivered-wiring
         testTxDeliveredAmountRPC(all - featureNoRecipientLimit);
         testAccountDeliveredAmountSubscribe(all - featureNoRecipientLimit);
-        //@@end delivered-wiring
     }
 };
 

@@ -2294,13 +2294,11 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             auto const postLimit = limitAmount(env, bob, gw, USD);
             BEAST_EXPECT(postLimit == preLimit);
-            //@@start uritoken-limit-gate
             // carol already holds her 1000 limit; the issuer's step into
             // her is dry unless recipients are exempt from their limit.
             env(pay(alice, carol, USD(1)),
                 ter(features[featureNoRecipientLimit] ? TER(tesSUCCESS)
                                                       : TER(tecPATH_DRY)));
-            //@@end uritoken-limit-gate
         }
     }
 
@@ -2654,10 +2652,8 @@ struct URIToken_test : public beast::unit_test::suite
         testFreeze(features);
         testTransferRate(features);
         testDisallowXRP(features);
-        //@@start uritoken-wiring
         testLimitAmount(features);
         testLimitAmount(features - featureNoRecipientLimit);
-        //@@end uritoken-wiring
         testURIUTF8(features);
     }
 
