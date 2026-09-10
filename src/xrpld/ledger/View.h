@@ -1135,9 +1135,11 @@ trustTransferLockedBalance(
             // dest trust line does exist
             // checked NoRipple and Freeze flags in trustTransferAllowed
 
+            //@@start locked-balance-limit-read
             // check the limit
             STAmount dstLimit = dstHigh ? (*sleDstLine)[sfHighLimit]
                                         : (*sleDstLine)[sfLowLimit];
+            //@@end locked-balance-limit-read
 
             // get prior balance
             STAmount priorBalance = dstHigh ? -((*sleDstLine)[sfBalance])
@@ -1154,15 +1156,19 @@ trustTransferLockedBalance(
                 return tecINTERNAL;
             }
 
+            //@@start locked-balance-limit
             // if final is more than dest limit and tx acct is not dest acct -
-            // fail
-            if (finalBalance > dstLimit && actingAccID != dstAccID)
+            // fail. Under NoRecipientLimit a limit never governs the account
+            // receiving, whoever finishes the instrument.
+            if (finalBalance > dstLimit && actingAccID != dstAccID &&
+                !view.rules().enabled(featureNoRecipientLimit))
             {
                 JLOG(j.trace())
                     << "trustTransferLockedBalance would increase dest "
                        "line above limit without permission";
                 return tecPATH_DRY;
             }
+            //@@end locked-balance-limit
 
             // if there is significant precision loss - fail
             if (!isAddable(priorBalance, dstAmt))

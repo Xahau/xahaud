@@ -1125,11 +1125,18 @@ isTrustDefault(
 
     uint32_t const acFlags = line->getFieldU32(sfFlags);
 
+    //@@start persist-default
     const auto fNoRipple{high ? lsfHighNoRipple : lsfLowNoRipple};
     const auto fFreeze{high ? lsfHighFreeze : lsfLowFreeze};
+    const auto fPersist{high ? lsfHighPersist : lsfLowPersist};
 
     if (tlFlags & fFreeze)
         return false;
+
+    // A persisting side keeps its claim on the line at zero balance.
+    if (tlFlags & fPersist)
+        return false;
+    //@@end persist-default
 
     if ((acFlags & lsfDefaultRipple) && (tlFlags & fNoRipple))
         return false;
@@ -1255,6 +1262,7 @@ rippleCreditIOU(
 
         // FIXME This NEEDS to be cleaned up and simplified. It's impossible
         //       for anyone to understand.
+        //@@start persist-credit-delete
         if (saBefore > beast::zero
             // Sender balance was positive.
             && saBalance <= beast::zero
@@ -1268,6 +1276,8 @@ rippleCreditIOU(
                     view.read(keylet::account(uSenderID))->getFlags() &
                     lsfDefaultRipple) &&
             !(uFlags & (!bSenderHigh ? lsfLowFreeze : lsfHighFreeze)) &&
+            // Sender does not persist the line.
+            !(uFlags & (!bSenderHigh ? lsfLowPersist : lsfHighPersist)) &&
             !sleRippleState->getFieldAmount(
                 !bSenderHigh ? sfLowLimit : sfHighLimit)
             // Sender trust limit is 0.
@@ -1277,6 +1287,7 @@ rippleCreditIOU(
             && !sleRippleState->getFieldU32(
                    !bSenderHigh ? sfLowQualityOut : sfHighQualityOut))
         // Sender quality out is 0.
+        //@@end persist-credit-delete
         {
             // Clear the reserve of the sender, possibly delete the line!
             adjustOwnerCount(
@@ -1739,6 +1750,7 @@ updateTrustLine(
         return false;
 
     // YYY Could skip this if rippling in reverse.
+    //@@start persist-update-delete
     if (before > beast::zero
         // Sender balance was positive.
         && after <= beast::zero
@@ -1749,6 +1761,8 @@ updateTrustLine(
                flags & (!bSenderHigh ? lsfLowNoRipple : lsfHighNoRipple)) !=
             static_cast<bool>(sle->getFlags() & lsfDefaultRipple) &&
         !(flags & (!bSenderHigh ? lsfLowFreeze : lsfHighFreeze)) &&
+        // Sender does not persist the line.
+        !(flags & (!bSenderHigh ? lsfLowPersist : lsfHighPersist)) &&
         !state->getFieldAmount(!bSenderHigh ? sfLowLimit : sfHighLimit)
         // Sender trust limit is 0.
         && !state->getFieldU32(!bSenderHigh ? sfLowQualityIn : sfHighQualityIn)
@@ -1756,6 +1770,7 @@ updateTrustLine(
         &&
         !state->getFieldU32(!bSenderHigh ? sfLowQualityOut : sfHighQualityOut))
     // Sender quality out is 0.
+    //@@end persist-update-delete
     {
         // VFALCO Where is the line being deleted?
         // Clear the reserve of the sender, possibly delete the line!

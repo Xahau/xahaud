@@ -37,6 +37,8 @@ enum ltRIPPLE_STATE {
     lsfHighFreeze = 0x00800000,
     lsfLowDeepFreeze = 0x02000000,
     lsfHighDeepFreeze = 0x04000000,
+    lsfLowPersist = 0x08000000,
+    lsfHighPersist = 0x10000000,
     lsfAMMNode = 0x01000000,
 };
 enum ltSIGNER_LIST {

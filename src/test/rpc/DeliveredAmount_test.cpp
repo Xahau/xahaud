@@ -206,15 +206,23 @@ class DeliveredAmount_test : public beast::unit_test::suite
             env(pay(gw, alice, XRP(50)));
             checkDeliveredAmount.adjCountersSuccess();
 
-            // partial payment
+            //@@start delivered-rpc-gate
+            // Without recipient limits, the partial-payment flag does
+            // not prevent the issuer from delivering the full amount.
+            bool const exempt = features[featureNoRecipientLimit];
             env(pay(gw, bob, USD(9999999)), txflags(tfPartialPayment));
             checkDeliveredAmount.adjCountersPartialPayment();
-            env.require(balance(bob, USD(1000)));
+            env.require(balance(bob, USD(exempt ? 9999999 : 1000)));
 
-            // failed payment
-            env(pay(bob, carol, USD(9999999)), ter(tecPATH_PARTIAL));
-            checkDeliveredAmount.adjCountersFail();
-            env.require(balance(carol, USD(0)));
+            // bob is now fully funded only with the amendment enabled.
+            env(pay(bob, carol, USD(9999999)),
+                ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_PARTIAL)));
+            if (exempt)
+                checkDeliveredAmount.adjCountersSuccess();
+            else
+                checkDeliveredAmount.adjCountersFail();
+            env.require(balance(carol, USD(exempt ? 9999999 : 0)));
+            //@@end delivered-rpc-gate
         }
 
         auto wsc = makeWSClient(env.app().config());
@@ -285,15 +293,23 @@ class DeliveredAmount_test : public beast::unit_test::suite
         env(pay(gw, alice, XRP(50)));
         checkDeliveredAmount.adjCountersSuccess();
 
-        // partial payment
+        //@@start delivered-subscribe-gate
+        // Without recipient limits, the partial-payment flag does
+        // not prevent the issuer from delivering the full amount.
+        bool const exempt = features[featureNoRecipientLimit];
         env(pay(gw, bob, USD(9999999)), txflags(tfPartialPayment));
         checkDeliveredAmount.adjCountersPartialPayment();
-        env.require(balance(bob, USD(1000)));
+        env.require(balance(bob, USD(exempt ? 9999999 : 1000)));
 
-        // failed payment
-        env(pay(gw, carol, USD(9999999)), ter(tecPATH_PARTIAL));
-        checkDeliveredAmount.adjCountersFail();
-        env.require(balance(carol, USD(0)));
+        // The issuer is likewise no longer capped by carol's limit.
+        env(pay(gw, carol, USD(9999999)),
+            ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_PARTIAL)));
+        if (exempt)
+            checkDeliveredAmount.adjCountersSuccess();
+        else
+            checkDeliveredAmount.adjCountersFail();
+        env.require(balance(carol, USD(exempt ? 9999999 : 0)));
+        //@@end delivered-subscribe-gate
 
         env.close();
         std::string index;
@@ -318,6 +334,10 @@ public:
         FeatureBitset const all{supported_amendments() - featureXahauGenesis};
         testTxDeliveredAmountRPC(all);
         testAccountDeliveredAmountSubscribe(all);
+        //@@start delivered-wiring
+        testTxDeliveredAmountRPC(all - featureNoRecipientLimit);
+        testAccountDeliveredAmountSubscribe(all - featureNoRecipientLimit);
+        //@@end delivered-wiring
     }
 };
 

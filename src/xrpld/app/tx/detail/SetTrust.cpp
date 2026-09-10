@@ -91,6 +91,18 @@ SetTrust::preflight(PreflightContext const& ctx)
         }
     }
 
+    //@@start persist-preflight
+    if (uTxFlags & (tfSetPersist | tfClearPersist))
+    {
+        // Persist flags are valid only under the amendment, and not both.
+        if (!ctx.rules.enabled(featureNoRecipientLimit) ||
+            ((uTxFlags & tfSetPersist) && (uTxFlags & tfClearPersist)))
+        {
+            return temINVALID_FLAG;
+        }
+    }
+    //@@end persist-preflight
+
     STAmount const saLimitAmount(tx.getFieldAmount(sfLimitAmount));
 
     if (!isLegalNet(saLimitAmount))
@@ -342,6 +354,10 @@ SetTrust::doApply()
     bool const bClearFreeze = (uTxFlags & tfClearFreeze);
     bool const bSetDeepFreeze = (uTxFlags & tfSetDeepFreeze);
     bool const bClearDeepFreeze = (uTxFlags & tfClearDeepFreeze);
+    //@@start persist-flags
+    bool const bSetPersist = (uTxFlags & tfSetPersist);
+    bool const bClearPersist = (uTxFlags & tfClearPersist);
+    //@@end persist-flags
 
     auto viewJ = ctx_.app.journal("View");
 
@@ -508,6 +524,13 @@ SetTrust::doApply()
             uFlagsOut &= ~(bHigh ? lsfHighNoRipple : lsfLowNoRipple);
         }
 
+        //@@start persist-set-clear
+        if (bSetPersist)
+            uFlagsOut |= (bHigh ? lsfHighPersist : lsfLowPersist);
+        else if (bClearPersist)
+            uFlagsOut &= ~(bHigh ? lsfHighPersist : lsfLowPersist);
+        //@@end persist-set-clear
+
         // Have to use lsfNoFreeze to maintain pre-deep freeze behavior
         bool const bNoFreeze = sle->isFlag(lsfNoFreeze);
         uFlagsOut = computeFreezeFlags(
@@ -529,19 +552,21 @@ SetTrust::doApply()
         bool const bHighDefRipple =
             sleHighAccount->getFlags() & lsfDefaultRipple;
 
+        //@@start persist-reserve
         bool const bLowReserveSet = uLowQualityIn || uLowQualityOut ||
             ((uFlagsOut & lsfLowNoRipple) == 0) != bLowDefRipple ||
-            (uFlagsOut & lsfLowFreeze) || saLowLimit ||
-            saLowBalance > beast::zero;
+            (uFlagsOut & lsfLowFreeze) || (uFlagsOut & lsfLowPersist) ||
+            saLowLimit || saLowBalance > beast::zero;
         bool const bLowReserveClear = !bLowReserveSet;
 
         bool const bHighReserveSet = uHighQualityIn || uHighQualityOut ||
             ((uFlagsOut & lsfHighNoRipple) == 0) != bHighDefRipple ||
-            (uFlagsOut & lsfHighFreeze) || saHighLimit ||
-            saHighBalance > beast::zero;
+            (uFlagsOut & lsfHighFreeze) || (uFlagsOut & lsfHighPersist) ||
+            saHighLimit || saHighBalance > beast::zero;
         bool const bHighReserveClear = !bHighReserveSet;
 
         bool const bDefault = bLowReserveClear && bHighReserveClear;
+        //@@end persist-reserve
 
         bool const bLowReserved = (uFlagsIn & lsfLowReserve);
         bool const bHighReserved = (uFlagsIn & lsfHighReserve);
@@ -614,6 +639,7 @@ SetTrust::doApply()
             JLOG(j_.trace()) << "Modify ripple line";
         }
     }
+    //@@start persist-not-redundant
     // Line does not exist.
     else if (
         !saLimitAmount &&                  // Setting default limit.
@@ -621,12 +647,13 @@ SetTrust::doApply()
                                            // setting default quality in.
         (!bQualityOut || !uQualityOut) &&  // Not setting quality out or
                                            // setting default quality out.
-        (!bSetAuth))
+        (!bSetAuth) && (!bSetPersist))     // Not asking the line to persist.
     {
         JLOG(j_.trace())
             << "Redundant: Setting non-existent ripple line to defaults.";
         return tecNO_LINE_REDUNDANT;
     }
+    //@@end persist-not-redundant
     else if (mPriorBalance < reserveCreate)  // Reserve is not scaled by load.
     {
         JLOG(j_.trace()) << "Delay transaction: Line does not exist. "
@@ -663,6 +690,20 @@ SetTrust::doApply()
             uQualityIn,
             uQualityOut,
             viewJ);
+
+        //@@start persist-create
+        if (isTesSuccess(terResult) && bSetPersist)
+        {
+            if (auto const sleLine = view().peek(k))
+            {
+                sleLine->setFieldU32(
+                    sfFlags,
+                    sleLine->getFieldU32(sfFlags) |
+                        (bHigh ? lsfHighPersist : lsfLowPersist));
+                view().update(sleLine);
+            }
+        }
+        //@@end persist-create
     }
 
     return terResult;

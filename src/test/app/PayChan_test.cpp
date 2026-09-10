@@ -4959,10 +4959,15 @@ struct PayChan_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 postLocked ==
                 (t.negative ? (preLocked + delta) : (preLocked - delta)));
-            // src claim fails because trust limit is 0
+            //@@start paychan-ripple-state-gate
+            // src claim fails because trust limit is 0, unless a limit no
+            // longer governs the receiver
             auto const testResult =
-                t.hasTrustline ? ter(tesSUCCESS) : ter(tecPATH_DRY);
+                (t.hasTrustline || features[featureNoRecipientLimit])
+                ? ter(tesSUCCESS)
+                : ter(tecPATH_DRY);
             env(paychan::claim(t.src, chan, authAmt, authAmt), testResult);
+            //@@end paychan-ripple-state-gate
         }
     }
 
@@ -5288,11 +5293,27 @@ struct PayChan_test : public beast::unit_test::suite
             assert(reqBal <= chanAmt);
             auto const preLocked = -lockedAmount(env, alice, gw, USD);
             BEAST_EXPECT(preLocked == USD(1000));
-            // alice cannot claim because bobs amount would be > than limit
-            env(paychan::claim(alice, chan, reqBal, authAmt), ter(tecPATH_DRY));
+            //@@start paychan-limit-gate
+            auto const preBobLimit = limitAmount(env, bob, gw, USD);
+            if (features[featureNoRecipientLimit])
+            {
+                // bob's limit does not govern bob receiving, whoever
+                // finishes the claim
+                env(paychan::claim(alice, chan, reqBal, authAmt));
+                env.close();
+                BEAST_EXPECT(env.balance(bob, USD) == USD(1000) + delta);
+                reqBal = reqBal + delta;
+            }
+            else
+            {
+                // alice cannot claim because bobs amount would be > than
+                // limit
+                env(paychan::claim(alice, chan, reqBal, authAmt),
+                    ter(tecPATH_DRY));
+            }
+            //@@end paychan-limit-gate
 
             // bob can claim, increasing the limit amount
-            auto const preBobLimit = limitAmount(env, bob, gw, USD);
             auto const sig =
                 signClaimIOUAuth(alice.pk(), alice.sk(), chan, authAmt);
             env(paychan::claim(
@@ -5926,10 +5947,14 @@ struct PayChan_test : public beast::unit_test::suite
         testIOUAccountDelete(features);
         testIOUUsingTickets(features);
         testIOUAutoTL(features);
+        //@@start paychan-wiring
         testIOURippleState(features);
+        testIOURippleState(features - featureNoRecipientLimit);
         testIOUGateway(features);
         testIOULockedRate(features);
         testIOUTLLimitAmount(features);
+        testIOUTLLimitAmount(features - featureNoRecipientLimit);
+        //@@end paychan-wiring
         testIOUTLRequireAuth(features);
         testIOUTLFreeze(features);
         testIOUTLINSF(features);

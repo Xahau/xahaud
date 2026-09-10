@@ -562,10 +562,13 @@ Remit::doApply()
             if (availableFunds < srcAmt)
                 return tecUNFUNDED_PAYMENT;
 
+            //@@start remit-persist
             // if the target trustline doesn't exist we need to create it and
             // pay its reserve
-            if (!sb.exists(
-                    keylet::line(dstAccID, issuerAccID, amount.getCurrency())))
+            auto const lineKey =
+                keylet::line(dstAccID, issuerAccID, amount.getCurrency());
+            bool const lineExisted = sb.exists(lineKey);
+            if (!lineExisted)
             {
                 if (nativeRemit + objectReserve < nativeRemit)
                     return tecINTERNAL;
@@ -584,6 +587,23 @@ Remit::doApply()
                     true);
                 !isTesSuccess(result))
                 return result;
+
+            // A line this remit created was never configured by the
+            // destination. Mark the destination's side as persisting so the
+            // line survives a zero balance until the destination clears it.
+            if (!lineExisted && sb.rules().enabled(featureNoRecipientLimit))
+            {
+                if (auto const sleLine = sb.peek(lineKey))
+                {
+                    bool const dstHigh = dstAccID > issuerAccID;
+                    sleLine->setFieldU32(
+                        sfFlags,
+                        sleLine->getFieldU32(sfFlags) |
+                            (dstHigh ? lsfHighPersist : lsfLowPersist));
+                    sb.update(sleLine);
+                }
+            }
+            //@@end remit-persist
         }
     }
 

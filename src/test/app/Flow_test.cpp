@@ -960,13 +960,19 @@ struct Flow_test : public beast::unit_test::suite
         env.require(balance(alice, EUR(600)));
         aliceOffers = offersOnAccount(env, alice);
         BEAST_EXPECT(aliceOffers.size() == 1);
+        //@@start self-payment-gate
+        // alice's EUR limit is 606 and she holds 600: the last step, gw2
+        // issuing to alice, is capped at 6 EUR unless recipients are exempt
+        // from their limit, in which case all 60 EUR cross.
+        bool const exempt = features[featureNoRecipientLimit];
         for (auto const& offerPtr : aliceOffers)
         {
             auto const offer = *offerPtr;
             BEAST_EXPECT(offer[sfLedgerEntryType] == ltOFFER);
-            BEAST_EXPECT(offer[sfTakerGets] == EUR(594));
-            BEAST_EXPECT(offer[sfTakerPays] == USD(495));
+            BEAST_EXPECT(offer[sfTakerGets] == (exempt ? EUR(540) : EUR(594)));
+            BEAST_EXPECT(offer[sfTakerPays] == (exempt ? USD(450) : USD(495)));
         }
+        //@@end self-payment-gate
     }
     void
     testSelfFundedXRPEndpoint(bool consumeOffer, FeatureBitset features)
@@ -1401,6 +1407,173 @@ struct Flow_test : public beast::unit_test::suite
     }
 
     void
+    testRecipientLimit(FeatureBitset features)
+    {
+        // A trust line limit governs an account used as an intermediary, not
+        // an account receiving its issuer's token: with
+        // featureNoRecipientLimit the issuer's step into the destination
+        // ignores the destination's limit. Without it, today's behaviour
+        // holds. Funds caps, intermediary caps and a non-issuer rippling into
+        // the destination are unchanged in both regimes.
+        bool const exempt = features[featureNoRecipientLimit];
+        testcase(
+            exempt ? "Recipient limit (exempt)" : "Recipient limit (enforced)");
+
+        using namespace jtx;
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const dan = Account("dan");
+
+        {
+            // Issuer pays a holder more than the holder's limit.
+            Env env(*this, features);
+            env.fund(XRP(10000), gw, alice);
+            env.trust(USD(100), alice);
+            env(pay(gw, alice, USD(150)),
+                ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_PARTIAL)));
+            env.require(balance(alice, exempt ? USD(150) : USD(0)));
+        }
+        {
+            // A line already at its limit: the dry check in the direct step.
+            Env env(*this, features);
+            env.fund(XRP(10000), gw, alice);
+            env.trust(USD(100), alice);
+            env(pay(gw, alice, USD(100)));
+            env(pay(gw, alice, USD(1)),
+                ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_DRY)));
+            env.require(balance(alice, exempt ? USD(101) : USD(100)));
+        }
+        {
+            // Holder pays holder through the issuer; the recipient's limit is
+            // the last step's limit.
+            Env env(*this, features);
+            env.fund(XRP(10000), gw, alice, bob);
+            env.trust(USD(1000), alice);
+            env.trust(USD(100), bob);
+            env(pay(gw, alice, USD(500)));
+            env(pay(alice, bob, USD(150)),
+                paths(USD),
+                ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_PARTIAL)));
+            env.require(balance(bob, exempt ? USD(150) : USD(0)));
+        }
+        {
+            // Cross-currency: the last direct step follows a book step.
+            Env env(*this, features);
+            env.fund(XRP(10000), gw, alice, bob, carol);
+            env.trust(USD(1000), carol);
+            env.trust(USD(100), bob);
+            env(pay(gw, carol, USD(500)));
+            env(offer(carol, XRP(150), USD(150)));
+            env(pay(alice, bob, USD(150)),
+                sendmax(XRP(150)),
+                ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_PARTIAL)));
+            env.require(balance(bob, exempt ? USD(150) : USD(0)));
+        }
+        {
+            // A partial payment delivers up to the limit today and all of it
+            // when the recipient is exempt.
+            Env env(*this, features);
+            env.fund(XRP(10000), gw, alice, bob);
+            env.trust(USD(1000), alice);
+            env.trust(USD(100), bob);
+            env(pay(gw, alice, USD(500)));
+            env(pay(alice, bob, USD(150)),
+                paths(USD),
+                txflags(tfPartialPayment));
+            env.require(balance(bob, exempt ? USD(150) : USD(100)));
+        }
+        {
+            // Rippling through an intermediary is still capped by the
+            // intermediary's limit in both regimes: bob's limit on alice's
+            // USD is 10, and bob is not the destination.
+            auto const USDA = alice["USD"];
+            auto const USDB = bob["USD"];
+            auto const USDC = carol["USD"];
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, carol, dan);
+            env.trust(USDA(10), bob);
+            env.trust(USDB(1000), carol);
+            env.trust(USDC(1000), dan);
+            env(pay(alice, dan, USDC(15)), paths(USDA), ter(tecPATH_PARTIAL));
+            env.require(balance(dan, USDC(0)));
+            env(pay(alice, dan, USDC(10)), paths(USDA));
+            env.require(
+                balance(bob, USDA(10)),
+                balance(carol, USDB(10)),
+                balance(dan, USDC(10)));
+        }
+        {
+            // A non-issuer crediting the destination is still capped by the
+            // destination's limit on that account in both regimes: the
+            // payment names carol's own USD, so the engine does not route
+            // through an issuer, and the last hop is bob issuing bob's USD to
+            // carol, whose limit on bob is 10.
+            auto const USDA = alice["USD"];
+            auto const USDB = bob["USD"];
+            auto const USDC = carol["USD"];
+            Env env(*this, features);
+            env.fund(XRP(10000), alice, bob, carol);
+            env.trust(USDA(100), bob);
+            env.trust(USDB(10), carol);
+            env(pay(alice, carol, USDC(15)), path(bob), ter(tecPATH_PARTIAL));
+            env.require(balance(carol, USDB(0)));
+            env(pay(alice, carol, USDC(10)), path(bob));
+            env.require(balance(bob, USDA(10)), balance(carol, USDB(10)));
+        }
+        {
+            // The destination can be an intermediary earlier in the same
+            // strand, in another currency: gw pays bob EUR through bob's own
+            // USD line and mike's EUR/bobUSD offer. The USD hop into bob is
+            // not the issuer delivering the named token, so bob's USD limit
+            // (10) still caps it in both regimes.
+            auto const EUR = gw["EUR"];
+            auto const mike = Account("mike");
+            auto const USDB = bob["USD"];
+            Env env(*this, features);
+            env.fund(XRP(10000), gw, bob, mike);
+            env(fset(bob, asfDefaultRipple));
+            env.close();
+            env.trust(USD(10), bob);
+            env.trust(EUR(100), bob);
+            env.trust(USDB(100), mike);
+            env.trust(EUR(100), mike);
+            env(pay(gw, mike, EUR(50)));
+            env(offer(mike, USDB(15), EUR(15)));
+            env.close();
+            env(pay(gw, bob, EUR(15)),
+                sendmax(USD(15)),
+                path(bob, ~EUR),
+                txflags(tfNoRippleDirect),
+                ter(tecPATH_PARTIAL));
+            env.require(balance(bob, USD(0)), balance(bob, EUR(0)));
+            env(pay(gw, bob, EUR(10)),
+                sendmax(USD(10)),
+                path(bob, ~EUR),
+                txflags(tfNoRippleDirect));
+            env.require(
+                balance(bob, USD(10)),
+                balance(bob, EUR(10)),
+                balance(mike, USDB(10)));
+        }
+        {
+            // Redeeming to the issuer is capped by the sender's balance, not
+            // by any limit, in both regimes. Once the balance is spent the
+            // strand would have the sender issue its own USD to the issuer;
+            // the sender is not the issuer named by the payment, so the
+            // issuer's zero limit still refuses that.
+            Env env(*this, features);
+            env.fund(XRP(10000), gw, alice);
+            env.trust(USD(1000), alice);
+            env(pay(gw, alice, USD(50)));
+            env(pay(alice, gw, USD(60)), ter(tecPATH_PARTIAL));
+            env.require(balance(alice, USD(50)));
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         using namespace jtx;
@@ -1416,13 +1589,20 @@ struct Flow_test : public beast::unit_test::suite
         testBookStep(features | ownerPaysFee);
         testTransferRate(features | ownerPaysFee);
         testSelfPayment1(features);
+        //@@start self-payment-wiring
         testSelfPayment2(features);
+        testSelfPayment2(features - featureNoRecipientLimit);
+        //@@end self-payment-wiring
         testSelfFundedXRPEndpoint(false, features);
         testSelfFundedXRPEndpoint(true, features);
         testUnfundedOffer(features);
         testReexecuteDirectStep(features);
         testSelfPayLowQualityOffer(features);
         testTicketPay(features);
+        //@@start recipient-limit-wiring
+        testRecipientLimit(features);
+        testRecipientLimit(features - featureNoRecipientLimit);
+        //@@end recipient-limit-wiring
     }
 
     void

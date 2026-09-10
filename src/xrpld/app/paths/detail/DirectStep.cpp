@@ -44,6 +44,19 @@ protected:
     // Charge transfer fees when the prev step redeems
     Step const* const prevStep_ = nullptr;
     bool const isLast_;
+    //@@start issues-to-dst-member
+    // This step is the delivered asset's issuer crediting the strand's
+    // destination. Not the same as isLast_: the implied issuer-to-destination
+    // step after a book or AMM is built without isLast, and isLast_ also
+    // selects quality semantics. Not any step into the destination either: a
+    // non-issuer crediting the destination is rippling the destination's
+    // acceptance of that account's IOU, which its limit still governs. And
+    // the currency must be the delivered one: the destination can appear
+    // earlier in the same strand as an intermediary in another currency
+    // (its own USD line feeding a USD/EUR book that delivers EUR), and that
+    // hop is capped like any intermediary hop.
+    bool const issuesToDst_;
+    //@@end issues-to-dst-member
     beast::Journal const j_;
 
     struct Cache
@@ -99,6 +112,11 @@ public:
         , currency_(c)
         , prevStep_(ctx.prevStep)
         , isLast_(ctx.isLast)
+        //@@start issues-to-dst-init
+        , issuesToDst_(
+              dst == ctx.strandDst && src == ctx.strandDeliver.account &&
+              c == ctx.strandDeliver.currency)
+        //@@end issues-to-dst-init
         , j_(ctx.j)
     {
     }
@@ -373,12 +391,33 @@ DirectIOfferCrossingStep::quality(ReadView const&, QualityDirection qDir) const
     return QUALITY_ONE;
 }
 
+//@@start recipient-limit-max-flow
 std::pair<IOUAmount, DebtDirection>
 DirectIPaymentStep::maxFlow(ReadView const& sb, IOUAmount const&) const
 {
-    return maxPaymentFlow(sb);
-}
+    auto const [amount, direction] = maxPaymentFlow(sb);
 
+    // A trust line limit governs an account being used as an intermediary,
+    // not an account receiving its issuer's token. The issuer's step into the
+    // strand's destination is not capped by the destination's limit. Only the
+    // issuing direction is capped by a limit; when the source redeems,
+    // `amount` is the source's own balance and stays as the cap.
+    //
+    // The cap is the largest IOU amount rather than `desired`: in the
+    // reverse pass `desired` is the step's output, and a destination
+    // QualityIn below one makes src->dst larger than the output, so an
+    // uncapped step would be reported as limiting and the re-executed
+    // limiting step would never agree with itself.
+    if (issuesToDst_ && issues(direction) &&
+        sb.rules().enabled(featureNoRecipientLimit))
+        return {
+            IOUAmount(STAmount::cMaxValue, STAmount::cMaxOffset), direction};
+
+    return {amount, direction};
+}
+//@@end recipient-limit-max-flow
+
+//@@start offer-crossing-precedent
 std::pair<IOUAmount, DebtDirection>
 DirectIOfferCrossingStep::maxFlow(ReadView const& sb, IOUAmount const& desired)
     const
@@ -400,6 +439,7 @@ DirectIOfferCrossingStep::maxFlow(ReadView const& sb, IOUAmount const& desired)
 
     return maxPaymentFlow(sb);
 }
+//@@end offer-crossing-precedent
 
 TER
 DirectIPaymentStep::check(
@@ -441,6 +481,11 @@ DirectIPaymentStep::check(
         }
     }
 
+    //@@start recipient-limit-dry-test
+    // The destination's limit does not apply to its issuer's step into it
+    // (see maxFlow); a dry test against it would refuse a payment the
+    // recipient is allowed to receive.
+    if (!(issuesToDst_ && ctx.view.rules().enabled(featureNoRecipientLimit)))
     {
         auto const owed = creditBalance(ctx.view, dst_, src_, currency_);
         if (owed <= beast::zero)
@@ -454,6 +499,7 @@ DirectIPaymentStep::check(
             }
         }
     }
+    //@@end recipient-limit-dry-test
     return tesSUCCESS;
 }
 
@@ -470,6 +516,7 @@ DirectIOfferCrossingStep::check(
 
 //------------------------------------------------------------------------------
 
+//@@start limit-reader-max-payment-flow
 template <class TDerived>
 std::pair<IOUAmount, DebtDirection>
 DirectStepI<TDerived>::maxPaymentFlow(ReadView const& sb) const
@@ -485,6 +532,7 @@ DirectStepI<TDerived>::maxPaymentFlow(ReadView const& sb) const
         creditLimit2(sb, dst_, src_, currency_) + srcOwed,
         DebtDirection::issues};
 }
+//@@end limit-reader-max-payment-flow
 
 template <class TDerived>
 DebtDirection
