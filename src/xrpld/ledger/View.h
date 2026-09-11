@@ -1155,8 +1155,10 @@ trustTransferLockedBalance(
             }
 
             // if final is more than dest limit and tx acct is not dest acct -
-            // fail
-            if (finalBalance > dstLimit && actingAccID != dstAccID)
+            // fail. Under NoRecipientLimit a limit never governs the account
+            // receiving, whoever finishes the instrument.
+            if (finalBalance > dstLimit && actingAccID != dstAccID &&
+                !view.rules().enabled(featureNoRecipientLimit))
             {
                 JLOG(j.trace())
                     << "trustTransferLockedBalance would increase dest "

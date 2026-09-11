@@ -342,14 +342,17 @@ public:
     }
 
     void
-    testExceedTrustLineLimit()
+    testExceedTrustLineLimit(FeatureBitset features)
     {
         testcase(
             "Ensure that trust line limits are respected in payment "
             "transactions");
 
         using namespace jtx;
-        Env env{*this};
+        Env env{*this, features};
+        // With featureNoRecipientLimit the issuer's payment into the
+        // holder is not capped by the holder's limit.
+        bool const exempt = features[featureNoRecipientLimit];
 
         auto const gw = Account{"gateway"};
         auto const alice = Account{"alice"};
@@ -360,8 +363,10 @@ public:
         env.close();
 
         // send a payment for a large quantity through the trust line
-        env(pay(gw, alice, gw["USD"](200)), ter(tecPATH_PARTIAL));
+        env(pay(gw, alice, gw["USD"](200)),
+            ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_PARTIAL)));
         env.close();
+        env.require(balance(alice, gw["USD"](exempt ? 200 : 0)));
 
         // on the other hand, smaller payments should succeed
         env(pay(gw, alice, gw["USD"](20)));
@@ -398,14 +403,17 @@ public:
     }
 
     void
-    testTrustLineLimitsWithRippling()
+    testTrustLineLimitsWithRippling(FeatureBitset features)
     {
         testcase(
             "Check that trust line limits are respected in conjunction "
             "with rippling feature");
 
         using namespace jtx;
-        Env env{*this};
+        Env env{*this, features};
+        // With featureNoRecipientLimit bob, issuing his own USD to alice,
+        // is not capped by alice's (zero) limit on him.
+        bool const exempt = features[featureNoRecipientLimit];
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -426,9 +434,12 @@ public:
         env.close();
 
         // bob cannot place alice in his debt i.e. alice's balance of the USD
-        // tokens cannot go below zero.
-        env(pay(bob, alice, bob["USD"](11)), ter(tecPATH_PARTIAL));
+        // tokens cannot go below zero, unless recipients are exempt from
+        // their limit: then bob issues 1 USD of his own to alice.
+        env(pay(bob, alice, bob["USD"](11)),
+            ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_PARTIAL)));
         env.close();
+        env.require(balance(bob, alice["USD"](exempt ? -1 : 10)));
 
         // payments that respect the trust line limits of alice should succeed
         env(pay(bob, alice, bob["USD"](10)), ter(tesSUCCESS));
@@ -619,6 +630,106 @@ public:
     }
 
     void
+    testPersist(FeatureBitset features)
+    {
+        using namespace jtx;
+        bool const enabled = features[featureNoRecipientLimit];
+        testcase(
+            std::string("Persist flag ") + (enabled ? "enabled" : "disabled"));
+
+        Env env{*this, features};
+        auto const gw = Account{"gateway"};
+        auto const alice = Account{"alice"};
+        auto const USD = gw["USD"];
+        env.fund(XRP(10000), gw, alice);
+        env.close();
+
+        if (!enabled)
+        {
+            env(trust(alice, USD(100), tfSetPersist), ter(temINVALID_FLAG));
+            env(trust(alice, USD(100), tfClearPersist), ter(temINVALID_FLAG));
+            return;
+        }
+
+        auto const lineKey = keylet::line(alice, gw, USD.currency);
+        auto const persistFlag =
+            alice.id() > gw.id() ? lsfHighPersist : lsfLowPersist;
+        auto const persists = [&]() {
+            auto const sle = env.le(lineKey);
+            return sle && ((*sle)[sfFlags] & persistFlag);
+        };
+
+        // Set and clear together is malformed.
+        env(trust(alice, USD(100), tfSetPersist | tfClearPersist),
+            ter(temINVALID_FLAG));
+
+        // Set on a fresh line: the line is created with the flag.
+        env(trust(alice, USD(100), tfSetPersist));
+        env.close();
+        BEAST_EXPECT(persists());
+        BEAST_EXPECT(env.ownerCount(alice) == 1);
+
+        // Dropping the limit to zero leaves a persisting line in place and
+        // alice keeps paying its reserve.
+        env(trust(alice, USD(0)));
+        env.close();
+        BEAST_EXPECT(persists());
+        BEAST_EXPECT(env.ownerCount(alice) == 1);
+
+        // Clearing the flag on an otherwise default line deletes it.
+        env(trust(alice, USD(0), tfClearPersist));
+        env.close();
+        BEAST_EXPECT(!env.le(lineKey));
+        BEAST_EXPECT(env.ownerCount(alice) == 0);
+
+        // Set alone, with a default limit, is not redundant: it creates the
+        // line so a zero-limit holder can keep it.
+        env(trust(alice, USD(0), tfSetPersist));
+        env.close();
+        BEAST_EXPECT(persists());
+        BEAST_EXPECT(env.ownerCount(alice) == 1);
+
+        // A balance that comes and goes does not delete a persisting line.
+        env(pay(gw, alice, USD(10)));
+        env(pay(alice, gw, USD(10)));
+        env.close();
+        BEAST_EXPECT(persists());
+        BEAST_EXPECT(env.balance(alice, USD.issue()) == USD(0));
+
+        // Clearing with no balance and no limit deletes the line.
+        env(trust(alice, USD(0), tfClearPersist));
+        env.close();
+        BEAST_EXPECT(!env.le(lineKey));
+        BEAST_EXPECT(env.ownerCount(alice) == 0);
+
+        // Clearing a line that never persisted is a no-op on the flag but
+        // still a valid, non-redundant request when a limit is set.
+        env(trust(alice, USD(50), tfClearPersist));
+        env.close();
+        BEAST_EXPECT(env.le(lineKey) && !persists());
+
+        // Each side owns its own bit. With both set, clearing one leaves
+        // the other side's claim, and its reserve, in place.
+        auto const gwPersistFlag =
+            persistFlag == lsfHighPersist ? lsfLowPersist : lsfHighPersist;
+        env(trust(alice, USD(0), tfSetPersist));
+        env(trust(gw, alice["USD"](0), tfSetPersist));
+        env.close();
+        BEAST_EXPECT(persists());
+        BEAST_EXPECT(env.ownerCount(gw) == 1);
+        env(trust(alice, USD(0), tfClearPersist));
+        env.close();
+        BEAST_EXPECT(env.le(lineKey) && !persists());
+        BEAST_EXPECT((*env.le(lineKey))[sfFlags] & gwPersistFlag);
+        BEAST_EXPECT(env.ownerCount(alice) == 0);
+        BEAST_EXPECT(env.ownerCount(gw) == 1);
+        env(trust(gw, alice["USD"](0), tfClearPersist));
+        env.close();
+        BEAST_EXPECT(!env.le(lineKey));
+        BEAST_EXPECT(env.ownerCount(gw) == 0);
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testFreeTrustlines(features, true, false);
@@ -636,9 +747,13 @@ public:
         testDisallowIncoming(features);
         testTrustLineResetWithAuthFlag();
         testTrustLineDelete();
-        testExceedTrustLineLimit();
+        testExceedTrustLineLimit(features);
+        testExceedTrustLineLimit(features - featureNoRecipientLimit);
         testAuthFlagTrustLines();
-        testTrustLineLimitsWithRippling();
+        testTrustLineLimitsWithRippling(features);
+        testTrustLineLimitsWithRippling(features - featureNoRecipientLimit);
+        testPersist(features);
+        testPersist(features - featureNoRecipientLimit);
     }
 
 public:

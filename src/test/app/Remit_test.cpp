@@ -2925,6 +2925,78 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    testPersistLine(FeatureBitset features)
+    {
+        using namespace jtx;
+        bool const persisted = features[featureNoRecipientLimit];
+        testcase(
+            std::string("remit-created line ") +
+            (persisted ? "persists" : "is deleted") + " at zero balance");
+
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
+
+        env.fund(XRP(1000), alice, bob, gw);
+        env.close();
+        env.trust(USD(100000), alice);
+        env.close();
+        env(pay(gw, alice, USD(10000)));
+        env.close();
+
+        auto const lineKey = keylet::line(bob, gw, USD.currency);
+        auto const persistFlag =
+            bob.id() > gw.id() ? lsfHighPersist : lsfLowPersist;
+        auto const persists = [&]() {
+            auto const sle = env.le(lineKey);
+            return sle && ((*sle)[sfFlags] & persistFlag);
+        };
+
+        // The remit creates bob's line and, under the amendment, marks
+        // bob's side as persisting.
+        env(remit::remit(alice, bob), remit::amts({USD(1)}));
+        env.close();
+        BEAST_EXPECT(env.le(lineKey));
+        BEAST_EXPECT(persists() == persisted);
+        BEAST_EXPECT(env.ownerCount(bob) == 1);
+
+        // A second remit onto the existing line changes nothing about it.
+        env(remit::remit(alice, bob), remit::amts({USD(1)}));
+        env.close();
+        BEAST_EXPECT(persists() == persisted);
+        BEAST_EXPECT(env.ownerCount(bob) == 1);
+        BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(2));
+
+        // bob spends the whole balance back to the issuer. Without the flag
+        // the default line is deleted with it.
+        env(pay(bob, gw, USD(2)));
+        env.close();
+        BEAST_EXPECT(bool(env.le(lineKey)) == persisted);
+        BEAST_EXPECT(env.ownerCount(bob) == (persisted ? 1 : 0));
+
+        if (!persisted)
+            return;
+
+        // bob can still receive on the kept line, and can clear the flag
+        // to let it go once it is empty.
+        env(remit::remit(alice, bob), remit::amts({USD(3)}));
+        env.close();
+        BEAST_EXPECT(env.balance(bob, USD.issue()) == USD(3));
+        BEAST_EXPECT(env.ownerCount(bob) == 1);
+
+        env(trust(bob, USD(0), tfClearPersist));
+        env.close();
+        BEAST_EXPECT(env.le(lineKey) && !persists());
+
+        env(pay(bob, gw, USD(3)));
+        env.close();
+        BEAST_EXPECT(!env.le(lineKey));
+        BEAST_EXPECT(env.ownerCount(bob) == 0);
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
@@ -2946,6 +3018,8 @@ struct Remit_test : public beast::unit_test::suite
         testURIToken(features);
         testOptionals(features);
         testDestAMM(features);
+        testPersistLine(features);
+        testPersistLine(features - featureNoRecipientLimit);
     }
 
 public:

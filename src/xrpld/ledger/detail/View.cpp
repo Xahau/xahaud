@@ -1127,8 +1127,13 @@ isTrustDefault(
 
     const auto fNoRipple{high ? lsfHighNoRipple : lsfLowNoRipple};
     const auto fFreeze{high ? lsfHighFreeze : lsfLowFreeze};
+    const auto fPersist{high ? lsfHighPersist : lsfLowPersist};
 
     if (tlFlags & fFreeze)
+        return false;
+
+    // A persisting side keeps its claim on the line at zero balance.
+    if (tlFlags & fPersist)
         return false;
 
     if ((acFlags & lsfDefaultRipple) && (tlFlags & fNoRipple))
@@ -1268,6 +1273,8 @@ rippleCreditIOU(
                     view.read(keylet::account(uSenderID))->getFlags() &
                     lsfDefaultRipple) &&
             !(uFlags & (!bSenderHigh ? lsfLowFreeze : lsfHighFreeze)) &&
+            // Sender does not persist the line.
+            !(uFlags & (!bSenderHigh ? lsfLowPersist : lsfHighPersist)) &&
             !sleRippleState->getFieldAmount(
                 !bSenderHigh ? sfLowLimit : sfHighLimit)
             // Sender trust limit is 0.
@@ -1749,6 +1756,8 @@ updateTrustLine(
                flags & (!bSenderHigh ? lsfLowNoRipple : lsfHighNoRipple)) !=
             static_cast<bool>(sle->getFlags() & lsfDefaultRipple) &&
         !(flags & (!bSenderHigh ? lsfLowFreeze : lsfHighFreeze)) &&
+        // Sender does not persist the line.
+        !(flags & (!bSenderHigh ? lsfLowPersist : lsfHighPersist)) &&
         !state->getFieldAmount(!bSenderHigh ? sfLowLimit : sfHighLimit)
         // Sender trust limit is 0.
         && !state->getFieldU32(!bSenderHigh ? sfLowQualityIn : sfHighQualityIn)

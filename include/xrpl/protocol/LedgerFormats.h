@@ -166,6 +166,8 @@ enum LedgerSpecificFlags {
     lsfHighFreeze = 0x00800000,     // True, high side has set freeze flag
     lsfLowDeepFreeze = 0x02000000,  // True, low side has set deep freeze flag
     lsfHighDeepFreeze = 0x04000000, // True, high side has set deep freeze flag
+    lsfLowPersist = 0x08000000,     // True, low side keeps the line at zero
+    lsfHighPersist = 0x10000000,    // True, high side keeps the line at zero
     lsfAMMNode = 0x01000000,     // True, trust line to AMM. Used by client
                                  // apps to identify payments via AMM.
 

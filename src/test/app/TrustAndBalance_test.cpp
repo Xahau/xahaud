@@ -176,9 +176,12 @@ class TrustAndBalance_test : public beast::unit_test::suite
         env(pay(bob, alice, bob["USD"](1300)));
         env.require(balance(bob, alice["USD"](-600)));
 
-        // bob sends past limit
-        env(pay(bob, alice, bob["USD"](1)), ter(tecPATH_DRY));
-        env.require(balance(bob, alice["USD"](-600)));
+        // bob sends past limit; with featureNoRecipientLimit bob is the
+        // issuer of what alice receives and her limit does not cap him
+        bool const exempt = features[featureNoRecipientLimit];
+        env(pay(bob, alice, bob["USD"](1)),
+            ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_DRY)));
+        env.require(balance(bob, alice["USD"](exempt ? -601 : -600)));
     }
 
     void
@@ -467,6 +470,7 @@ public:
         auto testWithFeatures = [this](FeatureBitset features) {
             testPayNonexistent(features);
             testDirectRipple(features);
+            testDirectRipple(features - featureNoRecipientLimit);
             testWithTransferFee(false, false, features);
             testWithTransferFee(false, true, features);
             testWithTransferFee(true, false, features);

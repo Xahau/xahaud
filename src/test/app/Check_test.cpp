@@ -529,7 +529,12 @@ class Check_test : public beast::unit_test::suite
             env.close();
             env(check::create(gw1, alice, USD(50)), ter(tecFROZEN));
             env.close();
-            env(pay(gw1, alice, USD(1)), ter(tecPATH_DRY));
+            // A pure issue cannot be frozen; what refused this payment was
+            // alice's limit of zero, which no longer caps her issuer under
+            // NoRecipientLimit.
+            env(pay(gw1, alice, USD(1)),
+                ter(features[featureNoRecipientLimit] ? TER(tesSUCCESS)
+                                                      : TER(tecPATH_DRY)));
             env.close();
 
             // Clear that freeze.
@@ -736,11 +741,13 @@ class Check_test : public beast::unit_test::suite
             // bob sets up the trust line, but not at a high enough limit.
             env(trust(bob, USD(9.5)));
             env.close();
-            if (!cashCheckMakesTrustLine)
+            if (!cashCheckMakesTrustLine && !features[featureNoRecipientLimit])
             {
                 // If cashing a check is allowed to exceed the trust line
-                // limit then this returns tesSUCCESS and the check is
-                // removed from the ledger which would mess up later tests.
+                // limit (CheckCashMakesTrustLine, or NoRecipientLimit
+                // exempting bob from his limit on his issuer) then this
+                // returns tesSUCCESS and the check is removed from the
+                // ledger which would mess up later tests.
                 env(check::cash(bob, chkId1, USD(10)), ter(tecPATH_PARTIAL));
                 env.close();
             }
@@ -829,9 +836,22 @@ class Check_test : public beast::unit_test::suite
                 // a payment to bob cannot exceed that trust line, but cashing
                 // a check can.
 
-                // Payment of 20 USD fails.
-                env(pay(gw, bob, USD(20)), ter(tecPATH_PARTIAL));
-                env.close();
+                // Payment of 20 USD fails, unless recipients are exempt
+                // from their limit, in which case it succeeds and is undone
+                // so the check below still tells the same story.
+                if (features[featureNoRecipientLimit])
+                {
+                    env(pay(gw, bob, USD(20)));
+                    env.close();
+                    env.require(balance(bob, USD(30)));
+                    env(pay(bob, gw, USD(20)));
+                    env.close();
+                }
+                else
+                {
+                    env(pay(gw, bob, USD(20)), ter(tecPATH_PARTIAL));
+                    env.close();
+                }
 
                 uint256 const chkId20{getCheckIndex(gw, env.seq(gw))};
                 env(check::create(gw, bob, USD(20)));
@@ -977,7 +997,9 @@ class Check_test : public beast::unit_test::suite
 
             // bob tries to cash the check again but fails because his trust
             // limit is too low.
-            if (!cashCheckMakesTrustLine)
+            bool const exceedsLimit =
+                cashCheckMakesTrustLine || features[featureNoRecipientLimit];
+            if (!exceedsLimit)
             {
                 // If cashing a check is allowed to exceed the trust line
                 // limit then this returns tesSUCCESS and the check is
@@ -994,7 +1016,7 @@ class Check_test : public beast::unit_test::suite
             //  o If it can build a trust line, then the check is allowed to
             //    exceed the trust limit and bob gets the full transfer.
             env(check::cash(bob, chkId, check::DeliverMin(USD(4))));
-            STAmount const bobGot = cashCheckMakesTrustLine ? USD(7) : USD(5);
+            STAmount const bobGot = exceedsLimit ? USD(7) : USD(5);
             verifyDeliveredAmount(env, bobGot);
             env.require(balance(alice, USD(8) - bobGot));
             env.require(balance(bob, bobGot));
@@ -2690,8 +2712,10 @@ class Check_test : public beast::unit_test::suite
         testCreateValid(features);
         testCreateDisallowIncoming(features);
         testCreateInvalid(features);
+        testCreateInvalid(features - featureNoRecipientLimit);
         testCashXRP(features);
         testCashIOU(features);
+        testCashIOU(features - featureNoRecipientLimit);
         testCashXferFee(features);
         testCashQuality(features);
         testCashInvalid(features);

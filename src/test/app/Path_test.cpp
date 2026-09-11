@@ -81,16 +81,26 @@ class Path_test : public beast::unit_test::suite
     jtx::Env
     pathTestEnv()
     {
+        using namespace jtx;
+        return pathTestEnv(supported_amendments());
+    }
+
+    jtx::Env
+    pathTestEnv(FeatureBitset features)
+    {
         // These tests were originally written with search parameters that are
         // different from the current defaults. This function creates an env
         // with the search parameters that the tests were written for.
         using namespace jtx;
-        return Env(*this, envconfig([](std::unique_ptr<Config> cfg) {
-            cfg->PATH_SEARCH_OLD = 7;
-            cfg->PATH_SEARCH = 7;
-            cfg->PATH_SEARCH_MAX = 10;
-            return cfg;
-        }));
+        return Env(
+            *this,
+            envconfig([](std::unique_ptr<Config> cfg) {
+                cfg->PATH_SEARCH_OLD = 7;
+                cfg->PATH_SEARCH = 7;
+                cfg->PATH_SEARCH_MAX = 10;
+                return cfg;
+            }),
+            features);
     }
 
 public:
@@ -734,11 +744,11 @@ public:
     }
 
     void
-    issues_path_negative_issue()
+    issues_path_negative_issue(FeatureBitset features)
     {
         testcase("path negative: Issue #5");
         using namespace jtx;
-        Env env = pathTestEnv();
+        Env env = pathTestEnv(features);
         env.fund(XRP(10000), "alice", "bob", "carol", "dan");
         env.trust(Account("bob")["USD"](100), "alice", "carol", "dan");
         env.trust(Account("alice")["USD"](100), "dan");
@@ -751,14 +761,19 @@ public:
             find_paths(env, "alice", "bob", Account("bob")["USD"](25));
         BEAST_EXPECT(std::get<0>(result).empty());
 
-        env(pay("alice", "bob", Account("alice")["USD"](25)), ter(tecPATH_DRY));
+        // alice issuing her own USD to bob, who has no limit on her, is
+        // refused; with featureNoRecipientLimit bob's limit does not cap
+        // his issuer and the payment succeeds.
+        bool const exempt = env.enabled(featureNoRecipientLimit);
+        env(pay("alice", "bob", Account("alice")["USD"](25)),
+            ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_DRY)));
 
         result = find_paths(env, "alice", "bob", Account("alice")["USD"](25));
         BEAST_EXPECT(std::get<0>(result).empty());
 
-        env.require(balance("alice", Account("bob")["USD"](0)));
+        env.require(balance("alice", Account("bob")["USD"](exempt ? -25 : 0)));
         env.require(balance("alice", Account("dan")["USD"](0)));
-        env.require(balance("bob", Account("alice")["USD"](0)));
+        env.require(balance("bob", Account("alice")["USD"](exempt ? 25 : 0)));
         env.require(balance("bob", Account("carol")["USD"](-75)));
         env.require(balance("bob", Account("dan")["USD"](0)));
         env.require(balance("carol", Account("bob")["USD"](75)));
@@ -1518,7 +1533,9 @@ public:
         alternative_paths_consume_best_transfer();
         alternative_paths_consume_best_transfer_first();
         alternative_paths_limit_returned_paths_to_best_quality();
-        issues_path_negative_issue();
+        issues_path_negative_issue(jtx::supported_amendments());
+        issues_path_negative_issue(
+            jtx::supported_amendments() - featureNoRecipientLimit);
         issues_path_negative_ripple_client_issue_23_smaller();
         issues_path_negative_ripple_client_issue_23_larger();
         via_offers_via_gateway();
