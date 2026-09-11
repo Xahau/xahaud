@@ -29,12 +29,24 @@ if(is_gcc OR is_clang)
     "Unit tests parallelism for the purpose of coverage report.")
   set(coverage_format "html-details" CACHE STRING
     "Output format of the coverage report.")
+  set(coverage_tool "gcov" CACHE STRING
+    "Coverage instrumentation tool: 'gcov' (default, gcc/clang via --coverage + gcovr) or 'llvm' (clang only, native source-based coverage via -fprofile-instr-generate).")
+  set_property(CACHE coverage_tool PROPERTY STRINGS "gcov" "llvm")
+  if(NOT coverage_tool MATCHES "^(gcov|llvm)$")
+    message(FATAL_ERROR "coverage_tool must be 'gcov' or 'llvm', got '${coverage_tool}'")
+  endif()
   set(coverage_extra_args "" CACHE STRING
-    "Additional arguments to pass to gcovr.")
+    "Additional arguments to pass to gcovr (gcov tool only).")
   set(coverage_test "" CACHE STRING
     "On gcc & clang, the specific unit test(s) to run for coverage. Default is all tests.")
   if(coverage_test AND NOT coverage)
     set(coverage ON CACHE BOOL "gcc/clang only" FORCE)
+  endif()
+  # Validate after coverage_test may have flipped coverage on, otherwise
+  # `-Dcoverage_tool=llvm -Dcoverage_test=Foo` on gcc would silently slip
+  # past the Clang guard and produce a broken instrumentation combo.
+  if(coverage AND coverage_tool STREQUAL "llvm" AND NOT is_clang)
+    message(FATAL_ERROR "coverage_tool=llvm requires Clang (got ${CMAKE_CXX_COMPILER_ID})")
   endif()
   option(wextra "compile with extra gcc/clang warnings enabled" ON)
 else()
