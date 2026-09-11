@@ -11,6 +11,8 @@
 #include <xrpl/basics/Slice.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/STData.h>
+#include <xrpl/protocol/STDataType.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
@@ -836,6 +838,31 @@ hook::getHookOn(
     return uint256{0};
 }
 
+std::vector<hook::FunctionParameterValueVec>
+hook::getFunctionParameterValueVec(ripple::STArray const& functionParameters)
+{
+    std::vector<hook::FunctionParameterValueVec> param_map;
+    for (auto const& param : functionParameters)
+    {
+        const auto& value = param.getFieldData(sfFunctionParameterValue);
+        param_map.emplace_back(value);
+    }
+    return param_map;
+}
+
+std::vector<hook::FunctionParameterTypeVec>
+hook::getFunctionParameterTypeVec(ripple::STArray const& functionParameters)
+{
+    std::vector<hook::FunctionParameterTypeVec> param_map;
+    for (auto const& param : functionParameters)
+    {
+        const auto& name = param.getFieldVL(sfFunctionParameterName);
+        const auto& type = param.getFieldDataType(sfFunctionParameterType);
+        param_map.emplace_back(name, type);
+    }
+    return param_map;
+}
+
 // Update HookState ledger objects for the hook... only called after accept()
 // assumes the specified acc has already been checked for authoriation (hook
 // grants)
@@ -996,6 +1023,8 @@ hook::apply(
     ripple::uint256 const& hookCanEmit,
     ripple::uint256 const& hookNamespace,
     ripple::Blob const& wasm,
+    std::optional<std::string> const& fname,
+    std::vector<hook::FunctionParameterValueVec> const& fparameters,
     std::map<
         std::vector<uint8_t>, /* param name  */
         std::vector<uint8_t>  /* param value */
@@ -1011,6 +1040,7 @@ hook::apply(
     bool hasCallback,
     bool isCallback,
     bool isStrong,
+    HookApplyType hookApplyType,
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     std::shared_ptr<STObject const> const& provisionalMeta)
@@ -1029,6 +1059,7 @@ hook::apply(
              .hookNamespace = hookNamespace,
              .stateMap = stateMap,
              .changedStateCount = 0,
+             .fparameters = fparameters,
              .hookParamOverrides = hookParamOverrides,
              .hookParams = hookParams,
              .hookSkips = {},
@@ -1041,6 +1072,7 @@ hook::apply(
              .hasCallback = hasCallback,
              .isCallback = isCallback,
              .isStrong = isStrong,
+             .hookApplyType = hookApplyType,
              .wasmParam = wasmParam,
              .hookChainPosition = hookChainPosition,
              .foreignStateSetDisabled = false,
@@ -1056,8 +1088,17 @@ hook::apply(
 
     HookExecutor executor{hookCtx};
 
+    std::string functionName =
+        fname ? fname.value() : (isCallback ? "cbak" : "hook");
+
+    if (applyCtx.tx.isFieldPresent(sfFunctionName))
+    {
+        Blob nameBlob = applyCtx.tx.getFieldVL(sfFunctionName);
+        std::string hexStr(nameBlob.begin(), nameBlob.end());
+        functionName = hexStr;
+    }
     executor.executeWasm(
-        wasm.data(), (size_t)wasm.size(), isCallback, wasmParam, j);
+        wasm.data(), (size_t)wasm.size(), functionName, wasmParam, j);
 
     JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: "
                     << (hookCtx.result.exitType == hook_api::ExitType::ROLLBACK
@@ -3755,6 +3796,125 @@ DEFINE_HOOK_FUNCTION(
 
 DEFINE_HOOK_FUNCTION(
     int64_t,
+    otxn_func_param,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t index,
+    uint32_t serialized_type_id)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    //    TODO: WeakTSH, Callback
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const& funcParams = hookCtx.result.fparameters;
+
+    if (funcParams.size() <= index)
+        return DOESNT_EXIST;
+
+    ripple::STData const& funcParam = funcParams[index].value;
+
+    if (funcParam.getInnerSType() != serialized_type_id)
+        return INVALID_ARGUMENT;
+
+    switch (serialized_type_id)
+    {
+        case STI_UINT8: {
+            if (write_len != 0 && write_len != 1)
+                return INVALID_ARGUMENT;
+            uint8_t const data = funcParam.getFieldU8();
+            WRITE_WASM_MEMORY_AND_RETURN(
+                write_ptr, write_len, &data, 1, memory, memory_length);
+            break;
+        }
+        case STI_UINT16: {
+            if (write_len != 0 && write_len != 2)
+                return INVALID_ARGUMENT;
+            uint16_t const data = funcParam.getFieldU16();
+            WRITE_WASM_MEMORY_AND_RETURN(
+                write_ptr, write_len, &data, 2, memory, memory_length);
+            break;
+        }
+        case STI_UINT32: {
+            if (write_len != 0 && write_len != 4)
+                return INVALID_ARGUMENT;
+            uint32_t const data = funcParam.getFieldU32();
+            WRITE_WASM_MEMORY_AND_RETURN(
+                write_ptr, write_len, &data, 4, memory, memory_length);
+            break;
+        }
+        case STI_UINT64: {
+            if (write_len != 0 && write_len != 8)
+                return INVALID_ARGUMENT;
+            uint64_t const data = funcParam.getFieldU64();
+            WRITE_WASM_MEMORY_AND_RETURN(
+                write_ptr, write_len, &data, 8, memory, memory_length);
+            break;
+        }
+        case STI_UINT128: {
+            if (write_len != 16)
+                return INVALID_ARGUMENT;
+            uint128 const data = funcParam.getFieldH128();
+            WRITE_WASM_MEMORY_AND_RETURN(
+                write_ptr, write_len, &data, 16, memory, memory_length);
+            break;
+        }
+        case STI_UINT256: {
+            if (write_len != 32)
+                return INVALID_ARGUMENT;
+            uint256 const data = funcParam.getFieldH256();
+            WRITE_WASM_MEMORY_AND_RETURN(
+                write_ptr, write_len, &data, 32, memory, memory_length);
+            break;
+        }
+        case STI_AMOUNT: {
+            if (write_len != 8 && write_len != 48)
+                return INVALID_ARGUMENT;
+            STAmount const data = funcParam.getFieldAmount();
+            if (data.native())
+            {
+                if (write_len != 8)
+                    return INVALID_ARGUMENT;
+            }
+            else
+            {
+                if (write_len != 48)
+                    return INVALID_ARGUMENT;
+            }
+            WRITE_WASM_MEMORY_AND_RETURN(
+                write_ptr, write_len, &data, write_len, memory, memory_length);
+            break;
+        }
+        case STI_VL: {
+            Blob const data = funcParam.getFieldVL();
+            WRITE_WASM_MEMORY_AND_RETURN(
+                write_ptr,
+                write_len,
+                data.data(),
+                data.size(),
+                memory,
+                memory_length);
+            break;
+        }
+        case STI_ACCOUNT: {
+            if (write_len != 20)
+                return INVALID_ARGUMENT;
+            AccountID const data = funcParam.getAccountID();
+            WRITE_WASM_MEMORY_AND_RETURN(
+                write_ptr, write_len, &data, 20, memory, memory_length);
+            break;
+        }
+        default:
+            return INVALID_ARGUMENT;
+    }
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
     hook_param,
     uint32_t write_ptr,
     uint32_t write_len,
@@ -3905,6 +4065,119 @@ DEFINE_HOOK_FUNCTION(
 
     HOOK_TEARDOWN();
 }
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    query_result_set,
+    uint32_t kread_ptr,
+    uint32_t kread_len,
+    uint32_t dread_ptr,
+    uint32_t dread_len,
+    uint32_t serialized_type_id)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(kread_ptr, kread_len, memory_length) ||
+        NOT_IN_BOUNDS(dread_ptr, dread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    // TODO: check kread length
+    // TODO: validate utf8 for key
+
+    std::string key((const char*)(memory + kread_ptr), (size_t)kread_len);
+    ripple::STData data{sfHookParameterValue};
+
+    switch (serialized_type_id)
+    {
+        case STI_UINT8: {
+            if (dread_len != 1)
+                return INVALID_ARGUMENT;
+
+            data.setFieldU8(*reinterpret_cast<uint8_t*>(memory + dread_ptr));
+            hookCtx.result.hookQueryResults.insert_or_assign(key, data);
+            break;
+        }
+        case STI_UINT16: {
+            if (dread_len != 2)
+                return INVALID_ARGUMENT;
+
+            data.setFieldU16(*reinterpret_cast<uint16_t*>(memory + dread_ptr));
+            hookCtx.result.hookQueryResults.insert_or_assign(key, data);
+            break;
+        }
+        case STI_UINT32: {
+            if (dread_len != 4)
+                return INVALID_ARGUMENT;
+
+            data.setFieldU32(*reinterpret_cast<uint32_t*>(memory + dread_ptr));
+            hookCtx.result.hookQueryResults.insert_or_assign(key, data);
+            break;
+        }
+        case STI_UINT64: {
+            if (dread_len != 8)
+                return INVALID_ARGUMENT;
+
+            data.setFieldU64(*reinterpret_cast<uint64_t*>(memory + dread_ptr));
+            hookCtx.result.hookQueryResults.insert_or_assign(key, data);
+            break;
+        }
+        case STI_UINT128: {
+            if (dread_len != 16)
+                return INVALID_ARGUMENT;
+
+            ripple::uint128 hash =
+                ripple::uint128::fromVoid(memory + dread_ptr);
+            data.setFieldH128(hash);
+            hookCtx.result.hookQueryResults.insert_or_assign(key, data);
+            break;
+        }
+        case STI_UINT256: {
+            if (dread_len != 32)
+                return INVALID_ARGUMENT;
+
+            ripple::uint256 hash =
+                ripple::uint256::fromVoid(memory + dread_ptr);
+            data.setFieldH256(hash);
+            hookCtx.result.hookQueryResults.insert_or_assign(key, data);
+            break;
+        }
+        case STI_AMOUNT: {
+            if (dread_len != 32)
+                return INVALID_ARGUMENT;
+
+            data.setFieldAmount(
+                *reinterpret_cast<STAmount*>(memory + dread_ptr));
+            hookCtx.result.hookQueryResults.insert_or_assign(key, data);
+            break;
+        }
+        case STI_VL: {
+            if (dread_len != 32)
+                return INVALID_ARGUMENT;
+
+            data.setFieldVL(ripple::Blob{
+                memory + dread_ptr, memory + dread_ptr + dread_len});
+            hookCtx.result.hookQueryResults.insert_or_assign(key, data);
+            break;
+        }
+        case STI_ACCOUNT: {
+            if (dread_len != 20)
+                return INVALID_ARGUMENT;
+
+            auto account = AccountID::fromVoid(memory + dread_ptr);
+            data.setAccountID(account);
+            hookCtx.result.hookQueryResults.insert_or_assign(key, data);
+            break;
+        }
+        default: {
+            return INVALID_ARGUMENT;
+        }
+    }
+
+    return dread_len;
+
+    HOOK_TEARDOWN();
+}
+
 /*
 
 DEFINE_HOOK_FUNCTION(

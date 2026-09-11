@@ -69,12 +69,20 @@ JSS(EPrice);           // in: AMM Deposit option
 JSS(Fee);              // in/out: TransactionSign; field.
 JSS(FIELDS);           // out: RPC server_definitions
 JSS(Flags);            // in/out: TransactionSign; field.
+JSS(FunctionName);       // field
+JSS(FunctionParameters);      // field
+JSS(FunctionParameter);       // field
+JSS(FunctionParameterName);   // field
+JSS(FunctionParameterType);   // field
+JSS(FunctionParameterValue);  // field
 JSS(GenesisMints);
 JSS(GovernanceMarks);
 JSS(GovernanceFlags);
 JSS(Holder);              // field.
 JSS(HookApiVersion);      // field
 JSS(HookCanEmit);         // field
+JSS(HookFunction);        // field
+JSS(HookFunctions);       // field
 JSS(HookHash);            // field
 JSS(HookName);            // field
 JSS(HookNamespace);       // field
@@ -342,6 +350,8 @@ JSS(frozen_balances);       // out: GatewayBalances
 JSS(full);                  // in: LedgerClearer, handlers/Ledger
 JSS(full_reply);            // out: PathFind
 JSS(fullbelow_size);        // out: GetCounts
+JSS(function_name);         // in: HookQuery
+JSS(function_params);       // in: HookQuery
 JSS(git);                   // out: server_info
 JSS(good);                  // out: RPCVersion
 JSS(hash);                  // out: NetworkOPs, InboundLedger,
@@ -356,6 +366,7 @@ JSS(highest_sequence);      // out: AccountInfo
 JSS(highest_ticket);        // out: AccountInfo
 JSS(historical_perminute);  // historical_perminute.
 JSS(holders);               // out: MPTHolders
+JSS(hook_account);          // in: HookQuery
 JSS(hostid);                // out: NetworkOPs
 JSS(hotwallet);             // in: GatewayBalances
 JSS(id);                    // websocket.
@@ -578,6 +589,7 @@ JSS(publisher_lists);   // out: ValidatorList
 JSS(quality);           // out: NetworkOPs
 JSS(quality_in);        // out: AccountLines
 JSS(quality_out);       // out: AccountLines
+JSS(query_results);     // out: HookQuery
 JSS(queue);             // in: AccountInfo
 JSS(queue_data);        // out: AccountInfo
 JSS(queued);            // out: SubmitTransaction

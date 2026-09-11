@@ -182,6 +182,15 @@ public:
         bool isOutgoing,
         bool collectCallsOnly = false);
 
+    static std::optional<std::map<std::string, STData>>
+    doFunctionalHookQuery(
+        Application& app,
+        ReadView const& view,
+        AccountID const& account,
+        STObject const& hookObj,
+        std::string const& functionName,
+        std::vector<hook::FunctionParameterValueVec> const& parameters);
+
 protected:
     void
     doHookCallback(std::shared_ptr<STObject const> const& provisionalMeta);
@@ -214,6 +223,11 @@ protected:
         bool strong,
         bool isOutgoing,
         std::shared_ptr<STObject const> const& provisionalMeta);
+
+    TER
+    doFunctionalHookInitialize(
+        std::shared_ptr<STObject const> const& hookSLE,
+        std::string const& initializationFunctionName);
 
     void
     addWeakTSHFromBalanceChanges(detail::ApplyViewBase const& pv);

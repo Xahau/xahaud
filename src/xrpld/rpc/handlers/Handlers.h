@@ -75,6 +75,8 @@ doGetCounts(RPC::JsonContext&);
 Json::Value
 doGetAggregatePrice(RPC::JsonContext&);
 Json::Value
+doHookQuery(RPC::JsonContext&);
+Json::Value
 doLedgerAccept(RPC::JsonContext&);
 Json::Value
 doLedgerCleaner(RPC::JsonContext&);

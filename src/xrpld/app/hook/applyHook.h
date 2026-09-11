@@ -9,6 +9,8 @@
 #include <xrpl/hook/Macro.h>
 #include <xrpl/hook/Misc.h>
 #include <xrpl/protocol/SField.h>
+#include <xrpl/protocol/STData.h>
+#include <xrpl/protocol/STDataType.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/digest.h>
 #include <any>
@@ -22,6 +24,14 @@
 namespace hook {
 struct HookContext;
 struct HookResult;
+struct FunctionParameterValueVec;
+struct FunctionParameterValueVecWithName;
+
+enum HookApplyType {
+    Apply,
+    Query,
+};
+
 bool
 isEmittedTxn(ripple::STTx const& tx);
 
@@ -96,6 +106,16 @@ getHookOn(
     std::shared_ptr<SLE const> const& def,
     SField const& field);
 
+struct FunctionParameterValueVec;
+struct FunctionParameterValueVecWithName;
+struct FunctionParameterTypeVec;
+
+std::vector<FunctionParameterValueVec>
+getFunctionParameterValueVec(ripple::STArray const& functionParameters);
+
+std::vector<FunctionParameterTypeVec>
+getFunctionParameterTypeVec(ripple::STArray const& functionParameters);
+
 struct HookResult;
 
 HookResult
@@ -107,6 +127,8 @@ apply(
     ripple::uint256 const& hookCanEmit,
     ripple::uint256 const& hookNamespace,
     ripple::Blob const& wasm,
+    std::optional<std::string> const& fname,
+    std::vector<hook::FunctionParameterValueVec> const& fparameters,
     std::map<
         std::vector<uint8_t>, /* param name  */
         std::vector<uint8_t>  /* param value */
@@ -122,6 +144,7 @@ apply(
     bool hasCallback,
     bool isCallback,
     bool isStrongTSH,
+    HookApplyType hookApplyType,
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     // result of apply() if this is weak exec
@@ -133,6 +156,23 @@ int64_t
 computeExecutionFee(uint64_t instructionCount);
 int64_t
 computeCreationFee(uint64_t byteCount);
+
+struct FunctionParameterValueVec
+{
+    ripple::STData const value;
+};
+
+struct FunctionParameterValueVecWithName
+{
+    ripple::Blob const name;
+    ripple::STData const value;
+};
+
+struct FunctionParameterTypeVec
+{
+    ripple::Blob const name;
+    ripple::STDataType const type;
+};
 
 struct HookResult
 {
@@ -149,6 +189,8 @@ struct HookResult
         emittedTxn{};  // etx stored here until accept/rollback
     HookStateMap& stateMap;
     uint16_t changedStateCount = 0;
+    std::vector<hook::FunctionParameterValueVec> fparameters;
+    std::map<std::string, STData> hookQueryResults = {};
     std::map<
         ripple::uint256,  // hook hash
         std::map<
@@ -167,6 +209,7 @@ struct HookResult
     bool isCallback =
         false;  // true iff this hook execution is a callback in action
     bool isStrong = false;
+    HookApplyType hookApplyType = HookApplyType::Apply;
     uint32_t wasmParam = 0;
     uint32_t overrideCount = 0;
     uint8_t hookChainPosition = 0;
@@ -297,10 +340,6 @@ static auto* tableType = WasmEdge_TableTypeCreate(
 static auto* memType = WasmEdge_MemoryTypeCreate(
     {.HasMax = true, .Shared = false, .Min = 1, .Max = 1});
 static WasmEdge_String memName = WasmEdge_StringCreateByCString("memory");
-static WasmEdge_String cbakFunctionName =
-    WasmEdge_StringCreateByCString("cbak");
-static WasmEdge_String hookFunctionName =
-    WasmEdge_StringCreateByCString("hook");
 
 // see: lib/system/allocator.cpp
 #define WasmEdge_kPageSize 65536ULL
@@ -399,10 +438,13 @@ public:
     executeWasm(
         const void* wasm,
         size_t len,
-        bool callback,
+        std::string functionName,
         uint32_t wasmParam,
         beast::Journal const& j)
     {
+        WasmEdge_String hookFunctionName =
+            WasmEdge_StringCreateByCString(functionName.c_str());
+
         // HookExecutor can only execute once
         XRPL_ASSERT(
             !spent,
@@ -443,7 +485,7 @@ public:
             vm.ctx,
             reinterpret_cast<const uint8_t*>(wasm),
             len,
-            callback ? cbakFunctionName : hookFunctionName,
+            hookFunctionName,
             params,
             1,
             returns,

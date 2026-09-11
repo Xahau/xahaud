@@ -270,6 +270,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 hookSetObj.isFieldPresent(sfHookName) ||
+                hookSetObj.isFieldPresent(sfHookFunctions) ||
                 !hookSetObj.isFieldPresent(sfFlags) ||
                 !hookSetObj.isFieldPresent(sfHookNamespace))
             {
@@ -304,6 +305,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 hookSetObj.isFieldPresent(sfHookNamespace) ||
                 hookSetObj.isFieldPresent(sfHookName) ||
+                hookSetObj.isFieldPresent(sfHookFunctions) ||
                 !hookSetObj.isFieldPresent(sfFlags))
             {
                 JLOG(ctx.j.trace())
@@ -445,7 +447,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (version != 0)
+            if (version != 0 && version != 3)
             {
                 // we currently only accept api version 0
                 JLOG(ctx.j.trace())
@@ -453,6 +455,19 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     << "]: Malformed transaction: SetHook "
                        "sfHook->sfHookApiVersion invalid. (Try 0).";
                 return false;
+            }
+            if (version == 3)
+            {
+                if (!hookSetObj.isFieldPresent(sfHookFunctions))
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOKON_MISSING << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook must include "
+                           "sfHookFunctions when creating a new hook with "
+                           "api version 3.";
+                    return false;
+                }
             }
 
             // validate sfHookOn
@@ -527,7 +542,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 if (!hookSetObj.isFieldPresent(sfCreateCode))
                     return {};
 
-                Blob hook = hookSetObj.getFieldVL(sfCreateCode);
+                Blob const& hook = hookSetObj.getFieldVL(sfCreateCode);
 
                 // RH NOTE: validateGuards has a generic non-rippled specific
                 // interface so it can be used in other projects (i.e. tooling).
@@ -545,12 +560,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     hsacc = ss.str();
                 }
 
-                auto result = validateGuards(
-                    hook,  // wasm to verify
-                    logger,
-                    hsacc,
-                    hook_api::getImportWhitelist(ctx.rules),
-                    hook_api::getGuardRulesVersion(ctx.rules));
+                auto result = doValidateGuards(hook, ctx.tx, ctx.rules, ctx.j);
 
                 if (ctx.j.trace())
                 {
@@ -586,6 +596,139 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 if (!result)
                     return false;
 
+                std::map<std::string, uint64_t> functionNamesMap =
+                    result.value();
+                if (version == 1)
+                {
+                    // Only allow hook() and cbak()
+                    if (functionNamesMap.size() == 1)
+                        if (functionNamesMap.find("hook") !=
+                            functionNamesMap.end())
+                            return false;
+                    if (functionNamesMap.size() == 2)
+                        if (functionNamesMap.find("hook") !=
+                                functionNamesMap.end() &&
+                            functionNamesMap.find("cbak") !=
+                                functionNamesMap.end())
+                            return false;
+                }
+                else if (version == 3)
+                {
+                    std::vector<std::string> functionNames;
+                    STArray functions =
+                        hookSetObj.getFieldArray(sfHookFunctions);
+                    bool hasInitializeFlag = false;
+                    for (const auto& function : functions)
+                    {
+                        Blob name = function.getFieldVL(sfFunctionName);
+                        if (name.size() > hook::maxHookFunctionNameSize())
+                        {
+                            JLOG(ctx.j.trace())
+                                << "HookSet(" << hook::log::WASM_SMOKE_TEST
+                                << ")[" << HS_ACC()
+                                << "]: FunctonName size is too long.";
+                            return false;
+                        }
+                        if (function.isFieldPresent(sfFee))
+                        {
+                            JLOG(ctx.j.trace())
+                                << "HookSet(" << hook::log::WASM_SMOKE_TEST
+                                << ")[" << HS_ACC() << "]: Invalid Fee.";
+                            return false;
+                        }
+                        const auto flags = function.getFlags();
+                        if (flags &
+                            ~(FunctionalHookFlags::hffINITIALIZE |
+                              FunctionalHookFlags::hffQUERY))
+                        {
+                            JLOG(ctx.j.trace())
+                                << "HookSet(" << hook::log::WASM_SMOKE_TEST
+                                << ")[" << HS_ACC() << "]: Invalid flags.";
+                            return false;
+                        }
+                        if (flags & FunctionalHookFlags::hffINITIALIZE)
+                        {
+                            if (flags & FunctionalHookFlags::hffQUERY)
+                            {
+                                JLOG(ctx.j.trace())
+                                    << "HookSet(" << hook::log::WASM_SMOKE_TEST
+                                    << ")[" << HS_ACC()
+                                    << "]: cannot have both initialize and "
+                                       "query flags.";
+                                return false;
+                            }
+                            if (hasInitializeFlag)
+                            {
+                                JLOG(ctx.j.trace())
+                                    << "HookSet(" << hook::log::WASM_SMOKE_TEST
+                                    << ")[" << HS_ACC()
+                                    << "]: Duplicate initialize flag.";
+                                return false;
+                            }
+                            hasInitializeFlag = true;
+                        }
+
+                        std::string hexStr(name.begin(), name.end());
+                        functionNames.push_back(hexStr);
+
+                        if (function.isFieldPresent(sfFunctionParameters))
+                        {
+                            std::vector<std::string> parameterNames;
+                            STArray parameters =
+                                function.getFieldArray(sfFunctionParameters);
+                            for (const auto& parameter : parameters)
+                            {
+                                if (!parameter.isFieldPresent(
+                                        sfFunctionParameterName))
+                                    return false;
+                                if (!parameter.isFieldPresent(
+                                        sfFunctionParameterType))
+                                    return false;
+                                if (parameter.isFieldPresent(
+                                        sfFunctionParameterValue))
+                                    return false;
+                                Blob parameterName = parameter.getFieldVL(
+                                    sfFunctionParameterName);
+                                if (parameterName.size() == 0 ||
+                                    parameterName.size() >
+                                        hook::
+                                            maxHookFunctionParameterNameSize())
+                                    return false;
+                                // disallow duplicate parameter names
+                                std::string hexStr(
+                                    parameterName.begin(), parameterName.end());
+                                if (std::find(
+                                        parameterNames.begin(),
+                                        parameterNames.end(),
+                                        hexStr) != parameterNames.end())
+                                    return false;
+                                parameterNames.push_back(hexStr);
+                                // validate parameter type
+                                // DataType parameterType =
+                                // parameter.getFieldDataType(sfFunctionParameterType);
+                            }
+                        }
+                    }
+
+                    if (functionNamesMap.size() != functionNames.size())
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::WASM_SMOKE_TEST << ")["
+                            << HS_ACC()
+                            << "]: FunctonNames specified in the transaction "
+                               "must match the Wasm functions exactly.";
+                        return false;
+                    }
+
+                    for (const auto& [key, value] : functionNamesMap)
+                    {
+                        if (std::find(
+                                functionNames.begin(),
+                                functionNames.end(),
+                                key) == functionNames.end())
+                            return false;
+                    }
+                }
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::WASM_SMOKE_TEST << ")["
                     << HS_ACC()
@@ -621,6 +764,108 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
     }
 }
 
+std::optional<std::map<std::string, uint64_t>>
+SetHook::doValidateGuards(
+    Blob const& hook,
+    STTx const& tx,
+    Rules const& rules,
+    std::optional<beast::Journal> j)
+{
+    // RH NOTE: validateGuards has a generic non-rippled specific
+    // interface so it can be used in other projects (i.e. tooling).
+    // As such the calling here is a bit convoluted.
+
+    std::optional<std::reference_wrapper<std::basic_ostream<char>>> logger;
+    std::ostringstream loggerStream;
+    std::string hsacc{""};
+
+    if (j.has_value() && j->trace())
+    {
+        logger = loggerStream;
+        std::stringstream ss;
+        ss << tx.getAccountID(sfAccount) << "-" << tx.getTransactionID();
+        hsacc = ss.str();
+    }
+
+    auto result = validateGuards(
+        hook,  // wasm to verify
+        logger,
+        hsacc,
+        hook_api::getImportWhitelist(rules),
+        hook_api::getGuardRulesVersion(rules));
+
+    if (j.has_value() && j->trace())
+    {
+        // clunky but to get the stream to accept the output
+        // correctly we will split on new line and feed each line
+        // one by one into the trace stream beast::Journal should be
+        // updated to inherit from basic_ostream<char> then this
+        // wouldn't be necessary.
+
+        // is this a needless copy or does the compiler do copy
+        // elision here?
+        std::string s = loggerStream.str();
+
+        char* data = s.data();
+        size_t len = s.size();
+
+        char* last = data;
+        size_t i = 0;
+        for (; i < len; ++i)
+        {
+            if (data[i] == '\n')
+            {
+                data[i] = '\0';
+                j->trace() << last;
+                last = data + i;
+            }
+        }
+
+        if (last < data + i)
+            j->trace() << last;
+    }
+    return result;
+}
+
+bool
+SetHook::validateNewHooks(ApplyView& view, STArray const& hookSets)
+{
+    // Check if HookSets contains HookV3 and other Hooks are not held
+    // Already checked in preflight if HookV3 is the first index
+    int hooksSize = 0;
+    bool hasV3 = false;
+    for (uint16_t hookSetNumber = 0; hookSetNumber < hookSets.size();
+         ++hookSetNumber)
+    {
+        std::optional<std::reference_wrapper<ripple::STObject const>>
+            hookSetObj = std::cref(
+                (hookSets[hookSetNumber]).downcast<ripple::STObject const>());
+
+        std::optional<ripple::Keylet> defKeylet;
+        std::shared_ptr<STLedgerEntry> defSLE;
+        if (!hookSetObj->get().isFieldPresent(sfHookHash))
+            continue;
+
+        hooksSize++;
+
+        defKeylet =
+            keylet::hookDefinition(hookSetObj->get().getFieldH256(sfHookHash));
+        defSLE = ctx_.view().peek(*defKeylet);
+        if (!defSLE)
+            return false;
+
+        uint16_t hookApiVersion = defSLE->getFieldU16(sfHookApiVersion);
+
+        if (hookApiVersion == 3)
+            hasV3 = true;
+
+        // Using HookV3 and holding other Hooks
+        if (hasV3 && hooksSize > 1)
+            return false;
+    }
+    return true;
+}
+
 bool
 SetHook::validateHookName(Blob const& name, beast::Journal const& j)
 {
@@ -646,6 +891,9 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
     XRPAmount hookFee{0};
 
     auto const& hookSets = tx.getFieldArray(sfHooks);
+
+    bool const hasFeatureFunctionalHooks =
+        view.rules().enabled(featureFunctionalHooks);
 
     for (auto const& hookSetObj : hookSets)
     {
@@ -681,6 +929,125 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
 
             // one drop per byte
             paramFee = XRPAmount{paramBytes};
+        }
+
+        if (hasFeatureFunctionalHooks)
+        {
+            int64_t paramBytes = 0;
+            int64_t functionFees = 0;
+            if (hookSetObj.isFieldPresent(sfHookFunctions))
+            {
+                // create or install functional hook with HookFunctions
+                auto const& functions =
+                    hookSetObj.getFieldArray(sfHookFunctions);
+                for (auto const& function : functions)
+                {
+                    if (function.isFieldPresent(sfFunctionParameters))
+                    {
+                        auto const& params =
+                            function.getFieldArray(sfFunctionParameters);
+                        for (auto const& param : params)
+                        {
+                            paramBytes +=
+                                (param.isFieldPresent(sfFunctionParameterValue)
+                                     ? param
+                                           .getFieldData(
+                                               sfFunctionParameterValue)
+                                           .size()
+                                     : 0);
+                        }
+                    }
+
+                    if (function.isFlag(FunctionalHookFlags::hffINITIALIZE))
+                    {
+                        auto const& functionName =
+                            function.getFieldVL(sfFunctionName);
+                        std::string functionNameHexStr(
+                            functionName.begin(), functionName.end());
+
+                        if (hookSetObj.isFieldPresent(sfCreateCode))
+                        {
+                            // get ExecultionFee for InitializeHook
+                            auto const result = doValidateGuards(
+                                hookSetObj.getFieldVL(sfCreateCode),
+                                tx,
+                                view.rules(),
+                                std::nullopt);
+                            if (!result)
+                                continue;
+
+                            auto const& functionNamesMap = result.value();
+                            for (const auto& [key, value] : functionNamesMap)
+                            {
+                                if (functionNameHexStr == key)
+                                    paramBytes += value;
+                            }
+                        }
+                        else
+                        {
+                            if (!hookSetObj.isFieldPresent(
+                                    sfHookHash))  // skip blanks
+                                continue;
+
+                            uint256 const& hash =
+                                hookSetObj.getFieldH256(sfHookHash);
+                            std::shared_ptr<SLE const> hookDef =
+                                view.read(keylet::hookDefinition(hash));
+                            if (!hookDef)
+                                continue;
+                            if (!hookDef->isFieldPresent(sfHookFunctions))
+                                continue;
+
+                            auto const& functionsDef =
+                                hookDef->getFieldArray(sfHookFunctions);
+                            for (auto const& functionDef : functionsDef)
+                            {
+                                auto const& functionNameDef =
+                                    functionDef.getFieldVL(sfFunctionName);
+                                std::string functionNameDefHexStr(
+                                    functionNameDef.begin(),
+                                    functionNameDef.end());
+                                if (functionNameDefHexStr == functionNameHexStr)
+                                {
+                                    functionFees +=
+                                        functionDef.getFieldAmount(sfFee)
+                                            .xrp()
+                                            .drops();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // install functional hook without HookFunctions (only use
+                // HookHash)
+                if (!hookSetObj.isFieldPresent(sfHookHash))
+                    continue;
+
+                uint256 const& hash = hookSetObj.getFieldH256(sfHookHash);
+                std::shared_ptr<SLE const> hookDef =
+                    view.read(keylet::hookDefinition(hash));
+                if (!hookDef)
+                    continue;
+
+                if (!hookDef->isFieldPresent(sfHookFunctions))
+                    continue;
+
+                auto const& functionsDef =
+                    hookDef->getFieldArray(sfHookFunctions);
+                for (auto const& functionDef : functionsDef)
+                {
+                    if (functionDef.isFlag(FunctionalHookFlags::hffINITIALIZE))
+                    {
+                        functionFees +=
+                            functionDef.getFieldAmount(sfFee).xrp().drops();
+                    }
+                }
+            }
+            paramFee += XRPAmount{paramBytes};
+            paramFee += XRPAmount{functionFees};
         }
 
         if (hookFee + paramFee < hookFee)
@@ -781,8 +1148,10 @@ SetHook::preflight(PreflightContext const& ctx)
 
     bool allBlank = true;
 
+    int hookSetIndex = -1;
     for (auto const& hookSetObj : hookSets)
     {
+        hookSetIndex++;
         if (hookSetObj.getFName() != sfHook)
         {
             JLOG(ctx.j.trace())
@@ -816,6 +1185,20 @@ SetHook::preflight(PreflightContext const& ctx)
             hookSetObj.isFieldPresent(sfHookName))
             return temDISABLED;
 
+        if (hookSetObj.isFieldPresent(sfHookApiVersion) &&
+            hookSetObj.getFieldU16(sfHookApiVersion) == 3)
+        {
+            if (hookSetIndex > 0)
+            {
+                JLOG(ctx.j.trace())
+                    << "HookSet(" << hook::log::HOOKS_ARRAY_BAD << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook api version 3 is "
+                       "only allowed at the first hook set.";
+                return temMALFORMED;
+            }
+        }
+
         for (auto const& hookSetElement : hookSetObj)
         {
             auto const& name = hookSetElement.getFName();
@@ -825,7 +1208,8 @@ SetHook::preflight(PreflightContext const& ctx)
                 name != sfHookOn && name != sfHookOnOutgoing &&
                 name != sfHookOnIncoming && name != sfHookGrants &&
                 name != sfHookApiVersion && name != sfFlags &&
-                name != sfHookCanEmit && name != sfHookName)
+                name != sfHookCanEmit && name != sfHookName &&
+                name != sfHookCanEmit && name != sfHookFunctions)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
@@ -1255,6 +1639,58 @@ updateHookParameters(
     return tesSUCCESS;
 }
 
+TER
+updateHookFunctions(
+    SetHookCtx& ctx,
+    ripple::STObject const& hookObj,
+    std::shared_ptr<STLedgerEntry>& oldDefSLE,
+    ripple::STObject& newHook)
+{
+    // TODO: HookFunctions Order
+    if (!hookObj.isFieldPresent(sfHookFunctions))
+        return tesSUCCESS;
+
+    if (!oldDefSLE->isFieldPresent(sfHookFunctions))
+        return tesSUCCESS;
+
+    STArray const& defFunctions = oldDefSLE->getFieldArray(sfHookFunctions);
+    STArray const& txFunctions = hookObj.getFieldArray(sfHookFunctions);
+
+    assert(defFunctions.size() == txFunctions.size());
+
+    STArray newFunctions(sfHookFunctions);
+
+    for (std::size_t i = 0; i < defFunctions.size(); i++)
+    {
+        STObject const& defFunction = defFunctions[i];
+        STObject const& txFunction = txFunctions[i];
+
+        STObject newFunction{sfHookFunction};
+
+        newFunction.setFieldVL(
+            sfFunctionName, defFunction.getFieldVL(sfFunctionName));
+        newFunction.setFieldAmount(sfFee, defFunction.getFieldAmount(sfFee));
+
+        if (defFunction.isFieldPresent(sfFunctionParameters))
+        {
+            auto const& defFunctionParameters =
+                defFunction.getFieldArray(sfFunctionParameters);
+            auto const& txFunctionParameters =
+                txFunction.getFieldArray(sfFunctionParameters);
+            if (defFunctionParameters != txFunctionParameters)
+                newFunction.setFieldArray(
+                    sfFunctionParameters, defFunctionParameters);
+        }
+
+        auto const& defFlags = defFunction.getFlags();
+        auto const& txFlags = txFunction.getFlags();
+        if (defFlags != txFlags)
+            newFunction.setFlag(txFlags);
+        newFunctions.push_back(std::move(newFunction));
+    }
+    newHook.setFieldArray(sfHookFunctions, std::move(newFunctions));
+    return tesSUCCESS;
+}
 /**
  * Compute the reserve required for a hook object.
  * @param hookObj The hook object to compute the reserve for.(not Transaction
@@ -1339,6 +1775,9 @@ SetHook::setHook()
 
     int hookSetCount = hookSets.size();
 
+    bool isFunctionalHook = false;
+    std::optional<std::string> initializationFunctionName;
+
     for (hookSetNumber = 0;
          hookSetNumber < std::max(oldHookCount, hookSetCount);
          ++hookSetNumber)
@@ -1382,6 +1821,10 @@ SetHook::setHook()
         std::optional<uint256> defHookCanEmit;
 
         std::optional<Blob> newHookName;
+
+        std::optional<STArray> oldHookFunctions;
+        std::optional<STArray> newHookFunctions;
+        std::optional<STArray> defHookFunctions;
 
         // when hsoCREATE is invoked it populates this variable in case the hook
         // definition already exists and the operation falls through into a
@@ -1455,6 +1898,15 @@ SetHook::setHook()
                 oldHookCanEmit = oldHook->get().getFieldH256(sfHookCanEmit);
             else if (defHookCanEmit)
                 oldHookCanEmit = *defHookCanEmit;
+
+            if (oldDefSLE)
+                defHookFunctions = oldDefSLE->getFieldArray(sfHookFunctions);
+
+            if (oldHook->get().isFieldPresent(sfHookFunctions))
+                oldHookFunctions =
+                    oldHook->get().getFieldArray(sfHookFunctions);
+            else if (defHookFunctions)
+                oldHookFunctions = *defHookFunctions;
         }
 
         // in preparation for three way merge populate fields if they are
@@ -1481,6 +1933,10 @@ SetHook::setHook()
 
             if (hookSetObj->get().isFieldPresent(sfHookCanEmit))
                 newHookCanEmit = hookSetObj->get().getFieldH256(sfHookCanEmit);
+
+            if (hookSetObj->get().isFieldPresent(sfHookFunctions))
+                newHookFunctions =
+                    hookSetObj->get().getFieldArray(sfHookFunctions);
 
             if (hookSetObj->get().isFieldPresent(sfHookNamespace))
             {
@@ -1677,7 +2133,6 @@ SetHook::setHook()
                     else
                         newHook.setFieldH256(sfHookCanEmit, *newHookCanEmit);
                 }
-
                 // set the hookname field on ltHook when it is explicitly
                 // provided
                 if (newHookName)
@@ -1690,6 +2145,15 @@ SetHook::setHook()
                     {
                         newHook.setFieldVL(sfHookName, *newHookName);
                     }
+                }
+
+                if (newHookFunctions)
+                {
+                    // Update FunctionParemeters, hfFlags
+                    TER result = updateHookFunctions(
+                        ctx, hookSetObj->get(), oldDefSLE, newHook);
+                    if (!isTesSuccess(result))
+                        return result;
                 }
 
                 // parameters
@@ -1791,6 +2255,8 @@ SetHook::setHook()
                     uint64_t maxInstrCountHook = 0;
                     uint64_t maxInstrCountCbak = 0;
 
+                    std::map<std::string, uint64_t> instructionCountMap;
+
                     // create hook definition SLE
                     try
                     {
@@ -1816,8 +2282,14 @@ SetHook::setHook()
                         }
 
                         // otherwise assign instruction counts
-                        std::tie(maxInstrCountHook, maxInstrCountCbak) =
-                            std::get<std::pair<uint64_t, uint64_t>>(valid);
+                        instructionCountMap =
+                            std::get<std::map<std::string, uint64_t>>(valid);
+                        if (instructionCountMap.find("hook") !=
+                            instructionCountMap.end())
+                            maxInstrCountHook = instructionCountMap.at("hook");
+                        if (instructionCountMap.find("cbak") !=
+                            instructionCountMap.end())
+                            maxInstrCountCbak = instructionCountMap.at("cbak");
                     }
                     catch (std::exception& e)
                     {
@@ -1838,6 +2310,11 @@ SetHook::setHook()
                         else
                             slesToUpdate.emplace(*oldDefKeylet, oldDefSLE);
                     }
+
+                    uint16_t hookApiVersion =
+                        hookSetObj->get().getFieldU16(sfHookApiVersion);
+                    if (hookApiVersion == 3)
+                        isFunctionalHook = true;
 
                     auto newHookDef = std::make_shared<SLE>(keylet);
                     newHookDef->setFieldH256(sfHookHash, *createHookHash);
@@ -1863,17 +2340,16 @@ SetHook::setHook()
                         hookSetObj->get().isFieldPresent(sfHookParameters)
                             ? hookSetObj->get().getFieldArray(sfHookParameters)
                             : STArray{});
-                    newHookDef->setFieldU16(
-                        sfHookApiVersion,
-                        hookSetObj->get().getFieldU16(sfHookApiVersion));
+                    newHookDef->setFieldU16(sfHookApiVersion, hookApiVersion);
                     newHookDef->setFieldVL(sfCreateCode, wasmBytes);
                     newHookDef->setFieldH256(
                         sfHookSetTxnID, ctx.tx.getTransactionID());
                     newHookDef->setFieldU64(sfReferenceCount, 1);
-                    newHookDef->setFieldAmount(
-                        sfFee,
-                        XRPAmount{
-                            hook::computeExecutionFee(maxInstrCountHook)});
+                    if (maxInstrCountHook > 0)
+                        newHookDef->setFieldAmount(
+                            sfFee,
+                            XRPAmount{
+                                hook::computeExecutionFee(maxInstrCountHook)});
                     if (maxInstrCountCbak > 0)
                         newHookDef->setFieldAmount(
                             sfHookCallbackFee,
@@ -1898,6 +2374,44 @@ SetHook::setHook()
                         newHook.setFieldVL(
                             sfHookName,
                             hookSetObj->get().getFieldVL(sfHookName));
+
+                    if (hookSetObj->get().isFieldPresent(sfHookFunctions))
+                    {
+                        const STArray& origFunctions =
+                            hookSetObj->get().getFieldArray(sfHookFunctions);
+                        STArray newFunctions(sfHookFunctions);
+
+                        for (auto const& function : origFunctions)
+                        {
+                            STObject newFunction = function;  // copy
+
+                            Blob functionName =
+                                newFunction.getFieldVL(sfFunctionName);
+                            std::string hexStr(
+                                functionName.begin(), functionName.end());
+
+                            if (instructionCountMap.find(hexStr) !=
+                                instructionCountMap.end())
+                            {
+                                auto fee = XRPAmount{hook::computeExecutionFee(
+                                    instructionCountMap.at(hexStr))};
+                                newFunction.setFieldAmount(sfFee, fee);
+                            }
+                            else
+                            {
+                                return tecINTERNAL;
+                            }
+
+                            if (newFunction.isFlag(
+                                    FunctionalHookFlags::hffINITIALIZE))
+                                initializationFunctionName = hexStr;
+
+                            newFunctions.push_back(std::move(newFunction));
+                        }
+
+                        newHookDef->setFieldArray(
+                            sfHookFunctions, std::move(newFunctions));
+                    }
 
                     slesToInsert.emplace(keylet, newHookDef);
                     newHook.setFieldH256(sfHookHash, *createHookHash);
@@ -1952,6 +2466,9 @@ SetHook::setHook()
 
                 // increment reference count of target HookDefintion
                 incrementReferenceCount(newDefSLE);
+
+                if (newDefSLE->getFieldU16(sfHookApiVersion) == 3)
+                    isFunctionalHook = true;
 
                 // change which definition we're using to the new target
                 defNamespace = newDefSLE->getFieldH256(sfHookNamespace);
@@ -2014,6 +2531,15 @@ SetHook::setHook()
                 // provided
                 if (newHookName && newHookName->size() > 0)
                     newHook.setFieldVL(sfHookName, *newHookName);
+
+                // Update FunctionParemeters, hfFlags
+                if (newHookFunctions)
+                {
+                    TER result = updateHookFunctions(
+                        ctx, hookSetObj->get(), newDefSLE, newHook);
+                    if (!isTesSuccess(result))
+                        return result;
+                }
 
                 // parameters
                 TER result = updateHookParameters(
@@ -2202,11 +2728,22 @@ SetHook::setHook()
             // for clarity if this is a NO-OP
         }
     }
+    if (!validateNewHooks(view(), newHooks))
+        return tecHOOK_INVALID_ENTRY;
 
     if (reserveDelta != 0)
     {
         adjustOwnerCount(view(), accountSLE, reserveDelta, j_);
         view().update(accountSLE);
+    }
+
+    // Initialize Functional Hook
+    if (isFunctionalHook && initializationFunctionName)
+    {
+        if (auto result = doFunctionalHookInitialize(
+                newHookSLE, initializationFunctionName.value());
+            !isTesSuccess(result))
+            return result;
     }
 
     return nsDeleteResult;

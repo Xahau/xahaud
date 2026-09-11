@@ -150,6 +150,8 @@ private:
                 return "PayChannel";
             if (inp == "IMPORT_VLSEQ")
                 return "ImportVLSequence";
+            if (inp == "DATATYPE")
+                return "DataType";
 
             static const std::map<std::string, std::string>
                 capitalization_exceptions = {

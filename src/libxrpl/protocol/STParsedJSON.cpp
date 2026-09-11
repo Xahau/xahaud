@@ -30,6 +30,8 @@
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STBitString.h>
 #include <xrpl/protocol/STBlob.h>
+#include <xrpl/protocol/STData.h>
+#include <xrpl/protocol/STDataType.h>
 #include <xrpl/protocol/STInteger.h>
 #include <xrpl/protocol/STIssue.h>
 #include <xrpl/protocol/STParsedJSON.h>
@@ -763,6 +765,32 @@ parseLeaf(
                 error = invalid_data(json_name, fieldName);
                 return ret;
             }
+        }
+        case STI_DATA: {
+            try
+            {
+                ret = detail::make_stvar<STData>(dataFromJson(field, value));
+            }
+            catch (std::exception const&)
+            {
+                error = invalid_data(json_name, fieldName);
+                return ret;
+            }
+
+            break;
+        }
+        case STI_DATATYPE: {
+            try
+            {
+                ret = detail::make_stvar<STDataType>(
+                    dataTypeFromJson(field, value));
+            }
+            catch (std::exception const&)
+            {
+                error = invalid_data(json_name, fieldName);
+                return ret;
+            }
+            break;
         }
         break;
 

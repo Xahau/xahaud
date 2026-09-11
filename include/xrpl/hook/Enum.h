@@ -17,6 +17,7 @@
 #define featureHooksUpdate2 "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
+#define featureFunctionalHooks "1"
 namespace hook_api {
 struct Rules
 {
@@ -44,6 +45,11 @@ enum HookSetFlags : uint8_t {
     hsfOVERRIDE = 0b00000001U,  // override or delete hook
     hsfNSDELETE = 0b00000010U,  // delete namespace
     hsfCOLLECT = 0b00000100U,   // allow collect calls on this hook
+};
+
+enum FunctionalHookFlags : uint8_t {
+    hffINITIALIZE = 0b00000001U,  // initialize hook
+    hffQUERY = 0b00000010U,       // query hook
 };
 
 enum HookEmissionFlags : uint16_t {
@@ -114,6 +120,18 @@ inline uint32_t
 maxNamespaceDelete(void)
 {
     return 256;
+}
+
+inline uint32_t
+maxHookFunctionNameSize(void)
+{
+    return 16;
+}
+
+inline uint32_t
+maxHookFunctionParameterNameSize(void)
+{
+    return 16;
 }
 
 enum TSHFlags : uint8_t {
@@ -384,7 +402,8 @@ enum class hook_return_code : int64_t {
     MEM_OVERLAP = -43,   // one or more specified buffers are the same memory
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 256 modified state
                                          // entires in the combined hook chains
-    TOO_MANY_NAMESPACES = -45
+    TOO_MANY_NAMESPACES = -45,
+    NOT_SUPPORTED = -46,
 };
 
 enum class ExitType : uint8_t {
@@ -445,6 +464,7 @@ getImportWhitelist(Rules const& rules)
 enum GuardRulesVersion : uint64_t {
     GuardRuleFix20250131 = 0x00000001,
     GuardRuleDepth32 = 0x00000002,
+    GuardFunctionalHooks = 0x00000004,
 };
 
 inline uint64_t
@@ -455,6 +475,8 @@ getGuardRulesVersion(Rules const& rules)
         version |= GuardRuleFix20250131;
     if (rules.enabled(fixGuardDepth32))
         version |= GuardRuleDepth32;
+    if (rules.enabled(featureFunctionalHooks))
+        version |= GuardFunctionalHooks;
     return version;
 }
 

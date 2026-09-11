@@ -40,12 +40,10 @@
 namespace ripple {
 
 using HookSetValidation = std::variant<
-    bool,          // true = valid
-    std::pair<     // if set implicitly valid, and return instruction counts
-                   // (hsoCREATE only)
-        uint64_t,  // max instruction count for hook
-        uint64_t   // max instruction count for cbak
-        >>;
+    bool,                            // true = valid
+    std::map<std::string, uint64_t>  // map of export function name to max
+                                     // instruction count
+    >;
 
 struct SetHookCtx
 {
@@ -91,6 +89,13 @@ public:
     static HookSetValidation
     validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj);
 
+    static std::optional<std::map<std::string, uint64_t>>
+    doValidateGuards(
+        Blob const& hook,
+        STTx const& tx,
+        Rules const& rules,
+        std::optional<beast::Journal> j);
+
     static bool
     validateHookName(Blob const& name, beast::Journal const& j);
 
@@ -115,6 +120,9 @@ private:
         Keylet const& accountKeylet,
         Keylet const& ownerDirKeylet,
         Keylet const& hookKeylet);
+
+    bool
+    validateNewHooks(ApplyView& view, STArray const& hookSets);
 };
 
 }  // namespace ripple

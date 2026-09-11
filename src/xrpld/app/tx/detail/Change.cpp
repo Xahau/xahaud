@@ -677,11 +677,12 @@ Change::activateXahauGenesis()
                 sfReferenceCount,
                 (hookCount++ == 0 ? l2_entries.size() : 0) + 1);
             hookDef->setFieldAmount(
-                sfFee, XRPAmount{hook::computeExecutionFee(result->first)});
-            if (result->second > 0)
+                sfFee,
+                XRPAmount{hook::computeExecutionFee(result->at("hook"))});
+            if (result->find("cbak") != result->end())
                 hookDef->setFieldAmount(
                     sfHookCallbackFee,
-                    XRPAmount{hook::computeExecutionFee(result->second)});
+                    XRPAmount{hook::computeExecutionFee(result->at("cbak"))});
 
             sb.insert(hookDef);
 
