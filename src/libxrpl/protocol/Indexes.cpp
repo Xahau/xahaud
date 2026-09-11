@@ -93,6 +93,7 @@ enum class LedgerNameSpace : std::uint16_t {
     ORACLE = LEDGER_NAMESPACE2(0x01, 'R'),
     MPTOKEN_ISSUANCE = '~',
     MPTOKEN = 't',
+    MANIFEST = 'M',
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
 
@@ -708,6 +709,12 @@ Keylet
 permissionedDomain(uint256 const& domainID) noexcept
 {
     return {ltPERMISSIONED_DOMAIN, domainID};
+}
+
+Keylet
+manifest(PublicKey const& pk) noexcept
+{
+    return {ltMANIFEST, indexHash(LedgerNameSpace::MANIFEST, pk.slice())};
 }
 
 }  // namespace keylet

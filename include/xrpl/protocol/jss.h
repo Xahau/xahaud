@@ -350,6 +350,7 @@ JSS(hash_mismatches);       // out: catalogue
 JSS(have_header);           // out: InboundLedger
 JSS(have_state);            // out: InboundLedger
 JSS(have_transactions);     // out: InboundLedger
+JSS(hooks);                 // in/out: AccountInfo
 JSS(high);                  // out: BookChanges
 JSS(highest_sequence);      // out: AccountInfo
 JSS(highest_ticket);        // out: AccountInfo

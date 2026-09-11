@@ -1368,7 +1368,13 @@ OverlayImpl::getManifestsMessage()
     {
         protocol::TMManifests tm;
 
-        app_.validatorManifests().for_each_manifest(
+        // A bounded subset of the cache rather than all of it; see
+        // ManifestCache::for_each_gossip_manifest for what is selected.
+        // This message is only rebuilt when the cache sequence changes, so a
+        // shift in which manifests are the most recently used does not by
+        // itself refresh it. That is acceptable: the pinned manifests are the
+        // ones a peer needs, and they are always included.
+        app_.validatorManifests().for_each_gossip_manifest(
             [&tm](std::size_t s) { tm.mutable_list()->Reserve(s); },
             [&tm, &hr = app_.getHashRouter()](Manifest const& manifest) {
                 tm.add_list()->set_stobject(

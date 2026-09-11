@@ -20,10 +20,12 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/core/DatabaseCon.h>
+#include <xrpld/ledger/ReadView.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/json/json_reader.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Sign.h>
 
@@ -54,7 +56,6 @@ deserializeManifest(Slice s, beast::Journal journal)
 {
     if (s.empty())
         return std::nullopt;
-
     static SOTemplate const manifestFormat{
         // A manifest must include:
         // - the master public key
@@ -301,7 +302,10 @@ ManifestCache::getSigningKey(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end() && !iter->second.revoked())
+    {
+        touch(pk);
         return iter->second.signingKey;
+    }
 
     return pk;
 }
@@ -313,7 +317,10 @@ ManifestCache::getMasterKey(PublicKey const& pk) const
 
     if (auto const iter = signingToMasterKeys_.find(pk);
         iter != signingToMasterKeys_.end())
+    {
+        touch(iter->second);
         return iter->second;
+    }
 
     return pk;
 }
@@ -356,7 +363,10 @@ ManifestCache::getManifest(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end() && !iter->second.revoked())
+    {
+        touch(pk);
         return iter->second.serialized;
+    }
 
     return std::nullopt;
 }
@@ -368,9 +378,167 @@ ManifestCache::revoked(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end())
+    {
+        touch(pk);
         return iter->second.revoked();
+    }
 
     return false;
+}
+
+std::optional<std::pair<std::uint32_t, std::string>>
+ManifestCache::getRawManifest(PublicKey const& pk) const
+{
+    std::shared_lock lock{mutex_};
+
+    if (auto const iter = map_.find(pk); iter != map_.end())
+    {
+        touch(pk);
+        return std::make_pair(iter->second.sequence, iter->second.serialized);
+    }
+
+    return std::nullopt;
+}
+
+void
+ManifestCache::touch(PublicKey const& masterKey) const
+{
+    // find() rather than operator[]: inserting here would be a structural
+    // modification, and callers hold mutex_ only in shared mode. The entry is
+    // created in applyManifest() alongside the manifest itself, so a lookup
+    // that hit map_ always finds one here too.
+    if (auto const iter = lastUsed_.find(masterKey); iter != lastUsed_.end())
+        iter->second.store(++tick_, std::memory_order_relaxed);
+}
+
+void
+ManifestCache::pin(hash_set<PublicKey> keys)
+{
+    std::lock_guard lock{mutex_};
+
+    if (keys == pinned_)
+        return;
+
+    pinned_ = std::move(keys);
+
+    // The pinned set is part of what a gossip message contains, so a change to
+    // it has to invalidate any message cached against this sequence.
+    ++seq_;
+}
+
+namespace {
+
+/** Rebuild the manifest a ltMANIFEST object was written from.
+
+    The object is a lossless mirror written by SetManifest::doApply, so this
+    round-trip is byte-identical to the blob the master key signed and verify()
+    succeeds, or the manifest is discarded. Presence matters: sfVersion is
+    soeDEFAULT in the manifest format and must not be materialised.
+*/
+std::optional<Manifest>
+manifestFromSLE(SLE const& sle, beast::Journal j)
+{
+    STObject st{sfGeneric};
+    st.setFieldU32(sfSequence, sle.getFieldU32(sfSequence));
+    st.setFieldVL(sfPublicKey, sle.getFieldVL(sfPublicKey));
+    st.setFieldVL(sfMasterSignature, sle.getFieldVL(sfMasterSignature));
+    for (auto const& sf :
+         {std::cref(sfSigningPubKey),
+          std::cref(sfSignature),
+          std::cref(sfDomain)})
+        if (sle.isFieldPresent(sf.get()))
+            st.setFieldVL(sf.get(), sle.getFieldVL(sf.get()));
+    if (sle.isFieldPresent(sfVersion))
+        st.setFieldU16(sfVersion, sle.getFieldU16(sfVersion));
+
+    return deserializeManifest(st, j);
+}
+
+}  // namespace
+
+std::size_t
+ManifestCache::applyLedger(
+    ReadView const& view,
+    hash_set<PublicKey> const& masterKeys)
+{
+    std::size_t accepted = 0;
+
+    for (auto const& pk : masterKeys)
+    {
+        auto const sle = view.read(keylet::manifest(pk));
+        if (!sle)
+            continue;
+
+        // Cheap reject before rebuilding: applyManifest() would call this
+        // stale anyway, and the signature check is the expensive part.
+        if (auto const seq = getSequence(pk);
+            seq && *seq >= sle->getFieldU32(sfSequence))
+            continue;
+
+        if (auto mo = manifestFromSLE(*sle, j_); mo &&
+            applyManifest(std::move(*mo)) == ManifestDisposition::accepted)
+            ++accepted;
+    }
+
+    return accepted;
+}
+
+std::optional<PublicKey>
+ManifestCache::applyLedgerSigningKey(
+    ReadView const& view,
+    PublicKey const& signingKey)
+{
+    auto const held = [this, &signingKey]() -> std::optional<PublicKey> {
+        std::shared_lock lock{mutex_};
+
+        if (auto const iter = signingToMasterKeys_.find(signingKey);
+            iter != signingToMasterKeys_.end())
+        {
+            touch(iter->second);
+            return iter->second;
+        }
+
+        return std::nullopt;
+    };
+
+    // A manifest for this key may have arrived by gossip or in a published
+    // list while the caller was deciding to ask.
+    if (auto const known = held())
+        return known;
+
+    {
+        std::lock_guard lock{mutex_};
+
+        if (probed_.size() >= probeLimit)
+            probed_.clear();
+
+        // One read per key per ledger. Reaching here already cost the sender a
+        // signature and this node a verification, so the read is not the
+        // cheapest thing an unknown key can ask for; the cap is to stop
+        // repeating it, not to stop anyone.
+        auto const seq = view.info().seq;
+        auto const [iter, inserted] = probed_.try_emplace(signingKey, seq);
+        if (!inserted && iter->second == seq)
+            return std::nullopt;
+
+        iter->second = seq;
+    }
+
+    auto const sle = view.read(keylet::manifest(signingKey));
+    if (!sle)
+        return std::nullopt;
+
+    // Every manifest is written at both its master and its ephemeral keylet,
+    // so an object here is either the manifest naming signingKey as its
+    // ephemeral key -- the case worth having -- or the manifest of a master
+    // key that is what was asked about. Ingesting either is correct, and
+    // applyManifest() verifies both signatures, so nothing found here can
+    // assert a binding its key holder did not sign for.
+    if (auto mo = manifestFromSLE(*sle, j_))
+        applyManifest(std::move(*mo));
+
+    // Only a signing key resolves: a master key is its own master.
+    return held();
 }
 
 ManifestDisposition
@@ -505,6 +673,10 @@ ManifestCache::applyManifest(Manifest m)
 
         if (!revoked)
             signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
+
+        // Kept in step with map_ so touch() never has to insert; see
+        // lastUsed_.
+        lastUsed_.try_emplace(m.masterKey, 0);
 
         auto masterKey = m.masterKey;
         map_.emplace(std::move(masterKey), std::move(m));

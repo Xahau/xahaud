@@ -152,6 +152,8 @@ transResults()
         MAKE_ERROR(tefNONDIR_EMIT,                 "An emitted txn was injected into the ledger without a corresponding directory entry."),
         MAKE_ERROR(tefIMPORT_BLACKHOLED,           "Cannot import keying because target account is blackholed."),
         MAKE_ERROR(tefINVALID_LEDGER_FIX_TYPE,     "The LedgerFixType field has an invalid value."),
+        MAKE_ERROR(tefPAST_MANIFEST_SEQ,           "The submitted manifest's sequence is not newer than the current."),
+        MAKE_ERROR(tefREVOKED_MANIFEST,            "The submitted manifest is for a revoked master key."),
 
         MAKE_ERROR(telLOCAL_ERROR,            "Local failure."),
         MAKE_ERROR(telBAD_DOMAIN,             "Domain too long."),

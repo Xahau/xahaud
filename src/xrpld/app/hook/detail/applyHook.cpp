@@ -11,7 +11,9 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/protocol/EntropyTier.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
@@ -72,9 +74,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         return rv.read(keylet::nftoffer(*id));
     };
 
-    bool const fixV1 = rv.rules().enabled(fixXahauV1);
-    bool const fixV2 = rv.rules().enabled(fixXahauV2);
-
     switch (tt)
     {
         case ttCRON: {
@@ -123,7 +122,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttIMPORT: {
             if (tx.isFieldPresent(sfIssuer))
-                ADD_TSH(tx.getAccountID(sfIssuer), fixV2 ? tshWEAK : tshSTRONG);
+                ADD_TSH(tx.getAccountID(sfIssuer), tshWEAK);
             break;
         }
 
@@ -148,34 +147,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 break;
             // pass, already a TSH
 
-            // new logic
-            if (fixV1)
-            {
-                // the owner burns their token, and the issuer is a weak TSH
-                if (*otxnAcc == owner && rv.exists(keylet::account(issuer)))
-                    ADD_TSH(issuer, tshWEAK);
-                // the issuer burns the owner's token, and the owner is a weak
-                // TSH
-                else if (rv.exists(keylet::account(owner)))
-                    ADD_TSH(owner, tshWEAK);
-
-                break;
-            }
-
-            // old logic
-            {
-                if (*otxnAcc == owner)
-                {
-                    // the owner burns their token, and the issuer is a weak TSH
-                    ADD_TSH(issuer, tshSTRONG);
-                }
-                else
-                {
-                    // the issuer burns the owner's token, and the owner is a
-                    // weak TSH
-                    ADD_TSH(owner, tshSTRONG);
-                }
-            }
+            // the owner burns their token, and the issuer is a weak TSH
+            if (*otxnAcc == owner && rv.exists(keylet::account(issuer)))
+                ADD_TSH(issuer, tshWEAK);
+            // the issuer burns the owner's token, and the owner is a weak
+            // TSH
+            else if (rv.exists(keylet::account(owner)))
+                ADD_TSH(owner, tshWEAK);
 
             break;
         }
@@ -209,15 +187,12 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttURITOKEN_MINT: {
             // destination is a strong tsh
-            if (fixV2 && tx.isFieldPresent(sfDestination))
+            if (tx.isFieldPresent(sfDestination))
                 ADD_TSH(tx.getAccountID(sfDestination), tshSTRONG);
             break;
         }
 
         case ttURITOKEN_CANCEL_SELL_OFFER: {
-            if (!fixV2)
-                break;
-
             Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
             if (!rv.exists(id))
                 return {};
@@ -388,61 +363,38 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttESCROW_CANCEL:
         case ttESCROW_FINISH: {
-            // new logic
-            if (fixV1)
-            {
-                if (!tx.isFieldPresent(sfOwner))
-                    return {};
+            if (!tx.isFieldPresent(sfOwner))
+                return {};
 
-                AccountID const owner = tx.getAccountID(sfOwner);
+            AccountID const owner = tx.getAccountID(sfOwner);
 
-                bool const hasSeq = tx.isFieldPresent(sfOfferSequence);
-                bool const hasID = tx.isFieldPresent(sfEscrowID);
-                if (!hasSeq && !hasID)
-                    return {};
+            bool const hasSeq = tx.isFieldPresent(sfOfferSequence);
+            bool const hasID = tx.isFieldPresent(sfEscrowID);
+            if (!hasSeq && !hasID)
+                return {};
 
-                Keylet kl = hasSeq
-                    ? keylet::escrow(owner, tx.getFieldU32(sfOfferSequence))
-                    : Keylet(ltESCROW, tx.getFieldH256(sfEscrowID));
+            Keylet kl = hasSeq
+                ? keylet::escrow(owner, tx.getFieldU32(sfOfferSequence))
+                : Keylet(ltESCROW, tx.getFieldH256(sfEscrowID));
 
-                auto escrow = rv.read(kl);
+            auto escrow = rv.read(kl);
 
-                if (!escrow ||
-                    escrow->getFieldU16(sfLedgerEntryType) != ltESCROW)
-                    return {};
+            if (!escrow || escrow->getFieldU16(sfLedgerEntryType) != ltESCROW)
+                return {};
 
-                // this should always be the same as owner, but defensively...
-                AccountID const src = escrow->getAccountID(sfAccount);
-                AccountID const dst = escrow->getAccountID(sfDestination);
+            // this should always be the same as owner, but defensively...
+            AccountID const src = escrow->getAccountID(sfAccount);
+            AccountID const dst = escrow->getAccountID(sfDestination);
 
-                // the source account is a strong transacitonal stakeholder for
-                // fin and can
-                ADD_TSH(src, tshSTRONG);
+            // the source account is a strong transacitonal stakeholder for
+            // fin and can
+            ADD_TSH(src, tshSTRONG);
 
-                // the dest acc is a strong tsh for fin and weak for can
-                if (src != dst)
-                    ADD_TSH(dst, tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
+            // the dest acc is a strong tsh for fin and weak for can
+            if (src != dst)
+                ADD_TSH(dst, tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
 
-                break;
-            }
-            // old logic
-            {
-                if (!tx.isFieldPresent(sfOwner) ||
-                    !tx.isFieldPresent(sfOfferSequence))
-                    return {};
-
-                auto escrow = rv.read(keylet::escrow(
-                    tx.getAccountID(sfOwner), tx.getFieldU32(sfOfferSequence)));
-
-                if (!escrow)
-                    return {};
-
-                ADD_TSH(escrow->getAccountID(sfAccount), tshSTRONG);
-                ADD_TSH(
-                    escrow->getAccountID(sfDestination),
-                    tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
-                break;
-            }
+            break;
         }
 
         case ttPAYCHAN_FUND:
@@ -515,6 +467,26 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
 
         case ttCRON_SET: {
+            break;
+        }
+        case ttMANIFEST_SET: {
+            // The ephemeral key's logical account, meaning the r-address its
+            // public key hashes to, is a weak stake holder: the manifest names
+            // that key but nothing is done to the account, so it may observe
+            // but not rollback. Usually no such account exists, in which case
+            // nothing executes.
+            if (!tx.isFieldPresent(sfManifest))
+                break;
+
+            STObject const& man =
+                const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+
+            if (!man.isFieldPresent(sfSigningPubKey))
+                break;
+
+            auto const spk = man.getFieldVL(sfSigningPubKey);
+            if (publicKeyType(makeSlice(spk)))
+                ADD_TSH(calcAccountID(PublicKey(makeSlice(spk))), tshWEAK);
             break;
         }
         case ttAMM_CREATE:
@@ -1351,13 +1323,9 @@ DEFINE_HOOK_FUNCTION(
     auto const key = make_state_key(
         std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
 
-    if (view.rules().enabled(fixXahauV1))
-    {
-        auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
-        if (!sleAccount)
-            // should return hook_api::hook_return_code
-            return static_cast<hook_api::hook_return_code>(tefINTERNAL);
-    }
+    if (!view.exists(hookCtx.result.accountKeylet))
+        // should return hook_api::hook_return_code
+        return static_cast<hook_api::hook_return_code>(tefINTERNAL);
 
     if (!key)
         return INTERNAL_ERROR;
@@ -1579,7 +1547,6 @@ hook::finalizeHookResult(
         // emissions use the same fee-only reset path.
     }
 
-    bool const fixV2 = applyCtx.view().rules().enabled(fixXahauV2);
     // add a metadata entry for this hook execution result
     {
         STObject meta{sfHookExecution};
@@ -1612,18 +1579,14 @@ hook::finalizeHookResult(
         meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount);
         meta.setFieldH256(sfHookHash, hookResult.hookHash);
 
-        // add informational flags in fix2
-        if (fixV2)
-        {
-            uint32_t flags = 0;
-            if (hookResult.isStrong)
-                flags |= hefSTRONG;
-            if (hookResult.isCallback)
-                flags |= hefCALLBACK;
-            if (hookResult.executeAgainAsWeak)
-                flags |= hefDOAAW;
-            meta.setFieldU32(sfFlags, flags);
-        }
+        uint32_t flags = 0;
+        if (hookResult.isStrong)
+            flags |= hefSTRONG;
+        if (hookResult.isCallback)
+            flags |= hefCALLBACK;
+        if (hookResult.executeAgainAsWeak)
+            flags |= hefDOAAW;
+        meta.setFieldU32(sfFlags, flags);
         avi.addHookExecutionMetaData(std::move(meta));
     }
 
@@ -1637,8 +1600,7 @@ hook::finalizeHookResult(
             meta.setFieldH256(sfHookHash, hookResult.hookHash);
             meta.setAccountID(sfHookAccount, hookResult.account);
             meta.setFieldH256(sfEmittedTxnID, etxnid);
-            if (fixV2)
-                meta.setFieldH256(sfEmitNonce, enonce);
+            meta.setFieldH256(sfEmitNonce, enonce);
             avi.addHookEmissionMetaData(std::move(meta));
         }
     }

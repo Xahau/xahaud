@@ -503,13 +503,18 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
 //@@start export-transaction-types
 /* User-submittable Export. Its mutually exclusive forms create an intent,
    control an existing latch, or manage an immutable committee object. */
-TRANSACTION(ttEXPORT, 91, Export, ({
+TRANSACTION(ttEXPORT, 90, Export, ({
     {sfExportedTxn, soeOPTIONAL},
     {sfTransactionHash, soeOPTIONAL},
     {sfExportCommitteeHash, soeOPTIONAL},
     {sfExportCommittee, soeOPTIONAL},
 }))
 //@@end export-transaction-types
+/* sfAccount is supplied by TxFormats::commonFields; listing it here as well
+   makes the SOTemplate reject the format at construction. */
+TRANSACTION(ttMANIFEST_SET, 91, SetManifest, ({
+    {sfManifest, soeREQUIRED},
+}))
 
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
 TRANSACTION(ttCRON, 92, Cron, ({

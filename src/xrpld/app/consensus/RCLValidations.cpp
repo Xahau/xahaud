@@ -21,7 +21,9 @@
 #include <xrpld/app/ledger/InboundLedger.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/consensus/LedgerTiming.h>
@@ -31,6 +33,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/chrono.h>
+#include <xrpl/protocol/Feature.h>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -176,6 +179,25 @@ handleNewValidation(
     auto const& signingKey = val->getSignerPublic();
     auto const& hash = val->getLedgerHash();
     auto const seq = val->getFieldU32(sfLedgerSequence);
+
+    // A validator that rotated its ephemeral key while this node was not
+    // listening signs with a key no held manifest mentions, which is
+    // indistinguishable from a validator this node has never heard of. Every
+    // manifest published on-chain is written at its ephemeral keylet as well
+    // as its master one, so that binding is recoverable in a single read.
+    //
+    // Done here rather than left to the next consensus round, because
+    // ManifestCache::applyLedger() runs there against the master keys already
+    // trusted and so cannot resolve a key whose master is what is missing.
+    // Resolving now also means this validation is classified in the round it
+    // arrived in rather than written off along with every other one until the
+    // trusted set is next recomputed.
+    if (app.validatorManifests().getMasterKey(signingKey) == signingKey)
+    {
+        if (auto const view = app.openLedger().current();
+            view && view->rules().enabled(featureOnChainManifests))
+            app.validatorManifests().applyLedgerSigningKey(*view, signingKey);
+    }
 
     // Ensure validation is marked as trusted if signer currently trusted
     auto masterKey = app.validators().getTrustedKey(signingKey);

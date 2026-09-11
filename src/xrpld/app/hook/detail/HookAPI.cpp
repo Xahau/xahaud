@@ -2956,8 +2956,7 @@ HookAPI::set_state_cache(
     if (modified && stateMap.modified_entry_count >= max_state_modifications)
         return Unexpected(TOO_MANY_STATE_MODIFICATIONS);
 
-    bool const createNamespace = view.rules().enabled(fixXahauV1) &&
-        !view.exists(keylet::hookStateDir(acc, ns));
+    bool const createNamespace = !view.exists(keylet::hookStateDir(acc, ns));
 
     if (stateMap.find(acc) == stateMap.end())
     {

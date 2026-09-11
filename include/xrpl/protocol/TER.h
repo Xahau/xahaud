@@ -197,6 +197,8 @@ enum TEFcodes : TERUnderlyingType {
     tefNONDIR_EMIT,
     tefIMPORT_BLACKHOLED,
     tefINVALID_LEDGER_FIX_TYPE,
+    tefPAST_MANIFEST_SEQ,
+    tefREVOKED_MANIFEST,
 };
 
 //------------------------------------------------------------------------------
