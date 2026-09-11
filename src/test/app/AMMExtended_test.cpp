@@ -1403,7 +1403,8 @@ private:
     testOffers()
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{
+            supported_amendments() | featureAMM | featureAMMClawback};
         testRmFundedOffer(all);
         testEnforceNoRipple(all);
         testFillModes(all);
@@ -2802,8 +2803,11 @@ private:
         testcase("limitQuality");
         using namespace jtx;
 
+        auto const features =
+            supported_amendments() | featureAMM | featureAMMClawback;
+
         {
-            Env env(*this);
+            Env env(*this, features);
 
             fund(env, gw, {alice, bob, carol}, XRP(10'000), {USD(2'000)});
 
@@ -2829,11 +2833,13 @@ private:
 
         using namespace jtx;
 
+        auto const features =
+            supported_amendments() | featureAMM | featureAMMClawback;
+
         for (auto const withFix : {true, false})
         {
-            auto const feats = withFix
-                ? supported_amendments()
-                : supported_amendments() - FeatureBitset{fix1781};
+            auto const feats =
+                withFix ? features : features - FeatureBitset{fix1781};
 
             // Payment path starting with XRP
             Env env(*this, feats);
@@ -2861,7 +2867,7 @@ private:
         }
         {
             // Payment path ending with XRP
-            Env env(*this);
+            Env env(*this, features);
             // Note, if alice doesn't have default ripple, then pay fails
             // with tecPATH_DRY.
             fund(
@@ -2885,7 +2891,7 @@ private:
             // Payment where loop is formed in the middle of the path, not
             // on an endpoint
             auto const JPY = gw["JPY"];
-            Env env(*this);
+            Env env(*this, features);
             // Note, if alice doesn't have default ripple, then pay fails
             // with tecPATH_DRY.
             fund(
@@ -3113,7 +3119,10 @@ private:
 
         using namespace jtx;
 
-        Env env(*this);
+        auto const features =
+            supported_amendments() | featureAMM | featureAMMClawback;
+
+        Env env(*this, features);
 
         fund(env, gw, {alice, bob, carol}, XRP(10'000));
         env.trust(USD(1'000), alice, bob, carol);
@@ -3828,7 +3837,8 @@ private:
     testFlow()
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{
+            supported_amendments() | featureAMM | featureAMMClawback};
         FeatureBitset const ownerPaysFee{featureOwnerPaysFee};
 
         testFalseDry(all);
@@ -3844,7 +3854,8 @@ private:
     testCrossingLimits()
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{
+            supported_amendments() | featureAMM | featureAMMClawback};
         testStepLimit(all);
     }
 
@@ -3852,14 +3863,16 @@ private:
     testDeliverMin()
     {
         using namespace jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{
+            supported_amendments() | featureAMM | featureAMMClawback};
         test_convert_all_of_an_asset(all);
     }
 
     void
     testDepositAuth()
     {
-        auto const supported{jtx::supported_amendments()};
+        auto const supported{
+            jtx::supported_amendments() | featureAMM | featureAMMClawback};
         testPayment(supported - featureDepositPreauth);
         testPayment(supported);
         testPayIOU();
@@ -3869,7 +3882,8 @@ private:
     testFreeze()
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        auto const sa =
+            supported_amendments() | featureAMM | featureAMMClawback;
         testRippleState(sa);
         testGlobalFreeze(sa);
         testOffersWhenFrozen(sa);
@@ -3879,7 +3893,8 @@ private:
     testMultisign()
     {
         using namespace jtx;
-        auto const all = supported_amendments();
+        auto const all =
+            supported_amendments() | featureAMM | featureAMMClawback;
 
         testTxMultisign(
             all - featureMultiSignReserve - featureExpandedSignerList);
@@ -3891,7 +3906,8 @@ private:
     testPayStrand()
     {
         using namespace jtx;
-        auto const all = supported_amendments();
+        auto const all =
+            supported_amendments() | featureAMM | featureAMMClawback;
 
         testToStrand(all);
         testRIPD1373(all);

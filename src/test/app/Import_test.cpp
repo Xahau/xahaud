@@ -1663,11 +1663,9 @@ class Import_test : public beast::unit_test::suite
 
         // temMALFORMED - Import: xpop did not contain an 80% quorum for the txn
         // it purports to prove.
-        for (bool const withXahauV1 : {true, false})
         {
-            auto const amend = withXahauV1 ? features : features - fixXahauV1;
             test::jtx::Env env{
-                *this, network::makeNetworkVLConfig(21337, keys), amend};
+                *this, network::makeNetworkVLConfig(21337, keys), features};
 
             auto const alice = Account("alice");
             env.fund(XRP(1000), alice);
@@ -1679,16 +1677,10 @@ class Import_test : public beast::unit_test::suite
                 "";
             valData["n9MTTavZe6EPqqyQ27pJbNWpfHw8ZNspVgznrwx5HWm7cdTjKQie"] =
                 "";
-            if (withXahauV1)
-            {
-                valData
-                    ["n94J5LCRu9bBWrJiwRWujvuVECVPWbXFcQ2VN38qLD378F5pDSDM"] =
-                        "";
-            }
+            valData["n94J5LCRu9bBWrJiwRWujvuVECVPWbXFcQ2VN38qLD378F5pDSDM"] =
+                "";
             tmpXpop[jss::validation][jss::data] = valData;
-            auto const txResult =
-                withXahauV1 ? ter(temMALFORMED) : ter(temMALFORMED);
-            env(import::import(alice, tmpXpop), txResult);
+            env(import::import(alice, tmpXpop), ter(temMALFORMED));
         }
 
         test::jtx::Env env{*this, network::makeNetworkVLConfig(21337, keys)};
@@ -2667,8 +2659,9 @@ class Import_test : public beast::unit_test::suite
             }
             for (bool const withFixImportIssuer : {true, false})
             {
+                auto const withAMM = features | featureAMM;
                 auto const amend =
-                    withFixImportIssuer ? features : features - fixImportIssuer;
+                    withFixImportIssuer ? withAMM : withAMM - fixImportIssuer;
                 test::jtx::Env env{
                     *this, network::makeNetworkVLConfig(21337, keys), amend};
                 env.fund(XRP(1000), alice, issuer);
@@ -5237,7 +5230,6 @@ class Import_test : public beast::unit_test::suite
                 *this, network::makeNetworkVLConfig(21337, keys)};
 
             auto const feeDrops = env.current()->fees().base;
-            bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
 
             // confirm total coins header
             auto const initCoins = env.current()->info().drops;
@@ -5287,18 +5279,17 @@ class Import_test : public beast::unit_test::suite
             auto const preAlice = env.balance(alice);
             auto const preCoins = env.current()->info().drops;
 
-            auto const result = fixV2 ? ter(tesSUCCESS) : ter(tecHOOK_REJECTED);
             env(import::import(
                     alice, import::loadXpop(ImportTCAccountSet::w_seed)),
                 import::issuer(issuer),
                 fee(1'000'000),
-                result);
+                ter(tesSUCCESS));
             env.close();
 
             // fixXahauV2
             bool const zeroBurn =
                 env.current()->rules().enabled(featureZeroB2M);
-            auto const mintXAH = fixV2 ? XRP(zeroBurn ? 0 : 1000) : XRP(0);
+            auto const mintXAH = XRP(zeroBurn ? 0 : 1000);
             // confirm fee was burned mint / no mint
             auto const postAlice = env.balance(alice);
             BEAST_EXPECT(postAlice == preAlice - XRP(1) + mintXAH);
@@ -5308,17 +5299,14 @@ class Import_test : public beast::unit_test::suite
             BEAST_EXPECT(postCoins == preCoins - XRP(1) + mintXAH);
 
             // resubmit import without issuer
-            auto const result2 =
-                fixV2 ? ter(tefPAST_IMPORT_SEQ) : ter(tesSUCCESS);
             env(import::import(
                     alice, import::loadXpop(ImportTCAccountSet::w_seed)),
                 fee(feeDrops * 10),
-                result2);
+                ter(tefPAST_IMPORT_SEQ));
             env.close();
 
             // total burn
-            auto const totalBurn =
-                fixV2 ? XRP(0) : XRP(zeroBurn ? 0 : 1000) - (feeDrops * 10);
+            auto const totalBurn = XRP(0);
 
             // confirm fee was minted / not minted
             auto const postAlice2 = env.balance(alice);
@@ -6275,7 +6263,6 @@ public:
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
-        testWithFeats(all - fixXahauV2);
         testWithFeats(all - featureZeroB2M);
         testWithFeats(all);
     }

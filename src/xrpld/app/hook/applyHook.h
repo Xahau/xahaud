@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <queue>
+#include <utility>
 #include <vector>
 #include <wasmedge/wasmedge.h>
 
@@ -174,6 +175,8 @@ struct HookResult
         false;  // hook_again allows strong pre-apply to nominate
                 // additional weak post-apply execution
     std::shared_ptr<STObject const> provisionalMeta;
+    std::set<std::pair<AccountID, uint256 /* namespace */>>
+        foreignStateGrantCache;  // add found grants here to avoid rechecking
 };
 
 class HookExecutor;
