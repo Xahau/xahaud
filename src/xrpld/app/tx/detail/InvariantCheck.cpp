@@ -22,15 +22,16 @@
 #include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/tx/detail/InvariantCheck.h>
 
-#include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/PermissionedDomainSet.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/FeeUnits.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/TxFormats.h>
@@ -602,6 +603,9 @@ LedgerEntryTypesMatch::visitEntry(
             case ltCRON:
             case ltIMPORT_VLSEQ:
             case ltUNL_REPORT:
+            case ltCONSENSUS_ENTROPY:
+            case ltEXPORT_LATCH:
+            case ltEXPORT_COMMITTEE:
             case ltAMM:
             case ltBRIDGE:
             case ltXCHAIN_OWNED_CLAIM_ID:
@@ -642,6 +646,54 @@ LedgerEntryTypesMatch::finalize(
         JLOG(j.fatal()) << "Invariant failed: invalid ledger entry type added";
     }
 
+    return false;
+}
+
+//------------------------------------------------------------------------------
+
+void
+ValidExportCommittee::visitEntry(
+    bool isDelete,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    if (before && after && before->getType() == ltEXPORT_COMMITTEE &&
+        after->getType() == ltEXPORT_COMMITTEE && *before != *after)
+        invalid_ = true;
+
+    if (isDelete || !after || after->getType() != ltEXPORT_COMMITTEE)
+        return;
+
+    if (!after->isFieldPresent(sfAccount) ||
+        !after->isFieldPresent(sfExportCommitteeHash) ||
+        !after->isFieldPresent(sfExportCommittee) ||
+        !after->isFieldPresent(sfOwnerNode))
+    {
+        invalid_ = true;
+        return;
+    }
+
+    auto const account = after->getAccountID(sfAccount);
+    auto const digest = after->getFieldH256(sfExportCommitteeHash);
+    auto const& roster = after->getFieldVL(sfExportCommittee);
+    invalid_ |= !resolveExportCommittee(makeSlice(roster)) || digest.isZero() ||
+        exportCommitteeHash(makeSlice(roster)) != digest ||
+        after->key() != keylet::exportCommittee(account, digest).key;
+}
+
+bool
+ValidExportCommittee::finalize(
+    STTx const&,
+    TER const,
+    XRPAmount const,
+    ReadView const&,
+    beast::Journal const& j)
+{
+    if (!invalid_)
+        return true;
+
+    JLOG(j.fatal())
+        << "Invariant failed: malformed or mutated Export committee";
     return false;
 }
 

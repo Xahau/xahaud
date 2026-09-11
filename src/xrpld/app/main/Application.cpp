@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
@@ -41,6 +42,7 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/SHAMapStore.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
@@ -215,9 +217,11 @@ public:
     std::unique_ptr<AmendmentTable> m_amendmentTable;
     std::unique_ptr<LoadFeeTrack> mFeeTrack;
     std::unique_ptr<HashRouter> hashRouter_;
+    RuntimeConfig runtimeConfig_;
     RCLValidations mValidations;
     std::unique_ptr<LoadManager> m_loadManager;
     std::unique_ptr<TxQ> txQ_;
+    std::shared_ptr<ConsensusExtensions> consensusExtensions_;
     ClosureCounter<void, boost::system::error_code const&> waitHandlerCounter_;
     boost::asio::steady_timer sweepTimer_;
     boost::asio::steady_timer entropyTimer_;
@@ -462,6 +466,10 @@ public:
         , txQ_(
               std::make_unique<TxQ>(setup_TxQ(*config_), logs_->journal("TxQ")))
 
+        , consensusExtensions_(std::make_shared<ConsensusExtensions>(
+              *this,
+              logs_->journal("ConsensusExtensions")))
+
         , sweepTimer_(get_io_service())
 
         , entropyTimer_(get_io_service())
@@ -582,6 +590,22 @@ public:
             return {};
 
         return validatorKeys_.keys->publicKey;
+    }
+
+    SecretKey const&
+    getValidationSecretKey() const override
+    {
+        if (!validatorKeys_.keys)
+            LogicError(
+                "Accessing validation secret key without validator keys");
+
+        return validatorKeys_.keys->secretKey;
+    }
+
+    ValidatorKeys const&
+    getValidatorKeys() const override
+    {
+        return validatorKeys_;
     }
 
     NetworkOPs&
@@ -733,6 +757,12 @@ public:
         return *hashRouter_;
     }
 
+    RuntimeConfig&
+    getRuntimeConfig() override
+    {
+        return runtimeConfig_;
+    }
+
     RCLValidations&
     getValidations() override
     {
@@ -814,6 +844,21 @@ public:
             txQ_,
             "ripple::ApplicationImp::getTxQ : non-null transaction queue");
         return *txQ_;
+    }
+
+    ConsensusExtensions&
+    getConsensusExtensions() override
+    {
+        XRPL_ASSERT(
+            consensusExtensions_,
+            "ripple::ApplicationImp::getConsensusExtensions : non-null");
+        return *consensusExtensions_;
+    }
+
+    std::weak_ptr<ConsensusExtensions>
+    getConsensusExtensionsWeak() override
+    {
+        return consensusExtensions_;
     }
 
     RelationalDatabase&
@@ -1565,7 +1610,24 @@ ApplicationImp::start(bool withTimers)
     m_loadManager->start();
     m_shaMapStore->start();
     if (overlay_)
+    {
+        auto const weak =
+            std::weak_ptr<ConsensusExtensions>{consensusExtensions_};
+        overlay_->setExportShareHandler(
+            [weak](
+                ExportShare const& share,
+                ExportShareChargeHandler deferredCharge) {
+                auto const extensions = weak.lock();
+                if (!extensions)
+                    return ExportShareAdmission{
+                        ExportShareDisposition::deferred,
+                        ExportShareCharge::none};
+                return extensions->onExportShare(
+                    share, std::move(deferredCharge));
+            });
+        consensusExtensions_->startExportShareService();
         overlay_->start();
+    }
 
     if (grpcServer_->start())
         fixConfigPorts(
@@ -1652,6 +1714,9 @@ ApplicationImp::run()
 
     // The order of these stop calls is delicate.
     // Re-ordering them risks undefined behavior.
+    consensusExtensions_->stopExportShareService();
+    if (overlay_)
+        overlay_->setExportShareHandler({});
     m_loadManager->stop();
     m_shaMapStore->stop();
     m_jobQueue->stop();

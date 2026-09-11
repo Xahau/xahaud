@@ -19,12 +19,18 @@
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
+#include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
+#include <xrpl/protocol/TxFlags.h>
 #include <limits>
+#include <optional>
 #include <tuple>
 #include <vector>
 
@@ -35,6 +41,64 @@ namespace test {
 class HookAPI_test : public beast::unit_test::suite
 {
 private:
+    STTx
+    makeSTTx(STObject const& obj)
+    {
+        Serializer s;
+        obj.add(s);
+        SerialIter sit{s.slice()};
+        return STTx{std::ref(sit)};
+    }
+
+    Blob
+    serialize(STTx const& tx)
+    {
+        Serializer s;
+        tx.add(s);
+        return {s.begin(), s.end()};
+    }
+
+    STTx
+    makeExportedPayment(
+        AccountID const& src,
+        AccountID const& dst,
+        std::optional<std::uint32_t> ticketSequence = 1)
+    {
+        STObject obj(sfExportedTxn);
+        obj.setFieldU16(sfTransactionType, ttPAYMENT);
+        obj.setFieldU32(sfFlags, tfFullyCanonicalSig);
+        obj.setFieldU32(sfSequence, 0);
+        if (ticketSequence)
+            obj.setFieldU32(sfTicketSequence, *ticketSequence);
+        obj.setFieldU32(sfFirstLedgerSequence, 2);
+        obj.setFieldU32(sfLastLedgerSequence, 6);
+        obj.setFieldAmount(sfAmount, XRPAmount{1000000});
+        obj.setFieldAmount(sfFee, XRPAmount{10});
+        obj.setFieldVL(sfSigningPubKey, Blob{});
+        obj.setAccountID(sfAccount, src);
+        obj.setAccountID(sfDestination, dst);
+        return makeSTTx(obj);
+    }
+
+    STTx
+    makeExportWrapper(AccountID const& account, STTx const& innerTx)
+    {
+        STObject obj(sfGeneric);
+        obj.setFieldU16(sfTransactionType, ttEXPORT);
+        obj.setAccountID(sfAccount, account);
+        obj.setFieldU32(sfSequence, 0);
+        obj.setFieldVL(sfSigningPubKey, Blob{});
+        obj.setFieldAmount(sfFee, XRPAmount{0});
+        obj.setFieldU32(sfFirstLedgerSequence, 2);
+        obj.setFieldU32(sfLastLedgerSequence, 6);
+
+        auto const innerBlob = serialize(innerTx);
+        SerialIter sit{makeSlice(innerBlob)};
+        obj.set(std::make_unique<STObject>(sit, sfExportedTxn));
+
+        return makeSTTx(obj);
+    }
+
     ApplyContext
     createApplyContext(jtx::Env& env, OpenView& ov, STTx const& tx)
     {
@@ -147,7 +211,9 @@ public:
             BEAST_EXPECT(st.getAccountID(sfAccount) == alice.id());
             auto const seq = applyCtx.view().info().seq;
             BEAST_EXPECT(st.getFieldU32(sfFirstLedgerSequence) == seq + 1);
-            BEAST_EXPECT(st.getFieldU32(sfLastLedgerSequence) == seq + 5);
+            BEAST_EXPECT(
+                st.getFieldU32(sfLastLedgerSequence) ==
+                seq + ExportLimits::maxAdmissionWindowLedgers);
             BEAST_EXPECT(st.isFieldPresent(sfEmitDetails));
 
             auto const result2 =
@@ -177,7 +243,8 @@ public:
             obj[sfSequence] = 0;
             obj[sfSigningPubKey] = Slice{};
             obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
-            obj[sfLastLedgerSequence] = env.closed()->seq() + 5;
+            obj[sfLastLedgerSequence] =
+                env.closed()->seq() + ExportLimits::maxAdmissionWindowLedgers;
             obj[sfFee] = env.closed()->fees().base;
 
             auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
@@ -193,7 +260,8 @@ public:
             obj[sfSequence] = 0;
             obj[sfSigningPubKey] = Slice{};
             obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
-            obj[sfLastLedgerSequence] = env.closed()->seq() + 5;
+            obj[sfLastLedgerSequence] =
+                env.closed()->seq() + ExportLimits::maxAdmissionWindowLedgers;
             obj[sfFee] = env.closed()->fees().base;
             STObject hookobj(sfHook);
             auto& hooks = obj.peekFieldArray(sfHooks);
@@ -271,6 +339,35 @@ public:
             tx.setFieldU16(sfTransactionType, ttFEE);
             auto const result = api.emit(tx.getSerializer().slice());
             BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            // Export wrappers require xport() so they cannot bypass its
+            // committee check or per-Hook Export reservation.
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 3,
+                });
+            auto& api = hookCtx.api();
+            auto const inner = makeExportedPayment(alice.id(), bob.id());
+            auto wrapper = makeExportWrapper(alice.id(), inner);
+            // No account-owned committee exists for this digest.
+            wrapper.setFieldH256(sfExportCommitteeHash, uint256{1});
+            for (int attempt = 0; attempt < 3; ++attempt)
+            {
+                auto const prepared =
+                    api.prepare(wrapper.getSerializer().slice());
+                BEAST_EXPECT(prepared.has_value());
+                if (!prepared)
+                    continue;
+                auto const result =
+                    api.emit(Slice{prepared->data(), prepared->size()});
+                BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+            }
+            BEAST_EXPECT(hookCtx.result.emittedTxn.empty());
+            BEAST_EXPECT(hookCtx.export_count == 0);
         }
         {
             // HookCanEmit (non-SetHook)
@@ -530,10 +627,12 @@ public:
             }
             {
                 // Invalid sfLastLedgerSequence
-                // (greater than current ledger seq + 5)
+                // (greater than the export admission window)
                 auto tx = emitInvokeTx;
                 auto const currentSeq = applyCtx.view().info().seq;
-                tx.setFieldU32(sfLastLedgerSequence, currentSeq + 6);
+                tx.setFieldU32(
+                    sfLastLedgerSequence,
+                    currentSeq + ExportLimits::maxAdmissionWindowLedgers + 1);
                 auto const result = api.emit(tx.getSerializer().slice());
                 BEAST_EXPECT(result.error() == EMISSION_FAILURE);
             }
@@ -731,6 +830,32 @@ public:
                 BEAST_EXPECT(result.value() == baseFee + blobSize + memoSize);
             else
                 BEAST_EXPECT(result.value() == baseFee + memoSize);
+        }
+        {
+            // Export's distributed-work fee must not be bypassed by the
+            // pre-fixHookAPI20251128 generic fee path.
+            auto const bob = Account{"bob"};
+            auto const roster = serializeExportCommittee(
+                {randomKeyPair(KeyType::secp256k1).first});
+            auto const committeeHash = exportCommitteeHash(makeSlice(roster));
+            auto committee = std::make_shared<SLE>(
+                keylet::exportCommittee(alice.id(), committeeHash));
+            committee->setAccountID(sfAccount, alice.id());
+            committee->setFieldH256(sfExportCommitteeHash, committeeHash);
+            committee->setFieldVL(sfExportCommittee, roster);
+            committee->setFieldU64(sfOwnerNode, 0);
+            applyCtx.view().insert(committee);
+
+            auto exportTx = makeExportWrapper(
+                alice.id(), makeExportedPayment(alice.id(), bob.id()));
+            exportTx.setFieldH256(sfExportCommitteeHash, committeeHash);
+            auto const expected =
+                Export::calculateBaseFee(applyCtx.view(), exportTx).drops();
+            auto const result =
+                api.etxn_fee_base(exportTx.getSerializer().slice());
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == expected);
+            BEAST_EXPECT(result.value() > env.closed()->fees().base.drops());
         }
     }
 
@@ -946,6 +1071,314 @@ public:
             BEAST_EXPECT(result.has_value());
             BEAST_EXPECT(hookCtx.expected_etxn_count == 3);
         }
+    }
+
+    void
+    test_xport_reserve(FeatureBitset features)
+    {
+        testcase("Test xport_reserve");
+
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto const roster =
+            serializeExportCommittee({randomKeyPair(KeyType::secp256k1).first});
+        auto const committeeHash = exportCommitteeHash(makeSlice(roster));
+        auto committee = std::make_shared<SLE>(
+            keylet::exportCommittee(alice.id(), committeeHash));
+        committee->setAccountID(sfAccount, alice.id());
+        committee->setFieldH256(sfExportCommitteeHash, committeeHash);
+        committee->setFieldVL(sfExportCommittee, roster);
+        committee->setFieldU64(sfOwnerNode, 0);
+        applyCtx.view().insert(committee);
+
+        {
+            // ALREADY_SET
+            StubHookContext stubCtx{.expected_export_count = 1};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(2);
+            BEAST_EXPECT(result.error() == ALREADY_SET);
+        }
+
+        {
+            // TOO_SMALL
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(0);
+            BEAST_EXPECT(result.error() == TOO_SMALL);
+        }
+
+        {
+            // TOO_BIG
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(hook_api::max_export + 1);
+            BEAST_EXPECT(result.error() == TOO_BIG);
+        }
+
+        {
+            // SUCCESS
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(2);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(hookCtx.expected_export_count == 2);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == 2);
+        }
+
+        {
+            // xport_reserve composes with an earlier emit reservation.
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(api.etxn_reserve(1).has_value());
+            BEAST_EXPECT(api.xport_reserve(2).has_value());
+            BEAST_EXPECT(hookCtx.expected_export_count == 2);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == 3);
+        }
+
+        {
+            // xport_reserve can fill the remaining emitted-txn budget.
+            StubHookContext stubCtx{
+                .expected_etxn_count =
+                    static_cast<int64_t>(hook_api::max_emit) -
+                    hook_api::max_export};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(api.xport_reserve(hook_api::max_export).has_value());
+            BEAST_EXPECT(hookCtx.expected_export_count == hook_api::max_export);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == hook_api::max_emit);
+        }
+
+        {
+            // xport_reserve shares the emitted-txn budget and must fail
+            // without partially setting the export reservation.
+            StubHookContext stubCtx{.expected_etxn_count = hook_api::max_emit};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result = api.xport_reserve(1);
+            BEAST_EXPECT(result.error() == TOO_BIG);
+            BEAST_EXPECT(hookCtx.expected_export_count == -1);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == hook_api::max_emit);
+        }
+
+        {
+            // xport_reserve consumes the shared emitted-txn reservation slot,
+            // so a later etxn_reserve cannot reset it.
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(api.xport_reserve(1).has_value());
+            BEAST_EXPECT(api.etxn_reserve(1).error() == ALREADY_SET);
+            BEAST_EXPECT(hookCtx.expected_export_count == 1);
+            BEAST_EXPECT(hookCtx.expected_etxn_count == 1);
+        }
+
+        {
+            // xport shares emit()'s emitted transaction queue and must not
+            // append after normal emits fill the reserved budget.
+            std::string reason;
+            auto tx = std::make_shared<ripple::Transaction>(
+                std::make_shared<ripple::STTx const>(invokeTx),
+                reason,
+                env.app());
+            std::queue<std::shared_ptr<ripple::Transaction>> emittedTxn;
+            emittedTxn.push(tx);
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                    .expected_export_count = 1,
+                    .result = {.emittedTxn = emittedTxn},
+                });
+            auto& api = hookCtx.api();
+            auto const result = api.xport(Slice{}, committeeHash);
+            BEAST_EXPECT(result.error() == TOO_MANY_EMITTED_TXN);
+        }
+
+        {
+            // xport must enforce the emitted-txn generation cap before
+            // constructing a generation-10 wrapper.
+            auto const bob = Account{"bob"};
+            auto const innerTx = makeExportedPayment(alice.id(), bob.id());
+            auto const serialized = serialize(innerTx);
+            StubHookContext stubCtx{
+                .expected_etxn_count = 1,
+                .expected_export_count = 1,
+                .generation = 9,
+                .burden = 1,
+                .result = {.hookHash = uint256{3}},
+            };
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result = api.xport(
+                Slice(serialized.data(), serialized.size()), committeeHash);
+            BEAST_EXPECT(result.error() == EXPORT_FAILURE);
+        }
+
+        {
+            // xport shares emit()'s burden accounting; overflow must fail
+            // instead of silently substituting burden=1 in EmitDetails.
+            auto const bob = Account{"bob"};
+            auto const innerTx = makeExportedPayment(alice.id(), bob.id());
+            auto const serialized = serialize(innerTx);
+            StubHookContext stubCtx{
+                .expected_etxn_count = 2,
+                .expected_export_count = 1,
+                .burden = std::numeric_limits<uint64_t>::max(),
+                .result = {.hookHash = uint256{3}},
+            };
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result = api.xport(
+                Slice(serialized.data(), serialized.size()), committeeHash);
+            BEAST_EXPECT(result.error() == FEE_TOO_LARGE);
+        }
+    }
+
+    void
+    test_xport_cancel(FeatureBitset features)
+    {
+        testcase("Test xport_cancel");
+
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        Env env{*this, features};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        std::uint32_t const importingTicket = 7;
+        std::uint32_t const otherTicket = 8;
+        uint256 const importingOrigin{1};
+        uint256 const otherOrigin{2};
+        auto importingTx =
+            makeExportedPayment(alice.id(), bob.id(), importingTicket);
+        auto otherTx = makeExportedPayment(alice.id(), bob.id(), otherTicket);
+        auto const importingRelease = ExportOriginMemo::releaseForm(
+            importingTx,
+            ExportOriginMemo::Origin{21337, 0, importingOrigin},
+            ExportOriginMemo::Anchor{1, uint256{99}});
+        BEAST_EXPECT(importingRelease);
+        if (!importingRelease)
+            return;
+
+        auto xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
+        xpopJson[jss::transaction][jss::blob] =
+            strHex(serialize(importingRelease.value()));
+        std::string const xpopStr = Json::FastWriter().write(xpopJson);
+        STTx importTx = STTx(ttIMPORT, [&](STObject& obj) {
+            obj.setAccountID(sfAccount, alice.id());
+            obj.setFieldVL(sfBlob, *strUnHex(strHex(xpopStr)));
+        });
+
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, importTx);
+        auto insertLatch = [&](ApplyContext& ctx,
+                               STTx const& target,
+                               uint256 const& origin) {
+            auto latch =
+                std::make_shared<SLE>(keylet::exportLatch(alice.id(), origin));
+            latch->setAccountID(sfAccount, alice.id());
+            latch->setFieldU32(
+                sfTicketSequence, target.getFieldU32(sfTicketSequence));
+            latch->setFieldH256(sfTransactionHash, origin);
+            latch->setFieldH256(
+                sfDigest, ExportResultBuilder::exportIntentHash(target));
+            latch->setFieldU32(sfLedgerSequence, ctx.view().info().seq);
+            latch->setFieldH256(sfExportCommitteeHash, uint256{100});
+            return ExportLedgerOps::insertPendingExportLatch(
+                ctx.view(), ctx.rawView(), latch, env.journal);
+        };
+        BEAST_EXPECT(
+            isTesSuccess(insertLatch(applyCtx, importingTx, importingOrigin)));
+        BEAST_EXPECT(isTesSuccess(insertLatch(applyCtx, otherTx, otherOrigin)));
+
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        auto& api = hookCtx.api();
+
+        auto const blocked = api.xport_cancel(importingOrigin, 0);
+        BEAST_EXPECT(!blocked.has_value());
+        BEAST_EXPECT(blocked.error() == PREREQUISITE_NOT_MET);
+        BEAST_EXPECT(hookCtx.applyCtx.view().exists(
+            keylet::exportLatch(alice.id(), importingOrigin)));
+
+        auto const invalidFlags = api.xport_cancel(otherOrigin, 0x00020000);
+        BEAST_EXPECT(!invalidFlags.has_value());
+        BEAST_EXPECT(invalidFlags.error() == INVALID_ARGUMENT);
+
+        auto const cancelled = api.xport_cancel(otherOrigin, 0);
+        BEAST_EXPECT(cancelled.has_value());
+        auto const canceledLatch = hookCtx.applyCtx.view().read(
+            keylet::exportLatch(alice.id(), otherOrigin));
+        BEAST_EXPECT(canceledLatch);
+        BEAST_EXPECT(
+            canceledLatch &&
+            (canceledLatch->getFieldU32(sfFlags) & lsfExportCanceled) != 0);
+        BEAST_EXPECT(
+            canceledLatch && !canceledLatch->isFieldPresent(sfExportNode));
+
+        auto const erased = api.xport_cancel(otherOrigin, tfExportEraseLatch);
+        BEAST_EXPECT(erased.has_value());
+        BEAST_EXPECT(!hookCtx.applyCtx.view().exists(
+            keylet::exportLatch(alice.id(), otherOrigin)));
+
+        auto exportTx = makeExportWrapper(alice.id(), importingTx);
+        OpenView exportOv{*env.current()};
+        ApplyContext exportApplyCtx =
+            createApplyContext(env, exportOv, exportTx);
+        std::uint32_t const exportOtherTicket = 9;
+        auto exportOtherTx =
+            makeExportedPayment(alice.id(), bob.id(), exportOtherTicket);
+        auto const exportImportingOrigin = exportTx.getTransactionID();
+        uint256 const exportOtherOrigin{4};
+        BEAST_EXPECT(isTesSuccess(
+            insertLatch(exportApplyCtx, importingTx, exportImportingOrigin)));
+        BEAST_EXPECT(isTesSuccess(
+            insertLatch(exportApplyCtx, exportOtherTx, exportOtherOrigin)));
+        auto exportHookCtx =
+            makeStubHookContext(exportApplyCtx, alice.id(), alice.id(), {});
+        auto& exportApi = exportHookCtx.api();
+
+        auto const exportBlocked =
+            exportApi.xport_cancel(exportImportingOrigin, 0);
+        BEAST_EXPECT(!exportBlocked.has_value());
+        BEAST_EXPECT(exportBlocked.error() == PREREQUISITE_NOT_MET);
+        BEAST_EXPECT(exportHookCtx.applyCtx.view().exists(
+            keylet::exportLatch(alice.id(), exportImportingOrigin)));
+
+        auto const exportCancelled =
+            exportApi.xport_cancel(exportOtherOrigin, 0);
+        BEAST_EXPECT(exportCancelled.has_value());
+        auto const canceledExportLatch = exportHookCtx.applyCtx.view().read(
+            keylet::exportLatch(alice.id(), exportOtherOrigin));
+        BEAST_EXPECT(canceledExportLatch);
+        BEAST_EXPECT(
+            canceledExportLatch &&
+            (canceledExportLatch->getFieldU32(sfFlags) & lsfExportCanceled) !=
+                0);
+        BEAST_EXPECT(
+            canceledExportLatch &&
+            !canceledExportLatch->isFieldPresent(sfExportNode));
     }
 
     void
@@ -2667,6 +3100,30 @@ public:
         }
 
         // TODO: test INVALID_TXN
+
+        {
+            // Auto-allocation must not choose the explicit destination slot.
+            auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
+            std::string xpopStr = Json::FastWriter().write(xpopJson);
+            STTx invokeTx = STTx(ttIMPORT, [&](STObject& obj) {
+                obj.setFieldVL(sfBlob, *strUnHex(strHex(xpopStr)));
+            });
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+
+            auto const result = api.xpop_slot(0, 1);
+            BEAST_EXPECT(result.has_value());
+            if (result)
+            {
+                BEAST_EXPECT(result.value().first != result.value().second);
+                BEAST_EXPECT(result.value().second == 1);
+                BEAST_EXPECT(hookCtx.slot.count(result.value().first) == 1);
+                BEAST_EXPECT(hookCtx.slot.count(result.value().second) == 1);
+            }
+        }
 
         {
             // Success
@@ -4855,6 +5312,8 @@ public:
         test_etxn_fee_base(features);
         test_etxn_nonce(features);
         test_etxn_reserve(features);
+        test_xport_reserve(features);
+        test_xport_cancel(features);
         test_fee_base(features);
 
         test_otxn_field(features);

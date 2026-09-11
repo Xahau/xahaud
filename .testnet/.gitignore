@@ -1,0 +1,4 @@
+output/
+__pycache__/
+scenarios/odd-cases/
+scenarios/suite-experiments.yml

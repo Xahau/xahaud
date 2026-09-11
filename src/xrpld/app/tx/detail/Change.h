@@ -76,6 +76,12 @@ private:
 
     TER
     applyUNLReport();
+
+    TER
+    applyConsensusEntropy();
+
+    TER
+    applyExportSignatures();
 };
 
 using EnableAmendment = Change;
@@ -83,6 +89,8 @@ using SetFee = Change;
 using UNLModify = Change;
 using EmitFailure = Change;
 using UNLReport = Change;
+using ConsensusEntropy = Change;
+using ExportSignatures = Change;
 
 }  // namespace ripple
 

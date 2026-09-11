@@ -27,6 +27,7 @@ enum MessageType
     mtREPLAY_DELTA_RESPONSE     = 60;
     mtHAVE_TRANSACTIONS         = 63;
     mtTRANSACTIONS              = 64;
+    mtEXPORT_SHARES             = 65;
 }
 
 // token, iterations, target, challenge = issue demand for proof of work
@@ -36,6 +37,7 @@ enum MessageType
 //------------------------------------------------------------------------------
 
 /* Provides the current ephemeral key for a validator. */
+//@@start opaque-self-verifying-overlay-artifact-precedent
 message TMManifest
 {
     // A Manifest object in the Ripple serialization format.
@@ -49,6 +51,7 @@ message TMManifests
     // The manifests sent when a peer first connects to another peer are `history`.
     optional bool history = 2 [deprecated=true];
 }
+//@@end opaque-self-verifying-overlay-artifact-precedent
 
 //------------------------------------------------------------------------------
 
@@ -118,6 +121,15 @@ message TMTransactions
     repeated TMTransaction transactions = 1;
 }
 
+// Canonical post-validation Export signature contributions. Receivers enforce
+// ExportLimits caps for entry count, each frame, aggregate frame payload, and
+// encoded protobuf size. The encoded-size cap includes protobuf tags and
+// length prefixes but excludes the overlay message header.
+message TMExportShares
+{
+    repeated bytes shares = 1;
+}
+
 
 enum NodeStatus
 {
@@ -153,7 +165,11 @@ message TMStatusChange
 message TMProposeSet
 {
     required uint32 proposeSeq          = 1;
-    required bytes currentTxHash        = 2;    // the hash of the ledger we are proposing
+    // Proposed transaction-set identity. Legacy/plain proposals carry the
+    // tx-set hash directly; ConsensusExtensions proposals carry a serialized
+    // ExtendedPosition whose first field is that tx-set hash, followed by
+    // signed RNG/Export sidecar fields.
+    required bytes currentTxHash        = 2;
     required bytes nodePubKey           = 3;
     required uint32 closeTime           = 4;
     required bytes signature            = 5;    // signature of above fields
@@ -166,6 +182,16 @@ message TMProposeSet
 
     // Number of hops traveled
     optional uint32 hops                = 12    [deprecated=true];
+
+    //@@start proposal-export-share-container-binding
+    // Canonical post-validation ExportShare frames authored by the proposing
+    // validator and re-advertised for anti-entropy. The proposal's
+    // ExtendedPosition includes a digest of this repeated field, so the exact
+    // frames are covered by the proposal signature. Each frame carries its
+    // version, owner, origin transaction, origin ledger sequence and hash,
+    // committee position, signing key, and multisign signature.
+    repeated bytes exportSignatures     = 13;
+    //@@end proposal-export-share-container-binding
 }
 
 enum TxSetStatus
@@ -384,4 +410,3 @@ message TMHaveTransactions
 {
     repeated bytes hashes = 1;
 }
-

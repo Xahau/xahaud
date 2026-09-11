@@ -43,6 +43,19 @@ std::size_t constexpr txMinSizeBytes = 10;
 /** Largest legal byte size of a transaction. */
 std::size_t constexpr txMaxSizeBytes = megabytes(1);
 
+/** Largest network ID whose transactions retain the legacy canonical form.
+
+    Transactions on these networks must omit sfNetworkID. Transactions on
+    networks with larger IDs must include sfNetworkID matching the network.
+ */
+std::uint32_t constexpr maxNetworkIDWithoutTxField = 1024;
+
+constexpr bool
+requiresTxNetworkID(std::uint32_t networkID)
+{
+    return networkID > maxNetworkIDWithoutTxField;
+}
+
 /** The maximum number of unfunded offers to delete at once */
 std::size_t constexpr unfundedOfferRemoveLimit = 1000;
 

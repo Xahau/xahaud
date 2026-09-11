@@ -1061,6 +1061,8 @@ chooseLedgerEntryType(Json::Value const& params)
             std::tuple<char const*, char const*, LedgerEntryType>>({
 #pragma push_macro("LEDGER_ENTRY")
 #undef LEDGER_ENTRY
+#pragma push_macro("EXPAND")
+#undef EXPAND
 
 #define LEDGER_ENTRY(tag, value, name, rpcName, fields) \
     {jss::name, jss::rpcName, tag},
@@ -1068,6 +1070,7 @@ chooseLedgerEntryType(Json::Value const& params)
 #include <xrpl/protocol/detail/ledger_entries.macro>
 
 #undef LEDGER_ENTRY
+#pragma pop_macro("EXPAND")
 #pragma pop_macro("LEDGER_ENTRY")
         });
 

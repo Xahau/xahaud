@@ -153,6 +153,12 @@ public:
         return f_;
     }
 
+    SHAMapType
+    mapType() const
+    {
+        return type_;
+    }
+
     //--------------------------------------------------------------------------
 
     /** Iterator to a SHAMap's leaves

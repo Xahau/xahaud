@@ -44,6 +44,7 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/UintTypes.h>
@@ -220,7 +221,7 @@ Ledger::Ledger(
         auto sle = std::make_shared<SLE>(keylet::fees());
 
         uint32_t networkID = config.NETWORK_ID;
-        if (networkID > 1024)
+        if (requiresTxNetworkID(networkID))
             sle->setFieldU32(sfNetworkID, networkID);
 
         // Whether featureXRPFees is supported will depend on startup options.

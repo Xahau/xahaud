@@ -26,6 +26,7 @@
 #include <xrpld/nodestore/Database.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/HashPrefix.h>
+#include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/digest.h>
 
 namespace ripple {
@@ -64,6 +65,15 @@ ConsensusTransSetSF::gotNode(
                 stx->getTransactionID() == nodeHash.as_uint256(),
                 "ripple::ConsensusTransSetSF::gotNode : transaction hash "
                 "match");
+
+            //@@start rng-pseudo-tx-submission-filtering
+            // Don't submit pseudo-transactions (consensus entropy, fees,
+            // amendments, etc.) — they exist as SHAMap entries for
+            // content-addressed identification but are not real user txns.
+            if (isPseudoTx(*stx))
+                return;
+            //@@end rng-pseudo-tx-submission-filtering
+
             auto const pap = &app_;
             app_.getJobQueue().addJob(jtTRANSACTION, "TXS->TXN", [pap, stx]() {
                 pap->getOPs().submitTransaction(stx);

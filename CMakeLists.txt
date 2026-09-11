@@ -21,7 +21,11 @@ endif()
 project (xrpl)
 set(Boost_NO_BOOST_CMAKE ON)
 
-# make GIT_COMMIT_HASH define available to all sources
+# Only sources that expose Git metadata should rebuild when HEAD changes.
+set(git_info_sources
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/xrpld/app/main/Main.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/xrpld/app/misc/NetworkOPs.cpp")
+
 find_package(Git)
 if(Git_FOUND)
     execute_process(COMMAND ${GIT_EXECUTABLE} --git-dir=${CMAKE_CURRENT_SOURCE_DIR}/.git rev-parse HEAD
@@ -29,7 +33,8 @@ if(Git_FOUND)
     if(gch)
         set(GIT_COMMIT_HASH "${gch}")
         message(STATUS gch: ${GIT_COMMIT_HASH})
-        add_definitions(-DGIT_COMMIT_HASH="${GIT_COMMIT_HASH}")
+        set_property(SOURCE ${git_info_sources} APPEND PROPERTY
+            COMPILE_DEFINITIONS "GIT_COMMIT_HASH=\"${GIT_COMMIT_HASH}\"")
     endif()
 
     execute_process(COMMAND ${GIT_EXECUTABLE} --git-dir=${CMAKE_CURRENT_SOURCE_DIR}/.git rev-parse --abbrev-ref HEAD
@@ -37,7 +42,8 @@ if(Git_FOUND)
     if(gb)
         set(GIT_BRANCH "${gb}")
         message(STATUS gb: ${GIT_BRANCH})
-        add_definitions(-DGIT_BRANCH="${GIT_BRANCH}")
+        set_property(SOURCE ${git_info_sources} APPEND PROPERTY
+            COMPILE_DEFINITIONS "GIT_BRANCH=\"${GIT_BRANCH}\"")
     endif()
 endif() #git
 

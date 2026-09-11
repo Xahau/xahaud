@@ -31,10 +31,12 @@ RCLCxPeerPos::RCLCxPeerPos(
     PublicKey const& publicKey,
     Slice const& signature,
     uint256 const& suppression,
-    Proposal&& proposal)
+    Proposal&& proposal,
+    std::vector<std::string> exportSignatures)
     : publicKey_(publicKey)
     , suppression_(suppression)
     , proposal_(std::move(proposal))
+    , exportSignatures_(std::move(exportSignatures))
 {
     // The maximum allowed size of a signature is 72 bytes; we verify
     // this elsewhere, but we want to be extra careful here:
@@ -66,15 +68,17 @@ RCLCxPeerPos::getJson() const
 
 uint256
 proposalUniqueId(
-    uint256 const& proposeHash,
+    ExtendedPosition const& position,
     uint256 const& previousLedger,
     std::uint32_t proposeSeq,
     NetClock::time_point closeTime,
     Slice const& publicKey,
     Slice const& signature)
 {
+    // This is for suppression/dedup only, NOT for signing.
+    // Must include all fields that distinguish proposals.
     Serializer s(512);
-    s.addBitString(proposeHash);
+    position.add(s);
     s.addBitString(previousLedger);
     s.add32(proposeSeq);
     s.add32(closeTime.time_since_epoch().count());

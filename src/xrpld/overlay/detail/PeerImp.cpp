@@ -17,6 +17,8 @@
 */
 //==============================================================================
 
+#include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/consensus/ProposalPrecheck.h>
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
@@ -25,6 +27,7 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
@@ -37,6 +40,7 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -46,7 +50,9 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <random>
 #include <sstream>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -58,6 +64,21 @@ std::chrono::milliseconds constexpr peerHighLatency{300};
 
 /** How often we PING the peer to check for latency and sendq probe */
 std::chrono::seconds constexpr peerTimerInterval{60};
+
+Resource::Charge const*
+exportShareFee(ExportShareCharge const charge)
+{
+    switch (charge)
+    {
+        case ExportShareCharge::none:
+            return nullptr;
+        case ExportShareCharge::invalidData:
+            return &Resource::feeInvalidData;
+        case ExportShareCharge::invalidSignature:
+            return &Resource::feeInvalidSignature;
+    }
+    return nullptr;
+}
 }  // namespace
 
 // TODO: Remove this exclusion once unit tests are added after the hotfix
@@ -120,6 +141,10 @@ PeerImp::PeerImp(
           headers_,
           FEATURE_LEDGER_REPLAY,
           app_.config().LEDGER_REPLAY))
+    , consensusEntropyCapable_(
+          peerFeatureEnabled(headers_, FEATURE_CONSENSUS_ENTROPY, true))
+    , exportSharesCapable_(
+          peerFeatureEnabled(headers_, FEATURE_EXPORT_SHARES, true))
     , ledgerReplayMsgHandler_(app, app.getLedgerReplayer())
 {
     JLOG(journal_.info()) << "compression enabled "
@@ -127,7 +152,11 @@ PeerImp::PeerImp(
                           << " vp reduce-relay enabled "
                           << vpReduceRelayEnabled_
                           << " tx reduce-relay enabled "
-                          << txReduceRelayEnabled_ << " on " << remote_address_
+                          << txReduceRelayEnabled_
+                          << " consensus entropy capability negotiated "
+                          << consensusEntropyCapable_
+                          << " export shares capability negotiated "
+                          << exportSharesCapable_ << " on " << remote_address_
                           << " " << id_;
 }
 
@@ -251,6 +280,60 @@ PeerImp::send(std::shared_ptr<Message> const& m)
     if (validator && !squelch_.expireSquelch(*validator))
         return;
 
+    //@@start runtime-peer-fault-config
+    // RuntimeConfig: artificial delay/drop for testing
+    auto& rc = app_.getRuntimeConfig();
+    if (rc.active())
+    {
+        auto const cfg = rc.getPeerFaultConfig(remote_address_.to_string());
+        if (cfg && cfg->active() && cfg->appliesTo(m->getCategory()))
+        {
+            auto const dropPct = cfg->sendDropPctX100.value_or(0);
+            auto const delayMs = cfg->sendDelayMs.value_or(0);
+            auto const jitterMs = cfg->sendDelayJitterMs.value_or(0);
+
+            // Packet drop
+            if (dropPct > 0)
+            {
+                static thread_local std::mt19937 rng{std::random_device{}()};
+                if (std::uniform_int_distribution<int>{0, 9999}(rng) < dropPct)
+                    return;  // silently dropped
+            }
+
+            // Artificial delay
+            if (delayMs > 0 || jitterMs > 0)
+            {
+                int totalMs = delayMs;
+                if (jitterMs > 0)
+                {
+                    static thread_local std::mt19937 rng{
+                        std::random_device{}()};
+                    totalMs +=
+                        std::uniform_int_distribution<int>{0, jitterMs}(rng);
+                }
+
+                auto self = shared_from_this();
+                auto timer = std::make_shared<waitable_timer>(
+                    strand_, std::chrono::milliseconds{totalMs});
+                timer->async_wait(bind_executor(
+                    strand_,
+                    [this, self, m, timer](
+                        boost::system::error_code const& ec) {
+                        if (!ec && !gracefulClose_ && !detaching_)
+                            sendDirect(m);
+                    }));
+                return;
+            }
+        }
+    }
+    //@@end runtime-peer-fault-config
+
+    sendDirect(m);
+}
+
+void
+PeerImp::sendDirect(std::shared_ptr<Message> const& m)
+{
     overlay_.reportTraffic(
         safe_cast<TrafficCount::category>(m->getCategory()),
         false,
@@ -408,6 +491,8 @@ PeerImp::json()
         ret[jss::version] = std::string{version};
 
     ret[jss::protocol] = to_string(protocol_);
+    ret["capabilities"][FEATURE_CONSENSUS_ENTROPY] = consensusEntropyCapable_;
+    ret["capabilities"][FEATURE_EXPORT_SHARES] = exportSharesCapable_;
 
     {
         std::lock_guard sl(recentLock_);
@@ -505,6 +590,10 @@ PeerImp::supportsFeature(ProtocolFeature f) const
             return protocol_ >= make_protocol(2, 2);
         case ProtocolFeature::LedgerReplay:
             return ledgerReplayEnabled_;
+        case ProtocolFeature::ConsensusEntropy:
+            return consensusEntropyCapable_;
+        case ProtocolFeature::ExportShares:
+            return exportSharesCapable_;
     }
     return false;
 }
@@ -783,7 +872,8 @@ PeerImp::doAccept()
         JLOG(journal_.info()) << "Cluster name: " << *member;
     }
 
-    overlay_.activate(shared_from_this());
+    if (!overlay_.activate(shared_from_this()))
+        return;
 
     // XXX Set timer: connection is in grace period to be useful.
     // XXX Set timer: connection idle (idle may vary depending on connection
@@ -1063,6 +1153,77 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
     app_.getJobQueue().addJob(
         jtMANIFEST, "receiveManifests", [this, that = shared_from_this(), m]() {
             overlay_.onManifests(m, that);
+        });
+}
+
+void
+PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
+{
+    auto shares = detail::parseExportShareBatch(*m);
+    if (!shares)
+    {
+        fee_.update(Resource::feeMalformedRequest, "malformed export shares");
+        return;
+    }
+
+    std::vector<std::size_t> fresh;
+    fresh.reserve(shares->size());
+    auto const validatedSeq = app_.getLedgerMaster().getValidLedgerIndex();
+    for (std::size_t i = 0; i < shares->size(); ++i)
+    {
+        // Admission depends on the validated chain. Reconsider an identical
+        // frame after validation advances, while suppressing duplicates
+        // against the same receiver state.
+        auto const admissionKey =
+            sha512Half((*shares)[i].wireHash(), validatedSeq);
+        if (app_.getHashRouter().addSuppressionPeer(admissionKey, id_))
+            fresh.push_back(i);
+    }
+
+    if (fresh.empty())
+        return;
+
+    std::weak_ptr<PeerImp> weak = shared_from_this();
+    app_.getJobQueue().addJob(
+        jtPEER,
+        "recvExportShares",
+        [weak, m, shares = std::move(*shares), fresh = std::move(fresh)]() {
+            auto const peer = weak.lock();
+            if (!peer)
+                return;
+
+            protocol::TMExportShares accepted;
+            accepted.mutable_shares()->Reserve(fresh.size());
+            for (auto const index : fresh)
+            {
+                auto const chargeDeferred =
+                    [weak](ExportShareCharge const charge) {
+                        auto const peer = weak.lock();
+                        auto const fee = exportShareFee(charge);
+                        if (peer && fee)
+                            peer->charge(*fee, "deferred export share");
+                    };
+                auto const admission = peer->overlay_.acceptExportShare(
+                    shares[index], chargeDeferred);
+                if (admission.isAccepted())
+                {
+                    // Stable raw-wire routing begins only after semantic
+                    // admission; an early state-relative rejection must not
+                    // poison later relay of the same bytes.
+                    peer->app_.getHashRouter().addSuppressionPeer(
+                        shares[index].wireHash(), peer->id_);
+                    accepted.add_shares(m->shares(index));
+                }
+                else if (auto const fee = exportShareFee(admission.charge))
+                {
+                    peer->charge(*fee, "export share");
+                }
+            }
+
+            // Structural validity is insufficient: only application-admitted
+            // frames are eligible for relay.
+            if (accepted.shares_size() != 0)
+                peer->overlay_.relay(accepted);
         });
 }
 
@@ -1662,8 +1823,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return;
     }
 
-    if (!stringIsUint256Sized(set.currenttxhash()) ||
-        !stringIsUint256Sized(set.previousledger()))
+    if (detail::proposalHasMalformedHashes(set))
     {
         JLOG(p_journal_.warn()) << "Proposal: malformed";
         fee_.update(Resource::feeMalformedRequest, "bad hashes");
@@ -1682,13 +1842,42 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     if (!isTrusted && app_.config().RELAY_UNTRUSTED_PROPOSALS == -1)
         return;
 
-    uint256 const proposeHash{set.currenttxhash()};
     uint256 const prevLedger{set.previousledger()};
+
+    //@@start peer-proposal-extension-precheck
+    bool prevLedgerLoaded = false;
+    std::shared_ptr<Ledger const> proposalParent;
+    auto const featureEnabled = [&](uint256 const& feature) {
+        if (!prevLedgerLoaded)
+        {
+            proposalParent = app_.getLedgerMaster().getLedgerByHash(prevLedger);
+            prevLedgerLoaded = true;
+        }
+        // Extension material is scoped to the proposal parent ledger, not the
+        // receiver's current open ledger. If that parent is not locally
+        // available yet, avoid rejecting at ingress on a node-local fetch gap;
+        // consensus alignment will still determine whether the proposal is
+        // usable for the active round.
+        return !proposalParent || proposalParent->rules().enabled(feature);
+    };
+    auto const precheck = detail::checkProposalExtensions(
+        set,
+        [&] { return featureEnabled(featureConsensusEntropy); },
+        [&] { return featureEnabled(featureExport); });
+    if (auto const rejection =
+            detail::proposalPrecheckRejection(precheck.result))
+    {
+        JLOG(p_journal_.warn()) << rejection->logMessage;
+        fee_.update(Resource::feeMalformedRequest, rejection->feeReason);
+        return;
+    }
+    auto const& parsedPosition = *precheck.position;
+    //@@end peer-proposal-extension-precheck
 
     NetClock::time_point const closeTime{NetClock::duration{set.closetime()}};
 
     uint256 const suppression = proposalUniqueId(
-        proposeHash,
+        parsedPosition,
         prevLedger,
         set.proposeseq(),
         closeTime,
@@ -1728,6 +1917,16 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     JLOG(p_journal_.trace())
         << "Proposal: " << (isTrusted ? "trusted" : "untrusted");
 
+    // Export sig harvesting moved to checkPropose(), after checkSign()
+    // verifies the proposal's cryptographic signature. Harvesting here
+    // (before async sig verification) would allow any peer to inject
+    // forged export sigs by spoofing nodepubkey to a trusted validator.
+
+    std::vector<std::string> exportSignatures;
+    exportSignatures.reserve(set.exportsignatures_size());
+    for (int i = 0; i < set.exportsignatures_size(); ++i)
+        exportSignatures.push_back(set.exportsignatures(i));
+
     auto proposal = RCLCxPeerPos(
         publicKey,
         sig,
@@ -1735,10 +1934,11 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         RCLCxPeerPos::Proposal{
             prevLedger,
             set.proposeseq(),
-            proposeHash,
+            parsedPosition,
             closeTime,
             app_.timeKeeper().closeTime(),
-            calcNodeID(app_.validatorManifests().getMasterKey(publicKey))});
+            calcNodeID(app_.validatorManifests().getMasterKey(publicKey))},
+        std::move(exportSignatures));
 
     std::weak_ptr<PeerImp> weak = shared_from_this();
     app_.getJobQueue().addJob(
@@ -2935,13 +3135,26 @@ PeerImp::checkPropose(
 
     XRPL_ASSERT(packet, "ripple::PeerImp::checkPropose : non-null packet");
 
-    if (!cluster() && !peerPos.checkSign())
+    // Always authenticate validator positions, including those relayed by a
+    // cluster peer. Sidecar alignment counts these positions as validator
+    // statements, so cluster transport trust cannot replace the signature.
+    //@@start peer-proposal-authentication
+    bool const sigValid = peerPos.checkSign();
+    if (!detail::proposalSignatureAccepted(cluster(), sigValid))
     {
         std::string desc{"Proposal fails sig check"};
         JLOG(p_journal_.warn()) << desc;
         charge(Resource::feeInvalidSignature, desc);
         return;
     }
+    //@@end peer-proposal-authentication
+
+    //@@start peer-harvest-export-sigs
+    // Harvest export sigs AFTER checkSign() so only cryptographically
+    // verified proposals can contribute signatures to the collector.
+    if (isTrusted && sigValid)
+        app_.getConsensusExtensions().onTrustedPeerMessage(*packet);
+    //@@end peer-harvest-export-sigs
 
     bool relay;
 
@@ -3208,6 +3421,11 @@ PeerImp::getTxSet(std::shared_ptr<protocol::TMGetLedger> const& m) const
     uint256 const txSetHash{m->ledgerhash()};
     std::shared_ptr<SHAMap> shaMap{
         app_.getInboundTransactions().getSet(txSetHash, false)};
+    if (shaMap && shaMap->mapType() == SHAMapType::SIDECAR)
+    {
+        JLOG(p_journal_.debug()) << "getTxSet: Refusing local sidecar snapshot";
+        return {};
+    }
     if (!shaMap)
     {
         if (m->has_querytype() && !m->has_requestcookie())

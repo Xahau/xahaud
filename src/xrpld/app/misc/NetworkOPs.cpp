@@ -36,6 +36,7 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/StateAccounting.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
@@ -186,6 +187,12 @@ public:
               beast::get_abstract_clock<std::chrono::steady_clock>(),
               validatorKeys,
               app_.logs().journal("LedgerConsensus"))
+        , validatorPK_(
+              validatorKeys.keys ? validatorKeys.keys->publicKey
+                                 : decltype(validatorPK_){})
+        , validatorMasterPK_(
+              validatorKeys.keys ? validatorKeys.keys->masterPublicKey
+                                 : decltype(validatorMasterPK_){})
         , m_ledgerMaster(ledgerMaster)
         , m_job_queue(job_queue)
         , m_standalone(standalone)
@@ -378,7 +385,8 @@ public:
     getLedgerFetchInfo() override;
     std::uint32_t
     acceptLedger(
-        std::optional<std::chrono::milliseconds> consensusDelay) override;
+        std::optional<std::chrono::milliseconds> consensusDelay,
+        std::string const& caller = "unknown") override;
     void
     reportFeeChange() override;
     void
@@ -401,6 +409,11 @@ public:
         TER result) override;
     void
     pubValidation(std::shared_ptr<STValidation> const& val) override;
+    void
+    pubExportSignature(
+        ExportShare const& share,
+        LedgerIndex validatedLedgerSeq,
+        uint256 const& validatedLedgerHash) override;
 
     //--------------------------------------------------------------------------
     //
@@ -484,6 +497,11 @@ public:
     unsubValidations(std::uint64_t uListener) override;
 
     bool
+    subExportSignatures(InfoSub::ref ispListener) override;
+    bool
+    unsubExportSignatures(std::uint64_t uListener) override;
+
+    bool
     subPeerStatus(InfoSub::ref ispListener) override;
     bool
     unsubPeerStatus(std::uint64_t uListener) override;
@@ -549,7 +567,8 @@ private:
         std::function<void()> onExpire,
         std::function<void()> onError);
     void
-    setHeartbeatTimer();
+    setHeartbeatTimer(
+        std::chrono::milliseconds interval = std::chrono::milliseconds{0});
     void
     setClusterTimer();
     void
@@ -674,6 +693,9 @@ private:
 
     RCLConsensus mConsensus;
 
+    std::optional<PublicKey> const validatorPK_;
+    std::optional<PublicKey> const validatorMasterPK_;
+
     ConsensusPhase mLastConsensusPhase;
 
     LedgerMaster& m_ledgerMaster;
@@ -685,20 +707,23 @@ private:
 
     SubAccountHistoryMapType mSubAccountHistory;
 
+    //@@start subscription-stream-map-precedent
     enum SubTypes {
-        sLedger,          // Accepted ledgers.
-        sManifests,       // Received validator manifests.
-        sServer,          // When server changes connectivity state.
-        sTransactions,    // All accepted transactions.
-        sRTTransactions,  // All proposed and accepted transactions.
-        sValidations,     // Received validations.
-        sPeerStatus,      // Peer status changes.
-        sConsensusPhase,  // Consensus phase
-        sBookChanges,     // Per-ledger order book changes
-        sLastEntry        // Any new entry must be ADDED ABOVE this one
+        sLedger,            // Accepted ledgers.
+        sManifests,         // Received validator manifests.
+        sServer,            // When server changes connectivity state.
+        sTransactions,      // All accepted transactions.
+        sRTTransactions,    // All proposed and accepted transactions.
+        sValidations,       // Received validations.
+        sExportSignatures,  // Admitted post-validation Export signatures.
+        sPeerStatus,        // Peer status changes.
+        sConsensusPhase,    // Consensus phase
+        sBookChanges,       // Per-ledger order book changes
+        sLastEntry          // Any new entry must be ADDED ABOVE this one
     };
 
     std::array<SubMapType, SubTypes::sLastEntry> mStreamMaps;
+    //@@end subscription-stream-map-precedent
 
     ServerFeeSummary mLastFeeSummary;
 
@@ -898,11 +923,14 @@ NetworkOPsImp::setTimer(
 }
 
 void
-NetworkOPsImp::setHeartbeatTimer()
+NetworkOPsImp::setHeartbeatTimer(std::chrono::milliseconds interval)
 {
+    if (interval == std::chrono::milliseconds{0})
+        interval = mConsensus.parms().ledgerGRANULARITY;
+
     setTimer(
         heartbeatTimer_,
-        mConsensus.parms().ledgerGRANULARITY,
+        interval,
         [this]() {
             m_job_queue.addJob(jtNETOP_TIMER, "NetOPs.heartbeat", [this]() {
                 processHeartbeatTimer();
@@ -1020,7 +1048,29 @@ NetworkOPsImp::processHeartbeatTimer()
     }
     CLOG(clog.ss()) << ". ";
 
-    setHeartbeatTimer();
+    //@@start rng-fast-polling
+    // Use faster polling during RNG sub-state transitions
+    // to reduce latency of commit-reveal rounds.
+    // Tunable via RuntimeConfig rng_poll_ms (default 250ms, min 50ms).
+    if (mConsensus.extensionsBusy())
+    {
+        //@@start runtime-rng-poll-interval
+        auto pollMs = std::chrono::milliseconds{250};
+        auto& rc = app_.getRuntimeConfig();
+        if (rc.active())
+        {
+            if (auto cfg = rc.getConsensusTestConfig())
+            {
+                if (cfg->rngPollMs)
+                    pollMs = std::chrono::milliseconds{*cfg->rngPollMs};
+            }
+        }
+        setHeartbeatTimer(pollMs);
+        //@@end runtime-rng-poll-interval
+    }
+    else
+        setHeartbeatTimer();
+    //@@end rng-fast-polling
 }
 
 void
@@ -1488,6 +1538,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 
             bool addLocal = e.local;
 
+            //@@start txn-result-status-mapping
             if (isTesSuccess(e.result))
             {
                 JLOG(m_journal.debug())
@@ -1543,10 +1594,12 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     << "Status other than success " << e.result;
                 e.transaction->setStatus(INVALID);
             }
+            //@@end txn-result-status-mapping
 
             auto const enforceFailHard =
                 e.failType == FailHard::yes && !isTesSuccess(e.result);
 
+            //@@start txn-local-retry
             if (addLocal && !enforceFailHard)
             {
                 m_localTX->push_back(
@@ -1554,7 +1607,9 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     e.transaction->getSTransaction());
                 e.transaction->setKept();
             }
+            //@@end txn-local-retry
 
+            //@@start txn-relay-condition
             if ((e.applied ||
                  ((mMode != OperatingMode::FULL) &&
                   (e.failType != FailHard::yes) && e.local) ||
@@ -1583,6 +1638,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     e.transaction->setBroadcast();
                 }
             }
+            //@@end txn-relay-condition
 
             if (validatedLedgerIndex)
             {
@@ -2049,6 +2105,15 @@ NetworkOPsImp::beginConsensus(
 
     if (prevLedger->rules().enabled(featureNegativeUNL))
         app_.validators().setNegativeUNL(prevLedger->negativeUNL());
+
+    // The accepted enable-amendment ledger carries the new rules. Install the
+    // peer-protocol gate before startRound so no legacy session can receive or
+    // contribute proposals built under those rules.
+    if (prevLedger->rules().enabled(featureConsensusEntropy))
+        app_.overlay().requireProtocolFeature(
+            ProtocolFeature::ConsensusEntropy);
+    if (prevLedger->rules().enabled(featureExport))
+        app_.overlay().requireProtocolFeature(ProtocolFeature::ExportShares);
     // Pull in any manifests published on-ledger before the trusted set is
     // recomputed, so a validator that rotated its ephemeral key on-chain is
     // resolved to the new signing key in this same round. The master keys come
@@ -2107,6 +2172,18 @@ NetworkOPsImp::beginConsensus(
 bool
 NetworkOPsImp::processTrustedProposal(RCLCxPeerPos peerPos)
 {
+    auto const& peerKey = peerPos.publicKey();
+    if (validatorPK_ == peerKey || validatorMasterPK_ == peerKey)
+    {
+        // Usually an operator has duplicated this validator key on another
+        // server. Treat it as severe local/network misconfiguration, not an
+        // internal invariant violation: assert-enabled builds should still
+        // drop the proposal instead of aborting.
+        JLOG(m_journal.error())
+            << "Received a TRUSTED proposal signed with my key from a peer";
+        return false;
+    }
+
     return mConsensus.peerProposal(app_.timeKeeper().closeTime(), peerPos);
 }
 
@@ -2117,16 +2194,32 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
     // either created locally during the consensus process
     // or acquired from a peer
 
-    // Inform peers we have this set
-    protocol::TMHaveTransactionSet msg;
-    msg.set_hash(map->getHash().as_uint256().begin(), 256 / 8);
-    msg.set_status(protocol::tsHAVE);
-    app_.overlay().foreach(
-        send_always(std::make_shared<Message>(msg, protocol::mtHAVE_SET)));
+    // Inform peers we have this set. Consensus-extension sidecar SHAMaps are
+    // local materialization snapshots only; do not expose them through generic
+    // candidate-set availability.
+    bool const advertiseSet = map->mapType() != SHAMapType::SIDECAR;
+    if (advertiseSet)
+    {
+        protocol::TMHaveTransactionSet msg;
+        msg.set_hash(map->getHash().as_uint256().begin(), 256 / 8);
+        msg.set_status(protocol::tsHAVE);
+        app_.overlay().foreach(
+            send_always(std::make_shared<Message>(msg, protocol::mtHAVE_SET)));
+    }
 
     // We acquired it because consensus asked us to
     if (fromAcquire)
+    {
+        auto const hash = map->getHash().as_uint256();
+        if (map->mapType() == SHAMapType::SIDECAR)
+        {
+            JLOG(m_journal.debug()) << "Ignoring sidecar map in acquired-set "
+                                       "callback "
+                                    << hash << " reason=sidecar-local-only";
+            return;
+        }
         mConsensus.gotTxSet(app_.timeKeeper().closeTime(), RCLTxSet{map});
+    }
 }
 
 void
@@ -2479,6 +2572,53 @@ NetworkOPsImp::pubValidation(std::shared_ptr<STValidation> const& val)
             }
         }
     }
+}
+
+void
+NetworkOPsImp::pubExportSignature(
+    ExportShare const& share,
+    LedgerIndex const validatedLedgerSeq,
+    uint256 const& validatedLedgerHash)
+{
+    std::vector<InfoSub::pointer> subscribers;
+    {
+        std::lock_guard sl(mSubLock);
+        auto& stream = mStreamMaps[sExportSignatures];
+        subscribers.reserve(stream.size());
+        for (auto it = stream.begin(); it != stream.end();)
+        {
+            if (auto subscriber = it->second.lock())
+            {
+                subscribers.push_back(std::move(subscriber));
+                ++it;
+            }
+            else
+            {
+                it = stream.erase(it);
+            }
+        }
+    }
+
+    if (subscribers.empty())
+        return;
+
+    Json::Value event(Json::objectValue);
+    event[jss::stream] = "export_signatures";
+    event[jss::type] = "exportSignatureReceived";
+    event[jss::version] = Json::UInt(share.version);
+    event[jss::ledger_index] = Json::UInt(validatedLedgerSeq);
+    event[jss::ledger_hash] = to_string(validatedLedgerHash);
+    event[jss::owner] = toBase58(share.owner);
+    event[jss::origin_txid] = to_string(share.originTxn);
+    event[jss::origin_ledger_seq] = Json::UInt(share.originLedgerSeq);
+    event[jss::origin_ledger_hash] = to_string(share.originLedgerHash);
+    event[jss::committee_position] = Json::UInt(share.committeePosition);
+    event[jss::signing_key] = toBase58(TokenType::NodePublic, share.signingKey);
+    event[jss::signature] =
+        strHex(Slice{share.signature.data(), share.signature.size()});
+
+    for (auto const& subscriber : subscribers)
+        subscriber->send(event, true);
 }
 
 void
@@ -3086,6 +3226,7 @@ NetworkOPsImp::pubProposedTransaction(
 void
 NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
 {
+    //@@start validated-ledger-publication-boundary
     // Ledgers are published only when they acquire sufficient validations
     // Holes are filled across connection loss or other catastrophe
 
@@ -3196,6 +3337,7 @@ NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
         pubValidatedTransaction(
             lpAccepted, *accTx, accTx == *(--alpAccepted->end()));
     }
+    //@@end validated-ledger-publication-boundary
 }
 
 void
@@ -4147,7 +4289,8 @@ NetworkOPsImp::unsubBook(std::uint64_t uSeq, Book const& book)
 
 std::uint32_t
 NetworkOPsImp::acceptLedger(
-    std::optional<std::chrono::milliseconds> consensusDelay)
+    std::optional<std::chrono::milliseconds> consensusDelay,
+    std::string const& caller)
 {
     // This code-path is exclusively used when the server is in standalone
     // mode via `ledger_accept`
@@ -4162,6 +4305,7 @@ NetworkOPsImp::acceptLedger(
     // API in Consensus?
     beginConsensus(m_ledgerMaster.getClosedLedger()->info().hash, {});
     mConsensus.simulate(app_.timeKeeper().closeTime(), consensusDelay);
+
     return m_ledgerMaster.getCurrentLedger()->info().seq;
 }
 
@@ -4341,6 +4485,24 @@ NetworkOPsImp::unsubValidations(std::uint64_t uSeq)
 {
     std::lock_guard sl(mSubLock);
     return mStreamMaps[sValidations].erase(uSeq);
+}
+
+// <-- bool: true=added, false=already there
+bool
+NetworkOPsImp::subExportSignatures(InfoSub::ref isrListener)
+{
+    std::lock_guard sl(mSubLock);
+    return mStreamMaps[sExportSignatures]
+        .emplace(isrListener->getSeq(), isrListener)
+        .second;
+}
+
+// <-- bool: true=erased, false=was not there
+bool
+NetworkOPsImp::unsubExportSignatures(std::uint64_t uSeq)
+{
+    std::lock_guard sl(mSubLock);
+    return mStreamMaps[sExportSignatures].erase(uSeq);
 }
 
 // <-- bool: true=added, false=already there

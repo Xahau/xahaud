@@ -369,6 +369,16 @@ public:
     Expected<uint256, HookReturnCode>
     etxn_nonce() const;
 
+    /// xport APIs
+    Expected<uint64_t, HookReturnCode>
+    xport_reserve(uint64_t count) const;
+
+    Expected<uint256, HookReturnCode>
+    xport(Slice const& txBlob, uint256 const& committeeHash) const;
+
+    Expected<uint64_t, HookReturnCode>
+    xport_cancel(uint256 const& origin, uint32_t flags) const;
+
     /// float APIs
     Expected<uint64_t, HookReturnCode>
     float_set(int32_t exponent, int64_t mantissa) const;

@@ -20,10 +20,12 @@
 #ifndef RIPPLE_OVERLAY_OVERLAY_H_INCLUDED
 #define RIPPLE_OVERLAY_OVERLAY_H_INCLUDED
 
+#include <xrpld/overlay/ExportShareAdmission.h>
 #include <xrpld/overlay/Peer.h>
 #include <xrpld/overlay/PeerSet.h>
 #include <xrpl/beast/utility/PropertyStream.h>
 #include <xrpl/json/json_value.h>
+#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/server/Handoff.h>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -63,6 +65,10 @@ protected:
 
 public:
     enum class Promote { automatic, never, always };
+
+    /** Application admission for a structurally valid ExportShare. */
+    using ExportShareHandler = std::function<
+        ExportShareAdmission(ExportShare const&, ExportShareChargeHandler)>;
 
     struct Setup
     {
@@ -141,6 +147,19 @@ public:
     virtual std::shared_ptr<Peer>
     findPeerByPublicKey(PublicKey const& pubKey) = 0;
 
+    /** Make a negotiated protocol feature mandatory for peer sessions.
+
+        The requirement is monotonic for the lifetime of this process. Existing
+        incompatible sessions are disconnected and future handshakes are
+        rejected.
+    */
+    virtual void
+    requireProtocolFeature(ProtocolFeature feature) = 0;
+
+    /** Return whether a protocol feature is mandatory for peer sessions. */
+    virtual bool
+    isProtocolFeatureRequired(ProtocolFeature feature) const = 0;
+
     /** Broadcast a proposal. */
     virtual void
     broadcast(protocol::TMProposeSet& m) = 0;
@@ -148,6 +167,30 @@ public:
     /** Broadcast a validation. */
     virtual void
     broadcast(protocol::TMValidation& m) = 0;
+
+    /** Broadcast application-admitted canonical Export shares. */
+    virtual void
+    broadcast(protocol::TMExportShares& m) = 0;
+
+    /** Relay application-admitted Export shares using raw-frame suppression. */
+    virtual void
+    relay(protocol::TMExportShares& m) = 0;
+
+    /** Install the application admission callback for inbound Export shares.
+
+        The callback runs on the peer job queue, not an overlay I/O strand.
+    */
+    virtual void
+    setExportShareHandler(ExportShareHandler handler) = 0;
+
+    /** Run application admission for an inbound Export share.
+
+        With no callback installed, admission fails closed.
+    */
+    virtual ExportShareAdmission
+    acceptExportShare(
+        ExportShare const& share,
+        ExportShareChargeHandler deferredCharge) = 0;
 
     /** Relay a proposal.
      * @param m the serialized proposal

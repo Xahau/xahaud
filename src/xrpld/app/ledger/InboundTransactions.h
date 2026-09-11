@@ -73,6 +73,11 @@ public:
      * @param set The transaction set.
      * @param acquired Whether this transaction set was acquired from a peer,
      * or constructed by ourself during consensus.
+     *
+     * Consensus extensions may still store local SHAMapType::SIDECAR snapshots
+     * here for same-process lookup. Network acquisition is transaction-set
+     * only: sidecar roots are not advertised, served, fetched, or merged from
+     * peers. TODO: move these local snapshots out of InboundTransactions.
      */
     virtual void
     giveSet(

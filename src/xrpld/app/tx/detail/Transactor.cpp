@@ -59,10 +59,9 @@ preflight0(PreflightContext const& ctx)
         uint32_t nodeNID = ctx.app.config().NETWORK_ID;
         std::optional<uint32_t> txNID = ctx.tx[~sfNetworkID];
 
-        if (nodeNID <= 1024)
+        if (!requiresTxNetworkID(nodeNID))
         {
-            // legacy networks have ids less than 1024, these networks cannot
-            // specify NetworkID in txn
+            // Legacy networks cannot specify NetworkID in txn.
             if (txNID)
                 return telNETWORK_ID_MAKES_TX_NON_CANONICAL;
         }
@@ -2047,6 +2046,7 @@ Transactor::operator()()
         for (auto& hookResult : hookResults)
         {
             hook::finalizeHookResult(hookResult, ctx_, isTesSuccess(result));
+
             if (hookResult.executeAgainAsWeak)
             {
                 if (aawMap.find(hookResult.account) == aawMap.end())
@@ -2423,6 +2423,28 @@ Transactor::operator()()
 
         if (ctx_.size() > oversizeMetaDataCap)
             result = tecOVERSIZE;
+    }
+
+    if (applied && isTesSuccess(result))
+    {
+        auto const limitResult = ctx_.checkExportEmissionLimit(result);
+        if (!isTesSuccess(limitResult))
+        {
+            result = limitResult;
+
+            auto const resetResult = reset(fee);
+            if (!isTesSuccess(resetResult.first))
+            {
+                result = resetResult.first;
+                applied = false;
+            }
+            else
+            {
+                fee = resetResult.second;
+                result = ctx_.checkInvariants(result, fee);
+                applied = isTesSuccess(result) || isTecClaim(result);
+            }
+        }
     }
 
     std::optional<TxMeta> metadata;

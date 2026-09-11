@@ -27,6 +27,7 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <xrpl/resource/Fees.h>
@@ -147,7 +148,7 @@ autofillTx(Json::Value& tx_json, RPC::JsonContext& context)
     if (!tx_json.isMember(jss::NetworkID))
     {
         auto const networkId = context.app.config().NETWORK_ID;
-        if (networkId > 1024)
+        if (requiresTxNetworkID(networkId))
             tx_json[jss::NetworkID] = to_string(networkId);
     }
 

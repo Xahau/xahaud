@@ -20,13 +20,72 @@
 #ifndef RIPPLE_CONSENSUS_CONSENSUS_TYPES_H_INCLUDED
 #define RIPPLE_CONSENSUS_CONSENSUS_TYPES_H_INCLUDED
 
+#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpld/consensus/DisputedTx.h>
 #include <xrpl/basics/chrono.h>
+#include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/Protocol.h>
 #include <chrono>
+#include <functional>
 #include <map>
+#include <type_traits>
 
 namespace ripple {
+
+/** Sub-states for pipelined consensus with RNG entropy support.
+
+    The establish phase is divided into sub-states to support commit-reveal
+    for consensus-derived randomness while maintaining low latency through
+    pipelining.
+
+    @note Data collection (commits, reveals) happens continuously via proposal
+          leaves. Sub-states are checkpoints, not serial waits.
+
+    @note Convergence model: commitSet and entropySet use monotonic local
+          accumulation, not avalanche voting. For honest validators this is
+          sufficient because each validator contributes at most one
+          deterministic entry. Byzantine equivocation, missing sidecar roots,
+          and stale material are handled by the sidecar gates/fallback paths
+          rather than by per-leaf avalanche voting.
+          - Entries are piggybacked on signed proposals
+          - Local accumulation is monotonic and bounded (one per UNL member)
+          - Bounded gates either accept an objectively qualified local snapshot
+            root or degrade/fallback; sidecar roots are not fetched from peers
+          Avalanche is needed when nodes disagree about what to include/exclude
+          (e.g. disputed user transactions). For RNG sets, honest nodes want
+          the same thing within the proposal material they observed: include
+          every valid active-validator contribution, then let the
+          fixed-threshold gate decide whether that local snapshot is good
+          enough.
+*/
+enum class EstablishState {
+    ConvergingTx,      ///< Normal txset convergence + harvesting commits
+    ConvergingCommit,  ///< Confirming commitSet agreement (near-instant)
+    ConvergingReveal   ///< Collecting reveals + confirming entropySet
+};
+
+template <
+    class PeerPosition,
+    class NodeID,
+    class LedgerID,
+    class TxSetID,
+    class = void>
+struct ConsensusProposalType
+{
+    using type = ConsensusProposal<NodeID, LedgerID, TxSetID>;
+};
+
+template <class PeerPosition, class NodeID, class LedgerID, class TxSetID>
+struct ConsensusProposalType<
+    PeerPosition,
+    NodeID,
+    LedgerID,
+    TxSetID,
+    std::void_t<typename PeerPosition::Proposal>>
+{
+    using type = typename PeerPosition::Proposal;
+};
 
 /** Represents how a node currently participates in Consensus.
 
@@ -186,6 +245,7 @@ struct ConsensusCloseTimes
 enum class ConsensusState {
     No,       //!< We do not have consensus
     MovedOn,  //!< The network has consensus without us
+    Expired,  //!< Consensus time limit has hard-expired
     Yes       //!< We have consensus along with the network
 };
 
@@ -203,19 +263,21 @@ struct ConsensusResult
     using Ledger_t = typename Traits::Ledger_t;
     using TxSet_t = typename Traits::TxSet_t;
     using NodeID_t = typename Traits::NodeID_t;
+    using PeerPosition_t = typename Traits::PeerPosition_t;
 
     using Tx_t = typename TxSet_t::Tx;
-    using Proposal_t = ConsensusProposal<
+    using Proposal_t = typename ConsensusProposalType<
+        PeerPosition_t,
         NodeID_t,
         typename Ledger_t::ID,
-        typename TxSet_t::ID>;
+        typename TxSet_t::ID>::type;
     using Dispute_t = DisputedTx<Tx_t, NodeID_t>;
 
     ConsensusResult(TxSet_t&& s, Proposal_t&& p)
         : txns{std::move(s)}, position{std::move(p)}
     {
         XRPL_ASSERT(
-            txns.id() == position.position(),
+            txns.id() == positionTxSetID(position.position()),
             "ripple::ConsensusResult : valid inputs");
     }
 
@@ -235,12 +297,48 @@ struct ConsensusResult
     ConsensusTimer roundTime;
 
     // Indicates state in which consensus ended.  Once in the accept phase
-    // will be either Yes or MovedOn
+    // will be either Yes or MovedOn or Expired
     ConsensusState state = ConsensusState::No;
 
     // The number of peers proposing during the round
     std::size_t proposers = 0;
 };
+/// Result returned by extension tick to communicate side effects.
+struct ExtensionTickResult
+{
+    bool readyForAccept = false;
+};
+
+/// Snapshot of consensus state passed to extension tick handlers.
+/// Templated on the concrete position/peer/txset types so it can
+/// live in the generic consensus layer.
+template <
+    class Position,
+    class PeerPosition,
+    class TxSet,
+    class NodeID_t = NodeID,
+    class Seq_t = LedgerIndex>
+struct ConsensusTick
+{
+    Seq_t buildSeq;
+    NetClock::time_point now;
+    std::chrono::steady_clock::time_point nowSteady;
+    std::chrono::milliseconds roundTime;
+    ConsensusMode mode;
+    std::size_t prevProposers;
+    hash_map<NodeID_t, PeerPosition> const& peerPositions;
+    ConsensusParms const& parms;
+    bool haveCloseTimeConsensus;
+    int convergePercent;
+    beast::Journal j;
+
+    std::function<Position const&()> getPosition;
+    std::function<void(Position const&)> updatePosition;
+    std::function<void()> propose;
+    std::function<bool()> haveConsensus;
+    std::function<TxSet const&()> getTxns;
+};
+
 }  // namespace ripple
 
 #endif

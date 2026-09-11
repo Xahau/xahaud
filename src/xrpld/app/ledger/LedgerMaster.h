@@ -37,14 +37,18 @@
 #include <xrpl/protocol/RippleLedgerHash.h>
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/messages.h>
-#include <optional>
-
+#include <memory>
 #include <mutex>
+#include <optional>
 
 namespace ripple {
 
 class Peer;
 class Transaction;
+namespace detail {
+struct ValidatedLedgerWork;
+class ValidatedLedgerWorkQueue;
+}  // namespace detail
 
 // Tracks the current ledger and any ledgers in the process of closing
 // Tracks ledger history
@@ -58,7 +62,7 @@ public:
         beast::insight::Collector::ptr const& collector,
         beast::Journal journal);
 
-    virtual ~LedgerMaster() = default;
+    virtual ~LedgerMaster();
 
     LedgerIndex
     getCurrentLedgerIndex();
@@ -329,6 +333,9 @@ private:
     void
     updatePaths();
 
+    void
+    enqueueValidatedLedgerWork(detail::ValidatedLedgerWork work);
+
     // Returns true if work started.  Always called with m_mutex locked.
     // The passed lock is a reminder to callers.
     bool
@@ -358,6 +365,9 @@ private:
     std::pair<uint256, LedgerIndex> mLastValidLedger{uint256(), 0};
 
     LedgerHistory mLedgerHistory;
+
+    // Local scheduling backpressure, not a protocol or Export capacity.
+    std::shared_ptr<detail::ValidatedLedgerWorkQueue> mValidatedLedgerWorkQueue;
 
     CanonicalTXSet mHeldTransactions{uint256()};
 

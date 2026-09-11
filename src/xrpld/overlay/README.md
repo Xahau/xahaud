@@ -22,6 +22,10 @@ establishes, receives, and maintains connections to peers. Protocol
 messages are exchanged between peers and serialized using
 [_Google Protocol Buffers_][protocol_buffers].
 
+Amendments that change peer-protocol bytes can make a negotiated capability
+mandatory at an accepted-ledger boundary. See
+[Amendment-gated peer protocol features](ProtocolFeatureRequirements.md).
+
 ### Structure
 
 Each connection between peers is identified by its connection type, which

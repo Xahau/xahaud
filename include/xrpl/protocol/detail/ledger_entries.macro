@@ -223,6 +223,23 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
+/** The ledger object which stores consensus-derived entropy.
+
+    \note This is a singleton: only one such object exists in the ledger.
+
+    \sa keylet::consensusEntropy
+ */
+LEDGER_ENTRY_DUPLICATE(ltCONSENSUS_ENTROPY, 0x0058, ConsensusEntropy, consensus_entropy, ({
+    {sfDigest,               soeREQUIRED},
+    {sfEntropyCount,         soeREQUIRED},
+    {sfEntropyDenominator,   soeREQUIRED},
+    {sfEntropyContributors,  soeREQUIRED},
+    {sfEntropyTier,          soeREQUIRED},
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** A ledger object which describes an account.
 
     \sa keylet::account
@@ -257,11 +274,14 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfImportSequence,       soeOPTIONAL},
     {sfGovernanceFlags,      soeOPTIONAL},
     {sfGovernanceMarks,      soeOPTIONAL},
+    //@@start account-index-optional-accountroot-field
     {sfAccountIndex,         soeOPTIONAL},
+    //@@end account-index-optional-accountroot-field
     {sfTouchCount,           soeOPTIONAL},
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
+    {sfExportCount,          soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
 }))
 
@@ -278,6 +298,7 @@ LEDGER_ENTRY(ltDIR_NODE, 0x0064, DirectoryNode, directory, ({
     {sfTakerGetsIssuer,      soeOPTIONAL},  // order book directories
     {sfExchangeRate,         soeOPTIONAL},  // order book directories
     {sfReferenceCount,       soeOPTIONAL},  // for hook state directories
+    {sfExportCount,          soeOPTIONAL},  // live latches on Export root
     {sfIndexes,              soeREQUIRED},
     {sfRootIndex,            soeREQUIRED},
     {sfIndexNext,            soeOPTIONAL},
@@ -418,7 +439,9 @@ LEDGER_ENTRY(ltFEE_SETTINGS, 0x0073, FeeSettings, fee, ({
     {sfReserveBaseDrops,       soeOPTIONAL},
     {sfReserveIncrementDrops,  soeOPTIONAL},
     {sfXahauActivationLgrSeq,  soeOPTIONAL},
+    //@@start account-count-optional-fees-field
     {sfAccountCount,           soeOPTIONAL},
+    //@@end account-count-optional-fees-field
     {sfNetworkID,              soeOPTIONAL},
     {sfPreviousTxnID,          soeOPTIONAL},
     {sfPreviousTxnLgrSeq,      soeOPTIONAL},
@@ -593,6 +616,36 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
+//@@start export-latch-ledger-entry
+/** A live lifecycle latch for an Export intent.
+
+    Created when an Export intent is admitted. It records witness and
+    proof-of-execution arrival in either order and is erased once both facts
+    exist. Account-owned (pays reserve).
+    sfDigest stores the canonical target signing-intent hash.
+
+    \sa keylet::exportLatch
+ */
+LEDGER_ENTRY(ltEXPORT_LATCH, 0x5374, ExportLatch, export_latch, ({
+    {sfAccount,              soeREQUIRED},
+    {sfTicketSequence,       soeREQUIRED},
+    {sfTransactionHash,      soeOPTIONAL},
+    {sfDigest,               soeREQUIRED},
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfExportCommitteeHash,  soeREQUIRED},
+    {sfExportSignatureHash,  soeOPTIONAL},
+    {sfLastLedgerSequence,   soeOPTIONAL},
+    {sfOwnerNode,            soeREQUIRED},
+    {sfExportNode,           soeOPTIONAL},
+}))
+//@@end export-latch-ledger-entry
+
+/** An immutable, account-owned Export validator committee. */
+LEDGER_ENTRY(ltEXPORT_COMMITTEE, 0x4563, ExportCommittee, export_committee, ({
+    {sfAccount,              soeREQUIRED},
+    {sfExportCommitteeHash,  soeREQUIRED},
+    {sfExportCommittee,      soeREQUIRED},
+    {sfOwnerNode,            soeREQUIRED},
 LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
     {sfAccount,             soeREQUIRED},
     {sfPublicKey,           soeREQUIRED},
@@ -615,4 +668,3 @@ LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
 
 #undef EXPAND
 #undef LEDGER_ENTRY_DUPLICATE
-

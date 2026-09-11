@@ -1,0 +1,108 @@
+defaults:
+  network:
+    node_count: 5
+    launcher: tmux
+    find_ports: true
+    slave_delay: 0.2
+    features:
+      - ConsensusEntropy
+      - Export
+    track_features:
+      - ConsensusEntropy
+      - Export
+    unl_report: true
+    log_levels:
+      TxQ: info
+      Protocol: debug
+      Peer: debug
+      LedgerConsensus: debug
+      ConsensusExtensions: debug
+      NetworkOPs: info
+    rc:
+      - rng_poll_ms=333
+
+tests:
+  # --- CE + Export (post-validation shares, sidecar root convergence) ---
+  - name: steady_state_export_ce
+    script: .testnet/scenarios/export/steady_state_export.py
+
+  - name: retriable_export_ce
+    script: .testnet/scenarios/export/retriable_export.py
+
+  - name: export_degradation_ce
+    script: .testnet/scenarios/export/export_degradation.py
+    network:
+      rc:
+        - rng_poll_ms=333
+        - n3:no_export_sig=true
+        - n4:no_export_sig=true
+
+  - name: export_without_unl_report
+    script: .testnet/scenarios/export/export_without_unl_report.py
+    network:
+      features:
+        - Export
+      track_features:
+        - Export
+      unl_report: false
+
+  - name: export_no_veto_missing_observation
+    script: .testnet/scenarios/export/export_no_veto_missing_observation.py
+    network:
+      rc:
+        - rng_poll_ms=333
+        - n4:no_export_sig_hash=true
+
+  - name: export_share_subscription
+    script: .testnet/scenarios/export/export_share_subscription.py
+
+  - name: export_two_member_committee_recovery
+    script: .testnet/scenarios/export/export_committee_recovery.py
+
+  # CE + Export: 1 node suppressed, 4/5 = 80% quorum, should succeed
+  - name: export_ce_one_node_down
+    script: .testnet/scenarios/export/export_quorum.py
+    params:
+      expect_success: true
+    network:
+      rc:
+        - rng_poll_ms=333
+        - n4:no_export_sig=true
+
+  # --- Export only, no CE (80% active-view quorum) ---
+  - name: export_only_all_up
+    script: .testnet/scenarios/export/export_quorum.py
+    params:
+      expect_success: true
+    network:
+      features:
+        - Export
+      track_features:
+        - Export
+
+  - name: export_only_one_node_down
+    script: .testnet/scenarios/export/export_quorum.py
+    params:
+      expect_success: true
+    network:
+      features:
+        - Export
+      track_features:
+        - Export
+      rc:
+        - rng_poll_ms=333
+        - n4:no_export_sig=true
+
+  - name: export_only_two_nodes_down
+    script: .testnet/scenarios/export/export_quorum.py
+    params:
+      expect_success: false
+    network:
+      features:
+        - Export
+      track_features:
+        - Export
+      rc:
+        - rng_poll_ms=333
+        - n3:no_export_sig=true
+        - n4:no_export_sig=true

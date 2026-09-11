@@ -1,0 +1,43 @@
+# Rolling binary upgrade -> ConsensusEntropy activation.
+#
+# All nodes start on @release (set via `--rippled-path @release` on the CLI); the
+# scenario rolling-restarts them to the immutable @export-rng-gate snapshot,
+# then casts a REAL vote. The
+# --seed-majority (majority_features) only pre-satisfies the amendment hold time
+# so activation lands at ONE flag ledger instead of two -- it is NOT a vote, and
+# is cleared (tfLostMajority) if the validators don't vote yes before the flag
+# ledger. start_ledger gives runway for the 6 restarts + vote to finish before
+# the first flag ledger (256), so the seed survives to a real vote.
+#
+# Run:
+#   x-testnet --rippled-path @release suite \
+#     .testnet/scenarios/rollout/rollout-suite.yml --stop-on-fail
+#
+# Suite runs auto-snapshot to .testnet/output/runs/ on failure (survives
+# teardown), so `x-testnet logs-search --run latest/rolling_upgrade_ce ...` works.
+
+defaults:
+  network:
+    node_count: 7        # n0-n4 validators, n5/n6 non-UNL trackers
+    validators: 5
+    quorum: 4            # 80%: a restart leaves exactly quorum on the peers up
+    fixed_peers: false   # scenario forms a restart-safe ring on 127.0.0.1
+    find_ports: true
+    start_ledger: 210    # measured: the mesh-gated upgrade+vote is ~23 ledgers, so
+                         # the vote lands ~233 with a ~23-ledger margin before flag
+                         # ledger 256 (activation). Miss -> vote after 256 -> next
+                         # flag is 512 (~13 min) or tfLostMajority clears the seed.
+    majority_features:
+      - ConsensusEntropy # pre-satisfy the hold ONLY (still needs a real vote)
+    track_features:
+      - ConsensusEntropy
+    log_levels:
+      LedgerConsensus: debug
+      NetworkOPs: info
+    # The scenario connects a seven-node ring through each node's distinct peer
+    # port. This remains connected while one node rolls and works on macOS without
+    # privileged 127.0.0.2+ aliases.
+
+tests:
+  - name: rolling_upgrade_ce
+    script: .testnet/scenarios/rollout/rolling_upgrade.py

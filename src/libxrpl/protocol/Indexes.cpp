@@ -74,6 +74,9 @@ enum class LedgerNameSpace : std::uint16_t {
     HOOK_DEFINITION = 'D',
     EMITTED_TXN = 'E',
     EMITTED_DIR = 'F',
+    EXPORT_LATCH = 0x5374,        // St
+    EXPORT_COMMITTEE = 0x4563,    // Ec
+    EXPORT_PENDING_DIR = 0x4570,  // Ep
     NFTOKEN_OFFER = 'q',
     NFTOKEN_BUY_OFFERS = 'h',
     NFTOKEN_SELL_OFFERS = 'i',
@@ -81,6 +84,7 @@ enum class LedgerNameSpace : std::uint16_t {
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
     CRON = 'L',
+    CONSENSUS_ENTROPY = 'X',
     AMM = 'A',
     BRIDGE = LEDGER_NAMESPACE2(0x01, 'H'),
     XCHAIN_CLAIM_ID = 'Q',
@@ -188,6 +192,34 @@ emittedTxn(uint256 const& id) noexcept
 {
     return {ltEMITTED_TXN, indexHash(LedgerNameSpace::EMITTED_TXN, id)};
 }
+
+//@@start export-origin-keylet
+Keylet
+exportLatch(AccountID const& account, uint256 const& originTxnHash) noexcept
+{
+    return {
+        ltEXPORT_LATCH,
+        indexHash(LedgerNameSpace::EXPORT_LATCH, account, originTxnHash)};
+}
+//@@end export-origin-keylet
+
+Keylet
+exportCommittee(AccountID const& account, uint256 const& digest) noexcept
+{
+    return {
+        ltEXPORT_COMMITTEE,
+        indexHash(LedgerNameSpace::EXPORT_COMMITTEE, account, digest)};
+}
+
+//@@start export-pending-directory-keylet
+Keylet const&
+pendingExports() noexcept
+{
+    static Keylet const ret{
+        ltDIR_NODE, indexHash(LedgerNameSpace::EXPORT_PENDING_DIR)};
+    return ret;
+}
+//@@end export-pending-directory-keylet
 
 Keylet
 hook(AccountID const& id) noexcept
@@ -545,6 +577,14 @@ cron(uint32_t timestamp, std::optional<AccountID> const& id)
     std::memcpy(h + 12, accHash.cdata(), 20);
 
     return {ltCRON, uint256::fromVoid(h)};
+}
+
+Keylet const&
+consensusEntropy() noexcept
+{
+    static Keylet const ret{
+        ltCONSENSUS_ENTROPY, indexHash(LedgerNameSpace::CONSENSUS_ENTROPY)};
+    return ret;
 }
 
 Keylet

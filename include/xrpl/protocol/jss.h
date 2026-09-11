@@ -532,6 +532,9 @@ JSS(open_ledger_fee);         // out: TxQ
 JSS(open_ledger_level);       // out: TxQ
 JSS(oracles);                 // in: get_aggregate_price
 JSS(oracle_document_id);      // in: get_aggregate_price
+JSS(origin_ledger_hash);      // out: NetworkOPs
+JSS(origin_ledger_seq);       // out: NetworkOPs
+JSS(origin_txid);             // out: NetworkOPs
 JSS(owner);                   // in: LedgerEntry, out: NetworkOPs
 JSS(owner_funds);             // in/out: Ledger, NetworkOPs, AcceptedLedgerTx
 JSS(page_index);
@@ -653,6 +656,7 @@ JSS(state_now);               // in: Subscribe
 JSS(status);                  // error
 JSS(stop);                    // in: LedgerCleaner
 JSS(stop_history_tx_only);    // in: Unsubscribe, stop history tx stream
+JSS(stream);                  // out: NetworkOPs
 JSS(streams);                 // in: Subscribe, Unsubscribe
 JSS(strict);                  // in: AccountCurrencies, AccountInfo
 JSS(sub_index);               // in: LedgerEntry
@@ -734,6 +738,7 @@ JSS(TRANSACTION_FLAGS);     // out: RPC server_definitions
 JSS(TRANSACTION_FLAGS_INDICES);  // out: RPC server_definitions
 JSS(type_hex);                   // out: STPathSet
 JSS(unl);                        // out: UnlList
+JSS(committee_position);          // out: NetworkOPs
 JSS(unlimited);                  // out: Connection.h
 JSS(uptime);                     // out: GetCounts
 JSS(uri);                        // out: ValidatorSites

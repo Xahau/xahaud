@@ -26,6 +26,7 @@
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/Dir.h>
+#include <xrpl/basics/base64.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/Feature.h>
@@ -1557,6 +1558,25 @@ class Import_test : public beast::unit_test::suite
             std::string strJson = writer.write(tmpXpop);
             Blob raw(strJson.begin(), strJson.end());
             auto const xpop = syntaxCheckXPOP(raw, env.journal);
+            BEAST_EXPECT(getVLInfo(*xpop, env.journal).has_value() == false);
+        }
+
+        // Import: unl blob sequence was missing or negative
+        {
+            Json::Value tmpXpop = xpop;
+            auto const data = base64_decode(
+                tmpXpop[jss::validation][jss::unl][jss::blob].asString());
+            Json::Value list;
+            Json::Reader reader;
+            BEAST_REQUIRE(reader.parse(data, list));
+            list[jss::sequence] = -1;
+            auto const listJson = writer.write(list);
+            tmpXpop[jss::validation][jss::unl][jss::blob] =
+                base64_encode(listJson);
+            std::string strJson = writer.write(tmpXpop);
+            Blob raw(strJson.begin(), strJson.end());
+            auto const xpop = syntaxCheckXPOP(raw, env.journal);
+            BEAST_REQUIRE(xpop);
             BEAST_EXPECT(getVLInfo(*xpop, env.journal).has_value() == false);
         }
 

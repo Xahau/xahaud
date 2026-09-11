@@ -23,6 +23,9 @@
 #include <xrpld/peerfinder/detail/SlotImp.h>
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/ExportShare.h>
+#include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Sign.h>
 
 namespace ripple {
 
@@ -121,6 +124,7 @@ private:
         void
         run() override
         {
+            run_++;
         }
         void
         send(std::shared_ptr<Message> const&) override
@@ -137,11 +141,13 @@ private:
         {
             queueTx_ = 0;
             sendTx_ = 0;
+            run_ = 0;
             sid_ = 0;
         }
         inline static std::size_t sid_ = 0;
         inline static std::uint16_t queueTx_ = 0;
         inline static std::uint16_t sendTx_ = 0;
+        inline static std::uint16_t run_ = 0;
     };
 
     std::uint16_t lid_{0};
@@ -241,11 +247,186 @@ private:
     }
 
     void
+    testProtocolFeatureGate()
+    {
+        testcase("required protocol feature gate");
+        jtx::Env env(*this);
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        std::vector<std::shared_ptr<PeerTest>> peers;
+        PeerTest::init();
+        lid_ = 0;
+        rid_ = 1;
+
+        boost::beast::http::fields legacy;
+        boost::beast::http::fields capable;
+        capable.set(
+            "X-Protocol-Ctl",
+            makeFeaturesRequestHeader(false, false, false, false));
+
+        BEAST_EXPECT(!overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ConsensusEntropy));
+        BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
+            legacy, make_protocol(2, 2)));
+
+        // Leave a legacy peer in the active map while eviction is posted to its
+        // strand. Proposal filtering must take effect synchronously with the
+        // atomic requirement, without waiting for close().
+        std::uint16_t disabled = 1;
+        addPeer(env, peers, disabled);
+        BEAST_EXPECT(PeerTest::run_ == 1);
+
+        overlay.requireProtocolFeature(ProtocolFeature::ConsensusEntropy);
+
+        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ConsensusEntropy));
+        BEAST_EXPECT(
+            overlay.missingRequiredProtocolFeatureInHandshake(
+                legacy, make_protocol(2, 2)) ==
+            ProtocolFeature::ConsensusEntropy);
+        BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
+            capable, make_protocol(2, 2)));
+
+        protocol::TMProposeSet proposal;
+        proposal.set_proposeseq(1);
+        proposal.set_currenttxhash(std::string(32, '\0'));
+        proposal.set_nodepubkey(std::string(33, '\0'));
+        proposal.set_closetime(0);
+        proposal.set_signature(std::string(64, '\0'));
+        proposal.set_previousledger(std::string(32, '\0'));
+        BEAST_EXPECT(proposal.IsInitialized());
+        overlay.broadcast(proposal);
+        BEAST_EXPECT(PeerTest::sendTx_ == 0);
+
+        // A capable peer admitted after the cutoff still runs and receives
+        // proposals; a later legacy peer is inserted only for lifecycle cleanup
+        // and is failed before run().
+        disabled = 0;
+        addPeer(env, peers, disabled);
+        BEAST_EXPECT(PeerTest::run_ == 2);
+        overlay.broadcast(proposal);
+        BEAST_EXPECT(PeerTest::sendTx_ == 1);
+        disabled = 1;
+        addPeer(env, peers, disabled);
+        BEAST_EXPECT(PeerTest::run_ == 2);
+
+        // Requiring an already-required feature is intentionally idempotent.
+        overlay.requireProtocolFeature(ProtocolFeature::ConsensusEntropy);
+        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ConsensusEntropy));
+    }
+
+    void
+    testProtocolFeatureGateFromLedger()
+    {
+        testcase("active ledger installs protocol feature gate");
+        auto config = jtx::envconfig();
+        config->features.insert(featureConsensusEntropy);
+        config->features.insert(featureExport);
+        jtx::Env env(*this, std::move(config));
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ConsensusEntropy));
+        BEAST_EXPECT(
+            overlay.isProtocolFeatureRequired(ProtocolFeature::ExportShares));
+    }
+
+    void
+    testGenericProtocolFeatureAdmission()
+    {
+        testcase("generic protocol feature admission");
+        jtx::Env env(*this);
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        auto const capableCtl =
+            makeFeaturesRequestHeader(false, false, false, false);
+        boost::beast::http::fields empty;
+        boost::beast::http::fields capable;
+        capable.set("X-Protocol-Ctl", capableCtl);
+
+        overlay.requireProtocolFeature(ProtocolFeature::ExportShares);
+        BEAST_EXPECT(
+            overlay.isProtocolFeatureRequired(ProtocolFeature::ExportShares));
+        BEAST_EXPECT(
+            overlay.missingRequiredProtocolFeatureInHandshake(
+                empty, make_protocol(2, 2)) == ProtocolFeature::ExportShares);
+        BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
+            capable, make_protocol(2, 2)));
+
+        overlay.requireProtocolFeature(
+            ProtocolFeature::ValidatorList2Propagation);
+        BEAST_EXPECT(
+            overlay.missingRequiredProtocolFeatureInHandshake(
+                empty, make_protocol(2, 1)) ==
+            ProtocolFeature::ValidatorList2Propagation);
+        BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
+            capable, make_protocol(2, 2)));
+
+        overlay.requireProtocolFeature(ProtocolFeature::LedgerReplay);
+        BEAST_EXPECT(
+            overlay.missingRequiredProtocolFeatureInHandshake(
+                capable, make_protocol(2, 2)) == ProtocolFeature::LedgerReplay);
+        boost::beast::http::fields withReplay;
+        withReplay.set(
+            "X-Protocol-Ctl", capableCtl + std::string("ledgerreplay=1;"));
+        BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
+            withReplay, make_protocol(2, 2)));
+    }
+
+    static protocol::TMExportShares
+    makeExportShareBatch(uint256 const& sidecarHash)
+    {
+        auto const [key, secret] = randomKeyPair(KeyType::secp256k1);
+        auto const signature = sign(key, secret, Slice{"export-share", 12});
+        ExportShare const share{
+            ExportShare::currentVersion,
+            calcAccountID(key),
+            sidecarHash,
+            4'200'000,
+            uint256{2},
+            17,
+            key,
+            signature};
+        auto const encoded = share.serialize();
+        protocol::TMExportShares batch;
+        batch.add_shares(encoded.data(), encoded.size());
+        return batch;
+    }
+
+    void
+    testExportSharesRelayCutoff()
+    {
+        testcase("export share relay respects protocol feature gate");
+        jtx::Env env(*this);
+        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
+        std::vector<std::shared_ptr<PeerTest>> peers;
+        PeerTest::init();
+        lid_ = 0;
+        rid_ = 1;
+
+        std::uint16_t disabled = 1;
+        addPeer(env, peers, disabled);
+        overlay.requireProtocolFeature(ProtocolFeature::ExportShares);
+
+        auto legacyBatch = makeExportShareBatch(uint256{1});
+        overlay.relay(legacyBatch);
+        BEAST_EXPECT(PeerTest::sendTx_ == 0);
+
+        disabled = 0;
+        addPeer(env, peers, disabled);
+        auto capableBatch = makeExportShareBatch(uint256{3});
+        overlay.relay(capableBatch);
+        BEAST_EXPECT(PeerTest::sendTx_ == 1);
+    }
+
+    void
     run() override
     {
         bool log = false;
         std::set<Peer::id_t> skip = {0, 1, 2, 3, 4};
         testConfig(log);
+        testProtocolFeatureGate();
+        testProtocolFeatureGateFromLedger();
+        testGenericProtocolFeatureAdmission();
+        testExportSharesRelayCutoff();
         // relay to all peers, no hash queue
         testRelay("feature disabled", false, 10, 0, 10, 25, 10, 0);
         // relay to nPeers - skip (10-5=5)

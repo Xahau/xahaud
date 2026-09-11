@@ -17,9 +17,13 @@
 */
 //==============================================================================
 
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
+#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/base64.h>
@@ -39,6 +43,55 @@
 #include <vector>
 
 namespace ripple {
+
+namespace {
+
+enum class ImportPath { burnToMint, exportCallback };
+
+ImportPath
+importPath(STTx const& inner)
+{
+    return inner.isFieldPresent(sfTicketSequence) ? ImportPath::exportCallback
+                                                  : ImportPath::burnToMint;
+}
+
+TER
+updateImportVLSequence(
+    ApplyView& view,
+    std::pair<std::uint32_t, PublicKey> const& infoVL,
+    beast::Journal const& j)
+{
+    auto const keyletVL = keylet::import_vlseq(infoVL.second);
+    auto sleVL = view.peek(keyletVL);
+
+    if (!sleVL)
+    {
+        JLOG(j.trace())
+            << "Import: create vl seq - insert import sequence + public key";
+        sleVL = std::make_shared<SLE>(keyletVL);
+        sleVL->setFieldU32(sfImportSequence, infoVL.first);
+        sleVL->setFieldVL(sfPublicKey, infoVL.second.slice());
+        view.insert(sleVL);
+        return tesSUCCESS;
+    }
+
+    auto const current = sleVL->getFieldU32(sfImportSequence);
+    if (current > infoVL.first)
+    {
+        // preclaim should have rejected stale XPOPs.
+        return tefINTERNAL;
+    }
+
+    if (infoVL.first > current)
+    {
+        sleVL->setFieldU32(sfImportSequence, infoVL.first);
+        view.update(sleVL);
+    }
+
+    return tesSUCCESS;
+}
+
+}  // namespace
 
 TxConsequences
 Import::makeTxConsequences(PreflightContext const& ctx)
@@ -81,6 +134,8 @@ Import::getInnerTxn(
     if (!xpop && outer.isFieldPresent(sfBlob))
     {
         xpop_storage = syntaxCheckXPOP(outer.getFieldVL(sfBlob), j);
+        if (!xpop_storage)
+            return {};
         xpop = &(*xpop_storage);
     }
 
@@ -162,10 +217,16 @@ Import::preflight(PreflightContext const& ctx)
     }
 
     // parse blob as json
-    auto const xpop = syntaxCheckXPOP(tx.getFieldVL(sfBlob), ctx.j);
+    auto const blobVL = tx.getFieldVL(sfBlob);
+    JLOG(ctx.j.trace()) << "Import: blob size = " << blobVL.size();
+    auto const xpop = syntaxCheckXPOP(blobVL, ctx.j);
 
     if (!xpop)
+    {
+        JLOG(ctx.j.trace()) << "Import: syntaxCheckXPOP FAILED";
         return temMALFORMED;
+    }
+    JLOG(ctx.j.trace()) << "Import: syntaxCheckXPOP passed";
 
     // we will check if we recognise the vl key in preclaim because it may be
     // from on-ledger object
@@ -195,9 +256,22 @@ Import::preflight(PreflightContext const& ctx)
     auto const [stpTrans, meta] = getInnerTxn(tx, ctx.j, &(*xpop));
 
     if (!stpTrans || !meta)
+    {
+        JLOG(ctx.j.trace()) << "Import: stpTrans or meta is null";
         return temMALFORMED;
+    }
+    JLOG(ctx.j.trace()) << "Import: getInnerTxn OK, hasTicket="
+                        << stpTrans->isFieldPresent(sfTicketSequence)
+                        << " hasEmitDetails="
+                        << stpTrans->isFieldPresent(sfEmitDetails)
+                        << " isPseudo=" << isPseudoTx(*stpTrans)
+                        << " hasResult="
+                        << meta->isFieldPresent(sfTransactionResult);
 
-    if (stpTrans->isFieldPresent(sfTicketSequence))
+    auto const path = importPath(*stpTrans);
+    bool const hasTicket = path == ImportPath::exportCallback;
+
+    if (hasTicket && !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Import: cannot use TicketSequence XPOP.";
         return temMALFORMED;
@@ -250,9 +324,10 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    // ensure inner txn is for networkid = 0 (network id must therefore be
-    // missing)
-    if (stpTrans->isFieldPresent(sfNetworkID))
+    // B2M imports use OperationLimit to target this network and therefore
+    // reject inner NetworkID. Export callbacks may carry a target NetworkID;
+    // the Export latch binds the canonical target signing intent.
+    if (!hasTicket && stpTrans->isFieldPresent(sfNetworkID))
     {
         JLOG(ctx.j.warn()) << "Import: attempted to import xpop containing a "
                               "txn with a sfNetworkID field. "
@@ -260,26 +335,39 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    // ensure inner txn is destined for the network we're on, this is according
-    // to OperationLimit field
-    if (!stpTrans->isFieldPresent(sfOperationLimit))
+    // For the B2M (burn-to-mint) path, OperationLimit proves the inner
+    // tx was destined for this network.  For the export callback path
+    // (sfTicketSequence present), the Export latch already establishes
+    // the relationship, so OperationLimit is not required.
+    if (!hasTicket)
     {
-        JLOG(ctx.j.warn()) << "Import: OperationLimit missing from inner xpop "
-                              "txn. outer txid: "
-                           << tx.getTransactionID();
-        return temMALFORMED;
-    }
+        if (!stpTrans->isFieldPresent(sfOperationLimit))
+        {
+            JLOG(ctx.j.warn())
+                << "Import: OperationLimit missing from inner xpop "
+                   "txn. outer txid: "
+                << tx.getTransactionID();
+            return temMALFORMED;
+        }
 
-    if (stpTrans->getFieldU32(sfOperationLimit) != ctx.app.config().NETWORK_ID)
-    {
-        JLOG(ctx.j.warn()) << "Import: Wrong network ID for OperationLimit in "
-                              "inner txn. outer txid: "
-                           << tx.getTransactionID();
-        return telWRONG_NETWORK;
+        if (stpTrans->getFieldU32(sfOperationLimit) !=
+            ctx.app.config().NETWORK_ID)
+        {
+            JLOG(ctx.j.warn())
+                << "Import: Wrong network ID for OperationLimit in "
+                   "inner txn. outer txid: "
+                << tx.getTransactionID();
+            return telWRONG_NETWORK;
+        }
     }
 
     // check if the inner transaction is signed using the same keying as the
-    // outer txn
+    // outer txn.
+    // Exception: when the inner tx has sfTicketSequence, it came through the
+    // export callback path and is validator-multisigned (not alice-signed).
+    // The Export latch already proves the relationship, so skip the
+    // signing key match check.
+    if (!hasTicket)
     {
         auto outer = tx.getSigningPubKey();
         auto inner = stpTrans->getSigningPubKey();
@@ -331,6 +419,8 @@ Import::preflight(PreflightContext const& ctx)
         }
     }
 
+    JLOG(ctx.j.trace()) << "Import: passed OperationLimit + signing key checks";
+
     // check inner txns signature
     // we do this with a custom ruleset which should be kept up to date with
     // network 0's signing rules
@@ -341,8 +431,15 @@ Import::preflight(PreflightContext const& ctx)
     {
         JLOG(ctx.j.warn()) << "Import: inner txn signature verify failed "
                            << tx.getTransactionID();
+        // DEBUG: identify which check fails
+        JLOG(ctx.j.trace())
+            << "Import: checkSign FAILED for " << tx.getTransactionID()
+            << " innerHasSigners=" << stpTrans->isFieldPresent(sfSigners)
+            << " innerSigningPubKey=" << strHex(stpTrans->getSigningPubKey());
         return temMALFORMED;
     }
+
+    JLOG(ctx.j.trace()) << "Import: checkSign passed";
 
     // execution to here means that:
     // 1. the proof is for the same account that submitted the proof
@@ -383,6 +480,12 @@ Import::preflight(PreflightContext const& ctx)
 
     // manifest signing (ephemeral) key
     auto const signingKey = m->signingKey;
+    if (!signingKey)
+    {
+        JLOG(ctx.j.warn()) << "Import: manifest missing signing key "
+                           << tx.getTransactionID();
+        return temMALFORMED;
+    }
 
     // decode blob
     auto const data =
@@ -398,21 +501,28 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (!list.isMember(jss::sequence) || !list[jss::sequence].isInt())
+    auto const isNonNegativeUInt = [](Json::Value const& value) {
+        return value.isUInt() || (value.isInt() && value.asInt() >= 0);
+    };
+
+    if (!list.isMember(jss::sequence) ||
+        !isNonNegativeUInt(list[jss::sequence]))
     {
         JLOG(ctx.j.warn()) << "Import: unl blob json (after base64 decoding) "
                               "lacked required field (sequence) and/or types "
                            << tx.getTransactionID();
         return temMALFORMED;
     }
-    if (!list.isMember(jss::expiration) || !list[jss::expiration].isInt())
+    if (!list.isMember(jss::expiration) ||
+        !isNonNegativeUInt(list[jss::expiration]))
     {
         JLOG(ctx.j.warn()) << "Import: unl blob json (after base64 decoding) "
                               "lacked required field (expiration) and/or types "
                            << tx.getTransactionID();
         return temMALFORMED;
     }
-    if (list.isMember(jss::effective) && !list[jss::effective].isInt())
+    if (list.isMember(jss::effective) &&
+        !isNonNegativeUInt(list[jss::effective]))
     {
         JLOG(ctx.j.warn()) << "Import: unl blob json (after base64 decoding) "
                               "lacked required field (effective) and/or types "
@@ -431,7 +541,6 @@ Import::preflight(PreflightContext const& ctx)
         list.isMember(jss::effective) ? list[jss::effective].asUInt() : 0}};
     auto const validUntil = TimeKeeper::time_point{
         TimeKeeper::duration{list[jss::expiration].asUInt()}};
-    auto const now = ctx.app.timeKeeper().now();
     if (validUntil <= validFrom)
     {
         JLOG(ctx.j.warn()) << "Import: unl blob validUntil <= validFrom "
@@ -439,24 +548,9 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (validUntil <= now)
-    {
-        JLOG(ctx.j.warn()) << "Import: unl blob expired "
-                           << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
-    if (validFrom > now)
-    {
-        JLOG(ctx.j.warn()) << "Import: unl blob not yet valid "
-                           << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
     auto const sig =
         strUnHex((*xpop)[jss::validation][jss::unl][jss::signature].asString());
-    if (!sig || !signingKey ||
-        !ripple::verify(*signingKey, makeSlice(data), makeSlice(*sig)))
+    if (!sig || !ripple::verify(*signingKey, makeSlice(data), makeSlice(*sig)))
     {
         JLOG(ctx.j.warn()) << "Import: unl blob not signed correctly "
                            << tx.getTransactionID();
@@ -590,6 +684,8 @@ Import::preflight(PreflightContext const& ctx)
     })((*xpop)[jss::transaction][jss::proof]);
 
     auto const& lgr = (*xpop)[jss::ledger];
+    JLOG(ctx.j.trace()) << "Import: computedTxRoot=" << strHex(computedTxRoot)
+                        << " expected=" << lgr[jss::txroot].asString();
     if (strHex(computedTxRoot) != lgr[jss::txroot])
     {
         JLOG(ctx.j.warn()) << "Import: computed txroot does not match xpop "
@@ -665,7 +761,7 @@ Import::preflight(PreflightContext const& ctx)
         auto const m =
             deserializeManifest(base64_decode(val[jss::manifest].asString()));
 
-        if (!m || !m->signingKey)
+        if (!m)
         {
             JLOG(ctx.j.warn())
                 << "Import: unl blob contained an invalid manifest, skipping "
@@ -689,6 +785,14 @@ Import::preflight(PreflightContext const& ctx)
             continue;
         }
 
+        if (!m->signingKey)
+        {
+            JLOG(ctx.j.warn()) << "Import: unl blob manifest missing signing "
+                                  "key, skipping "
+                               << tx.getTransactionID();
+            continue;
+        }
+
         std::string const nodepub =
             toBase58(TokenType::NodePublic, *m->signingKey);
         std::string const nodemaster =
@@ -699,7 +803,11 @@ Import::preflight(PreflightContext const& ctx)
 
     JLOG(ctx.j.trace()) << "totalValidatorCount: " << totalValidatorCount;
 
-    uint64_t quorum = totalValidatorCount * 0.8;
+    // Burn-to-mint import retains the legacy truncated 80% quorum calculation.
+    // Export callbacks are tied to Export's source-side validator quorum, so
+    // their XPOP proof uses the same ceiling threshold.
+    uint64_t quorum = hasTicket ? calculateQuorumThreshold(totalValidatorCount)
+                                : totalValidatorCount * 0.8;
 
     if (quorum == 0)
     {
@@ -817,8 +925,9 @@ Import::preflight(PreflightContext const& ctx)
         }
     }
 
-    JLOG(ctx.j.trace()) << "quorum: " << quorum
-                        << " validation count: " << validationCount;
+    JLOG(ctx.j.trace()) << "Import: quorum=" << quorum
+                        << " validationCount=" << validationCount
+                        << " totalValidatorCount=" << totalValidatorCount;
 
     // check if the validation count is adequate
     auto hasInsufficientQuorum = [](uint64_t quorum, uint64_t validationCount) {
@@ -826,8 +935,8 @@ Import::preflight(PreflightContext const& ctx)
     };
     if (hasInsufficientQuorum(quorum, validationCount))
     {
-        JLOG(ctx.j.warn()) << "Import: xpop did not contain an 80% quorum for "
-                              "the txn it purports to prove. "
+        JLOG(ctx.j.warn()) << "Import: xpop did not contain the required "
+                              "quorum for the txn it purports to prove. "
                            << tx.getTransactionID();
         return temMALFORMED;
     }
@@ -842,6 +951,9 @@ Import::preflight(PreflightContext const& ctx)
                            << tx.getTransactionID();
         return temMALFORMED;
     }
+
+    JLOG(ctx.j.trace())
+        << "Import: passed seq/fee/quorum checks, about to return preflight2";
 
     if (stpTrans->getFieldAmount(sfFee) < beast::zero)
     {
@@ -892,6 +1004,81 @@ Import::preclaim(PreclaimContext const& ctx)
         return tefINTERNAL;
     }
 
+    auto const path = importPath(*stpTrans);
+    bool const hasTicket = path == ImportPath::exportCallback;
+
+    if (hasTicket)
+    {
+        //@@start current-import-export-latch-preclaim
+        if (!ctx.view.rules().enabled(featureExport))
+            return tefINTERNAL;
+        if (!ExportOriginMemo::hasReservedMemo(*stpTrans))
+            return temMALFORMED;
+
+        auto const acc = stpTrans->getAccountID(sfAccount);
+        auto const exportStamp = ExportOriginMemo::parse(*stpTrans);
+        auto const identityProjection =
+            ExportOriginMemo::projectIdentity(*stpTrans);
+        if (!exportStamp || !exportStamp.value().anchor || !identityProjection)
+            return temMALFORMED;
+
+        auto const expectedTarget = stpTrans->isFieldPresent(sfNetworkID)
+            ? stpTrans->getFieldU32(sfNetworkID)
+            : std::uint32_t{0};
+        if (exportStamp.value().origin.sourceDomain !=
+                ctx.app.config().NETWORK_ID ||
+            exportStamp.value().origin.targetDomain != expectedTarget)
+            return temMALFORMED;
+
+        if (exportStamp.value().anchor->ledgerSequence >= ctx.view.info().seq)
+            return telEXPORT_LATCH_REQUIRED;
+
+        // The origin-keyed latch is the deterministic ancestry proof. The
+        // anchor hash was authenticated by qC and executed on the target; no
+        // node-local history lookup belongs in preclaim.
+        auto const stKey = keylet::exportLatch(
+            acc, exportStamp.value().origin.transactionHash);
+        auto const stSle = ctx.view.read(stKey);
+        if (!stSle)
+        {
+            JLOG(ctx.j.warn())
+                << "Import: attempted Export callback without a latch.";
+            return telEXPORT_LATCH_REQUIRED;
+        }
+        if (stSle->getType() != ltEXPORT_LATCH ||
+            !stSle->isFieldPresent(sfTransactionHash) ||
+            stSle->getFieldH256(sfTransactionHash) !=
+                exportStamp.value().origin.transactionHash ||
+            stSle->getFieldU32(sfLedgerSequence) !=
+                exportStamp.value().anchor->ledgerSequence)
+            return temMALFORMED;
+
+        auto const flags = stSle->isFieldPresent(sfFlags)
+            ? stSle->getFieldU32(sfFlags)
+            : std::uint32_t{0};
+        if ((flags & lsfExportXpopSeen) != 0)
+            return tecDUPLICATE;
+
+        // Verify the imported XPOP matches the Export that created this latch.
+        // The identity excludes signer-dependent fields so any target-
+        // valid signer subset for the exact intent can complete the callback.
+        auto const expectedHash = stSle->getFieldH256(sfDigest);
+        auto const actualHash =
+            ExportResultBuilder::exportIntentHash(identityProjection.value());
+        JLOG(ctx.j.trace())
+            << "Import preclaim: exportLatch intent=" << expectedHash
+            << " xpopIntent=" << actualHash
+            << " xpopTxHash=" << stpTrans->getTransactionID()
+            << " match=" << (expectedHash == actualHash);
+        if (expectedHash != actualHash)
+        {
+            JLOG(ctx.j.warn())
+                << "Import: XPOP intent does not match Export latch.";
+            return temMALFORMED;
+        }
+        //@@end current-import-export-latch-preclaim
+    }
+
     auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount]));
 
     auto const tt = stpTrans->getTxnType();
@@ -932,13 +1119,16 @@ Import::preclaim(PreclaimContext const& ctx)
         } while (0);
     }
 
-    if (sle && sle->isFieldPresent(sfImportSequence))
+    if (!hasTicket)
     {
-        uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
+        if (sle && sle->isFieldPresent(sfImportSequence))
+        {
+            uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
 
-        // replay attempt
-        if (sleImportSequence >= stpTrans->getFieldU32(sfSequence))
-            return tefPAST_IMPORT_SEQ;
+            // replay attempt
+            if (sleImportSequence >= stpTrans->getFieldU32(sfSequence))
+                return tefPAST_IMPORT_SEQ;
+        }
     }
 
     // when importing for the first time the fee must be zero
@@ -954,6 +1144,40 @@ Import::preclaim(PreclaimContext const& ctx)
         return tefINTERNAL;
     }
 
+    auto const data =
+        base64_decode((*xpop)[jss::validation][jss::unl][jss::blob].asString());
+    Json::Reader r;
+    Json::Value list;
+    if (!r.parse(data, list))
+    {
+        JLOG(ctx.j.warn())
+            << "Import: during preclaim could not parse unl blob, bailing.";
+        return tefINTERNAL;
+    }
+
+    auto const validFrom = TimeKeeper::time_point{TimeKeeper::duration{
+        list.isMember(jss::effective) ? list[jss::effective].asUInt() : 0}};
+    auto const validUntil = TimeKeeper::time_point{
+        TimeKeeper::duration{list[jss::expiration].asUInt()}};
+    auto const now = ctx.view.parentCloseTime();
+    if (validUntil <= now)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: unl blob expired at parent ledger close time.";
+        return temMALFORMED;
+    }
+
+    if (validFrom > now)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: unl blob not yet valid at parent ledger close time.";
+        return temMALFORMED;
+    }
+
+    // Shared XPOP verification includes the source VL anti-downgrade ratchet.
+    // An Export latch is the callback replay latch; it does not replace the
+    // requirement that imports use the newest validator list this chain has
+    // already accepted from the publisher.
     auto const& sleVL = ctx.view.read(keylet::import_vlseq(vlInfo->second));
     if (sleVL && sleVL->getFieldU32(sfImportSequence) > vlInfo->first)
     {
@@ -1163,9 +1387,6 @@ Import::doApply()
     if (!ctx_.tx.isFieldPresent(sfBlob))
         return tefINTERNAL;
 
-    //
-    // Before starting decode and validate XPOP, update ImportVL seq
-    //
     auto const xpop = syntaxCheckXPOP(ctx_.tx.getFieldVL(sfBlob), ctx_.journal);
 
     if (!xpop)
@@ -1175,40 +1396,6 @@ Import::doApply()
 
     if (!infoVL)
         return tefINTERNAL;
-
-    auto const keyletVL = keylet::import_vlseq(infoVL->second);
-    auto sleVL = view().peek(keyletVL);
-
-    if (!sleVL)
-    {
-        // create VL import seq counter
-        JLOG(ctx_.journal.trace())
-            << "Import: create vl seq - insert import sequence + public key";
-        sleVL = std::make_shared<SLE>(keyletVL);
-        sleVL->setFieldU32(sfImportSequence, infoVL->first);
-        sleVL->setFieldVL(sfPublicKey, infoVL->second.slice());
-        view().insert(sleVL);
-    }
-    else
-    {
-        uint32_t current = sleVL->getFieldU32(sfImportSequence);
-
-        if (current > infoVL->first)
-        {
-            // should never happen
-            return tefINTERNAL;
-        }
-        else if (infoVL->first > current)
-        {
-            // perform an update because the sequence number is newer
-            sleVL->setFieldU32(sfImportSequence, infoVL->first);
-            view().update(sleVL);
-        }
-        else
-        {
-            // it's the same sequence number so leave it be
-        }
-    }
 
     auto const [stpTrans, meta] = getInnerTxn(ctx_.tx, ctx_.journal, &(*xpop));
 
@@ -1222,9 +1409,51 @@ Import::doApply()
         return tefINTERNAL;
     }
 
-    //
-    // Now deal with the account creation and crediting
-    //
+    uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
+    auto const path = importPath(*stpTrans);
+    auto const id = ctx_.tx[sfAccount];
+    auto sle = view().peek(keylet::account(id));
+
+    // Both Import paths rely on XPOP/VL authority, so both ratchet the source
+    // publisher's VL sequence before path-specific replay handling.
+    if (auto const ter = updateImportVLSequence(view(), *infoVL, ctx_.journal);
+        !isTesSuccess(ter))
+        return ter;
+
+    // ---------------------------------------------------------------
+    // Export callback path: ticket-based target execution records the Export
+    // latch fact and fires hooks — no B2M crediting, no account creation.
+    // The hook inspects the result via xpop_slot().
+    // ---------------------------------------------------------------
+    if (path == ImportPath::exportCallback)
+    {
+        //@@start current-import-export-latch-consume
+        if (!sle)
+        {
+            JLOG(ctx_.journal.warn())
+                << "Import: export callback requires existing account";
+            return tefINTERNAL;
+        }
+
+        auto const stamp = ExportOriginMemo::parse(*stpTrans);
+        if (!stamp || !stamp.value().anchor)
+            return tefINTERNAL;
+        auto const ter = ExportLedgerOps::recordExportXpop(
+            view(),
+            ctx_.rawView(),
+            keylet::exportLatch(id, stamp.value().origin.transactionHash),
+            ctx_.journal);
+        if (!isTesSuccess(ter))
+            return ter;
+
+        //@@end current-import-export-latch-consume
+        return tesSUCCESS;
+    }
+
+    // ---------------------------------------------------------------
+    // Burn-to-mint path: original Import flow for XRPL → Xahau
+    // account bootstrapping. Credits XAH based on burned XRP.
+    // ---------------------------------------------------------------
 
     STAmount burn = stpTrans->getFieldAmount(sfFee);
 
@@ -1242,19 +1471,12 @@ Import::doApply()
         return tecINTERNAL;
     }
 
-    uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
-    auto const id = ctx_.tx[sfAccount];
-    auto sle = view().peek(keylet::account(id));
-
     if (sle && sle->getFieldU32(sfImportSequence) >= importSequence)
     {
-        // make double sure import seq hasn't passed
         JLOG(ctx_.journal.warn()) << "Import: ImportSequence passed";
         return tefINTERNAL;
     }
 
-    // get xahau genesis start ledger, or just assume the current ledger is the
-    // start seq if it's not set.
     uint32_t curLgrSeq = view().info().seq;
     uint32_t startLgrSeq = curLgrSeq;
     auto sleFees = view().peek(keylet::fees());
@@ -1273,17 +1495,14 @@ Import::doApply()
 
     if (view().rules().enabled(featureZeroB2M))
     {
-        // B2M xrp is disabled by amendment
         creditDrops = 0;
     }
     else if (elapsed < 2'000'000)
     {
-        // first 2MM ledgers
-        // the ratio is 1:1
+        // first 2MM ledgers: 1:1 ratio
     }
     else if (elapsed < 30'000'000)
     {
-        // there is a linear decline over 28MM ledgers
         double x = elapsed - 2000000.0;
         double y = 1.0 - x / 28000000.0;
         y = std::clamp(y, 0.0, 1.0);
@@ -1291,8 +1510,6 @@ Import::doApply()
     }
     else
     {
-        // thereafter
-        // B2M xrp is disabled
         creditDrops = 0;
     }
 
@@ -1306,7 +1523,6 @@ Import::doApply()
 
     if (create)
     {
-        // Create the account.
         std::uint32_t const seqno{
             view().rules().enabled(featureXahauGenesis)
                 ? view().info().parentCloseTime.time_since_epoch().count()
@@ -1319,6 +1535,7 @@ Import::doApply()
 
         sle->setFieldU32(sfSequence, seqno);
         sle->setFieldU32(sfOwnerCount, 0);
+        //@@start import-account-index-allocation
         if (sleFees && view().rules().enabled(featureXahauGenesis))
         {
             uint64_t accIdx = sleFees->isFieldPresent(sfAccountCount)
@@ -1327,12 +1544,12 @@ Import::doApply()
             sle->setFieldU64(sfAccountIndex, accIdx);
             sleFees->setFieldU64(sfAccountCount, accIdx + 1);
         }
+        //@@end import-account-index-allocation
 
         if (ctx_.tx.getSigningPubKey().empty() ||
             calcAccountID(PublicKey(makeSlice(ctx_.tx.getSigningPubKey()))) !=
                 id)
         {
-            // disable master unless the first Import is signed with master
             sle->setFieldU32(sfFlags, lsfDisableMaster);
             JLOG(ctx_.journal.warn())
                 << "Import: acc " << id << " created with disabled master key.";
@@ -1351,10 +1568,6 @@ Import::doApply()
     else
         view().update(sle);
 
-    //
-    // Handle any key imports, but only if a tes code
-    // these functions update the sle on their own
-    //
     if (isTesSuccess(meta->getFieldU8(sfTransactionResult)))
     {
         auto const tt = stpTrans->getTxnType();
