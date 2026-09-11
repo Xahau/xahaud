@@ -18,10 +18,13 @@
 //==============================================================================
 
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/SetManifest.h>  // makeSetManifestTx
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
@@ -30,6 +33,9 @@
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/PublicKey.h>
+#include <xrpl/basics/strHex.h>
+#include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STParsedJSON.h>
@@ -90,28 +96,41 @@ doInject(RPC::JsonContext& context)
 }
 
 // {
-//   tx_blob: <string> XOR tx_json: <object>
-//              XOR { tx: <json text>, signature: <hex> },
+//   tx_blob: <string>
+//              OR { tx: <json text>, sig: <hex> },
+//              OR { manifest: <hex> }
 //   secret: <secret>
 // }
 Json::Value
 doSubmit(RPC::JsonContext& context)
 {
+    Json::Value jvResult;
+
     context.loadType = Resource::feeMediumBurdenRPC;
 
-    bool const hasJsonTx = context.ledgerMaster.getCurrentLedger()->rules().enabled(featureJsonTx);
-
-    bool const isJsonTx = !context.params.isMember(jss::tx_blob) &&
+    bool const hasJsonTx = 
         context.params.isMember(jss::tx) &&
         context.params.isMember(jss::sig);
 
-    if (isJsonTx && !hasJsonTx)
+    if (hasJsonTx && !context.ledgerMaster.getCurrentLedger()->rules().enabled(featureJsonTx))
         return RPC::make_error(
             rpcNOT_SUPPORTED, "JsonTx is not enabled yet.");
     
+    bool const hasManifest = context.params.isMember(jss::manifest);
 
-    if (!context.params.isMember(jss::tx_blob) && !isJsonTx)
+    if (hasManifest && !context.ledgerMaster.getCurrentLedger()->rules().enabled(featureOnChainManifests))
+            return RPC::make_error(
+                rpcNOT_ENABLED,
+                "The OnChainManifests amendment is not enabled on this "
+                "network. Manifest submission will work once it activates; "
+                "nothing is wrong with this request.");
+  
+    bool const hasTxBlob = context.params.isMember(jss::tx_blob);
+  
+    int const count = (hasTxBlob ? 1 : 0) + (hasJsonTx ? 1 : 0) + (hasManifest ? 1 : 0);
+    if (!count && context.params.isMember(jss::tx))
     {
+        // legacy signing code
         auto const failType = getFailHard(context);
 
         if (context.role != Role::ADMIN && !context.app.config().canSign())
@@ -135,13 +154,47 @@ doSubmit(RPC::JsonContext& context)
 
         return ret;
     }
+    else if (count != 1)
+    {
+        return RPC::make_error(
+            rpcINVALID_PARAMS,
+            "Specify exactly one of either `tx_blob` or `manifest` or combination of `tx` and `sig`");
+    }
+  
+    // execution to here means exactly one of hasTxJson, hasManifest or hasTxBlob is true
 
-    Json::Value jvResult;
+    std::string txBlob =
+        hasTxBlob ? context.params[jss::tx_blob].asString() : "";
 
     std::optional<Blob> ret;
-    if (!isJsonTx)
+
+    if (hasManifest)
     {
-        ret = strUnHex(context.params[jss::tx_blob].asString());
+        auto const raw = strUnHex(context.params[jss::manifest].asString());
+        if (!raw || raw->empty())
+            return rpcError(rpcINVALID_PARAMS);
+
+        auto const hex = makeSetManifestTx(
+            makeSlice(*raw),
+            context.app.config().NETWORK_ID,
+            *view,
+            context.app.journal("Submit"));
+
+        if (!hex)
+        {
+            jvResult[jss::error] = "invalidManifest";
+            return jvResult;
+        }
+
+        txBlob = *hex;
+    }
+
+    if (txBlob != "")
+    {
+        ret = strUnHex(txBlob);
+
+        if (!ret || !ret->size())
+            return rpcError(rpcINVALID_PARAMS);
 
         if (!ret || !ret->size())
             return rpcError(rpcINVALID_PARAMS);
