@@ -704,6 +704,21 @@ SetHook::calculateBaseFee(ReadView const& view, STTx const& tx)
 TER
 SetHook::preclaim(ripple::PreclaimContext const& ctx)
 {
+    if (ctx.tx.isFieldPresent(sfHookAdministrator))
+    {
+        auto const& administrator = ctx.tx.getAccountID(sfHookAdministrator);
+        auto const& sle = ctx.view.read(keylet::account(administrator));
+        if (!sle)
+            return tecNO_DST;
+
+        if (!sle->isFieldPresent(sfHookAdministrator))
+            return tecNO_PERMISSION;
+
+        if (sle->getAccountID(sfHookAdministrator) !=
+            ctx.tx.getAccountID(sfAccount))
+            return tecNO_PERMISSION;
+    }
+
     auto const& hookSets = ctx.tx.getFieldArray(sfHooks);
 
     for (auto const& hookSetObj : hookSets)
@@ -743,10 +758,44 @@ SetHook::preflight(PreflightContext const& ctx)
         return ret;
 
     if (ctx.rules.enabled(fixInvalidTxFlags) &&
-        ctx.tx.getFlags() & tfUniversalMask)
+        ctx.tx.getFlags() & tfSetHookMask)
     {
         JLOG(ctx.j.trace()) << "SetHook: Invalid flags set.";
         return temINVALID_FLAG;
+    }
+
+    if (ctx.tx.isFlag(tfNewAccount) &&
+        !ctx.rules.enabled(featureHookAdministrator))
+    {
+        JLOG(ctx.j.trace()) << "SetHook: New account flag set but hook "
+                               "administrator amendment is not enabled.";
+        return temDISABLED;
+    }
+
+    if (ctx.tx.isFieldPresent(sfDestination))
+    {
+        if (!ctx.rules.enabled(featureHookAdministrator))
+        {
+            JLOG(ctx.j.trace())
+                << "HookSet: Hook administrator amendment not enabled.";
+            return temDISABLED;
+        }
+
+        if (ctx.tx.isFlag(tfNewAccount))
+        {
+            JLOG(ctx.j.trace())
+                << "HookSet: Both new account flag and destination set. "
+                   "New account flag and destination cannot be set at the same "
+                   "time.";
+            return temMALFORMED;
+        }
+
+        if (ctx.tx.getAccountID(sfDestination) ==
+            ctx.tx.getAccountID(sfAccount))
+        {
+            JLOG(ctx.j.trace()) << "HookSet: Redundant hook administrator.";
+            return temREDUNDANT;
+        }
     }
 
     if (!ctx.tx.isFieldPresent(sfHooks))
@@ -1288,6 +1337,23 @@ struct KeyletComparator
     }
 };
 
+AccountID
+randomAccountAddress(ReadView const& view, uint256 const& pseudoOwnerKey)
+{
+    // This number must not be changed without an amendment
+    constexpr std::uint16_t maxAccountAttempts = 256;
+    for (std::uint16_t i = 0; i < maxAccountAttempts; ++i)
+    {
+        ripesha_hasher rsh;
+        auto const hash = sha512Half(i, view.info().parentHash, pseudoOwnerKey);
+        rsh(hash.data(), hash.size());
+        AccountID const ret{static_cast<ripesha_hasher::result_type>(rsh)};
+        if (!view.read(keylet::account(ret)))
+            return ret;
+    }
+    return beast::zero;
+}
+
 TER
 SetHook::setHook()
 {
@@ -1307,11 +1373,69 @@ SetHook::setHook()
         .app = ctx_.app,
         .rules = ctx_.view().rules()};
 
-    const int blobMax = hook::maxHookWasmSize();
-    auto const accountKeylet = keylet::account(account_);
-    auto const hookKeylet = keylet::hook(account_);
+    auto targetAccount = ctx.tx[~sfDestination].value_or(account_);
+    if (ctx_.tx.isFlag(tfNewAccount))
+    {
+        // create the new account
+        auto const newAccount = randomAccountAddress(ctx_.view(), uint256{});
+        if (newAccount == beast::zero)
+            return tecDUPLICATE;
 
-    auto accountSLE = view().peek(accountKeylet);
+        auto sleNewAccount = std::make_shared<SLE>(keylet::account(newAccount));
+        sleNewAccount->setAccountID(sfAccount, newAccount);
+        sleNewAccount->setFieldAmount(sfBalance, STAmount{});
+        sleNewAccount->setFieldU32(sfOwnerCount, 1);  // ltHook
+        std::uint32_t const seqno{
+            ctx_.view().rules().enabled(featureXahauGenesis)
+                ? ctx_.view().info().parentCloseTime.time_since_epoch().count()
+                : ctx_.view().rules().enabled(featureDeletableAccounts)
+                ? ctx_.view().seq()
+                : 1};
+        sleNewAccount->setFieldU32(sfSequence, seqno);
+        sleNewAccount->setFieldU32(sfFlags, lsfDisableMaster);
+
+        sleNewAccount->setAccountID(sfHookAdministrator, account_);
+
+        auto sleFees = view().peek(keylet::fees());
+        if (sleFees && view().rules().enabled(featureXahauGenesis))
+        {
+            auto actIdx = sleFees->isFieldPresent(sfAccountCount)
+                ? sleFees->getFieldU64(sfAccountCount)
+                : 0;
+            sleNewAccount->setFieldU64(sfAccountIndex, actIdx);
+            sleFees->setFieldU64(sfAccountCount, actIdx + 1);
+            view().update(sleFees);
+        }
+
+        // fund AccountReserve + ObjectReserve (ltHook)
+        auto const requiredDrops = ctx_.view().fees().accountReserve(1);
+
+        auto sourceSle = ctx_.view().peek(keylet::account(account_));
+        if (!sourceSle)
+            return tefINTERNAL;
+
+        auto const sourceCurrentReserve = ctx_.view().fees().accountReserve(
+            sourceSle->getFieldU32(sfOwnerCount));
+
+        auto const sourceBalance = sourceSle->getFieldAmount(sfBalance).xrp();
+
+        if (sourceBalance < sourceCurrentReserve + requiredDrops)
+            return tecUNFUNDED;
+
+        sourceSle->setFieldAmount(sfBalance, sourceBalance - requiredDrops);
+        ctx_.view().update(sourceSle);
+
+        sleNewAccount->setFieldAmount(sfBalance, requiredDrops);
+        ctx_.view().insert(sleNewAccount);
+
+        targetAccount = newAccount;
+    }
+
+    const int blobMax = hook::maxHookWasmSize();
+
+    auto const hookKeylet = keylet::hook(targetAccount);
+
+    auto accountSLE = view().peek(keylet::account(targetAccount));
 
     ripple::STArray newHooks{sfHooks, 8};
     auto newHookSLE = std::make_shared<SLE>(hookKeylet);
