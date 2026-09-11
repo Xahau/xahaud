@@ -373,6 +373,48 @@ public:
     }
 
     void
+    path_find_recipient_limit(FeatureBitset features)
+    {
+        // bob's line is at its limit. A payment that names the issuer
+        // reaches bob on the default path (alice -> gw -> bob); the
+        // pathfinder stops at the named issuer and never reads bob's limit,
+        // and the engine's liquidity check decides. So there is nothing to
+        // propose in either regime, and the request that names bob as
+        // issuer (any issuer) stays capped by design.
+        testcase("path find: destination at its limit");
+        using namespace jtx;
+        bool const exempt = features[featureNoRecipientLimit];
+        Env env = pathTestEnv(features);
+        auto const gw = Account("gateway");
+        auto const USD = gw["USD"];
+        env.fund(XRP(10000), "alice", "bob", gw);
+        env.close();
+        env.trust(USD(600), "alice");
+        env.trust(USD(100), "bob");
+        env.close();
+        env(pay(gw, "alice", USD(70)));
+        env(pay(gw, "bob", USD(100)));
+        env.close();
+
+        STPathSet st;
+        STAmount sa;
+        std::tie(st, sa, std::ignore) = find_paths(env, "alice", "bob", USD(5));
+        BEAST_EXPECT(st.empty());
+        std::tie(st, sa, std::ignore) =
+            find_paths(env, "alice", "bob", Account("bob")["USD"](5));
+        BEAST_EXPECT(st.empty());
+        // The payment itself succeeds only with the amendment, on the
+        // default path and with an explicit one.
+        env(pay("alice", "bob", USD(5)),
+            ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_DRY)));
+        env(pay("alice", "bob", USD(5)),
+            paths(USD),
+            ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_DRY)));
+        env(pay(gw, "bob", USD(5)),
+            ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_DRY)));
+    }
+
+    void
     path_find()
     {
         testcase("path find");
@@ -1535,6 +1577,9 @@ public:
         alternative_paths_limit_returned_paths_to_best_quality();
         issues_path_negative_issue(jtx::supported_amendments());
         issues_path_negative_issue(
+            jtx::supported_amendments() - featureNoRecipientLimit);
+        path_find_recipient_limit(jtx::supported_amendments());
+        path_find_recipient_limit(
             jtx::supported_amendments() - featureNoRecipientLimit);
         issues_path_negative_ripple_client_issue_23_smaller();
         issues_path_negative_ripple_client_issue_23_larger();

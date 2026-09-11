@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/paths/AccountCurrencies.h>
+#include <xrpl/protocol/Feature.h>
 
 namespace ripple {
 
@@ -69,6 +70,12 @@ accountDestCurrencies(
         currencies.insert(xrpCurrency());
     // Even if account doesn't exist
 
+    // Under NoRecipientLimit the issuer can always pay onto a line, and
+    // redemption was never bound by the limit, so every line's currency is
+    // receivable.
+    bool const noRecipientLimit =
+        lrCache->getLedger()->rules().enabled(featureNoRecipientLimit);
+
     if (auto const lines =
             lrCache->getRippleLines(account, LineDirection::outgoing))
     {
@@ -76,7 +83,8 @@ accountDestCurrencies(
         {
             auto& saBalance = rspEntry.getBalance();
 
-            if (saBalance < rspEntry.getLimit())  // Can take more
+            if (noRecipientLimit ||
+                saBalance < rspEntry.getLimit())  // Can take more
                 currencies.insert(saBalance.getCurrency());
         }
     }
