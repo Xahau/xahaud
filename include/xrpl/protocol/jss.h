@@ -631,6 +631,7 @@ JSS(server_status);             // out: NetworkOPs
 JSS(server_version);            // out: NetworkOPs
 JSS(settle_delay);              // out: AccountChannels
 JSS(severity);                  // in: LogLevel
+JSS(sig);
 JSS(signature);                 // out: NetworkOPs, ChannelAuthorize
 JSS(signature_verified);        // out: ChannelVerify
 JSS(signing_key);               // out: NetworkOPs

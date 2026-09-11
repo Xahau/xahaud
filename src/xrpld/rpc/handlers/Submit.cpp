@@ -30,9 +30,15 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
 #include <xrpl/basics/strHex.h>
+#include <xrpl/json/json_reader.h>
+#include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/JSONTxSignatures.h>
+#include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/RPCErr.h>
+#include <xrpl/protocol/SField.h>
+#include <xrpl/protocol/STParsedJSON.h>
 #include <xrpl/resource/Fees.h>
 
 namespace ripple {
@@ -88,8 +94,10 @@ doInject(RPC::JsonContext& context)
 }
 
 // {
-//   tx_blob: <string> XOR tx_json: <object>,
-//   secret: <secret>
+//   tx_blob: <string>
+//     OR tx: <json text> together with sig: <hex>
+//     OR manifest: <hex>
+//     OR tx_json: <object> together with secret: <secret> (deprecated)
 // }
 Json::Value
 doSubmit(RPC::JsonContext& context)
@@ -98,17 +106,37 @@ doSubmit(RPC::JsonContext& context)
 
     context.loadType = Resource::feeMediumBurdenRPC;
 
+    auto const view = context.app.openLedger().current();
+
+    bool const isJsonTx =
+        context.params.isMember(jss::tx) && context.params.isMember(jss::sig);
     bool const hasManifest = context.params.isMember(jss::manifest);
     bool const hasTxBlob = context.params.isMember(jss::tx_blob);
 
-    if (hasManifest && hasTxBlob)
-    {
+    // Both of these carry authority that only their amendment teaches the
+    // network to honour, so without the amendment the submitter is told their
+    // transaction is unsigned, which reads as their mistake. It isn't -- the
+    // feature is not live yet -- so say so before touching the payload at all.
+    if (isJsonTx && !view->rules().enabled(featureJsonTx))
         return RPC::make_error(
-            rpcINVALID_PARAMS,
-            "Specify exactly one of either `tx_blob` or `manifest`");
-    }
-    else if (!hasTxBlob && !hasManifest)
+            rpcNOT_ENABLED,
+            "The JsonTx amendment is not enabled on this network. "
+            "Plaintext-JSON submission will work once it activates; nothing "
+            "is wrong with this request.");
+
+    if (hasManifest && !view->rules().enabled(featureOnChainManifests))
+        return RPC::make_error(
+            rpcNOT_ENABLED,
+            "The OnChainManifests amendment is not enabled on this "
+            "network. Manifest submission will work once it activates; "
+            "nothing is wrong with this request.");
+
+    int const count =
+        (hasTxBlob ? 1 : 0) + (isJsonTx ? 1 : 0) + (hasManifest ? 1 : 0);
+
+    if (!count)
     {
+        // legacy signing code
         auto const failType = getFailHard(context);
 
         if (context.role != Role::ADMIN && !context.app.config().canSign())
@@ -132,30 +160,22 @@ doSubmit(RPC::JsonContext& context)
 
         return ret;
     }
+    else if (count != 1)
+    {
+        return RPC::make_error(
+            rpcINVALID_PARAMS,
+            "Specify exactly one of `tx_blob`, `manifest`, or `tx` together "
+            "with `sig`");
+    }
+
+    // execution to here means exactly one of isJsonTx, hasManifest or
+    // hasTxBlob is true
 
     std::string txBlob =
         hasTxBlob ? context.params[jss::tx_blob].asString() : "";
 
     if (hasManifest)
     {
-        // OnChainManifests amendment accepts a manifest submission here; turn
-        // it into the transaction that carries it and drop through to normal
-        // tx_blob processing below.
-        auto const view = context.app.openLedger().current();
-
-        // The transaction built below carries no account signature; its
-        // authority is the manifest's own master and ephemeral signatures,
-        // which checkValidity() only honours once the amendment is active.
-        // Without this the submitter is told their transaction is unsigned,
-        // which reads as their mistake. It isn't -- the feature is not live
-        // yet -- so say so before touching the manifest at all.
-        if (!view->rules().enabled(featureOnChainManifests))
-            return RPC::make_error(
-                rpcNOT_ENABLED,
-                "The OnChainManifests amendment is not enabled on this "
-                "network. Manifest submission will work once it activates; "
-                "nothing is wrong with this request.");
-
         auto const raw = strUnHex(context.params[jss::manifest].asString());
         if (!raw || raw->empty())
             return rpcError(rpcINVALID_PARAMS);
@@ -175,18 +195,82 @@ doSubmit(RPC::JsonContext& context)
         txBlob = *hex;
     }
 
-    auto ret = strUnHex(txBlob);
+    std::optional<Blob> ret;
 
-    if (!ret || !ret->size())
-        return rpcError(rpcINVALID_PARAMS);
+    if (!isJsonTx)
+    {
+        ret = strUnHex(txBlob);
 
-    SerialIter sitTrans(makeSlice(*ret));
+        if (!ret || ret->empty())
+            return rpcError(rpcINVALID_PARAMS);
+    }
 
     std::shared_ptr<STTx const> stTx;
 
     try
     {
-        stTx = std::make_shared<STTx const>(std::ref(sitTrans));
+        if (!isJsonTx)
+        {
+            SerialIter sitTrans(makeSlice(*ret));
+            stTx = std::make_shared<STTx const>(std::ref(sitTrans));
+        }
+        else
+        {
+            std::string const raw = context.params[jss::tx].asString();
+            auto const [san, diff] = sanitize_jsontx(raw);
+            auto const sig = strUnHex(context.params[jss::sig].asString());
+            if (!sig || sig->empty())
+                throw std::runtime_error("JsonTx: bad signature");
+
+            Json::Value jv;
+            if (Json::Reader r; !r.parse(san, jv))
+                throw std::runtime_error("JsonTx: unparsable canonical form");
+
+            // The preimage carries the key but not the signature over itself.
+            for (auto const& n :
+                 {sfTxnSignature.fieldName, sfSigners.fieldName})
+                if (jv.isMember(n))
+                    throw std::runtime_error(
+                        "JsonTx: " + n + " must not appear in tx");
+            if (!jv.isMember(sfSigningPubKey.fieldName))
+                throw std::runtime_error("JsonTx: tx must carry SigningPubKey");
+
+            // Hand the parser the u64 rather than teaching STUInt64 a second
+            // spelling; the ISO form only ever exists in the preimage.
+            std::optional<std::uint64_t> ms;
+            if (jv.isMember(sfTime.fieldName))
+            {
+                ms = jsontx_iso(jv[sfTime.fieldName].asString());
+                jv.removeMember(sfTime.fieldName);
+            }
+
+            STParsedJSONObject parsed("tx_json", jv);
+            if (!parsed.object)
+                throw std::runtime_error(
+                    parsed.error[jss::error_message].asString());
+            if (ms)
+                parsed.object->setFieldU64(sfTime, *ms);
+            parsed.object->setFieldVL(sfTxnSignature, *sig);
+
+            // The delta rides along in the transaction. Without it a relaying
+            // node has nothing to reconstruct the preimage from, the binary
+            // TxnSignature check fails there, and the transaction never
+            // propagates past this node.
+            parsed.object->setFieldVL(sfJsonTxDelta, makeSlice(diff));
+
+            stTx = std::make_shared<STTx const>(std::move(*parsed.object));
+
+            // Round-trip the binary codec and run the check a relaying node
+            // will run, so this path cannot accept anything the network would
+            // later reject -- and so the caller gets the real reason rather
+            // than a bare "fails local checks" from checkValidity below.
+            Serializer ser;
+            stTx->add(ser);
+            SerialIter si(ser.slice());
+            STTx const rt{si};
+            if (jsontx_verify(rt) != raw)
+                throw std::runtime_error("JsonTx: does not round-trip");
+        }
     }
     catch (std::exception& e)
     {
