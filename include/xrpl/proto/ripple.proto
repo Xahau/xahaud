@@ -116,6 +116,11 @@ message TMTransaction
 message TMTransactions
 {
     repeated TMTransaction transactions = 1;
+    // Optional opaque request/response correlation ID. If present on the
+    // TMGetObjectByHash(otTRANSACTIONS) request, the responder copies it
+    // unchanged. This field is not routing state and does not affect message
+    // processing, resource charging, duplicate suppression, or consensus.
+    optional uint64 requestId = 2;
 }
 
 
@@ -267,6 +272,10 @@ message TMGetObjectByHash
     optional bytes ledgerHash           = 4;    // the hash of the ledger these queries are for
     optional bool fat                   = 5;    // return related nodes
     repeated TMIndexedObject objects    = 6;    // the specific objects requested
+    // Optional opaque request/response correlation ID. Responders copy this
+    // value unchanged when forming a reply. This is distinct from the existing
+    // uint32 seq field and has no protocol meaning beyond correlation.
+    optional uint64 requestId           = 7;
 }
 
 
@@ -306,6 +315,10 @@ message TMGetLedger
     optional uint64 requestCookie   = 6;
     optional TMQueryType queryType  = 7;
     optional uint32 queryDepth      = 8;    // How deep to go, number of extra levels
+    // Optional opaque request/response correlation ID. Responders copy this
+    // value unchanged into TMLedgerData. This is separate from requestCookie:
+    // requestCookie is relay routing state; requestId is only correlation.
+    optional uint64 requestId       = 9;
 }
 
 enum TMReplyError
@@ -323,6 +336,9 @@ message TMLedgerData
     repeated TMLedgerNode nodes     = 4;
     optional uint32 requestCookie   = 5;
     optional TMReplyError error     = 6;
+    // Optional opaque request/response correlation ID copied from TMGetLedger.
+    // Receivers must not use it for relay routing or data validation.
+    optional uint64 requestId       = 7;
 }
 
 message TMPing
@@ -335,6 +351,9 @@ message TMPing
     optional uint32 seq         = 2; // detect stale replies, ensure other side is reading
     optional uint64 pingTime    = 3; // know when we think we sent the ping
     optional uint64 netTime     = 4;
+    // Optional opaque request/response correlation ID copied from ptPING to
+    // ptPONG. The existing seq field remains the ping liveness cookie.
+    optional uint64 requestId   = 5;
 }
 
 message TMSquelch
@@ -355,6 +374,8 @@ message TMProofPathRequest
     required bytes key = 1;
     required bytes ledgerHash = 2;
     required TMLedgerMapType type = 3;
+    // Optional opaque request/response correlation ID copied into the response.
+    optional uint64 requestId = 4;
 }
 
 message TMProofPathResponse
@@ -365,11 +386,15 @@ message TMProofPathResponse
     optional bytes ledgerHeader = 4;
     repeated bytes path = 5;
     optional TMReplyError error = 6;
+    // Optional opaque request/response correlation ID copied from the request.
+    optional uint64 requestId = 7;
 }
 
 message TMReplayDeltaRequest
 {
     required bytes ledgerHash = 1;
+    // Optional opaque request/response correlation ID copied into the response.
+    optional uint64 requestId = 2;
 }
 
 message TMReplayDeltaResponse
@@ -378,6 +403,8 @@ message TMReplayDeltaResponse
     optional bytes ledgerHeader = 2;
     repeated bytes transaction = 3;
     optional TMReplyError error = 4;
+    // Optional opaque request/response correlation ID copied from the request.
+    optional uint64 requestId = 5;
 }
 
 message TMHaveTransactions
