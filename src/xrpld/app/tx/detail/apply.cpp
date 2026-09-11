@@ -23,6 +23,7 @@
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/JSONTxSignatures.h>
 
 namespace ripple {
 
@@ -89,6 +90,44 @@ checkValidity(
         auto man = deserializeManifest(manObj);
         if (!man.has_value() || !man->verify())
             return {Validity::SigBad, "Manifest signature is bad"};
+
+        std::string reason;
+        if (!passesLocalChecks(tx, reason))
+            return {Validity::SigGoodOnly, reason};
+
+        return {Validity::Valid, ""};
+    }
+
+    if (rules.enabled(featureJsonTx) && tx.isFieldPresent(sfJsonTxDelta))
+    {
+        // A JsonTx signs a plaintext preimage, so STTx::checkSign below -- a
+        // check against the binary signing hash -- can never succeed for it.
+        // The delta cannot be stripped to downgrade to a binary check either:
+        // that leaves a TxnSignature over text the binary hash does not match.
+        //
+        // This proves only that the key signed the preimage. Tying that key to
+        // sfAccount is still Transactor::checkSingleSign's job, exactly as for
+        // a binary-signed transaction.
+        // jsontx_verify canonicalizes twice and then verifies ed25519, and
+        // checkValidity runs on every relay, so honour the cache the binary
+        // path below uses rather than redoing that work per peer.
+        if (flags & SF_SIGBAD)
+            return {Validity::SigBad, "Transaction has bad signature."};
+
+        if (!(flags & SF_SIGGOOD))
+        {
+            try
+            {
+                (void)jsontx_verify(tx);
+            }
+            catch (std::exception const& e)
+            {
+                router.setFlags(id, SF_SIGBAD);
+                return {Validity::SigBad, e.what()};
+            }
+
+            router.setFlags(id, SF_SIGGOOD);
+        }
 
         std::string reason;
         if (!passesLocalChecks(tx, reason))

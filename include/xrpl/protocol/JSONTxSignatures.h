@@ -25,16 +25,22 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STParsedJSON.h>
+#include <xrpl/protocol/STTx.h>
+
 #include <boost/algorithm/string.hpp>
+
 #include <algorithm>
-#include <cctype>
+#include <charconv>
 #include <cmath>
 #include <cstdint>
-#include <fmt/format.h>
-#include <limits>
-#include <map>
 #include <functional>
+#include <map>
+#include <stdexcept>
+#include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace ripple {
 
@@ -47,17 +53,30 @@ namespace ripple {
 // exact encoding sanitize_jsontx would have produced.
 //------------------------------------------------------------------------------
 
-static constexpr std::size_t jsontx_max_text = 8192;  // canonical and original
-static constexpr std::size_t jsontx_max_diff = 1024;  // delta bytes
-static constexpr std::size_t jsontx_max_ops = 256;    // delta instructions
-static constexpr std::size_t jsontx_min_copy = 4;     // encoder match threshold
-static constexpr std::size_t jsontx_max_cand = 64;    // encoder candidate cap
+// Every constant below decides whether a transaction is valid, so each is a
+// consensus rule from the moment featureJsonTx activates and cannot be tuned
+// afterwards without a further amendment. jsontx_min_copy and jsontx_max_cand
+// are normative encoder parameters: sanitize_jsontx's output is compared byte
+// for byte in jsontx_verify, so changing either changes which deltas verify.
+//
+// jsontx_max_diff bounds what an ordinary signer can send, not just what a
+// node will accept. A pretty-printed document costs roughly 8 bytes and 2.3
+// ops per line of delta (12 bytes / 2.3 ops at 4-space indent with CRLF), so
+// 2048 bytes covers about 170 lines - a payment with a dozen memos, indented.
+// sanitize_jsontx enforces both caps itself so that a document the encoder
+// accepts is never one unsanitize_jsontx then refuses.
+inline constexpr std::size_t jsontx_max_text = 8192;  // canonical and original
+inline constexpr std::size_t jsontx_max_diff = 2048;  // delta bytes
+inline constexpr std::size_t jsontx_max_ops =
+    jsontx_max_diff / 2;                            // delta instructions
+inline constexpr std::size_t jsontx_min_copy = 4;   // encoder match threshold
+inline constexpr std::size_t jsontx_max_cand = 64;  // encoder candidate cap
 
 // Case-insensitive field-name -> canonical SField. Built once from
 // SField::knownCodeToField, the same table doServerDefinitions publishes, using
 // its serializability filter (useful, binary, non-pseudo). sfInvalid if
 // unknown.
-static SField const&
+inline SField const&
 jsontx_field(std::string const& name)
 {
     static auto const tbl = [] {
@@ -77,7 +96,7 @@ jsontx_field(std::string const& name)
 // directions. Pure integer maths - no strptime, no timegm, no locale, no
 // tzdata - because these conversions decide whether a signature verifies and
 // so must give the same answer on every node forever.
-static constexpr std::int64_t
+inline constexpr std::int64_t
 jsontx_days(int y, unsigned m, unsigned d)  // days from 1970-01-01
 {
     y -= m <= 2;
@@ -88,11 +107,11 @@ jsontx_days(int y, unsigned m, unsigned d)  // days from 1970-01-01
     return era * 146097 + doe - 719468;
 }
 
-static constexpr std::int64_t jsontx_epoch_day = jsontx_days(2000, 1, 1);
+inline constexpr std::int64_t jsontx_epoch_day = jsontx_days(2000, 1, 1);
 
 // 9999-12-31T23:59:59.999Z: past this toISOString() switches to expanded years
 // (+275760-09-13T...) and the fixed 24 character shape no longer holds
-static constexpr std::uint64_t jsontx_max_time =
+inline constexpr std::uint64_t jsontx_max_time =
     (static_cast<std::uint64_t>(jsontx_days(9999, 12, 31) - jsontx_epoch_day) *
          86400 +
      86399) *
@@ -103,15 +122,17 @@ static_assert(jsontx_epoch_day == 10957);  // matches chrono.h epoch_offset
 
 // Strict Date().toISOString() -> milliseconds since the ripple epoch. Exactly
 // YYYY-MM-DDTHH:MM:SS.sssZ, always UTC, always three fractional digits.
-static std::uint64_t
+inline std::uint64_t
 jsontx_iso(std::string const& s)
 {
     static constexpr char pat[] = "0000-00-00T00:00:00.000Z";
     if (s.size() != 24)
         throw std::runtime_error("jsontx: Time must be an ISO 8601 instant");
+    // not std::isdigit: that consults the locale, and this comparison decides
+    // whether a signature verifies
+    auto const digit = [](char c) { return c >= '0' && c <= '9'; };
     for (std::size_t i = 0; i < 24; ++i)
-        if (pat[i] == '0' ? !std::isdigit(static_cast<unsigned char>(s[i]))
-                          : s[i] != pat[i])
+        if (pat[i] == '0' ? !digit(s[i]) : s[i] != pat[i])
             throw std::runtime_error("jsontx: malformed Time");
 
     auto const n = [&s](std::size_t i, std::size_t c) {
@@ -142,7 +163,7 @@ jsontx_iso(std::string const& s)
 // The exact inverse. Total over [0, jsontx_max_time] and injective, so sfTime
 // and its ISO spelling are two views of one value and the delta carries
 // nothing for the field.
-static std::string
+inline std::string
 jsontx_iso_str(std::uint64_t ms)
 {
     if (ms > jsontx_max_time)
@@ -157,15 +178,35 @@ jsontx_iso_str(std::uint64_t ms)
     unsigned const mp = (5 * doy + 2) / 153;
     unsigned const d = doy - (153 * mp + 2) / 5 + 1;
     unsigned const m = mp + (mp < 10 ? 3 : -9);
-    return fmt::format(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        static_cast<std::int64_t>(yoe) + era * 400 + (m <= 2),
-        m,
-        d,
-        tod / 3600,
-        tod / 60 % 60,
-        tod % 60,
-        static_cast<unsigned>(ms % 1000));
+    std::int64_t const y =
+        static_cast<std::int64_t>(yoe) + era * 400 + (m <= 2);
+
+    // jsontx_max_time already bounds y to [2000, 9999], so every field below
+    // fits its width. Hand-rolled rather than formatted: this spelling is part
+    // of the signature preimage and a library's padding rules are not.
+    char buf[24];
+    auto const pad = [&buf](std::size_t at, std::uint64_t v, std::size_t w) {
+        while (w--)
+        {
+            buf[at + w] = static_cast<char>('0' + v % 10);
+            v /= 10;
+        }
+    };
+    pad(0, static_cast<std::uint64_t>(y), 4);
+    buf[4] = '-';
+    pad(5, m, 2);
+    buf[7] = '-';
+    pad(8, d, 2);
+    buf[10] = 'T';
+    pad(11, tod / 3600, 2);
+    buf[13] = ':';
+    pad(14, tod / 60 % 60, 2);
+    buf[16] = ':';
+    pad(17, tod % 60, 2);
+    buf[19] = '.';
+    pad(20, ms % 1000, 3);
+    buf[23] = 'Z';
+    return std::string(buf, sizeof(buf));
 }
 
 //------------------------------------------------------------------------------
@@ -185,11 +226,11 @@ jsontx_iso_str(std::uint64_t ms)
 // double. Past that point the value is refused rather than guessed at.
 //------------------------------------------------------------------------------
 
-static constexpr double jsontx_exact_max = 9007199254740992.0;  // 2^53
+inline constexpr double jsontx_exact_max = 9007199254740992.0;  // 2^53
 
 // Exact integer view of a json number. False if v is not a number at all, or
 // is one this build cannot reproduce digit for digit.
-static bool
+inline bool
 jsontx_exact(Json::Value const& v, std::int64_t& out)
 {
     switch (v.type())
@@ -218,7 +259,7 @@ jsontx_exact(Json::Value const& v, std::int64_t& out)
 // static_cast<std::uint64_t>(v.asDouble()) was undefined for a negative or
 // oversized double, and a silent wrap would let -1 and 18446744073709551615
 // canonicalize to the same bytes.
-static std::uint64_t
+inline std::uint64_t
 jsontx_u64(Json::Value const& v)
 {
     std::int64_t n = 0;
@@ -228,13 +269,26 @@ jsontx_u64(Json::Value const& v)
     return static_cast<std::uint64_t>(n);
 }
 
+// STUInt64::getJson renders through std::to_chars, so: lowercase, unpadded,
+// and base ten for sMD_BaseTen fields. Any other spelling is one the node can
+// never re-derive from its own transaction, which would stop the canonical
+// form being a fixed point.
+inline std::string
+jsontx_u64_str(SField const& f, std::uint64_t v)
+{
+    char buf[20];
+    auto const r = std::to_chars(
+        buf, buf + sizeof(buf), v, f.shouldMeta(SField::sMD_BaseTen) ? 10 : 16);
+    return std::string(buf, r.ptr);
+}
+
 // Renders a javascript number as an exact integer. Anything this build cannot
 // reproduce digit for digit - a fraction, an infinity, a magnitude past 2^53 -
 // is rejected outright: shortest-round-trip rendering of a double is not
 // portable enough to sit in a consensus preimage, and nothing in a transaction
 // needs one. Fractional amounts arrive as strings, which is what the ledger
 // wants anyway.
-static std::string
+inline std::string
 jsontx_num(Json::Value const& v)
 {
     std::int64_t n = 0;
@@ -243,25 +297,107 @@ jsontx_num(Json::Value const& v)
     return std::to_string(n);
 }
 
+// The vendored jsoncpp accepts both comment styles, and stops looking once it
+// has a root value rather than requiring end of input. So
+//
+//     {"TransactionType":"Payment",...}  /* sign this to log in */
+//
+// parses, and the trailing text is reproduced verbatim by the delta and so
+// sits inside the signed preimage. For a feature whose whole premise is that
+// the signer reads what they sign, text outside the object cannot be allowed
+// to ride along. Reject it before the parser ever sees the document.
+//
+// This validates framing only - one bracketed value, no comments, nothing
+// after it. Whether the contents are legal json is still the parser's job.
+inline void
+jsontx_strict(std::string_view raw)
+{
+    std::size_t depth = 0;
+    bool str = false, esc = false, closed = false;
+
+    for (std::size_t i = 0; i < raw.size(); ++i)
+    {
+        char const c = raw[i];
+
+        if (str)
+        {
+            if (esc)
+                esc = false;
+            else if (c == '\\')
+                esc = true;
+            else if (c == '"')
+                str = false;
+            continue;
+        }
+
+        switch (c)
+        {
+            // json's whitespace set, exactly
+            case ' ':
+            case '\t':
+            case '\r':
+            case '\n':
+                continue;
+
+            case '"':
+                str = true;
+                break;
+
+            case '{':
+            case '[':
+                ++depth;
+                break;
+
+            case '}':
+            case ']':
+                if (depth == 0)
+                    throw std::runtime_error("jsontx: unbalanced document");
+                if (--depth == 0)
+                    closed = true;
+                continue;
+
+            case '/':
+                // a bare '/' is not legal json either way, so leave that to
+                // the parser and reject only what the parser would accept
+                if (i + 1 < raw.size() &&
+                    (raw[i + 1] == '/' || raw[i + 1] == '*'))
+                    throw std::runtime_error(
+                        "jsontx: comments are not allowed");
+                break;
+
+            default:
+                break;
+        }
+
+        if (closed)
+            throw std::runtime_error("jsontx: trailing data after document");
+    }
+
+    if (str || depth || !closed)
+        throw std::runtime_error("jsontx: malformed json");
+}
+
 // Returns { sanitized, diff }. `sanitized` is the canonical form: whitespace
 // stripped, field names capitalized to their xahau spelling, members reordered
 // by field code, numbers reformatted per field type. `diff` is a binary delta
 // which, applied to `sanitized` by unsanitize_jsontx, reproduces `raw` byte for
 // byte. Throws on anything it cannot canonicalize.
-static std::pair<std::string, std::string>
+inline std::pair<std::string, std::string>
 sanitize_jsontx(std::string_view raw)
 {
     if (raw.size() > jsontx_max_text)
         throw std::runtime_error("jsontx: document too large");
 
+    jsontx_strict(raw);
+
     Json::Value jv;
-    if (Json::Reader r; !r.parse(raw.data(), raw.data() + raw.size(), jv) ||
-        !jv.isObject())
+    if (Json::Reader r;
+        !r.parse(raw.data(), raw.data() + raw.size(), jv) || !jv.isObject())
         throw std::runtime_error("jsontx: malformed json");
 
     // (a plain recursive lambda; deducing-this would drop the std::function)
-    std::function<
-        void(Json::Value const&, SerializedTypeID, SField const*, std::string&)>
+    std::function<void(
+        Json::Value const&, SerializedTypeID, SField const*, std::string&)>
         emit = [&](Json::Value const& v,
                    SerializedTypeID ty,
                    SField const* fld,
@@ -334,7 +470,16 @@ sanitize_jsontx(std::string_view raw)
                     o += Json::valueToQuotedString(
                         jsontx_iso_str(jsontx_iso(v.asString())).c_str());
                 else
-                    o += Json::valueToQuotedString(v.asCString());
+                {
+                    // valueToQuotedString takes a char const* and so stops at
+                    // an embedded NUL, which would let two different strings
+                    // canonicalize to the same bytes. Nothing in a
+                    // transaction needs one, so refuse rather than truncate.
+                    auto const t = v.asString();
+                    if (t.find('\0') != std::string::npos)
+                        throw std::runtime_error("jsontx: NUL in string value");
+                    o += Json::valueToQuotedString(t.c_str());
+                }
             }
             else if (v.isBool())
                 o += v.asBool() ? "true" : "false";
@@ -343,7 +488,11 @@ sanitize_jsontx(std::string_view raw)
             else if (ty == STI_UINT8 || ty == STI_UINT16 || ty == STI_UINT32)
                 o += jsontx_num(v);  // small ints stay bare
             else if (ty == STI_UINT64)
-                o += '"' + fmt::format("{:016X}", jsontx_u64(v)) + '"';
+            {
+                if (!fld)
+                    throw std::runtime_error("jsontx: unnamed UInt64");
+                o += '"' + jsontx_u64_str(*fld, jsontx_u64(v)) + '"';
+            }
             else  // amounts, u64, everything else the ledger wants as a string
                 o += Json::valueToQuotedString(jsontx_num(v).c_str());
         };
@@ -355,6 +504,7 @@ sanitize_jsontx(std::string_view raw)
     //   op 0x00 <varint len> <bytes>       literal
     //   op 0x01 <varint off> <varint len>  copy from sanitized
     std::string diff, lit;
+    std::size_t ops = 0;
     auto const gram = [](std::string_view s, std::size_t i) {
         return std::uint32_t(std::uint8_t(s[i])) << 24 |
             std::uint32_t(std::uint8_t(s[i + 1])) << 16 |
@@ -376,6 +526,7 @@ sanitize_jsontx(std::string_view raw)
         varint(diff, lit.size());
         diff += lit;
         lit.clear();
+        ++ops;
     };
 
     // This encoder is normative - unsanitize_jsontx only accepts its exact
@@ -411,12 +562,21 @@ sanitize_jsontx(std::string_view raw)
             diff += char(1);
             varint(diff, bo);
             varint(diff, bl);
+            ++ops;
             i += bl;
         }
         else
             lit += raw[i++];
     }
     flush();
+
+    // The same two bounds unsanitize_jsontx applies, applied here so that a
+    // document this function accepts is never one the verifier then refuses.
+    // Almost always this means "too much whitespace to encode": the canonical
+    // form itself is well inside jsontx_max_text.
+    if (diff.size() > jsontx_max_diff || ops > jsontx_max_ops)
+        throw std::runtime_error(
+            "jsontx: formatting differs too much from canonical form");
 
     return {std::move(out), std::move(diff)};
 }
@@ -428,7 +588,7 @@ sanitize_jsontx(std::string_view raw)
 // encodings the encoder can never emit - an unmerged literal run, and a copy
 // abutting the previous copy in the source - are rejected. Throws on anything
 // else.
-static std::string
+inline std::string
 unsanitize_jsontx(std::string_view sanitized, std::string_view diff)
 {
     if (sanitized.size() > jsontx_max_text || diff.size() > jsontx_max_diff)
@@ -503,18 +663,19 @@ unsanitize_jsontx(std::string_view sanitized, std::string_view diff)
 // The complete untrusted-side check, in one place so the RPC path and the
 // relay/consensus path cannot drift. Takes the transaction exactly as it came
 // off the wire and returns the reconstructed preimage.
-static std::string
+inline std::string
 jsontx_verify(STTx const& stx, std::string_view diff)
 {
     if (!stx.isFieldPresent(sfTxnSignature) || stx.isFieldPresent(sfSigners))
         throw std::runtime_error("jsontx: expects a lone TxnSignature");
 
     // Out comes everything the signer did not have in front of them: the
-    // signature, and (once the field exists) the delta carrier. SigningPubKey
-    // stays. It being inside the preimage is what binds key to signature and
-    // stops a third party re-signing a captured preimage under their own key.
+    // signature, and the delta carrier. SigningPubKey stays. It being inside
+    // the preimage is what binds key to signature and stops a third party
+    // re-signing a captured preimage under their own key.
     auto txj = stx.STObject::getJson(JsonOptions::none);
     txj.removeMember(sfTxnSignature.fieldName);
+    txj.removeMember(sfJsonTxDelta.fieldName);
 
     // sfTime is a u64 of milliseconds on the wire and an ISO 8601 instant in
     // the preimage. The two are a bijection over the representable range, so
@@ -551,6 +712,22 @@ jsontx_verify(STTx const& stx, std::string_view diff)
         throw std::runtime_error("jsontx: signature does not verify");
 
     return raw;
+}
+
+// The relay and consensus entry point: same check, with the delta taken from
+// the transaction rather than passed alongside it. This is what checkValidity
+// calls in place of STTx::checkSign for a transaction carrying a delta.
+inline std::string
+jsontx_verify(STTx const& stx)
+{
+    if (!stx.isFieldPresent(sfJsonTxDelta))
+        throw std::runtime_error("jsontx: no delta");
+
+    auto const delta = stx.getFieldVL(sfJsonTxDelta);
+    return jsontx_verify(
+        stx,
+        std::string_view(
+            reinterpret_cast<char const*>(delta.data()), delta.size()));
 }
 
 }  // namespace ripple

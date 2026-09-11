@@ -124,9 +124,6 @@ find_package(date REQUIRED)
 find_package(xxHash REQUIRED)
 find_package(magic_enum REQUIRED)
 
-find_package(fmt REQUIRED)
-target_link_libraries(ripple_libs INTERFACE fmt::fmt)
-
 include(deps/WasmEdge) 
   if(TARGET nudb::core)
   set(nudb nudb::core)

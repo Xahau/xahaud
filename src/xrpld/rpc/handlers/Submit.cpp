@@ -29,19 +29,17 @@
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
+#include <xrpl/basics/strHex.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/PublicKey.h>
-#include <xrpl/basics/strHex.h>
-#include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/JSONTxSignatures.h>
+#include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <xrpl/resource/Fees.h>
-
-#include <xrpl/protocol/JSONTxSignatures.h>
 
 namespace ripple {
 
@@ -97,9 +95,9 @@ doInject(RPC::JsonContext& context)
 
 // {
 //   tx_blob: <string>
-//              OR { tx: <json text>, sig: <hex> },
-//              OR { manifest: <hex> }
-//   secret: <secret>
+//     OR tx: <json text> together with sig: <hex>
+//     OR manifest: <hex>
+//     OR tx_json: <object> together with secret: <secret> (deprecated)
 // }
 Json::Value
 doSubmit(RPC::JsonContext& context)
@@ -108,27 +106,35 @@ doSubmit(RPC::JsonContext& context)
 
     context.loadType = Resource::feeMediumBurdenRPC;
 
-    bool const hasJsonTx = 
-        context.params.isMember(jss::tx) &&
-        context.params.isMember(jss::sig);
+    auto const view = context.app.openLedger().current();
 
-    if (hasJsonTx && !context.ledgerMaster.getCurrentLedger()->rules().enabled(featureJsonTx))
-        return RPC::make_error(
-            rpcNOT_SUPPORTED, "JsonTx is not enabled yet.");
-    
+    bool const isJsonTx =
+        context.params.isMember(jss::tx) && context.params.isMember(jss::sig);
     bool const hasManifest = context.params.isMember(jss::manifest);
-
-    if (hasManifest && !context.ledgerMaster.getCurrentLedger()->rules().enabled(featureOnChainManifests))
-            return RPC::make_error(
-                rpcNOT_ENABLED,
-                "The OnChainManifests amendment is not enabled on this "
-                "network. Manifest submission will work once it activates; "
-                "nothing is wrong with this request.");
-  
     bool const hasTxBlob = context.params.isMember(jss::tx_blob);
-  
-    int const count = (hasTxBlob ? 1 : 0) + (hasJsonTx ? 1 : 0) + (hasManifest ? 1 : 0);
-    if (!count && context.params.isMember(jss::tx))
+
+    // Both of these carry authority that only their amendment teaches the
+    // network to honour, so without the amendment the submitter is told their
+    // transaction is unsigned, which reads as their mistake. It isn't -- the
+    // feature is not live yet -- so say so before touching the payload at all.
+    if (isJsonTx && !view->rules().enabled(featureJsonTx))
+        return RPC::make_error(
+            rpcNOT_ENABLED,
+            "The JsonTx amendment is not enabled on this network. "
+            "Plaintext-JSON submission will work once it activates; nothing "
+            "is wrong with this request.");
+
+    if (hasManifest && !view->rules().enabled(featureOnChainManifests))
+        return RPC::make_error(
+            rpcNOT_ENABLED,
+            "The OnChainManifests amendment is not enabled on this "
+            "network. Manifest submission will work once it activates; "
+            "nothing is wrong with this request.");
+
+    int const count =
+        (hasTxBlob ? 1 : 0) + (isJsonTx ? 1 : 0) + (hasManifest ? 1 : 0);
+
+    if (!count)
     {
         // legacy signing code
         auto const failType = getFailHard(context);
@@ -158,15 +164,15 @@ doSubmit(RPC::JsonContext& context)
     {
         return RPC::make_error(
             rpcINVALID_PARAMS,
-            "Specify exactly one of either `tx_blob` or `manifest` or combination of `tx` and `sig`");
+            "Specify exactly one of `tx_blob`, `manifest`, or `tx` together "
+            "with `sig`");
     }
-  
-    // execution to here means exactly one of hasTxJson, hasManifest or hasTxBlob is true
+
+    // execution to here means exactly one of isJsonTx, hasManifest or
+    // hasTxBlob is true
 
     std::string txBlob =
         hasTxBlob ? context.params[jss::tx_blob].asString() : "";
-
-    std::optional<Blob> ret;
 
     if (hasManifest)
     {
@@ -189,14 +195,13 @@ doSubmit(RPC::JsonContext& context)
         txBlob = *hex;
     }
 
-    if (txBlob != "")
+    std::optional<Blob> ret;
+
+    if (!isJsonTx)
     {
         ret = strUnHex(txBlob);
 
-        if (!ret || !ret->size())
-            return rpcError(rpcINVALID_PARAMS);
-
-        if (!ret || !ret->size())
+        if (!ret || ret->empty())
             return rpcError(rpcINVALID_PARAMS);
     }
 
@@ -246,16 +251,24 @@ doSubmit(RPC::JsonContext& context)
             if (ms)
                 parsed.object->setFieldU64(sfTime, *ms);
             parsed.object->setFieldVL(sfTxnSignature, *sig);
+
+            // The delta rides along in the transaction. Without it a relaying
+            // node has nothing to reconstruct the preimage from, the binary
+            // TxnSignature check fails there, and the transaction never
+            // propagates past this node.
+            parsed.object->setFieldVL(sfJsonTxDelta, makeSlice(diff));
+
             stTx = std::make_shared<STTx const>(std::move(*parsed.object));
 
-            // Round-trip the binary codec, then run the exact check a relaying
-            // node will run, so this path cannot accept anything the network
-            // would later reject.
-            Serializer s;
-            stTx->add(s);
-            SerialIter si(s.slice());
+            // Round-trip the binary codec and run the check a relaying node
+            // will run, so this path cannot accept anything the network would
+            // later reject -- and so the caller gets the real reason rather
+            // than a bare "fails local checks" from checkValidity below.
+            Serializer ser;
+            stTx->add(ser);
+            SerialIter si(ser.slice());
             STTx const rt{si};
-            if (jsontx_verify(rt, diff) != raw)
+            if (jsontx_verify(rt) != raw)
                 throw std::runtime_error("JsonTx: does not round-trip");
         }
     }
@@ -268,9 +281,7 @@ doSubmit(RPC::JsonContext& context)
     }
 
     {
-        // JsonTx signs the plaintext preimage rather than the binary one, so
-        // the binary TxnSignature check is satisfied out of band above.
-        if (!context.app.checkSigs() || isJsonTx)
+        if (!context.app.checkSigs())
             forceValidity(
                 context.app.getHashRouter(),
                 stTx->getTransactionID(),
