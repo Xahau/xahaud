@@ -1458,6 +1458,22 @@ struct Flow_test : public beast::unit_test::suite
             env.require(balance(bob, exempt ? USD(150) : USD(0)));
         }
         {
+            // Holder pays holder through the issuer while the recipient's
+            // line is exactly full.
+            Env env(*this, features);
+            env.fund(XRP(10000), gw, alice, bob);
+            env.trust(USD(1000), alice);
+            env.trust(USD(100), bob);
+            env(pay(gw, alice, USD(500)));
+            env(pay(gw, bob, USD(100)));
+            env(pay(alice, bob, USD(5)),
+                paths(USD),
+                ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_DRY)));
+            env(pay(alice, bob, USD(5)),
+                ter(exempt ? TER(tesSUCCESS) : TER(tecPATH_DRY)));
+            env.require(balance(bob, exempt ? USD(110) : USD(100)));
+        }
+        {
             // Cross-currency: the last direct step follows a book step.
             Env env(*this, features);
             env.fund(XRP(10000), gw, alice, bob, carol);

@@ -23,6 +23,7 @@
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/jss.h>
 
@@ -68,12 +69,18 @@ doAccountCurrencies(RPC::JsonContext& context)
     if (!ledger->exists(keylet::account(accountID)))
         return rpcError(rpcACT_NOT_FOUND);
 
+    // Under NoRecipientLimit the issuer can always pay onto a line, and
+    // redemption was never bound by the limit, so every line's currency is
+    // receivable.
+    bool const noRecipientLimit =
+        ledger->rules().enabled(featureNoRecipientLimit);
+
     std::set<Currency> send, receive;
     for (auto const& rspEntry : RPCTrustLine::getItems(accountID, *ledger))
     {
         STAmount const& saBalance = rspEntry.getBalance();
 
-        if (saBalance < rspEntry.getLimit())
+        if (noRecipientLimit || saBalance < rspEntry.getLimit())
             receive.insert(saBalance.getCurrency());
         if ((-saBalance) < rspEntry.getLimitPeer())
             send.insert(saBalance.getCurrency());

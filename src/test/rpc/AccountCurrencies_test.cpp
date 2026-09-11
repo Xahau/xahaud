@@ -19,6 +19,7 @@
 
 #include <test/jtx.h>
 #include <xrpl/beast/unit_test.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
@@ -138,12 +139,15 @@ class AccountCurrencies_test : public beast::unit_test::suite
     }
 
     void
-    testBasic()
+    testBasic(FeatureBitset features)
     {
         testcase("Basic request for account_currencies");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, features};
+        // Under NoRecipientLimit a full line can still receive from its
+        // issuer, so it stays in receive_currencies.
+        bool const exempt = features[featureNoRecipientLimit];
 
         auto const alice = Account{"alice"};
         auto const gw = Account{"gateway"};
@@ -219,7 +223,9 @@ class AccountCurrencies_test : public beast::unit_test::suite
             boost::lexical_cast<std::string>(params))[jss::result];
         decltype(gwCurrencies) gwCurrenciesNoUSA(
             gwCurrencies.begin() + 1, gwCurrencies.end());
-        BEAST_EXPECT(arrayCheck(jss::receive_currencies, gwCurrenciesNoUSA));
+        BEAST_EXPECT(arrayCheck(
+            jss::receive_currencies,
+            exempt ? gwCurrencies : gwCurrenciesNoUSA));
         BEAST_EXPECT(arrayCheck(jss::send_currencies, gwCurrencies));
 
         // add trust from gw to alice and then exhaust that trust line
@@ -238,8 +244,10 @@ public:
     void
     run() override
     {
+        using namespace test::jtx;
         testBadInput();
-        testBasic();
+        testBasic(supported_amendments());
+        testBasic(supported_amendments() - featureNoRecipientLimit);
     }
 };
 
