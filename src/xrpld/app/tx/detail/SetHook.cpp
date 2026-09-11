@@ -27,6 +27,7 @@
 #include <xrpld/ledger/ApplyView.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
+#include <xrpl/hook/GasValidator.h>
 #include <xrpl/hook/Guard.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -232,6 +233,8 @@ SetHook::inferOperation(STObject const& hookSetObj)
         !hookSetObj.isFieldPresent(sfHookCanEmit) &&
         !hookSetObj.isFieldPresent(sfHookApiVersion) &&
         !hookSetObj.isFieldPresent(sfHookName) &&
+        !hookSetObj.isFieldPresent(sfHookCallbackGas) &&
+        !hookSetObj.isFieldPresent(sfHookWeakGas) &&
         !hookSetObj.isFieldPresent(sfFlags))
         return hsoNOOP;
 
@@ -270,6 +273,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookCanEmit) ||
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 hookSetObj.isFieldPresent(sfHookName) ||
+                hookSetObj.isFieldPresent(sfHookCallbackGas) ||
+                hookSetObj.isFieldPresent(sfHookWeakGas) ||
                 !hookSetObj.isFieldPresent(sfFlags) ||
                 !hookSetObj.isFieldPresent(sfHookNamespace))
             {
@@ -304,6 +309,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.isFieldPresent(sfHookApiVersion) ||
                 hookSetObj.isFieldPresent(sfHookNamespace) ||
                 hookSetObj.isFieldPresent(sfHookName) ||
+                hookSetObj.isFieldPresent(sfHookCallbackGas) ||
+                hookSetObj.isFieldPresent(sfHookWeakGas) ||
                 !hookSetObj.isFieldPresent(sfFlags))
             {
                 JLOG(ctx.j.trace())
@@ -406,6 +413,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             // namespace may be valid, if the user so chooses
             // hookon may be present if the user so chooses
             // flags may be present if the user so chooses
+            // hookweakgas may be present if the user so chooses
+            // hookcallbackgas may be present if the user so chooses
 
             return true;
         }
@@ -445,7 +454,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             auto version = hookSetObj.getFieldU16(sfHookApiVersion);
-            if (version != 0)
+
+            if (!ctx.rules.enabled(featureHookGas) && version != 0)
             {
                 // we currently only accept api version 0
                 JLOG(ctx.j.trace())
@@ -453,6 +463,92 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     << "]: Malformed transaction: SetHook "
                        "sfHook->sfHookApiVersion invalid. (Try 0).";
                 return false;
+            }
+
+            // allow only version=0 and version=1
+            if (version != 0 && version != 1)
+            {
+                JLOG(ctx.j.trace())
+                    << "HookSet(" << ::hook::log::API_INVALID << ")["
+                    << HS_ACC()
+                    << "]: Malformed transaction: SetHook "
+                       "sfHook->sfHookApiVersion invalid. (Must be 0 or 1).";
+                return false;
+            }
+
+            // validate sfHookCallbackGas
+            auto hasHookCallbackGas = false;
+            if (hookSetObj.isFieldPresent(sfHookCallbackGas))
+            {
+                if (version != 1)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook "
+                           "sfHookCallbackGas is "
+                           "not allowed in version "
+                        << version << ".";
+                    return false;
+                }
+                if (hookSetObj.getFieldU32(sfHookCallbackGas) == 0)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook "
+                           "sfHookCallbackGas must be greater than 0.";
+                    return false;
+                }
+                hasHookCallbackGas = true;
+            }
+
+            // validate sfHookWeakGas
+            if (hookSetObj.isFieldPresent(sfHookWeakGas))
+            {
+                if (version != 1)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook sfHookWeakGas is "
+                           "not allowed in version "
+                        << version << ".";
+                    return false;
+                }
+                if (hookSetObj.getFieldU32(sfHookWeakGas) == 0)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook sfHookWeakGas "
+                           "must be greater than 0.";
+                    return false;
+                }
+
+                if (!(flags & hsfCOLLECT))
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook with "
+                           "sfHookWeakGas must be used with hsfCOLLECT "
+                           "flag.";
+                    return false;
+                }
+            }
+            else if (version == 1)
+            {
+                if (flags & hsfCOLLECT)
+                {
+                    JLOG(ctx.j.trace())
+                        << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
+                        << HS_ACC()
+                        << "]: Malformed transaction: SetHook with "
+                           "hsfCOLLECT flag requires sfHookWeakGas to be "
+                           "present.";
+                    return false;
+                }
             }
 
             // validate sfHookOn
@@ -528,6 +624,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     return {};
 
                 Blob hook = hookSetObj.getFieldVL(sfCreateCode);
+                auto version = hookSetObj.getFieldU16(sfHookApiVersion);
 
                 // RH NOTE: validateGuards has a generic non-rippled specific
                 // interface so it can be used in other projects (i.e. tooling).
@@ -545,46 +642,97 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     hsacc = ss.str();
                 }
 
-                auto result = validateGuards(
-                    hook,  // wasm to verify
-                    logger,
-                    hsacc,
-                    hook_api::getImportWhitelist(ctx.rules),
-                    hook_api::getGuardRulesVersion(ctx.rules));
+                uint64_t maxInstrCountHook = 0;
+                uint64_t maxInstrCountCbak = 0;
 
-                if (ctx.j.trace())
+                if (version == 0)  // Guard type
                 {
-                    // clunky but to get the stream to accept the output
-                    // correctly we will split on new line and feed each line
-                    // one by one into the trace stream beast::Journal should be
-                    // updated to inherit from basic_ostream<char> then this
-                    // wouldn't be necessary.
+                    auto result = validateGuards(
+                        hook,  // wasm to verify
+                        logger,
+                        hsacc,
+                        hook_api::getImportWhitelist(ctx.rules),
+                        hook_api::getGuardRulesVersion(ctx.rules));
 
-                    // is this a needless copy or does the compiler do copy
-                    // elision here?
-                    std::string s = loggerStream.str();
-
-                    char* data = s.data();
-                    size_t len = s.size();
-
-                    char* last = data;
-                    size_t i = 0;
-                    for (; i < len; ++i)
+                    if (ctx.j.trace())
                     {
-                        if (data[i] == '\n')
+                        // clunky but to get the stream to accept the output
+                        // correctly we will split on new line and feed each
+                        // line one by one into the trace stream beast::Journal
+                        // should be updated to inherit from basic_ostream<char>
+                        // then this wouldn't be necessary.
+
+                        // is this a needless copy or does the compiler do copy
+                        // elision here?
+                        std::string s = loggerStream.str();
+
+                        char* data = s.data();
+                        size_t len = s.size();
+
+                        char* last = data;
+                        size_t i = 0;
+                        for (; i < len; ++i)
                         {
-                            data[i] = '\0';
-                            ctx.j.trace() << last;
-                            last = data + i;
+                            if (data[i] == '\n')
+                            {
+                                data[i] = '\0';
+                                ctx.j.trace() << last;
+                                last = data + i;
+                            }
                         }
+
+                        if (last < data + i)
+                            ctx.j.trace() << last;
                     }
 
-                    if (last < data + i)
-                        ctx.j.trace() << last;
-                }
+                    if (!result)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::WASM_BAD_MAGIC << ")["
+                            << HS_ACC()
+                            << "]: Malformed transaction: SetHook "
+                               "sfCreateCode failed validation.";
+                        return false;
+                    }
 
-                if (!result)
-                    return false;
+                    std::tie(maxInstrCountHook, maxInstrCountCbak) = *result;
+                }
+                else if (version == 1)  // Gas type
+                {
+                    // validate with GasValidator
+                    auto validationResult =
+                        hook::validateWasmHostFunctionsForGas(
+                            hook, ctx.rules, ctx.j);
+
+                    if (!validationResult)
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::IMPORT_ILLEGAL << ")["
+                            << HS_ACC()
+                            << "]: Malformed transaction: Gas-type Hook "
+                               "validation failed: "
+                            << validationResult.error();
+                        return false;
+                    }
+
+                    auto const hasCbak = validationResult.value();
+                    if ((!hasCbak && hasHookCallbackGas) ||
+                        (hasCbak && !hasHookCallbackGas))
+                    {
+                        JLOG(ctx.j.trace())
+                            << "HookSet(" << hook::log::HOOK_INVALID_FIELD
+                            << ")[" << HS_ACC()
+                            << "]: Malformed transaction: Gas-type Hook must "
+                               "contain either sfHookCallbackGas if it "
+                               "contains cbak function";
+                        return false;
+                    }
+
+                    // Gas type: maxInstrCount is not pre-calculated (use Gas
+                    // limit at runtime)
+                    maxInstrCountHook = 0;
+                    maxInstrCountCbak = 0;
+                }
 
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::WASM_SMOKE_TEST << ")["
@@ -594,7 +742,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
                 std::optional<std::string> result2 =
                     hook::HookExecutor::validateWasm(
-                        hook.data(), (size_t)hook.size());
+                        hook.data(), (size_t)hook.size(), version);
 
                 if (result2)
                 {
@@ -606,7 +754,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                     return false;
                 }
 
-                return *result;
+                return std::make_pair(maxInstrCountHook, maxInstrCountCbak);
             }
         }
 
@@ -816,6 +964,11 @@ SetHook::preflight(PreflightContext const& ctx)
             hookSetObj.isFieldPresent(sfHookName))
             return temDISABLED;
 
+        if (!ctx.rules.enabled(featureHookGas) &&
+            (hookSetObj.isFieldPresent(sfHookCallbackGas) ||
+             hookSetObj.isFieldPresent(sfHookWeakGas)))
+            return temDISABLED;
+
         for (auto const& hookSetElement : hookSetObj)
         {
             auto const& name = hookSetElement.getFName();
@@ -825,14 +978,17 @@ SetHook::preflight(PreflightContext const& ctx)
                 name != sfHookOn && name != sfHookOnOutgoing &&
                 name != sfHookOnIncoming && name != sfHookGrants &&
                 name != sfHookApiVersion && name != sfFlags &&
-                name != sfHookCanEmit && name != sfHookName)
+                name != sfHookCanEmit && name != sfHookName &&
+                name != sfHookCallbackGas && name != sfHookWeakGas)
             {
+                // LCOV_EXCL_START
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::HOOK_INVALID_FIELD << ")["
                     << HS_ACC()
                     << "]: Malformed transaction: SetHook sfHook contains "
                        "invalid field.";
                 return temMALFORMED;
+                // LCOV_EXCL_STOP
             }
         }
 
@@ -1289,6 +1445,46 @@ struct KeyletComparator
 };
 
 TER
+validateGasHook(
+    STObject const& hook,
+    std::shared_ptr<STLedgerEntry> const& defSLE)
+{
+    auto const version = defSLE->getFieldU16(sfHookApiVersion);
+    if (version == 1)
+    {
+        // Gas Hook
+        if (!defSLE->isFieldPresent(sfHookCallbackGas) &&
+            hook.isFieldPresent(sfHookCallbackGas))
+            return tecHOOK_INVALID;
+
+        auto const flags = hook.getFlags();
+        auto const hasCollectFlag = flags & hsfCOLLECT;
+
+        if (hasCollectFlag)
+        {
+            // ltHook or ltHookDefinition must have sfHookWeakGas
+            if (!hook.isFieldPresent(sfHookWeakGas) &&
+                !defSLE->isFieldPresent(sfHookWeakGas))
+                return tecHOOK_INVALID;
+        }
+        else
+        {
+            // ltHook must not have sfHookWeakGas
+            if (hook.isFieldPresent(sfHookWeakGas))
+                return tecHOOK_INVALID;
+        }
+    }
+    else
+    {
+        // Guard Hook
+        if (hook.isFieldPresent(sfHookCallbackGas) ||
+            hook.isFieldPresent(sfHookWeakGas))
+            return tecHOOK_INVALID;
+    }
+    return tesSUCCESS;
+}
+
+TER
 SetHook::setHook()
 {
     /**
@@ -1383,6 +1579,14 @@ SetHook::setHook()
 
         std::optional<Blob> newHookName;
 
+        std::optional<uint32_t> oldHookWeakGas;
+        std::optional<uint32_t> newHookWeakGas;
+        std::optional<uint32_t> defHookWeakGas;
+
+        std::optional<uint32_t> oldHookCallbackGas;
+        std::optional<uint32_t> newHookCallbackGas;
+        std::optional<uint32_t> defHookCallbackGas;
+
         // when hsoCREATE is invoked it populates this variable in case the hook
         // definition already exists and the operation falls through into a
         // hsoINSTALL operation instead
@@ -1455,6 +1659,23 @@ SetHook::setHook()
                 oldHookCanEmit = oldHook->get().getFieldH256(sfHookCanEmit);
             else if (defHookCanEmit)
                 oldHookCanEmit = *defHookCanEmit;
+
+            if (oldDefSLE && oldDefSLE->isFieldPresent(sfHookWeakGas))
+                defHookWeakGas = oldDefSLE->getFieldU32(sfHookWeakGas);
+
+            if (oldHook && oldHook->get().isFieldPresent(sfHookWeakGas))
+                oldHookWeakGas = oldHook->get().getFieldU32(sfHookWeakGas);
+            else if (defHookWeakGas)
+                oldHookWeakGas = *defHookWeakGas;
+
+            if (oldDefSLE && oldDefSLE->isFieldPresent(sfHookCallbackGas))
+                defHookCallbackGas = oldDefSLE->getFieldU32(sfHookCallbackGas);
+
+            if (oldHook && oldHook->get().isFieldPresent(sfHookCallbackGas))
+                oldHookCallbackGas =
+                    oldHook->get().getFieldU32(sfHookCallbackGas);
+            else if (defHookCallbackGas)
+                oldHookCallbackGas = *defHookCallbackGas;
         }
 
         // in preparation for three way merge populate fields if they are
@@ -1490,6 +1711,13 @@ SetHook::setHook()
 
             if (hookSetObj->get().isFieldPresent(sfHookName))
                 newHookName = hookSetObj->get().getFieldVL(sfHookName);
+
+            if (hookSetObj->get().isFieldPresent(sfHookCallbackGas))
+                newHookCallbackGas =
+                    hookSetObj->get().getFieldU32(sfHookCallbackGas);
+
+            if (hookSetObj->get().isFieldPresent(sfHookWeakGas))
+                newHookWeakGas = hookSetObj->get().getFieldU32(sfHookWeakGas);
         }
 
         // users may destroy a namespace in any operation except NOOP and
@@ -1692,6 +1920,40 @@ SetHook::setHook()
                     }
                 }
 
+                auto const defVersion =
+                    oldDefSLE->getFieldU16(sfHookApiVersion);
+
+                if (defVersion == 0 && (newHookCallbackGas || newHookWeakGas))
+                    return tecHOOK_INVALID;
+
+                if (!defHookCallbackGas.has_value() && newHookCallbackGas)
+                    return tecHOOK_INVALID;
+
+                if (newHookWeakGas)
+                {
+                    if (defHookWeakGas.has_value() &&
+                        *defHookWeakGas == *newHookWeakGas)
+                    {
+                        if (newHook.isFieldPresent(sfHookWeakGas))
+                            newHook.makeFieldAbsent(sfHookWeakGas);
+                    }
+                    else
+                        newHook.setFieldU32(sfHookWeakGas, *newHookWeakGas);
+                }
+
+                if (newHookCallbackGas)
+                {
+                    if (defHookCallbackGas.has_value() &&
+                        *defHookCallbackGas == *newHookCallbackGas)
+                    {
+                        if (newHook.isFieldPresent(sfHookCallbackGas))
+                            newHook.makeFieldAbsent(sfHookCallbackGas);
+                    }
+                    else
+                        newHook.setFieldU32(
+                            sfHookCallbackGas, *newHookCallbackGas);
+                }
+
                 // parameters
                 if (hookSetObj->get().isFieldPresent(sfHookParameters) &&
                     hookSetObj->get().getFieldArray(sfHookParameters).empty())
@@ -1735,6 +1997,10 @@ SetHook::setHook()
 
                 if (flags)
                     newHook.setFieldU32(sfFlags, *flags);
+
+                TER result = validateGasHook(newHook, oldDefSLE);
+                if (!isTesSuccess(result))
+                    return result;
 
                 newHooks.push_back(std::move(newHook));
                 continue;
@@ -1870,10 +2136,24 @@ SetHook::setHook()
                     newHookDef->setFieldH256(
                         sfHookSetTxnID, ctx.tx.getTransactionID());
                     newHookDef->setFieldU64(sfReferenceCount, 1);
-                    newHookDef->setFieldAmount(
-                        sfFee,
-                        XRPAmount{
-                            hook::computeExecutionFee(maxInstrCountHook)});
+
+                    // Set HookCallbackGas if present in hookSetObj
+                    if (hookSetObj->get().isFieldPresent(sfHookCallbackGas))
+                        newHookDef->setFieldU32(
+                            sfHookCallbackGas,
+                            hookSetObj->get().getFieldU32(sfHookCallbackGas));
+
+                    // Set HookWeakGas if present in hookSetObj
+                    if (hookSetObj->get().isFieldPresent(sfHookWeakGas))
+                        newHookDef->setFieldU32(
+                            sfHookWeakGas,
+                            hookSetObj->get().getFieldU32(sfHookWeakGas));
+
+                    if (hookSetObj->get().getFieldU16(sfHookApiVersion) != 1)
+                        newHookDef->setFieldAmount(
+                            sfFee,
+                            XRPAmount{
+                                hook::computeExecutionFee(maxInstrCountHook)});
                     if (maxInstrCountCbak > 0)
                         newHookDef->setFieldAmount(
                             sfHookCallbackFee,
@@ -1901,6 +2181,38 @@ SetHook::setHook()
 
                     slesToInsert.emplace(keylet, newHookDef);
                     newHook.setFieldH256(sfHookHash, *createHookHash);
+
+                    // Set HookCallbackGas in Hook object only if different from
+                    // Definition
+                    if (hookSetObj->get().isFieldPresent(sfHookCallbackGas))
+                    {
+                        uint32_t objGas =
+                            hookSetObj->get().getFieldU32(sfHookCallbackGas);
+                        if (!newHookDef->isFieldPresent(sfHookCallbackGas) ||
+                            newHookDef->getFieldU32(sfHookCallbackGas) !=
+                                objGas)
+                        {
+                            newHook.setFieldU32(sfHookCallbackGas, objGas);
+                        }
+                    }
+
+                    // Set HookWeakGas in Hook object only if different from
+                    // Definition
+                    if (hookSetObj->get().isFieldPresent(sfHookWeakGas))
+                    {
+                        uint32_t objGas =
+                            hookSetObj->get().getFieldU32(sfHookWeakGas);
+                        if (!newHookDef->isFieldPresent(sfHookWeakGas) ||
+                            newHookDef->getFieldU32(sfHookWeakGas) != objGas)
+                        {
+                            newHook.setFieldU32(sfHookWeakGas, objGas);
+                        }
+                    }
+
+                    TER result = validateGasHook(newHook, newHookDef);
+                    if (!isTesSuccess(result))
+                        return result;
+
                     newHooks.push_back(std::move(newHook));
                     continue;
                 }
@@ -1972,6 +2284,14 @@ SetHook::setHook()
                     defHookOnOutgoing =
                         newDefSLE->getFieldH256(sfHookOnOutgoing);
 
+                // refresh gas fields from the new definition
+                if (newDefSLE->isFieldPresent(sfHookCallbackGas))
+                    defHookCallbackGas =
+                        newDefSLE->getFieldU32(sfHookCallbackGas);
+
+                if (newDefSLE->isFieldPresent(sfHookWeakGas))
+                    defHookWeakGas = newDefSLE->getFieldU32(sfHookWeakGas);
+
                 // set the hookon field if it differs from definition
                 if (newHookOn)
                 {
@@ -2015,6 +2335,28 @@ SetHook::setHook()
                 if (newHookName && newHookName->size() > 0)
                     newHook.setFieldVL(sfHookName, *newHookName);
 
+                auto const defVersion =
+                    newDefSLE->getFieldU16(sfHookApiVersion);
+
+                if (defVersion == 0 && (newHookCallbackGas || newHookWeakGas))
+                    return tecHOOK_INVALID;
+
+                if (!defHookCallbackGas.has_value() && newHookCallbackGas)
+                    return tecHOOK_INVALID;
+
+                if (newHookCallbackGas &&
+                    !(defHookCallbackGas.has_value() &&
+                      *defHookCallbackGas == *newHookCallbackGas))
+                    newHook.setFieldU32(sfHookCallbackGas, *newHookCallbackGas);
+
+                if ((!flags || !(*flags & hsfCOLLECT)) && newHookWeakGas)
+                    return tecHOOK_INVALID;
+
+                if (newHookWeakGas &&
+                    !(defHookWeakGas.has_value() &&
+                      *defHookWeakGas == *newHookWeakGas))
+                    newHook.setFieldU32(sfHookWeakGas, *newHookWeakGas);
+
                 // parameters
                 TER result = updateHookParameters(
                     ctx,
@@ -2038,6 +2380,10 @@ SetHook::setHook()
                 if (flags)
                     newHook.setFieldU32(sfFlags, newFlags);
 
+                result = validateGasHook(newHook, newDefSLE);
+                if (!isTesSuccess(result))
+                    return result;
+
                 newHooks.push_back(std::move(newHook));
 
                 slesToUpdate.emplace(*newDefKeylet, newDefSLE);
@@ -2055,6 +2401,8 @@ SetHook::setHook()
         }
     }
 
+    JLOG(ctx.j.warn()) << "HookSet: setHook after for loops";
+
     int reserveDelta = 0;
     {
         // compute owner counts before modifying anything on ledger
@@ -2064,8 +2412,8 @@ SetHook::setHook()
         // sfParameters: 1 reserve PER entry
         // sfGrants are: 1 reserve PER entry
         // sfHookHash, sfHookNamespace, sfHookOn, sfHookOnOutgoing,
-        // sfHookOnIncoming, sfHookCanEmit sfHookApiVersion, sfFlags,
-        // sfHookName: free
+        // sfHookOnIncoming, sfHookCanEmit, sfHookApiVersion,
+        // sfFlags, sfHookName, sfHookCallbackGas, sfHookWeakGas: free
 
         // ltHookDefinition is not reserved because it is an unowned object,
         // rather the uploader is billed via fee according to the following:
@@ -2209,6 +2557,7 @@ SetHook::setHook()
         view().update(accountSLE);
     }
 
+    JLOG(ctx.j.warn()) << "HookSet: setHook end";
     return nsDeleteResult;
 }  // namespace ripple
 

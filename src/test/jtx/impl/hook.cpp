@@ -91,6 +91,16 @@ hso(std::string const& wasmHex, void (*f)(Json::Value& jv))
     return jv;
 }
 
+Json::Value
+hso(uint256 const& hookHash, void (*f)(Json::Value& jv))
+{
+    Json::Value jv;
+    jv[jss::HookHash] = to_string(hookHash);
+    if (f)
+        f(jv);
+    return jv;
+}
+
 // Helper function to create HookContext with external stateMap
 hook::HookContext
 makeStubHookContext(

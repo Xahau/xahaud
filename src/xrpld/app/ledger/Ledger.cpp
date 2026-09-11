@@ -244,6 +244,12 @@ Ledger::Ledger(
                 sle->at(sfReserveIncrement) = *f;
             sle->at(sfReferenceFeeUnits) = Config::FEE_UNITS_DEPRECATED;
         }
+        if (std::find(amendments.begin(), amendments.end(), featureHookGas) !=
+            amendments.end())
+        {
+            if (auto const f = config.FEES.hook_gas_price)
+                sle->at(sfHookGasPrice) = f;
+        }
         rawInsert(sle);
     }
 
@@ -695,11 +701,21 @@ Ledger::setup()
                 assign(fees_.increment, reserveIncrementXRP);
                 newFees = baseFeeXRP || reserveBaseXRP || reserveIncrementXRP;
             }
+            // Read GasPrice
+            bool hookFees = false;
+            if (auto const gp = sle->at(~sfHookGasPrice))
+            {
+                fees_.hookGasPrice = *gp;
+                hookFees = true;
+            }
             if (oldFees && newFees)
                 // Should be all of one or the other, but not both
                 ret = false;
             if (!rules_.enabled(featureXRPFees) && newFees)
                 // Can't populate the new fees before the amendment is enabled
+                ret = false;
+            if (!rules_.enabled(featureHookGas) && hookFees)
+                // Can't populate hook gas price before the amendment is enabled
                 ret = false;
         }
     }
@@ -720,7 +736,8 @@ void
 Ledger::defaultFees(Config const& config)
 {
     XRPL_ASSERT(
-        fees_.base == 0 && fees_.reserve == 0 && fees_.increment == 0,
+        fees_.base == 0 && fees_.reserve == 0 && fees_.increment == 0 &&
+            fees_.hookGasPrice == 0,
         "ripple::Ledger::defaultFees : zero fees");
     if (fees_.base == 0)
         fees_.base = config.FEES.reference_fee;
@@ -728,6 +745,8 @@ Ledger::defaultFees(Config const& config)
         fees_.reserve = config.FEES.account_reserve;
     if (fees_.increment == 0)
         fees_.increment = config.FEES.owner_reserve;
+    if (fees_.hookGasPrice == 0)
+        fees_.hookGasPrice = config.FEES.hook_gas_price;
 }
 
 std::shared_ptr<SLE>

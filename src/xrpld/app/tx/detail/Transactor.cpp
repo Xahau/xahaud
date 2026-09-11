@@ -102,6 +102,11 @@ preflight1(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
+    if (ctx.tx.isFieldPresent(sfHookGas) && !ctx.rules.enabled(featureHookGas))
+    {
+        return temMALFORMED;
+    }
+
     auto const ret = preflight0(ctx);
     if (!isTesSuccess(ret))
         return ret;
@@ -245,6 +250,21 @@ Transactor::Transactor(ApplyContext& ctx)
 {
 }
 
+static constexpr uint64_t GAS_PRICE_MICRO_DROPS = 1'000'000;
+
+XRPAmount
+Transactor::calculateHookGas(uint32_t gasCount, Fees const& fees)
+{
+    uint64_t const gasPrice =
+        fees.hookGasPrice > 0 ? fees.hookGasPrice : GAS_PRICE_MICRO_DROPS;
+    uint64_t gasCountU64 = static_cast<uint64_t>(gasCount);
+    if (gasPrice > 0 &&
+        gasCountU64 > std::numeric_limits<uint64_t>::max() / gasPrice)
+        return XRPAmount{INITIAL_XRP.drops()};
+    return XRPAmount{static_cast<XRPAmount::value_type>(
+        (gasCountU64 * gasPrice) / GAS_PRICE_MICRO_DROPS)};
+}
+
 // RH NOTE: this only computes one chain at a time, so if there is a receiving
 // side to a txn then it must seperately be computed by a second call here
 XRPAmount
@@ -260,6 +280,7 @@ Transactor::calculateHookChainFee(
         return XRPAmount{0};
 
     XRPAmount fee{0};
+    uint32_t gasTypeHookCount = 0;  // Gas type hook counter
 
     auto const& hooks = hookSLE->getFieldArray(sfHooks);
 
@@ -310,16 +331,55 @@ Transactor::calculateHookChainFee(
         if (hook::canHook(tx.getTxnType(), hookOn) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
-            XRPAmount const toAdd{hookDef->getFieldAmount(sfFee).xrp().drops()};
+            // get HookApiVersion
+            uint16_t apiVersion = hookDef->getFieldU16(sfHookApiVersion);
 
-            // this overflow should never happen, if somehow it does
-            // fee is set to the largest possible valid xrp value to force
-            // fail the transaction
-            if (fee + toAdd < fee)
-                fee = XRPAmount{INITIAL_XRP.drops()};
-            else
-                fee += toAdd;
+            if (apiVersion == 0)  // Guard type
+            {
+                // existing logic: read HookDefinition's sfFee
+                XRPAmount const toAdd{
+                    hookDef->getFieldAmount(sfFee).xrp().drops()};
+
+                // this overflow should never happen, if somehow it does
+                // fee is set to the largest possible valid xrp value to force
+                // fail the transaction
+                if (fee + toAdd < fee)
+                    fee = XRPAmount{INITIAL_XRP.drops()};
+                else
+                    fee += toAdd;
+            }
+            else if (apiVersion == 1)  // Gas type
+            {
+                if (!collectCallsOnly)
+                {
+                    // Gas type: only count
+                    gasTypeHookCount++;
+                }
+                else
+                {
+                    auto const weakFee = hookObj.isFieldPresent(sfHookWeakGas)
+                        ? hookObj.getFieldU32(sfHookWeakGas)
+                        : hookDef->getFieldU32(sfHookWeakGas);
+                    XRPAmount const toAdd =
+                        calculateHookGas(weakFee, view.fees());
+                    if (fee + toAdd < fee)
+                        fee = XRPAmount{INITIAL_XRP.drops()};
+                    else
+                        fee += toAdd;
+                }
+            }
         }
+    }
+
+    // Additional cost for Gas type: baseFee * 100 /Hook = 10*100 drops/Hook
+    if (gasTypeHookCount > 0)
+    {
+        auto const baseGasFee = view.fees().base * 100;
+        XRPAmount const gasTypeFee{gasTypeHookCount * baseGasFee};
+        if (fee + gasTypeFee < fee)
+            fee = XRPAmount{INITIAL_XRP.drops()};  // overflow
+        else
+            fee += gasTypeFee;
     }
 
     return fee;
@@ -384,6 +444,51 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                     hookExecutionFee += toAdd;
             }
 
+            if (const auto hookSLE =
+                    view.read(keylet::hook(tx.getAccountID(sfAccount))))
+            {
+                const auto& hooks = hookSLE->getFieldArray(sfHooks);
+                for (auto const& hookObj : hooks)
+                {
+                    if (hookObj.isFieldPresent(sfHookHash))
+                    {
+                        if (hookObj.getFieldH256(sfHookHash) !=
+                            callbackHookHash)
+                            continue;
+
+                        uint32_t callbackGas = 0;
+
+                        // Priority 1: Check HookObject
+                        if (hookObj.isFieldPresent(sfHookCallbackGas))
+                        {
+                            callbackGas =
+                                hookObj.getFieldU32(sfHookCallbackGas);
+                        }
+                        // Priority 2: Check HookDefinition
+                        else if (
+                            hookDef &&
+                            hookDef->isFieldPresent(sfHookCallbackGas))
+                        {
+                            callbackGas =
+                                hookDef->getFieldU32(sfHookCallbackGas);
+                        }
+                        // Priority 3: Default to 0 (implicit)
+
+                        if (callbackGas > 0)
+                        {
+                            XRPAmount const toAdd =
+                                calculateHookGas(callbackGas, view.fees());
+                            if (hookExecutionFee + toAdd < hookExecutionFee)
+                                hookExecutionFee =
+                                    XRPAmount{INITIAL_XRP.drops()};
+                            else
+                                hookExecutionFee += toAdd;
+                        }
+                        break;
+                    }
+                }
+            }
+
             XRPL_ASSERT(
                 emitDetails.isFieldPresent(sfEmitBurden),
                 "Transactor::calculateBaseFee : emit burden not present");
@@ -403,6 +508,11 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
             if (canRollback)
                 hookExecutionFee += calculateHookChainFee(
                     view, tx, keylet::hook(tshAcc), false);
+
+        if (view.rules().enabled(featureHookGas) &&
+            tx.isFieldPresent(sfHookGas))
+            hookExecutionFee +=
+                calculateHookGas(tx.getFieldU32(sfHookGas), view.fees());
     }
 
     XRPAmount accumulator = baseFee;
@@ -1340,7 +1450,8 @@ Transactor::executeHookChain(
     ripple::AccountID const& account,
     bool strong,
     bool isOutgoing,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint32_t& gasPool)
 {
     std::set<uint256> hookSkips;
     std::map<uint256, std::map<std::vector<uint8_t>, std::vector<uint8_t>>>
@@ -1428,7 +1539,30 @@ Transactor::executeHookChain(
             return tecINTERNAL;
         }
 
-        bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee);
+        bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee) ||
+            hookDef->isFieldPresent(sfHookCallbackGas);
+
+        // Extract HookApiVersion for Gas-type hooks
+        uint16_t hookApiVersion = hookDef->isFieldPresent(sfHookApiVersion)
+            ? hookDef->getFieldU16(sfHookApiVersion)
+            : 0;
+
+        // Prepare Gas limit for this hook execution
+        uint32_t hookGas = 0;
+        if (hookApiVersion == 1)
+        {
+            if (!strong)  // WeakTSH execution
+            {
+                hookGas = hookObj.isFieldPresent(sfHookWeakGas)
+                    ? hookObj.getFieldU32(sfHookWeakGas)
+                    : hookDef->getFieldU32(sfHookWeakGas);
+            }
+            else  // Strong execution
+            {
+                // Pass remaining Gas pool to this hook
+                hookGas = gasPool;
+            }
+        }
 
         try
         {
@@ -1448,11 +1582,37 @@ Transactor::executeHookChain(
                 strong,
                 (strong ? 0 : 1UL),  // 0 = strong, 1 = weak
                 hook_no - 1,
-                provisionalMeta));
+                provisionalMeta,
+                hookApiVersion,
+                hookGas));
 
             executedHookCount_++;
 
             hook::HookResult& hookResult = results.back();
+
+            // Track Gas consumption for Gas-type hooks
+            if (hookApiVersion == 1)
+            {
+                uint64_t consumed = hookResult.instructionCost;
+
+                JLOG(j_.trace()) << "HookChain: Hook consumed " << consumed
+                                 << " instructions. Pool before: " << gasPool;
+
+                if (consumed >= gasPool)
+                {
+                    JLOG(j_.trace()) << "HookError: Gas pool exhausted. "
+                                     << "Hook tried to consume " << consumed
+                                     << " but only " << gasPool << " remained.";
+                    return tecHOOK_INSUFFICIENT_GAS;
+                }
+
+                gasPool -= consumed;
+
+                JLOG(j_.trace()) << "HookChain: Pool after: " << gasPool;
+            }
+
+            if (hookResult.exitType == hook_api::ExitType::GAS_INSUFFICIENT)
+                return tecHOOK_INSUFFICIENT_GAS;
 
             if (hookResult.exitType != hook_api::ExitType::ACCEPT)
             {
@@ -1533,7 +1693,8 @@ Transactor::doHookCallback(
         return;
     }
 
-    if (!hookDef->isFieldPresent(sfHookCallbackFee))
+    if (!hookDef->isFieldPresent(sfHookCallbackFee) &&
+        !hookDef->isFieldPresent(sfHookCallbackGas))
     {
         JLOG(j_.trace()) << "HookInfo[" << callbackAccountID
                          << "]: Callback specified by emitted txn "
@@ -1590,6 +1751,24 @@ Transactor::doHookCallback(
         {
             hook::HookStateMap stateMap;
 
+            // Extract HookApiVersion for callback
+            uint16_t hookApiVersion = hookDef->getFieldU16(sfHookApiVersion);
+
+            // Get callback gas with fallback priority:
+            // 1. HookObject's HookCallbackGas
+            // 2. HookDefinition's HookCallbackGas
+            // 3. Transaction's HookGas (for backward compatibility)
+            uint32_t hookGas = 0;
+
+            if (hookObj.isFieldPresent(sfHookCallbackGas))
+            {
+                hookGas = hookObj.getFieldU32(sfHookCallbackGas);
+            }
+            else if (hookDef->isFieldPresent(sfHookCallbackGas))
+            {
+                hookGas = hookDef->getFieldU32(sfHookCallbackGas);
+            }
+
             hook::HookResult callbackResult = hook::apply(
                 hookDef->getFieldH256(sfHookSetTxnID),
                 callbackHookHash,
@@ -1606,7 +1785,9 @@ Transactor::doHookCallback(
                 false,
                 ctx_.tx.getTxnType() == ttEMIT_FAILURE ? 1UL : 0UL,
                 hook_no - 1,
-                provisionalMeta);
+                provisionalMeta,
+                hookApiVersion,
+                hookGas);
 
             executedHookCount_++;
 
@@ -1674,7 +1855,8 @@ Transactor::doTSH(
     std::vector<std::pair<AccountID, bool>> tsh,
     hook::HookStateMap& stateMap,
     std::vector<hook::HookResult>& results,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint32_t& gasPool)
 {
     auto& view = ctx_.view();
 
@@ -1824,7 +2006,8 @@ Transactor::doTSH(
             tshAccountID,
             strong,
             false,
-            provisionalMeta);
+            provisionalMeta,
+            gasPool);
 
         if (canRollback && (!isTesSuccess(tshResult)))
             return tshResult;
@@ -1895,6 +2078,19 @@ Transactor::doAgainAsWeak(
             return;
         }
 
+        // Extract HookApiVersion for aaw execution
+        uint16_t hookApiVersion = hookDef->getFieldU16(sfHookApiVersion);
+
+        // Extract HookGas for Gas-type hooks
+        uint32_t hookGasWeak = 0;
+        if (hookApiVersion == 1)
+        {
+            if (hookObj.isFieldPresent(sfHookWeakGas))
+                hookGasWeak = hookObj.getFieldU32(sfHookWeakGas);
+            else if (hookDef->isFieldPresent(sfHookWeakGas))
+                hookGasWeak = hookDef->getFieldU32(sfHookWeakGas);
+        }
+
         try
         {
             hook::HookResult aawResult = hook::apply(
@@ -1908,12 +2104,15 @@ Transactor::doAgainAsWeak(
                 stateMap,
                 ctx_,
                 hookAccountID,
-                hookDef->isFieldPresent(sfHookCallbackFee),
+                hookDef->isFieldPresent(sfHookCallbackFee) ||
+                    hookDef->isFieldPresent(sfHookCallbackGas),
                 false,
                 false,
                 2UL,  // param 2 = aaw
                 hook_no - 1,
-                provisionalMeta);
+                provisionalMeta,
+                hookApiVersion,
+                hookGasWeak);
 
             executedHookCount_++;
 
@@ -2011,6 +2210,15 @@ Transactor::operator()()
         auto const& accountID = ctx_.tx.getAccountID(sfAccount);
         std::vector<hook::HookResult> hookResults;
 
+        // Initialize Gas pool once for strong TSH hook chains
+        uint32_t gasPool = 0;
+        if (ctx_.tx.isFieldPresent(sfHookGas))
+        {
+            gasPool = ctx_.tx.getFieldU32(sfHookGas);
+            JLOG(j_.trace()) << "HookChain: Initialized Gas pool with "
+                             << gasPool << " instructions";
+        }
+
         auto const& hooksOriginator = view().read(keylet::hook(accountID));
 
         // First check if the Sending account has any hooks that can be fired
@@ -2023,7 +2231,8 @@ Transactor::operator()()
                 accountID,
                 true,
                 true,
-                {});
+                {},
+                gasPool);
 
         if (isTesSuccess(result))
         {
@@ -2032,7 +2241,7 @@ Transactor::operator()()
             // (who have the right to rollback the txn), any weak TSH will be
             // executed after doApply has been successful (callback as well)
 
-            result = doTSH(true, tsh, stateMap, hookResults, {});
+            result = doTSH(true, tsh, stateMap, hookResults, {}, gasPool);
         }
 
         // write state if all chains executed successfully
@@ -2410,7 +2619,8 @@ Transactor::operator()()
             tsh = hook::getTransactionalStakeHolders(ctx_.tx, ctx_.view());
         }
 
-        doTSH(false, tsh, stateMap, weakResults, proMeta);
+        uint32_t weakGasPool = 0;
+        doTSH(false, tsh, stateMap, weakResults, proMeta, weakGasPool);
 
         // execute any hooks that nominated for 'again as weak'
         for (auto const& [accID, hookHashes] : aawMap)
