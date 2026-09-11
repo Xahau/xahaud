@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <queue>
+#include <utility>
 #include <vector>
 #include <wasmedge/wasmedge.h>
 
@@ -184,6 +185,8 @@ struct HookResult
     std::shared_ptr<STObject const> provisionalMeta;
     uint16_t hookApiVersion = 0;  // 0 = Guard-type, 1 = Gas-type
     uint32_t hookGas;             // Gas limit for Gas-type hooks
+    std::set<std::pair<AccountID, uint256 /* namespace */>>
+        foreignStateGrantCache;  // add found grants here to avoid rechecking
 };
 
 class HookExecutor;

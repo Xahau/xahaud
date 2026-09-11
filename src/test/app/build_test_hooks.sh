@@ -58,9 +58,7 @@ process_block() {
         sed -E "s/\)\[test\.${tag_pattern}\]\"[\f \t]*/\/*end*\//g" | 
         while read -r line
         do
-            COUNTER=$(cat $COUNTER_FILE)
-            echo "/* ==== WASM: $COUNTER ==== */" >> $OUTPUT_FILE
-            echo -n "{ R\"[test.${tag_output}](" >> $OUTPUT_FILE
+            echo -n '{ R"[test.hook](' >> $OUTPUT_FILE
             cat <<< "$line" | sed -E 's/.{7}$//g' | tr -d '\n' | tr '\f' '\n' >> $OUTPUT_FILE
             echo ")[test.${tag_output}]\"," >> $OUTPUT_FILE
             echo "{" >> $OUTPUT_FILE

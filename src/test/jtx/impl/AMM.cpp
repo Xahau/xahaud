@@ -31,7 +31,7 @@ namespace ripple {
 namespace test {
 namespace jtx {
 
-static Number
+[[maybe_unused]] static Number
 number(STAmount const& a)
 {
     if (isXRP(a))
