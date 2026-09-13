@@ -49,6 +49,8 @@ TxFormats::TxFormats()
         {sfNetworkID, soeOPTIONAL},
         {sfHookParameters, soeOPTIONAL},
         {sfHookName, soeOPTIONAL},
+        {sfTime, soeOPTIONAL},
+        {sfJsonTxDelta, soeOPTIONAL},
     };
 
 #pragma push_macro("UNWRAP")
