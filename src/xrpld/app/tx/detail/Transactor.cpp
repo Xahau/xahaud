@@ -155,7 +155,10 @@ preflight1(PreflightContext const& ctx)
             !ctx.rules.enabled(featureNamedHooks))
             return temMALFORMED;
 
-        if (!SetHook::validateHookName(ctx.tx.getFieldVL(sfHookName), ctx.j))
+        if (!SetHook::validateHookName(
+                ctx.tx.getFieldVL(sfHookName),
+                ctx.rules.enabled(featurePWALoader),
+                ctx.j))
             return temMALFORMED;
     }
 
