@@ -635,6 +635,42 @@ public:
                 BEAST_EXPECT(r2.second.size() >= r1.second.size());
             });
 
+
+        // ---- 2^53 boundary: values at and above 2^53 must be rejected ----
+        // Doubles cannot uniquely represent odd integers >= 2^53, so the
+        // safe boundary for exact integer round-trips is 2^53 - 1.
+        section("exact_at_2exp53_boundary",
+            [&] {
+                // 2^53 - 1 should be accepted (max safe value)
+                Json::Value ok;
+                ok = 9007199254740991;
+                std::int64_t out = 0;
+                BEAST_EXPECT(jsontx_exact(ok, out));
+                BEAST_EXPECT(out == 9007199254740991);
+
+                // 2^53 should be rejected (not uniquely representable)
+                Json::Value bad;
+                bad = 9007199254740992;
+                BEAST_EXPECT(!jsontx_exact(bad, out));
+
+                // 2^53 + 1 rounds down to 2^53 in double representation
+                // and should also be rejected
+                Json::Value bad2;
+                bad2 = 9007199254740993;
+                BEAST_EXPECT(!jsontx_exact(bad2, out));
+
+                // Negative boundary: -2^53 should be rejected
+                Json::Value neg_bad;
+                neg_bad = -9007199254740992;
+                BEAST_EXPECT(!jsontx_exact(neg_bad, out));
+
+                // -2^53 + 1 should be accepted
+                Json::Value neg_ok;
+                neg_ok = -9007199254740991;
+                BEAST_EXPECT(jsontx_exact(neg_ok, out));
+                BEAST_EXPECT(out == -9007199254740991);
+            });
+
     }
 };
 

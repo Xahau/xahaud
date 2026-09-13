@@ -247,8 +247,7 @@ jsontx_exact(Json::Value const& v, std::int64_t& out)
             return false;
     }
     double const d = v.asDouble();
-    if (!std::isfinite(d) || d != std::trunc(d) || d < -jsontx_exact_max ||
-        d > jsontx_exact_max)
+    if (!std::isfinite(d) || d != std::trunc(d) || d <= -jsontx_exact_max || d >= jsontx_exact_max)
         return false;
     out = static_cast<std::int64_t>(d);
     return true;
