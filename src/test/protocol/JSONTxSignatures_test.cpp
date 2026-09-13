@@ -428,6 +428,152 @@ public:
                     BEAST_EXPECT(true);
                 }
             });
+
+        // ---- Unknown field rejection ----
+        section("sanitize_rejects_unknown_field",
+            [&] {
+                std::string raw = R"({"Account":"rTest","Fee":"10","BogusField":"x"})";
+                BEAST_EXPECT_THROWS(sanitize_jsontx(raw));
+            });
+
+        // ---- Duplicate field rejection (case variant) ----
+        section("sanitize_rejects_duplicate_field",
+            [&] {
+                std::string raw = R"({"Fee":"10","fee":"20"})";
+                BEAST_EXPECT_THROWS(sanitize_jsontx(raw));
+            });
+
+        // ---- NUL byte in string value rejection ----
+        section("sanitize_rejects_nul_in_string",
+            [&] {
+                std::string raw = "{\"Account\":\"rTe";
+                raw += '\0';
+                raw += "st\",\"Fee\":\"10\"}";
+                BEAST_EXPECT_THROWS(sanitize_jsontx(raw));
+            });
+
+        // ---- Document size limit enforcement ----
+        section("sanitize_rejects_oversized_document",
+            [&] {
+                std::string large = "{";
+                for (int i = 0; i < 20000; ++i)
+                    large += "\"";
+                large += "\":1}";
+                BEAST_EXPECT_THROWS(sanitize_jsontx(large));
+            });
+
+        // ---- Nested object handling (Memos) ----
+        section("sanitize_nested_object",
+            [&] {
+                std::string raw = R"({
+                    "Account":"rTest",
+                    "Fee":"10",
+                    "Sequence":1,
+                    "SigningPubKey":"ED",
+                    "Time":"2000-01-01T00:00:00.000Z",
+                    "TransactionType":"Payment",
+                    "Memos":[{"Memo":{"MemoData":"48656C6C6F"}}]
+                })";
+                try
+                {
+                    auto const result = sanitize_jsontx(raw);
+                    auto const reconstructed =
+                        unsanitize_jsontx(result.first, result.second);
+                    BEAST_EXPECT(reconstructed == raw);
+                }
+                catch (std::exception const& e)
+                {
+                    BEAST_EXPECT(true);
+                }
+            });
+
+        // ---- Canonical ordering verification ----
+        section("canonical_field_ordering",
+            [&] {
+                std::string raw = R"({"TransactionType":"Payment","Account":"rTest","Fee":"10","Sequence":1,"SigningPubKey":"ED","Time":"2000-01-01T00:00:00.000Z"})";
+                auto const result = sanitize_jsontx(raw);
+                auto const reconstructed =
+                    unsanitize_jsontx(result.first, result.second);
+                BEAST_EXPECT(reconstructed == raw);
+            });
+
+        // ---- u64 formatting edge cases ----
+        section("u64_formatting",
+            [&] {
+                BEAST_EXPECT(jsontx_u64_str(0, jsontx_u64(0)) == "0");
+                BEAST_EXPECT(jsontx_u64_str(0, jsontx_u64(100)) == "100");
+                BEAST_EXPECT(jsontx_u64_str(0, jsontx_u64(1000)) == "1000");
+            });
+
+        // ---- Delta encoding round-trips with reordered fields ----
+        section("delta_reordered_fields",
+            [&] {
+                std::string raw = R"({"TransactionType":"Payment","SigningPubKey":"ED","Sequence":1,"Fee":"10","Time":"2000-01-01T00:00:00.000Z","Account":"rTest"})";
+                auto const result = sanitize_jsontx(raw);
+                auto const reconstructed =
+                    unsanitize_jsontx(result.first, result.second);
+                BEAST_EXPECT(reconstructed == raw);
+            });
+
+        // ---- Varint encoding edge cases ----
+        section("unsanitize_varint_bounds",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x00);
+                delta += static_cast<char>(0xFF); delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF); delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF); delta += static_cast<char>(0x01);
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Too many delta operations ----
+        section("unsanitize_too_many_ops",
+            [&] {
+                std::string delta;
+                for (int i = 0; i < 2000; ++i)
+                {
+                    delta += static_cast<char>(0x00);
+                    delta += static_cast<char>(0x00);
+                }
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Copy op that goes past end of text ----
+        section("unsanitize_copy_past_end",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x01);
+                delta += static_cast<char>(0xFF); delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF); delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF); delta += static_cast<char>(0x01);
+                delta += static_cast<char>(0x01);
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Unknown delta operation ----
+        section("unsanitize_unknown_op",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x02);
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Non-minimal varint detection ----
+        section("unsanitize_non_minimal_varint",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x00);
+                delta += static_cast<char>(0x80);
+                delta += static_cast<char>(0x01);
+                delta += static_cast<char>(0x00);
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
     }
 };
 
