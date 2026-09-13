@@ -378,7 +378,8 @@ ServerHandler::processPWARequest(
         "X-Content-Type-Options: nosniff",
         "X-Frame-Options: DENY",
         "Referrer-Policy: no-referrer",
-        "Cross-Origin-Resource-Policy: same-origin"};
+        "Cross-Origin-Resource-Policy: same-origin",
+        "Cache-Control: no-cache, no-store, must-revalidate"};
 
     auto const ledger = app_.getLedgerMaster().getClosedLedger();
     if (!ledger)

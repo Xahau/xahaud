@@ -97,6 +97,26 @@ struct PWALoader_test : public beast::unit_test::suite
             check("<html><script>var s=\"</html>\";</script></html>") == R::ok);
         // TAB / LF / CR / FF are HTML whitespace and are fine.
         BEAST_EXPECT(check("<html>\t\n\r\f</html>") == R::ok);
+        // All-uppercase tag names are legal HTML.
+        BEAST_EXPECT(check("<HTML></HTML>") == R::ok);
+        BEAST_EXPECT(check("<!DOCTYPE HTML><HTML></HTML>") == R::ok);
+        // Mixed case.
+        BEAST_EXPECT(check("<Html></Html>") == R::ok);
+        // Attributes on <html>.
+        BEAST_EXPECT(check("<html lang=\"en\" class=\"root\"></html>") == R::ok);
+        // Nested elements.
+        BEAST_EXPECT(
+            check("<!DOCTYPE html><html><body><p>hi</p></body></html>") == R::ok);
+        // Trailing whitespace after </html>.
+        BEAST_EXPECT(check("<html></html>  \n") == R::ok);
+        BEAST_EXPECT(check("<html></html>\t\r\f") == R::ok);
+        // BOM followed by doctype.
+        BEAST_EXPECT(
+            check("\xEF\xBB\xBF<!DOCTYPE html><html></html>") == R::ok);
+        // Whitespace between </html and >.
+        BEAST_EXPECT(check("<html></html  >") == R::ok);
+        // Empty <html> with body but no explicit body tag.
+        BEAST_EXPECT(check("<html><p>text</p></html>") == R::ok);
 
         // --- rejected ---------------------------------------------------
         BEAST_EXPECT(check("") == R::empty);
@@ -124,6 +144,21 @@ struct PWALoader_test : public beast::unit_test::suite
         BEAST_EXPECT(check("<html></html>trailing") == R::trailingGarbage);
         BEAST_EXPECT(
             check("<html></html><script>x</script>") == R::trailingGarbage);
+
+        // BOM only is empty.
+        BEAST_EXPECT(check("\xEF\xBB\xBF") == R::empty);
+        // BOM followed by whitespace only.
+        BEAST_EXPECT(check("\xEF\xBB\xBF  \n\t") == R::empty);
+        // </html> before <html>.
+        BEAST_EXPECT(check("</html><html></html>") == R::noDoctype);
+        // Missing > on </html> end tag.
+        BEAST_EXPECT(check("<html></html  ") == R::unclosed);
+        // Self-closing <html/> followed by </html> is valid.
+        BEAST_EXPECT(check("<html/></html>") == R::ok);
+        // Doctype alone.
+        BEAST_EXPECT(check("<!DOCTYPE html>") == R::noHtmlElement);
+        // <head> before <html> means <head> is found first, not <html>.
+        BEAST_EXPECT(check("<head></head><html></html>") == R::noDoctype);
 
         // Control characters.
         BEAST_EXPECT(
