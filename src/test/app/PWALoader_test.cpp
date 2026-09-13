@@ -117,6 +117,8 @@ struct PWALoader_test : public beast::unit_test::suite
         BEAST_EXPECT(check("<html></html  >") == R::ok);
         // Empty <html> with body but no explicit body tag.
         BEAST_EXPECT(check("<html><p>text</p></html>") == R::ok);
+        // Self-closing <html/> followed by </html> is valid.
+        BEAST_EXPECT(check("<html/></html>") == R::ok);
 
         // --- rejected ---------------------------------------------------
         BEAST_EXPECT(check("") == R::empty);
@@ -153,8 +155,6 @@ struct PWALoader_test : public beast::unit_test::suite
         BEAST_EXPECT(check("</html><html></html>") == R::noDoctype);
         // Missing > on </html> end tag.
         BEAST_EXPECT(check("<html></html  ") == R::unclosed);
-        // Self-closing <html/> followed by </html> is valid.
-        BEAST_EXPECT(check("<html/></html>") == R::ok);
         // Doctype alone.
         BEAST_EXPECT(check("<!DOCTYPE html>") == R::noHtmlElement);
         // <head> before <html> means <head> is found first, not <html>.
