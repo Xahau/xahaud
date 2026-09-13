@@ -322,7 +322,11 @@ jsontx_strict(std::string_view raw)
         if (str)
         {
             if (esc)
+            {
+                if (c == 'u')
+                    throw std::runtime_error("jsontx: \\u escapes are not allowed");
                 esc = false;
+            }
             else if (c == '\\')
                 esc = true;
             else if (c == '"')

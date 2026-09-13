@@ -574,6 +574,67 @@ public:
                     unsanitize_jsontx(R"({"a":"b"})", delta));
             });
 
+
+        // ---- \u escape rejection in jsontx_strict ----
+        section("strict_rejects_unicode_escapes",
+            [&] {
+                // \u00XX sequences must be rejected
+                BEAST_EXPECT(!jsontx_strict(R"({"key":"\u0048ello"})"));
+                BEAST_EXPECT(!jsontx_strict(R"({"key":"hello\u0041"})"));
+                // Including \u0000 which would encode NUL
+                BEAST_EXPECT(!jsontx_strict(R"({"key":"\u0000"})"));
+                // Mixed case \U should be fine (json doesn't support \U)
+                BEAST_EXPECT(jsontx_strict(R"({"key":"\\Utest"})"));
+            });
+
+        // ---- \u escape in sanitize_jsontx ----
+        section("sanitize_rejects_unicode_escapes",
+            [&] {
+                BEAST_EXPECT_THROWS(
+                    sanitize_jsontx(R"({"Account":"rTest","Fee":"10","Message":"\u0041"})"));
+            });
+
+        // ---- jsontx_u64 negative rejection ----
+        section("u64_negative_rejected",
+            [&] {
+                Json::Value neg;
+                neg = -1;
+                BEAST_EXPECT_THROWS(jsontx_u64(neg));
+            });
+
+        // ---- jsontx_u64 non-integer rejection ----
+        section("u64_non_integer_rejected",
+            [&] {
+                Json::Value frac;
+                frac = 1.5;
+                BEAST_EXPECT_THROWS(jsontx_u64(frac));
+            });
+
+        // ---- jsontx_u64 infinity/NaN rejection ----
+        section("u64_special_float_rejected",
+            [&] {
+                Json::Value inf;
+                inf = 1.0 / 0.0;
+                BEAST_EXPECT_THROWS(jsontx_u64(inf));
+            });
+
+        // ---- Delta size grows with field count ----
+        section("delta_scales_with_complexity",
+            [&] {
+                std::string raw = R"({"Account":"rTest","Fee":"10","Sequence":1,"SigningPubKey":"ED","Time":"2000-01-01T00:00:00.000Z","TransactionType":"Payment"})";
+                auto const r1 = sanitize_jsontx(raw);
+
+                // Add more fields - delta should be larger
+                std::string raw2 = R"({"Account":"rTest","Destination":"rDest","Fee":"10","Flags":2147483648,"LastLedgerSequence":1000,"Sequence":1,"SigningPubKey":"ED","Time":"2000-01-01T00:00:00.000Z","TransactionType":"Payment"})";
+                auto const r2 = sanitize_jsontx(raw2);
+
+                // Reconstruct both
+                BEAST_EXPECT(unsanitize_jsontx(r1.first, r1.second) == raw);
+                BEAST_EXPECT(unsanitize_jsontx(r2.first, r2.second) == raw2);
+                // Larger tx should have a larger delta
+                BEAST_EXPECT(r2.second.size() >= r1.second.size());
+            });
+
     }
 };
 
