@@ -671,6 +671,161 @@ public:
                 BEAST_EXPECT(out == -9007199254740991);
             });
 
+
+        // ---- Delta error: truncated delta ----
+        section("unsanitize_truncated_delta",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x00);  // literal op
+                // No length bytes follow - should throw
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Delta error: unmerged literal run ----
+        section("unsanitize_unmerged_literal",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x00);   // literal op
+                delta += static_cast<char>(0x02);   // length 2
+                delta += "ab";                       // literal data
+                delta += static_cast<char>(0x00);   // ANOTHER literal op (unmerged!)
+                delta += static_cast<char>(0x02);   // length 2
+                delta += "cd";                       // literal data
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Delta error: empty delta ----
+        section("unsanitize_empty_delta",
+            [&] {
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", ""));
+            });
+
+        // ---- Delta error: undersize copy ----
+        section("unsanitize_undersize_copy",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x01);  // copy op
+                delta += static_cast<char>(0x00);  // offset 0
+                delta += static_cast<char>(0x01);  // length 1 (< jsontx_min_copy=4)
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Delta error: unmerged copy run ----
+        section("unsanitize_unmerged_copy",
+            [&] {
+                std::string sanitized = "abcdefgh";
+                std::string delta;
+                // First copy: offset 0, length 4 (copies "abcd")
+                delta += static_cast<char>(0x01);
+                delta += static_cast<char>(0x00);  // offset 0
+                delta += static_cast<char>(0x04);  // length 4
+                // Second copy: offset 4, length 4 (copies "efgh")
+                // This should fail because offset 4 == prevEnd (0+4)
+                delta += static_cast<char>(0x01);
+                delta += static_cast<char>(0x04);  // offset 4
+                delta += static_cast<char>(0x04);  // length 4
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(sanitized, delta));
+            });
+
+        // ---- Delta error: bad literal length ----
+        section("unsanitize_bad_literal_length",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x00);  // literal op
+                // varint 0x81,0x01 = (0x01) | (0x01 << 7) = 129 bytes claimed
+                delta += static_cast<char>(0x81);
+                delta += static_cast<char>(0x01);
+                delta += "short";  // only 5 bytes available, 129 claimed
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Delta error: overlong varint (5 bytes) ----
+        section("unsanitize_overlong_varint",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x00);  // literal op
+                // 5 bytes varint (overlong - max 4 bytes)
+                delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0x01);  // 5th byte should trigger overlong
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Delta error: overlong varint (5+ bytes needed) ----
+        section("unsanitize_overlong_varint_literal",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x00);  // literal op
+                // 4 bytes all with high bit set = overlong (max 4 bytes)
+                delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF);
+                // 5th byte is never consumed; loop exits at s=28 > 21
+                delta += static_cast<char>(0x01);
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Delta error: delta value out of range ----
+        section("unsanitize_value_out_of_range",
+            [&] {
+                std::string delta;
+                delta += static_cast<char>(0x01);  // copy op
+                // varint 0xFF, 0xFF = 0x7F | (0x7F << 7) = 16383 > max sanitized size
+                delta += static_cast<char>(0xFF);
+                delta += static_cast<char>(0xFF);
+                // length follows
+                delta += static_cast<char>(0x04);
+                BEAST_EXPECT_THROWS(
+                    unsanitize_jsontx(R"({"a":"b"})", delta));
+            });
+
+        // ---- Timestamp: malformed ISO format ----
+        section("iso_malformed_timestamp",
+            [&] {
+                BEAST_EXPECT_THROWS(jsontx_iso("2000-01-01T00:00:00"));  // missing Z
+                BEAST_EXPECT_THROWS(jsontx_iso("2000-01-01T00:00:00.Z"));  // missing ms
+                BEAST_EXPECT_THROWS(jsontx_iso("not-a-date"));
+            });
+
+        // ---- Timestamp: out of range month/day ----
+        section("iso_out_of_range_date",
+            [&] {
+                BEAST_EXPECT_THROWS(jsontx_iso("2000-00-01T00:00:00.000Z"));  // month 0
+                BEAST_EXPECT_THROWS(jsontx_iso("2000-13-01T00:00:00.000Z"));  // month 13
+                BEAST_EXPECT_THROWS(jsontx_iso("2000-02-30T00:00:00.000Z"));  // Feb 30
+                BEAST_EXPECT_THROWS(jsontx_iso("2001-02-29T00:00:00.000Z"));  // non-leap Feb 29
+            });
+
+        // ---- Timestamp: before ripple epoch ----
+        section("iso_before_epoch",
+            [&] {
+                BEAST_EXPECT_THROWS(jsontx_iso("1999-12-31T23:59:59.999Z"));
+            });
+
+        // ---- jsontx_strict: trailing data ----
+        section("strict_trailing_data",
+            [&] {
+                BEAST_EXPECT(!jsontx_strict(R"({"a":"b"} "trailing"))");
+            });
+
+        // ---- jsontx_strict: unbalanced brackets ----
+        section("strict_unbalanced",
+            [&] {
+                BEAST_EXPECT(!jsontx_strict(R"({"a":"b"))");       // missing }
+                BEAST_EXPECT(!jsontx_strict(R"({"a":"b"}})"));     // extra }
+            });
+
     }
 };
 
