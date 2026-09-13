@@ -103,10 +103,12 @@ struct PWALoader_test : public beast::unit_test::suite
         // Mixed case.
         BEAST_EXPECT(check("<Html></Html>") == R::ok);
         // Attributes on <html>.
-        BEAST_EXPECT(check("<html lang=\"en\" class=\"root\"></html>") == R::ok);
+        BEAST_EXPECT(
+            check("<html lang=\"en\" class=\"root\"></html>") == R::ok);
         // Nested elements.
         BEAST_EXPECT(
-            check("<!DOCTYPE html><html><body><p>hi</p></body></html>") == R::ok);
+            check("<!DOCTYPE html><html><body><p>hi</p></body></html>") ==
+            R::ok);
         // Trailing whitespace after </html>.
         BEAST_EXPECT(check("<html></html>  \n") == R::ok);
         BEAST_EXPECT(check("<html></html>\t\r\f") == R::ok);
