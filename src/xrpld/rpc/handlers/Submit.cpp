@@ -216,6 +216,8 @@ doSubmit(RPC::JsonContext& context)
         }
         else
         {
+            if (!context.params.isMember(jss::sig))
+                throw std::runtime_error("JsonTx: missing sig parameter");
             std::string const raw = context.params[jss::tx].asString();
             auto const [san, diff] = sanitize_jsontx(raw);
             auto const sig = strUnHex(context.params[jss::sig].asString());
