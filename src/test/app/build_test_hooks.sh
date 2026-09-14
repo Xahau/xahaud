@@ -48,7 +48,6 @@ cat $INPUT_FILE | tr '\n' '\f' |
         sed -E 's/\)\[test\.hook\]"[\f \t]*/\/*end*\//g' | 
         while read -r line
         do
-            echo "/* ==== WASM: $COUNTER ==== */" >> $OUTPUT_FILE
             echo -n '{ R"[test.hook](' >> $OUTPUT_FILE
             cat <<< "$line" | sed -E 's/.{7}$//g' | tr -d '\n' | tr '\f' '\n' >> $OUTPUT_FILE
             echo ')[test.hook]",' >> $OUTPUT_FILE
