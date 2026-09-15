@@ -30,12 +30,6 @@
 
 namespace ripple {
 
-TxConsequences
-ClaimReward::makeTxConsequences(PreflightContext const& ctx)
-{
-    return TxConsequences{ctx.tx, TxConsequences::normal};
-}
-
 NotTEC
 ClaimReward::preflight(PreflightContext const& ctx)
 {
