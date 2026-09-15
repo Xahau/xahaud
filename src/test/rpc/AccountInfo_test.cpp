@@ -24,6 +24,8 @@
 #include <test/jtx/WSClient.h>
 #include <test/rpc/GRPCTestClientBase.h>
 #include <xrpld/rpc/GRPCHandlers.h>
+#include <xrpl/hook/Misc.h>
+#include <xrpl/protocol/InnerObjectFormats.h>
 #include <xrpl/resource/Charge.h>
 #include <xrpl/resource/Fees.h>
 
@@ -119,6 +121,252 @@ public:
             testInvalidIdentParam(Json::Value(Json::objectValue));
             testInvalidIdentParam(Json::Value(Json::arrayValue));
         }
+    }
+
+    void
+    testHooksRequest()
+    {
+        testcase("Hooks request");
+        using namespace jtx;
+        Env env(*this);
+        Account const alice{"alice"};
+        env.fund(XRP(1000), alice);
+
+        auto request = [&](Json::Value const& hooks, unsigned apiVersion) {
+            Json::Value params;
+            params[jss::account] = alice.human();
+            params[jss::hooks] = hooks;
+            if (apiVersion == 1)
+                return env.rpc("json", "account_info", to_string(params));
+
+            params[jss::api_version] = 2;
+            return env.rpc("json", "account_info", to_string(params));
+        };
+
+        for (Json::Value const& invalid :
+             {Json::Value(1),
+              Json::Value(1.1),
+              Json::Value("true"),
+              Json::Value(Json::nullValue),
+              Json::Value(Json::objectValue),
+              Json::Value(Json::arrayValue)})
+        {
+            for (unsigned const apiVersion : {1u, 2u})
+            {
+                auto const info = request(invalid, apiVersion);
+                BEAST_EXPECT(info[jss::result][jss::error] == "invalidParams");
+                BEAST_EXPECT(
+                    info[jss::result][jss::error_message] ==
+                    "Invalid field 'hooks'.");
+            }
+        }
+
+        auto const withoutHooks = env.rpc(
+            "json",
+            "account_info",
+            R"({"account": ")" + alice.human() + R"("})");
+        BEAST_EXPECT(!withoutHooks[jss::result].isMember(jss::hooks));
+
+        auto const explicitlyFalse = env.rpc(
+            "json",
+            "account_info",
+            R"({"account": ")" + alice.human() + R"(","hooks":false})");
+        BEAST_EXPECT(!explicitlyFalse[jss::result].isMember(jss::hooks));
+
+        auto const explicitlyTrue = env.rpc(
+            "json",
+            "account_info",
+            std::string{"{ "} + "\"account\": \"" + alice.human() +
+                "\", \"hooks\": true }");
+        BEAST_EXPECT(explicitlyTrue[jss::result][jss::hooks].isArray());
+        BEAST_EXPECT(explicitlyTrue[jss::result][jss::hooks].size() == 0);
+    }
+
+    void
+    testHooksEffectiveValues()
+    {
+        testcase("Effective hook values");
+
+        auto const* hookTemplate =
+            InnerObjectFormats::getInstance().findSOTemplateBySField(sfHook);
+        if (!BEAST_EXPECTS(hookTemplate != nullptr, "sfHook template"))
+            return;
+        // If this count changes, add or remove tests for the corresponding Hook
+        // fields.
+        BEAST_EXPECT(hookTemplate->size() == 12);
+
+        using namespace jtx;
+        Env env(*this);
+        Account const alice{"alice"};
+        env.fund(XRP(1000), alice);
+
+        uint256 const definitionNamespace{1};
+        uint256 const accountNamespace{2};
+        auto const makeParameter = [](std::string const& name,
+                                      std::string const& value) {
+            Json::Value parameter;
+            parameter[jss::HookParameter][jss::HookParameterName] = name;
+            parameter[jss::HookParameter][jss::HookParameterValue] = value;
+            return parameter;
+        };
+
+        auto create = hso(genesis::AcceptHook);
+        create[jss::Flags] = hsfCOLLECT;
+        create[jss::HookName] = strHex(std::string{"ACCT"});
+        create[jss::HookNamespace] = to_string(definitionNamespace);
+        create[jss::HookParameters] = Json::arrayValue;
+        create[jss::HookParameters].append(makeParameter("AA", "BB"));
+        create[jss::HookParameters].append(makeParameter("CC", "DD"));
+        env(hook(alice, {{create, Json::Value{}}}, 0),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+
+        auto const hookSLE = env.le(keylet::hook(alice.id()));
+        BEAST_EXPECT(hookSLE && hookSLE->isFieldPresent(sfHooks));
+        if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
+            return;
+        auto const& installed = hookSLE->getFieldArray(sfHooks)[0];
+        BEAST_EXPECT(installed.isFieldPresent(sfHookHash));
+        if (!installed.isFieldPresent(sfHookHash))
+            return;
+        auto const hash = installed.getFieldH256(sfHookHash);
+
+        auto const hookDefinition = env.le(keylet::hookDefinition(hash));
+        BEAST_EXPECT(hookDefinition);
+        if (hookDefinition)
+        {
+            BEAST_EXPECT(!hookDefinition->isFieldPresent(sfHookName));
+            BEAST_EXPECT(!hookDefinition->isFieldPresent(sfHookGrants));
+            BEAST_EXPECT(hookDefinition->isFieldPresent(sfHookApiVersion));
+            BEAST_EXPECT(hookDefinition->getFieldU16(sfHookApiVersion) == 0);
+        }
+
+        auto accountInfo = env.rpc(
+            "json",
+            "account_info",
+            R"({"account": ")" + alice.human() + R"(","hooks":true})");
+        auto const& hookJson =
+            accountInfo[jss::result][jss::hooks][0U][sfHook.jsonName];
+        BEAST_EXPECT(hookJson[sfHookHash.jsonName] == to_string(hash));
+        BEAST_EXPECT(!hookJson.isMember(sfCreateCode.jsonName));
+        BEAST_EXPECT(
+            hookJson[sfHookNamespace.jsonName] ==
+            to_string(definitionNamespace));
+        BEAST_EXPECT(
+            hookJson[sfHookName.jsonName].isString() &&
+            hookJson[sfHookName.jsonName] == strHex(std::string{"ACCT"}));
+        BEAST_EXPECT(
+            hookJson[sfHookApiVersion.jsonName].isInt() &&
+            hookJson[sfHookApiVersion.jsonName].asUInt() == 0);
+        BEAST_EXPECT(hookJson[sfHookOn.jsonName] == to_string(uint256{0}));
+        BEAST_EXPECT(!hookJson.isMember(sfHookOnIncoming.jsonName));
+        BEAST_EXPECT(!hookJson.isMember(sfHookOnOutgoing.jsonName));
+        BEAST_EXPECT(
+            hookJson[sfHookCanEmit.jsonName] ==
+            to_string(UINT256_BIT[ttHOOK_SET]));
+        BEAST_EXPECT(hookJson[sfFlags.jsonName] == hsfCOLLECT);
+        BEAST_EXPECT(hookJson[sfHookParameters.jsonName].size() == 2);
+        auto const& hooksJson = accountInfo[jss::result][jss::hooks];
+        BEAST_EXPECT(hooksJson.isArray());
+        BEAST_EXPECT(hooksJson.size() == 2);
+        if (!hooksJson.isArray() || hooksJson.size() < 2)
+            return;
+        BEAST_EXPECT(hooksJson[1U].isObject());
+        BEAST_EXPECT(hooksJson[1U].isMember(sfHook.jsonName));
+        if (!hooksJson[1U].isObject() ||
+            !hooksJson[1U].isMember(sfHook.jsonName))
+            return;
+        auto const& blankHook = hooksJson[1U][sfHook.jsonName];
+        BEAST_EXPECT(blankHook.isObject());
+        BEAST_EXPECT(blankHook.size() == 0);
+
+        Json::Value update;
+        update[jss::HookHash] = to_string(hash);
+        update[jss::Flags] = hsfOVERRIDE;
+        update[jss::HookName] = strHex(std::string{"ACCT"});
+        update[jss::HookGrants] = Json::arrayValue;
+        update[jss::HookGrants][0U][jss::HookGrant][jss::HookHash] =
+            to_string(hash);
+        update[jss::HookNamespace] = to_string(accountNamespace);
+        update[jss::HookOnIncoming] = to_string(uint256{5});
+        update[jss::HookOnOutgoing] = to_string(uint256{6});
+        update[jss::HookCanEmit] = to_string(uint256{4});
+        update[jss::HookParameters] = Json::arrayValue;
+        update[jss::HookParameters].append(makeParameter("AA", ""));
+        update[jss::HookParameters].append(makeParameter("EE", "FF"));
+        env(hook(alice, {{update}}, 0), fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+
+        accountInfo = env.rpc(
+            "json",
+            "account_info",
+            R"({"account": ")" + alice.human() + R"(","hooks":true})");
+        auto const& overridden =
+            accountInfo[jss::result][jss::hooks][0U][sfHook.jsonName];
+        BEAST_EXPECT(
+            overridden[sfHookNamespace.jsonName] ==
+            to_string(accountNamespace));
+        BEAST_EXPECT(
+            overridden[sfHookName.jsonName].isString() &&
+            overridden[sfHookName.jsonName] == strHex(std::string{"ACCT"}));
+        BEAST_EXPECT(
+            overridden[sfHookApiVersion.jsonName].isInt() &&
+            overridden[sfHookApiVersion.jsonName].asUInt() == 0);
+        BEAST_EXPECT(overridden[sfHookGrants.jsonName].isArray());
+        BEAST_EXPECT(overridden[sfHookGrants.jsonName].size() == 1);
+        if (overridden[sfHookGrants.jsonName].isArray() &&
+            overridden[sfHookGrants.jsonName].size() == 1)
+        {
+            auto const& grant = overridden[sfHookGrants.jsonName][0U];
+            BEAST_EXPECT(grant.isObject());
+            BEAST_EXPECT(grant.size() == 1);
+            BEAST_EXPECT(grant.isMember(sfHookGrant.jsonName));
+            if (grant.isObject() && grant.size() == 1 &&
+                grant.isMember(sfHookGrant.jsonName))
+            {
+                auto const& grantObject = grant[sfHookGrant.jsonName];
+                BEAST_EXPECT(grantObject.isObject());
+                BEAST_EXPECT(grantObject.size() == 1);
+                BEAST_EXPECT(grantObject.isMember(sfHookHash.jsonName));
+                if (grantObject.isObject() && grantObject.size() == 1 &&
+                    grantObject.isMember(sfHookHash.jsonName))
+                    BEAST_EXPECT(
+                        grantObject[sfHookHash.jsonName] == to_string(hash));
+            }
+        }
+        BEAST_EXPECT(overridden[sfFlags.jsonName] == 0);
+        BEAST_EXPECT(!overridden.isMember(sfHookOn.jsonName));
+        BEAST_EXPECT(
+            overridden[sfHookOnIncoming.jsonName] == to_string(uint256{5}));
+        BEAST_EXPECT(
+            overridden[sfHookOnOutgoing.jsonName] == to_string(uint256{6}));
+        BEAST_EXPECT(
+            overridden[sfHookCanEmit.jsonName] == to_string(uint256{4}));
+        BEAST_EXPECT(overridden[sfHookParameters.jsonName].size() == 3);
+        if (overridden[sfHookParameters.jsonName].size() != 3)
+            return;
+        auto expectParameter = [&](std::string const& name,
+                                   std::string const& value) {
+            bool found = false;
+            for (auto const& parameter : overridden[sfHookParameters.jsonName])
+            {
+                if (!parameter.isObject() ||
+                    !parameter.isMember(sfHookParameter.jsonName))
+                    continue;
+                auto const& object = parameter[sfHookParameter.jsonName];
+                if (!object.isObject() ||
+                    object[sfHookParameterName.jsonName] != name)
+                    continue;
+                found = true;
+                BEAST_EXPECT(object[sfHookParameterValue.jsonName] == value);
+                break;
+            }
+            BEAST_EXPECT(found);
+        };
+        expectParameter("AA", "");
+        expectParameter("CC", "DD");
+        expectParameter("EE", "FF");
     }
 
     // Test the "signer_lists" argument in account_info.
@@ -686,6 +934,8 @@ public:
     run() override
     {
         testErrors();
+        testHooksRequest();
+        testHooksEffectiveValues();
         testSignerLists();
         testSignerListsApiVersion2();
         testSignerListsV2();

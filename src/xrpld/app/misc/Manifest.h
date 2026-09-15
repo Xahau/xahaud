@@ -25,11 +25,17 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
 
+#include <algorithm>
+#include <atomic>
+#include <mutex>
 #include <optional>
 #include <shared_mutex>
 #include <string>
+#include <vector>
 
 namespace ripple {
+
+class ReadView;
 
 /*
     Validator key manifests
@@ -172,6 +178,16 @@ deserializeManifest(
     return deserializeManifest(makeSlice(s), journal);
 }
 
+inline std::optional<Manifest>
+deserializeManifest(
+    STObject const& st,
+    beast::Journal journal = beast::Journal(beast::Journal::getNullSink()))
+{
+    Serializer s;
+    st.add(s);
+    return deserializeManifest(makeSlice(s.peekData()), journal);
+}
+
 template <
     class T,
     class = std::enable_if_t<
@@ -264,9 +280,60 @@ private:
     /** Master public keys stored by current ephemeral public key. */
     hash_map<PublicKey, PublicKey> signingToMasterKeys_;
 
+    /** Master keys always offered to a peer, whatever their recency.
+
+        Set by pin(); in practice the master keys on the configured validator
+        lists, which are the manifests consensus actually depends on.
+    */
+    hash_set<PublicKey> pinned_;
+
+    /** Recency of use, keyed by master public key.
+
+        The structure of this map is guarded by mutex_ exactly as map_ is:
+        entries are created next to it in applyManifest() and are never
+        removed. The counters themselves are atomic, so recording a hit is a
+        write to an atomic rather than a structural modification and is legal
+        while only a shared lock is held.
+
+        This is deliberately not a second mutex. A second mutex would have to
+        be ordered against mutex_, and that ordering would be an unenforced
+        invariant that any future caller could invert.
+    */
+    hash_map<PublicKey, std::atomic<std::uint64_t>> mutable lastUsed_;
+    std::atomic<std::uint64_t> mutable tick_{0};
+
+    /** Ephemeral keys already probed against the ledger, and where.
+
+        Bounds the reads driven by incoming validations to one per key per
+        ledger. A key that resolves does not come back here: the mapping then
+        lives in signingToMasterKeys_ and applyLedgerSigningKey() answers from
+        it before reaching this map.
+
+        Unlike lastUsed_ this is written structurally, so it is guarded by
+        mutex_ in exclusive mode.
+    */
+    hash_map<PublicKey, std::uint32_t> probed_;
+
+    /** Record that a manifest was looked up.
+
+        @pre The caller holds mutex_, shared or exclusive.
+    */
+    void
+    touch(PublicKey const& masterKey) const;
+
     std::atomic<std::uint32_t> seq_{0};
 
 public:
+    /** Ceiling on the unpinned manifests offered to a newly connected peer. */
+    static constexpr std::size_t gossipLimit = 64;
+
+    /** Ceiling on remembered ephemeral key probes before they are dropped.
+
+        A cache of negatives, so dropping it costs at most one extra ledger
+        read per key.
+    */
+    static constexpr std::size_t probeLimit = 4096;
+
     explicit ManifestCache(
         beast::Journal j = beast::Journal(beast::Journal::getNullSink()))
         : j_(j)
@@ -354,6 +421,90 @@ public:
     */
     ManifestDisposition
     applyManifest(Manifest m);
+
+    /** Set the master keys that are always offered to peers.
+
+        Replaces any previous set. Bumps sequence() when the set actually
+        changes, so a cached gossip message built from it is rebuilt.
+
+        @param keys Master public keys to pin
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    void
+    pin(hash_set<PublicKey> keys);
+
+    /** Returns the sequence and serialized form of a held manifest.
+
+        Unlike getManifest() and getSequence(), a revoked master key is
+        reported rather than skipped. Those two answer "what should I trust",
+        for which a revocation is correctly nothing; a caller republishing what
+        it holds needs the revocation most of all.
+
+        @param pk Master public key
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    std::optional<std::pair<std::uint32_t, std::string>>
+    getRawManifest(PublicKey const& pk) const;
+
+    /** Ingest manifests published on-ledger.
+
+        Reads keylet::manifest() for each supplied master key, reconstructs any
+        manifest found and feeds it through applyManifest(), so an on-chain
+        manifest is subject to exactly the same staleness, revocation and
+        key-reuse rules -- and the same signature check -- as one arriving by
+        peer gossip or in a published list. It is a third source of manifests,
+        not a more trusted one.
+
+        Probes a known key set rather than scanning the ledger's transactions:
+        this costs one SHAMap read per key, and picks up manifests published in
+        ledgers this node never saw.
+
+        @param view Ledger to read from
+        @param masterKeys Master public keys to probe for
+
+        @return the number of manifests newly accepted
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    std::size_t
+    applyLedger(ReadView const& view, hash_set<PublicKey> const& masterKeys);
+
+    /** Resolve an ephemeral signing key against a manifest published on-ledger.
+
+        applyLedger() probes a known master key set, which cannot help a key
+        this node has no manifest for: the master key is exactly what is
+        missing. SetManifest writes a second copy of every manifest keyed by
+        its ephemeral key, so that case is one read rather than a search.
+
+        Anything found is fed through applyManifest(), so an on-chain manifest
+        faces the same signature check and the same staleness, revocation and
+        key-reuse rules as one arriving by gossip. The ledger is a transport
+        here, not an authority: the answer is read back out of the cache rather
+        than taken from the ledger object, because applyManifest() may decline
+        it.
+
+        A key is probed at most once per ledger, and a key that resolves is
+        answered from the cache thereafter without any ledger read.
+
+        @param view Ledger to read from
+        @param signingKey Ephemeral public key to resolve
+
+        @return the master key now associated with signingKey, if any
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    std::optional<PublicKey>
+    applyLedgerSigningKey(ReadView const& view, PublicKey const& signingKey);
 
     /** Populate manifest cache with manifests in database and config.
 
@@ -459,6 +610,70 @@ public:
             (void)_;
             f(manifest);
         }
+    }
+
+    /** Invokes the callback for the manifests worth offering a new peer.
+
+        Offering the whole cache means offering everything the node has ever
+        seen, which grows without bound and is mostly of no use to the peer.
+        This offers the pinned set plus up to gossipLimit further manifests,
+        most recently used first. A manifest left out still reaches the peer by
+        ordinary relay if it turns out to be needed.
+
+        @note Do not call ManifestCache member functions from within the
+        callback. This can re-lock the mutex from the same thread, which is UB.
+        @note Do not write ManifestCache member variables from
+        within the callback. This can lead to data races.
+
+        @param pf Pre-function called with the maximum number of times f will be
+            called (useful for memory allocations)
+
+        @param f Function called for each manifest
+
+        @par Thread Safety
+
+        May be called concurrently
+    */
+    template <class PreFun, class EachFun>
+    void
+    for_each_gossip_manifest(PreFun&& pf, EachFun&& f) const
+    {
+        std::shared_lock lock{mutex_};
+
+        // Rank the unpinned entries by recency and keep the head. Pointers
+        // into map_ stay valid: it is node based and the shared lock is held
+        // throughout.
+        std::vector<std::pair<std::uint64_t, PublicKey const*>> ranked;
+        ranked.reserve(map_.size());
+        for (auto const& [key, manifest] : map_)
+        {
+            (void)manifest;
+            if (pinned_.count(key))
+                continue;
+            auto const used = lastUsed_.find(key);
+            ranked.emplace_back(
+                used == lastUsed_.end()
+                    ? 0
+                    : used->second.load(std::memory_order_relaxed),
+                &key);
+        }
+
+        auto const keep = std::min(gossipLimit, ranked.size());
+        std::partial_sort(
+            ranked.begin(),
+            ranked.begin() + keep,
+            ranked.end(),
+            [](auto const& a, auto const& b) { return a.first > b.first; });
+
+        // An upper bound: a pinned key need not have a manifest yet.
+        pf(pinned_.size() + keep);
+
+        for (auto const& key : pinned_)
+            if (auto const iter = map_.find(key); iter != map_.end())
+                f(iter->second);
+
+        for (std::size_t i = 0; i < keep; ++i)
+            f(map_.find(*ranked[i].second)->second);
     }
 };
 

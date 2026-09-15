@@ -23,15 +23,196 @@
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpl/hook/Misc.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
+#include <xrpl/protocol/STArray.h>
+#include <xrpl/protocol/STObject.h>
+#include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/UintTypes.h>
 #include <xrpl/protocol/jss.h>
+#include <algorithm>
 #include <grpc/status.h>
+#include <map>
+#include <optional>
+#include <vector>
 
 namespace ripple {
+
+namespace {
+
+void
+setEffectiveParameters(
+    STObject& result,
+    STObject const& entry,
+    std::shared_ptr<SLE const> const& definition)
+{
+    bool const hasDefinition =
+        definition && definition->isFieldPresent(sfHookParameters);
+    bool const hasEntry = entry.isFieldPresent(sfHookParameters);
+    if (!hasDefinition && !hasEntry)
+        return;  // LCOV_EXCL_LINE
+
+    STArray parameters{sfHookParameters};
+
+    auto merge = [&parameters](STArray const& source) {
+        for (auto const& parameter : source)
+        {
+            Blob const name = parameter.getFieldVL(sfHookParameterName);
+            Blob const value = parameter.getFieldVL(sfHookParameterValue);
+
+            auto existing = std::find_if(
+                parameters.begin(),
+                parameters.end(),
+                [&name](STObject const& current) {
+                    return current.getFieldVL(sfHookParameterName) == name;
+                });
+
+            if (existing == parameters.end())
+            {
+                STObject merged = STObject::makeInnerObject(sfHookParameter);
+                merged.setFieldVL(sfHookParameterName, name);
+                // gatherHookParameters treats an absent value as an empty
+                // value. Keep it explicit in the effective response.
+                merged.setFieldVL(sfHookParameterValue, value);
+                parameters.push_back(std::move(merged));
+            }
+            else
+            {
+                existing->setFieldVL(sfHookParameterValue, value);
+            }
+        }
+    };
+
+    if (hasDefinition)
+        merge(definition->getFieldArray(sfHookParameters));
+    if (hasEntry)
+        merge(entry.getFieldArray(sfHookParameters));
+
+    result.setFieldArray(sfHookParameters, std::move(parameters));
+}
+
+uint256
+effectiveHookOn(
+    STObject const& entry,
+    std::shared_ptr<SLE const> const& definition,
+    SField const& direction)
+{
+    if (entry.isFieldPresent(direction))
+        return entry.getFieldH256(direction);
+    if (entry.isFieldPresent(sfHookOn))
+        return entry.getFieldH256(sfHookOn);
+
+    if (!definition)
+        return uint256{0};  // LCOV_EXCL_LINE
+
+    if (definition->isFieldPresent(direction))
+        return definition->getFieldH256(direction);
+    if (definition->isFieldPresent(sfHookOn))
+        return definition->getFieldH256(sfHookOn);
+    return uint256{0};  // LCOV_EXCL_LINE
+}
+
+STObject
+effectiveHook(
+    STObject const& entry,
+    std::shared_ptr<SLE const> const& definition)
+{
+    STObject result = STObject::makeInnerObject(sfHook);
+
+    // If there is no definition, return the entry as is
+    if (!definition)
+        return result;  // LCOV_EXCL_LINE
+
+    // A blank sfHooks slot is meaningful: preserve it as an empty Hook
+    // object instead of applying the defaults used for an installed hook.
+    if (!entry.isFieldPresent(sfHookHash))
+        return result;  // LCOV_EXCL_LINE
+
+    // These fields are deliberately selected rather than copying the raw
+    // objects: HookDefinition bookkeeping must not leak from account_info.
+    if (entry.isFieldPresent(sfHookHash))
+        result.setFieldH256(sfHookHash, entry.getFieldH256(sfHookHash));
+    // CreateCode is not included in AccountRoot Hook field
+    // if (definition->isFieldPresent(sfCreateCode))
+    //     result.setFieldVL(sfCreateCode,
+    //     definition->getFieldVL(sfCreateCode));
+    if (entry.isFieldPresent(sfHookGrants))
+        result.setFieldArray(sfHookGrants, entry.getFieldArray(sfHookGrants));
+
+    if (entry.isFieldPresent(sfHookNamespace))
+        result.setFieldH256(
+            sfHookNamespace, entry.getFieldH256(sfHookNamespace));
+    else if (definition->isFieldPresent(sfHookNamespace))
+        result.setFieldH256(
+            sfHookNamespace, definition->getFieldH256(sfHookNamespace));
+
+    if (definition->isFieldPresent(sfHookApiVersion))
+        result.setFieldU16(
+            sfHookApiVersion, definition->getFieldU16(sfHookApiVersion));
+
+    if (entry.isFieldPresent(sfHookCanEmit))
+        result.setFieldH256(sfHookCanEmit, entry.getFieldH256(sfHookCanEmit));
+    else if (definition->isFieldPresent(sfHookCanEmit))
+        result.setFieldH256(
+            sfHookCanEmit, definition->getFieldH256(sfHookCanEmit));
+    else
+        result.setFieldH256(sfHookCanEmit, UINT256_BIT[ttHOOK_SET]);
+
+    if (entry.isFieldPresent(sfHookName))
+        result.setFieldVL(sfHookName, entry.getFieldVL(sfHookName));
+    if (entry.isFieldPresent(sfFlags))
+        result.setFieldU32(sfFlags, entry.getFieldU32(sfFlags));
+    else if (definition->isFieldPresent(sfFlags))
+        result.setFieldU32(sfFlags, definition->getFieldU32(sfFlags));
+
+    auto const incoming = effectiveHookOn(entry, definition, sfHookOnIncoming);
+    auto const outgoing = effectiveHookOn(entry, definition, sfHookOnOutgoing);
+    if (incoming == outgoing)
+        result.setFieldH256(sfHookOn, incoming);
+    else
+    {
+        result.setFieldH256(sfHookOnIncoming, incoming);
+        result.setFieldH256(sfHookOnOutgoing, outgoing);
+    }
+
+    setEffectiveParameters(result, entry, definition);
+    return result;
+}
+
+Json::Value
+accountHooks(ReadView const& ledger, AccountID const& account)
+{
+    Json::Value hooks(Json::arrayValue);
+    auto const hookSLE = ledger.read(keylet::hook(account));
+    if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
+        return hooks;
+
+    std::map<uint256, std::shared_ptr<SLE const>> definitions;
+    for (auto const& hookElement : hookSLE->getFieldArray(sfHooks))
+    {
+        auto const& entry = hookElement.downcast<STObject const>();
+        std::shared_ptr<SLE const> definition;
+        if (entry.isFieldPresent(sfHookHash))
+        {
+            auto const hash = entry.getFieldH256(sfHookHash);
+            auto [it, inserted] = definitions.emplace(hash, nullptr);
+            if (inserted)
+                it->second = ledger.read(keylet::hookDefinition(hash));
+            definition = it->second;
+        }
+
+        Json::Value wrapped(Json::objectValue);
+        wrapped[sfHook.jsonName] =
+            effectiveHook(entry, definition).getJson(JsonOptions::none);
+        hooks.append(std::move(wrapped));
+    }
+    return hooks;
+}
+
+}  // namespace
 
 // {
 //   account: <ident>,
@@ -51,6 +232,11 @@ Json::Value
 doAccountInfo(RPC::JsonContext& context)
 {
     auto& params = context.params;
+
+    if (params.isMember(jss::hooks) && !params[jss::hooks].isBool())
+        return RPC::invalid_field_error(jss::hooks);
+    bool const includeHooks =
+        params.isMember(jss::hooks) && params[jss::hooks].asBool();
 
     std::string strIdent;
     if (params.isMember(jss::account))
@@ -145,6 +331,9 @@ doAccountInfo(RPC::JsonContext& context)
                 sleAccepted->isFlag(allowTrustLineClawbackFlag.second);
 
         result[jss::account_flags] = std::move(acctFlags);
+
+        if (includeHooks)
+            result[jss::hooks] = accountHooks(*ledger, accountID);
 
         // The document[https://xrpl.org/account_info.html#account_info] states
         // that signer_lists is a bool, however assigning any string value

@@ -5105,10 +5105,8 @@ public:
         using namespace jtx;
 
         // OfferCreate
-        for (bool const withXahauV1 : {true, false})
         {
-            auto const amend = withXahauV1 ? features : features - fixXahauV1;
-            Env env{*this, amend};
+            Env env{*this, features};
             auto const gw = Account{"gateway"};
             auto const alice = Account{"alice"};
             auto const USD = gw["USD"];
@@ -5192,10 +5190,8 @@ public:
         }
 
         // OfferCancel
-        for (bool const withXahauV1 : {true, false})
         {
-            auto const amend = withXahauV1 ? features : features - fixXahauV1;
-            Env env{*this, amend};
+            Env env{*this, features};
             auto const gw = Account{"gateway"};
             auto const alice = Account{"alice"};
             auto const USD = gw["USD"];
@@ -5227,24 +5223,10 @@ public:
                 env(offer(alice, XRP(50), USD(50)));
                 env.close();
 
-                if (withXahauV1)
-                {
-                    env(offer_cancel(alice),
-                        offer_id(offerId),
-                        ter(tesSUCCESS));
-                    env.close();
-                    auto const offerLE = env.le(keylet::unchecked(offerId));
-                    BEAST_EXPECT(!offerLE);
-                }
-                else
-                {
-                    env(offer_cancel(alice),
-                        offer_id(offerId),
-                        ter(temBAD_SEQUENCE));
-                    env.close();
-                    auto const offerLE = env.le(keylet::unchecked(offerId));
-                    BEAST_EXPECT(offerLE);
-                }
+                env(offer_cancel(alice), offer_id(offerId), ter(tesSUCCESS));
+                env.close();
+                auto const offerLE = env.le(keylet::unchecked(offerId));
+                BEAST_EXPECT(!offerLE);
             }
 
             // no offer id or offer sequence
@@ -5266,24 +5248,12 @@ public:
                 env(offer(alice, XRP(50), USD(50)));
                 env.close();
 
-                if (withXahauV1)
-                {
-                    env(offer_cancel(alice, offerSeqId),
-                        offer_id(offerId),
-                        ter(temBAD_SEQUENCE));
-                    env.close();
-                    auto const offerLE = env.le(keylet::unchecked(offerId));
-                    BEAST_EXPECT(offerLE);
-                }
-                else
-                {
-                    env(offer_cancel(alice, offerSeqId),
-                        offer_id(offerId),
-                        ter(tesSUCCESS));
-                    env.close();
-                    auto const offerLE = env.le(keylet::unchecked(offerId));
-                    BEAST_EXPECT(!offerLE);
-                }
+                env(offer_cancel(alice, offerSeqId),
+                    offer_id(offerId),
+                    ter(temBAD_SEQUENCE));
+                env.close();
+                auto const offerLE = env.le(keylet::unchecked(offerId));
+                BEAST_EXPECT(offerLE);
             }
 
             // both offer id and offer sequence 0

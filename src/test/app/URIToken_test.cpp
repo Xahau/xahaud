@@ -191,7 +191,6 @@ struct URIToken_test : public beast::unit_test::suite
         using namespace jtx;
         using namespace std::literals::chrono_literals;
 
-        // fixXahauV1
         {
             Env env{*this, features};
             auto const alice = Account("alice");
@@ -204,11 +203,9 @@ struct URIToken_test : public beast::unit_test::suite
             std::string const hexid{strHex(tid)};
 
             // temMALFORMED - cannot include sfDestination without sfAmount
-            bool const withFixXahauV1 =
-                env.current()->rules().enabled(fixXahauV1);
-            auto const txResult =
-                withFixXahauV1 ? ter(temMALFORMED) : ter(tefINTERNAL);
-            env(uritoken::mint(alice, uri), uritoken::dest(bob), txResult);
+            env(uritoken::mint(alice, uri),
+                uritoken::dest(bob),
+                ter(temMALFORMED));
             env.close();
         }
 
@@ -517,12 +514,10 @@ struct URIToken_test : public beast::unit_test::suite
         env.close();
 
         // tecINSUFFICIENT_FUNDS - insufficient xrp - fees
-        // fixXahauV1 - fix checking wrong account for insufficient xrp
         env(pay(env.master, alice, XRP(10000)));
-        auto const txResult = env.current()->rules().enabled(fixXahauV1)
-            ? ter(tecINSUFFICIENT_FUNDS)
-            : ter(tecINTERNAL);
-        env(uritoken::buy(bob, hexid), uritoken::amt(XRP(10000)), txResult);
+        env(uritoken::buy(bob, hexid),
+            uritoken::amt(XRP(10000)),
+            ter(tecINSUFFICIENT_FUNDS));
         env.close();
 
         // clear sell and reset new sell
@@ -579,11 +574,9 @@ struct URIToken_test : public beast::unit_test::suite
         env.close();
 
         // tecINSUFFICIENT_FUNDS - insufficient xrp - fees
-        // fixXahauV1 - fix checking wrong account for insufficient xrp
-        auto const txResult1 = env.current()->rules().enabled(fixXahauV1)
-            ? ter(tecINSUFFICIENT_FUNDS)
-            : ter(tecINTERNAL);
-        env(uritoken::buy(bob, hexid), uritoken::amt(XRP(1000)), txResult1);
+        env(uritoken::buy(bob, hexid),
+            uritoken::amt(XRP(1000)),
+            ter(tecINSUFFICIENT_FUNDS));
         env.close();
 
         // clear sell and set usd sell
@@ -623,12 +616,10 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
 
             // tecNO_LINE_INSUF_RESERVE - insufficient xrp to create line
-            auto const txResult = env.current()->rules().enabled(fixXahauV1)
-                ? ter(tecINSUF_RESERVE_SELLER)
-                : ter(tecNO_LINE_INSUF_RESERVE);
-
             env(noop(echo), fee(XRP(50)), ter(tesSUCCESS));
-            env(uritoken::buy(dave, hexid), uritoken::amt(USD(1)), txResult);
+            env(uritoken::buy(dave, hexid),
+                uritoken::amt(USD(1)),
+                ter(tecINSUF_RESERVE_SELLER));
             env.close();
         }
 
@@ -2121,14 +2112,7 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::buy(bob, id), uritoken::amt(delta));
             env.close();
             auto const postAlice = env.balance(alice, USD.issue());
-            if (!env.current()->rules().enabled(fixXahauV1))
-            {
-                BEAST_EXPECT(to_string(postAlice.value()) == tc.multiply);
-            }
-            else
-            {
-                BEAST_EXPECT(to_string(postAlice.value()) == tc.divide);
-            }
+            BEAST_EXPECT(to_string(postAlice.value()) == tc.divide);
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - delta);
         }
 
@@ -2167,14 +2151,7 @@ struct URIToken_test : public beast::unit_test::suite
             env.close();
             auto const postAlice = env.balance(alice, USD.issue());
 
-            if (!env.current()->rules().enabled(fixXahauV1))
-            {
-                BEAST_EXPECT(postAlice.value() == preAlice);
-            }
-            else
-            {
-                BEAST_EXPECT(postAlice.value() == preAlice);
-            }
+            BEAST_EXPECT(postAlice.value() == preAlice);
             BEAST_EXPECT(env.balance(bob, USD.issue()) == preBob - USD(0));
         }
 
@@ -2682,7 +2659,6 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testWithFeats(sa);
-        testWithFeats(sa - fixXahauV1);
     }
 };
 
