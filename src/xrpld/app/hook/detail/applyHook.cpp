@@ -10,8 +10,8 @@
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
-#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/TxFlags.h>
