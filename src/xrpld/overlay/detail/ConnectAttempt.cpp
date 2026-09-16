@@ -263,6 +263,9 @@ ConnectAttempt::onWrite(error_code ec)
         return;
     if (ec)
         return fail("onWrite", ec);
+    // The write's deadline was canceled above. Bound the upgrade response
+    // too, otherwise a TLS peer can keep this attempt alive without replying.
+    setTimer();
     boost::beast::http::async_read(
         stream_,
         read_buf_,
