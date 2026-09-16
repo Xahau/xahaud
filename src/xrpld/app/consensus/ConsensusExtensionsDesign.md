@@ -154,13 +154,16 @@ and Export qV. Export qC has a separate account-owned committee denominator:
   UNL from whichever source produced the view.
 - Use the same snapshot throughout the round.
 
-When `featureNegativeUNLActiveViewCap` is enabled, NegativeUNL vote production
-also uses the parent-ledger `UNLReport.sfActiveValidators` count as the
-25-percent disable-cap denominator. This aligns the producer-side nUNL vote
-policy with the active-view universe that RNG and Export proofs use. Without
-that amendment, legacy NegativeUNL voting can still cap against the locally
-configured trusted UNL size; the consumer-side active-view builder remains
-defensive and caps any raw ledger NegativeUNL overage against `originalViewSize`.
+When either `featureConsensusEntropy` or `featureExport` is enabled in the
+parent ledger's rules, NegativeUNL vote production also uses the parent-ledger
+`UNLReport.sfActiveValidators` count as the 25-percent disable-cap denominator.
+The count includes unique valid public keys from that report. This aligns the
+producer-side nUNL vote policy with the active-view universe that RNG and Export
+proofs use as soon as either feature activates, without a separate supporting
+amendment or rollout prerequisite. With neither feature enabled, or without a
+usable nonempty parent report, voting retains the locally configured trusted
+UNL denominator. The consumer-side active-view builder remains defensive and
+caps any raw ledger NegativeUNL overage against `originalViewSize`.
 
 `quorumThreshold()` is 80% of that active validator view. Recent proposers,
 expected proposers, and currently visible peer positions are liveness hints and

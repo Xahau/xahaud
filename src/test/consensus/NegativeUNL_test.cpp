@@ -1685,14 +1685,15 @@ class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
     }
 
     std::size_t
-    voteCountWithUNLReport(FeatureBitset features)
+    voteCountWithUNLReport(FeatureBitset features, bool withReport = true)
     {
         NetworkHistory history = {*this, {20, 3, false, false, {}}, features};
         BEAST_EXPECT(history.goodHistory);
         if (!history.goodHistory)
             return 0;
 
-        seedUNLReport(history, 10);
+        if (withReport)
+            seedUNLReport(history, 10);
         history.walkHistoryAndAddValidations(
             [&](std::shared_ptr<Ledger const> const&, std::size_t idx) -> bool {
                 return idx == history.UNLNodeIDs.size() - 1;
@@ -1752,19 +1753,40 @@ class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
                     voteAndCheck(history, history.UNLNodeIDs.back(), 0));
             }
         }
+    }
 
+    void
+    testActiveViewCap()
+    {
+        auto const legacyFeatures = (jtx::supported_amendments() -
+                                     featureConsensusEntropy - featureExport) |
+            featureNegativeUNL;
+
+        for (bool const entropy : {false, true})
         {
-            // The same reliability state produces a fourth disable vote under
-            // the legacy trusted-UNL denominator, but not when the amended cap
-            // uses the parent-ledger UNLReport active denominator.
-            auto const legacyFeatures = (jtx::supported_amendments() -
-                                         featureNegativeUNLActiveViewCap) |
-                featureNegativeUNL;
-            BEAST_EXPECT(voteCountWithUNLReport(legacyFeatures) == 1);
+            for (bool const exportEnabled : {false, true})
+            {
+                testcase(
+                    std::string("Active-view cap: CE=") +
+                    (entropy ? "on" : "off") +
+                    ", Export=" + (exportEnabled ? "on" : "off"));
+                auto features = legacyFeatures;
+                if (entropy)
+                    features.set(featureConsensusEntropy);
+                if (exportEnabled)
+                    features.set(featureExport);
 
-            auto const activeViewCapFeatures = jtx::supported_amendments() |
-                featureNegativeUNLActiveViewCap | featureNegativeUNL;
-            BEAST_EXPECT(voteCountWithUNLReport(activeViewCapFeatures) == 0);
+                // Three validators are already disabled. A 20-validator
+                // trusted UNL permits a fourth disable vote, whereas the
+                // parent report's 10 active validators cap the list at three.
+                BEAST_EXPECT(
+                    voteCountWithUNLReport(features) ==
+                    (entropy || exportEnabled ? 0 : 1));
+
+                // Without a parent report, all four feature combinations
+                // retain the trusted-UNL denominator.
+                BEAST_EXPECT(voteCountWithUNLReport(features, false) == 1);
+            }
         }
     }
 
@@ -1773,6 +1795,7 @@ class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
     {
         testMaxListedPolicy();
         testDoVoting();
+        testActiveViewCap();
     }
 };
 

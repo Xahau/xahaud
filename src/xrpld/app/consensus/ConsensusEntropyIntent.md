@@ -124,18 +124,18 @@ All thresholds are computed over the **fixed parent-ledger UNLReport active-view
 size** (tier-2 over the *original* pre-NegativeUNL size). No node-local
 observation may grow or shrink that denominator `N`. This is load-bearing for
 tier-2 equivocation-uniqueness (`2t − N > f`).
-`featureConsensusEntropy` and `featureNegativeUNLActiveViewCap` are independent
-amendments; source does not enforce an activation dependency. On a network that
-uses NegativeUNL, the rollout prerequisite is to activate
-`featureNegativeUNLActiveViewCap` no later than CE, so producer-side disable
-voting and this consumer use the same parent-ledger UNLReport cap denominator.
+When either `featureConsensusEntropy` or `featureExport` is enabled in the
+parent ledger's rules, NegativeUNL disable voting uses that parent's UNLReport
+active count as its cap denominator when available. This producer/consumer
+alignment is part of activating either feature; it requires no separate
+amendment or activation ordering. With neither feature enabled, or without a
+usable parent UNLReport, voting retains the legacy trusted-UNL denominator.
 The consumer-side active-view builder still caps raw ledger NegativeUNL
-subtraction defensively against `originalViewSize` even when rollout ordering is
-misconfigured.
+subtraction defensively against `originalViewSize`.
 *Enforced:* `quorumThreshold` / `tier2Threshold` over `activeValidatorView`; the
 alignment-counting universe is filtered to the active view; amended
 `NegativeUNLVote` uses the same UNLReport active count for its disable cap when
-available. *Anti-pattern:*
+either feature is parent-enabled and the report is available. *Anti-pattern:*
 counting "valid/observed proposals" as the denominator — that lets a withholder
 shrink `N` and is also node-local (split).
 
