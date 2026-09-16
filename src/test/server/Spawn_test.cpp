@@ -60,14 +60,23 @@ class Spawn_test : public beast::unit_test::suite
     void
     testWrapsPlainExecutorInStrand()
     {
-        testcase("a plain executor is wrapped in a strand");
-        boost::asio::io_context ioc;
-        bool ran = false;
-        util::spawn(ioc.get_executor(), [&](boost::asio::yield_context) {
-            ran = true;
-        });
-        ioc.run();
-        BEAST_EXPECT(ran);
+        testcase("a plain executor or context is wrapped in a strand");
+        {
+            boost::asio::io_context ioc;
+            bool ran = false;
+            util::spawn(ioc.get_executor(), [&](boost::asio::yield_context) {
+                ran = true;
+            });
+            ioc.run();
+            BEAST_EXPECT(ran);
+        }
+        {
+            boost::asio::io_context ioc;
+            bool ran = false;
+            util::spawn(ioc, [&](boost::asio::yield_context) { ran = true; });
+            ioc.run();
+            BEAST_EXPECT(ran);
+        }
     }
 
     void

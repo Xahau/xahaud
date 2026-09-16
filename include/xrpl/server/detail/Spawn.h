@@ -95,9 +95,12 @@ spawn(Ctx&& ctx, F&& func)
     }
     else
     {
+        // make_strand accepts an executor or an execution context directly.
+        // Going through get_associated_executor here resolved a plain
+        // executor to asio's inline executor, which cannot be stranded and
+        // did not compile; nothing in the tree had instantiated this branch.
         boost::asio::spawn(
-            boost::asio::make_strand(
-                boost::asio::get_associated_executor(std::forward<Ctx>(ctx))),
+            boost::asio::make_strand(std::forward<Ctx>(ctx)),
             std::forward<F>(func),
             impl::kPROPAGATE_EXCEPTIONS);
     }
