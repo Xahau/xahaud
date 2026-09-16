@@ -86,7 +86,6 @@
 #include <limits>
 #include <mutex>
 #include <optional>
-#include <sstream>
 #include <utility>
 #include <variant>
 
@@ -112,7 +111,7 @@ private:
             beast::insight::Event ev,
             beast::Journal journal,
             std::chrono::milliseconds interval,
-            boost::asio::io_service& ios)
+            boost::asio::io_context& ios)
             : m_event(ev)
             , m_journal(journal)
             , m_probe(interval, ios)
@@ -140,7 +139,7 @@ private:
             if (lastSample >= 500ms)
             {
                 JLOG(m_journal.warn())
-                    << "io_service latency = " << lastSample.count();
+                    << "io_context latency = " << lastSample.count();
             }
         }
 
@@ -411,7 +410,7 @@ public:
               *m_jobQueue,
               *m_ledgerMaster,
               validatorKeys_,
-              get_io_service(),
+              get_io_context(),
               logs_->journal("NetworkOPs"),
               m_collectorManager->collector()))
 
@@ -438,7 +437,7 @@ public:
 
         , serverHandler_(make_ServerHandler(
               *this,
-              get_io_service(),
+              get_io_context(),
               *m_jobQueue,
               *m_networkOPs,
               *m_resourceManager,
@@ -462,22 +461,22 @@ public:
         , txQ_(
               std::make_unique<TxQ>(setup_TxQ(*config_), logs_->journal("TxQ")))
 
-        , sweepTimer_(get_io_service())
+        , sweepTimer_(get_io_context())
 
-        , entropyTimer_(get_io_service())
+        , entropyTimer_(get_io_context())
 
-        , m_signals(get_io_service())
+        , m_signals(get_io_context())
 
         , checkSigs_(true)
 
         , m_resolver(
-              ResolverAsio::New(get_io_service(), logs_->journal("Resolver")))
+              ResolverAsio::New(get_io_context(), logs_->journal("Resolver")))
 
         , m_io_latency_sampler(
               m_collectorManager->collector()->make_event("ios_latency"),
               logs_->journal("Application"),
               std::chrono::milliseconds(100),
-              get_io_service())
+              get_io_context())
         , grpcServer_(std::make_unique<GRPCServer>(*this))
     {
         initAccountIdCache(config_->getValueFor(SizedItem::accountIdCacheSize));
@@ -600,10 +599,10 @@ public:
         return *serverHandler_;
     }
 
-    boost::asio::io_service&
-    getIOService() override
+    boost::asio::io_context&
+    getIOContext() override
     {
-        return get_io_service();
+        return get_io_context();
     }
 
     std::chrono::milliseconds
@@ -941,9 +940,8 @@ public:
                 }))
         {
             using namespace std::chrono;
-            sweepTimer_.expires_from_now(
-                seconds{config_->SWEEP_INTERVAL.value_or(
-                    config_->getValueFor(SizedItem::sweepInterval))});
+            sweepTimer_.expires_after(seconds{config_->SWEEP_INTERVAL.value_or(
+                config_->getValueFor(SizedItem::sweepInterval))});
             sweepTimer_.async_wait(std::move(*optionalCountedHandler));
         }
     }
@@ -972,7 +970,7 @@ public:
                 }))
         {
             using namespace std::chrono_literals;
-            entropyTimer_.expires_from_now(5min);
+            entropyTimer_.expires_after(5min);
             entropyTimer_.async_wait(std::move(*optionalCountedHandler));
         }
     }
@@ -1416,7 +1414,7 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         *serverHandler_,
         *m_resourceManager,
         *m_resolver,
-        get_io_service(),
+        get_io_context(),
         *config_,
         m_collectorManager->collector());
     add(*overlay_);  // add to PropertyStream
@@ -1597,11 +1595,11 @@ ApplicationImp::run()
     m_io_latency_sampler.cancel_async();
 
     // VFALCO Enormous hack, we have to force the probe to cancel
-    //        before we stop the io_service queue or else it never
+    //        before we stop the io_context queue or else it never
     //        unblocks in its destructor. The fix is to make all
     //        io_objects gracefully handle exit so that we can
-    //        naturally return from io_service::run() instead of
-    //        forcing a call to io_service::stop()
+    //        naturally return from io_context::run() instead of
+    //        forcing a call to io_context::stop()
     m_io_latency_sampler.cancel();
 
     m_resolver->stop_async();
@@ -1612,20 +1610,24 @@ ApplicationImp::run()
     m_resolver->stop();
 
     {
-        boost::system::error_code ec;
-        sweepTimer_.cancel(ec);
-        if (ec)
+        try
+        {
+            sweepTimer_.cancel();
+        }
+        catch (boost::system::system_error const& e)
         {
             JLOG(m_journal.error())
-                << "Application: sweepTimer cancel error: " << ec.message();
+                << "Application: sweepTimer cancel error: " << e.what();
         }
 
-        ec.clear();
-        entropyTimer_.cancel(ec);
-        if (ec)
+        try
+        {
+            entropyTimer_.cancel();
+        }
+        catch (boost::system::system_error const& e)
         {
             JLOG(m_journal.error())
-                << "Application: entropyTimer cancel error: " << ec.message();
+                << "Application: entropyTimer cancel error: " << e.what();
         }
     }
 

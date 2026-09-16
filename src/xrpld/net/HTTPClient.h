@@ -22,7 +22,9 @@
 
 #include <xrpld/core/Config.h>
 #include <xrpl/basics/ByteUtilities.h>
-#include <boost/asio/io_service.hpp>
+#include <xrpl/beast/utility/Journal.h>
+
+#include <boost/asio/io_context.hpp>
 #include <boost/asio/streambuf.hpp>
 
 #include <chrono>
@@ -46,7 +48,7 @@ public:
 
     static void
     get(bool bSSL,
-        boost::asio::io_service& io_service,
+        boost::asio::io_context& io_context,
         std::deque<std::string> deqSites,
         const unsigned short port,
         std::string const& strPath,
@@ -60,7 +62,7 @@ public:
 
     static void
     get(bool bSSL,
-        boost::asio::io_service& io_service,
+        boost::asio::io_context& io_context,
         std::string strSite,
         const unsigned short port,
         std::string const& strPath,
@@ -75,7 +77,7 @@ public:
     static void
     request(
         bool bSSL,
-        boost::asio::io_service& io_service,
+        boost::asio::io_context& io_context,
         std::string strSite,
         const unsigned short port,
         std::function<
