@@ -700,7 +700,10 @@ private:
 
     std::array<SubMapType, SubTypes::sLastEntry> mStreamMaps;
 
-    ServerFeeSummary mLastFeeSummary;
+    ServerFeeSummary mLastFeeSummary;  ///< Guarded by mFeeSummaryMutex_.
+    std::mutex mFeeSummaryMutex_;       ///< Guards mLastFeeSummary only. Kept
+                                        ///< separate from mSubLock to avoid
+                                        ///< lock-ordering hazards with masterMutex.
 
     JobQueue& m_job_queue;
 
@@ -2321,7 +2324,10 @@ NetworkOPsImp::pubServer()
         else
             jvObj[jss::load_factor] = f.loadFactorServer;
 
-        mLastFeeSummary = f;
+        {
+            std::lock_guard fsl(mFeeSummaryMutex_);
+            mLastFeeSummary = f;
+        }
 
         for (auto i = mStreamMaps[sServer].begin();
              i != mStreamMaps[sServer].end();)
@@ -3206,14 +3212,23 @@ NetworkOPsImp::reportFeeChange()
         app_.getTxQ().getMetrics(*app_.openLedger().current()),
         app_.getFeeTrack()};
 
-    // only schedule the job if something has changed
-    if (f != mLastFeeSummary)
-    {
-        m_job_queue.addJob(
-            jtCLIENT_FEE_CHANGE, "reportFeeChange->pubServer", [this]() {
-                pubServer();
-            });
-    }
+    // Guard mLastFeeSummary under mFeeSummaryMutex_ to prevent concurrent
+    // threads from simultaneously passing the check and queuing duplicate
+    // jtCLIENT_FEE_CHANGE jobs (data race fix).
+    // Also fixes the no-subscriber case where mLastFeeSummary was
+    // never updated by pubServer(), causing endless job queuing.
+    // mFeeSummaryMutex_ is used instead of mSubLock to avoid a
+    // lock-ordering hazard: reportFeeChange() is called with masterMutex
+    // held, and pubServer() holds mSubLock across the subscriber fan-out.
+    if (std::lock_guard sl(mFeeSummaryMutex_); f != mLastFeeSummary)
+        mLastFeeSummary = f;
+    else
+        return;
+
+    m_job_queue.addJob(
+        jtCLIENT_FEE_CHANGE, "reportFeeChange->pubServer", [this]() {
+            pubServer();
+        });
 }
 
 void
@@ -4264,9 +4279,18 @@ NetworkOPsImp::subServer(
         toBase58(TokenType::NodePublic, app_.nodeIdentity().first);
 
     std::lock_guard sl(mSubLock);
-    return mStreamMaps[sServer]
+    bool const added = mStreamMaps[sServer]
         .emplace(isrListener->getSeq(), isrListener)
         .second;
+    if (added && mStreamMaps[sServer].size() == 1)
+    {
+        // First subscriber on an otherwise-quiet node: reset mLastFeeSummary
+        // so the next reportFeeChange() tick publishes a full serverStatus
+        // with base_fee and load_factor_* fields.
+        std::lock_guard fsl(mFeeSummaryMutex_);
+        mLastFeeSummary = {};
+    }
+    return added;
 }
 
 // <-- bool: true=erased, false=was not there
