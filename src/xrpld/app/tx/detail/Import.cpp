@@ -139,6 +139,8 @@ Import::checkImportSign(PreclaimContext const& ctx)
         return accountAuth;
     for (auto const& field : ctx.tx)
     {
+        if (field.getSType() == STI_NOTPRESENT)
+            continue;
         auto const& name = field.getFName();
         if (name != sfTransactionType && name != sfAccount &&
             name != sfSequence && name != sfFee && name != sfBlob &&

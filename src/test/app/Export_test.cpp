@@ -2650,7 +2650,8 @@ struct Export_test : public beast::unit_test::suite
             Env env{*this, xpopCtx.makeEnvConfig(21337), features};
             env.fund(XRP(10000), alice, carol);
             env.close();
-            XRPAmount const cap{mode == "insufficient" ? 20'000'000 : 1000};
+            XRPAmount const cap{
+                mode == "insufficient" ? 20'000'000'000LL : 1000};
             auto const initialBalance = env.current()
                                             ->read(keylet::account(alice.id()))
                                             ->getFieldAmount(sfBalance)
@@ -2671,8 +2672,6 @@ struct Export_test : public beast::unit_test::suite
                     ->getFieldAmount(sfBalance)
                     .xrp() == initialBalance - XRPAmount{1'000'000});
 
-            if (mode == "insufficient")
-                env(pay(alice, carol, XRP(9990)), ter(tesSUCCESS));
             std::optional<std::uint32_t> ownerTicket;
             if (mode == "relay")
             {
@@ -2712,9 +2711,31 @@ struct Export_test : public beast::unit_test::suite
             {
                 env(import::import(alice, callback.xpopJson),
                     sig(carol),
-                    fee(XRP(10)),
+                    fee(XRP(10000)),
                     ter(terINSUF_FEE_B));
                 unchanged();
+
+                // Closed-ledger fee checking can return tecINSUFF_FEE before
+                // signing authorization. That must not permit a partial
+                // balance fee claim from an allowance-only callback either.
+                auto const relay = env.jt(
+                    import::import(alice, callback.xpopJson),
+                    sig(carol),
+                    fee(XRP(10000)));
+                auto next = std::make_shared<Ledger>(
+                    *env.app().getLedgerMaster().getClosedLedger(),
+                    env.app().timeKeeper().closeTime());
+                OpenView closed(&*next);
+                BEAST_EXPECT(!closed.open());
+                auto const result = ripple::apply(
+                    env.app(), closed, *relay.stx, tapNONE, env.journal);
+                BEAST_EXPECT(result.ter == tefBAD_AUTH);
+                BEAST_EXPECT(!result.applied);
+                auto const account = closed.read(keylet::account(alice.id()));
+                BEAST_EXPECT(
+                    account->getFieldAmount(sfBalance).xrp() == balance);
+                BEAST_EXPECT(account->getFieldU32(sfSequence) == sequence);
+                BEAST_EXPECT(closed.exists(latchKey));
                 continue;
             }
 

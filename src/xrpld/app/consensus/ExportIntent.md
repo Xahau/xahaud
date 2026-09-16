@@ -329,10 +329,13 @@ callback; this reports final target execution, not only target success.
 The canonical reserved Memo must name this source domain, the target
 transaction's encoded domain, exact origin `W`, and an anchor sequence earlier
 than the callback ledger. The owner-keyed `(owner, W)` latch must exist and its
-stored origin sequence and normalized target digest must match. A future anchor
-or not-yet-visible latch returns retryable `telEXPORT_LATCH_REQUIRED`; malformed
-or mismatched identity is permanently malformed; a latch that already records
-XPOP returns `tecDUPLICATE`. Apply ratchets the accepted validator-list sequence
+stored origin sequence and normalized target digest must match. For an
+account-authorized Import, a future anchor or not-yet-visible latch returns
+retryable `telEXPORT_LATCH_REQUIRED`; malformed or mismatched identity is
+permanently malformed; an already recorded XPOP returns `tecDUPLICATE`.
+An allowance-only attempt with an absent or ineligible grant instead fails
+account authorization (typically `tefBAD_AUTH`), without a fee claim.
+Apply ratchets the accepted validator-list sequence
 before recording XPOP on the latch. It performs no burn-to-mint credit or
 account creation; the existing owner account's Hook observes the proved result.
 
