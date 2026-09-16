@@ -283,6 +283,12 @@ transaction's `sfAccount`, which Export admission already bound to the exporter
 and latch owner. Possession of an XPOP alone never authorizes another account's
 callback.
 
+The source account's enabled master key, current regular key, or configured
+multisigning quorum authorizes the outer Import and its fee/sequence effects.
+An unrelated signing key must fail before balance, sequence, latch, or Import
+validator-list state changes. The target committee's signatures and possession
+of its valid XPOP do not substitute for source-account authorization.
+
 The callback may omit the burn-to-mint `sfOperationLimit` and outer/inner
 signing-key-equality checks because the validator-multisigned target and Export
 latch replace those bindings. It still requires a fully canonical target

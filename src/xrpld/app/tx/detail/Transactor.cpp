@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
@@ -908,11 +909,20 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getFieldU32(sfNetworkID) == 65535)
         return tesSUCCESS;
 
-    // pass ttIMPORTs, their signatures are checked at the preflight against the
-    // internal xpop txn
+    // Burn-to-mint Imports retain their XPOP-based signing authorization.
+    // Export callbacks instead authorize the outer source-account transaction
+    // normally: target committee signatures do not authorize its fee/sequence.
     if (ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT)
-        return tesSUCCESS;
+    {
+        if (!ctx.view.rules().enabled(featureExport))
+            return tesSUCCESS;
+        auto const [inner, meta] = Import::getInnerTxn(ctx.tx, ctx.j);
+        if (!inner || !meta)
+            return temMALFORMED;
+        if (!inner->isFieldPresent(sfTicketSequence))
+            return tesSUCCESS;
+    }
 
     // pass ttMANIFEST_SETs, their signatures are checked in preflight against
     // the manifest's internal key logic

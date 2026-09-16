@@ -2543,6 +2543,92 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportCallbackAccountAuthorization(FeatureBitset features)
+    {
+        using namespace jtx;
+        for (std::string const mode : {"master", "regular", "multisign"})
+        {
+            testcase("Export callback source-account authorization: " + mode);
+            auto const xpopCtx = xpop::TestXPOPContext::create(3);
+            Account const alice{"alice"};
+            Account const carol{"carol"};
+            Account const dave{"dave"};
+            Env env{*this, xpopCtx.makeEnvConfig(21337), features};
+            env.fund(XRP(10000), alice, carol, dave);
+            env.close();
+            auto const callback =
+                buildExportCallbackXPOP(env, xpopCtx, alice, carol, 31337, 2);
+            auto const latchKey =
+                keylet::exportLatch(alice.id(), callback.originTxn);
+            BEAST_EXPECT(env.current()->exists(latchKey));
+
+            if (mode == "regular")
+            {
+                env(regkey(alice, carol));
+                env(fset(alice, asfDisableMaster));
+            }
+            else if (mode == "multisign")
+            {
+                env(signers(alice, 2, {{carol, 1}, {dave, 1}}));
+                env(fset(alice, asfDisableMaster));
+            }
+            env.close();
+
+            auto const before =
+                env.current()->read(keylet::account(alice.id()));
+            auto const balance = before->getFieldAmount(sfBalance).xrp();
+            auto const sequence = before->getFieldU32(sfSequence);
+            auto const feeDrops = env.current()->fees().base * 10;
+            auto const reject = [&](auto const& signing, TER const result) {
+                env(import::import(alice, callback.xpopJson),
+                    signing,
+                    fee(feeDrops),
+                    ter(result));
+                auto const after =
+                    env.current()->read(keylet::account(alice.id()));
+                BEAST_EXPECT(after->getFieldAmount(sfBalance).xrp() == balance);
+                BEAST_EXPECT(after->getFieldU32(sfSequence) == sequence);
+                BEAST_EXPECT(env.current()->exists(latchKey));
+                if (callback.vlInfo)
+                    BEAST_EXPECT(
+                        importVLSequence(env, callback.vlInfo->second) == 0);
+            };
+
+            reject(sig(dave), tefBAD_AUTH);
+            if (mode == "master")
+            {
+                reject(msig(carol), tefNOT_MULTI_SIGNING);
+                env(import::import(alice, callback.xpopJson),
+                    sig(alice),
+                    fee(feeDrops),
+                    ter(tesSUCCESS));
+            }
+            else if (mode == "regular")
+            {
+                reject(sig(alice), tefMASTER_DISABLED);
+                env(import::import(alice, callback.xpopJson),
+                    sig(carol),
+                    fee(feeDrops),
+                    ter(tesSUCCESS));
+            }
+            else
+            {
+                reject(sig(alice), tefMASTER_DISABLED);
+                reject(msig(carol), tefBAD_QUORUM);
+                env(import::import(alice, callback.xpopJson),
+                    msig(carol, dave),
+                    fee(feeDrops),
+                    ter(tesSUCCESS));
+            }
+            auto const after = env.current()->read(keylet::account(alice.id()));
+            BEAST_EXPECT(
+                after->getFieldAmount(sfBalance).xrp() == balance - feeDrops);
+            BEAST_EXPECT(after->getFieldU32(sfSequence) == sequence + 1);
+            BEAST_EXPECT(!env.current()->exists(latchKey));
+        }
+    }
+
+    void
     testCanceledExportAcceptsMatchingImport(FeatureBitset features)
     {
         testcase("canceled Export accepts matching callback");
@@ -2691,6 +2777,7 @@ struct Export_test : public beast::unit_test::suite
 
         // Round-trip test
         testExportImportRoundTrip(allWithExport);
+        testExportCallbackAccountAuthorization(allWithExport);
         testCanceledExportAcceptsMatchingImport(allWithExport);
         testExportImportRejectsStaleImportVL(allWithExport);
     }
