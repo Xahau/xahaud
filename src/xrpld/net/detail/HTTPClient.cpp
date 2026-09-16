@@ -164,8 +164,15 @@ public:
         catch (boost::system::system_error const& e)
         {
             mShutdown = e.code();
-
             JLOG(j_.trace()) << "expires_after: " << mShutdown.message();
+        }
+
+        // The wait must be registered on the success path: XRPLF #5570 put it
+        // inside the catch above, so the deadline was never armed and a request
+        // to a server that never answers hung forever (ripple.net.HTTPClient
+        // "Socket cleanup after timeout"). This restores the pre-1.88 logic.
+        if (!mShutdown)
+        {
             mDeadline.async_wait(std::bind(
                 &HTTPClientImp::handleDeadline,
                 shared_from_this(),
