@@ -159,6 +159,10 @@ public:
             boost::asio::ip::resolver_query_base::numeric_service});
         mQuery = query;
 
+        // The old expires_from_now(timeout, ec) overload cleared this on
+        // success. Reset it explicitly so a failed host does not prevent
+        // the next host's deadline and resolver from being started.
+        mShutdown.clear();
         try
         {
             mDeadline.expires_after(mTimeout);
@@ -222,30 +226,20 @@ public:
         {
             JLOG(j_.trace()) << "Deadline arrived.";
 
-            // Mark us as shutting down.
-            // XXX Use our own error code.
-            mShutdown = boost::system::error_code{
-                boost::system::errc::bad_address,
-                boost::system::system_category()};
+            mShutdown = boost::asio::error::timed_out;
 
             // Cancel any resolving.
             mResolver.cancel();
 
-            // Stop the transaction.
-            mSocket.async_shutdown(std::bind(
-                &HTTPClientImp::handleShutdown,
-                shared_from_this(),
-                std::placeholders::_1));
-        }
-    }
-
-    void
-    handleShutdown(const boost::system::error_code& ecResult)
-    {
-        if (ecResult)
-        {
-            JLOG(j_.trace()) << "Shutdown error: " << mDeqSites[0] << ": "
-                             << ecResult.message();
+            // A deadline must interrupt the pending I/O. Graceful TLS
+            // shutdown can wait indefinitely for a silent peer, including
+            // while a handshake or response read is still outstanding.
+            // Closing the transport lets that operation complete with the
+            // timeout above through its normal completion handler.
+            boost::system::error_code ec;
+            mSocket.lowest_layer().close(ec);
+            if (ec)
+                JLOG(j_.trace()) << "Deadline close error: " << ec.message();
         }
     }
 
@@ -388,6 +382,11 @@ public:
         const boost::system::error_code& ecResult,
         std::size_t bytes_transferred)
     {
+        // Preserve the deadline error instead of parsing a partial header
+        // from the canceled read and reporting a malformed response.
+        if (mShutdown)
+            return invokeComplete(mShutdown);
+
         std::string strHeader{
             {std::istreambuf_iterator<char>(&mHeader)},
             std::istreambuf_iterator<char>()};

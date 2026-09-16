@@ -21,13 +21,16 @@
 #include <xrpld/net/HTTPClient.h>
 #include <xrpld/net/RPCCall.h>
 #include <xrpl/basics/ByteUtilities.h>
+#include <xrpl/basics/make_SSLContext.h>
 
 #include <boost/asio.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ssl.hpp>
 
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -327,6 +330,72 @@ private:
 
 //------------------------------------------------------------------------------
 
+// Hold one TLS connection open, either before the handshake or after reading
+// the request. In particular, never answer the client's TLS close_notify.
+class SilentHTTPSServer
+{
+    boost::asio::io_context ios_;
+    std::shared_ptr<boost::asio::ssl::context> context_ = make_SSLContext("");
+    boost::asio::ssl::stream<boost::asio::ip::tcp::socket> socket_{
+        ios_,
+        *context_};
+    boost::asio::ip::tcp::acceptor acceptor_{
+        ios_,
+        {boost::asio::ip::make_address("127.0.0.1"), 0}};
+    boost::asio::streambuf request_;
+    std::atomic<bool> accepted_{false};
+    std::atomic<bool> receivedRequest_{false};
+    std::thread thread_;
+
+public:
+    explicit SilentHTTPSServer(bool stallHandshake)
+    {
+        acceptor_.async_accept(
+            socket_.next_layer(), [this, stallHandshake](auto ec) {
+                if (ec)
+                    return;
+                accepted_ = true;
+                if (stallHandshake)
+                    return;
+                socket_.async_handshake(
+                    boost::asio::ssl::stream_base::server, [this](auto ec) {
+                        if (ec)
+                            return;
+                        boost::asio::async_read_until(
+                            socket_,
+                            request_,
+                            "\r\n\r\n",
+                            [this](auto ec, auto) { receivedRequest_ = !ec; });
+                    });
+            });
+        thread_ = std::thread([this] { ios_.run(); });
+    }
+
+    ~SilentHTTPSServer()
+    {
+        ios_.stop();
+        thread_.join();
+    }
+
+    unsigned short
+    port() const
+    {
+        return acceptor_.local_endpoint().port();
+    }
+
+    bool
+    accepted() const
+    {
+        return accepted_;
+    }
+
+    bool
+    receivedRequest() const
+    {
+        return receivedRequest_;
+    }
+};
+
 class HTTPClient_test : public beast::unit_test::suite
 {
     // Poll until cond() holds or the timeout elapses. The mock server now
@@ -506,6 +575,85 @@ class HTTPClient_test : public beast::unit_test::suite
 
         // Callback must be invoked even on timeout.
         BEAST_EXPECT(completed == 1);
+    }
+
+    void
+    testFallbackAfterConnectionRefused()
+    {
+        testcase("Try the next host after connection refused");
+        using namespace jtx;
+        Env env{*this};
+        MockHTTPServer server;
+        server.setResponseBody("fallback");
+        auto j = env.app().journal("HTTPClient");
+        boost::asio::io_context ios;
+        // Reserve the first address/port without listening. The mock server
+        // listens only on 127.0.0.1, the second entry in the fallback list.
+        boost::asio::ip::tcp::socket refused(ios);
+        refused.open(boost::asio::ip::tcp::v4());
+        refused.bind(
+            {boost::asio::ip::make_address("127.0.0.2"), server.port()});
+
+        int completions = 0;
+        HTTPClient::get(
+            false,
+            ios,
+            std::deque<std::string>{"127.0.0.2", "127.0.0.1"},
+            server.port(),
+            "/",
+            megabytes(1),
+            std::chrono::seconds{1},
+            [&](auto const& ec, int status, std::string const& body) {
+                ++completions;
+                BEAST_EXPECT(!ec);
+                BEAST_EXPECT(status == 200);
+                BEAST_EXPECT(body == "fallback");
+                return false;
+            },
+            j);
+        ios.run_for(std::chrono::seconds{4});
+        BEAST_EXPECT(ios.stopped());
+        BEAST_EXPECT(completions == 1);
+        BEAST_EXPECT(server.totalAcceptedCount() == 1);
+    }
+
+    void
+    testTLSDeadline()
+    {
+        for (bool stallHandshake : {false, true})
+        {
+            testcase(
+                stallHandshake ? "Deadline during TLS handshake"
+                               : "Deadline while TLS peer never responds");
+            using namespace jtx;
+            Env env{*this};
+            SilentHTTPSServer server(stallHandshake);
+            auto j = env.app().journal("HTTPClient");
+            boost::asio::io_context ios;
+            int completions = 0;
+            HTTPClient::get(
+                true,
+                ios,
+                "127.0.0.1",
+                server.port(),
+                "/",
+                megabytes(1),
+                std::chrono::seconds{1},
+                [&](auto const& ec, int, std::string const&) {
+                    ++completions;
+                    BEAST_EXPECT(ec == boost::asio::error::timed_out);
+                    return false;
+                },
+                j);
+            // Bound a regression: graceful SSL shutdown can otherwise wait
+            // forever for this server, preventing io_context::run returning.
+            ios.run_for(std::chrono::seconds{4});
+            BEAST_EXPECT(server.accepted());
+            if (!stallHandshake)
+                BEAST_EXPECT(server.receivedRequest());
+            BEAST_EXPECT(completions == 1);
+            BEAST_EXPECT(ios.stopped());
+        }
     }
 
     void
@@ -1173,6 +1321,8 @@ public:
         testCleanupAfter500();
         testCleanupAfterConnectionRefused();
         testCleanupAfterTimeout();
+        testFallbackAfterConnectionRefused();
+        testTLSDeadline();
         testReadErrorDuringBody();
         testCleanupAfterServerCloseBeforeResponse();
         testEOFCompletionCallsCallback();
