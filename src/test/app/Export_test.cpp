@@ -2565,12 +2565,12 @@ struct Export_test : public beast::unit_test::suite
             if (mode == "regular")
             {
                 env(regkey(alice, carol));
-                env(fset(alice, asfDisableMaster));
+                env(fset(alice, asfDisableMaster), sig(alice));
             }
             else if (mode == "multisign")
             {
                 env(signers(alice, 2, {{carol, 1}, {dave, 1}}));
-                env(fset(alice, asfDisableMaster));
+                env(fset(alice, asfDisableMaster), sig(alice));
             }
             env.close();
 
@@ -2578,7 +2578,11 @@ struct Export_test : public beast::unit_test::suite
                 env.current()->read(keylet::account(alice.id()));
             auto const balance = before->getFieldAmount(sfBalance).xrp();
             auto const sequence = before->getFieldU32(sfSequence);
-            auto const feeDrops = env.current()->fees().base * 10;
+            auto const feeDrops = calculateBaseFee(
+                *env.current(),
+                *env.jt(import::import(alice, callback.xpopJson),
+                        msig(carol, dave))
+                     .stx);
             auto const reject = [&](auto const& signing, TER const result) {
                 env(import::import(alice, callback.xpopJson),
                     signing,
