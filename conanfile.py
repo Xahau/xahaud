@@ -118,7 +118,7 @@ class Xrpl(ConanFile):
         # Force our custom snappy build for all dependencies
         self.requires('snappy/1.1.10@xahaud/stable', override=True)
         # Force boost version for all dependencies to avoid conflicts
-        self.requires('boost/1.88.0', override=True)
+        self.requires('boost/1.91.0', override=True)
         self.requires('lz4/1.10.0', force=True)
 
         if self.options.with_wasmedge:
