@@ -151,10 +151,12 @@ public:
     {
         JLOG(j_.trace()) << "Fetch: " << mDeqSites[0];
 
-        auto query = std::make_shared<Query>(
+        // Query is an aggregate: brace-initialise it rather than relying on
+        // C++20 parenthesised aggregate init, which clang < 16 rejects.
+        auto query = std::make_shared<Query>(Query{
             mDeqSites[0],
             std::to_string(mPort),
-            boost::asio::ip::resolver_query_base::numeric_service);
+            boost::asio::ip::resolver_query_base::numeric_service});
         mQuery = query;
 
         try
