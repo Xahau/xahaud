@@ -93,6 +93,70 @@ updateImportVLSequence(
 
 }  // namespace
 
+Import::Import(ApplyContext& ctx) : Transactor(ctx)
+{
+    // Ordinary emitted transactions and the existing wildcard-network policy
+    // are handled by Transactor::checkSign before Import authorization.
+    if (!view().rules().enabled(featureExport) || ctx.isEmittedTxn() ||
+        (ctx.tx.isFieldPresent(sfNetworkID) &&
+         ctx.tx.getFieldU32(sfNetworkID) == 65535))
+        return;
+
+    auto const [inner, meta] = getInnerTxn(ctx.tx, ctx.journal);
+    if (!inner || importPath(*inner) != ImportPath::exportCallback)
+        return;
+
+    PreclaimContext const signing{
+        ctx.app, view(), tesSUCCESS, ctx.tx, ctx.flags(), ctx.journal};
+    callbackAllowanceOnly_ = !isTesSuccess(checkAccountSign(signing));
+}
+
+NotTEC
+Import::checkImportSign(PreclaimContext const& ctx)
+{
+    if (!ctx.view.rules().enabled(featureExport))
+        return tesSUCCESS;
+    auto const [inner, meta] = getInnerTxn(ctx.tx, ctx.j);
+    if (!inner || !meta)
+        return temMALFORMED;
+    if (importPath(*inner) != ImportPath::exportCallback)
+        return tesSUCCESS;
+
+    auto const accountAuth = checkAccountSign(ctx);
+    if (isTesSuccess(accountAuth))
+        return accountAuth;
+
+    // The grant permits one callback using the owner's sequence. It does
+    // not authorize selecting and consuming an unrelated source Ticket.
+    if (ctx.tx.isFieldPresent(sfTicketSequence))
+        return accountAuth;
+
+    auto const owner = ctx.tx.getAccountID(sfAccount);
+    if (inner->getAccountID(sfAccount) != owner)
+        return accountAuth;
+    auto const stamp = ExportOriginMemo::parse(*inner);
+    if (!stamp || !stamp.value().anchor)
+        return accountAuth;
+    auto const latch = ctx.view.read(
+        keylet::exportLatch(owner, stamp.value().origin.transactionHash));
+    if (!latch || latch->getType() != ltEXPORT_LATCH ||
+        !latch->isFieldPresent(sfExportCallbackFeeLimit))
+        return accountAuth;
+
+    auto const& limit = latch->getFieldAmount(sfExportCallbackFeeLimit);
+    auto const& fee = ctx.tx.getFieldAmount(sfFee);
+    if (!isXRP(limit) || limit <= beast::zero || !isXRP(fee) ||
+        fee < beast::zero || fee > limit)
+        return accountAuth;
+
+    // The allowance covers only this exact, still-actionable proof. Reject
+    // duplicates or other preclaim failures before permitting an owner debit.
+    // preclaim is read-only; the standard pipeline repeats it before apply.
+    if (!isTesSuccess(preclaim(ctx)))
+        return accountAuth;
+    return tesSUCCESS;
+}
+
 TxConsequences
 Import::makeTxConsequences(PreflightContext const& ctx)
 {

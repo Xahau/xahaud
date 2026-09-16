@@ -111,7 +111,8 @@ struct Export_test : public beast::unit_test::suite
         jtx::Account const& alice,
         jtx::Account const& carol,
         std::uint32_t targetNetworkID,
-        std::uint32_t ticketSeq)
+        std::uint32_t ticketSeq,
+        std::optional<XRPAmount> callbackFeeLimit = std::nullopt)
     {
         using namespace jtx;
 
@@ -134,6 +135,9 @@ struct Export_test : public beast::unit_test::suite
         jvExport[jss::LastLedgerSequence] =
             xahau.current()->seq() + ExportLimits::maxAdmissionWindowLedgers;
         jvExport[sfExportedTxn.jsonName] = innerObj.getJson(JsonOptions::none);
+        if (callbackFeeLimit)
+            jvExport[sfExportCallbackFeeLimit.jsonName] =
+                to_string(*callbackFeeLimit);
 
         auto const& valKeys = xahau.app().getValidatorKeys();
         BEAST_EXPECT(valKeys.keys);
@@ -2633,6 +2637,254 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    testExportCallbackFeeAllowance(FeatureBitset features)
+    {
+        using namespace jtx;
+        for (std::string const mode :
+             {"relay", "owner", "insufficient", "retained"})
+        {
+            testcase("Export callback fee allowance: " + mode);
+            auto const xpopCtx = xpop::TestXPOPContext::create(3);
+            Account const alice{"alice"};
+            Account const carol{"carol"};
+            Env env{*this, xpopCtx.makeEnvConfig(21337), features};
+            env.fund(XRP(10000), alice, carol);
+            env.close();
+            XRPAmount const cap{mode == "insufficient" ? 20'000'000 : 1000};
+            auto const initialBalance = env.current()
+                                            ->read(keylet::account(alice.id()))
+                                            ->getFieldAmount(sfBalance)
+                                            .xrp();
+            auto const callback = buildExportCallbackXPOP(
+                env, xpopCtx, alice, carol, 31337, 2, cap);
+            auto const latchKey =
+                keylet::exportLatch(alice.id(), callback.originTxn);
+            auto const latch = env.current()->read(latchKey);
+            if (!BEAST_EXPECT(latch))
+                continue;
+            BEAST_EXPECT(
+                latch->getFieldAmount(sfExportCallbackFeeLimit).xrp() == cap);
+            // Only the ordinary intent fee was debited; the cap is not escrow.
+            BEAST_EXPECT(
+                env.current()
+                    ->read(keylet::account(alice.id()))
+                    ->getFieldAmount(sfBalance)
+                    .xrp() == initialBalance - XRPAmount{1'000'000});
+
+            if (mode == "insufficient")
+                env(pay(alice, carol, XRP(9990)), ter(tesSUCCESS));
+            std::optional<std::uint32_t> ownerTicket;
+            if (mode == "relay")
+            {
+                ownerTicket = env.seq(alice) + 1;
+                env(ticket::create(alice, 1), ter(tesSUCCESS));
+                env.close();
+            }
+            if (mode == "retained")
+            {
+                // Model the supported XPOP-before-witness lifecycle state.
+                env.app().openLedger().modify([&](OpenView& view,
+                                                  beast::Journal) {
+                    auto pending = std::make_shared<SLE>(*view.read(latchKey));
+                    pending->makeFieldAbsent(sfExportSignatureHash);
+                    view.rawReplace(pending);
+                    return true;
+                });
+            }
+
+            auto const before =
+                env.current()->read(keylet::account(alice.id()));
+            auto const balance = before->getFieldAmount(sfBalance).xrp();
+            auto const sequence = before->getFieldU32(sfSequence);
+            auto const unchanged = [&] {
+                auto const current =
+                    env.current()->read(keylet::account(alice.id()));
+                BEAST_EXPECT(
+                    current->getFieldAmount(sfBalance).xrp() == balance);
+                BEAST_EXPECT(current->getFieldU32(sfSequence) == sequence);
+                BEAST_EXPECT(env.current()->exists(latchKey));
+                if (callback.vlInfo)
+                    BEAST_EXPECT(
+                        importVLSequence(env, callback.vlInfo->second) == 0);
+            };
+
+            if (mode == "insufficient")
+            {
+                env(import::import(alice, callback.xpopJson),
+                    sig(carol),
+                    fee(XRP(10)),
+                    ter(terINSUF_FEE_B));
+                unchanged();
+                continue;
+            }
+
+            env(import::import(alice, callback.xpopJson),
+                sig(carol),
+                fee(cap + XRPAmount{1}),
+                ter(tefBAD_AUTH));
+            unchanged();
+            if (ownerTicket)
+            {
+                env(import::import(alice, callback.xpopJson),
+                    sig(carol),
+                    fee(cap),
+                    ticket::use(*ownerTicket),
+                    ter(tefBAD_AUTH));
+                unchanged();
+                BEAST_EXPECT(env.current()->exists(
+                    keylet::ticket(alice.id(), *ownerTicket)));
+            }
+
+            auto malformedProof = callback.xpopJson;
+            malformedProof[jss::transaction][jss::blob] = "00";
+            env(import::import(alice, malformedProof),
+                sig(carol),
+                fee(cap),
+                ter(temMALFORMED));
+            unchanged();
+
+            auto const paid = mode == "owner" ? cap + XRPAmount{1} : cap;
+            env(import::import(alice, callback.xpopJson),
+                sig(mode == "owner" ? alice : carol),
+                fee(paid),
+                ter(tesSUCCESS));
+            auto const after = env.current()->read(keylet::account(alice.id()));
+            BEAST_EXPECT(
+                after->getFieldAmount(sfBalance).xrp() == balance - paid);
+            BEAST_EXPECT(after->getFieldU32(sfSequence) == sequence + 1);
+            if (mode == "retained")
+            {
+                auto const retained = env.current()->read(latchKey);
+                BEAST_EXPECT(retained && retained->isFlag(lsfExportXpopSeen));
+            }
+            else
+                BEAST_EXPECT(!env.current()->exists(latchKey));
+
+            // The same valid proof cannot authorize another debit, whether
+            // the latch was erased or retained awaiting its witness.
+            env(import::import(alice, callback.xpopJson),
+                sig(carol),
+                fee(cap),
+                ter(tefBAD_AUTH));
+            auto const duplicate =
+                env.current()->read(keylet::account(alice.id()));
+            BEAST_EXPECT(
+                duplicate->getFieldAmount(sfBalance).xrp() == balance - paid);
+            BEAST_EXPECT(duplicate->getFieldU32(sfSequence) == sequence + 1);
+        }
+    }
+
+    void
+    testExportCallbackFeeLimitValidation(FeatureBitset features)
+    {
+        testcase(
+            "Export callback fee limit is positive native and intent-only");
+        using namespace jtx;
+        auto const xpopCtx = xpop::TestXPOPContext::create(3);
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        Env env{*this, xpopCtx.makeEnvConfig(21337), features};
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+        auto const target = buildExportedPayment(
+            alice.id(),
+            carol.id(),
+            env.current()->seq() + 1,
+            env.current()->seq() + ExportLimits::maxAdmissionWindowLedgers);
+        auto intent =
+            makeExportJTx(
+                env,
+                alice,
+                target,
+                env.current()->seq() + ExportLimits::maxAdmissionWindowLedgers)
+                .jv;
+        for (char const* invalid : {"0", "-1"})
+        {
+            intent[sfExportCallbackFeeLimit.jsonName] = invalid;
+            env(intent, fee(XRP(1)), ter(temBAD_FEE));
+        }
+        Json::Value issued;
+        issued[jss::currency] = "USD";
+        issued[jss::issuer] = carol.human();
+        issued[jss::value] = "1";
+        intent[sfExportCallbackFeeLimit.jsonName] = issued;
+        env(intent, fee(XRP(1)), ter(temBAD_FEE));
+
+        Json::Value setup;
+        setup[jss::TransactionType] = jss::Export;
+        setup[jss::Account] = alice.human();
+        setup[sfExportCommittee.jsonName] = strHex(defaultExportCommittee(env));
+        setup[sfExportCallbackFeeLimit.jsonName] = "1000";
+        env(setup, fee(XRP(1)), ter(temMALFORMED));
+        setup.removeMember(sfExportCommittee.jsonName);
+        setup[sfTransactionHash.jsonName] = to_string(uint256{1});
+        env(setup, fee(XRP(1)), ter(temMALFORMED));
+    }
+
+    void
+    testExportCallbackAllowanceHookRejection(FeatureBitset features)
+    {
+        testcase(
+            "Third-party callback allowance does not cover Hook rejection "
+            "fees");
+        using namespace jtx;
+        auto const xpopCtx = xpop::TestXPOPContext::create(3);
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        Env env{*this, xpopCtx.makeEnvConfig(21337), features};
+        env.fund(XRP(10000), alice, carol);
+        env.close();
+        XRPAmount const cap{1'000'000};
+        auto const callback =
+            buildExportCallbackXPOP(env, xpopCtx, alice, carol, 31337, 2, cap);
+        auto const latchKey =
+            keylet::exportLatch(alice.id(), callback.originTxn);
+
+        // Same minimal rollback Hook used by Simulate_test's rollback case:
+        // _g(1, 1); rollback("Hook Rejected", 0).
+        std::string const rollbackHook =
+            "0061736D0100000001130360027F7F017F60037F7F7E017E60017F017E02190203"
+            "656E76025F67000003656E7608726F6C6C6261636B000103020102050301000206"
+            "21"
+            "057F01419088040B7F00418E080B7F004180080B7F00419088040B7F004180080B"
+            "07"
+            "080104686F6F6B00020AA18000019D800000410141011080808080001A41808880"
+            "80"
+            "00410E42001081808080000B0B1501004180080B0E486F6F6B2052656A65637465"
+            "6400";
+        env(hook(alice, {{hso(rollbackHook)}}, 0),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+        auto const before = env.current()->read(keylet::account(alice.id()));
+        auto const balance = before->getFieldAmount(sfBalance).xrp();
+        auto const sequence = before->getFieldU32(sfSequence);
+        for (int attempt = 0; attempt < 2; ++attempt)
+        {
+            env(import::import(alice, callback.xpopJson),
+                sig(carol),
+                fee(cap),
+                ter(tefBAD_AUTH));
+            auto const after = env.current()->read(keylet::account(alice.id()));
+            BEAST_EXPECT(after->getFieldAmount(sfBalance).xrp() == balance);
+            BEAST_EXPECT(after->getFieldU32(sfSequence) == sequence);
+            BEAST_EXPECT(env.current()->exists(latchKey));
+            if (callback.vlInfo)
+                BEAST_EXPECT(
+                    importVLSequence(env, callback.vlInfo->second) == 0);
+        }
+        // An account-authorized transaction keeps ordinary fee-only semantics.
+        env(import::import(alice, callback.xpopJson),
+            sig(alice),
+            fee(cap),
+            ter(tecHOOK_REJECTED));
+        auto const after = env.current()->read(keylet::account(alice.id()));
+        BEAST_EXPECT(after->getFieldAmount(sfBalance).xrp() == balance - cap);
+        BEAST_EXPECT(after->getFieldU32(sfSequence) == sequence + 1);
+        BEAST_EXPECT(env.current()->exists(latchKey));
+    }
+
+    void
     testCanceledExportAcceptsMatchingImport(FeatureBitset features)
     {
         testcase("canceled Export accepts matching callback");
@@ -2782,6 +3034,9 @@ struct Export_test : public beast::unit_test::suite
         // Round-trip test
         testExportImportRoundTrip(allWithExport);
         testExportCallbackAccountAuthorization(allWithExport);
+        testExportCallbackFeeAllowance(allWithExport);
+        testExportCallbackFeeLimitValidation(allWithExport);
+        testExportCallbackAllowanceHookRejection(allWithExport);
         testCanceledExportAcceptsMatchingImport(allWithExport);
         testExportImportRejectsStaleImportVL(allWithExport);
     }

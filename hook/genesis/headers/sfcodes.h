@@ -199,6 +199,7 @@
 #define sfSignatureReward ((6U << 16U) + 29U)
 #define sfMinAccountCreateAmount ((6U << 16U) + 30U)
 #define sfLPTokenBalance ((6U << 16U) + 31U)
+#define sfExportCallbackFeeLimit ((6U << 16U) + 32U)
 #define sfTrustLineRewardAccumulator ((6U << 16U) + 99U)
 #define sfPublicKey ((7U << 16U) + 1U)
 #define sfMessageKey ((7U << 16U) + 2U)

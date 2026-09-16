@@ -628,6 +628,7 @@ LEDGER_ENTRY(ltDID, 0x008D, DID, did, ({
  */
 LEDGER_ENTRY(ltEXPORT_LATCH, 0x5374, ExportLatch, export_latch, ({
     {sfAccount,              soeREQUIRED},
+    {sfExportCallbackFeeLimit, soeOPTIONAL},
     {sfTicketSequence,       soeREQUIRED},
     {sfTransactionHash,      soeOPTIONAL},
     {sfDigest,               soeREQUIRED},

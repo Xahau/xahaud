@@ -505,6 +505,7 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
    control an existing latch, or manage an immutable committee object. */
 TRANSACTION(ttEXPORT, 90, Export, ({
     {sfExportedTxn, soeOPTIONAL},
+    {sfExportCallbackFeeLimit, soeOPTIONAL},
     {sfTransactionHash, soeOPTIONAL},
     {sfExportCommitteeHash, soeOPTIONAL},
     {sfExportCommittee, soeOPTIONAL},

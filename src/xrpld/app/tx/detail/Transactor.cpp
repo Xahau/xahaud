@@ -909,20 +909,11 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getFieldU32(sfNetworkID) == 65535)
         return tesSUCCESS;
 
-    // Burn-to-mint Imports retain their XPOP-based signing authorization.
-    // Export callbacks instead authorize the outer source-account transaction
-    // normally: target committee signatures do not authorize its fee/sequence.
+    // Import distinguishes B2M proof authorization from callback account
+    // authorization or an explicit per-intent callback fee allowance.
     if (ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT)
-    {
-        if (!ctx.view.rules().enabled(featureExport))
-            return tesSUCCESS;
-        auto const [inner, meta] = Import::getInnerTxn(ctx.tx, ctx.j);
-        if (!inner || !meta)
-            return temMALFORMED;
-        if (!inner->isFieldPresent(sfTicketSequence))
-            return tesSUCCESS;
-    }
+        return Import::checkImportSign(ctx);
 
     // pass ttMANIFEST_SETs, their signatures are checked in preflight against
     // the manifest's internal key logic
@@ -930,6 +921,12 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
+    return checkAccountSign(ctx);
+}
+
+NotTEC
+Transactor::checkAccountSign(PreclaimContext const& ctx)
+{
     if (ctx.flags & tapDRY_RUN)
     {
         // This code must be different for `simulate`
@@ -2455,6 +2452,17 @@ Transactor::operator()()
                 applied = isTesSuccess(result) || isTecClaim(result);
             }
         }
+    }
+
+    // An opt-in callback allowance does not authorize repeated fee-only
+    // attempts when a Hook or later apply check rejects the callback.
+    if (isTecClaim(result) && !allowsFeeOnlyClaim())
+    {
+        JLOG(j_.debug()) << "Callback allowance does not cover fee-only result "
+                         << transToken(result);
+        ctx_.discard();
+        result = tefBAD_AUTH;
+        applied = false;
     }
 
     std::optional<TxMeta> metadata;

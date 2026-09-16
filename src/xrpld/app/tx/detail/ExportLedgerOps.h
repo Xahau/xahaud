@@ -412,6 +412,11 @@ createPendingExportLatch(
     latch->setFieldU32(sfLedgerSequence, view.info().seq);
     latch->setFieldH256(sfExportCommitteeHash, committeeHash);
 
+    if (exportTx.isFieldPresent(sfExportCallbackFeeLimit))
+        latch->setFieldAmount(
+            sfExportCallbackFeeLimit,
+            exportTx.getFieldAmount(sfExportCallbackFeeLimit));
+
     if (!exportTx.isFieldPresent(sfLastLedgerSequence))
         return temMALFORMED;
     auto const publicationEnd = static_cast<std::uint64_t>(view.info().seq) +

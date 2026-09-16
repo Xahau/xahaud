@@ -80,9 +80,10 @@ public:
             beast::Journal const& j,
             Json::Value const* xpop = 0);
 
-    explicit Import(ApplyContext& ctx) : Transactor(ctx)
-    {
-    }
+    explicit Import(ApplyContext& ctx);
+
+    static NotTEC
+    checkImportSign(PreclaimContext const& ctx);
 
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
@@ -100,6 +101,14 @@ public:
     doApply() override;
 
 private:
+    bool callbackAllowanceOnly_ = false;
+
+    bool
+    allowsFeeOnlyClaim() const override
+    {
+        return !callbackAllowanceOnly_;
+    }
+
     void
     doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans);
 

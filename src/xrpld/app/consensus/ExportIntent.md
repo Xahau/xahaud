@@ -275,19 +275,42 @@ owned by the current `ttIMPORT` callback path; those enclosing transactions own
 that latch transition. It may control a different latch owned by the Hook account
 under the ordinary retain-or-explicit-erase rules in INV-9.
 
-**INV-13 - Return callbacks remain owner-authorized Imports.**
+**INV-13 - Callback authority is account-based unless the intent opts in.**
 An XPOP whose proven target transaction carries `sfTicketSequence` takes the
 Export callback path only while both Import and Export are enabled. The outer
-Import is authorized normally, and its `sfAccount` must equal the proven target
+Import's `sfAccount` must equal the proven target
 transaction's `sfAccount`, which Export admission already bound to the exporter
-and latch owner. Possession of an XPOP alone never authorizes another account's
-callback.
+and latch owner. By default the Import is authorized normally; possession of an
+XPOP alone is insufficient.
 
 The source account's enabled master key, current regular key, or configured
 multisigning quorum authorizes the outer Import and its fee/sequence effects.
-An unrelated signing key must fail before balance, sequence, latch, or Import
-validator-list state changes. The target committee's signatures and possession
-of its valid XPOP do not substitute for source-account authorization.
+An intent may explicitly opt into third-party callback delivery by including
+`sfExportCallbackFeeLimit`, a positive native amount stored unchanged on its
+latch. It authorizes at most that outer Import fee for one successful callback
+for this exact issuance. It reserves no funds and pays no reward to the relayer;
+the owner must have sufficient balance when the callback is applied. Absence
+of the field preserves account authorization. It is forbidden on committee
+administration and latch-control forms, and cannot grant authority over other
+latches. Existing `xport()` wrappers omit it and retain the default policy.
+
+A third-party-signed Import may use this allowance only after all ordinary
+proof/latch/validator-list preclaim conditions pass, within its stored fee cap.
+The proof's owner, source/target domains, origin, and target digest still bind
+the callback. An account-authorized Import may pay a higher fee because the
+account directly authorized it. Third-party delivery uses the owner's current
+sequence and debits the owner's balance; it cannot consume an unrelated source
+Ticket. Account-authorized Imports retain normal sequence/Ticket choice. Opting
+in permits delivery without another owner signature at callback time.
+
+The allowance does not authorize fee-only application. A Hook rejection or
+later apply/invariant failure discards the third-party attempt, including fees,
+sequence changes, latch changes, and validator-list state. A recorded
+callback cannot authorize another debit, whether its latch has been erased or
+remains awaiting a witness. Account-authorized Imports retain ordinary fee-only
+error behavior. Flagless publication control and publication expiry retain the
+callback allowance along with callback readiness; explicit latch erasure
+removes both. A valid XPOP alone never expands the chosen fee authority.
 
 The callback may omit the burn-to-mint `sfOperationLimit` and outer/inner
 signing-key-equality checks because the validator-multisigned target and Export

@@ -132,6 +132,18 @@ Export::preflight(PreflightContext const& ctx)
     bool const hasRoster = ctx.tx.isFieldPresent(sfExportCommittee);
     auto const flags = ctx.tx.getFlags() & ~tfUniversal;
 
+    // Presence opts this intent into third-party callback delivery. This is
+    // a maximum authorized debit at callback time, not a prepaid balance.
+    if (ctx.tx.isFieldPresent(sfExportCallbackFeeLimit))
+    {
+        if (!hasExport)
+            return temMALFORMED;
+        auto const& limit = ctx.tx.getFieldAmount(sfExportCallbackFeeLimit);
+        if (!isXRP(limit) || limit <= beast::zero ||
+            !isLegalAmount(limit.xrp()))
+            return temBAD_FEE;
+    }
+
     if (ctx.tx.isFieldPresent(sfEmitDetails) && (!hasExport || hasRoster))
         return temMALFORMED;
 
