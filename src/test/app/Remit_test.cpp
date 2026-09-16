@@ -2964,6 +2964,49 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 sleU->getAccountID(sfTransferFeeRecipient) == carol.id());
         }
+
+        // Remit with TransferFeeRecipient same as the source account
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            std::string const uri(9, '?');
+            env(remit::remit(alice, bob),
+                remit::uri(uri, std::nullopt, std::nullopt, 5000, alice),
+                ter(temMALFORMED));
+        }
+
+        // Remit with TransferFeeRecipient that is an AMM account
+        {
+            Env env{*this, features | featureAMM};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const gw = Account("gw");
+            auto const USD = gw["USD"];
+            env.fund(XRP(10'000'000), alice, bob, gw);
+            env.close();
+
+            env.trust(USD(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(100'000)));
+            env.close();
+
+            AMM ammAlice(env, alice, XRP(10'000), USD(10'000));
+
+            std::string const uri(10, '?');
+            env(
+                remit::remit(alice, bob),
+                remit::uri(uri, std::nullopt, std::nullopt, 2500),
+                [&](Env&, JTx& jt) {
+                    jt.jv[sfMintURIToken.jsonName]
+                         [sfTransferFeeRecipient.jsonName] =
+                        to_string(ammAlice.ammAccount());
+                },
+                ter(tecNO_PERMISSION));
+        }
     }
 
     void

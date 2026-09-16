@@ -2710,6 +2710,7 @@ struct URIToken_test : public beast::unit_test::suite
 
             std::string const uri(2, '?');
             env(uritoken::mint(alice, uri),
+                uritoken::xfee(5000),
                 uritoken::xfee_recipient(alice),
                 ter(temMALFORMED));
         }
@@ -3065,6 +3066,15 @@ struct URIToken_test : public beast::unit_test::suite
 
         // IOU sale with gateway transfer rate -
         // BOTH gateway transfer rate AND URIToken transfer fee are applied.
+        // The seller is credited 1000 / 1.01 = 990.0990099009901 USD by
+        // the sale leg; the URIToken fee is taken from that net amount and
+        // is rounded down (never over-collected).
+        for (auto const& [feeBips, expectFee, expectSeller] :
+             {std::tuple{10000, "99.00990099009901", "891.0891089108911"},
+              // 990.0990099009901 * 0.33333 = 330.029702970297030033
+              // rounded down to 16 digits; rounding up would give
+              // 330.0297029702971.
+              std::tuple{33333, "330.029702970297", "660.0693069306931"}})
         {
             Env env{*this, features};
             auto const alice = Account("alice");  // URIToken issuer
@@ -3082,8 +3092,9 @@ struct URIToken_test : public beast::unit_test::suite
             env(rate(gw, 1.01));
             env.close();
 
-            env(pay(gw, alice, USD(10000)));
-            env(pay(gw, bob, USD(10000)));
+            // Only carol holds USD so that alice's and bob's balances
+            // after the sale are the fee and the net proceeds exactly
+            // (a large existing balance would round the 16-digit sum).
             env(pay(gw, carol, USD(10000)));
             env.close();
 
@@ -3091,9 +3102,9 @@ struct URIToken_test : public beast::unit_test::suite
             auto const tid = uritoken::tokenid(alice, uri);
             auto const tidStr = to_string(tid);
 
-            // Mint with 10% URIToken transfer fee, give to bob via XRP(0)
+            // Mint with URIToken transfer fee, give to bob via XRP(0)
             env(uritoken::mint(alice, uri),
-                uritoken::xfee(10000),
+                uritoken::xfee(feeBips),
                 uritoken::dest(bob),
                 uritoken::amt(XRP(0)));
             env.close();
@@ -3113,20 +3124,10 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::buy(carol, tidStr), uritoken::amt(USD(1000)));
             env.close();
 
-            // BOTH fees are applied:
-            // 1. Gateway transfer rate (1%) is deducted first:
-            //    net received = 1000 / 1.01 ≈ 990.099 USD
-            // 2. URIToken TransferFee (10%) is calculated on the
-            //    net received amount: fee ≈ 990.099 * 10% ≈ 99.010
-            // 3. Seller keeps: ≈ 990.099 - 99.010 ≈ 891.089
             auto const aliceGain = env.balance(alice, USD) - preAlice;
-            // Alice receives ~99 USD (10% of ~990)
-            BEAST_EXPECT(aliceGain > USD(98));
-            BEAST_EXPECT(aliceGain < USD(100));
             auto const bobGain = env.balance(bob, USD) - preBob;
-            // Bob receives ~891 USD
-            BEAST_EXPECT(bobGain > USD(890));
-            BEAST_EXPECT(bobGain < USD(892));
+            BEAST_EXPECT(aliceGain.getText() == expectFee);
+            BEAST_EXPECT(bobGain.getText() == expectSeller);
         }
 
         // Mixed scenario - mint with TransferFee, sell first
@@ -3501,6 +3502,347 @@ struct URIToken_test : public beast::unit_test::suite
 
             // Bob receives 1000 - 100 = 900 USD
             BEAST_EXPECT(env.balance(bob, USD) == preBob + USD(900));
+        }
+
+        // IOU sale: gateway (IOU issuer) is the buyer, transfer rate 1.01
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");  // URIToken issuer
+            auto const bob = Account("bob");
+            auto const gw = Account{"gateway"};  // IOU issuer, buyer
+            auto const USD = gw["USD"];
+            env.fund(XRP(10000), alice, bob, gw);
+            env(fset(gw, asfDefaultRipple));
+            env.close();
+            env(rate(gw, 1.01));
+            env.close();
+            env.trust(USD(100000), alice, bob);
+            env.close();
+
+            std::string const uri(19, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+            auto const tidStr = to_string(tid);
+
+            // Mint with 10% fee, give to bob via XRP(0)
+            env(uritoken::mint(alice, uri),
+                uritoken::xfee(10000),
+                uritoken::dest(bob),
+                uritoken::amt(XRP(0)));
+            env.close();
+
+            env(uritoken::buy(bob, tidStr), uritoken::amt(XRP(0)));
+            env.close();
+
+            // Bob lists for 1000 USD
+            env(uritoken::sell(bob, tidStr), uritoken::amt(USD(1000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice, USD);
+            auto const preBob = env.balance(bob, USD);
+
+            // Gateway buys directly - no transfer rate applies since gw
+            // is a party, so the URIToken fee base is the full purchase
+            // amount (not the amount after the gateway transfer rate)
+            env(uritoken::buy(gw, tidStr), uritoken::amt(USD(1000)));
+            env.close();
+
+            // Bob receives exactly 1000 - 100 = 900 USD
+            BEAST_EXPECT(env.balance(bob, USD) == preBob + USD(900));
+            // Alice (URIToken issuer) receives exactly 10% = 100 USD
+            BEAST_EXPECT(env.balance(alice, USD) == preAlice + USD(100));
+        }
+
+        // IOU sale: gateway (IOU issuer) is the seller, transfer rate 1.01
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");  // URIToken issuer
+            auto const carol = Account("carol");
+            auto const gw = Account{"gateway"};  // IOU issuer, seller
+            auto const USD = gw["USD"];
+            env.fund(XRP(10000), alice, carol, gw);
+            env(fset(gw, asfDefaultRipple));
+            env.close();
+            env(rate(gw, 1.01));
+            env.close();
+            env.trust(USD(100000), alice, carol);
+            env.close();
+            env(pay(gw, carol, USD(10000)));
+            env.close();
+
+            std::string const uri(20, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+            auto const tidStr = to_string(tid);
+
+            // Mint with 10% fee, sell only to gw via XRP(0)
+            env(uritoken::mint(alice, uri),
+                uritoken::xfee(10000),
+                uritoken::dest(gw),
+                uritoken::amt(XRP(0)));
+            env.close();
+
+            // gw buys from alice (issuer is seller - no fee)
+            env(uritoken::buy(gw, tidStr), uritoken::amt(XRP(0)));
+            env.close();
+
+            // gw lists for 1000 USD
+            env(uritoken::sell(gw, tidStr), uritoken::amt(USD(1000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice, USD);
+            auto const preCarol = env.balance(carol, USD);
+
+            // Carol buys directly from gw - no transfer rate applies
+            // since gw is a party, so the URIToken fee base is the full
+            // purchase amount
+            env(uritoken::buy(carol, tidStr), uritoken::amt(USD(1000)));
+            env.close();
+
+            // Alice (URIToken issuer) receives exactly 10% = 100 USD
+            BEAST_EXPECT(env.balance(alice, USD) == preAlice + USD(100));
+            // Carol pays exactly 1000 USD (no gateway transfer rate)
+            BEAST_EXPECT(env.balance(carol, USD) == preCarol - USD(1000));
+        }
+
+        // No fee when TransferFeeRecipient is the buyer
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");  // URIToken issuer
+            auto const bob = Account("bob");
+            auto const dave = Account("dave");  // fee recipient
+            env.fund(XRP(10000), alice, bob, dave);
+            env.close();
+
+            std::string const uri(21, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+            auto const tidStr = to_string(tid);
+
+            // Mint with 10% fee, recipient = dave, give to bob via XRP(0)
+            env(uritoken::mint(alice, uri),
+                uritoken::xfee(10000),
+                uritoken::xfee_recipient(dave),
+                uritoken::dest(bob),
+                uritoken::amt(XRP(0)));
+            env.close();
+
+            env(uritoken::buy(bob, tidStr), uritoken::amt(XRP(0)));
+            env.close();
+
+            // Bob lists for 1000 XRP
+            env(uritoken::sell(bob, tidStr), uritoken::amt(XRP(1000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice);
+            auto const preBob = env.balance(bob);
+
+            // Dave (fee recipient) buys - no fee since he is the buyer
+            env(uritoken::buy(dave, tidStr), uritoken::amt(XRP(1000)));
+            env.close();
+
+            // Bob receives the full 1000 XRP
+            BEAST_EXPECT(env.balance(bob) == preBob + XRP(1000));
+            // Alice (URIToken issuer) is unaffected
+            BEAST_EXPECT(env.balance(alice) == preAlice);
+        }
+
+        // No fee when TransferFeeRecipient is the seller
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");  // URIToken issuer
+            auto const carol = Account("carol");
+            auto const dave = Account("dave");  // fee recipient
+            env.fund(XRP(10000), alice, carol, dave);
+            env.close();
+
+            std::string const uri(22, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+            auto const tidStr = to_string(tid);
+
+            // Mint with 10% fee, recipient = dave, give to dave via XRP(0)
+            env(uritoken::mint(alice, uri),
+                uritoken::xfee(10000),
+                uritoken::xfee_recipient(dave),
+                uritoken::dest(dave),
+                uritoken::amt(XRP(0)));
+            env.close();
+
+            env(uritoken::buy(dave, tidStr), uritoken::amt(XRP(0)));
+            env.close();
+
+            // Dave lists for 1000 XRP
+            env(uritoken::sell(dave, tidStr), uritoken::amt(XRP(1000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice);
+            auto const preDave = env.balance(dave);
+
+            // Carol buys - no fee since dave (seller) is the recipient
+            env(uritoken::buy(carol, tidStr), uritoken::amt(XRP(1000)));
+            env.close();
+
+            // Dave receives the full 1000 XRP
+            BEAST_EXPECT(env.balance(dave) == preDave + XRP(1000));
+            // Alice (URIToken issuer) is unaffected
+            BEAST_EXPECT(env.balance(alice) == preAlice);
+        }
+
+        // XAH dust sale: fee floors to zero
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");  // URIToken issuer
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+
+            std::string const uri(23, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+            auto const tidStr = to_string(tid);
+
+            // Mint with a 0.001% fee, give to bob via XRP(0)
+            env(uritoken::mint(alice, uri),
+                uritoken::xfee(1),
+                uritoken::dest(bob),
+                uritoken::amt(XRP(0)));
+            env.close();
+
+            env(uritoken::buy(bob, tidStr), uritoken::amt(XRP(0)));
+            env.close();
+
+            // Bob lists for a tiny amount that floors the fee to zero
+            env(uritoken::sell(bob, tidStr), uritoken::amt(drops(99999)));
+            env.close();
+
+            auto const preAlice = env.balance(alice);
+            auto const preBob = env.balance(bob);
+
+            // Carol buys - fee floors to 0, so no fee leg runs
+            env(uritoken::buy(carol, tidStr), uritoken::amt(drops(99999)));
+            env.close();
+
+            // Bob receives the full amount, no fee deducted
+            BEAST_EXPECT(env.balance(bob) == preBob + drops(99999));
+            // Alice (URIToken issuer) is unaffected
+            BEAST_EXPECT(env.balance(alice) == preAlice);
+        }
+
+        // IOU sale: fee skipped when gateway requires auth and the
+        // recipient's trust line is unauthorized
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");  // URIToken issuer
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const dave = Account("dave");  // fee recipient
+            auto const gw = Account{"gateway"};
+            auto const USD = gw["USD"];
+            auto const aliceUSD = alice["USD"];
+            auto const bobUSD = bob["USD"];
+            auto const carolUSD = carol["USD"];
+            env.fund(XRP(10000), alice, bob, carol, dave, gw);
+            env(fset(gw, asfRequireAuth));
+            env.close();
+
+            // Authorize alice, bob, and carol's trust lines
+            env(trust(gw, aliceUSD(10000)), txflags(tfSetfAuth));
+            env(trust(alice, USD(10000)));
+            env(trust(gw, bobUSD(10000)), txflags(tfSetfAuth));
+            env(trust(bob, USD(10000)));
+            env(trust(gw, carolUSD(10000)), txflags(tfSetfAuth));
+            env(trust(carol, USD(10000)));
+            env.close();
+
+            // dave (fee recipient) opens a trust line but gw never
+            // authorizes it
+            env(trust(dave, USD(10000)));
+            env.close();
+
+            env(pay(gw, alice, USD(10000)));
+            env(pay(gw, bob, USD(10000)));
+            env(pay(gw, carol, USD(10000)));
+            env.close();
+
+            std::string const uri(25, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+            auto const tidStr = to_string(tid);
+
+            // Mint with 10% fee, recipient = dave, give to bob via XRP(0)
+            env(uritoken::mint(alice, uri),
+                uritoken::xfee(10000),
+                uritoken::xfee_recipient(dave),
+                uritoken::dest(bob),
+                uritoken::amt(XRP(0)));
+            env.close();
+
+            env(uritoken::buy(bob, tidStr), uritoken::amt(XRP(0)));
+            env.close();
+
+            // Bob lists for 1000 USD
+            env(uritoken::sell(bob, tidStr), uritoken::amt(USD(1000)));
+            env.close();
+
+            auto const preBob = env.balance(bob, USD);
+            auto const preDave = env.balance(dave, USD);
+
+            // Carol buys - fee skipped (dave's trust line is not
+            // authorized), but the sale itself still succeeds
+            env(uritoken::buy(carol, tidStr), uritoken::amt(USD(1000)));
+            env.close();
+
+            // Dave receives nothing (unauthorized trust line)
+            BEAST_EXPECT(env.balance(dave, USD) == preDave);
+            // Bob receives full amount (no fee deducted)
+            BEAST_EXPECT(env.balance(bob, USD) == preBob + USD(1000));
+        }
+
+        // TransferFee fields are immutable across sell/cancel/buy
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");  // URIToken issuer
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            auto const dave = Account("dave");  // fee recipient
+            env.fund(XRP(10000), alice, bob, carol, dave);
+            env.close();
+
+            std::string const uri(24, '?');
+            auto const tid = uritoken::tokenid(alice, uri);
+            auto const tidStr = to_string(tid);
+
+            auto const checkFields = [&] {
+                auto const sleU = env.le(Keylet{ltURI_TOKEN, tid});
+                BEAST_EXPECT(sleU);
+                BEAST_EXPECT(sleU->getFieldU16(sfTransferFee) == 5000);
+                BEAST_EXPECT(
+                    sleU->getAccountID(sfTransferFeeRecipient) == dave.id());
+            };
+
+            env(uritoken::mint(alice, uri),
+                uritoken::xfee(5000),
+                uritoken::xfee_recipient(dave),
+                uritoken::dest(bob),
+                uritoken::amt(XRP(0)));
+            env.close();
+            checkFields();
+
+            env(uritoken::buy(bob, tidStr), uritoken::amt(XRP(0)));
+            env.close();
+            checkFields();
+
+            env(uritoken::sell(bob, tidStr), uritoken::amt(XRP(100)));
+            env.close();
+            checkFields();
+
+            env(uritoken::cancel(bob, tidStr));
+            env.close();
+            checkFields();
+
+            env(uritoken::sell(bob, tidStr), uritoken::amt(XRP(100)));
+            env.close();
+            checkFields();
+
+            env(uritoken::buy(carol, tidStr), uritoken::amt(XRP(100)));
+            env.close();
+            checkFields();
         }
     }
 

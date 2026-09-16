@@ -242,6 +242,15 @@ Remit::preflight(PreflightContext const& ctx)
                                       "TransferFee.";
                 return temMALFORMED;
             }
+
+            if (mint.getAccountID(sfTransferFeeRecipient) ==
+                ctx.tx.getAccountID(sfAccount))
+            {
+                JLOG(ctx.j.warn()) << "Malformed transaction: "
+                                      "TransferFeeRecipient is the same as "
+                                      "the account.";
+                return temMALFORMED;
+            }
         }
     }
 
@@ -442,8 +451,14 @@ Remit::doApply()
                     {
                         auto const recipient =
                             mint.getAccountID(sfTransferFeeRecipient);
-                        if (!sb.exists(keylet::account(recipient)))
+                        auto const sleRecipient =
+                            sb.read(keylet::account(recipient));
+                        if (!sleRecipient)
                             return tecNO_TARGET;
+
+                        // AMMs can never receive an URIToken fee.
+                        if (sleRecipient->isFieldPresent(sfAMMID))
+                            return tecNO_PERMISSION;
 
                         sleMint->setAccountID(
                             sfTransferFeeRecipient, recipient);

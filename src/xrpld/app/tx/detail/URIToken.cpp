@@ -23,11 +23,108 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Quality.h>
+#include <xrpl/protocol/Rate.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxFlags.h>
 
 namespace ripple {
+
+namespace {
+
+// Pay the URIToken transfer fee (royalty) on a secondary sale.
+// The fee is skipped, and the sale still succeeds, when the recipient
+// cannot receive it. Both the XAH and IOU paths round down so the fee
+// never exceeds what the seller received * TransferFee / 100000.
+TER
+payTransferFee(
+    ApplyView& view,
+    SLE const& sleU,
+    AccountID const& buyer,
+    AccountID const& seller,
+    STAmount const& purchaseAmount,
+    beast::Journal j)
+{
+    if (!sleU.isFieldPresent(sfTransferFee))
+        return tesSUCCESS;
+
+    auto const issuer = sleU.getAccountID(sfIssuer);
+    AccountID const feeRecipient = sleU.isFieldPresent(sfTransferFeeRecipient)
+        ? sleU.getAccountID(sfTransferFeeRecipient)
+        : issuer;
+
+    // The issuer and the designated recipient are exempt from the fee
+    // whether they buy or sell.
+    if (buyer == issuer || seller == issuer || buyer == feeRecipient ||
+        seller == feeRecipient)
+        return tesSUCCESS;
+
+    auto const feeBips = sleU.getFieldU16(sfTransferFee);
+    if (feeBips == 0)
+        return tesSUCCESS;
+
+    STAmount feeAmt;
+    if (purchaseAmount.native())
+    {
+        feeAmt = STAmount{XRPAmount{static_cast<std::int64_t>(
+            (static_cast<__int128>(purchaseAmount.xrp().drops()) * feeBips) /
+            100000)}};
+    }
+    else
+    {
+        // The fee base is what the seller actually received on the sale
+        // leg (senderPaysXferFees=false): purchaseAmount / transferRate
+        // when neither party is the IOU issuer, and purchaseAmount
+        // otherwise (rippleSendIOU's direct-credit path).
+        auto const iouIssuer = purchaseAmount.getIssuer();
+        STAmount const netReceived = (buyer == iouIssuer || seller == iouIssuer)
+            ? purchaseAmount
+            : divide(purchaseAmount, transferRate(view, iouIssuer));
+        feeAmt =
+            multiplyRound(netReceived, nft::transferFeeAsRate(feeBips), false);
+    }
+
+    if (!(feeAmt > beast::zero))
+        return tesSUCCESS;
+
+    if (!view.exists(keylet::account(feeRecipient)))
+    {
+        JLOG(j.trace()) << "URIToken: skipping transfer fee - "
+                           "recipient account does not exist";
+        return tesSUCCESS;
+    }
+
+    // IOU: the recipient needs a usable trust line unless it is the
+    // IOU issuer.
+    if (!purchaseAmount.native() && feeRecipient != purchaseAmount.getIssuer())
+    {
+        auto const& issue = purchaseAmount.issue();
+        if (!view.exists(
+                keylet::line(feeRecipient, issue.account, issue.currency)))
+        {
+            JLOG(j.trace()) << "URIToken: skipping transfer fee - "
+                               "recipient has no trust line";
+            return tesSUCCESS;
+        }
+
+        if (TER const result =
+                trustTransferAllowed(view, {seller, feeRecipient}, issue, j);
+            !isTesSuccess(result))
+        {
+            JLOG(j.trace()) << "URIToken: skipping transfer fee - "
+                               "recipient trust line check failed: "
+                            << result;
+            return tesSUCCESS;
+        }
+    }
+
+    // The gateway transfer rate is deliberately waived on the fee leg:
+    // the seller already paid it once on the sale leg.
+    return accountSend(
+        view, seller, feeRecipient, feeAmt, j, WaiveTransferFee::Yes, true);
+}
+
+}  // namespace
 
 NotTEC
 URIToken::preflight(PreflightContext const& ctx)
@@ -581,120 +678,12 @@ URIToken::doApply()
                 !isTesSuccess(result))
                 return result;
 
-            // Determine fee recipient
-            AccountID const feeRecipient =
-                sleU->isFieldPresent(sfTransferFeeRecipient)
-                ? sleU->getAccountID(sfTransferFeeRecipient)
-                : *issuer;
-
-            // Apply URIToken transfer fee on qualifying secondary sales
-            if (sb.rules().enabled(featureURITokenTransferFee) &&
-                sleU->isFieldPresent(sfTransferFee) && account_ != *issuer &&
-                *owner != *issuer)
+            if (sb.rules().enabled(featureURITokenTransferFee))
             {
-                auto const feeBips = sleU->getFieldU16(sfTransferFee);
-                if (feeBips > 0)
-                {
-                    // feeBips / 100000 as Rate (QUALITY_ONE = 1e9)
-                    Rate const feeRate{
-                        static_cast<std::uint32_t>(feeBips) * 10000u};
-
-                    STAmount feeAmt;
-                    if (purchaseAmount.native())
-                    {
-                        // XRP: use integer arithmetic for precision
-                        XRPAmount const purchaseDrops = purchaseAmount.xrp();
-                        XRPAmount const feeDrops{static_cast<std::int64_t>(
-                            (static_cast<__int128>(purchaseDrops.drops()) *
-                             feeBips) /
-                            100000)};
-                        feeAmt = STAmount{feeDrops};
-                    }
-                    else
-                    {
-                        // IOU: the seller receives
-                        // purchaseAmount / iouTransferRate after the
-                        // IOU issuer's transfer fee. Calculate the
-                        // URIToken fee on that net received amount.
-                        auto const iouIssuer = purchaseAmount.getIssuer();
-                        auto const xferRate = transferRate(sb, iouIssuer);
-                        static Rate const parityRate(QUALITY_ONE);
-                        STAmount const netReceived = (xferRate == parityRate)
-                            ? purchaseAmount
-                            : divide(purchaseAmount, xferRate);
-                        feeAmt = multiplyRound(netReceived, feeRate, true);
-                    }
-
-                    if (feeAmt > beast::zero)
-                    {
-                        // Verify the fee recipient account exists
-                        // and (for IOU) has a valid trust line.
-                        // If any check fails, skip the fee — the
-                        // sale still succeeds.
-                        bool sendFee = true;
-
-                        // Check recipient account exists
-                        if (!sb.exists(keylet::account(feeRecipient)))
-                        {
-                            JLOG(j.trace())
-                                << "URIToken: skipping transfer fee — "
-                                   "recipient account does not exist";
-                            sendFee = false;
-                        }
-
-                        // For IOU: check trust line and flags
-                        // (skip if recipient is the IOU issuer,
-                        // as issuers don't need trust lines for
-                        // their own IOUs)
-                        if (sendFee && !purchaseAmount.native() &&
-                            feeRecipient != purchaseAmount.getIssuer())
-                        {
-                            auto const& issue = purchaseAmount.issue();
-
-                            // Check trust line exists
-                            if (!sb.exists(keylet::line(
-                                    feeRecipient,
-                                    issue.account,
-                                    issue.currency)))
-                            {
-                                JLOG(j.trace())
-                                    << "URIToken: skipping transfer fee — "
-                                       "recipient has no trust line";
-                                sendFee = false;
-                            }
-
-                            // Check freeze/auth/ripple flags
-                            if (sendFee)
-                            {
-                                TER const tlResult = trustTransferAllowed(
-                                    sb, {*owner, feeRecipient}, issue, j);
-                                if (!isTesSuccess(tlResult))
-                                {
-                                    JLOG(j.trace())
-                                        << "URIToken: skipping transfer "
-                                           "fee — recipient trust line "
-                                           "check failed: "
-                                        << tlResult;
-                                    sendFee = false;
-                                }
-                            }
-                        }
-
-                        if (sendFee)
-                        {
-                            if (TER result = accountSend(
-                                    sb,
-                                    *owner,
-                                    feeRecipient,
-                                    feeAmt,
-                                    j,
-                                    WaiveTransferFee::Yes,
-                                    true);
-                                !isTesSuccess(result))
-                                return result;
-                        }
-                    }
-                }
+                if (TER result = payTransferFee(
+                        sb, *sleU, account_, *owner, purchaseAmount, j);
+                    !isTesSuccess(result))
+                    return result;
             }
 
             // add token to new owner dir
