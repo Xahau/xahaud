@@ -30,7 +30,7 @@ class Xrpl(ConanFile):
         'grpc/1.50.1',
         'libarchive/3.7.6',
         'magic_enum/0.9.5',
-        'nudb/2.0.8',
+        'nudb/2.0.9',
         'openssl/3.6.0',
         'soci/4.0.3@xahaud/stable',
         'xxhash/0.8.2',

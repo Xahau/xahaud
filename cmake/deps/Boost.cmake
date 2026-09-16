@@ -35,7 +35,6 @@ target_link_libraries(ripple_boost
     Boost::process
     Boost::program_options
     Boost::regex
-    Boost::system
     Boost::iostreams
     Boost::thread)
 if(Boost_COMPILER)
