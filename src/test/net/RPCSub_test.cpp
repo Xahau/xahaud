@@ -45,7 +45,9 @@ namespace test {
 class MockWebhookEndpoint
 {
     boost::asio::io_context ios_;
-    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work_;
+    std::unique_ptr<boost::asio::executor_work_guard<
+        boost::asio::io_context::executor_type>>
+        work_;
     boost::asio::ip::tcp::acceptor acceptor_;
     std::thread thread_;
     unsigned short port_;
@@ -56,7 +58,9 @@ class MockWebhookEndpoint
 
 public:
     MockWebhookEndpoint()
-        : work_(std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ios_)))
+        : work_(std::make_unique<boost::asio::executor_work_guard<
+                    boost::asio::io_context::executor_type>>(
+              boost::asio::make_work_guard(ios_)))
         , acceptor_(
               ios_,
               boost::asio::ip::tcp::endpoint(

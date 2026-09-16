@@ -24,13 +24,13 @@
 #include <boost/asio/ip/address_v4.hpp>
 #include <boost/system/detail/error_code.hpp>
 
+#include <boost/algorithm/string.hpp>
 #include <cctype>
 #include <ios>
 #include <istream>
 #include <optional>
 #include <sstream>
 #include <string>
-#include <boost/algorithm/string.hpp>
 
 namespace beast {
 namespace IP {

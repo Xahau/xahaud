@@ -42,7 +42,9 @@ namespace test {
 class MockHTTPServer
 {
     boost::asio::io_context ios_;
-    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work_;
+    std::unique_ptr<boost::asio::executor_work_guard<
+        boost::asio::io_context::executor_type>>
+        work_;
     boost::asio::ip::tcp::acceptor acceptor_;
     std::thread thread_;
     std::atomic<bool> running_{true};
@@ -73,7 +75,9 @@ class MockHTTPServer
 
 public:
     MockHTTPServer()
-        : work_(std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ios_)))
+        : work_(std::make_unique<boost::asio::executor_work_guard<
+                    boost::asio::io_context::executor_type>>(
+              boost::asio::make_work_guard(ios_)))
         , acceptor_(
               ios_,
               boost::asio::ip::tcp::endpoint(
@@ -980,7 +984,9 @@ class HTTPClient_test : public beast::unit_test::suite
 
         // Persistent io_service — stays alive the whole test.
         boost::asio::io_context ios;
-        auto work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ios));
+        auto work = std::make_unique<boost::asio::executor_work_guard<
+            boost::asio::io_context::executor_type>>(
+            boost::asio::make_work_guard(ios));
         std::thread runner([&ios] { ios.run(); });
 
         // Fire request on the persistent io_service.
@@ -1049,7 +1055,9 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         boost::asio::io_context ios;
-        auto work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ios));
+        auto work = std::make_unique<boost::asio::executor_work_guard<
+            boost::asio::io_context::executor_type>>(
+            boost::asio::make_work_guard(ios));
         std::thread runner([&ios] { ios.run(); });
 
         for (int i = 0; i < N; ++i)
