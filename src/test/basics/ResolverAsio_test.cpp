@@ -111,8 +111,7 @@ class ResolverAsio_test : public beast::unit_test::suite
                 {
                     BEAST_EXPECT(endpoints.front().port() == 2222);
                     BEAST_EXPECT(
-                        endpoints.front().address().to_string() ==
-                        "127.0.0.1");
+                        endpoints.front().address().to_string() == "127.0.0.1");
                 }
             }
         }
@@ -170,7 +169,8 @@ class ResolverAsio_test : public beast::unit_test::suite
             std::lock_guard lock(results.mutex);
             if (BEAST_EXPECT(results.items.size() == 1))
             {
-                BEAST_EXPECT(results.items.front().first == "nonexistent.invalid:80");
+                BEAST_EXPECT(
+                    results.items.front().first == "nonexistent.invalid:80");
                 BEAST_EXPECT(results.items.front().second.empty());
             }
         }
