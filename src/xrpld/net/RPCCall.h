@@ -23,17 +23,9 @@
 #include <xrpld/core/Config.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/json/json_value.h>
-<<<<<<< HEAD:src/xrpld/net/RPCCall.h
-#include <boost/asio/io_service.hpp>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCCall.h
-
-#include <boost/asio/io_service.hpp>
-
-=======
 
 #include <boost/asio/io_context.hpp>
 
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/RPCCall.h
 #include <functional>
 #include <string>
 #include <unordered_map>

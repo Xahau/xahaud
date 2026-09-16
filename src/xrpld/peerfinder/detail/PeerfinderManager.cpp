@@ -24,19 +24,11 @@
 #include <xrpld/peerfinder/detail/Logic.h>
 #include <xrpld/peerfinder/detail/SourceStrings.h>
 #include <xrpld/peerfinder/detail/StoreSqdb.h>
-<<<<<<< HEAD
-#include <boost/asio/io_service.hpp>
-#include <boost/utility/in_place_factory.hpp>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-#include <boost/asio/io_service.hpp>
-
-=======
 
 #include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/utility/in_place_factory.hpp>
 
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 #include <memory>
 #include <optional>
 #include <thread>
@@ -72,21 +64,11 @@ public:
         , work_(std::in_place, boost::asio::make_work_guard(io_context_))
         , m_clock(clock)
         , m_journal(journal)
-<<<<<<< HEAD
         , m_store(
               useSqLiteStore ? static_cast<Store*>(new StoreSqdb(journal))
                              : static_cast<Store*>(new InMemoryStore()))
-        , checker_(io_service_)
-        , m_logic(clock, *m_store, checker_, journal)
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-        , m_store(journal)
-        , checker_(io_service_)
-        , m_logic(clock, m_store, checker_, journal)
-=======
-        , m_store(journal)
         , checker_(io_context_)
-        , m_logic(clock, m_store, checker_, journal)
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+        , m_logic(clock, *m_store, checker_, journal)
         , m_config(config)
         , m_stats(std::bind(&ManagerImp::collect_metrics, this), collector)
     {
@@ -308,13 +290,7 @@ make_Manager(
     bool useSqLiteStore)
 {
     return std::make_unique<ManagerImp>(
-<<<<<<< HEAD
-        io_service, clock, journal, config, collector, useSqLiteStore);
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-        io_service, clock, journal, config, collector);
-=======
-        io_context, clock, journal, config, collector);
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+        io_context, clock, journal, config, collector, useSqLiteStore);
 }
 
 }  // namespace PeerFinder

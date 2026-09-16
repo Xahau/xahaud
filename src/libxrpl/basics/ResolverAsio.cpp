@@ -22,17 +22,6 @@
 #include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/beast/net/IPEndpoint.h>
 #include <xrpl/beast/utility/instrumentation.h>
-<<<<<<< HEAD
-#include <boost/asio.hpp>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-#include <boost/asio/error.hpp>
-#include <boost/asio/io_service.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <boost/system/detail/error_code.hpp>
-
-#include <algorithm>
-=======
 
 #include <boost/asio/bind_executor.hpp>
 #include <boost/asio/error.hpp>
@@ -41,7 +30,6 @@
 #include <boost/system/detail/error_code.hpp>
 
 #include <algorithm>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 #include <atomic>
 #include <condition_variable>
 #include <deque>

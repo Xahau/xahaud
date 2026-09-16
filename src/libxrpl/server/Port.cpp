@@ -24,15 +24,9 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/trim.hpp>
 #include <sstream>
-<<<<<<< HEAD
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-#include <string>
-#include <vector>
-=======
 #include <stdexcept>
 #include <string>
 #include <vector>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 
 namespace ripple {
 

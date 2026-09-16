@@ -23,17 +23,10 @@
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/rpc/ServerHandler.h>
 #include <xrpl/basics/Resolver.h>
-<<<<<<< HEAD
-#include <xrpl/resource/ResourceManager.h>
-#include <boost/asio/io_service.hpp>
-#include <boost/asio/ssl/context.hpp>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-#include <boost/asio/io_service.hpp>
-=======
 
 #include <boost/asio/io_context.hpp>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+#include <xrpl/resource/ResourceManager.h>
+#include <boost/asio/ssl/context.hpp>
 
 namespace ripple {
 

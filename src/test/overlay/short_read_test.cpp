@@ -33,13 +33,8 @@
 
 #include <condition_variable>
 #include <functional>
-<<<<<<< HEAD
 #include <memory>
 #include <optional>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-#include <optional>
-=======
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 #include <thread>
 #include <utility>
 

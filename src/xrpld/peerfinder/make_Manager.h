@@ -21,17 +21,9 @@
 #define RIPPLE_PEERFINDER_MAKE_MANAGER_H_INCLUDED
 
 #include <xrpld/peerfinder/PeerfinderManager.h>
-<<<<<<< HEAD
-#include <boost/asio/io_service.hpp>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-#include <boost/asio/io_service.hpp>
-
-=======
 
 #include <boost/asio/io_context.hpp>
 
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 #include <memory>
 
 namespace ripple {

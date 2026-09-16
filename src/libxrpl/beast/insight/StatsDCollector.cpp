@@ -26,22 +26,6 @@
 #include <xrpl/beast/insight/StatsDCollector.h>
 #include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/beast/utility/instrumentation.h>
-<<<<<<< HEAD
-#include <boost/asio/ip/tcp.hpp>
-#include <climits>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-#include <boost/asio/basic_waitable_timer.hpp>
-#include <boost/asio/buffer.hpp>
-#include <boost/asio/error.hpp>
-#include <boost/asio/io_service.hpp>
-#include <boost/asio/ip/udp.hpp>
-#include <boost/asio/strand.hpp>
-#include <boost/system/detail/error_code.hpp>
-
-#include <chrono>
-#include <cstddef>
-=======
 
 #include <boost/asio/basic_waitable_timer.hpp>
 #include <boost/asio/bind_executor.hpp>
@@ -55,7 +39,8 @@
 
 #include <chrono>
 #include <cstddef>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+#include <boost/asio/ip/tcp.hpp>
+#include <climits>
 #include <deque>
 #include <functional>
 #include <mutex>

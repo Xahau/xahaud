@@ -23,15 +23,10 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/server/Port.h>
-<<<<<<< HEAD
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-=======
 
 #include <boost/asio/executor_work_guard.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/strand.hpp>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 #include <boost/beast/core/multi_buffer.hpp>
 #include <boost/beast/websocket.hpp>
 

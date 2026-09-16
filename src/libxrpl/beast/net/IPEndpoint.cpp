@@ -18,20 +18,6 @@
 //==============================================================================
 
 #include <xrpl/beast/net/IPEndpoint.h>
-<<<<<<< HEAD
-#include <boost/algorithm/string.hpp>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-#include <boost/algorithm/string/trim.hpp>
-#include <boost/system/detail/error_code.hpp>
-
-#include <cctype>
-#include <ios>
-#include <istream>
-#include <optional>
-#include <sstream>
-#include <string>
-=======
 
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/asio/ip/address.hpp>
@@ -44,7 +30,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+#include <boost/algorithm/string.hpp>
 
 namespace beast {
 namespace IP {

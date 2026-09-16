@@ -21,15 +21,8 @@
 #define RIPPLE_PEERFINDER_CHECKER_H_INCLUDED
 
 #include <xrpl/beast/net/IPAddressConversion.h>
-<<<<<<< HEAD
-#include <boost/asio/io_service.hpp>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-#include <boost/asio/io_service.hpp>
-=======
 
 #include <boost/asio/io_context.hpp>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/system/error_code.hpp>

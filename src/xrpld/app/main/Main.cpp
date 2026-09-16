@@ -43,20 +43,13 @@
 #include <test/unit_test/multi_runner.h>
 #include <xrpl/beast/unit_test/match.h>
 #endif  // ENABLE_TESTS
-<<<<<<< HEAD
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-#include <boost/process.hpp>
-#include <boost/program_options.hpp>
-=======
 #include <boost/algorithm/string.hpp>
 #include <boost/program_options.hpp>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 
 #include <google/protobuf/stubs/common.h>
 
 #include <boost/filesystem.hpp>
 #include <boost/predef.h>
-#include <boost/process.hpp>
 #include <boost/program_options.hpp>
 
 #include <cstdlib>

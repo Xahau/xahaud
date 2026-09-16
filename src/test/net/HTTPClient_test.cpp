@@ -41,8 +41,8 @@ namespace test {
 // Accepts connections and sends configurable HTTP responses.
 class MockHTTPServer
 {
-    boost::asio::io_service ios_;
-    std::unique_ptr<boost::asio::io_service::work> work_;
+    boost::asio::io_context ios_;
+    std::unique_ptr<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>> work_;
     boost::asio::ip::tcp::acceptor acceptor_;
     std::thread thread_;
     std::atomic<bool> running_{true};
@@ -73,11 +73,11 @@ class MockHTTPServer
 
 public:
     MockHTTPServer()
-        : work_(std::make_unique<boost::asio::io_service::work>(ios_))
+        : work_(std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ios_)))
         , acceptor_(
               ios_,
               boost::asio::ip::tcp::endpoint(
-                  boost::asio::ip::address::from_string("127.0.0.1"),
+                  boost::asio::ip::make_address("127.0.0.1"),
                   0))
     {
         port_ = acceptor_.local_endpoint().port();
@@ -352,7 +352,7 @@ class HTTPClient_test : public beast::unit_test::suite
     // Helper: fire an HTTP request and track completion via atomic counter.
     void
     fireRequest(
-        boost::asio::io_service& ios,
+        boost::asio::io_context& ios,
         std::string const& host,
         unsigned short port,
         std::atomic<int>& completed,
@@ -404,7 +404,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             fireRequest(ios, "127.0.0.1", server.port(), completed, j);
             ios.run();
         }
@@ -431,7 +431,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             fireRequest(ios, "127.0.0.1", server.port(), completed, j);
             ios.run();
         }
@@ -449,11 +449,11 @@ class HTTPClient_test : public beast::unit_test::suite
         Env env{*this};
 
         // Bind a port, then close it — guarantees nothing is listening.
-        boost::asio::io_service tmp;
+        boost::asio::io_context tmp;
         boost::asio::ip::tcp::acceptor acc(
             tmp,
             boost::asio::ip::tcp::endpoint(
-                boost::asio::ip::address::from_string("127.0.0.1"), 0));
+                boost::asio::ip::make_address("127.0.0.1"), 0));
         auto port = acc.local_endpoint().port();
         acc.close();
 
@@ -461,7 +461,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             fireRequest(ios, "127.0.0.1", port, completed, j);
             ios.run();
         }
@@ -488,7 +488,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             // Short timeout to keep the test fast.
             fireRequest(
                 ios,
@@ -525,7 +525,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             fireRequest(
                 ios,
                 "127.0.0.1",
@@ -557,7 +557,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             fireRequest(ios, "127.0.0.1", server.port(), completed, j);
             ios.run();
         }
@@ -596,7 +596,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             fireRequest(
                 ios,
                 "127.0.0.1",
@@ -641,7 +641,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             for (int i = 0; i < N; ++i)
             {
                 fireRequest(ios, "127.0.0.1", server.port(), completed, j);
@@ -679,7 +679,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             for (int i = 0; i < N; ++i)
             {
                 fireRequest(ios, "127.0.0.1", server.port(), completed, j);
@@ -724,7 +724,7 @@ class HTTPClient_test : public beast::unit_test::suite
 
         auto start = std::chrono::steady_clock::now();
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             fireRequest(
                 ios,
                 "127.0.0.1",
@@ -772,7 +772,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             HTTPClient::request(
                 false,
                 ios,
@@ -823,7 +823,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             HTTPClient::request(
                 false,
                 ios,
@@ -876,7 +876,7 @@ class HTTPClient_test : public beast::unit_test::suite
 
         try
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             Json::Value params(Json::arrayValue);
             RPCCall::fromNetwork(
                 ios,
@@ -925,7 +925,7 @@ class HTTPClient_test : public beast::unit_test::suite
 
         try
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             Json::Value params(Json::arrayValue);
             RPCCall::fromNetwork(
                 ios,
@@ -979,8 +979,8 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         // Persistent io_service — stays alive the whole test.
-        boost::asio::io_service ios;
-        auto work = std::make_unique<boost::asio::io_service::work>(ios);
+        boost::asio::io_context ios;
+        auto work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ios));
         std::thread runner([&ios] { ios.run(); });
 
         // Fire request on the persistent io_service.
@@ -1048,8 +1048,8 @@ class HTTPClient_test : public beast::unit_test::suite
         std::atomic<int> completed{0};
         auto j = env.app().journal("HTTPClient");
 
-        boost::asio::io_service ios;
-        auto work = std::make_unique<boost::asio::io_service::work>(ios);
+        boost::asio::io_context ios;
+        auto work = std::make_unique<boost::asio::executor_work_guard<boost::asio::io_context::executor_type>>(boost::asio::make_work_guard(ios));
         std::thread runner([&ios] { ios.run(); });
 
         for (int i = 0; i < N; ++i)
@@ -1124,7 +1124,7 @@ class HTTPClient_test : public beast::unit_test::suite
         auto j = env.app().journal("HTTPClient");
 
         {
-            boost::asio::io_service ios;
+            boost::asio::io_context ios;
             HTTPClient::get(
                 false,  // no SSL
                 ios,

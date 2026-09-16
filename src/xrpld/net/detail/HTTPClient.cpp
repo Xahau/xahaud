@@ -52,16 +52,8 @@ class HTTPClientImp : public std::enable_shared_from_this<HTTPClientImp>,
 {
 public:
     HTTPClientImp(
-<<<<<<< HEAD:src/xrpld/net/detail/HTTPClient.cpp
-        boost::asio::io_service& io_service,
-        const unsigned short port,
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/libxrpl/net/HTTPClient.cpp
-        boost::asio::io_service& io_service,
-        unsigned short const port,
-=======
         boost::asio::io_context& io_context,
         unsigned short const port,
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/libxrpl/net/HTTPClient.cpp
         std::size_t maxResponseSize,
         beast::Journal& j)
         : mSocket(io_context, httpClientSSLContext->context())
@@ -250,16 +242,8 @@ public:
 
     void
     handleResolve(
-<<<<<<< HEAD:src/xrpld/net/detail/HTTPClient.cpp
-        const boost::system::error_code& ecResult,
-        boost::asio::ip::tcp::resolver::iterator itrEndpoint)
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/libxrpl/net/HTTPClient.cpp
-        boost::system::error_code const& ecResult,
-        boost::asio::ip::tcp::resolver::iterator itrEndpoint)
-=======
         boost::system::error_code const& ecResult,
         boost::asio::ip::tcp::resolver::results_type result)
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/libxrpl/net/HTTPClient.cpp
     {
         if (!mShutdown)
         {

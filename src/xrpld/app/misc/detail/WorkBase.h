@@ -205,7 +205,6 @@ WorkBase<Impl>::onResolve(error_code const& ec, results_type results)
     if (ec)
         return fail(ec);
 
-<<<<<<< HEAD
     // Use last endpoint if it is successfully connected
     // and is in the list, otherwise pick a random endpoint
     // from the list (excluding last endpoint). If there is
@@ -242,55 +241,12 @@ WorkBase<Impl>::onResolve(error_code const& ec, results_type results)
 
     socket_.async_connect(
         lastEndpoint_,
-        strand_.wrap(std::bind(
-            &Impl::onConnect,
-            impl().shared_from_this(),
-            std::placeholders::_1)));
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-    boost::asio::async_connect(
-        socket_,
-        results,
-        strand_.wrap(std::bind(
-            &WorkBase::onConnect,
-            impl().shared_from_this(),
-            std::placeholders::_1,
-            std::placeholders::_2)));
-}
-
-template <class Impl>
-void
-WorkBase<Impl>::onConnect(error_code const& ec, endpoint_type const& endpoint)
-{
-    lastEndpoint_ = endpoint;
-
-    if (ec)
-        return fail(ec);
-
-    impl().onConnect(ec);
-=======
-    boost::asio::async_connect(
-        socket_,
-        results,
         boost::asio::bind_executor(
             strand_,
             std::bind(
-                &WorkBase::onConnect,
+                &Impl::onConnect,
                 impl().shared_from_this(),
-                std::placeholders::_1,
-                std::placeholders::_2)));
-}
-
-template <class Impl>
-void
-WorkBase<Impl>::onConnect(error_code const& ec, endpoint_type const& endpoint)
-{
-    lastEndpoint_ = endpoint;
-
-    if (ec)
-        return fail(ec);
-
-    impl().onConnect(ec);
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+                std::placeholders::_1)));
 }
 
 template <class Impl>

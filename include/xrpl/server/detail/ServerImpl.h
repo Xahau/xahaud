@@ -179,19 +179,11 @@ ServerImpl<Handler>::ports(std::vector<Port> const& ports)
     {
         ports_.push_back(port);
         auto& internalPort = ports_.back();
-<<<<<<< HEAD
         if (port.has_udp())
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-        if (auto sp = ios_.emplace<Door<Handler>>(
-                handler_, io_service_, internalPort, j_))
-=======
-        if (auto sp = ios_.emplace<Door<Handler>>(
-                handler_, io_context_, internalPort, j_))
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
         {
             // UDP-RPC door
             if (auto sp = ios_.emplace<UDPDoor<Handler>>(
-                    handler_, io_service_, internalPort, j_))
+                    handler_, io_context_, internalPort, j_))
             {
                 auto ep = sp->get_endpoint();
                 if (!internalPort.port)
@@ -205,7 +197,7 @@ ServerImpl<Handler>::ports(std::vector<Port> const& ports)
         {
             // Standard TCP door
             if (auto sp = ios_.emplace<Door<Handler>>(
-                    handler_, io_service_, internalPort, j_))
+                    handler_, io_context_, internalPort, j_))
             {
                 list_.push_back(sp);
 

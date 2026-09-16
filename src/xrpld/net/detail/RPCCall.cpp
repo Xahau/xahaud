@@ -1752,14 +1752,8 @@ rpcClient(
             }
 
             {
-<<<<<<< HEAD:src/xrpld/net/detail/RPCCall.cpp
                 //@@start blocking-request
-                boost::asio::io_service isService;
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/detail/RPCCall.cpp
-                boost::asio::io_service isService;
-=======
                 boost::asio::io_context isService;
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570)):src/xrpld/rpc/detail/RPCCall.cpp
                 RPCCall::fromNetwork(
                     isService,
                     setup.client.ip,

@@ -24,15 +24,8 @@
 #include <xrpl/beast/utility/PropertyStream.h>
 #include <xrpl/server/Port.h>
 #include <xrpl/server/detail/ServerImpl.h>
-<<<<<<< HEAD
-#include <boost/asio/io_service.hpp>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-#include <boost/asio/io_service.hpp>
-=======
 
 #include <boost/asio/io_context.hpp>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 
 namespace ripple {
 

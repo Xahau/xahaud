@@ -12,13 +12,8 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/spawn.hpp>
 #include <boost/optional.hpp>
-<<<<<<< HEAD
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-=======
 #include <boost/thread/csbl/memory/allocator_arg.hpp>
 
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 #include <condition_variable>
 #include <functional>
 #include <mutex>

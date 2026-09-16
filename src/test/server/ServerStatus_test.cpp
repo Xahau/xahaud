@@ -675,13 +675,7 @@ class ServerStatus_test : public beast::unit_test::suite,
             std::string(resp["Upgrade"]) == "websocket");
         BEAST_EXPECT(
             resp.find("Connection") != resp.end() &&
-<<<<<<< HEAD
-            std::string(resp["Connection"]) == "Upgrade");
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-            resp["Connection"] == "Upgrade");
-=======
-            boost::iequals(resp["Connection"], "upgrade"));
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
+            boost::iequals(std::string(resp["Connection"]), "upgrade"));
     }
 
     void

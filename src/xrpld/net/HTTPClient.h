@@ -22,17 +22,9 @@
 
 #include <xrpld/core/Config.h>
 #include <xrpl/basics/ByteUtilities.h>
-<<<<<<< HEAD:src/xrpld/net/HTTPClient.h
-#include <boost/asio/io_service.hpp>
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570)):include/xrpl/net/HTTPClient.h
-#include <xrpl/beast/utility/Journal.h>
-
-#include <boost/asio/io_service.hpp>
-=======
 #include <xrpl/beast/utility/Journal.h>
 
 #include <boost/asio/io_context.hpp>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570)):include/xrpl/net/HTTPClient.h
 #include <boost/asio/streambuf.hpp>
 
 #include <chrono>

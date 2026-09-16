@@ -36,13 +36,8 @@
 #include <xrpl/beast/utility/instrumentation.h>
 #include <xrpl/resource/ResourceManager.h>
 #include <xrpl/server/Handoff.h>
-<<<<<<< HEAD
-||||||| parent of 1506e65558 (refactor: Update to Boost 1.88 (#5570))
-
-=======
 
 #include <boost/algorithm/string/predicate.hpp>
->>>>>>> 1506e65558 (refactor: Update to Boost 1.88 (#5570))
 #include <boost/asio/basic_waitable_timer.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/context.hpp>
