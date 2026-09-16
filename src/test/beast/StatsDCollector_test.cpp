@@ -20,7 +20,6 @@
 #include <test/unit_test/SuiteJournal.h>
 
 #include <xrpl/beast/insight/StatsDCollector.h>
-#include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/beast/unit_test.h>
 
 #include <boost/asio/io_context.hpp>
@@ -74,8 +73,8 @@ class StatsDCollector_test : public beast::unit_test::suite
         endpoint() const
         {
             auto const local = socket.local_endpoint();
-            return beast::IP::Endpoint{
-                beast::IP::from_asio(local.address()), local.port()};
+            // IP::Address is boost::asio::ip::address itself
+            return beast::IP::Endpoint{local.address(), local.port()};
         }
 
         void
