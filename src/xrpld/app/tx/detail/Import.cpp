@@ -36,6 +36,7 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/STValidation.h>
+#include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 #include <algorithm>
 #include <charconv>
@@ -130,6 +131,22 @@ Import::checkImportSign(PreclaimContext const& ctx)
     // not authorize selecting and consuming an unrelated source Ticket.
     if (ctx.tx.isFieldPresent(sfTicketSequence))
         return accountAuth;
+
+    // Permission to deliver a proof does not authorize additional owner-side
+    // instructions (Issuer, HookParameters/HookName, Memos, or other fields).
+    // Keep the relay envelope explicit so later common fields fail closed.
+    if (ctx.tx.getFlags() & ~tfFullyCanonicalSig)
+        return accountAuth;
+    for (auto const& field : ctx.tx)
+    {
+        auto const& name = field.getFName();
+        if (name != sfTransactionType && name != sfAccount &&
+            name != sfSequence && name != sfFee && name != sfBlob &&
+            name != sfSigningPubKey && name != sfTxnSignature &&
+            name != sfSigners && name != sfFlags && name != sfNetworkID &&
+            name != sfLastLedgerSequence && name != sfAccountTxnID)
+            return accountAuth;
+    }
 
     auto const owner = ctx.tx.getAccountID(sfAccount);
     if (inner->getAccountID(sfAccount) != owner)

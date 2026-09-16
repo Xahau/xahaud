@@ -2735,6 +2735,20 @@ struct Export_test : public beast::unit_test::suite
                     keylet::ticket(alice.id(), *ownerTicket)));
             }
 
+            auto decorated = import::import(alice, callback.xpopJson);
+            decorated[sfSourceTag.jsonName] = 1;
+            env(decorated, sig(carol), fee(cap), ter(tefBAD_AUTH));
+            unchanged();
+            decorated.removeMember(sfSourceTag.jsonName);
+            Json::Value parameter;
+            parameter[sfHookParameter.jsonName][sfHookParameterName.jsonName] =
+                "01";
+            parameter[sfHookParameter.jsonName][sfHookParameterValue.jsonName] =
+                "02";
+            decorated[sfHookParameters.jsonName].append(parameter);
+            env(decorated, sig(carol), fee(cap), ter(tefBAD_AUTH));
+            unchanged();
+
             auto malformedProof = callback.xpopJson;
             malformedProof[jss::transaction][jss::blob] = "00";
             env(import::import(alice, malformedProof),

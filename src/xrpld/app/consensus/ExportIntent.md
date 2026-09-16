@@ -303,6 +303,12 @@ sequence and debits the owner's balance; it cannot consume an unrelated source
 Ticket. Account-authorized Imports retain normal sequence/Ticket choice. Opting
 in permits delivery without another owner signature at callback time.
 
+The third-party envelope is limited to TransactionType, Account, Sequence, Fee,
+Blob, signing fields, Flags (only FullyCanonicalSig), NetworkID,
+LastLedgerSequence, and AccountTxnID. Other owner-side instructions such as
+Issuer, HookParameters, HookName, SourceTag, or Memos require normal account
+authorization; permission to deliver the proof does not authorize them.
+
 The allowance does not authorize fee-only application. A Hook rejection or
 later apply/invariant failure discards the third-party attempt, including fees,
 sequence changes, latch changes, and validator-list state. A recorded
