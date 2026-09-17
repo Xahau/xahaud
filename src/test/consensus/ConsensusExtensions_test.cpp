@@ -4438,9 +4438,13 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ext.exportHash = makeHash("export-root-at-deadline");
             BEAST_EXPECT(!harness.tick(ext, deadline).readyForAccept);
             auto const start = ext.exportSigGateStart_;
+            auto const updates = harness.updates;
+            auto const proposes = harness.proposes;
             ext.exportHash = makeHash("export-root-after-deadline");
             BEAST_EXPECT(harness.tick(ext, deadline + 1ms).readyForAccept);
             BEAST_EXPECT(ext.exportSigGateStart_ == start);
+            BEAST_EXPECT(harness.updates == updates);
+            BEAST_EXPECT(harness.proposes == proposes);
             BEAST_EXPECT(ext.exportSigConvergenceFailed_);
             BEAST_EXPECT(!ext.acceptedExportHash);
 
@@ -4480,6 +4484,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             BEAST_EXPECT(ext.exportSigGateStart_ == start);
             BEAST_EXPECT(ext.exportSigConvergenceFailed_);
             BEAST_EXPECT(!ext.acceptedExportHash);
+            BEAST_EXPECT(!harness.position.exportSigSetHash);
         }
 
         // A stable, previously published root that aligns on the first late

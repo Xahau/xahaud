@@ -919,6 +919,11 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         if (!ext.exportEnabled())
             return {.readyForAccept = true};
 
+        // Expiry is terminal for this round. Later material or peer support
+        // must not reopen a decision that already proceeded without a witness.
+        if (ext.exportSigConvergenceFailed_)
+            return {.readyForAccept = true};
+
         // Export admission already requires a nonempty parent UNLReport, and
         // current ledger rules never erase or empty that report afterward, so
         // this should be unreachable while an admitted latch is live. Keep the
@@ -1059,6 +1064,26 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     *currentPos.exportSigSetHash != exportHash;
                 if (publishedNewHash)
                 {
+                    // Publishing a different root needs another observation
+                    // tick. Do not let root churn, or late first material,
+                    // extend an already-started coordination window. The
+                    // boundary remains inclusive, matching the other waits.
+                    auto const elapsed =
+                        ctx.nowSteady - ext.exportSigGateStart_;
+                    auto const deadline =
+                        detail::sidecarConvergenceTimeout(ctx.parms);
+                    if (ext.exportSigGateStarted_ && elapsed > deadline)
+                    {
+                        ext.setExportSigConvergenceFailed();
+                        ext.clearAcceptedExportSigSet();
+                        JLOG(ext.j_.warn())
+                            << "Export: signature-set publication timeout"
+                            << " buildSeq=" << buildSeqExport
+                            << " elapsedMs=" << toMs(elapsed)
+                            << " deadlineMs=" << toMs(deadline)
+                            << " action=omit-witness";
+                        return {.readyForAccept = true};
+                    }
                     currentPos.exportSigSetHash = exportHash;
                     ctx.updatePosition(currentPos);
 

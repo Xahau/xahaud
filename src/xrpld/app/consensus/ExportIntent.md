@@ -264,6 +264,14 @@ window after ordinary transaction-set convergence, but timeout always permits
 base consensus to continue. Below-qC or unaligned work remains pending until
 witness, cancellation, explicit erase, or publication expiry.
 
+The coordination boundary is inclusive: a tick at the deadline may still wait,
+but a tick after it must not request another Export observation interval.
+Changing roots or first material arriving late does not restart the window.
+Once coordination expires without a witness, later ticks cannot reopen it in
+the same round. This bounds waiting, not evidence age: an already-published,
+unchanged root may still align immediately on a late tick if no expiry decision
+has previously been made.
+
 The admission and publication clocks are distinct. The outer
 `sfLastLedgerSequence` follows ordinary inclusive transaction admission and may
 be at most `maxAdmissionWindowLedgers` beyond the ledger evaluating the intent.
