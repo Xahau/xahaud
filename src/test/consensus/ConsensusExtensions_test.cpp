@@ -414,6 +414,7 @@ struct FakeExtensions
     int commitBuilds = 0;
     int exportBuilds = 0;
     int acceptedExportClears = 0;
+    std::optional<uint256> acceptedExportHash;
     int entropyBuilds = 0;
     int participantDiagnostics = 0;
     int selfSeeds = 0;
@@ -612,14 +613,16 @@ struct FakeExtensions
     }
 
     void
-    acceptExportSigSet(uint256 const&)
+    acceptExportSigSet(uint256 const& hash)
     {
+        acceptedExportHash = hash;
     }
 
     void
     clearAcceptedExportSigSet()
     {
         ++acceptedExportClears;
+        acceptedExportHash.reset();
     }
 
     template <class PeerPositions>
@@ -4416,6 +4419,84 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportSigGateDeadlineSurvivesRootChanges()
+    {
+        testcase("Export root changes cannot extend or reopen the wait window");
+        using namespace std::chrono_literals;
+        for (auto mode : {ConsensusMode::proposing, ConsensusMode::observing})
+        {
+            FakeExtensions ext;
+            ExtensionTickHarness harness;
+            harness.mode = mode;
+            auto const deadline = harness.parms.rngREVEAL_TIMEOUT * 2;
+            BEAST_EXPECT(!harness.tick(ext).readyForAccept);
+
+            // The existing deadline is inclusive. A changed root can still
+            // request observation at the boundary, but never after it.
+            ext.exportHash = makeHash("export-root-before-deadline");
+            BEAST_EXPECT(!harness.tick(ext, deadline - 1ms).readyForAccept);
+            ext.exportHash = makeHash("export-root-at-deadline");
+            BEAST_EXPECT(!harness.tick(ext, deadline).readyForAccept);
+            auto const start = ext.exportSigGateStart_;
+            ext.exportHash = makeHash("export-root-after-deadline");
+            BEAST_EXPECT(harness.tick(ext, deadline + 1ms).readyForAccept);
+            BEAST_EXPECT(ext.exportSigGateStart_ == start);
+            BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+            BEAST_EXPECT(!ext.acceptedExportHash);
+
+            // Matching support arriving after an expiry decision must not
+            // reopen this round or install accepted evidence after omission.
+            for (std::uint8_t peer = 1; peer <= 4; ++peer)
+                harness.addPeer(peer, ext.exportHash);
+            BEAST_EXPECT(harness.tick(ext, deadline + 2ms).readyForAccept);
+            BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+            BEAST_EXPECT(!ext.acceptedExportHash);
+            ext.exportHash = makeHash("export-root-after-expiry-decision");
+            BEAST_EXPECT(harness.tick(ext, deadline + 250ms).readyForAccept);
+            BEAST_EXPECT(!ext.acceptedExportHash);
+            if (mode == ConsensusMode::observing)
+                BEAST_EXPECT(harness.proposes == 0);
+        }
+    }
+
+    void
+    testExportSigGateLateFirstMaterial()
+    {
+        testcase("Export first material cannot restart an expired window");
+        using namespace std::chrono_literals;
+        for (bool peerAdvertised : {false, true})
+        {
+            FakeExtensions ext;
+            ext.localExportSigs = false;
+            ext.livePendingExportLatches = true;
+            ExtensionTickHarness harness;
+            if (peerAdvertised)
+                harness.addPeer(1, ext.exportHash);
+            BEAST_EXPECT(!harness.tick(ext).readyForAccept);
+            auto const start = ext.exportSigGateStart_;
+            auto const deadline = harness.parms.rngREVEAL_TIMEOUT * 2;
+            ext.localExportSigs = true;
+            BEAST_EXPECT(harness.tick(ext, deadline + 1ms).readyForAccept);
+            BEAST_EXPECT(ext.exportSigGateStart_ == start);
+            BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+            BEAST_EXPECT(!ext.acceptedExportHash);
+        }
+
+        // A stable, previously published root that aligns on the first late
+        // tick need not be discarded: the contract bounds further waiting,
+        // not evidence age. No earlier expiry decision exists in this case.
+        FakeExtensions ext;
+        ExtensionTickHarness harness;
+        BEAST_EXPECT(!harness.tick(ext).readyForAccept);
+        for (std::uint8_t peer = 1; peer <= 4; ++peer)
+            harness.addPeer(peer, ext.exportHash);
+        auto const deadline = harness.parms.rngREVEAL_TIMEOUT * 2;
+        BEAST_EXPECT(harness.tick(ext, deadline + 1ms).readyForAccept);
+        BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
+        BEAST_EXPECT(ext.acceptedExportHash == ext.exportHash);
+    }
+
+    void
     testExportSigGateSkipsWhenExportDisabled()
     {
         testcase("Export sig gate skips when Export disabled");
@@ -5242,6 +5323,8 @@ public:
         testExportSigGateObservingModeDoesNotPropose();
         testExportSigGateRefreshesHashBeforeWaiting();
         testExportSigGateBoundsCandidateObservationWindow();
+        testExportSigGateDeadlineSurvivesRootChanges();
+        testExportSigGateLateFirstMaterial();
         testExportSigGateSkipsWhenExportDisabled();
         testExportSigGateSkipsWithoutAnchoredView();
         testParticipantDiagnosticsOnlyWhenExtensionEnabled();
