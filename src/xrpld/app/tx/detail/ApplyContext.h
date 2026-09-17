@@ -56,6 +56,13 @@ public:
         return *view_;
     }
 
+    /** The view this transaction is being applied to. */
+    OpenView&
+    base()
+    {
+        return base_;
+    }
+
     ApplyView const&
     view() const
     {
@@ -88,6 +95,23 @@ public:
 
     /** Apply the transaction result to the base. */
     std::optional<TxMeta> apply(TER);
+
+    /** Apply the transaction result to an arbitrary view (emit_atomic
+        sandbox). `isDryRun` is passed explicitly because the sandbox is
+        discarded on a dry run anyway, so the caller applies for real to
+        get both the metadata and the state the inner txns must see. */
+    std::optional<TxMeta>
+    apply(TER, OpenView& to, bool isDryRun);
+
+    /** Number of emit_atomic emissions accepted so far for this
+        transaction, across every hook execution. Lives here (not on the
+        ApplyViewImpl) so it survives discard()/reset(); it is never
+        decremented, even when a hook later rolls back. */
+    std::uint32_t&
+    atomicEmitCount()
+    {
+        return atomicEmitCount_;
+    }
 
     /** Get the number of unapplied changes. */
     std::size_t
@@ -148,6 +172,7 @@ private:
     OpenView& base_;
     ApplyFlags flags_;
     std::optional<ApplyViewImpl> view_;
+    std::uint32_t atomicEmitCount_ = 0;
 };
 
 }  // namespace ripple

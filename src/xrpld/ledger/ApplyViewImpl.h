@@ -52,9 +52,12 @@ public:
 
     /** Apply the transaction.
 
-        After a call to `apply`, the only valid
-        operation on this object is to call the
-        destructor.
+        After a call to `apply`, the state table must not be applied
+        again (metadata generation threads the SLEs in place). The
+        emit_atomic rewind path in Transactor::operator() still reads
+        and rewrites the hook metadata vectors after `apply` into its
+        sandbox; that is fine because the table itself is then
+        discarded by ApplyContext::discard().
     */
     std::optional<TxMeta>
     apply(
@@ -122,6 +125,11 @@ public:
             std::back_inserter(emission));
     }
 
+    // NOTE: the emit_atomic rewind in Transactor::operator() restores the
+    // hook metadata to its strong-phase snapshot via setHookMetaData and
+    // relies on this index being derived from the vector size, so that the
+    // re-executed weak hooks get contiguous indices. Do not turn this into
+    // an independent counter.
     uint16_t
     nextHookExecutionIndex()
     {

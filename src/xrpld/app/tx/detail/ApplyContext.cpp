@@ -59,6 +59,12 @@ ApplyContext::apply(TER ter)
     return view_->apply(base_, tx, ter, flags_ & tapDRY_RUN, journal);
 }
 
+std::optional<TxMeta>
+ApplyContext::apply(TER ter, OpenView& to, bool isDryRun)
+{
+    return view_->apply(to, tx, ter, isDryRun, journal);
+}
+
 std::size_t
 ApplyContext::size()
 {

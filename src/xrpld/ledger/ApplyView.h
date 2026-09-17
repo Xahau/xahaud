@@ -46,7 +46,12 @@ enum ApplyFlags : std::uint32_t {
 
     // Transaction shouldn't be applied
     // Signatures shouldn't be checked
-    tapDRY_RUN = 0x1000
+    tapDRY_RUN = 0x1000,
+
+    // Transaction is an atomically emitted (emit_atomic) inner txn being
+    // applied inside its parent transaction's application. Only ever set by
+    // Transactor::applyAtomicEmissions.
+    tapATOMIC_EMIT = 0x2000,
 };
 
 constexpr ApplyFlags

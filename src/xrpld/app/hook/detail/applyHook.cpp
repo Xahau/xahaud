@@ -16,6 +16,7 @@
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -662,6 +663,22 @@ bool
 hook::isEmittedTxn(ripple::STTx const& tx)
 {
     return tx.isFieldPresent(ripple::sfEmitDetails);
+}
+
+bool
+hook::hasNoSignatureMaterial(ripple::STTx const& tx)
+{
+    if (tx.isFieldPresent(sfTxnSignature) || tx.isFieldPresent(sfSigners))
+        return false;
+    if (!tx.isFieldPresent(sfSigningPubKey))
+        return false;
+    auto const pk = tx.getSigningPubKey();
+    // prepare()/etxn_details() produce a 33 byte all-zero key; an empty key
+    // is also accepted (HookAPI::emit rule 2)
+    if (pk.size() != 0 && pk.size() != 33)
+        return false;
+    return std::all_of(
+        pk.begin(), pk.end(), [](std::uint8_t b) { return b == 0; });
 }
 
 int64_t
@@ -1524,6 +1541,25 @@ hook::finalizeHookResult(
                         << id;
                     return tecDIR_FULL;
                 }
+            }
+        }
+
+        // emit_atomic txns are NOT written to the emitted directory: the
+        // Transactor applies them inside this transaction (see
+        // Transactor::applyAtomicEmissions). Only record them in the
+        // metadata here. The queue is left intact for the Transactor to
+        // drain (drainAtomicEmissions).
+        {
+            auto copy = hookResult.emittedAtomicTxn;
+            for (; !copy.empty(); copy.pop())
+            {
+                auto const& stx = *copy.front()->getSTransaction();
+                auto const& emitDetails = const_cast<ripple::STTx&>(stx)
+                                              .getField(sfEmitDetails)
+                                              .downcast<STObject>();
+                emission_txnid.emplace_back(
+                    stx.getTransactionID(),
+                    emitDetails.getFieldH256(sfEmitNonce));
             }
         }
     }
@@ -2607,6 +2643,50 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
+/* Same as prepare() but for emit_atomic(): FirstLedgerSequence and
+ * LastLedgerSequence are set to the current ledger sequence. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    prepare_atomic,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    // see emit_atomic: the host function is registered regardless of the
+    // amendment, gate at runtime
+    if (!applyCtx.view().rules().enabled(featureAtomicEmit))
+        return NOT_IMPLEMENTED;  // LCOV_EXCL_LINE
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    ripple::Slice txBlob{
+        reinterpret_cast<const void*>(memory + read_ptr), read_len};
+
+    auto const res = api.prepare(txBlob, /*atomic=*/true);
+    if (!res)
+        return res.error();
+
+    auto tx_blob = res.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        tx_blob.size(),
+        tx_blob.data(),
+        tx_blob.size(),
+        memory,
+        memory_length);
+
+    HOOK_TEARDOWN();
+}
+
 /* Emit a transaction from this hook. Transaction must be in STObject form,
  * fully formed and valid. XRPLD does not modify transactions it only checks
  * them for validity. */
@@ -2665,7 +2745,85 @@ DEFINE_HOOK_FUNCTION(
 
     auto const value = std::get<uint64_t>(result);
     if (value == 32)
+    {
         hookCtx.result.emittedTxn.push(tpTrans);
+        api.recordEmission(tpTrans, /*atomic=*/false);
+    }
+
+    return value;
+
+    HOOK_TEARDOWN();
+}
+
+/* Emit a transaction that is applied atomically with the transaction this
+ * hook is executing for: the emitted txn is applied inside the parent's
+ * application, right after the parent, and if it fails the parent fails with
+ * tecHOOK_EMIT_FAILED. Same blob format and rules as emit(), plus: strong
+ * execution only, no nesting, at most hook_api::max_atomic_emit per parent
+ * transaction. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    emit_atomic,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    // The import whitelist only gates SetHook; the host function itself is
+    // registered regardless of amendment state, so gate at runtime too.
+    if (!applyCtx.view().rules().enabled(featureAtomicEmit))
+        return NOT_IMPLEMENTED;  // LCOV_EXCL_LINE
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    ripple::Slice txBlob{
+        reinterpret_cast<const void*>(memory + read_ptr), read_len};
+
+    auto const res = api.emit(txBlob, /*atomic=*/true);
+
+    if (!res)
+        return res.error();
+
+    auto const& tpTrans = *res;
+    auto const& txID = tpTrans->getID();
+
+    if (txID.size() > write_len)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const write_txid =
+        [&]() -> std::variant<uint64_t, hook_api::hook_return_code> {
+        WRITE_WASM_MEMORY_AND_RETURN(
+            write_ptr,
+            txID.size(),
+            txID.data(),
+            txID.size(),
+            memory,
+            memory_length);
+    };
+
+    auto result = write_txid();
+    if (std::holds_alternative<hook_api::hook_return_code>(result))
+        return std::get<hook_api::hook_return_code>(result);
+
+    auto const value = std::get<uint64_t>(result);
+    if (value == 32)
+    {
+        hookCtx.result.emittedAtomicTxn.push(tpTrans);
+        api.recordEmission(tpTrans, /*atomic=*/true);
+    }
 
     return value;
 

@@ -228,6 +228,36 @@ protected:
                              // deduced until after apply i.e. pathing
                              // participants, crossed offers
 
+    // emit_atomic (featureAtomicEmit): txns emitted by strong hooks that must
+    // be applied inside this transaction, right after it, all-or-nothing.
+    std::vector<std::shared_ptr<Transaction>> atomicEmissions_;
+
+    // Move a hook result's emit_atomic queue into atomicEmissions_ (strong
+    // executions only; ok == false discards the queue).
+    void
+    drainAtomicEmissions(hook::HookResult& hookResult, bool ok);
+
+    // Apply every atomic emission into the sandbox, in order. Stops at the
+    // first non-tes result and returns it together with the failing txid.
+    std::pair<TER, uint256>
+    applyAtomicEmissions(OpenView& sandbox);
+
+    // Propagate the sandbox (parent + inners) into ctx_.base().
+    void
+    commitSandbox(OpenView& sandbox);
+
+    // Undo the first pass of the post-apply pipeline so the existing tec
+    // path can run: restore the strong-phase hook metadata, drop the weak
+    // TSH accumulated from the discarded pass and drop the atomic queue.
+    void
+    rewindAtomicEmissions(
+        std::vector<STObject> const& strongExecMeta,
+        std::vector<STObject> const& strongEmitMeta);
+
+    // Record the failing inner's result on its HookEmission metadata entry.
+    void
+    annotateFailedEmission(uint256 const& emittedTxnId, TER innerResult);
+
     ///////////////////////////////////////////////////
 
     TER
