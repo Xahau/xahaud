@@ -3016,7 +3016,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         sidecar.setFieldH256(sfTransactionHash, origin);
         sidecar.setFieldU32(sfTransactionIndex, 0);
         sidecar.setFieldVL(sfSigningPubKey, keys.keys->publicKey.slice());
-        sidecar.setFieldVL(sfTxnSignature, signature.slice());
+        sidecar.setFieldVL(
+            sfTxnSignature, Slice{signature.data(), signature.size()});
         Serializer bytes;
         sidecar.add(bytes);
         auto map = std::make_shared<SHAMap>(
@@ -3058,7 +3059,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
             ce.startExportShareService();
             BEAST_EXPECT(
-                ce.onExportShare(share).disposition ==
+                ce.onExportShare(share, {}).disposition ==
                 ExportShareDisposition::deferred);
             ce.stopExportShareService();
         }
