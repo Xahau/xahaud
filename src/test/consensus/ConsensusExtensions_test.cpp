@@ -2910,6 +2910,219 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportWitnessRebuildValidationCursor()
+    {
+        testcase(
+            "accepted Export witness rebuild is independent of validation "
+            "progress");
+        using namespace jtx;
+        auto config = envconfig(validator, "");
+        config->NETWORK_ID = 21337;
+        Env env{
+            *this,
+            std::move(config),
+            supported_amendments() | featureExport,
+            nullptr};
+        Account const alice{"cursor-alice"};
+        Account const bob{"cursor-bob"};
+        env.fund(XRP(1000), alice, bob);
+        env.close();
+        auto const& keys = env.app().getValidatorKeys();
+        if (!BEAST_EXPECT(keys.keys))
+            return;
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            STTx report(ttUNL_REPORT, [&](auto& obj) {
+                obj.setFieldU32(sfLedgerSequence, env.current()->seq());
+                auto active = std::make_unique<STObject>(sfActiveValidator);
+                active->setFieldVL(sfPublicKey, keys.keys->masterPublicKey);
+                obj.set(std::move(active));
+            });
+            auto bytes = std::make_shared<Serializer>();
+            report.add(*bytes);
+            env.app().getHashRouter().setFlags(
+                report.getTransactionID(), SF_PRIVATE2);
+            view.rawTxInsert(
+                report.getTransactionID(), std::move(bytes), nullptr);
+            return true;
+        });
+        if (!BEAST_EXPECT(env.close(
+                env.now() + std::chrono::seconds{5},
+                std::chrono::milliseconds{0})))
+            return;
+        forceNonStandalone(env.app());
+        auto& master = env.app().getLedgerMaster();
+        auto const beforeOrigin = master.getClosedLedger();
+        if (!BEAST_EXPECT(
+                beforeOrigin && beforeOrigin->read(keylet::UNLReport())))
+            return;
+        auto const roster =
+            serializeExportCommittee({keys.keys->masterPublicKey});
+        auto target = makeExportedPayment(alice.id(), bob.id());
+        target.setFieldU32(sfLastLedgerSequence, beforeOrigin->info().seq + 20);
+        Json::Value json;
+        json[jss::TransactionType] = jss::Export;
+        json[jss::Account] = alice.human();
+        json[jss::LastLedgerSequence] = beforeOrigin->info().seq + 5;
+        json[sfExportedTxn.jsonName] = target.getJson(JsonOptions::none);
+        json[sfExportCommitteeHash.jsonName] =
+            to_string(exportCommitteeHash(makeSlice(roster)));
+        json[sfExportCommittee.jsonName] = strHex(roster);
+        auto const intent = env.jt(json, fee(XRP(1)), ter(tesSUCCESS)).stx;
+        if (!BEAST_EXPECT(intent))
+            return;
+        CanonicalTXSet txs{beforeOrigin->info().hash};
+        txs.insert(intent);
+        std::set<TxID> failed;
+        auto parent = buildLedger(
+            beforeOrigin,
+            env.app().timeKeeper().closeTime(),
+            true,
+            beforeOrigin->info().closeTimeResolution,
+            env.app(),
+            txs,
+            failed,
+            env.journal);
+        if (!BEAST_EXPECT(txs.empty() && failed.empty()))
+            return;
+        master.storeLedger(parent);  // Possessed, not yet locally validated.
+        auto const origin = intent->getTransactionID();
+        auto const latch = keylet::exportLatch(alice.id(), origin);
+        if (!BEAST_EXPECT(parent->read(latch)))
+            return;
+        auto release = ExportOriginMemo::releaseForm(
+            makeSTTx(target),
+            ExportOriginMemo::Origin{env.app().config().NETWORK_ID, 0, origin},
+            ExportOriginMemo::Anchor{parent->info().seq, parent->info().hash});
+        if (!BEAST_EXPECT(release))
+            return;
+        auto signature = ExportResultBuilder::signExportedTxn(
+            release.value(), keys.keys->publicKey, keys.keys->secretKey);
+        ExportShare share{
+            ExportShare::currentVersion,
+            alice.id(),
+            origin,
+            parent->info().seq,
+            parent->info().hash,
+            0,
+            keys.keys->publicKey,
+            signature};
+
+        // Install an authenticated accepted-root fixture directly. This
+        // isolates rebuild determinism, not the separate question of how a
+        // lagged live observer obtains and aligns the material in the first
+        // place.
+        STObject sidecar(sfGeneric);
+        sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
+        sidecar.setFieldH256(sfTransactionHash, origin);
+        sidecar.setFieldU32(sfTransactionIndex, 0);
+        sidecar.setFieldVL(sfSigningPubKey, keys.keys->publicKey.slice());
+        sidecar.setFieldVL(sfTxnSignature, signature.slice());
+        Serializer bytes;
+        sidecar.add(bytes);
+        auto map = std::make_shared<SHAMap>(
+            SHAMapType::SIDECAR, env.app().getNodeFamily());
+        map->setUnbacked();
+        BEAST_EXPECT(map->addItem(
+            SHAMapNodeType::tnSIDECAR,
+            make_shamapitem(
+                sidecar.getHash(HashPrefix::sidecar), bytes.slice())));
+        map = map->snapShot(false);
+        auto const root = map->getHash().as_uint256();
+
+        auto rebuild = [&](ConsensusMode mode,
+                           bool acceptRoot =
+                               true) -> std::shared_ptr<STTx const> {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.onRoundStart(RCLCxLedger{parent}, {});
+            ce.setMode(mode);
+            ce.setRngEnabledThisRound(false);
+            ce.exportSigSetMap_ = map;
+            if (acceptRoot)
+                ce.acceptExportSigSet(root);
+            CanonicalTXSet result{uint256{}};
+            ce.onPreBuild(result, parent->info().seq + 1, uint256{});
+            BEAST_EXPECT(result.size() <= 1);
+            return result.empty() ? nullptr : result.begin()->second;
+        };
+        auto installValidated = [&](std::shared_ptr<Ledger> const& ledger) {
+            master.storeLedger(ledger);
+            master.setFullLedger(ledger, false, false);
+            auto current = master.getValidatedLedger();
+            BEAST_EXPECT(
+                current && current->info().hash == ledger->info().hash);
+        };
+        auto const modes = {ConsensusMode::observing, ConsensusMode::proposing};
+        BEAST_EXPECT(
+            master.getValidatedLedger()->info().seq < parent->info().seq);
+        {
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            ce.startExportShareService();
+            BEAST_EXPECT(
+                ce.onExportShare(share).disposition ==
+                ExportShareDisposition::deferred);
+            ce.stopExportShareService();
+        }
+        for (auto mode : modes)
+        {
+            BEAST_EXPECT(rebuild(mode));  // Origin ahead of local validation.
+            BEAST_EXPECT(!rebuild(mode, false));  // No root is not permission.
+        }
+
+        installValidated(parent);
+        auto expected = rebuild(ConsensusMode::observing);
+        if (!BEAST_EXPECT(
+                expected && expected->getTxnType() == ttEXPORT_SIGNATURES))
+            return;
+        BEAST_EXPECT(
+            rebuild(ConsensusMode::proposing)->getTransactionID() ==
+            expected->getTransactionID());
+
+        // Advance local validation past this round's parent, retaining its
+        // chain.
+        auto next = std::make_shared<Ledger>(
+            *parent, env.app().timeKeeper().closeTime());
+        Sandbox changes{next.get(), tapNONE};
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::recordExportWitness(
+            changes,
+            changes,
+            latch,
+            expected->getTransactionID(),
+            env.journal)));
+        changes.apply(*next);
+        next->updateSkipList();
+        next->setAccepted(
+            next->info().closeTime, next->info().closeTimeResolution, true);
+        installValidated(next);
+        for (auto mode : modes)
+        {
+            auto actual = rebuild(mode);
+            BEAST_EXPECT(actual);
+            if (actual)
+                BEAST_EXPECT(
+                    actual->getTransactionID() == expected->getTransactionID());
+        }
+
+        // A newer validated ledger on a competing ancestry must not authorize
+        // reconstruction from this round's old parent.
+        auto fork = std::make_shared<Ledger>(
+            *beforeOrigin, env.app().timeKeeper().closeTime());
+        while (fork->info().seq <= next->info().seq)
+        {
+            fork->updateSkipList();
+            fork->setAccepted(
+                fork->info().closeTime, fork->info().closeTimeResolution, true);
+            fork = std::make_shared<Ledger>(
+                *fork, env.app().timeKeeper().closeTime());
+        }
+        fork->updateSkipList();
+        fork->setAccepted(
+            fork->info().closeTime, fork->info().closeTimeResolution, true);
+        installValidated(fork);
+        for (auto mode : modes)
+            BEAST_EXPECT(!rebuild(mode));
+    }
+
+    void
     testAgreedExportWitnessBuildsContributorBitmap()
     {
         testcase(
@@ -4881,6 +5094,7 @@ public:
         testTransactionAcquireRejectsSidecarWireNodes();
         testAcquiredSetsRejectConsensusExtensionPseudos();
         testAgreedExportWitnessBuildsContributorBitmap();
+        testExportWitnessRebuildValidationCursor();
         testRngSidecarBuildsLocalSnapshots();
         testOnPreBuildInjectsStandaloneEntropy();
         testOnPreBuildStripsSuppliedExtensionPseudos();
