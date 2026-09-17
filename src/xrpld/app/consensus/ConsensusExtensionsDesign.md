@@ -537,8 +537,10 @@ rounds and restarts.
 An intent may include the positive native `ExportCallbackFee` amount.
 The latch stores this optional authorization without reserving any balance.
 Without it, callback Imports require normal source-account authorization.
-With it, a third party may deliver the exact valid callback with exactly that
-outer fee; the owner's balance and sequence are used on successful apply. The
+With it, anyone may assemble and deliver a signatureless Import containing the
+exact valid callback with exactly that outer fee. No carrier account or key is
+required: SigningPubKey is empty, TxnSignature and Signers are absent. The
+owner's balance and sequence are used on successful apply. The
 allowance cannot authorize consuming a source-account Ticket.
 The owner must still have funds. Invalid, duplicate, or fee-only unsuccessful
 third-party attempts do not charge the owner. The final `uint64_t` argument to

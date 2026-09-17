@@ -297,25 +297,36 @@ this amount on the outer intent; zero omits the field and retains the default
 policy. Zero is an API sentinel, not a valid serialized fee authorization.
 This seven-argument WASM import requires recompiling older six-argument callers.
 
-A third-party-signed Import may use this allowance only after all ordinary
-proof/latch/validator-list preclaim conditions pass, with its exact stored fee.
+Anyone may assemble an unsigned Import and deliver its XPOP without a carrier
+key, signature or ledger account. The outer SigningPubKey must be present and
+empty; TxnSignature and Signers must be absent. A signed Import instead needs
+normal account authority; an unrelated carrier signature cannot use the grant.
+Unsigned delivery may use the allowance only after all ordinary proof/latch/
+validator-list conditions pass, with its exact stored fee.
 The proof's owner, source/target domains, origin, and target digest still bind
 the callback. An account-authorized Import may pay a higher fee because the
 account directly authorized it. If the fixed fee cannot meet current admission
 requirements, third-party delivery waits or the account authorizes a differently
-priced Import. No funds are reserved in advance. Third-party delivery uses the owner's current
+priced Import. No funds are reserved in advance. Unsigned delivery uses the owner's current
 sequence and debits the owner's balance; it cannot consume an unrelated source
 Ticket. Account-authorized Imports retain normal sequence/Ticket choice. Opting
 in permits delivery without another owner signature at callback time.
 
-The third-party envelope is limited to TransactionType, Account, Sequence, Fee,
-Blob, signing fields, Flags (only FullyCanonicalSig), NetworkID,
+The unsigned envelope is limited to TransactionType, Account, Sequence, Fee,
+Blob, empty SigningPubKey, Flags (only FullyCanonicalSig), NetworkID,
 LastLedgerSequence, and AccountTxnID. Other owner-side instructions such as
 Issuer, HookParameters, HookName, SourceTag, or Memos require normal account
 authorization; permission to deliver the proof does not authorize them.
 
+Ingress checks the signatureless envelope and verifies the complete XPOP before
+accepting it as cryptographically valid. Repeated identical transactions may
+reuse a dedicated proof-verification receipt; an ordinary signature receipt
+cannot bypass these checks. Account existence, exact fee permission, live
+latch and validator-list eligibility remain current-ledger checks, never cached
+authorization. This signatureless path does not admit B2M or create accounts.
+
 **TODO(export-callback-canonicality):** Fixed Fee does not yet define a unique
-third-party transaction. Relayer signatures, source sequence, optional envelope
+third-party transaction. Source sequence, optional envelope
 fields and proof representations can still vary. Review the existing signature
 caches, transaction suppression and expensive-work ordering before treating the
 delivery mode as canonical. A latch-backed Sequence-0 lane is a design follow-up,

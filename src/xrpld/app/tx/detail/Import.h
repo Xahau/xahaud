@@ -82,6 +82,21 @@ public:
 
     explicit Import(ApplyContext& ctx);
 
+    // Candidate detection is not authorization. Full proof verification and
+    // current-ledger latch/fee checks are required before unsigned delivery.
+    static bool
+    isUnsigned(STTx const& tx) noexcept;
+
+    static bool
+    hasUnsignedCallbackShape(STTx const& tx) noexcept;
+
+    static NotTEC
+    checkProof(
+        STTx const& tx,
+        Rules const& rules,
+        std::uint32_t sourceNetworkID,
+        beast::Journal j);
+
     static NotTEC
     checkImportSign(PreclaimContext const& ctx);
 

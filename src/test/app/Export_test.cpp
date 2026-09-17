@@ -35,8 +35,10 @@
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ExportCommittee.h>
@@ -348,6 +350,17 @@ struct Export_test : public beast::unit_test::suite
         dstEnv.close();
 
         auto const feeDrops = dstEnv.current()->fees().base;
+        auto const unsignedB2M = dstEnv.jt(
+            unsignedCallbackImport(account, xpopJson),
+            sig(none),
+            fee(feeDrops * 10));
+        BEAST_EXPECT(
+            checkValidity(
+                dstEnv.app().getHashRouter(),
+                *unsignedB2M.stx,
+                dstEnv.current()->rules(),
+                dstEnv.app().config())
+                .first == Validity::SigBad);
         dstEnv(
             import::import(account, xpopJson),
             fee(feeDrops * 10),
@@ -2646,6 +2659,13 @@ struct Export_test : public beast::unit_test::suite
                         importVLSequence(env, callback.vlInfo->second) == 0);
             };
 
+            env(unsignedCallbackImport(alice, callback.xpopJson),
+                sig(none),
+                fee(feeDrops),
+                ter(tefBAD_AUTH));
+            BEAST_EXPECT(env.current()->exists(latchKey));
+            BEAST_EXPECT(env.balance(alice) == STAmount{balance});
+            BEAST_EXPECT(env.seq(alice) == sequence);
             reject(sig(dave), tefBAD_AUTH);
             if (mode == "master")
             {
@@ -2680,6 +2700,14 @@ struct Export_test : public beast::unit_test::suite
         }
     }
 
+    static Json::Value
+    unsignedCallbackImport(jtx::Account const& owner, Json::Value const& proof)
+    {
+        auto tx = jtx::import::import(owner, proof);
+        tx[jss::SigningPubKey] = "";
+        return tx;
+    }
+
     void
     testExportCallbackFeeAllowance(FeatureBitset features)
     {
@@ -2692,7 +2720,7 @@ struct Export_test : public beast::unit_test::suite
             Account const alice{"alice"};
             Account const carol{"carol"};
             Env env{*this, xpopCtx.makeEnvConfig(21337), features};
-            env.fund(XRP(10000), alice, carol);
+            env.fund(XRP(10000), alice);
             env.close();
             XRPAmount const callbackFee{
                 mode == "insufficient" ? 10'000'000'000LL : 1000};
@@ -2755,8 +2783,8 @@ struct Export_test : public beast::unit_test::suite
 
             if (mode == "insufficient")
             {
-                env(import::import(alice, callback.xpopJson),
-                    sig(carol),
+                env(unsignedCallbackImport(alice, callback.xpopJson),
+                    sig(none),
                     fee(XRP(10000)),
                     ter(terINSUF_FEE_B));
                 unchanged();
@@ -2765,8 +2793,8 @@ struct Export_test : public beast::unit_test::suite
                 // signing authorization. That must not permit a partial
                 // balance fee claim from an allowance-only callback either.
                 auto const relay = env.jt(
-                    import::import(alice, callback.xpopJson),
-                    sig(carol),
+                    unsignedCallbackImport(alice, callback.xpopJson),
+                    sig(none),
                     fee(XRP(10000)));
                 auto next = std::make_shared<Ledger>(
                     *env.app().getLedgerMaster().getClosedLedger(),
@@ -2785,32 +2813,59 @@ struct Export_test : public beast::unit_test::suite
                 continue;
             }
 
-            env(import::import(alice, callback.xpopJson),
-                sig(carol),
+            env(unsignedCallbackImport(alice, callback.xpopJson),
+                sig(none),
                 fee(callbackFee + XRPAmount{1}),
                 ter(tefBAD_AUTH));
             unchanged();
-            env(import::import(alice, callback.xpopJson),
-                sig(carol),
+            env(unsignedCallbackImport(alice, callback.xpopJson),
+                sig(none),
                 fee(callbackFee - XRPAmount{1}),
                 ter(tefBAD_AUTH));
             unchanged();
+
+            // No carrier account or signature is needed. Conversely, adding
+            // an unrelated signature must not opt into the proof-only lane.
+            BEAST_EXPECT(!env.current()->exists(keylet::account(carol.id())));
+            env(import::import(alice, callback.xpopJson),
+                sig(carol),
+                fee(callbackFee),
+                ter(tefBAD_AUTH));
+            unchanged();
+
+            TestStopwatch stopwatch;
+            auto const rejectEnvelope = [&](JTx const& rejected) {
+                HashRouter router{stopwatch, std::chrono::seconds{300}};
+                BEAST_EXPECT(
+                    checkValidity(
+                        router,
+                        *rejected.stx,
+                        env.current()->rules(),
+                        env.app().config())
+                        .first == Validity::SigBad);
+                BEAST_EXPECT(!isTesSuccess(preflight(
+                                               env.app(),
+                                               env.current()->rules(),
+                                               *rejected.stx,
+                                               tapNONE,
+                                               env.journal)
+                                               .ter));
+                unchanged();
+            };
             if (ownerTicket)
             {
-                env(import::import(alice, callback.xpopJson),
-                    sig(carol),
+                rejectEnvelope(env.jt(
+                    unsignedCallbackImport(alice, callback.xpopJson),
+                    sig(none),
                     fee(callbackFee),
-                    ticket::use(*ownerTicket),
-                    ter(tefBAD_AUTH));
-                unchanged();
+                    ticket::use(*ownerTicket)));
                 BEAST_EXPECT(env.current()->exists(
                     keylet::ticket(alice.id(), *ownerTicket)));
             }
 
-            auto decorated = import::import(alice, callback.xpopJson);
+            auto decorated = unsignedCallbackImport(alice, callback.xpopJson);
             decorated[sfSourceTag.jsonName] = 1;
-            env(decorated, sig(carol), fee(callbackFee), ter(tefBAD_AUTH));
-            unchanged();
+            rejectEnvelope(env.jt(decorated, sig(none), fee(callbackFee)));
             decorated.removeMember(sfSourceTag.jsonName);
             Json::Value parameter;
             parameter[sfHookParameter.jsonName][sfHookParameterName.jsonName] =
@@ -2818,21 +2873,63 @@ struct Export_test : public beast::unit_test::suite
             parameter[sfHookParameter.jsonName][sfHookParameterValue.jsonName] =
                 "02";
             decorated[sfHookParameters.jsonName].append(parameter);
-            env(decorated, sig(carol), fee(callbackFee), ter(tefBAD_AUTH));
-            unchanged();
+            rejectEnvelope(env.jt(decorated, sig(none), fee(callbackFee)));
+
+            decorated = unsignedCallbackImport(alice, callback.xpopJson);
+            decorated[jss::TxnSignature] = "";
+            rejectEnvelope(env.jt(decorated, sig(none), fee(callbackFee)));
 
             auto malformedProof = callback.xpopJson;
             malformedProof[jss::transaction][jss::blob] = "00";
-            env(import::import(alice, malformedProof),
-                sig(carol),
-                fee(callbackFee),
-                ter(temMALFORMED));
-            unchanged();
+            auto const invalid = env.jt(
+                unsignedCallbackImport(alice, malformedProof),
+                sig(none),
+                fee(callbackFee));
+            rejectEnvelope(invalid);
+            // A trusted outer-signature receipt must not skip XPOP checking.
+            HashRouter forced{stopwatch, std::chrono::seconds{300}};
+            forceValidity(
+                forced, invalid.stx->getTransactionID(), Validity::Valid);
+            BEAST_EXPECT(
+                checkValidity(
+                    forced,
+                    *invalid.stx,
+                    env.current()->rules(),
+                    env.app().config())
+                    .first == Validity::SigBad);
+
+            auto const candidate = env.jt(
+                unsignedCallbackImport(alice, callback.xpopJson),
+                sig(none),
+                fee(callbackFee));
+            BEAST_EXPECT(candidate.stx->getSigningPubKey().empty());
+            BEAST_EXPECT(!candidate.stx->isFieldPresent(sfTxnSignature));
+            BEAST_EXPECT(!candidate.stx->isFieldPresent(sfSigners));
+            HashRouter receipt{stopwatch, std::chrono::seconds{300}};
+            for (int attempt = 0; attempt != 2; ++attempt)
+                BEAST_EXPECT(
+                    checkValidity(
+                        receipt,
+                        *candidate.stx,
+                        env.current()->rules(),
+                        env.app().config())
+                        .first == Validity::Valid);
+            std::unordered_set<uint256, beast::uhash<>> const noExport{
+                featureImport};
+            Rules const disabled{noExport};
+            BEAST_EXPECT(
+                checkValidity(
+                    receipt, *candidate.stx, disabled, env.app().config())
+                    .first == Validity::SigBad);
+
+            STTx emitted{*candidate.stx};
+            emitted.set(STObject{sfEmitDetails});
+            BEAST_EXPECT(!Import::isUnsigned(emitted));
 
             auto const paid =
                 mode == "owner" ? callbackFee + XRPAmount{1} : callbackFee;
-            env(import::import(alice, callback.xpopJson),
-                sig(mode == "owner" ? alice : carol),
+            env(unsignedCallbackImport(alice, callback.xpopJson),
+                (mode == "owner" ? sig(alice) : sig(none)),
                 fee(paid),
                 ter(tesSUCCESS));
             auto const after = env.current()->read(keylet::account(alice.id()));
@@ -2849,8 +2946,8 @@ struct Export_test : public beast::unit_test::suite
 
             // The same valid proof cannot authorize another debit, whether
             // the latch was erased or retained awaiting its witness.
-            env(import::import(alice, callback.xpopJson),
-                sig(carol),
+            env(unsignedCallbackImport(alice, callback.xpopJson),
+                sig(none),
                 fee(callbackFee),
                 ter(tefBAD_AUTH));
             auto const duplicate =
@@ -2947,8 +3044,8 @@ struct Export_test : public beast::unit_test::suite
         auto const sequence = before->getFieldU32(sfSequence);
         for (int attempt = 0; attempt < 2; ++attempt)
         {
-            env(import::import(alice, callback.xpopJson),
-                sig(carol),
+            env(unsignedCallbackImport(alice, callback.xpopJson),
+                sig(none),
                 fee(callbackFee),
                 ter(tefBAD_AUTH));
             auto const after = env.current()->read(keylet::account(alice.id()));
@@ -2960,7 +3057,7 @@ struct Export_test : public beast::unit_test::suite
                     importVLSequence(env, callback.vlInfo->second) == 0);
         }
         // An account-authorized transaction keeps ordinary fee-only semantics.
-        env(import::import(alice, callback.xpopJson),
+        env(unsignedCallbackImport(alice, callback.xpopJson),
             sig(alice),
             fee(callbackFee),
             ter(tecHOOK_REJECTED));

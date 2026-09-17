@@ -19,6 +19,7 @@
 
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/app/tx/detail/Import.h>
@@ -48,6 +49,14 @@ namespace ripple {
 namespace {
 
 enum class ImportPath { burnToMint, exportCallback };
+
+struct ImportProofContext
+{
+    STTx const& tx;
+    Rules const& rules;
+    std::uint32_t networkID;
+    beast::Journal j;
+};
 
 ImportPath
 importPath(STTx const& inner)
@@ -112,6 +121,56 @@ Import::Import(ApplyContext& ctx) : Transactor(ctx)
     callbackAllowanceOnly_ = !isTesSuccess(checkAccountSign(signing));
 }
 
+bool
+Import::isUnsigned(STTx const& tx) noexcept
+{
+    try
+    {
+        return tx.getTxnType() == ttIMPORT &&
+            tx.isFieldPresent(sfSigningPubKey) &&
+            tx.getSigningPubKey().empty() && !tx.isFieldPresent(sfSigners) &&
+            !tx.isFieldPresent(sfEmitDetails);
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+bool
+Import::hasUnsignedCallbackShape(STTx const& tx) noexcept
+{
+    try
+    {
+        if (!isUnsigned(tx) || tx.isFieldPresent(sfTxnSignature) ||
+            (tx.getFlags() & ~tfFullyCanonicalSig))
+            return false;
+
+        // One signatureless representation: empty SigningPubKey, absent
+        // TxnSignature and Signers. No source Ticket or extra instructions.
+        for (auto const& field : tx)
+        {
+            if (field.getSType() == STI_NOTPRESENT)
+                continue;
+            auto const& name = field.getFName();
+            if (name != sfTransactionType && name != sfAccount &&
+                name != sfSequence && name != sfFee && name != sfBlob &&
+                name != sfSigningPubKey && name != sfFlags &&
+                name != sfNetworkID && name != sfLastLedgerSequence &&
+                name != sfAccountTxnID)
+                return false;
+        }
+        auto const& fee = tx.getFieldAmount(sfFee);
+        return tx.getAccountID(sfAccount) != beast::zero &&
+            tx.getFieldU32(sfSequence) != 0 && tx.isFieldPresent(sfBlob) &&
+            isXRP(fee) && fee > beast::zero && isLegalAmount(fee.xrp());
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 NotTEC
 Import::checkImportSign(PreclaimContext const& ctx)
 {
@@ -123,32 +182,15 @@ Import::checkImportSign(PreclaimContext const& ctx)
     if (importPath(*inner) != ImportPath::exportCallback)
         return tesSUCCESS;
 
-    auto const accountAuth = checkAccountSign(ctx);
+    auto const accountAuth =
+        isUnsigned(ctx.tx) ? NotTEC{tefBAD_AUTH} : checkAccountSign(ctx);
     if (isTesSuccess(accountAuth))
         return accountAuth;
 
-    // The grant permits one callback using the owner's sequence. It does
-    // not authorize selecting and consuming an unrelated source Ticket.
-    if (ctx.tx.isFieldPresent(sfTicketSequence))
+    // A signed Import must be account-authorized. The intent grant is for
+    // signatureless proof delivery, not signatures from unrelated accounts.
+    if (!hasUnsignedCallbackShape(ctx.tx))
         return accountAuth;
-
-    // Permission to deliver a proof does not authorize additional owner-side
-    // instructions (Issuer, HookParameters/HookName, Memos, or other fields).
-    // Keep the relay envelope explicit so later common fields fail closed.
-    if (ctx.tx.getFlags() & ~tfFullyCanonicalSig)
-        return accountAuth;
-    for (auto const& field : ctx.tx)
-    {
-        if (field.getSType() == STI_NOTPRESENT)
-            continue;
-        auto const& name = field.getFName();
-        if (name != sfTransactionType && name != sfAccount &&
-            name != sfSequence && name != sfFee && name != sfBlob &&
-            name != sfSigningPubKey && name != sfTxnSignature &&
-            name != sfSigners && name != sfFlags && name != sfNetworkID &&
-            name != sfLastLedgerSequence && name != sfAccountTxnID)
-            return accountAuth;
-    }
 
     auto const owner = ctx.tx.getAccountID(sfAccount);
     if (inner->getAccountID(sfAccount) != owner)
@@ -289,6 +331,36 @@ Import::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
+    if (isUnsigned(ctx.tx))
+    {
+        // Ingress and direct application use the same complete proof checks.
+        // Unlike preflight2's dry-run shortcut, simulation must verify XPOP.
+        auto const validity = checkValidity(
+            ctx.app.getHashRouter(),
+            ctx.tx,
+            ctx.rules,
+            ctx.app.config(),
+            ctx.flags);
+        if (validity.first != Validity::Valid)
+            return temINVALID;
+        return tesSUCCESS;
+    }
+
+    if (auto const ret =
+            checkProof(ctx.tx, ctx.rules, ctx.app.config().NETWORK_ID, ctx.j);
+        !isTesSuccess(ret))
+        return ret;
+    return preflight2(ctx);
+}
+
+NotTEC
+Import::checkProof(
+    STTx const& transaction,
+    Rules const& rules,
+    std::uint32_t sourceNetworkID,
+    beast::Journal j)
+{
+    ImportProofContext const ctx{transaction, rules, sourceNetworkID, j};
     auto& tx = ctx.tx;
 
     if (!tx.isFieldPresent(sfBlob))
@@ -360,6 +432,10 @@ Import::preflight(PreflightContext const& ctx)
 
     auto const path = importPath(*stpTrans);
     bool const hasTicket = path == ImportPath::exportCallback;
+
+    // Signatureless delivery never admits the B2M/account-creation path.
+    if (isUnsigned(tx) && !hasTicket)
+        return temMALFORMED;
 
     if (hasTicket && !ctx.rules.enabled(featureExport))
     {
@@ -440,8 +516,7 @@ Import::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (stpTrans->getFieldU32(sfOperationLimit) !=
-            ctx.app.config().NETWORK_ID)
+        if (stpTrans->getFieldU32(sfOperationLimit) != ctx.networkID)
         {
             JLOG(ctx.j.warn())
                 << "Import: Wrong network ID for OperationLimit in "
@@ -1042,8 +1117,7 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    JLOG(ctx.j.trace())
-        << "Import: passed seq/fee/quorum checks, about to return preflight2";
+    JLOG(ctx.j.trace()) << "Import: passed proof seq/fee/quorum checks";
 
     if (stpTrans->getFieldAmount(sfFee) < beast::zero)
     {
@@ -1052,7 +1126,7 @@ Import::preflight(PreflightContext const& ctx)
         return temBAD_FEE;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
