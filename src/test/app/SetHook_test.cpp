@@ -16965,6 +16965,11 @@ public:
                 emissions[0].getFieldU8(sfHookEmittedTransactionResult) ==
                 TERtoInt(tecUNFUNDED_PAYMENT));
             BEAST_EXPECT(
+                emissions[0].getJson(
+                    JsonOptions::none)[sfHookEmittedTransactionResult
+                                           .jsonName] ==
+                transToken(tecUNFUNDED_PAYMENT));
+            BEAST_EXPECT(
                 ledger->txExists(emissions[0].getFieldH256(sfEmittedTxnID)) ==
                 false);
 

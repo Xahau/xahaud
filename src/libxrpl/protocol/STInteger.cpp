@@ -46,7 +46,8 @@ template <>
 std::string
 STUInt8::getText() const
 {
-    if (getFName() == sfTransactionResult)
+    if (getFName() == sfTransactionResult ||
+        getFName() == sfHookEmittedTransactionResult)
     {
         std::string token, human;
 
@@ -64,7 +65,8 @@ template <>
 Json::Value
 STUInt8::getJson(JsonOptions) const
 {
-    if (getFName() == sfTransactionResult)
+    if (getFName() == sfTransactionResult ||
+        getFName() == sfHookEmittedTransactionResult)
     {
         std::string token, human;
 
