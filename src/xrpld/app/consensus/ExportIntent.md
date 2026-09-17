@@ -131,11 +131,18 @@ Standalone test execution substitutes exact possession of its locally verified
 map; intent admission still requires the UNLReport-backed parent state. Late
 collector arrivals cannot mutate the accepted root.
 
-Materialization also requires the consensus parent to descend from the node's
-validated ledger, the origin ledger hash to agree through both ancestry views,
-and the exact origin ledger and `ttEXPORT` transaction to be locally available.
-If any of that validated possession is absent, the latch remains pending; a
-build cursor ahead of validation never forces witness production.
+Witness rebuilding resolves the origin through the exact consensus parent's
+ancestry and requires the exact origin ledger and `ttEXPORT` transaction to be
+locally available. The local validated ledger must be on compatible ancestry:
+it may be an ancestor of that parent or already a descendant of it. Known
+competing ancestry still prevents materialization, but progress of this local
+cursor alone must not change the synthetic transaction set for a fixed parent
+and accepted root. Missing accepted-root material or origin-ledger possession
+still prevents witness construction.
+
+This rebuild rule does not authorize share admission, signing or release from
+a merely closed parent. Those live paths retain the source-validation checks
+in INV-4 and INV-5; an origin ahead of local validation remains deferred there.
 
 *Anti-pattern:* assembling from the current collector at apply time or treating
 peer root support as remote payload availability.

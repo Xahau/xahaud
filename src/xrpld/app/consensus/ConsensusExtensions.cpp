@@ -2569,19 +2569,34 @@ ConsensusExtensions::onPreBuild(
         auto const parent =
             app_.getLedgerMaster().getLedgerByHash(roundPrevLedgerHash_);
         auto const validated = app_.getLedgerMaster().getValidatedLedger();
-        bool parentExtendsValidated =
-            parent && validated && validated->info().seq <= parent->info().seq;
-        if (parentExtendsValidated &&
+        // Rebuild only from this round's exact parent and accepted evidence.
+        // Local validation can lag that parent or already have passed it.
+        // Preserve the competing-ancestry guard in either direction without
+        // making cursor progress itself change the synthetic transaction set.
+        // Live share admission/signing/release retain their validated-ledger
+        // checks; this boundary neither admits nor publishes a new share.
+        bool parentCompatibleWithValidated =
+            parent && validated && seq > 0 && parent->info().seq == seq - 1;
+        if (parentCompatibleWithValidated &&
             validated->info().seq < parent->info().seq)
         {
             auto const validatedHash =
                 hashOfSeq(*parent, validated->info().seq, j_);
-            parentExtendsValidated =
+            parentCompatibleWithValidated =
                 validatedHash && *validatedHash == validated->info().hash;
         }
-        else if (parentExtendsValidated)
+        else if (
+            parentCompatibleWithValidated &&
+            validated->info().seq > parent->info().seq)
         {
-            parentExtendsValidated =
+            auto const parentHash =
+                hashOfSeq(*validated, parent->info().seq, j_);
+            parentCompatibleWithValidated =
+                parentHash && *parentHash == parent->info().hash;
+        }
+        else if (parentCompatibleWithValidated)
+        {
+            parentCompatibleWithValidated =
                 parent->info().hash == validated->info().hash;
         }
 
@@ -2593,8 +2608,8 @@ ConsensusExtensions::onPreBuild(
             << " validatedHash="
             << (validated ? to_string(validated->info().hash)
                           : std::string{"none"})
-            << " parentExtendsValidated=" << parentExtendsValidated
-            << " acceptedRoot="
+            << " parentCompatibleWithValidated="
+            << parentCompatibleWithValidated << " acceptedRoot="
             << (acceptedExportSigSetHash_
                     ? to_string(*acceptedExportSigSetHash_)
                     : std::string{"none"})
@@ -2604,7 +2619,7 @@ ConsensusExtensions::onPreBuild(
                     : std::string{"none"})
             << " convergenceFailed=" << exportSigConvergenceFailed_;
 
-        if (parentExtendsValidated)
+        if (parentCompatibleWithValidated)
         {
             auto const pending = pendingExportLatches(*parent, seq);
             std::size_t materialized = 0;
@@ -2626,14 +2641,9 @@ ConsensusExtensions::onPreBuild(
 
                 auto const originSeq = latch->getFieldU32(sfLedgerSequence);
                 auto const originHash = hashOfSeq(*parent, originSeq, j_);
-                auto const validatedOriginHash =
-                    originSeq == validated->info().seq
-                    ? std::optional<uint256>{validated->info().hash}
-                    : hashOfSeq(*validated, originSeq, j_);
-                if (!originHash || !validatedOriginHash ||
-                    *originHash != *validatedOriginHash)
+                if (!originHash)
                 {
-                    skip("origin-ancestry-unavailable-or-mismatched");
+                    skip("origin-not-in-round-parent-ancestry");
                     continue;
                 }
 
@@ -2752,7 +2762,7 @@ ConsensusExtensions::onPreBuild(
             JLOG(j_.debug())
                 << "Export: preBuild witnesses skipped"
                 << " buildSeq=" << seq
-                << " reason=parent-not-descendant-of-current-validation";
+                << " reason=parent-unavailable-or-incompatible-with-validation";
         }
         //@@end export-later-ledger-witness-materialization
     }
