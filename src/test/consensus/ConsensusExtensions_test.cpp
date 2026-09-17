@@ -658,6 +658,7 @@ struct ExtensionTickHarness
     std::chrono::steady_clock::time_point start{};
     ConsensusMode mode = ConsensusMode::proposing;
     std::size_t prevProposers = 4;
+    LedgerIndex buildSeq = 2;
     int updates = 0;
     int proposes = 0;
 
@@ -697,11 +698,12 @@ struct ExtensionTickHarness
             makeNode(id), FakePeerPosition{makeNode(id), peerPosition});
     }
 
+    template <class Extensions>
     ExtensionTickResult
-    tick(FakeExtensions& ext, std::chrono::milliseconds elapsed = {})
+    tick(Extensions& ext, std::chrono::milliseconds elapsed = {})
     {
         ConsensusTick<ExtendedPosition, FakePeerPosition, FakeTxSet> ctx{
-            .buildSeq = 2,
+            .buildSeq = buildSeq,
             .now = netNow,
             .nowSteady = start + elapsed,
             .roundTime = elapsed,
@@ -2916,7 +2918,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             "accepted Export witness rebuild is independent of validation "
             "progress");
         using namespace jtx;
-        auto config = envconfig(validator, "");
+        using namespace std::chrono_literals;
+        auto config = envconfig();
         config->NETWORK_ID = 21337;
         Env env{
             *this,
@@ -2927,14 +2930,16 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         Account const bob{"cursor-bob"};
         env.fund(XRP(1000), alice, bob);
         env.close();
-        auto const& keys = env.app().getValidatorKeys();
-        if (!BEAST_EXPECT(keys.keys))
+        // A real keyless observer. The test holds the remote validator's key
+        // only to construct its independently signed report/share fixtures.
+        if (!BEAST_EXPECT(!env.app().getValidatorKeys().keys))
             return;
+        auto const [signer, secret] = randomKeyPair(KeyType::secp256k1);
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
             STTx report(ttUNL_REPORT, [&](auto& obj) {
                 obj.setFieldU32(sfLedgerSequence, env.current()->seq());
                 auto active = std::make_unique<STObject>(sfActiveValidator);
-                active->setFieldVL(sfPublicKey, keys.keys->masterPublicKey);
+                active->setFieldVL(sfPublicKey, signer);
                 obj.set(std::move(active));
             });
             auto bytes = std::make_shared<Serializer>();
@@ -2955,8 +2960,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(
                 beforeOrigin && beforeOrigin->read(keylet::UNLReport())))
             return;
-        auto const roster =
-            serializeExportCommittee({keys.keys->masterPublicKey});
+        auto const roster = serializeExportCommittee({signer});
         auto target = makeExportedPayment(alice.id(), bob.id());
         target.setFieldU32(sfLastLedgerSequence, beforeOrigin->info().seq + 20);
         Json::Value json;
@@ -2996,7 +3000,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(release))
             return;
         auto signature = ExportResultBuilder::signExportedTxn(
-            release.value(), keys.keys->publicKey, keys.keys->secretKey);
+            release.value(), signer, secret);
         ExportShare share{
             ExportShare::currentVersion,
             alice.id(),
@@ -3004,7 +3008,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             parent->info().seq,
             parent->info().hash,
             0,
-            keys.keys->publicKey,
+            signer,
             signature};
 
         // Install an authenticated accepted-root fixture directly. This
@@ -3015,7 +3019,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         sidecar.setFieldU8(sfSidecarType, sidecarExportSig);
         sidecar.setFieldH256(sfTransactionHash, origin);
         sidecar.setFieldU32(sfTransactionIndex, 0);
-        sidecar.setFieldVL(sfSigningPubKey, keys.keys->publicKey.slice());
+        sidecar.setFieldVL(sfSigningPubKey, signer.slice());
         sidecar.setFieldVL(
             sfTxnSignature, Slice{signature.data(), signature.size()});
         Serializer bytes;
@@ -3057,10 +3061,43 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             master.getValidatedLedger()->info().seq < parent->info().seq);
         {
             ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            // Working rounds may be several ledgers ahead of validation.
+            // The parent contains an intent even though live share admission
+            // must still defer it. No accepted-root fixture is installed here.
+            auto ahead = parent;
+            for (int i = 0; i < 3; ++i)
+            {
+                ahead = std::make_shared<Ledger>(
+                    *ahead, env.app().timeKeeper().closeTime());
+                ahead->updateSkipList();
+                ahead->setAccepted(
+                    ahead->info().closeTime,
+                    ahead->info().closeTimeResolution,
+                    true);
+                master.storeLedger(ahead);
+            }
+            ce.onRoundStart(RCLCxLedger{ahead}, {});
+            ce.setRngEnabledThisRound(false);
+            ce.setMode(ConsensusMode::observing);
             ce.startExportShareService();
             BEAST_EXPECT(
                 ce.onExportShare(share, {}).disposition ==
                 ExportShareDisposition::deferred);
+            BEAST_EXPECT(ce.hasEligiblePendingExports());
+            BEAST_EXPECT(!ce.hasPendingExportSigs());
+            ExtensionTickHarness lagged;
+            lagged.mode = ConsensusMode::observing;
+            lagged.buildSeq = ahead->info().seq + 1;
+            BEAST_EXPECT(!lagged.tick(ce).readyForAccept);
+            BEAST_EXPECT(ce.exportSigGateStarted_);
+            BEAST_EXPECT(!ce.acceptedExportSigSetHash_);
+            auto const deadline =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    ripple::detail::sidecarConvergenceTimeout(lagged.parms));
+            BEAST_EXPECT(lagged.tick(ce, deadline + 1ms).readyForAccept);
+            BEAST_EXPECT(ce.exportSigConvergenceFailed());
+            BEAST_EXPECT(!ce.acceptedExportSigSetHash_);
+            BEAST_EXPECT(lagged.proposes == 0);
             ce.stopExportShareService();
         }
         for (auto mode : modes)
@@ -3078,6 +3115,28 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             rebuild(ConsensusMode::proposing)->getTransactionID() ==
             expected->getTransactionID());
 
+        // Production admission and production alignment, not a manually
+        // accepted map: reproduce the publication-to-next-tick race at 3248.
+        ConsensusExtensions aligning{env.app(), activeNoopJournal()};
+        aligning.onRoundStart(RCLCxLedger{parent}, {});
+        aligning.setRngEnabledThisRound(false);
+        aligning.setMode(ConsensusMode::observing);
+        aligning.startExportShareService();
+        BEAST_EXPECT(aligning.onExportShare(share, {}).isAccepted());
+        BEAST_EXPECT(!aligning.localIsActiveValidator());
+        ExtensionTickHarness observation;
+        observation.mode = ConsensusMode::observing;
+        observation.buildSeq = parent->info().seq + 1;
+        observation.prevProposers = 1;
+        ExtendedPosition peer{observation.position.txSetHash};
+        peer.exportSigSetHash = root;
+        auto const signerNode = calcNodeID(signer);
+        observation.peers.emplace(
+            signerNode, FakePeerPosition{signerNode, peer});
+        BEAST_EXPECT(!observation.tick(aligning).readyForAccept);
+        BEAST_EXPECT(observation.position.exportSigSetHash == root);
+        BEAST_EXPECT(!aligning.acceptedExportSigSetHash_);
+
         // Advance local validation past this round's parent, retaining its
         // chain.
         auto next = std::make_shared<Ledger>(
@@ -3094,6 +3153,53 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         next->setAccepted(
             next->info().closeTime, next->info().closeTimeResolution, true);
         installValidated(next);
+
+        // Local validation now includes the witness, but this in-flight
+        // round still reconstructs the child of the earlier parent. Its
+        // candidacy and verified share set must not disappear between ticks.
+        BEAST_EXPECT(aligning.hasEligiblePendingExports());
+        BEAST_EXPECT(aligning.hasPendingExportSigs());
+        BEAST_EXPECT(observation.tick(aligning, 1ms).readyForAccept);
+        BEAST_EXPECT(aligning.acceptedExportSigSetHash_ == root);
+        BEAST_EXPECT(
+            aligning.exportSigSetMap_ &&
+            aligning.exportSigSetMap_->getHash().as_uint256() == root);
+        BEAST_EXPECT(!aligning.exportSigConvergenceFailed());
+        BEAST_EXPECT(observation.proposes == 0);
+        CanonicalTXSet alignedResult{uint256{}};
+        aligning.onPreBuild(alignedResult, parent->info().seq + 1, uint256{});
+        BEAST_EXPECT(alignedResult.size() == 1);
+        if (!alignedResult.empty())
+            BEAST_EXPECT(
+                alignedResult.begin()->second->getTransactionID() ==
+                expected->getTransactionID());
+
+        // Keeping round-local candidacy does not reopen live admission for
+        // an already witnessed intent, or carry candidacy into a later round.
+        BEAST_EXPECT(
+            aligning.onExportShare(share, {}).disposition ==
+            ExportShareDisposition::duplicate);
+        aligning.onRoundStart(RCLCxLedger{next}, {});
+        BEAST_EXPECT(!aligning.acceptedExportSigSetHash_);
+        BEAST_EXPECT(!aligning.hasEligiblePendingExports());
+        BEAST_EXPECT(!aligning.hasPendingExportSigs());
+
+        // A local root is still not permission without peer alignment. The
+        // old round's already-admitted share survives, but cannot self-count.
+        aligning.onRoundStart(RCLCxLedger{parent}, {});
+        aligning.setRngEnabledThisRound(false);
+        ExtensionTickHarness unaligned;
+        unaligned.mode = ConsensusMode::observing;
+        unaligned.buildSeq = parent->info().seq + 1;
+        BEAST_EXPECT(!unaligned.tick(aligning).readyForAccept);
+        BEAST_EXPECT(!unaligned.tick(aligning, 1ms).readyForAccept);
+        auto const deadline =
+            std::chrono::duration_cast<std::chrono::milliseconds>(
+                ripple::detail::sidecarConvergenceTimeout(unaligned.parms));
+        BEAST_EXPECT(unaligned.tick(aligning, deadline + 1ms).readyForAccept);
+        BEAST_EXPECT(aligning.exportSigConvergenceFailed());
+        BEAST_EXPECT(!aligning.acceptedExportSigSetHash_);
+        aligning.stopExportShareService();
         for (auto mode : modes)
         {
             auto actual = rebuild(mode);
