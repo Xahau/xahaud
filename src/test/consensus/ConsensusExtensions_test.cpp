@@ -2944,7 +2944,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         // only to construct its independently signed report/share fixtures.
         if (!BEAST_EXPECT(!env.app().getValidatorKeys().keys))
             return;
-        auto const [signer, secret] = randomKeyPair(KeyType::secp256k1);
+        auto const signerKeys = randomKeyPair(KeyType::secp256k1);
+        auto const& signer = signerKeys.first;
+        auto const& secret = signerKeys.second;
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
             STTx report(ttUNL_REPORT, [&](auto& obj) {
                 obj.setFieldU32(sfLedgerSequence, env.current()->seq());

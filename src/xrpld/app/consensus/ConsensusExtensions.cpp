@@ -2616,10 +2616,11 @@ ConsensusExtensions::onPreBuild(
             std::size_t materialized = 0;
             for (auto const& [origin, latch] : pending)
             {
+                auto const originId = origin;
                 auto const skip = [&](char const* reason) {
                     JLOG(j_.debug())
                         << "Export: preBuild witness skipped"
-                        << " buildSeq=" << seq << " origin=" << origin
+                        << " buildSeq=" << seq << " origin=" << originId
                         << " reason=" << reason;
                 };
                 if (!latch->isFieldPresent(sfExportCommitteeHash) ||
