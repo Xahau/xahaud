@@ -2753,7 +2753,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             return;
         auto validated = std::make_shared<Ledger>(
             *parent, env.app().timeKeeper().closeTime());
-        auto const deadline = validated->info().seq;
+        auto const deadline = validated->info().seq + 1;
         auto const origin = makeHash("export-sidecar-deadline-origin");
         auto latch =
             std::make_shared<SLE>(keylet::exportLatch(alice.id(), origin));
@@ -2761,7 +2761,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         latch->setFieldU32(sfTicketSequence, 1);
         latch->setFieldH256(sfTransactionHash, origin);
         latch->setFieldH256(sfDigest, makeHash("export-sidecar-intent"));
-        latch->setFieldU32(sfLedgerSequence, deadline);
+        latch->setFieldU32(sfLedgerSequence, validated->info().seq);
         latch->setFieldH256(
             sfExportCommitteeHash, validated->info().parentHash);
         latch->setFieldU32(sfLastLedgerSequence, deadline);
@@ -2779,11 +2779,12 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         auto const currentValidated =
             env.app().getLedgerMaster().getValidatedLedger();
         BEAST_EXPECT(
-            currentValidated && currentValidated->info().seq == deadline);
-        if (!currentValidated || currentValidated->info().seq != deadline)
+            currentValidated && currentValidated->info().seq == deadline - 1);
+        if (!currentValidated || currentValidated->info().seq != deadline - 1)
             return;
 
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.onRoundStart(RCLCxLedger{validated}, {});
         auto& collector = ce.postValidationExportSigCollector();
         auto const signer = randomKeyPair(KeyType::secp256k1).first;
         std::uint8_t const signatureBytes[] = {1, 2, 3};
@@ -2811,14 +2812,20 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             return count;
         };
 
-        // The validated view remains D in both cases. Candidate D is the
+        // The validated view remains D-1 in both cases. Candidate D is the
         // inclusive final publication opportunity; candidate D+1 is expired.
-        ce.buildingLedgerSeq_ = deadline;
         BEAST_EXPECT(ce.hasEligiblePendingExports());
         BEAST_EXPECT(ce.hasPendingExportSigs());
         BEAST_EXPECT(leafCount(ce.buildExportSigSet(deadline)) == 1);
 
-        ce.buildingLedgerSeq_ = deadline + 1;
+        auto nextParent = std::make_shared<Ledger>(
+            *validated, env.app().timeKeeper().closeTime());
+        nextParent->updateSkipList();
+        nextParent->setAccepted(
+            nextParent->info().closeTime,
+            nextParent->info().closeTimeResolution,
+            true);
+        ce.onRoundStart(RCLCxLedger{nextParent}, {});
         BEAST_EXPECT(!ce.hasEligiblePendingExports());
         BEAST_EXPECT(!ce.hasPendingExportSigs());
         BEAST_EXPECT(leafCount(ce.buildExportSigSet(deadline + 1)) == 0);
@@ -3116,7 +3123,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             expected->getTransactionID());
 
         // Production admission and production alignment, not a manually
-        // accepted map: reproduce the publication-to-next-tick race at 3248.
+        // accepted map: validation may overtake a round between candidate
+        // publication and the next peer-alignment tick.
         ConsensusExtensions aligning{env.app(), activeNoopJournal()};
         aligning.onRoundStart(RCLCxLedger{parent}, {});
         aligning.setRngEnabledThisRound(false);

@@ -175,6 +175,9 @@ private:
     // Consensus parent ledger hash, pinned at round start. Input to the
     // Tier 1 consensus_fallback entropy digest.
     uint256 roundPrevLedgerHash_;
+    // Immutable execution parent for this round. Export candidacy must not
+    // follow the asynchronously advancing validated-ledger cursor.
+    std::shared_ptr<Ledger const> roundParentLedger_;
     // Parent-ledger validator view used by RNG and Export quorum logic.
     ActiveValidatorViewPtr activeValidatorView_ =
         std::make_shared<ActiveValidatorView const>();
@@ -201,6 +204,9 @@ public:
     bool exportSigConvergenceFailed_{false};
 
 private:
+    std::map<uint256, std::shared_ptr<SLE const>>
+    pendingRoundExports(LedgerIndex candidateSeq) const;
+
     void
     clearRngStatePreservingExport();
 

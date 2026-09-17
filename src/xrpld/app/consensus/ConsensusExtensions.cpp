@@ -1869,6 +1869,18 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
     return hash;
 }
 
+std::map<uint256, std::shared_ptr<SLE const>>
+ConsensusExtensions::pendingRoundExports(LedgerIndex candidateSeq) const
+{
+    // This is reconstruction eligibility, not permission to admit or release
+    // a share. A newer validated ledger may already have witnessed an origin
+    // that is still pending in the parent of our in-flight round.
+    if (!roundParentLedger_ || candidateSeq == 0 ||
+        roundParentLedger_->info().seq != candidateSeq - 1)
+        return {};
+    return pendingExportLatches(*roundParentLedger_, candidateSeq);
+}
+
 uint256
 ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 {
@@ -1876,10 +1888,7 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
     map->setUnbacked();
 
-    auto const validated = app_.getLedgerMaster().getValidatedLedger();
-    auto const live = validated
-        ? pendingExportLatches(*validated, seq)
-        : std::map<uint256, std::shared_ptr<SLE const>>{};
+    auto const live = pendingRoundExports(seq);
     auto const allSigs = postValidationExportSigCollector_.fullUnionSnapshot();
     std::size_t entryCount = 0;
 
@@ -1923,6 +1932,8 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
     // longer advertised, fetched, served, or merged from peers.
     app_.getInboundTransactions().giveSet(hash, map, false);
 
+    // The moving validated cursor is diagnostic only at this boundary.
+    auto const validated = app_.getLedgerMaster().getValidatedLedger();
     JLOG(j_.debug()) << "Export: built exportSigSet SHAMap"
                      << " hash=" << hash << " seq=" << seq
                      << " entries=" << entryCount
@@ -1938,17 +1949,7 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 bool
 ConsensusExtensions::hasPendingExportSigs() const
 {
-    auto const validated = app_.getLedgerMaster().getValidatedLedger();
-    if (!validated)
-        return false;
-    auto candidateSeq = buildingLedgerSeq_;
-    if (!candidateSeq)
-    {
-        if (validated->info().seq == std::numeric_limits<LedgerIndex>::max())
-            return false;
-        candidateSeq = validated->info().seq + 1;
-    }
-    auto const live = pendingExportLatches(*validated, *candidateSeq);
+    auto const live = pendingRoundExports(buildingLedgerSeq_.value_or(0));
     auto const allSigs = postValidationExportSigCollector_.fullUnionSnapshot();
     return std::any_of(allSigs.begin(), allSigs.end(), [&](auto const& entry) {
         return live.find(entry.first) != live.end();
@@ -1958,17 +1959,7 @@ ConsensusExtensions::hasPendingExportSigs() const
 bool
 ConsensusExtensions::hasEligiblePendingExports() const
 {
-    auto const validated = app_.getLedgerMaster().getValidatedLedger();
-    if (!validated)
-        return false;
-    auto candidateSeq = buildingLedgerSeq_;
-    if (!candidateSeq)
-    {
-        if (validated->info().seq == std::numeric_limits<LedgerIndex>::max())
-            return false;
-        candidateSeq = validated->info().seq + 1;
-    }
-    return !pendingExportLatches(*validated, *candidateSeq).empty();
+    return !pendingRoundExports(buildingLedgerSeq_.value_or(0)).empty();
 }
 
 void
@@ -2198,6 +2189,7 @@ ConsensusExtensions::clearRngStatePreservingExport()
     acceptedEntropySetHash_.reset();
     buildingLedgerSeq_.reset();
     roundPrevLedgerHash_ = uint256{};
+    roundParentLedger_.reset();
     observedParticipantsHash_.reset();
     observedParticipantsCount_ = 0;
     observedParticipantsBitmapBin_.clear();
@@ -2566,8 +2558,7 @@ ConsensusExtensions::onPreBuild(
         if (app_.config().standalone() && hasPendingExportSigs())
             buildExportSigSet(seq);
 
-        auto const parent =
-            app_.getLedgerMaster().getLedgerByHash(roundPrevLedgerHash_);
+        auto const parent = roundParentLedger_;
         auto const validated = app_.getLedgerMaster().getValidatedLedger();
         // Rebuild only from this round's exact parent and accepted evidence.
         // Local validation can lag that parent or already have passed it.
@@ -3034,6 +3025,7 @@ ConsensusExtensions::onRoundStart(
     clearRngState();
 
     roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
+    roundParentLedger_ = prevLedger.ledger_;
     buildingLedgerSeq_ = prevLedger.ledger_->info().seq + 1;
     cacheUNLReport(prevLedger.ledger_);
     auto const validatorView = activeValidatorView();

@@ -144,6 +144,16 @@ This rebuild rule does not authorize share admission, signing or release from
 a merely closed parent. Those live paths retain the source-validation checks
 in INV-4 and INV-5; an origin ahead of local validation remains deferred there.
 
+Round candidacy uses that same immutable parent: pending-origin observation,
+the local-share predicate, and signature-set construction all select pending
+latches from the round parent at the candidate ledger sequence. Advancing the
+validated cursor must not hide an origin between publication and root alignment
+merely because a newer validated descendant already witnessed it. New rounds
+select their own parent and candidates; they do not inherit old candidacy.
+Without an active round parent, no Export candidate is inferred from the latest
+validated ledger. Verified contributions may still arrive during the bounded window;
+pinning candidacy neither freezes the collector early nor extends the deadline.
+
 *Anti-pattern:* assembling from the current collector at apply time or treating
 peer root support as remote payload availability.
 
