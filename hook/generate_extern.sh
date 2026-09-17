@@ -42,6 +42,11 @@ APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
                     sub(/[[:space:]]+_g/, " __attribute__((noduplicate)) _g", line);
                 }
 
+                if (line ~ /[[:space:]]+xport[[:space:]]*\(/) {
+                    print "// callback_fee_drops: 0 omits third-party delivery permission; otherwise the";
+                    print "// exact Import fee authorized by the emitted Export intent, in native drops.";
+                }
+
                 if (line ~ /[[:space:]]+entropy_cr_dice[[:space:]]*\(/) {
                     print "/*";
                     print "    Consensus entropy APIs.";
