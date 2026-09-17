@@ -26,7 +26,7 @@ XPORT_HOOK_C = r"""
 extern int32_t _g(uint32_t id, uint32_t maxiter);
 extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
 extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-extern int64_t xport(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len, uint32_t committee_hash_ptr, uint32_t committee_hash_len);
+extern int64_t xport(uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len, uint32_t committee_hash_ptr, uint32_t committee_hash_len, uint64_t callback_fee_drops);
 extern int64_t xport_reserve(uint32_t count);
 extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
 extern int64_t otxn_param(uint32_t write_ptr, uint32_t write_len, uint32_t name_ptr, uint32_t name_len);
@@ -121,7 +121,7 @@ int64_t hook(uint32_t reserved) {
     uint8_t hash[32];
     static const uint8_t committee_hash[32] = { COMMITTEE_HASH_BYTES };
     int64_t xport_result = xport(
-        SBUF(hash), (uint32_t)tx, buf - tx, SBUF(committee_hash));
+        SBUF(hash), (uint32_t)tx, buf - tx, SBUF(committee_hash), 0);
     ASSERT(xport_result == 32);
 
     return accept(0, 0, 0);

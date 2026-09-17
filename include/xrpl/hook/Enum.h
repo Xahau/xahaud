@@ -421,6 +421,7 @@ getImportWhitelist(Rules const& rules)
 #undef HOOK_API_DEFINITION
 
 #define int64_t 0x7EU
+#define uint64_t 0x7EU
 #define int32_t 0x7FU
 #define uint32_t 0x7FU
 
@@ -437,6 +438,7 @@ getImportWhitelist(Rules const& rules)
 #undef HOOK_API_DEFINITION
 #undef HOOK_WRAP_PARAMS
 #undef int64_t
+#undef uint64_t
 #undef int32_t
 #undef uint32_t
 #pragma pop_macro("HOOK_API_DEFINITION")

@@ -534,15 +534,18 @@ link, and pending-work link. Lack of signatures does not make the source
 transaction retry. The pending directory is durable scheduling state across
 rounds and restarts.
 
-An intent may include the positive native `ExportCallbackFeeLimit` amount.
+An intent may include the positive native `ExportCallbackFee` amount.
 The latch stores this optional authorization without reserving any balance.
 Without it, callback Imports require normal source-account authorization.
-With it, a third party may deliver the exact valid callback within that outer
-fee cap; the owner's balance and sequence are used on successful apply. The
+With it, a third party may deliver the exact valid callback with exactly that
+outer fee; the owner's balance and sequence are used on successful apply. The
 allowance cannot authorize consuming a source-account Ticket.
 The owner must still have funds. Invalid, duplicate, or fee-only unsuccessful
-third-party attempts do not charge the owner. This is an intent-transaction
-option; the existing `xport()` ABI continues to create owner-authorized latches.
+third-party attempts do not charge the owner. The final `uint64_t` argument to
+`xport()` exposes this intent option in drops: zero omits it, positive sets the
+exact fee. Account-authorized Imports retain ordinary fee choice. A fixed fee
+does not solve full callback canonicality or source-sequence contention; see
+the explicit follow-up in ExportIntent INV-13.
 
 An owner may have at most one live latch for a destination TicketSequence,
 regardless of `W`. Flagless control and publication expiry retain the latch, so

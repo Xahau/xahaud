@@ -38,6 +38,8 @@ struct Input
     NonceGenerator generateNonce;
     FeeCalculator calculateFee;
     beast::Journal j;
+    // Zero omits the opt-in; positive values set an exact native callback fee.
+    std::uint64_t callbackFeeDrops = 0;
 };
 
 struct Result

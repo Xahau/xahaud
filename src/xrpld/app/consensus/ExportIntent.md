@@ -286,19 +286,24 @@ XPOP alone is insufficient.
 The source account's enabled master key, current regular key, or configured
 multisigning quorum authorizes the outer Import and its fee/sequence effects.
 An intent may explicitly opt into third-party callback delivery by including
-`sfExportCallbackFeeLimit`, a positive native amount stored unchanged on its
-latch. It authorizes at most that outer Import fee for one successful callback
+`sfExportCallbackFee`, a positive native amount stored unchanged on its
+latch. It authorizes exactly that outer Import fee for one successful callback
 for this exact issuance. It reserves no funds and pays no reward to the relayer;
 the owner must have sufficient balance when the callback is applied. Absence
 of the field preserves account authorization. It is forbidden on committee
 administration and latch-control forms, and cannot grant authority over other
-latches. Existing `xport()` wrappers omit it and retain the default policy.
+latches. The final `uint64_t callback_fee_drops` argument to `xport()` sets
+this amount on the outer intent; zero omits the field and retains the default
+policy. Zero is an API sentinel, not a valid serialized fee authorization.
+This seven-argument WASM import requires recompiling older six-argument callers.
 
 A third-party-signed Import may use this allowance only after all ordinary
-proof/latch/validator-list preclaim conditions pass, within its stored fee cap.
+proof/latch/validator-list preclaim conditions pass, with its exact stored fee.
 The proof's owner, source/target domains, origin, and target digest still bind
 the callback. An account-authorized Import may pay a higher fee because the
-account directly authorized it. Third-party delivery uses the owner's current
+account directly authorized it. If the fixed fee cannot meet current admission
+requirements, third-party delivery waits or the account authorizes a differently
+priced Import. No funds are reserved in advance. Third-party delivery uses the owner's current
 sequence and debits the owner's balance; it cannot consume an unrelated source
 Ticket. Account-authorized Imports retain normal sequence/Ticket choice. Opting
 in permits delivery without another owner signature at callback time.
@@ -308,6 +313,17 @@ Blob, signing fields, Flags (only FullyCanonicalSig), NetworkID,
 LastLedgerSequence, and AccountTxnID. Other owner-side instructions such as
 Issuer, HookParameters, HookName, SourceTag, or Memos require normal account
 authorization; permission to deliver the proof does not authorize them.
+
+**TODO(export-callback-canonicality):** Fixed Fee does not yet define a unique
+third-party transaction. Relayer signatures, source sequence, optional envelope
+fields and proof representations can still vary. Review the existing signature
+caches, transaction suppression and expensive-work ordering before treating the
+delivery mode as canonical. A latch-backed Sequence-0 lane is a design follow-up,
+not implemented: it would need shared lane classification, no account sequence
+consumption, deliberate TxQ handling without fee priority, atomic latch replay
+protection and regression tests. Current delivery can contend with the owner's
+other transactions. With Sequence 0, same-account callbacks would sort by txid;
+different latches still share account balance, Hook state and Import VL state.
 
 The allowance does not authorize fee-only application. A Hook rejection or
 later apply/invariant failure discards the third-party attempt, including fees,

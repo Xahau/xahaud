@@ -1206,7 +1206,7 @@ public:
                     .result = {.emittedTxn = emittedTxn},
                 });
             auto& api = hookCtx.api();
-            auto const result = api.xport(Slice{}, committeeHash);
+            auto const result = api.xport(Slice{}, committeeHash, 0);
             BEAST_EXPECT(result.error() == TOO_MANY_EMITTED_TXN);
         }
 
@@ -1227,7 +1227,7 @@ public:
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
             auto& api = hookCtx.api();
             auto const result = api.xport(
-                Slice(serialized.data(), serialized.size()), committeeHash);
+                Slice(serialized.data(), serialized.size()), committeeHash, 0);
             BEAST_EXPECT(result.error() == EXPORT_FAILURE);
         }
 
@@ -1247,7 +1247,7 @@ public:
                 makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
             auto& api = hookCtx.api();
             auto const result = api.xport(
-                Slice(serialized.data(), serialized.size()), committeeHash);
+                Slice(serialized.data(), serialized.size()), committeeHash, 0);
             BEAST_EXPECT(result.error() == FEE_TOO_LARGE);
         }
     }

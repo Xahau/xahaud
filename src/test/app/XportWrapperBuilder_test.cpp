@@ -26,11 +26,13 @@
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/Serializer.h>
+#include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
 
 #include <cstring>
+#include <limits>
 #include <optional>
 
 namespace ripple {
@@ -171,6 +173,7 @@ public:
             wrapper.getFieldU32(sfLastLedgerSequence) ==
             10 + ExportLimits::maxAdmissionWindowLedgers);
         BEAST_EXPECT(wrapper.getFieldAmount(sfFee) == STAmount{12345});
+        BEAST_EXPECT(!wrapper.isFieldPresent(sfExportCallbackFee));
         BEAST_EXPECT(wrapper.getFieldVL(sfSigningPubKey).empty());
         BEAST_EXPECT(
             wrapper.getFieldH256(sfExportCommitteeHash) ==
@@ -198,6 +201,65 @@ public:
         BEAST_EXPECT(
             emitDetails.getAccountID(sfEmitCallback) ==
             calcAccountID(exporter.first));
+    }
+
+    void
+    testCallbackFee()
+    {
+        testcase(
+            "exact callback fee is optional, bounded, and priced in wrapper");
+        auto const exporter = randomKeyPair(KeyType::secp256k1);
+        auto const dst = randomKeyPair(KeyType::secp256k1);
+        auto const inner = makeExportedPayment(
+            calcAccountID(exporter.first), calcAccountID(dst.first));
+        auto const blob = serialize(inner);
+        auto input = makeInput(makeSlice(blob), calcAccountID(exporter.first));
+        bool priced = false;
+        input.calculateFee = [&](Slice const& bytes) {
+            STTx const wrapper{SerialIter{bytes}};
+            BEAST_EXPECT(
+                wrapper.isFieldPresent(sfExportCallbackFee) ==
+                (input.callbackFeeDrops != 0));
+            if (input.callbackFeeDrops != 0)
+                BEAST_EXPECT(
+                    wrapper.getFieldAmount(sfExportCallbackFee).xrp() ==
+                    XRPAmount{
+                        static_cast<std::int64_t>(input.callbackFeeDrops)});
+            priced = true;
+            return Expected<std::uint64_t, ::hook_api::hook_return_code>{12345};
+        };
+        for (auto amount :
+             {std::uint64_t{0},
+              std::uint64_t{1000},
+              static_cast<std::uint64_t>(INITIAL_XRP.drops())})
+        {
+            input.callbackFeeDrops = amount;
+            priced = false;
+            auto const result = hook::XportWrapperBuilder::build(input);
+            BEAST_EXPECT(result);
+            BEAST_EXPECT(priced);
+            if (!result)
+                continue;
+            BEAST_EXPECT(
+                result->wrapperTx.getFieldAmount(sfFee) == STAmount{12345});
+            auto const& target = result->wrapperTx.peekAtField(sfExportedTxn)
+                                     .downcast<STObject>();
+            BEAST_EXPECT(!target.isFieldPresent(sfExportCallbackFee));
+        }
+        for (auto amount :
+             {static_cast<std::uint64_t>(INITIAL_XRP.drops()) + 1,
+              std::numeric_limits<std::uint64_t>::max()})
+        {
+            input.callbackFeeDrops = amount;
+            priced = false;
+            auto const result = hook::XportWrapperBuilder::build(input);
+            BEAST_EXPECT(!result);
+            if (!result)
+                BEAST_EXPECT(
+                    result.error() ==
+                    ::hook_api::hook_return_code::INVALID_ARGUMENT);
+            BEAST_EXPECT(!priced);
+        }
     }
 
     void
@@ -556,6 +618,7 @@ public:
     run() override
     {
         testBuildsWrapper();
+        testCallbackFee();
         testBuildsWrapperWithoutCallback();
         testPreservesUserMemos();
         testRejectsInvalidInputs();

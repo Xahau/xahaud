@@ -412,10 +412,9 @@ createPendingExportLatch(
     latch->setFieldU32(sfLedgerSequence, view.info().seq);
     latch->setFieldH256(sfExportCommitteeHash, committeeHash);
 
-    if (exportTx.isFieldPresent(sfExportCallbackFeeLimit))
+    if (exportTx.isFieldPresent(sfExportCallbackFee))
         latch->setFieldAmount(
-            sfExportCallbackFeeLimit,
-            exportTx.getFieldAmount(sfExportCallbackFeeLimit));
+            sfExportCallbackFee, exportTx.getFieldAmount(sfExportCallbackFee));
 
     if (!exportTx.isFieldPresent(sfLastLedgerSequence))
         return temMALFORMED;

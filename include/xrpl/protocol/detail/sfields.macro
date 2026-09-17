@@ -267,7 +267,7 @@ TYPED_SFIELD(sfPrice,                    AMOUNT,    28)
 TYPED_SFIELD(sfSignatureReward,          AMOUNT,    29)
 TYPED_SFIELD(sfMinAccountCreateAmount,   AMOUNT,    30)
 TYPED_SFIELD(sfLPTokenBalance,           AMOUNT,    31)
-TYPED_SFIELD(sfExportCallbackFeeLimit,   AMOUNT,    32)
+TYPED_SFIELD(sfExportCallbackFee,        AMOUNT,    32)
 TYPED_SFIELD(sfTrustLineRewardAccumulator,AMOUNT,   99)
 
 // variable length (common)

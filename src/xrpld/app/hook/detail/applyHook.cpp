@@ -3974,7 +3974,8 @@ DEFINE_HOOK_FUNCTION(
     uint32_t read_ptr,
     uint32_t read_len,
     uint32_t committee_hash_ptr,
-    uint32_t committee_hash_len)
+    uint32_t committee_hash_len,
+    uint64_t callback_fee_drops)
 {
     HOOK_SETUP();
 
@@ -3996,8 +3997,10 @@ DEFINE_HOOK_FUNCTION(
     ripple::Slice txBlob{
         reinterpret_cast<const void*>(memory + read_ptr), read_len};
 
-    auto const res =
-        api.xport(txBlob, uint256::fromVoid(memory + committee_hash_ptr));
+    auto const res = api.xport(
+        txBlob,
+        uint256::fromVoid(memory + committee_hash_ptr),
+        callback_fee_drops);
 
     if (!res)
         return res.error();

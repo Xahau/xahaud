@@ -1883,9 +1883,9 @@ class MPToken_test : public beast::unit_test::suite
                 Json::Value jv;
                 jv[jss::TransactionType] = jss::Export;
                 jv[jss::Account] = alice.human();
-                jv[sfExportCallbackFeeLimit.jsonName] =
+                jv[sfExportCallbackFee.jsonName] =
                     mpt.getJson(JsonOptions::none);
-                test(jv, sfExportCallbackFeeLimit.fieldName);
+                test(jv, sfExportCallbackFee.fieldName);
             }
             // ClaimReward
             {

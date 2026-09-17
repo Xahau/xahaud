@@ -998,7 +998,10 @@ HookAPI::xport_reserve(uint64_t count) const
 }
 
 Expected<uint256, HookReturnCode>
-HookAPI::xport(Slice const& txBlob, uint256 const& committeeHash) const
+HookAPI::xport(
+    Slice const& txBlob,
+    uint256 const& committeeHash,
+    std::uint64_t callbackFeeDrops) const
 {
     auto& applyCtx = hookCtx.applyCtx;
     auto& app = applyCtx.app;
@@ -1049,7 +1052,8 @@ HookAPI::xport(Slice const& txBlob, uint256 const& committeeHash) const
         [this](Slice const& serializedWrapper) {
             return etxn_fee_base(serializedWrapper);
         },
-        j});
+        j,
+        callbackFeeDrops});
     if (!built)
         return Unexpected(built.error());
 

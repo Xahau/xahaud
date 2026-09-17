@@ -5,6 +5,7 @@
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/Serializer.h>
+#include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxFormats.h>
 
@@ -19,6 +20,10 @@ Expected<Result, HookReturnCode>
 build(Input const& input)
 {
     if (input.committeeHash.isZero())
+        return Unexpected(::hook_api::hook_return_code::INVALID_ARGUMENT);
+
+    if (input.callbackFeeDrops >
+        static_cast<std::uint64_t>(INITIAL_XRP.drops()))
         return Unexpected(::hook_api::hook_return_code::INVALID_ARGUMENT);
 
     std::shared_ptr<STTx const> innerTx;
@@ -81,6 +86,10 @@ build(Input const& input)
         input.ledgerSeq + ExportLimits::maxAdmissionWindowLedgers;
     exportObj[sfFee] = STAmount{0};
     exportObj.setFieldH256(sfExportCommitteeHash, input.committeeHash);
+    if (input.callbackFeeDrops != 0)
+        exportObj.setFieldAmount(
+            sfExportCallbackFee,
+            XRPAmount{static_cast<std::int64_t>(input.callbackFeeDrops)});
 
     SerialIter sit(innerSer.slice());
     exportObj.set(std::make_unique<STObject>(sit, sfExportedTxn));

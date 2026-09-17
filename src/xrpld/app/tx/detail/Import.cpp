@@ -159,14 +159,21 @@ Import::checkImportSign(PreclaimContext const& ctx)
     auto const latch = ctx.view.read(
         keylet::exportLatch(owner, stamp.value().origin.transactionHash));
     if (!latch || latch->getType() != ltEXPORT_LATCH ||
-        !latch->isFieldPresent(sfExportCallbackFeeLimit))
+        !latch->isFieldPresent(sfExportCallbackFee))
         return accountAuth;
 
-    auto const& limit = latch->getFieldAmount(sfExportCallbackFeeLimit);
+    auto const& callbackFee = latch->getFieldAmount(sfExportCallbackFee);
     auto const& fee = ctx.tx.getFieldAmount(sfFee);
-    if (!isXRP(limit) || limit <= beast::zero || !isXRP(fee) ||
-        fee < beast::zero || fee > limit)
+    if (!isXRP(callbackFee) || callbackFee <= beast::zero || !isXRP(fee) ||
+        fee != callbackFee)
         return accountAuth;
+
+    // TODO(export-callback-canonicality): An exact fee removes only one
+    // source of equivalent outer transaction IDs. Define the full relay
+    // envelope/proof identity and measure verification/relay reuse. Consider
+    // latch-backed Sequence 0 without consuming AccountRoot Sequence, with
+    // matching TxQ admission and no fee-escalation bypass. Current callbacks
+    // still use the owner's ordinary sequence and may contend with its txns.
 
     // The allowance covers only this exact, still-actionable proof. Reject
     // duplicates or other preclaim failures before permitting an owner debit.
