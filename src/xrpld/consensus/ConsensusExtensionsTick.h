@@ -1222,7 +1222,17 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     // closed-ledger export material.
                     if (auto const accepted =
                             ctx.getPosition().exportSigSetHash)
+                    {
                         ext.acceptExportSigSet(*accepted);
+                        JLOG(ext.j_.debug())
+                            << "Export: accepted exportSigSet root"
+                            << " buildSeq=" << buildSeqExport
+                            << " root=" << *accepted
+                            << " mode=" << to_string(ctx.mode)
+                            << " alignedParticipants="
+                            << exportState.alignedParticipants()
+                            << " quorum=" << exportQuorum;
+                    }
                 }
             }
             //@@end export-sigset-conflict-wait

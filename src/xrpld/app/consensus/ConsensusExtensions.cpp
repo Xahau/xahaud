@@ -1926,7 +1926,12 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
     JLOG(j_.debug()) << "Export: built exportSigSet SHAMap"
                      << " hash=" << hash << " seq=" << seq
                      << " entries=" << entryCount
-                     << " liveOrigins=" << live.size();
+                     << " liveOrigins=" << live.size() << " validatedSeq="
+                     << (validated ? validated->info().seq : 0)
+                     << " validatedHash="
+                     << (validated ? to_string(validated->info().hash)
+                                   : std::string{"none"})
+                     << " roundParent=" << roundPrevLedgerHash_;
     return hash;
 }
 
@@ -2008,7 +2013,11 @@ ConsensusExtensions::agreedExportWitness(
         ? exportSigSetMap_->getHash().as_uint256()
         : uint256{};
     if (acceptedHash.isZero())
+    {
+        JLOG(j_.debug()) << "Export: witness material unavailable"
+                         << " origin=" << origin << " reason=no-accepted-root";
         return std::nullopt;
+    }
     std::shared_ptr<SHAMap> agreedMap;
     if (exportSigSetMap_ &&
         exportSigSetMap_->getHash().as_uint256() == acceptedHash)
@@ -2018,7 +2027,13 @@ ConsensusExtensions::agreedExportWitness(
 
     if (!agreedMap || agreedMap->mapType() != SHAMapType::SIDECAR ||
         agreedMap->getHash().as_uint256() != acceptedHash)
+    {
+        JLOG(j_.debug()) << "Export: witness material unavailable"
+                         << " origin=" << origin
+                         << " acceptedRoot=" << acceptedHash
+                         << " reason=missing-exact-sidecar";
         return std::nullopt;
+    }
 
     ExportWitnessMaterial material;
     std::set<std::uint32_t> positions;
@@ -2114,7 +2129,16 @@ ConsensusExtensions::agreedExportWitness(
 
     if (invalid || material.signatures.size() < threshold ||
         material.signatures.size() > ExportLimits::maxCommitteeMembers)
+    {
+        JLOG(j_.debug()) << "Export: witness material unavailable"
+                         << " origin=" << origin
+                         << " acceptedRoot=" << acceptedHash << " reason="
+                         << (invalid ? "invalid-leaf" : "signature-count")
+                         << " signatures=" << material.signatures.size()
+                         << " required=" << threshold
+                         << " committeeSize=" << committeeSize;
         return std::nullopt;
+    }
     return material;
 }
 
@@ -2561,15 +2585,44 @@ ConsensusExtensions::onPreBuild(
                 parent->info().hash == validated->info().hash;
         }
 
+        JLOG(j_.debug())
+            << "Export: preBuild witness context"
+            << " buildSeq=" << seq << " roundParent=" << roundPrevLedgerHash_
+            << " parentSeq=" << (parent ? parent->info().seq : 0)
+            << " validatedSeq=" << (validated ? validated->info().seq : 0)
+            << " validatedHash="
+            << (validated ? to_string(validated->info().hash)
+                          : std::string{"none"})
+            << " parentExtendsValidated=" << parentExtendsValidated
+            << " acceptedRoot="
+            << (acceptedExportSigSetHash_
+                    ? to_string(*acceptedExportSigSetHash_)
+                    : std::string{"none"})
+            << " localRoot="
+            << (exportSigSetMap_
+                    ? to_string(exportSigSetMap_->getHash().as_uint256())
+                    : std::string{"none"})
+            << " convergenceFailed=" << exportSigConvergenceFailed_;
+
         if (parentExtendsValidated)
         {
             auto const pending = pendingExportLatches(*parent, seq);
+            std::size_t materialized = 0;
             for (auto const& [origin, latch] : pending)
             {
+                auto const skip = [&](char const* reason) {
+                    JLOG(j_.debug())
+                        << "Export: preBuild witness skipped"
+                        << " buildSeq=" << seq << " origin=" << origin
+                        << " reason=" << reason;
+                };
                 if (!latch->isFieldPresent(sfExportCommitteeHash) ||
                     !latch->isFieldPresent(sfLastLedgerSequence) ||
                     seq > latch->getFieldU32(sfLastLedgerSequence))
+                {
+                    skip("latch-fields-or-deadline");
                     continue;
+                }
 
                 auto const originSeq = latch->getFieldU32(sfLedgerSequence);
                 auto const originHash = hashOfSeq(*parent, originSeq, j_);
@@ -2579,19 +2632,31 @@ ConsensusExtensions::onPreBuild(
                     : hashOfSeq(*validated, originSeq, j_);
                 if (!originHash || !validatedOriginHash ||
                     *originHash != *validatedOriginHash)
+                {
+                    skip("origin-ancestry-unavailable-or-mismatched");
                     continue;
+                }
 
                 auto const originLedger =
                     app_.getLedgerMaster().getLedgerByHash(*originHash);
                 if (!originLedger)
+                {
+                    skip("origin-ledger-unavailable");
                     continue;
+                }
                 auto const [outer, _] = originLedger->txRead(origin);
                 if (!outer || outer->getTxnType() != ttEXPORT)
+                {
+                    skip("origin-transaction-unavailable-or-wrong-type");
                     continue;
+                }
                 auto const baseTarget =
                     ExportLedgerOps::exportIntentTarget(*outer);
                 if (!baseTarget)
+                {
+                    skip("origin-target-unavailable");
                     continue;
+                }
 
                 auto const committeeHash =
                     latch->getFieldH256(sfExportCommitteeHash);
@@ -2599,7 +2664,10 @@ ConsensusExtensions::onPreBuild(
                     latch->getAccountID(sfAccount), committeeHash));
                 if (!committeeSLE ||
                     !committeeSLE->isFieldPresent(sfExportCommittee))
+                {
+                    skip("committee-unavailable");
                     continue;
+                }
 
                 auto const& roster =
                     committeeSLE->getFieldVL(sfExportCommittee);
@@ -2608,11 +2676,17 @@ ConsensusExtensions::onPreBuild(
                         latch->getAccountID(sfAccount),
                         committeeHash,
                         makeSlice(roster)))
+                {
+                    skip("committee-binding-mismatch");
                     continue;
+                }
                 auto const committee =
                     resolveExportCommittee(makeSlice(roster));
                 if (!committee)
+                {
+                    skip("committee-roster-invalid");
                     continue;
+                }
 
                 auto const targetNetworkID =
                     baseTarget->isFieldPresent(sfNetworkID)
@@ -2624,7 +2698,10 @@ ConsensusExtensions::onPreBuild(
                         app_.config().NETWORK_ID, targetNetworkID, origin},
                     ExportOriginMemo::Anchor{originSeq, *originHash});
                 if (!signingPayload)
+                {
+                    skip("release-payload-invalid");
                     continue;
+                }
 
                 auto material = agreedExportWitness(
                     signingPayload.value(),
@@ -2632,7 +2709,10 @@ ConsensusExtensions::onPreBuild(
                     committee->members.size(),
                     committee->quorum);
                 if (!material)
+                {
+                    skip("accepted-material-unavailable");
                     continue;
+                }
 
                 try
                 {
@@ -2642,8 +2722,14 @@ ConsensusExtensions::onPreBuild(
                         material->signatures,
                         committee->members.size(),
                         seq);
+                    JLOG(j_.debug())
+                        << "Export: preBuild witness materialized"
+                        << " buildSeq=" << seq << " origin=" << origin
+                        << " witness=" << witness.getTransactionID()
+                        << " signatures=" << material->signatures.size();
                     retriableTxs.insert(
                         std::make_shared<STTx>(std::move(witness)));
+                    ++materialized;
                 }
                 catch (std::invalid_argument const& e)
                 {
@@ -2656,6 +2742,17 @@ ConsensusExtensions::onPreBuild(
                         << " reason=" << e.what();
                 }
             }
+            JLOG(j_.debug())
+                << "Export: preBuild witness summary"
+                << " buildSeq=" << seq << " candidates=" << pending.size()
+                << " materialized=" << materialized;
+        }
+        else
+        {
+            JLOG(j_.debug())
+                << "Export: preBuild witnesses skipped"
+                << " buildSeq=" << seq
+                << " reason=parent-not-descendant-of-current-validation";
         }
         //@@end export-later-ledger-witness-materialization
     }
