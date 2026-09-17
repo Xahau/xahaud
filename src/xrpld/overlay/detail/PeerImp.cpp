@@ -31,6 +31,7 @@
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/overlay/detail/Tuning.h>
@@ -3064,7 +3065,10 @@ PeerImp::checkTransaction(
             }
         }
 
-        if (checkSignature)
+        // Cluster trust may stand in for an ordinary outer signature, but
+        // unsigned Import delivery must still verify its XPOP before the
+        // transaction is handed to NetworkOPs as cryptographically valid.
+        if (checkSignature || Import::isUnsigned(*stx))
         {
             // Check the signature before handing off to the job queue.
             if (auto [valid, validReason] = checkValidity(

@@ -128,8 +128,17 @@ autofillTx(Json::Value& tx_json, RPC::JsonContext& context)
 
     if (!tx_json.isMember(jss::TxnSignature))
     {
-        // autofill TxnSignature
-        tx_json[jss::TxnSignature] = "";
+        // Signatureless Import delivery requires this field to be absent,
+        // not present and empty. Full proof and latch checks still run.
+        auto const& type = tx_json[jss::TransactionType];
+        bool const unsignedImport =
+            (type == jss::Import ||
+             (type.isInt() && type.asInt() == ttIMPORT)) &&
+            tx_json[jss::SigningPubKey] == "" &&
+            !tx_json.isMember(jss::Signers) &&
+            !tx_json.isMember(jss::EmitDetails);
+        if (!unsignedImport)
+            tx_json[jss::TxnSignature] = "";
     }
     else if (tx_json[jss::TxnSignature] != "")
     {

@@ -18,6 +18,8 @@
 //==============================================================================
 #include <test/jtx.h>
 #include <test/jtx/Env.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/overlay/detail/OverlayImpl.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/peerfinder/detail/SlotImp.h>
@@ -120,6 +122,14 @@ private:
             sid_++;
         }
         ~PeerTest() = default;
+
+        bool trustedCluster_ = false;
+
+        bool
+        cluster() const override
+        {
+            return trustedCluster_;
+        }
 
         void
         run() override
@@ -244,6 +254,59 @@ private:
                 PeerTest::sendTx_ == expectRelay &&
                 PeerTest::queueTx_ == expectQueue);
         }
+    }
+
+    void
+    testUnsignedImportClusterProof()
+    {
+        testcase("cluster signature trust does not skip unsigned Import proof");
+        using namespace jtx;
+        Env env(*this);
+        Account const alice{"alice"};
+        env.fund(XRP(1000), alice);
+        env.close();
+        BEAST_EXPECT(!env.app().getValidationPublicKey());
+        env.app().getOPs().setMode(OperatingMode::FULL);
+        env.app().getOPs().clearNeedNetworkLedger();
+
+        std::vector<std::shared_ptr<PeerTest>> peers;
+        PeerTest::init();
+        PeerTest::sid_ = 1;
+        lid_ = 0;
+        rid_ = 1;
+        std::uint16_t disabled = 1;
+        addPeer(env, peers, disabled);
+        peers.front()->trustedCluster_ = true;
+        auto const deliver = [&](std::shared_ptr<STTx const> const& tx) {
+            auto packet = std::make_shared<protocol::TMTransaction>();
+            auto const bytes = tx->getSerializer();
+            packet->set_rawtransaction(bytes.data(), bytes.size());
+            packet->set_status(protocol::tsNEW);
+            packet->set_deferred(false);
+            peers.front()->onMessage(packet);
+            env.app().getJobQueue().rendezvous();
+        };
+
+        auto const sequence = env.seq(alice);
+        auto const balance = env.balance(alice);
+        Json::Value malformed;
+        malformed[jss::TransactionType] = jss::Import;
+        malformed[jss::Account] = alice.human();
+        malformed[jss::SigningPubKey] = "";
+        malformed[jss::Blob] = "00";
+        auto const candidate = env.jt(malformed, sig(none), fee(100));
+        deliver(candidate.stx);
+        BEAST_EXPECT(
+            env.app().getHashRouter().getFlags(
+                candidate.stx->getTransactionID()) &
+            SF_BAD);
+        BEAST_EXPECT(env.seq(alice) == sequence);
+        BEAST_EXPECT(env.balance(alice) == balance);
+
+        // Ordinary signed cluster traffic still follows the normal path.
+        auto const ordinary = env.jt(noop(alice), fee(100));
+        deliver(ordinary.stx);
+        BEAST_EXPECT(env.seq(alice) == sequence + 1);
     }
 
     void
@@ -423,6 +486,7 @@ private:
         bool log = false;
         std::set<Peer::id_t> skip = {0, 1, 2, 3, 4};
         testConfig(log);
+        testUnsignedImportClusterProof();
         testProtocolFeatureGate();
         testProtocolFeatureGateFromLedger();
         testGenericProtocolFeatureAdmission();

@@ -118,7 +118,8 @@ Import::Import(ApplyContext& ctx) : Transactor(ctx)
 
     PreclaimContext const signing{
         ctx.app, view(), tesSUCCESS, ctx.tx, ctx.flags(), ctx.journal};
-    callbackAllowanceOnly_ = !isTesSuccess(checkAccountSign(signing));
+    callbackAllowanceOnly_ =
+        isUnsigned(ctx.tx) || !isTesSuccess(checkAccountSign(signing));
 }
 
 bool

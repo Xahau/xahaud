@@ -2709,6 +2709,27 @@ struct Export_test : public beast::unit_test::suite
     }
 
     void
+    checkUnsignedCallbackSimulation(
+        jtx::Env& env,
+        jtx::JTx const& tx,
+        TER expected)
+    {
+        for (bool blob : {false, true})
+        {
+            Json::Value request;
+            if (blob)
+                request[jss::tx_blob] = strHex(tx.stx->getSerializer().slice());
+            else
+                request[jss::tx_json] = tx.stx->getJson(JsonOptions::none);
+            auto const result =
+                env.rpc("json", "simulate", to_string(request))[jss::result];
+            BEAST_EXPECT(result[jss::engine_result] == transToken(expected));
+            BEAST_EXPECT(result[jss::applied] == false);
+            BEAST_EXPECT(!result[jss::tx_json].isMember(jss::TxnSignature));
+        }
+    }
+
+    void
     testExportCallbackFeeAllowance(FeatureBitset features)
     {
         using namespace jtx;
@@ -2905,6 +2926,8 @@ struct Export_test : public beast::unit_test::suite
             BEAST_EXPECT(candidate.stx->getSigningPubKey().empty());
             BEAST_EXPECT(!candidate.stx->isFieldPresent(sfTxnSignature));
             BEAST_EXPECT(!candidate.stx->isFieldPresent(sfSigners));
+            checkUnsignedCallbackSimulation(env, candidate, tesSUCCESS);
+            unchanged();
             HashRouter receipt{stopwatch, std::chrono::seconds{300}};
             for (int attempt = 0; attempt != 2; ++attempt)
                 BEAST_EXPECT(
@@ -3042,6 +3065,13 @@ struct Export_test : public beast::unit_test::suite
         auto const before = env.current()->read(keylet::account(alice.id()));
         auto const balance = before->getFieldAmount(sfBalance).xrp();
         auto const sequence = before->getFieldU32(sfSequence);
+        auto const simulated = env.jt(
+            unsignedCallbackImport(alice, callback.xpopJson),
+            sig(none),
+            fee(callbackFee));
+        checkUnsignedCallbackSimulation(env, simulated, tefBAD_AUTH);
+        BEAST_EXPECT(env.balance(alice) == STAmount{balance});
+        BEAST_EXPECT(env.seq(alice) == sequence);
         for (int attempt = 0; attempt < 2; ++attempt)
         {
             env(unsignedCallbackImport(alice, callback.xpopJson),
