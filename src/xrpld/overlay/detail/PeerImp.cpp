@@ -727,7 +727,7 @@ PeerImp::onTimer(error_code const& ec)
     }
 
     lastPingTime_ = clock_type::now();
-    lastPingSeq_ = rand_int<std::uint32_t>();
+    lastPingSeq_ = rand_int<std::uint32_t>(app_.getPrng());
 
     protocol::TMPing message;
     message.set_type(protocol::TMPing::ptPING);
@@ -1702,7 +1702,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         // Count unique messages (Slots has it's own 'HashRouter'), which a peer
         // receives within IDLED seconds since the message has been relayed.
         if (reduceRelayReady() && relayed &&
-            (stopwatch().now() - *relayed) < reduce_relay::IDLED)
+            (app_.getStopwatch().now() - *relayed) < reduce_relay::IDLED)
             overlay_.updateSlotAndSquelch(
                 suppression, publicKey, id_, protocol::mtPROPOSE_LEDGER);
         JLOG(p_journal_.trace()) << "Proposal: duplicate";
@@ -2336,7 +2336,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
             // relayed. Wait WAIT_ON_BOOTUP time to let the server establish
             // connections to peers.
             if (reduceRelayReady() && relayed &&
-                (stopwatch().now() - *relayed) < reduce_relay::IDLED)
+                (app_.getStopwatch().now() - *relayed) < reduce_relay::IDLED)
                 overlay_.updateSlotAndSquelch(
                     key, val->getSignerPublic(), id_, protocol::mtVALIDATION);
             JLOG(p_journal_.trace()) << "Validation: duplicate";
@@ -2734,7 +2734,7 @@ PeerImp::doFetchPack(const std::shared_ptr<protocol::TMGetObjectByHash>& packet)
     uint256 const hash{packet->ledgerhash()};
 
     std::weak_ptr<PeerImp> weak = shared_from_this();
-    auto elapsed = UptimeClock::now();
+    auto elapsed = app_.getStopwatch().now();
     auto const pap = &app_;
     app_.getJobQueue().addJob(
         jtPACK, "MakeFetchPack", [pap, weak, packet, hash, elapsed]() {

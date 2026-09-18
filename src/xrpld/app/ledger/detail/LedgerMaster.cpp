@@ -812,6 +812,10 @@ LedgerMaster::getFetchPack(LedgerIndex missing, InboundLedger::Reason reason)
     {
         int maxScore = 0;
         auto peerList = app_.overlay().getActivePeers();
+        std::sort(
+            peerList.begin(), peerList.end(), [](auto const& a, auto const& b) {
+                return a->id() < b->id();
+            });
         for (auto const& peer : peerList)
         {
             if (peer->hasRange(missing, missing + 1))
@@ -2378,10 +2382,10 @@ LedgerMaster::makeFetchPack(
     std::weak_ptr<Peer> const& wPeer,
     std::shared_ptr<protocol::TMGetObjectByHash> const& request,
     uint256 haveLedgerHash,
-    UptimeClock::time_point uptime)
+    Stopwatch::time_point requestedAt)
 {
     using namespace std::chrono_literals;
-    if (UptimeClock::now() > uptime + 1s)
+    if (app_.getStopwatch().now() > requestedAt + 1s)
     {
         JLOG(m_journal.info()) << "Fetch pack request got stale";
         return;
@@ -2488,7 +2492,7 @@ LedgerMaster::makeFetchPack(
 
             have = std::move(want);
             want = getLedgerByHash(have->info().parentHash);
-        } while (want && UptimeClock::now() <= uptime + 1s);
+        } while (want && app_.getStopwatch().now() <= requestedAt + 1s);
 
         auto msg = std::make_shared<Message>(reply, protocol::mtGET_OBJECTS);
 
