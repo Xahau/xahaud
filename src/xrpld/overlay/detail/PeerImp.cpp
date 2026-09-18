@@ -270,7 +270,7 @@ PeerImp::stop()
 //------------------------------------------------------------------------------
 
 void
-PeerImp::notifySendHook(Message const& message, std::string const& stage) const
+PeerImp::notifySendHook(Message& message, std::string const& stage) const
 {
     if (auto const& hook = app_.config().harnessPeerSend)
     {

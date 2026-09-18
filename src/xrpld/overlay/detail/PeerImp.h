@@ -451,7 +451,7 @@ private:
     sendDirect(std::shared_ptr<Message> const& m);
 
     void
-    notifySendHook(Message const& message, std::string const& stage) const;
+    notifySendHook(Message& message, std::string const& stage) const;
 
     void
     notifyLifecycleHook(

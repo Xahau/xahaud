@@ -3419,13 +3419,17 @@ NetworkOPsImp::reportConsensusStateChangeIfNeeded(
 {
     std::scoped_lock const lock(lastConsensusPhaseMutex_);
     if (logPhase)
+    {
         CLOG(clog) << "consensus phase " << to_string(mLastConsensusPhase);
+    }
     if (mLastConsensusPhase != phase)
     {
         reportConsensusStateChange(phase);
         mLastConsensusPhase = phase;
         if (logPhase)
+        {
             CLOG(clog) << " changed to " << to_string(mLastConsensusPhase);
+        }
     }
 }
 
