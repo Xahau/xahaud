@@ -1835,6 +1835,10 @@ ApplicationImp::startGenesisLedger()
     auto const next =
         std::make_shared<Ledger>(*genesis, timeKeeper().closeTime());
     next->updateSkipList();
+    // Consensus-built ledgers flush their state trees, but this genesis
+    // successor bypasses that path. Persist its state before it can be
+    // advertised as complete or loaded by a restarted node.
+    next->stateMap().flushDirty(hotACCOUNT_NODE);
     XRPL_ASSERT(
         next->read(keylet::fees()),
         "ripple::ApplicationImp::startGenesisLedger : valid ledger fees");
