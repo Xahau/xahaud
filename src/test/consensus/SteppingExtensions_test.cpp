@@ -1073,12 +1073,22 @@ class SteppingExtensions_test : public beast::unit_test::suite
             {
                 auto const batch =
                     decodeFrame<protocol::TMExportShares>(bytes);
+                if (batch->shares_size() == 0)
+                    return f;
+                bool anyOther = false;
+                bool anyStarved = false;
                 for (auto const& share : batch->shares())
+                {
                     if (hit(share))
-                    {
-                        f.drop = true;
-                        return f;
-                    }
+                        anyStarved = true;
+                    else
+                        anyOther = true;
+                }
+                // Direct batches: drop only exclusive starved frames so
+                // complete origins still arrive on this route.
+                if (anyStarved && !anyOther)
+                    f.drop = true;
+                return f;
             }
             if (type == protocol::mtPROPOSE_LEDGER)
             {
@@ -1087,6 +1097,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 for (auto const& share : proposal->exportsignatures())
                     if (hit(share))
                     {
+                        // Whole signed proposal is the existing impairment;
+                        // this origin's proposal-carried material is what
+                        // would otherwise fill qC.
                         f.drop = true;
                         return f;
                     }
