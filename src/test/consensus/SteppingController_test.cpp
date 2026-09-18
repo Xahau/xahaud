@@ -259,6 +259,22 @@ class SteppingController_test : public beast::unit_test::suite
             c.laggedPendingJobCount(0, jtADVANCE, "validatedLedgerWork") == 0);
         BEAST_EXPECT(
             c.laggedPendingJobCount(1, jtADVANCE, "validatedLedgerWork") == 0);
+
+        BEAST_EXPECT(
+            hook0(jtADVANCE, "validatedLedgerWork", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(
+            hook1(jtADVANCE, "validatedLedgerWork", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(0, jtEXPORT_SHARES, "validatedLedgerWork") == 0);
+        BEAST_EXPECT(c.dropPendingForNode(0) == 1);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(0, jtADVANCE, "validatedLedgerWork") == 0);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(1, jtADVANCE, "validatedLedgerWork") == 1);
+        c.dropPending();
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(1, jtADVANCE, "validatedLedgerWork") == 0);
+        BEAST_EXPECT(c.scheduler().empty());
     }
 
     void
