@@ -1305,12 +1305,23 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(stats->secrets[observer] == 0);
         auto const preSeq = net.validSeq(observer);
         auto const preHash = net.ledgerHash(observer, preSeq);
-        auto const pendingBefore = net.node(observer)
-                                       .app()
-                                       .getConsensusExtensions()
-                                       .hasEligiblePendingExports();
-        if (!BEAST_EXPECT(pendingBefore))
+        auto const replayBefore =
+            net.node(observer)
+                .app()
+                .getConsensusExtensions()
+                .lastExportReplaySeq_.load(std::memory_order_relaxed);
+        auto const originWitnessed = witnessAt(net, origin, warmLedger, 0);
+        auto const pendingValidator = net.node(0)
+                                          .app()
+                                          .getConsensusExtensions()
+                                          .hasEligiblePendingExports();
+        if (!BEAST_EXPECT(originWitnessed != 0 || pendingValidator))
+        {
+            log << "  no validator pending-origin or witness before stop"
+                << " originWitnessed=" << originWitnessed
+                << " pendingValidator=" << pendingValidator << std::endl;
             return std::nullopt;
+        }
 
         auto const staleHorizon = net.controller().now() + 25s;
         net.at(staleHorizon, observer, [stats]() {
@@ -1342,6 +1353,17 @@ class SteppingExtensions_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(gapTx && gapTx->getResult() == tesSUCCESS))
             return std::nullopt;
         auto const originGap = gapTx->getID();
+        net.runOnly({0, 1, 2}, seqBeforeStop + 1);
+        auto const pendingGap = net.node(0)
+                                    .app()
+                                    .getConsensusExtensions()
+                                    .hasEligiblePendingExports();
+        if (!BEAST_EXPECT(pendingGap))
+        {
+            log << "  gap origin not pending on a live validator after +1"
+                << std::endl;
+            return std::nullopt;
+        }
         net.runOnly({0, 1, 2}, seqBeforeStop + 3);
         BEAST_EXPECT(net.validSeq(0) > seqBeforeStop);
         BEAST_EXPECT(net.validSeq(1) > seqBeforeStop);
@@ -1389,9 +1411,18 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto const seqA = witnessAt(net, origin, warmLedger);
         BEAST_EXPECT(seqA != 0);
         BEAST_EXPECT(witnessAt(net, originGap, seqBeforeStop) == gapWitness);
+        auto const replayAfter =
+            net.node(observer)
+                .app()
+                .getConsensusExtensions()
+                .lastExportReplaySeq_.load(std::memory_order_relaxed);
+        BEAST_EXPECT(replayAfter >= gapWitness);
+        BEAST_EXPECT(replayAfter >= replayBefore);
         log << "  restart: preSeq=" << preSeq << " gapWitness=" << gapWitness
-            << " laggedVlw=" << laggedVlw << " pendingBefore=" << pendingBefore
-            << std::endl;
+            << " laggedVlw=" << laggedVlw
+            << " originWitnessed=" << originWitnessed
+            << " pendingValidator=" << pendingValidator
+            << " replay=" << replayBefore << "->" << replayAfter << std::endl;
         std::map<uint256, std::uint32_t> hits;
         std::set<uint256> unexpected;
         std::vector<uint256> outcome;
