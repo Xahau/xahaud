@@ -215,43 +215,10 @@ Remit::preflight(PreflightContext const& ctx)
                 return temINVALID_FLAG;
         }
 
-        if (mint.isFieldPresent(sfTransferFee))
-        {
-            if (!ctx.rules.enabled(featureURITokenTransferFee))
-                return temDISABLED;
-
-            auto const transferFee = mint.getFieldU16(sfTransferFee);
-            if (transferFee == 0 || transferFee > 50000)
-            {
-                JLOG(ctx.j.warn()) << "Malformed transaction: TransferFee "
-                                      "must be between 1 and 50000.";
-                return temBAD_TRANSFER_FEE;
-            }
-        }
-
-        if (mint.isFieldPresent(sfTransferFeeRecipient))
-        {
-            if (!ctx.rules.enabled(featureURITokenTransferFee))
-                return temDISABLED;
-
-            if (!mint.isFieldPresent(sfTransferFee) ||
-                mint.getFieldU16(sfTransferFee) == 0)
-            {
-                JLOG(ctx.j.warn()) << "Malformed transaction: "
-                                      "TransferFeeRecipient without "
-                                      "TransferFee.";
-                return temMALFORMED;
-            }
-
-            if (mint.getAccountID(sfTransferFeeRecipient) ==
-                ctx.tx.getAccountID(sfAccount))
-            {
-                JLOG(ctx.j.warn()) << "Malformed transaction: "
-                                      "TransferFeeRecipient is the same as "
-                                      "the account.";
-                return temMALFORMED;
-            }
-        }
+        if (auto const ret = URIToken::preflightTransferFee(
+                mint, ctx.tx.getAccountID(sfAccount), ctx.rules, ctx.j);
+            !isTesSuccess(ret))
+            return ret;
     }
 
     // sanity check uritokenids
@@ -437,35 +404,10 @@ Remit::doApply()
             sfFlags,
             mint.isFieldPresent(sfFlags) ? mint.getFieldU32(sfFlags) : 0);
 
-        // Copy TransferFee and TransferFeeRecipient if present
-        if (sb.rules().enabled(featureURITokenTransferFee))
-        {
-            if (mint.isFieldPresent(sfTransferFee))
-            {
-                auto const transferFee = mint.getFieldU16(sfTransferFee);
-                if (transferFee > 0)
-                {
-                    sleMint->setFieldU16(sfTransferFee, transferFee);
-
-                    if (mint.isFieldPresent(sfTransferFeeRecipient))
-                    {
-                        auto const recipient =
-                            mint.getAccountID(sfTransferFeeRecipient);
-                        auto const sleRecipient =
-                            sb.read(keylet::account(recipient));
-                        if (!sleRecipient)
-                            return tecNO_TARGET;
-
-                        // AMMs can never receive an URIToken fee.
-                        if (sleRecipient->isFieldPresent(sfAMMID))
-                            return tecNO_PERMISSION;
-
-                        sleMint->setAccountID(
-                            sfTransferFeeRecipient, recipient);
-                    }
-                }
-            }
-        }
+        if (auto const ret = URIToken::checkTransferFeeRecipient(sb, mint);
+            !isTesSuccess(ret))
+            return ret;
+        URIToken::setTransferFee(mint, *sleMint);
 
         auto const page = sb.dirInsert(
             keylet::ownerDir(dstAccID), kl, describeOwnerDir(dstAccID));

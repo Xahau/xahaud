@@ -2918,7 +2918,8 @@ struct Remit_test : public beast::unit_test::suite
             Env env{*this, features};
             auto const alice = Account("alice");
             auto const bob = Account("bob");
-            env.fund(XRP(10000), alice, bob);
+            auto const carol = Account("carol");
+            env.fund(XRP(10000), alice, bob, carol);
             env.close();
 
             std::string const uri(2, '?');
@@ -2937,6 +2938,17 @@ struct Remit_test : public beast::unit_test::suite
             BEAST_EXPECT(sleU->getFieldU16(sfTransferFee) == 5000);
             BEAST_EXPECT(sleU->getAccountID(sfIssuer) == alice.id());
             BEAST_EXPECT(sleU->getAccountID(sfOwner) == bob.id());
+
+            // Resale of the remit-minted token pays the 5% fee to alice
+            auto const tidStr = to_string(tid);
+            env(uritoken::sell(bob, tidStr), uritoken::amt(XRP(1000)));
+            env.close();
+            auto const preAlice = env.balance(alice);
+            auto const preBob = env.balance(bob);
+            env(uritoken::buy(carol, tidStr), uritoken::amt(XRP(1000)));
+            env.close();
+            BEAST_EXPECT(env.balance(alice) == preAlice + XRP(50));
+            BEAST_EXPECT(env.balance(bob) == preBob + XRP(950));
         }
 
         // Remit with TransferFee and TransferFeeRecipient

@@ -22,6 +22,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/Rate.h>
 #include <xrpl/protocol/STAccount.h>
@@ -60,8 +61,6 @@ payTransferFee(
         return tesSUCCESS;
 
     auto const feeBips = sleU.getFieldU16(sfTransferFee);
-    if (feeBips == 0)
-        return tesSUCCESS;
 
     STAmount feeAmt;
     if (purchaseAmount.native())
@@ -125,6 +124,76 @@ payTransferFee(
 }
 
 }  // namespace
+
+NotTEC
+URIToken::preflightTransferFee(
+    STObject const& mint,
+    AccountID const& account,
+    Rules const& rules,
+    beast::Journal j)
+{
+    auto const fee = mint[~sfTransferFee];
+    auto const recipient = mint[~sfTransferFeeRecipient];
+
+    if (!fee && !recipient)
+        return tesSUCCESS;
+
+    if (!rules.enabled(featureURITokenTransferFee))
+        return temDISABLED;
+
+    if (!fee)
+    {
+        JLOG(j.warn()) << "Malformed transaction: TransferFeeRecipient "
+                          "without TransferFee.";
+        return temMALFORMED;
+    }
+
+    if (*fee == 0 || *fee > maxTransferFee)
+    {
+        JLOG(j.warn()) << "Malformed transaction: TransferFee must be "
+                          "between 1 and "
+                       << maxTransferFee << ".";
+        return temBAD_TRANSFER_FEE;
+    }
+
+    if (recipient == account)
+    {
+        JLOG(j.warn()) << "Malformed transaction: TransferFeeRecipient is "
+                          "the same as the account.";
+        return temMALFORMED;
+    }
+
+    return tesSUCCESS;
+}
+
+TER
+URIToken::checkTransferFeeRecipient(ReadView const& view, STObject const& mint)
+{
+    auto const recipient = mint[~sfTransferFeeRecipient];
+    if (!recipient)
+        return tesSUCCESS;
+
+    auto const sle = view.read(keylet::account(*recipient));
+    if (!sle)
+        return tecNO_TARGET;
+
+    // AMMs can never receive an URIToken fee.
+    if (sle->isFieldPresent(sfAMMID))
+        return tecNO_PERMISSION;
+
+    return tesSUCCESS;
+}
+
+void
+URIToken::setTransferFee(STObject const& mint, SLE& sle)
+{
+    if (auto const fee = mint[~sfTransferFee])
+    {
+        sle[sfTransferFee] = *fee;
+        if (auto const recipient = mint[~sfTransferFeeRecipient])
+            sle[sfTransferFeeRecipient] = *recipient;
+    }
+}
 
 NotTEC
 URIToken::preflight(PreflightContext const& ctx)
@@ -209,55 +278,10 @@ URIToken::preflight(PreflightContext const& ctx)
             if (flags & tfURITokenMintMask)
                 return temINVALID_FLAG;
 
-            // Validate TransferFee if the amendment is enabled
-            if (ctx.rules.enabled(featureURITokenTransferFee))
-            {
-                if (ctx.tx.isFieldPresent(sfTransferFee))
-                {
-                    auto const transferFee = ctx.tx.getFieldU16(sfTransferFee);
-                    if (transferFee == 0 || transferFee > 50000)
-                    {
-                        JLOG(ctx.j.warn())
-                            << "Malformed transaction: TransferFee "
-                               "must be between 1 and 50000.";
-                        return temBAD_TRANSFER_FEE;
-                    }
-                }
-
-                if (ctx.tx.isFieldPresent(sfTransferFeeRecipient))
-                {
-                    if (!ctx.tx.isFieldPresent(sfAccount))
-                        return tefINTERNAL;  // LCOV_EXCL_LINE
-
-                    auto const account = ctx.tx.getAccountID(sfAccount);
-                    auto const recipient =
-                        ctx.tx.getAccountID(sfTransferFeeRecipient);
-
-                    if (account == recipient)
-                    {
-                        JLOG(ctx.j.warn())
-                            << "Malformed transaction: TransferFeeRecipient is "
-                               "the same as the account.";
-                        return temMALFORMED;
-                    }
-
-                    if (!ctx.tx.isFieldPresent(sfTransferFee) ||
-                        ctx.tx.getFieldU16(sfTransferFee) == 0)
-                    {
-                        JLOG(ctx.j.warn())
-                            << "Malformed transaction: TransferFeeRecipient "
-                               "without TransferFee.";
-                        return temMALFORMED;
-                    }
-                }
-            }
-            else
-            {
-                // Amendment not enabled: reject if new fields present
-                if (ctx.tx.isFieldPresent(sfTransferFee) ||
-                    ctx.tx.isFieldPresent(sfTransferFeeRecipient))
-                    return temDISABLED;
-            }
+            if (auto const ret = preflightTransferFee(
+                    ctx.tx, ctx.tx.getAccountID(sfAccount), ctx.rules, ctx.j);
+                !isTesSuccess(ret))
+                return ret;
             break;
         }
 
@@ -335,22 +359,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
                     keylet::uritoken(acc, ctx.tx.getFieldVL(sfURI))))
                 return tecDUPLICATE;
 
-            // check that TransferFeeRecipient account exists
-            if (ctx.tx.isFieldPresent(sfTransferFeeRecipient))
-            {
-                auto const recipient =
-                    ctx.tx.getAccountID(sfTransferFeeRecipient);
-                auto const sleRecipient =
-                    ctx.view.read(keylet::account(recipient));
-                if (!sleRecipient)
-                    return tecNO_TARGET;
-
-                // AMMs can never receive an URIToken Fee.
-                if (sleRecipient->isFieldPresent(sfAMMID))
-                    return tecNO_PERMISSION;
-            }
-
-            return tesSUCCESS;
+            return checkTransferFeeRecipient(ctx.view, ctx.tx);
         }
 
         case ttURITOKEN_BURN: {
@@ -552,23 +561,7 @@ URIToken::doApply()
             if (ctx_.tx.isFieldPresent(sfDigest))
                 sleU->setFieldH256(sfDigest, ctx_.tx.getFieldH256(sfDigest));
 
-            // Copy TransferFee and TransferFeeRecipient to the ledger object
-            if (sb.rules().enabled(featureURITokenTransferFee))
-            {
-                if (ctx_.tx.isFieldPresent(sfTransferFee))
-                {
-                    auto const transferFee = ctx_.tx.getFieldU16(sfTransferFee);
-                    if (transferFee > 0)
-                    {
-                        sleU->setFieldU16(sfTransferFee, transferFee);
-
-                        if (ctx_.tx.isFieldPresent(sfTransferFeeRecipient))
-                            sleU->setAccountID(
-                                sfTransferFeeRecipient,
-                                ctx_.tx.getAccountID(sfTransferFeeRecipient));
-                    }
-                }
-            }
+            setTransferFee(ctx_.tx, *sleU);
 
             if (flags & tfBurnable)
                 sleU->setFlag(tfBurnable);
