@@ -1521,9 +1521,16 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         {
             auto setup = setup_ServerHandler(
                 *config_, beast::logstream{m_journal.error()});
-            setup.makeContexts();
-            serverHandler_->setup(setup, m_journal);
-            fixConfigPorts(*config_, serverHandler_->endpoints());
+            if (config_->bindServerListeners)
+            {
+                setup.makeContexts();
+                serverHandler_->setup(setup, m_journal);
+                fixConfigPorts(*config_, serverHandler_->endpoints());
+            }
+            else
+            {
+                serverHandler_->setupWithoutListeners(setup);
+            }
         }
         catch (std::exception const& e)
         {

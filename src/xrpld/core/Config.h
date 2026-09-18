@@ -36,6 +36,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -47,6 +48,13 @@
 namespace ripple {
 
 class Rules;
+class Message;
+
+namespace google {
+namespace protobuf {
+class Message;
+}
+}  // namespace google
 
 //------------------------------------------------------------------------------
 
@@ -348,6 +356,42 @@ public:
     // When true, io threads and JobQueue workers drop to 0 so a stepping
     // harness can drive the node on one virtual timeline. Production is false.
     bool steppingMode = false;
+
+    using HarnessPeerMessageHook = std::function<void(
+        std::uint16_t type,
+        std::string const& name,
+        std::uint32_t peerId,
+        beast::IP::Endpoint const& remoteAddress,
+        ::google::protobuf::Message const& message)>;
+    HarnessPeerMessageHook harnessPeerMessage;
+
+    using HarnessPeerSendHook = std::function<void(
+        std::uint16_t type,
+        std::string const& name,
+        std::uint32_t peerId,
+        beast::IP::Endpoint const& remoteAddress,
+        std::string const& stage,
+        Message& message)>;
+    HarnessPeerSendHook harnessPeerSend;
+
+    using HarnessPeerLifecycleHook = std::function<void(
+        std::string const& event,
+        std::string const& detail,
+        std::uint32_t peerId,
+        beast::IP::Endpoint const& remoteAddress,
+        bool transportOpen,
+        bool detaching,
+        bool gracefulClose,
+        std::size_t sendQueueSize)>;
+    HarnessPeerLifecycleHook harnessPeerLifecycle;
+
+    using HarnessValidationHook = std::function<void(
+        std::string const& source,
+        bool trusted,
+        std::uint32_t seq,
+        uint256 const& hash,
+        std::string const& outcome)>;
+    HarnessValidationHook harnessValidation;
 
     void
     setup(
