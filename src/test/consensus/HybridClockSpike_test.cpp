@@ -103,7 +103,7 @@ class HybridClockSpike_test : public beast::unit_test::suite
         scheduler.in(heartbeat, tick);  // arm
 
         auto const t0 = scheduler.now();
-        scheduler.stepFor(10s);  // advance 10 virtual seconds
+        scheduler.step_for(10s);  // advance 10 virtual seconds
         //@@end spike-virtual-pump
 
         BEAST_EXPECT(beats == 10);                  // one beat per virtual second
@@ -138,14 +138,14 @@ class HybridClockSpike_test : public beast::unit_test::suite
         int delivered = 0;
         net.send(1, 2, [&] { ++delivered; });  // payload would carry Message bytes
         BEAST_EXPECT(delivered == 0);          // in flight
-        scheduler.stepFor(100ms);
+        scheduler.step_for(100ms);
         BEAST_EXPECT(delivered == 1);          // delivered after the link delay
 
         // PARTITION: a message in flight when the link drops is discarded by
         // BasicNetwork's established<=sent guard — heal/partition for free.
         net.send(1, 2, [&] { ++delivered; });
         net.disconnect(1, 2);
-        scheduler.stepFor(100ms);
+        scheduler.step_for(100ms);
         BEAST_EXPECT(delivered == 1);          // dropped by the partition
         //@@end spike-transport-substrate
     }
@@ -173,7 +173,7 @@ class HybridClockSpike_test : public beast::unit_test::suite
 
         auto const t0 = scheduler.now();
         // A BOUNDED predicate (virtual deadline) terminates cleanly:
-        scheduler.stepWhile([&] { return scheduler.now() < t0 + 5s; });
+        scheduler.step_while([&] { return scheduler.now() < t0 + 5s; });
         BEAST_EXPECT(work == 5);                   // exactly 5 beats before the deadline
         BEAST_EXPECT(scheduler.now() == t0 + 5s);  // bounded predicate terminated
 
@@ -181,7 +181,7 @@ class HybridClockSpike_test : public beast::unit_test::suite
         // drain-to-empty barrier (scheduler.step()) would loop here FOREVER —
         // the exact bug a naive quiescence barrier hits. stepOne() confirms
         // there is still pending work, safely.
-        BEAST_EXPECT(scheduler.stepOne());
+        BEAST_EXPECT(scheduler.step_one());
         //@@end spike-quiescence-fixpoint
     }
 
