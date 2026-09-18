@@ -1281,17 +1281,6 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto const stats = world.observed;
         net.controller().setJobLag(
             observer, jtADVANCE, "validatedLedgerWork", 20s);
-        net.controller().observeJobs(
-            [&net, stats](
-                std::uint32_t id, JobType type, std::string const& name) {
-                if (id != observer || !net.isLive(id))
-                    return;
-                if (type != jtADVANCE || name != "validatedLedgerWork")
-                    return;
-                auto& ce = net.node(id).app().getConsensusExtensions();
-                if (ce.hasEligiblePendingExports())
-                    stats->queuedExportWork = true;
-            });
 
         auto const payment = world.submit(
             observer,
@@ -1304,9 +1293,19 @@ class SteppingExtensions_test : public beast::unit_test::suite
             return std::nullopt;
         auto const origin = tx->getID();
         net.runTo(warmLedger + 6);
-        net.controller().observeJobs({});
+        auto const diag = net.jobDiagnostics();
+        stats->queuedExportWork =
+            diag.find("validatedLedgerWork") != std::string::npos &&
+            diag.find("queued:lagged") != std::string::npos &&
+            net.node(observer)
+                .app()
+                .getConsensusExtensions()
+                .hasEligiblePendingExports();
         if (!BEAST_EXPECT(stats->queuedExportWork))
+        {
+            log << "  no queued Export work: " << diag << std::endl;
             return std::nullopt;
+        }
         BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
         BEAST_EXPECT(stats->ownReleases[observer] == 0);
         BEAST_EXPECT(stats->secrets[observer] == 0);
