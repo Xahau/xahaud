@@ -978,10 +978,9 @@ class SteppingTrust_test : public beast::unit_test::suite
             "K-profiled fork envelope: overlap x pressure margin stays "
             "classified without vacuous cells");
 
-        // Upstream 981c256933 changed close-time feedback and vote
-        // tie-breaking. The historical pair restores the old overlap=4/K=1
-        // sample exactly; this row follows current policy without changing the
-        // outcome checks.
+        // Xahaud snapshots at a 1ms unit: K=5 retains the original 5ms
+        // workloads, while K=1 also exercises safe progress under lighter
+        // pressure. Keep all semantic outcome checks below.
         std::array<KProfiledForkCell, 9> const kExpected = {{
             {0,     0,     0xc37088e4d4e3963bull,
              3439,  0,     2020,
