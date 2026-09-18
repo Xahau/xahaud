@@ -357,6 +357,12 @@ public:
     // harness can drive the node on one virtual timeline. Production is false.
     bool steppingMode = false;
 
+    // Test-only dependency injection, never populated from config files/RPC.
+    // Production keeps crypto_prng(); an override requires steppingMode.
+    using HarnessEntropySecret =
+        std::function<uint256(uint256 const& parent, std::uint32_t sequence)>;
+    HarnessEntropySecret harnessEntropySecret;
+
     using HarnessPeerMessageHook = std::function<void(
         std::uint16_t type,
         std::string const& name,

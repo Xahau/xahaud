@@ -2348,8 +2348,19 @@ ConsensusExtensions::agreedExportWitness(
 void
 ConsensusExtensions::generateEntropySecret()
 {
-    // Generate cryptographically secure random entropy
-    crypto_prng()(myEntropySecret_.data(), myEntropySecret_.size());
+    if (auto const& generate = app_.config().harnessEntropySecret)
+    {
+        if (!app_.config().steppingMode)
+            Throw<std::logic_error>(
+                "Harness entropy requires deterministic stepping mode");
+        myEntropySecret_ =
+            generate(roundPrevLedgerHash_, buildingLedgerSeq_.value_or(0));
+    }
+    else
+    {
+        // Normal nodes always generate cryptographically secure entropy.
+        crypto_prng()(myEntropySecret_.data(), myEntropySecret_.size());
+    }
     entropyFailed_ = false;
 }
 

@@ -1591,7 +1591,7 @@ Consensus<Adaptor>::phaseEstablish(
             ctx{
                 .buildSeq = buildSeq,
                 .now = now_,
-                .nowSteady = std::chrono::steady_clock::now(),
+                .nowSteady = clock_.now(),
                 .roundTime = result_->roundTime.read(),
                 .mode = mode_.get(),
                 .prevProposers = prevProposers_,
