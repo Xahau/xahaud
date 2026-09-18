@@ -354,6 +354,10 @@ public:
         // path is stable across stop/restart, which preserves the restart
         // catch-up semantics that (accidentally) relied on the static's
         // persistence.
+        // xahaud's envconfig selects rwdb, which clears its per-instance
+        // table on close. Use the donor's path-keyed memory backend so a
+        // restarted node can load the state tree behind its saved SQL row.
+        cfg->overwrite(ConfigSection::nodeDatabase(), "type", "memory");
         cfg->overwrite(ConfigSection::nodeDatabase(), "path", spec.dbPath);
         // A from-genesis network's true earliest ledger is 1. The default
         // (XRP_LEDGER_EARLIEST_SEQ = 32570, mainnet's first available ledger)
