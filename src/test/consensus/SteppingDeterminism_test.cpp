@@ -124,6 +124,13 @@ class SteppingDeterminism_test : public beast::unit_test::suite
             return;
         log << "  canary observed: fingerprint 0x" << std::hex << net.traceFingerprint() << std::dec
             << ", " << net.traceCount() << " events" << std::endl;
+        if (net.traceFingerprint() != kCanaryFingerprint || net.traceCount() != kCanaryEvents)
+        {
+            for (auto const& event : net.controller().scheduler().traceLog())
+                log << "  canary event: when=" << event.when << " tier=" << event.tier
+                    << " node=" << event.nodeId << " kind=" << static_cast<int>(event.kind)
+                    << " label=" << event.label << std::endl;
+        }
         BEAST_EXPECT(net.traceFingerprint() == kCanaryFingerprint);
         BEAST_EXPECT(net.traceCount() == kCanaryEvents);
     }
