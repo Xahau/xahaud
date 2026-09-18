@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <map>
 #include <memory>
 #include <optional>
@@ -44,7 +45,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
         slowValidator,
         slowValidatorIdleExport,
         delayedRngReveals,
-        delayedExportCallbacks
+        delayedExportCallbacks,
+        reorderShares
     };
 
     struct Observations
@@ -72,6 +74,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::uint32_t rngAheadOfExport = 0;
         std::uint32_t gatedAccepts = 0;
         std::uint32_t serviceLag = 0;
+        std::uint32_t reorderedShares = 0;
+        std::uint32_t invertedSharePairs = 0;
+        std::chrono::steady_clock::duration lastShareDelay{};
+        bool haveShareDelay = false;
     };
 
     template <class T>
@@ -271,7 +277,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
         }
 
         Json::Value
-        intent(std::uint32_t ticket = 1)
+        intent(
+            jtx::Account const& acct,
+            std::uint32_t ticket,
+            std::uint32_t lastLedger)
         {
             std::vector<PublicKey> keys;
             for (std::uint32_t i = 0; i < observer; ++i)
@@ -291,21 +300,29 @@ class SteppingExtensions_test : public beast::unit_test::suite
             inner.setFieldAmount(sfAmount, XRPAmount{1'000'000});
             inner.setFieldAmount(sfFee, XRPAmount{1000});
             inner.setFieldVL(sfSigningPubKey, Blob{});
-            inner.setAccountID(sfAccount, owner.id());
+            inner.setAccountID(sfAccount, acct.id());
             inner.setAccountID(sfDestination, destination.id());
 
             Json::Value tx;
             tx[jss::TransactionType] = jss::Export;
-            tx[jss::Account] = owner.human();
+            tx[jss::Account] = acct.human();
             tx[jss::Fee] = "1000000";
-            tx[jss::LastLedgerSequence] =
-                net.node(observer).app().openLedger().current()->seq() +
-                ExportLimits::maxAdmissionWindowLedgers;
+            tx[jss::LastLedgerSequence] = lastLedger;
             tx[sfExportedTxn.jsonName] = inner.getJson(JsonOptions::none);
             tx[sfExportCommittee.jsonName] = strHex(*roster);
             tx[sfExportCommitteeHash.jsonName] =
                 to_string(exportCommitteeHash(makeSlice(*roster)));
             return tx;
+        }
+
+        Json::Value
+        intent(std::uint32_t ticket = 1)
+        {
+            return intent(
+                owner,
+                ticket,
+                net.node(observer).app().openLedger().current()->seq() +
+                    ExportLimits::maxAdmissionWindowLedgers);
         }
     };
 
@@ -519,6 +536,40 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         }
                         return f;
                     });
+        if (fault == Fault::reorderShares)
+        {
+            using namespace std::chrono_literals;
+            for (std::uint32_t from = 0; from < observer; ++from)
+                for (std::uint32_t to = 0; to <= observer; ++to)
+                    if (from != to)
+                        net.faultFrames(
+                            from,
+                            to,
+                            [stats](
+                                std::uint16_t type, SimPipe::Frame bytes) {
+                                SimFault f;
+                                if (type != protocol::mtEXPORT_SHARES)
+                                    return f;
+                                auto const batch =
+                                    decodeFrame<protocol::TMExportShares>(
+                                        bytes);
+                                if (!batch || batch->shares_size() == 0)
+                                    return f;
+                                ++stats->reorderedShares;
+                                // Odd frames sit in-flight; even frames go
+                                // almost immediately and overtake them.
+                                auto const delay =
+                                    (stats->reorderedShares % 2 == 1) ? 800ms
+                                                                      : 50ms;
+                                if (stats->haveShareDelay &&
+                                    delay < stats->lastShareDelay)
+                                    ++stats->invertedSharePairs;
+                                stats->lastShareDelay = delay;
+                                stats->haveShareDelay = true;
+                                f.delay = delay;
+                                return f;
+                            });
+        }
         if (fault == Fault::slowObserver)
             net.lagAccept(observer, 5s);
         if (sluggish)
@@ -563,6 +614,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 if (fault == Fault::delayedRngReveals)
                     for (std::uint32_t from = 1; from < observer; ++from)
                         net.faultLink(from, 0, {});
+                if (fault == Fault::reorderShares)
+                    for (std::uint32_t from = 0; from < observer; ++from)
+                        for (std::uint32_t to = 0; to <= observer; ++to)
+                            if (from != to)
+                                net.faultFrames(from, to, {});
             });
         }
         auto const payment = world.submit(
@@ -604,7 +660,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(localBuilds != 0);
         if (fault == Fault::none || fault == Fault::noDirectShares ||
             fault == Fault::noProposalShares ||
-            fault == Fault::duplicateTraffic || fault == Fault::slowObserver)
+            fault == Fault::duplicateTraffic || fault == Fault::slowObserver ||
+            fault == Fault::reorderShares)
             BEAST_EXPECT(localMismatches == 0);
         if (sluggish)
             BEAST_EXPECT(localMismatches != 0);
@@ -699,6 +756,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(witnesses == (createIntent ? 1 : 0));
         if (fault == Fault::duplicateTraffic)
             BEAST_EXPECT(stats->duplicatedFrames != 0);
+        if (fault == Fault::reorderShares)
+        {
+            BEAST_EXPECT(stats->reorderedShares >= 2);
+            BEAST_EXPECT(stats->invertedSharePairs != 0);
+        }
         if (origin)
         {
             auto const witnessSeq = witnessAt(net, *origin, warmLedger);
@@ -784,6 +846,155 @@ class SteppingExtensions_test : public beast::unit_test::suite
             stats->exportAheadOfRng,
             stats->rngAheadOfExport,
             stats->serviceLag));
+        return outcome;
+    }
+
+    std::optional<std::vector<uint256>>
+    overlappingOrigins(SteppingNetwork& net)
+    {
+        World world(net, false, true);
+        if (!ready(world))
+            return std::nullopt;
+        jtx::Account owner2{"dsf-export-owner-2"};
+        auto const fund = [&](jtx::Account const& acct) {
+            auto const tx = world.submit(
+                observer,
+                jtx::pay(jtx::Account::master, acct, jtx::XRP(10'000)),
+                jtx::Account::master);
+            return tx && tx->getResult() == tesSUCCESS;
+        };
+        if (!BEAST_EXPECT(fund(world.owner) && fund(owner2)))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto const open =
+            net.node(observer).app().openLedger().current()->seq();
+        auto const longWindow =
+            open + ExportLimits::maxAdmissionWindowLedgers;
+        auto const shortWindow = open + 24;
+        std::vector<uint256> origins;
+        auto const submitIntent =
+            [&](jtx::Account const& acct,
+                std::uint32_t ticket,
+                std::uint32_t lastLedger) {
+                auto const tx = world.submit(
+                    observer,
+                    world.intent(acct, ticket, lastLedger),
+                    acct);
+                if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
+                    return false;
+                origins.push_back(tx->getID());
+                return true;
+            };
+        if (!submitIntent(world.owner, 1, longWindow) ||
+            !submitIntent(world.owner, 2, shortWindow) ||
+            !submitIntent(owner2, 1, longWindow))
+            return std::nullopt;
+        auto const starved = origins.back();
+        for (std::uint32_t from = 1; from < observer; ++from)
+            for (std::uint32_t to = 0; to <= observer; ++to)
+                if (from != to)
+                    net.faultFrames(
+                        from,
+                        to,
+                        [starved](
+                            std::uint16_t type, SimPipe::Frame bytes) {
+                            SimFault f;
+                            auto const starve = [&](std::string const& blob) {
+                                auto const share =
+                                    ExportShare::parse(makeSlice(blob));
+                                return share && share->originTxn == starved;
+                            };
+                            if (type == protocol::mtEXPORT_SHARES)
+                            {
+                                auto const batch =
+                                    decodeFrame<protocol::TMExportShares>(
+                                        bytes);
+                                for (auto const& share : batch->shares())
+                                    if (starve(share))
+                                    {
+                                        f.drop = true;
+                                        return f;
+                                    }
+                            }
+                            if (type == protocol::mtPROPOSE_LEDGER)
+                            {
+                                auto const proposal =
+                                    decodeFrame<protocol::TMProposeSet>(
+                                        bytes);
+                                for (auto const& share :
+                                     proposal->exportsignatures())
+                                    if (starve(share))
+                                    {
+                                        f.drop = true;
+                                        return f;
+                                    }
+                            }
+                            return f;
+                        });
+
+        auto const target = warmLedger + 12;
+        net.runTo(target, SteppingNetwork::RunBudget{1600, 1'200'000});
+        for (std::uint32_t from = 1; from < observer; ++from)
+            for (std::uint32_t to = 0; to <= observer; ++to)
+                if (from != to)
+                    net.faultFrames(from, to, {});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
+            return std::nullopt;
+        BEAST_EXPECT(net.ledgersAgree(target));
+        BEAST_EXPECT(net.validatedForkFree());
+        auto const collected = net.node(observer)
+                                   .app()
+                                   .getConsensusExtensions()
+                                   .postValidationExportSigCollector()
+                                   .fullUnionSnapshot();
+        BEAST_EXPECT(collected.size() == origins.size());
+        std::uint32_t witnessed = 0;
+        std::set<uint256> witnessOrigins;
+        for (auto const& origin : origins)
+        {
+            auto const found = collected.find(origin);
+            if (!BEAST_EXPECT(found != collected.end()))
+                return std::nullopt;
+            auto const seq = witnessAt(net, origin, warmLedger);
+            if (origin == starved)
+            {
+                BEAST_EXPECT(found->second.size() == 1);
+                BEAST_EXPECT(seq == 0);
+            }
+            else
+            {
+                BEAST_EXPECT(found->second.size() == observer);
+                BEAST_EXPECT(seq != 0);
+                if (seq)
+                {
+                    ++witnessed;
+                    witnessOrigins.insert(origin);
+                    auto const ledger = net.ledger(observer, seq);
+                    if (!BEAST_EXPECT(ledger))
+                        return std::nullopt;
+                    std::uint32_t hits = 0;
+                    for (auto const& [tx, meta] : ledger->txs)
+                    {
+                        if (tx->getTxnType() != ttEXPORT_SIGNATURES)
+                            continue;
+                        BEAST_EXPECT(meta != nullptr);
+                        if (tx->getFieldH256(sfTransactionHash) == origin)
+                            ++hits;
+                    }
+                    BEAST_EXPECT(hits == 1);
+                }
+            }
+        }
+        BEAST_EXPECT(witnessed == 2);
+        BEAST_EXPECT(witnessOrigins.size() == 2);
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= target; ++seq)
+            if (auto const ledger = net.ledger(observer, seq))
+                outcome.push_back(ledger->info().hash);
+        outcome.insert(outcome.end(), origins.begin(), origins.end());
         return outcome;
     }
 
@@ -882,6 +1093,11 @@ public:
                   "validation",
                   Fault::delayedExportCallbacks,
                   true,
+                  true},
+              std::tuple{
+                  "reordered direct Export shares keep unique contributions",
+                  Fault::reorderShares,
+                  false,
                   true}})
         {
             if (!matches(label))
@@ -897,6 +1113,16 @@ public:
                     SteppingNetwork& net) {
                     return scenario(
                         net, enableRng, enableExport, selectedFault);
+                });
+        }
+        if (matches("overlapping Export origins stay distinct"))
+        {
+            testcase("overlapping Export origins stay distinct");
+            expectReplays(
+                *this,
+                "overlapping Export origins stay distinct",
+                [this](SteppingNetwork& net) {
+                    return overlappingOrigins(net);
                 });
         }
         BEAST_EXPECT(selected != 0);
