@@ -32,6 +32,8 @@
 
 namespace ripple {
 
+class HTTPClientSSLContext;
+
 // This a trusted interface, the user is expected to provide valid input to
 // perform valid requests. Error catching and reporting is not a requirement of
 // the command line interface.
@@ -50,6 +52,7 @@ fromCommandLine(
 void
 fromNetwork(
     boost::asio::io_service& io_service,
+    HTTPClientSSLContext& sslContext,
     std::string const& strIp,
     const std::uint16_t iPort,
     std::string const& strUsername,

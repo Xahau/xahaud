@@ -187,6 +187,7 @@ class RPCSub_test : public beast::unit_test::suite
         return make_RPCSub(
             env.app().getOPs(),
             env.app().getJobQueue(),
+            env.app().getHTTPClientSSLContext(),
             "http://127.0.0.1:" + std::to_string(ep.port()) + "/",
             "",
             "",

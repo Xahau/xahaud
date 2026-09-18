@@ -77,6 +77,7 @@ doSubscribe(RPC::JsonContext& context)
                 auto rspSub = make_RPCSub(
                     context.app.getOPs(),
                     context.app.getJobQueue(),
+                    context.app.getHTTPClientSSLContext(),
                     strUrl,
                     strUsername,
                     strPassword,

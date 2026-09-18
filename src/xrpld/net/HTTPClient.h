@@ -32,6 +32,8 @@
 
 namespace ripple {
 
+class HTTPClientSSLContext;
+
 /** Provides an asynchronous HTTP client implementation with optional SSL.
  */
 class HTTPClient
@@ -42,11 +44,9 @@ public:
     static constexpr auto maxClientHeaderBytes = kilobytes(32);
 
     static void
-    initializeSSLContext(Config const& config, beast::Journal j);
-
-    static void
     get(bool bSSL,
         boost::asio::io_service& io_service,
+        HTTPClientSSLContext& sslContext,
         std::deque<std::string> deqSites,
         const unsigned short port,
         std::string const& strPath,
@@ -61,6 +61,7 @@ public:
     static void
     get(bool bSSL,
         boost::asio::io_service& io_service,
+        HTTPClientSSLContext& sslContext,
         std::string strSite,
         const unsigned short port,
         std::string const& strPath,
@@ -76,6 +77,7 @@ public:
     request(
         bool bSSL,
         boost::asio::io_service& io_service,
+        HTTPClientSSLContext& sslContext,
         std::string strSite,
         const unsigned short port,
         std::function<

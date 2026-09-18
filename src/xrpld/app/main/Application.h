@@ -73,6 +73,7 @@ using CachedSLEs = TaggedCache<uint256, SLE const>;
 class CollectorManager;
 class Family;
 class HashRouter;
+class HTTPClientSSLContext;
 class Logs;
 class LoadFeeTrack;
 class JobQueue;
@@ -174,6 +175,9 @@ public:
     logs() = 0;
     virtual Config&
     config() = 0;
+
+    virtual HTTPClientSSLContext&
+    getHTTPClientSSLContext() = 0;
 
     virtual boost::asio::io_service&
     getIOService() = 0;

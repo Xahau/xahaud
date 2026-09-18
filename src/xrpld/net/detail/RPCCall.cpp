@@ -20,6 +20,7 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/net/HTTPClient.h>
+#include <xrpld/net/HTTPClientSSLContext.h>
 #include <xrpld/net/RPCCall.h>
 #include <xrpld/rpc/ServerHandler.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
@@ -1754,8 +1755,11 @@ rpcClient(
             {
                 //@@start blocking-request
                 boost::asio::io_service isService;
+                HTTPClientSSLContext sslContext(
+                    config, logs.journal("HTTPClient"));
                 RPCCall::fromNetwork(
                     isService,
+                    sslContext,
                     setup.client.ip,
                     setup.client.port,
                     setup.client.user,
@@ -1859,6 +1863,7 @@ fromCommandLine(
 void
 fromNetwork(
     boost::asio::io_service& io_service,
+    HTTPClientSSLContext& sslContext,
     std::string const& strIp,
     const std::uint16_t iPort,
     std::string const& strUsername,
@@ -1905,6 +1910,7 @@ fromNetwork(
     HTTPClient::request(
         bSSL,
         io_service,
+        sslContext,
         strIp,
         iPort,
         std::bind(

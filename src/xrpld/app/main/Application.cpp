@@ -18,7 +18,6 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/RCLValidations.h>
-#include <xrpld/app/ledger/detail/TimeoutCounter.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/LedgerCleaner.h>
@@ -29,6 +28,7 @@
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/PendingSaves.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/ledger/detail/TimeoutCounter.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/BasicApp.h>
 #include <xrpld/app/main/DBInit.h>
@@ -51,6 +51,7 @@
 #include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/core/DatabaseCon.h>
+#include <xrpld/net/HTTPClientSSLContext.h>
 #include <xrpld/nodestore/DummyScheduler.h>
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/PeerReservationTable.h>
@@ -60,10 +61,9 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/shamap/NodeFamily.h>
 #include <xrpl/basics/ByteUtilities.h>
-#include <xrpl/basics/contract.h>
-#include <xrpl/basics/random.h>
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/ResolverAsio.h>
+#include <xrpl/basics/contract.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/asio/io_latency_probe.h>
@@ -183,6 +183,8 @@ public:
     std::uint64_t const instanceCookie_;
 
     beast::Journal m_journal;
+    // HTTP clients borrow this context for this Application's lifetime.
+    HTTPClientSSLContext httpClientSslContext_;
     std::unique_ptr<perf::PerfLog> perfLog_;
     Application::MutexType m_masterMutex;
 
@@ -297,39 +299,40 @@ public:
         , timeKeeper_(std::move(timeKeeper))
         , overlayFactory_(std::move(overlayFactory))
         , peerTimerFactory_([&]() -> TimeoutCounterTimerFactory {
-              if (config_->steppingMode && !peerTimerFactory)
-                  Throw<std::logic_error>(
-                      "steppingMode requires a peer heartbeat timer factory "
-                      "at make_Application()");
-              return std::move(peerTimerFactory);
-          }())
+            if (config_->steppingMode && !peerTimerFactory)
+                Throw<std::logic_error>(
+                    "steppingMode requires a peer heartbeat timer factory "
+                    "at make_Application()");
+            return std::move(peerTimerFactory);
+        }())
         , timeoutCounterTimerFactory_([&]() -> TimeoutCounterTimerFactory {
-              if (timeoutCounterTimerFactory)
-                  return std::move(timeoutCounterTimerFactory);
-              if (config_->steppingMode)
-                  Throw<std::logic_error>(
-                      "steppingMode requires a TimeoutCounterTimerFactory "
-                      "at make_Application()");
-              return [this]() {
-                  return makeAsioTimeoutCounterTimer(getIOService());
-              };
-          }())
+            if (timeoutCounterTimerFactory)
+                return std::move(timeoutCounterTimerFactory);
+            if (config_->steppingMode)
+                Throw<std::logic_error>(
+                    "steppingMode requires a TimeoutCounterTimerFactory "
+                    "at make_Application()");
+            return [this]() {
+                return makeAsioTimeoutCounterTimer(getIOService());
+            };
+        }())
         , stopwatch_(injectedClock ? *injectedClock : stopwatch())
         , preciseStopwatch_(
               injectedClock
                   ? *injectedClock
                   : beast::get_abstract_clock<std::chrono::steady_clock>())
         , prng_([injectedPrng]() -> beast::xor_shift_engine& {
-              if (injectedPrng)
-                  return *injectedPrng;
-              return default_prng();
-          })
+            if (injectedPrng)
+                return *injectedPrng;
+            return default_prng();
+        })
         , instanceCookie_(
               1 +
               rand_int(
                   crypto_prng(),
                   std::numeric_limits<std::uint64_t>::max() - 1))
         , m_journal(logs_->journal("Application"))
+        , httpClientSslContext_(*config_, logs_->journal("HTTPClient"))
 
         // PerfLog must be started before any other threads are launched.
         , perfLog_(perf::make_PerfLog(
@@ -589,6 +592,12 @@ public:
     config() override
     {
         return *config_;
+    }
+
+    HTTPClientSSLContext&
+    getHTTPClientSSLContext() override
+    {
+        return httpClientSslContext_;
     }
 
     CollectorManager&
