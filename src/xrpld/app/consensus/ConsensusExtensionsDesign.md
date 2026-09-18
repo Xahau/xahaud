@@ -579,6 +579,16 @@ collector union. Both feed the same collector and verification logic.
 Proposal-carried material is still untrusted until the proposal and share
 semantics verify.
 
+Implementation caveat verified at `bac9e1df65`: the direct receive handler in
+`PeerImp::onMessage(TMExportShares)` posts `recvExportShares` as `jtPEER`.
+`JobTypes` assigns that type limit zero, and `JobQueue::getNextJob` cannot
+dispatch it. The application callback is wired to the common admission
+function, but that queued receive path does not execute. This is an
+implementation gap, not a proposal-only admission rule. Proposal carriage
+remains an independent working path; carrying only the validator's own shares
+once per round is not itself a defect when those proposals propagate and are
+admitted. Neither observation alone explains a particular gateway mismatch.
+
 The collector forms one complete bounded unique-share union over all live
 origins, keyed by `(W, committeePosition)`. A second distinct valid contribution
 at one position is conflicting and contributes zero for that origin. The union
@@ -633,9 +643,12 @@ irreversibly erases the exact issuance. Publication expiry follows the retain
 path. Committee deletion remains blocked while any owner latch exists. v1 has
 no permanent tombstone or paid-bump transition.
 
-The `export_signatures` subscription projects each admitted post-validation
-share immediately and republishes retained live shares once per validated
-cursor. Clients deduplicate by origin and committee position. Slow subscribers
+The `export_signatures` subscription publishes newly admitted post-validation
+shares only while they remain pending in the publication-time validated view,
+and republishes retained live shares once per validated cursor. Collector
+admission and publication are separate: validation can advance between them,
+leaving an admitted contribution retained but unpublished. Clients deduplicate
+by origin and committee position. Slow subscribers
 must not hold collector or consensus locks, and silence after an origin leaves
 the pending set is not a durable terminal event.
 
@@ -643,9 +656,13 @@ This remains intentionally leaner than XPOP. XRPL sees ordinary multisignatures,
 not a proof of Xahau finality. XPOP carries the reverse-chain proof material and
 drives the matching callback after target finality.
 
-Export sig convergence runs in parallel with RNG. An export-side convergence
-failure must not change RNG semantics; an RNG fallback must not make export
-unsafe. Each feature has its own gate and fallback.
+Export and RNG should make progress largely in parallel. The implementation at
+`bac9e1df65` overlaps share collection with RNG, but `extensionsTick()` runs
+Export's alignment gate only after RNG's early-return waits. That ordering is
+under review; it is not an established requirement (local follow-up:
+`.ai-docs/issues/open/medium-export-rng-gate-overlap.md`). An export-side
+convergence failure must not change RNG semantics; an RNG fallback must not
+make export unsafe. Each feature has its own gate and fallback.
 
 Accept-time cleanup must preserve Export state through `onPreBuild` whenever
 `featureExport` is enabled so the signature witness pseudo can be injected.
