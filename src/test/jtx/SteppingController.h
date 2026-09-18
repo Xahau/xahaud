@@ -57,6 +57,7 @@ inline constexpr auto JtClientWebsocket = jtCLIENT_WEBSOCKET;
 inline constexpr auto JtRpc = jtRPC;
 inline constexpr auto JtSweep = jtSWEEP;
 inline constexpr auto JtValidationUt = jtVALIDATION_ut;
+inline constexpr auto JtExportShares = jtEXPORT_SHARES;
 inline constexpr auto JtManifest = jtMANIFEST;
 inline constexpr auto JtUpdatePf = jtUPDATE_PF;
 inline constexpr auto JtTransactionL = jtTRANSACTION_l;
@@ -186,6 +187,8 @@ private:
                 return "JtSweep";
             case JtValidationUt:
                 return "JtValidationUt";
+            case JtExportShares:
+                return "JtExportShares";
             case JtManifest:
                 return "JtManifest";
             case JtUpdatePf:
@@ -641,6 +644,12 @@ public:
             case JtValidationT:  // "ChkTrust"
             case JtValidationUt:
                 return {Action::enqueue, Tier::process};
+            case JtExportShares:
+                // Received share verification/admission is deferred input work,
+                // not a measurement-only peer task or an inline callback.
+                return name == "recvExportShares"
+                    ? Classification{Action::enqueue, Tier::process}
+                    : Classification{Action::fail};
             case JtAccept:  // "AcceptLedger" — deferred ledger build
                 return {Action::enqueue, Tier::accept};
             case JtTransaction:
@@ -667,6 +676,11 @@ public:
                 // Anything else surfaces as unmodeled (fail).
                 if (name == "advanceLedger")
                     return {Action::enqueue, Tier::advance};
+                // The validated cursor has already advanced. Run its deferred
+                // Export service callback independently, preserving the async
+                // boundary between accepting authority and processing shares.
+                if (name == "validatedLedgerWork")
+                    return {Action::enqueue, Tier::process};
                 if (name == "getConsensusLedger1" ||
                     name == "getConsensusLedger2" || name == "tryFill")
                     return {Action::enqueue, Tier::process};

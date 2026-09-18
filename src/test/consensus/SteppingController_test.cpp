@@ -69,6 +69,13 @@ class SteppingController_test : public beast::unit_test::suite
             cls(jtADVANCE, "getConsensusLedger2").action == A::enqueue &&
             cls(jtADVANCE, "getConsensusLedger2").tier == Tier::process);
         BEAST_EXPECT(cls(jtADVANCE, "SomethingElse").action == A::fail);
+        BEAST_EXPECT(
+            cls(jtADVANCE, "validatedLedgerWork").action == A::enqueue &&
+            cls(jtADVANCE, "validatedLedgerWork").tier == Tier::process);
+        BEAST_EXPECT(
+            cls(jtEXPORT_SHARES, "recvExportShares").action == A::enqueue &&
+            cls(jtEXPORT_SHARES, "recvExportShares").tier == Tier::process);
+        BEAST_EXPECT(cls(jtEXPORT_SHARES, "UnknownShareWork").action == A::fail);
 
         // The acquire data pipeline: peer-serving reads and received-data
         // processing run in arrival order; the TimeoutCounter retry is a timer.
@@ -86,6 +93,42 @@ class SteppingController_test : public beast::unit_test::suite
         BEAST_EXPECT(cls(jtCLIENT_CONSENSUS, "PubCons").action == A::drop);
         BEAST_EXPECT(cls(jtUPDATE_PF, "OB3").action == A::drop);
         BEAST_EXPECT(cls(jtSWEEP, "Sweep").action == A::fail);
+    }
+
+    void
+    testExtensionWorkScheduled()
+    {
+        testcase("Export receive and validated-ledger work remain deferred");
+        using D = JobQueue::JobDisposition;
+        SteppingController c;
+        c.setSyncClock([](SteppingController::time_point) {});
+        auto hook = c.makeJobHook(0);
+        std::vector<int> order;
+
+        BEAST_EXPECT(
+            hook(jtVALIDATION_t, "ChkTrust", [&]() {
+                order.push_back(1);
+                BEAST_EXPECT(
+                    hook(jtADVANCE, "validatedLedgerWork", [&]() {
+                        order.push_back(3);
+                    }) == D::claimedQueued);
+                BEAST_EXPECT(order == std::vector<int>{1});
+            }) == D::claimedQueued);
+        BEAST_EXPECT(
+            hook(jtEXPORT_SHARES, "recvExportShares", [&]() {
+                order.push_back(2);
+            }) == D::claimedQueued);
+
+        BEAST_EXPECT(order.empty());
+        BEAST_EXPECT(c.stepOne());
+        BEAST_EXPECT(order == std::vector<int>{1});
+        BEAST_EXPECT(c.stepOne());
+        BEAST_EXPECT((order == std::vector<int>{1, 2}));
+        BEAST_EXPECT(c.stepOne());
+        BEAST_EXPECT((order == std::vector<int>{1, 2, 3}));
+        BEAST_EXPECT(c.empty());
+        BEAST_EXPECT(c.failedJobs() == 0);
+        BEAST_EXPECT(c.jobDiagnostics().find("JtExportShares") != std::string::npos);
     }
 
     void
@@ -392,6 +435,7 @@ public:
     run() override
     {
         testClassify();
+        testExtensionWorkScheduled();
         testJobHookClosedWorld();
         testCanonicalAllJobsPolicy();
         testCanonicalNestedJobNotSwallowed();
