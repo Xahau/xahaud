@@ -45,16 +45,16 @@
 #include <utility>
 #include <vector>
 
-namespace ripple {
-
-class Rules;
-class Message;
-
 namespace google {
 namespace protobuf {
 class Message;
 }
 }  // namespace google
+
+namespace ripple {
+
+class Rules;
+class Message;
 
 //------------------------------------------------------------------------------
 
