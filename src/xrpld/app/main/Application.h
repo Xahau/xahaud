@@ -20,6 +20,7 @@
 #ifndef RIPPLE_APP_MAIN_APPLICATION_H_INCLUDED
 #define RIPPLE_APP_MAIN_APPLICATION_H_INCLUDED
 #include <xrpld/core/Config.h>
+#include <xrpl/basics/chrono.h>
 #include <xrpld/overlay/PeerReservationTable.h>
 #include <xrpld/shamap/FullBelowCache.h>
 #include <xrpld/shamap/TreeNodeCache.h>
@@ -115,6 +116,7 @@ class RCLValidationsAdaptor;
 using RCLValidations = Validations<RCLValidationsAdaptor>;
 
 class TimeoutCounterTimer;
+class Application;
 
 using TimeoutCounterTimerFactory =
     std::function<std::unique_ptr<TimeoutCounterTimer>()>;
@@ -181,6 +183,15 @@ public:
 
     [[nodiscard]] virtual std::unique_ptr<TimeoutCounterTimer>
     makePeerTimer() = 0;
+
+    virtual Stopwatch&
+    getStopwatch() = 0;
+
+    virtual Stopwatch&
+    getPreciseStopwatch() = 0;
+
+    virtual beast::xor_shift_engine&
+    getPrng() = 0;
 
     virtual CollectorManager&
     getCollectorManager() = 0;
