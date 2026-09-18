@@ -18,7 +18,7 @@
 
 #include <xrpl/basics/Slice.h>
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpl/core/HashRouter.h>
+#include <xrpld/app/misc/HashRouter.h>
 #include <xrpl/protocol/ApiVersion.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>

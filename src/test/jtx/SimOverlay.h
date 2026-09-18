@@ -36,7 +36,7 @@
 #include <xrpld/peerfinder/PeerfinderManager.h>
 #include <xrpld/rpc/ServerHandler.h>
 
-#include <xrpl/basics/Resolver.h>
+#include <xrpl/basics/ResolverAsio.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/net/IPEndpoint.h>
 
@@ -61,7 +61,7 @@ class NoopResolver : public Resolver
 {
 public:
     void
-    stopAsync() override
+    stop_async() override
     {
     }
     void
@@ -96,7 +96,7 @@ public:
         : detail::SimResolverHolder{}
         , OverlayImpl(
               app,
-              setupOverlay(app.config(), app.journal("Overlay")),
+              setup_Overlay(app.config()),
               app.getServerHandler(),
               app.getResourceManager(),
               SimResolverHolder::resolver,
@@ -114,15 +114,14 @@ public:
     void
     start() override
     {
-        peer_finder::Config const config = peer_finder::makeConfig(
+        PeerFinder::Config const config = PeerFinder::Config::makeConfig(
             app_.config(),
             app_.getServerHandler().setup().overlay.port(),
             app_.getValidationPublicKey().has_value(),
-            setup().ipLimit,
-            setup().verifyEndpoints);
+            OverlayImpl::setup().ipLimit);
 
-        peerFinder().setConfig(config);
-        peerFinder().start();
+        OverlayImpl::peerFinder().setConfig(config);
+        OverlayImpl::peerFinder().start();
     }
 };
 
@@ -277,7 +276,7 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
             });
     }
 
-    beast::ip::Address const publicIp{};  // unspecified -> no Local-IP, IP checks skipped
+    beast::IP::Address const publicIp{};  // unspecified -> no Local-IP, IP checks skipped
     auto const version =
         negotiateProtocolVersion(supportedProtocolVersions()).value();
 
@@ -294,10 +293,10 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
         req.insert(
             "X-Protocol-Ctl",
             makeFeaturesRequestHeader(
-                app.config().compression,
-                app.config().ledgerReplay,
-                app.config().txReduceRelayEnable,
-                app.config().vpReduceRelayBaseSquelchEnable));
+                app.config().COMPRESSION,
+                app.config().LEDGER_REPLAY,
+                app.config().TX_REDUCE_RELAY_ENABLE,
+                app.config().VP_REDUCE_RELAY_ENABLE));
         return req;
     };
 
@@ -306,16 +305,16 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
     // address, so buildHandshake adds no Remote-IP/Local-IP headers.
     auto respFromB = makeResponse(
         false, makePeerRequest(b), publicIp, epA.address(), sharedValue,
-        ovB.setup().networkID, version, b);
+        ovB.OverlayImpl::setup().networkID, version, b);
     auto respFromA = makeResponse(
         false, makePeerRequest(a), publicIp, epB.address(), sharedValue,
-        ovA.setup().networkID, version, a);
+        ovA.OverlayImpl::setup().networkID, version, a);
 
     // Each node verifies the other's response (real security checks) -> peer key.
     PublicKey const pkB = verifyHandshake(
-        respFromB, sharedValue, ovA.setup().networkID, publicIp, epB.address(), a);
+        respFromB, sharedValue, ovA.OverlayImpl::setup().networkID, publicIp, epB.address(), a);
     PublicKey const pkA = verifyHandshake(
-        respFromA, sharedValue, ovB.setup().networkID, publicIp, epA.address(), b);
+        respFromA, sharedValue, ovB.OverlayImpl::setup().networkID, publicIp, epA.address(), b);
 
     // Build + activate one peer per node (mirrors ConnectAttempt::processResponse:
     // newOutboundSlot -> onConnected -> activate -> make_shared<PeerImp> -> addActive).
@@ -327,14 +326,14 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
                    http_response_type&& response,
                    PublicKey const& peerKey,
                    ProtocolVersion ver) {
-        auto usage = ov.resourceManager().newUnlimitedEndpoint(remoteEp);
-        auto [slot, result] = ov.peerFinder().newOutboundSlot(remoteEp);
+        auto usage = ov.OverlayImpl::resourceManager().newUnlimitedEndpoint(remoteEp);
+        auto [slot, result] = ov.OverlayImpl::peerFinder().newOutboundSlot(remoteEp);
         if (slot == nullptr)
             return false;
-        if (!ov.peerFinder().onConnected(slot, localEp))
+        if (!ov.OverlayImpl::peerFinder().onConnected(slot, localEp))
             return false;
-        if (ov.peerFinder().activate(slot, peerKey, false) !=
-            peer_finder::Result::Success)
+        if (ov.OverlayImpl::peerFinder().activate(slot, peerKey, false) !=
+            PeerFinder::Result::success)
             return false;
 
         auto const peer = std::make_shared<PeerImp>(
@@ -348,7 +347,7 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
             ver,
             nextSimPeerId++,
             ov);
-        ov.addActive(peer);
+        ov.add_active(peer);
         return true;
     };
 

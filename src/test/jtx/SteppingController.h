@@ -26,7 +26,7 @@
 
 #include <xrpl/basics/contract.h>               // Throw
 #include <xrpl/beast/core/CurrentThreadName.h>  // diagnostic: name the off-thread culprit
-#include <xrpl/core/Job.h>                      // JobType
+#include <xrpld/core/Job.h>                      // JobType
 #include <xrpld/core/JobQueue.h>                 // JobQueue::DispatchHook / JobFunction
 
 #include <atomic>
@@ -42,6 +42,55 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+namespace ripple {
+inline constexpr auto JtInvalid = jtINVALID;
+inline constexpr auto JtPack = jtPACK;
+inline constexpr auto JtPuboldledger = jtPUBOLDLEDGER;
+inline constexpr auto JtClient = jtCLIENT;
+inline constexpr auto JtClientSubscribe = jtCLIENT_SUBSCRIBE;
+inline constexpr auto JtClientFeeChange = jtCLIENT_FEE_CHANGE;
+inline constexpr auto JtClientConsensus = jtCLIENT_CONSENSUS;
+inline constexpr auto JtClientAcctHist = jtCLIENT_ACCT_HIST;
+inline constexpr auto JtClientRpc = jtCLIENT_RPC;
+inline constexpr auto JtClientWebsocket = jtCLIENT_WEBSOCKET;
+inline constexpr auto JtRpc = jtRPC;
+inline constexpr auto JtSweep = jtSWEEP;
+inline constexpr auto JtValidationUt = jtVALIDATION_ut;
+inline constexpr auto JtManifest = jtMANIFEST;
+inline constexpr auto JtUpdatePf = jtUPDATE_PF;
+inline constexpr auto JtTransactionL = jtTRANSACTION_l;
+inline constexpr auto JtReplayReq = jtREPLAY_REQ;
+inline constexpr auto JtLedgerReq = jtLEDGER_REQ;
+inline constexpr auto JtProposalUt = jtPROPOSAL_ut;
+inline constexpr auto JtReplayTask = jtREPLAY_TASK;
+inline constexpr auto JtTransaction = jtTRANSACTION;
+inline constexpr auto JtMissingTxn = jtMISSING_TXN;
+inline constexpr auto JtRequestedTxn = jtREQUESTED_TXN;
+inline constexpr auto JtBatch = jtBATCH;
+inline constexpr auto JtLedgerData = jtLEDGER_DATA;
+inline constexpr auto JtAdvance = jtADVANCE;
+inline constexpr auto JtPubledger = jtPUBLEDGER;
+inline constexpr auto JtTxnData = jtTXN_DATA;
+inline constexpr auto JtWal = jtWAL;
+inline constexpr auto JtValidationT = jtVALIDATION_t;
+inline constexpr auto JtWrite = jtWRITE;
+inline constexpr auto JtAccept = jtACCEPT;
+inline constexpr auto JtProposalT = jtPROPOSAL_t;
+inline constexpr auto JtNetopCluster = jtNETOP_CLUSTER;
+inline constexpr auto JtAdmin = jtADMIN;
+inline constexpr auto JtPeer = jtPEER;
+inline constexpr auto JtDisk = jtDISK;
+inline constexpr auto JtTxnProc = jtTXN_PROC;
+inline constexpr auto JtObSetup = jtOB_SETUP;
+inline constexpr auto JtPathFind = jtPATH_FIND;
+inline constexpr auto JtHoRead = jtHO_READ;
+inline constexpr auto JtHoWrite = jtHO_WRITE;
+inline constexpr auto JtGeneric = jtGENERIC;
+inline constexpr auto JtNsSyncRead = jtNS_SYNC_READ;
+inline constexpr auto JtNsAsyncRead = jtNS_ASYNC_READ;
+inline constexpr auto JtNsWrite = jtNS_WRITE;
+}  // namespace ripple
 
 namespace ripple::test {
 

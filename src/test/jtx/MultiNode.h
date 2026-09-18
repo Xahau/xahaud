@@ -40,12 +40,12 @@
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/clock/abstract_clock.h>
-#include <xrpl/beast/net/IPAddress.h>
+#include <xrpl/beast/net/IPEndpoint.h>
 #include <xrpl/beast/net/IPEndpoint.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/beast/xor_shift_engine.h>
-#include <xrpl/config/Constants.h>
+#include <xrpl/protocol/SystemParameters.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/KeyType.h>
