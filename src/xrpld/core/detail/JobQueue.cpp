@@ -97,6 +97,19 @@ JobQueue::addRefCountedJob(
         << __func__ << " : Adding job : " << name << " : " << type;
     JobTypeData& data(iter->second);
 
+    if (dispatchHook_)
+    {
+        switch (dispatchHook_(type, name, func))
+        {
+            case JobDisposition::claimedQueued:
+                return true;
+            case JobDisposition::claimedDropped:
+                return false;
+            case JobDisposition::pass:
+                break;
+        }
+    }
+
     // FIXME: Workaround incorrect client shutdown ordering
     // do not add jobs to a queue with no threads
     XRPL_ASSERT(
@@ -272,6 +285,13 @@ JobQueue::rendezvous()
 {
     std::unique_lock<std::mutex> lock(m_mutex);
     cv_.wait(lock, [this] { return m_processCount == 0 && m_jobSet.empty(); });
+}
+
+bool
+JobQueue::isIdle() const
+{
+    std::lock_guard lock(m_mutex);
+    return m_processCount == 0 && m_jobSet.empty();
 }
 
 JobTypeData&
