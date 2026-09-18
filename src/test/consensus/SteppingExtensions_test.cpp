@@ -35,9 +35,14 @@ class SteppingExtensions_test : public beast::unit_test::suite
     enum class Fault {
         none,
         noDirectShares,
+        noProposalShares,
+        noShares,
+        duplicateTraffic,
         slowObserver,
         lateValidations,
-        slowValidator
+        veryLateValidations,
+        slowValidator,
+        slowValidatorIdleExport
     };
 
     struct Observations
@@ -49,12 +54,33 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::array<std::size_t, 4> secrets{};
         std::array<std::size_t, 4> directFrames{};
         std::array<std::size_t, 4> proposalFrames{};
+        std::array<std::size_t, 4> exportRootFrames{};
         std::uint32_t droppedDirect = 0;
+        std::uint32_t droppedProposals = 0;
+        std::uint32_t duplicatedFrames = 0;
         std::uint32_t delayedValidations = 0;
         std::uint32_t delayedValidatorTraffic = 0;
         std::uint32_t validationGap = 0;
         std::uint32_t validatedAheadOfClosed = 0;
     };
+
+    template <class T>
+    static std::shared_ptr<T>
+    decodeFrame(SimPipe::Frame frame)
+    {
+        if (frame.empty())
+            throw std::logic_error("Empty fixture frame");
+        auto const buffer = boost::asio::buffer(frame.data(), frame.size());
+        boost::system::error_code ec;
+        auto const header =
+            ripple::detail::parseMessageHeader(ec, buffer, frame.size());
+        if (ec || !header || header->total_wire_size != frame.size())
+            throw std::logic_error("Invalid fixture frame header");
+        auto result = ripple::detail::parseMessageContent<T>(*header, buffer);
+        if (!result)
+            throw std::logic_error("Invalid fixture frame payload");
+        return result;
+    }
 
     struct World
     {
@@ -95,10 +121,20 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         ::google::protobuf::Message const& msg) {
                         if (type == protocol::mtEXPORT_SHARES)
                             ++stats->directFrames.at(id);
-                        if (type == protocol::mtPROPOSE_LEDGER &&
-                            static_cast<protocol::TMProposeSet const&>(msg)
-                                .exportsignatures_size())
-                            ++stats->proposalFrames.at(id);
+                        if (type == protocol::mtPROPOSE_LEDGER)
+                        {
+                            auto const& proposal =
+                                static_cast<protocol::TMProposeSet const&>(msg);
+                            if (proposal.exportsignatures_size())
+                                ++stats->proposalFrames.at(id);
+                            SerialIter iter{
+                                makeSlice(proposal.currenttxhash())};
+                            auto const position =
+                                ExtendedPosition::fromSerialIter(
+                                    iter, proposal.currenttxhash().size());
+                            if (position && position->exportSigSetHash)
+                                ++stats->exportRootFrames.at(id);
+                        }
                     };
             });
             net.validators(3);
@@ -280,7 +316,14 @@ class SteppingExtensions_test : public beast::unit_test::suite
         using namespace std::chrono_literals;
         net.recordChainHistory();
         auto const stats = world.observed;
-        if (fault == Fault::noDirectShares || fault == Fault::lateValidations)
+        bool const sluggish = fault == Fault::slowValidator ||
+            fault == Fault::slowValidatorIdleExport;
+        bool const late = fault == Fault::lateValidations ||
+            fault == Fault::veryLateValidations;
+        bool const createIntent =
+            exportOn && fault != Fault::slowValidatorIdleExport;
+        if (fault == Fault::noDirectShares || late ||
+            fault == Fault::duplicateTraffic)
             for (std::uint32_t from = 0; from < observer; ++from)
                 net.faultLink(
                     from,
@@ -299,11 +342,47 @@ class SteppingExtensions_test : public beast::unit_test::suite
                             ++stats->delayedValidations;
                             f.delay = 5s;
                         }
+                        if (fault == Fault::veryLateValidations &&
+                            type == protocol::mtVALIDATION)
+                        {
+                            ++stats->delayedValidations;
+                            f.delay = 20s;
+                        }
+                        if (fault == Fault::duplicateTraffic &&
+                            (type == protocol::mtEXPORT_SHARES ||
+                             type == protocol::mtPROPOSE_LEDGER ||
+                             type == protocol::mtVALIDATION))
+                        {
+                            ++stats->duplicatedFrames;
+                            f.duplicates = 2;
+                        }
+                        return f;
+                    });
+        if (fault == Fault::noProposalShares || fault == Fault::noShares)
+            for (std::uint32_t from = 0; from < observer; ++from)
+                net.faultFrames(
+                    from,
+                    observer,
+                    [stats, fault](std::uint16_t type, SimPipe::Frame bytes) {
+                        SimFault f;
+                        if (type == protocol::mtPROPOSE_LEDGER &&
+                            decodeFrame<protocol::TMProposeSet>(bytes)
+                                    ->exportsignatures_size() != 0)
+                        {
+                            ++stats->droppedProposals;
+                            f.drop = true;
+                        }
+                        if (fault == Fault::noShares &&
+                            type == protocol::mtEXPORT_SHARES)
+                        {
+                            ++stats->droppedDirect;
+                            f.drop = true;
+                        }
                         return f;
                     });
         if (fault == Fault::slowObserver)
             net.lagAccept(observer, 5s);
-        if (fault == Fault::slowValidator)
+        if (sluggish)
         {
             net.lagAccept(1, 2s);
             for (std::uint32_t to = 0; to <= observer; ++to)
@@ -332,12 +411,12 @@ class SteppingExtensions_test : public beast::unit_test::suite
                             stats->validationGap = std::max(
                                 stats->validationGap, net.validSeq(i) - v);
                 });
-            net.in(16s, observer, [&net, fault]() {
+            net.in(16s, observer, [&net, late, sluggish]() {
                 net.clearLag(observer).clearLag(1);
-                if (fault == Fault::lateValidations)
+                if (late)
                     for (std::uint32_t from = 0; from < observer; ++from)
                         net.faultLink(from, observer, {});
-                if (fault == Fault::slowValidator)
+                if (sluggish)
                     for (std::uint32_t to = 0; to <= observer; ++to)
                         if (to != 1)
                             net.faultLink(1, to, {});
@@ -351,7 +430,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             return std::nullopt;
 
         std::optional<uint256> origin;
-        if (exportOn)
+        if (createIntent)
         {
             auto const tx = world.submit(observer, world.intent(), world.owner);
             if (!BEAST_EXPECT(tx->getResult() == tesSUCCESS))
@@ -362,8 +441,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         net.runTo(
             target,
             SteppingNetwork::RunBudget{1200, 1'000'000},
-            SteppingNetwork::Cadence{
-                fault == Fault::slowValidator ? 250ms : 1000ms});
+            SteppingNetwork::Cadence{sluggish ? 250ms : 1000ms});
         if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
             return std::nullopt;
         BEAST_EXPECT(net.ledgersAgree(target));
@@ -381,9 +459,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 }
         BEAST_EXPECT(localBuilds != 0);
         if (fault == Fault::none || fault == Fault::noDirectShares ||
-            fault == Fault::slowObserver)
+            fault == Fault::noProposalShares ||
+            fault == Fault::duplicateTraffic || fault == Fault::slowObserver)
             BEAST_EXPECT(localMismatches == 0);
-        if (fault == Fault::slowValidator)
+        if (sluggish || fault == Fault::noShares)
             BEAST_EXPECT(localMismatches != 0);
         std::map<std::uint32_t, uint256> validatedHistory;
         for (std::uint32_t i = 0; i <= observer; ++i)
@@ -403,12 +482,12 @@ class SteppingExtensions_test : public beast::unit_test::suite
         }
         if (fault == Fault::slowObserver)
             BEAST_EXPECT(stats->validatedAheadOfClosed != 0);
-        if (fault == Fault::lateValidations)
+        if (late)
         {
             BEAST_EXPECT(stats->delayedValidations != 0);
             BEAST_EXPECT(stats->validationGap != 0);
         }
-        if (fault == Fault::slowObserver || fault == Fault::slowValidator)
+        if (fault == Fault::slowObserver || sluggish)
             BEAST_EXPECT(
                 net.jobDiagnostics().find("queued:lagged JtAccept") !=
                 std::string::npos);
@@ -420,6 +499,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         bool partialEntropySeen = false;
         bool paymentSeen = false;
         bool witnessSeen = false;
+        std::uint32_t witnesses = 0;
         std::vector<uint256> outcome;
         for (auto seq = warmLedger; seq <= target; ++seq)
         {
@@ -437,46 +517,66 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         tx->getFieldU16(sfEntropyCount) != observer;
                 paymentSeen |= tx->getTransactionID() == payment->getID();
                 witnessSeen |= tx->getTxnType() == ttEXPORT_SIGNATURES;
+                witnesses += tx->getTxnType() == ttEXPORT_SIGNATURES;
                 if (tx->getTxnType() == ttCONSENSUS_ENTROPY &&
-                    seq > warmLedger && fault != Fault::slowValidator)
+                    seq > warmLedger && !sluggish)
                     BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == observer);
             }
             outcome.push_back(ledger->info().hash);
         }
         BEAST_EXPECT(entropySeen == rng);
-        if (fault == Fault::slowValidator)
+        if (sluggish)
         {
             BEAST_EXPECT(partialEntropySeen);
             BEAST_EXPECT(stats->delayedValidatorTraffic != 0);
         }
         BEAST_EXPECT(paymentSeen);
-        BEAST_EXPECT(witnessSeen == exportOn);
+        BEAST_EXPECT(witnessSeen == createIntent);
+        BEAST_EXPECT(witnesses == (createIntent ? 1 : 0));
+        if (fault == Fault::duplicateTraffic)
+            BEAST_EXPECT(stats->duplicatedFrames != 0);
         if (origin)
         {
             auto const witnessSeq = witnessAt(net, *origin, warmLedger);
             BEAST_EXPECT(witnessSeq != 0);
-            if (witnessSeq && fault != Fault::lateValidations)
-                BEAST_EXPECT(stats->builds[observer].contains(
+            if (witnessSeq)
+            {
+                bool const builtWitness = stats->builds[observer].contains(
                     {witnessSeq,
                      net.ledgerHash(0, witnessSeq - 1),
-                     net.ledgerHash(0, witnessSeq)}));
-            if (fault == Fault::noDirectShares)
+                     net.ledgerHash(0, witnessSeq)});
+                if (fault == Fault::noShares)
+                    BEAST_EXPECT(!builtWitness);
+                else if (!late)
+                    BEAST_EXPECT(builtWitness);
+            }
+            auto const collected = net.node(observer)
+                                       .app()
+                                       .getConsensusExtensions()
+                                       .postValidationExportSigCollector()
+                                       .fullUnionSnapshot();
+            auto const found = collected.find(*origin);
+            if (fault == Fault::noDirectShares || fault == Fault::noShares)
             {
                 BEAST_EXPECT(stats->droppedDirect != 0);
                 BEAST_EXPECT(stats->directFrames[observer] == 0);
-                auto const collected = net.node(observer)
-                                           .app()
-                                           .getConsensusExtensions()
-                                           .postValidationExportSigCollector()
-                                           .fullUnionSnapshot();
-                auto const found = collected.find(*origin);
-                BEAST_EXPECT(
-                    found != collected.end() &&
-                    found->second.size() == observer);
             }
             else
                 BEAST_EXPECT(world.observed->directFrames[observer] != 0);
-            BEAST_EXPECT(world.observed->proposalFrames[observer] != 0);
+            if (fault == Fault::noProposalShares || fault == Fault::noShares)
+            {
+                BEAST_EXPECT(stats->droppedProposals != 0);
+                BEAST_EXPECT(stats->proposalFrames[observer] == 0);
+                BEAST_EXPECT(stats->exportRootFrames[observer] != 0);
+            }
+            else
+                BEAST_EXPECT(stats->proposalFrames[observer] != 0);
+            if (fault == Fault::noShares)
+                BEAST_EXPECT(found == collected.end());
+            else if (!late)
+                BEAST_EXPECT(
+                    found != collected.end() &&
+                    found->second.size() == observer);
         }
         else
         {
@@ -487,6 +587,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
             << " entropy=" << entropySeen
             << " partialEntropy=" << partialEntropySeen
             << " directDropped=" << stats->droppedDirect
+            << " proposalsDropped=" << stats->droppedProposals
+            << " duplicated=" << stats->duplicatedFrames
             << " validationsDelayed=" << stats->delayedValidations
             << " validatorTrafficDelayed=" << stats->delayedValidatorTraffic
             << " validationGap=" << stats->validationGap
@@ -497,6 +599,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
             << std::endl;
         outcome.push_back(sha512Half(
             stats->droppedDirect,
+            stats->droppedProposals,
+            stats->duplicatedFrames,
             stats->delayedValidations,
             stats->delayedValidatorTraffic,
             stats->validationGap,
@@ -548,6 +652,23 @@ public:
                   false,
                   true},
               std::tuple{
+                  "observer gets Export material only through direct messages",
+                  Fault::noProposalShares,
+                  false,
+                  true},
+              std::tuple{
+                  "observer misses both Export routes and acquires the witness "
+                  "ledger",
+                  Fault::noShares,
+                  false,
+                  true},
+              std::tuple{
+                  "duplicated proposals validations and Export material do not "
+                  "multiply effects",
+                  Fault::duplicateTraffic,
+                  true,
+                  true},
+              std::tuple{
                   "observer builds five seconds late while validations advance",
                   Fault::slowObserver,
                   true,
@@ -558,10 +679,21 @@ public:
                   true,
                   true},
               std::tuple{
+                  "observer hears validations twenty seconds late",
+                  Fault::veryLateValidations,
+                  true,
+                  true},
+              std::tuple{
                   "one RNG validator with slow builds and traffic recovers",
                   Fault::slowValidator,
                   true,
-                  false}})
+                  false},
+              std::tuple{
+                  "sluggish RNG validator recovers with Export enabled but "
+                  "idle",
+                  Fault::slowValidatorIdleExport,
+                  true,
+                  true}})
         {
             if (!matches(label))
                 continue;
