@@ -654,13 +654,22 @@ not a proof of Xahau finality. XPOP carries the reverse-chain proof material and
 drives the matching callback after target finality.
 
 Export and RNG have separate completion conditions and bounded fallbacks.
-Share collection progresses alongside RNG, but the current establish loop
-services RNG before Export alignment, so RNG waits postpone progress of the
-Export gate. Allowing both gates to progress during the same establish ticks
-is an open scheduling improvement, not a reason to couple their outcomes.
-Ledger acceptance requires each enabled gate to finish its decision. An
-export-side convergence failure must not change RNG semantics; an RNG fallback
-must not make export unsafe.
+Every eligible establish tick advances both gates, even when one is waiting.
+Ledger acceptance requires each enabled gate to finish its decision; a disabled
+gate performs no alignment work and does not hold up the other. With both
+disabled, extensions add no acceptance delay.
+
+Each gate starts and measures its own bounded observation window independently.
+Export can therefore align or expire while RNG is still progressing. Readiness
+is re-evaluated against current peer positions and the ordinary transaction
+set, not latched across changes in those inputs. An export-side convergence
+failure must not change RNG semantics; an RNG fallback must not make export
+unsafe.
+
+When both features are enabled, their position updates are combined into one
+proposal at the end of the tick. The combined position preserves both features'
+fields. A single enabled feature retains its normal proposal timing. These are
+independently progressing state machines, not additional execution threads.
 
 Accept-time cleanup must preserve Export state through `onPreBuild` whenever
 `featureExport` is enabled so the signature witness pseudo can be injected.
