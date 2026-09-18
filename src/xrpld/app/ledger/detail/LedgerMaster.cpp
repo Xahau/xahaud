@@ -181,12 +181,15 @@ LedgerMaster::getPublishedLedgerAge()
     std::chrono::seconds ret = app_.timeKeeper().closeTime().time_since_epoch();
     ret -= pubClose;
     ret = (ret > 0s) ? ret : 0s;
-    static std::chrono::seconds lastRet = -1s;
+    static std::atomic<std::chrono::seconds::rep> lastRet{-1};
+    auto const retCount = ret.count();
+    auto observedLastRet = lastRet.load(std::memory_order_relaxed);
 
-    if (ret != lastRet)
+    if (retCount != observedLastRet &&
+        lastRet.compare_exchange_strong(
+            observedLastRet, retCount, std::memory_order_relaxed))
     {
-        JLOG(m_journal.trace()) << "Published ledger age is " << ret.count();
-        lastRet = ret;
+        JLOG(m_journal.trace()) << "Published ledger age is " << retCount;
     }
     return ret;
 }
@@ -206,12 +209,15 @@ LedgerMaster::getValidatedLedgerAge()
     std::chrono::seconds ret = app_.timeKeeper().closeTime().time_since_epoch();
     ret -= valClose;
     ret = (ret > 0s) ? ret : 0s;
-    static std::chrono::seconds lastRet = -1s;
+    static std::atomic<std::chrono::seconds::rep> lastRet{-1};
+    auto const retCount = ret.count();
+    auto observedLastRet = lastRet.load(std::memory_order_relaxed);
 
-    if (ret != lastRet)
+    if (retCount != observedLastRet &&
+        lastRet.compare_exchange_strong(
+            observedLastRet, retCount, std::memory_order_relaxed))
     {
-        JLOG(m_journal.trace()) << "Validated ledger age is " << ret.count();
-        lastRet = ret;
+        JLOG(m_journal.trace()) << "Validated ledger age is " << retCount;
     }
     return ret;
 }
