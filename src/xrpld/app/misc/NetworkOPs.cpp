@@ -686,6 +686,7 @@ private:
 
     SubInfoMapType mSubAccount;
     SubInfoMapType mSubRTAccount;
+    bool firstLedgerPublished_{true};  // Guarded by mSubLock.
 
     subRpcMapType mRpcSubMap;
 
@@ -3164,11 +3165,10 @@ NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
         }
 
         {
-            static bool firstTime = true;
-            if (firstTime)
+            if (firstLedgerPublished_)
             {
                 // First validated ledger, start delayed SubAccountHistory
-                firstTime = false;
+                firstLedgerPublished_ = false;
                 for (auto& outer : mSubAccountHistory)
                 {
                     for (auto& inner : outer.second)
