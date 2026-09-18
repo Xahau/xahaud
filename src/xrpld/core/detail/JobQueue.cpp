@@ -294,6 +294,27 @@ JobQueue::isIdle() const
     return m_processCount == 0 && m_jobSet.empty();
 }
 
+std::uint64_t
+JobQueue::lastJob() const
+{
+    std::lock_guard lock(m_mutex);
+    return m_lastJob;
+}
+
+std::uint64_t
+JobQueue::completedJobs() const
+{
+    std::lock_guard lock(m_mutex);
+    return m_completedJobs;
+}
+
+int
+JobQueue::suspendedCount() const
+{
+    std::lock_guard lock(m_mutex);
+    return nSuspend_;
+}
+
 JobTypeData&
 JobQueue::getJobTypeData(JobType type)
 {
@@ -447,6 +468,7 @@ JobQueue::processTask(int instance)
         // otherwise destructors with side effects can access
         // parent objects that are already destroyed.
         finishJob(type);
+        ++m_completedJobs;
         if (--m_processCount == 0 && m_jobSet.empty())
             cv_.notify_all();
     }

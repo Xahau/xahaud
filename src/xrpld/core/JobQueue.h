@@ -243,6 +243,15 @@ public:
     [[nodiscard]] bool
     isIdle() const;
 
+    [[nodiscard]] std::uint64_t
+    lastJob() const;
+
+    [[nodiscard]] std::uint64_t
+    completedJobs() const;
+
+    [[nodiscard]] int
+    suspendedCount() const;
+
     void
     stop();
 
@@ -265,6 +274,7 @@ private:
     beast::Journal m_journal;
     mutable std::mutex m_mutex;
     std::uint64_t m_lastJob;
+    std::uint64_t m_completedJobs{0};
     std::set<Job> m_jobSet;
     JobCounter jobCounter_;
     // Empty in production. Read without a lock in addRefCountedJob.
