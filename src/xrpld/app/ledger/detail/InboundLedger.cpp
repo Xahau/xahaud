@@ -434,6 +434,8 @@ InboundLedger::pmDowncast()
 void
 InboundLedger::done()
 {
+    ScopedLockType const sl(mtx_);
+
     if (mSignaled)
         return;
 
