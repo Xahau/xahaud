@@ -5,12 +5,15 @@
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
+#include <xrpld/overlay/Message.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STObject.h>
+#include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/SidecarType.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -90,6 +93,13 @@ class SteppingExtensions_test : public beast::unit_test::suite
         bool queuedExportWork = false;
         bool oldGenerationRan = false;
         bool newGenerationRan = false;
+        std::optional<uint256> captureOrigin;
+        std::optional<ExportShare> honestShare;
+        std::string badShareBytes;
+        Buffer badSignature;
+        std::uint32_t badFramesReceived = 0;
+        std::uint32_t badShareJobs = 0;
+        bool sawBadWhilePending = false;
     };
 
     template <class T>
@@ -159,6 +169,43 @@ class SteppingExtensions_test : public beast::unit_test::suite
     }
 
     static bool
+    originSidecarHasSignature(
+        SHAMap const& map,
+        uint256 const& origin,
+        Slice signature)
+    {
+        bool found = false;
+        map.visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                if (found)
+                    return;
+                try
+                {
+                    SerialIter sit{item->slice()};
+                    STObject const obj{sit, sfGeneric};
+                    if (obj.isFieldPresent(sfSidecarType) &&
+                        obj.getFieldU8(sfSidecarType) == sidecarExportSig &&
+                        obj.isFieldPresent(sfTransactionHash) &&
+                        obj.getFieldH256(sfTransactionHash) == origin &&
+                        obj.isFieldPresent(sfTxnSignature))
+                    {
+                        auto const got = obj.getFieldVL(sfTxnSignature);
+                        if (got.size() == signature.size() &&
+                            std::equal(
+                                got.data(),
+                                got.data() + got.size(),
+                                signature.data()))
+                            found = true;
+                    }
+                }
+                catch (...)
+                {
+                }
+            });
+        return found;
+    }
+
+    static bool
     authorizedAtEmission(Application& app, ExportShare const& share)
     {
         auto const validated = app.getLedgerMaster().getValidatedLedger();
@@ -211,13 +258,24 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     if (type == protocol::mtEXPORT_SHARES)
                     {
                         ++stats->directFrames.at(id);
+                        auto const& batch =
+                            static_cast<protocol::TMExportShares const&>(msg);
                         if (id == observer)
-                        {
-                            auto const& batch =
-                                static_cast<protocol::TMExportShares const&>(
-                                    msg);
                             stats->shareRecvOrder.push_back(
                                 directBatchId(batch));
+                        for (auto const& blob : batch.shares())
+                        {
+                            if (stats->captureOrigin && !stats->honestShare)
+                            {
+                                auto const share =
+                                    ExportShare::parse(makeSlice(blob));
+                                if (share &&
+                                    share->originTxn == *stats->captureOrigin)
+                                    stats->honestShare = share;
+                            }
+                            if (!stats->badShareBytes.empty() &&
+                                blob == stats->badShareBytes)
+                                ++stats->badFramesReceived;
                         }
                     }
                     if (type == protocol::mtLEDGER_DATA)
@@ -1482,6 +1540,273 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+    std::optional<std::vector<uint256>>
+    invalidShareDoesNotPoison(SteppingNetwork& net)
+    {
+        using namespace std::chrono_literals;
+        World world(net, false, true);
+        if (!ready(world))
+            return std::nullopt;
+        auto const funding = world.submit(
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto const stats = world.observed;
+        auto const tx = world.submit(observer, world.intent(), world.owner);
+        if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const origin = tx->getID();
+        stats->captureOrigin = origin;
+
+        auto collectorHasHonest = [&](std::uint32_t node) {
+            if (!stats->honestShare)
+                return false;
+            auto const snap = net.node(node)
+                                  .app()
+                                  .getConsensusExtensions()
+                                  .postValidationExportSigCollector()
+                                  .fullUnionSnapshot();
+            auto const it = snap.find(origin);
+            if (it == snap.end())
+                return false;
+            for (auto const& contrib : it->second)
+            {
+                if (contrib.signingKey == stats->honestShare->signingKey &&
+                    contrib.position ==
+                        stats->honestShare->committeePosition &&
+                    contrib.signature.size() ==
+                        stats->honestShare->signature.size() &&
+                    std::equal(
+                        contrib.signature.data(),
+                        contrib.signature.data() + contrib.signature.size(),
+                        stats->honestShare->signature.data()))
+                    return true;
+            }
+            return false;
+        };
+
+        auto pendingOn = [&](std::uint32_t node) {
+            return net.node(node)
+                .app()
+                .getConsensusExtensions()
+                .hasEligiblePendingExports();
+        };
+
+        auto const junk = generateKeyPair(
+            KeyType::secp256k1, generateSeed("dsf-b7-invalid-share"));
+        std::size_t sent = 0;
+        bool injected = false;
+        bool honestKeptAfterBad = false;
+        bool conflictAfterBad = false;
+        net.controller().observeJobs(
+            [&](std::uint32_t id, JobType type, std::string const& name) {
+                if (injected)
+                {
+                    if (id == observer && type == jtEXPORT_SHARES &&
+                        name == "recvExportShares")
+                        ++stats->badShareJobs;
+                    if (stats->badFramesReceived != 0)
+                    {
+                        if (collectorHasHonest(observer))
+                            honestKeptAfterBad = true;
+                        auto const st =
+                            net.node(observer)
+                                .app()
+                                .getConsensusExtensions()
+                                .postValidationExportSigCollector()
+                                .positionStatus(
+                                    origin,
+                                    stats->honestShare->committeePosition);
+                        if (st == ExportSigCollector::PositionStatus::conflicted)
+                            conflictAfterBad = true;
+                    }
+                    return;
+                }
+                if (!stats->honestShare)
+                    return;
+                if (stats->honestShare->originLedgerSeq > net.validSeq(0))
+                    return;
+                if (!pendingOn(0))
+                    return;
+                auto bad = *stats->honestShare;
+                bad.signature = sign(
+                    junk.first, junk.second, Slice{"dsf-b7-not-payload", 18});
+                if (!bad.validShape())
+                    return;
+                stats->badSignature = bad.signature;
+                auto const framed = bad.serialize();
+                stats->badShareBytes.assign(
+                    reinterpret_cast<char const*>(framed.data()),
+                    framed.size());
+                protocol::TMExportShares batch;
+                batch.add_shares(framed.data(), framed.size());
+                auto const msg = std::make_shared<Message>(
+                    batch, protocol::mtEXPORT_SHARES);
+                for (auto const& peer :
+                     net.node(0).app().overlay().getActivePeers())
+                {
+                    peer->send(msg);
+                    ++sent;
+                }
+                stats->sawBadWhilePending = pendingOn(0);
+                injected = true;
+            });
+        net.runTo(warmLedger + 8, SteppingNetwork::RunBudget{1600, 1'200'000});
+        net.controller().observeJobs({});
+        if (!BEAST_EXPECT(injected && stats->honestShare && sent != 0))
+        {
+            log << "  no honest pending contribution before inject"
+                << " captured=" << static_cast<bool>(stats->honestShare)
+                << " pending0=" << pendingOn(0)
+                << " pendingObserver=" << pendingOn(observer)
+                << " injected=" << injected << " sent=" << sent << std::endl;
+            return std::nullopt;
+        }
+
+        if (!BEAST_EXPECT(stats->badFramesReceived != 0))
+        {
+            log << "  bad share never arrived on the wire sent=" << sent
+                << std::endl;
+            return std::nullopt;
+        }
+        if (!BEAST_EXPECT(stats->badShareJobs != 0))
+        {
+            log << "  recvExportShares did not run after inject jobs="
+                << stats->badShareJobs << " " << net.jobDiagnostics()
+                << std::endl;
+            return std::nullopt;
+        }
+        BEAST_EXPECT(stats->sawBadWhilePending);
+        BEAST_EXPECT(honestKeptAfterBad);
+        BEAST_EXPECT(!conflictAfterBad);
+        BEAST_EXPECT(collectorHasHonest(observer));
+        BEAST_EXPECT(collectorHasHonest(0));
+        auto const& collector =
+            net.node(observer).app().getConsensusExtensions()
+                .postValidationExportSigCollector();
+        BEAST_EXPECT(
+            collector.positionStatus(
+                origin, stats->honestShare->committeePosition) !=
+            ExportSigCollector::PositionStatus::conflicted);
+        auto const snapAfter = collector.fullUnionSnapshot();
+        auto const foundAfter = snapAfter.find(origin);
+        if (!BEAST_EXPECT(foundAfter != snapAfter.end()))
+            return std::nullopt;
+        for (auto const& contrib : foundAfter->second)
+            BEAST_EXPECT(
+                contrib.signature.size() != stats->badSignature.size() ||
+                !std::equal(
+                    contrib.signature.data(),
+                    contrib.signature.data() + contrib.signature.size(),
+                    stats->badSignature.data()));
+        if (auto const map = net.node(observer)
+                                 .app()
+                                 .getConsensusExtensions()
+                                 .exportSigSetMap_)
+        {
+            BEAST_EXPECT(!originSidecarHasSignature(
+                *map,
+                origin,
+                Slice{
+                    stats->badSignature.data(), stats->badSignature.size()}));
+            BEAST_EXPECT(originSidecarHasSignature(
+                *map,
+                origin,
+                Slice{
+                    stats->honestShare->signature.data(),
+                    stats->honestShare->signature.size()}));
+        }
+
+        auto const target = net.validSeq(0) + 4;
+        net.runTo(target, SteppingNetwork::RunBudget{1600, 1'200'000});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
+            return std::nullopt;
+        BEAST_EXPECT(net.ledgersAgree(target));
+        BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(net.offThreadJobs() == 0);
+        BEAST_EXPECT(net.failedJobs() == 0);
+        BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
+        BEAST_EXPECT(stats->secrets[observer] == 0);
+        BEAST_EXPECT(stats->ownReleases[observer] == 0);
+        auto const seqW = witnessAt(net, origin, warmLedger);
+        if (!BEAST_EXPECT(seqW != 0))
+            return std::nullopt;
+        BEAST_EXPECT(collectorHasHonest(0));
+        BEAST_EXPECT(
+            collector.positionStatus(
+                origin, stats->honestShare->committeePosition) !=
+            ExportSigCollector::PositionStatus::conflicted);
+
+        std::map<uint256, std::uint32_t> hits;
+        std::set<uint256> unexpected;
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= target; ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (std::uint32_t i = 1; i <= observer; ++i)
+            {
+                auto const ledger = net.ledger(i, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            outcome.push_back(canonical->info().hash);
+            for (auto const& [wtx, meta] : canonical->txs)
+            {
+                if (wtx->getTxnType() != ttEXPORT_SIGNATURES)
+                    continue;
+                if (!BEAST_EXPECT(meta != nullptr))
+                    return std::nullopt;
+                auto const id = wtx->getFieldH256(sfTransactionHash);
+                if (id != origin)
+                    unexpected.insert(id);
+                else
+                    ++hits[id];
+                auto const txBytes = wtx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                outcome.push_back(
+                    sha512Half(makeSlice(txBytes), makeSlice(metaBytes)));
+                for (std::uint32_t i = 0; i <= observer; ++i)
+                {
+                    auto const ledger = net.ledger(i, seq);
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : ledger->txs)
+                    {
+                        if (peerTx->getTxnType() != ttEXPORT_SIGNATURES ||
+                            peerTx->getFieldH256(sfTransactionHash) != id)
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes);
+                        BEAST_EXPECT(
+                            peerMeta != nullptr &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+        }
+        BEAST_EXPECT(unexpected.empty());
+        BEAST_EXPECT(hits[origin] == 1);
+        log << "  invalid-share: received=" << stats->badFramesReceived
+            << " jobs=" << stats->badShareJobs << " sent=" << sent
+            << " pendingAtInject=" << stats->sawBadWhilePending
+            << " witness=" << seqW << std::endl;
+        outcome.push_back(origin);
+        outcome.push_back(sha512Half(
+            static_cast<std::uint32_t>(stats->badFramesReceived),
+            static_cast<std::uint32_t>(stats->badShareJobs)));
+        return outcome;
+    }
+
 public:
     void
     run() override
@@ -1627,6 +1952,17 @@ public:
                 "observer restarts across Export-bearing history",
                 [this](SteppingNetwork& net) {
                     return observerRestartAcrossExport(net);
+                });
+        }
+        if (matches("invalid Export share does not poison an honest contribution"))
+        {
+            testcase(
+                "invalid Export share does not poison an honest contribution");
+            expectReplays(
+                *this,
+                "invalid Export share does not poison an honest contribution",
+                [this](SteppingNetwork& net) {
+                    return invalidShareDoesNotPoison(net);
                 });
         }
         BEAST_EXPECT(selected != 0);
