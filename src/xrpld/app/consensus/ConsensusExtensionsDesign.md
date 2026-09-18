@@ -579,12 +579,16 @@ collector union. Both feed the same collector and verification logic.
 Proposal-carried material is still untrusted until the proposal and share
 semantics verify.
 
-Implementation caveat verified at `bac9e1df65`: the direct receive handler in
+Historical dispatch bug verified at `bac9e1df65`: the direct receive handler in
 `PeerImp::onMessage(TMExportShares)` posts `recvExportShares` as `jtPEER`.
 `JobTypes` assigns that type limit zero, and `JobQueue::getNextJob` cannot
 dispatch it. The application callback is wired to the common admission
-function, but that queued receive path does not execute. This is an
-implementation gap, not a proposal-only admission rule. Proposal carriage
+function, but that queued receive path did not execute. Fix `12f9200a2a`
+routes it through the dedicated runnable `jtEXPORT_SHARES` category
+(`exportShares`), allowing two simultaneous batches. JobQueue now rejects
+measurement-only categories before queue insertion. The concurrency limit is
+not a global queued-byte/backlog cap. This was an implementation gap, not a
+proposal-only admission rule. Proposal carriage
 remains an independent working path; carrying only the validator's own shares
 once per round is not itself a defect when those proposals propagate and are
 admitted. Neither observation alone explains a particular gateway mismatch.
