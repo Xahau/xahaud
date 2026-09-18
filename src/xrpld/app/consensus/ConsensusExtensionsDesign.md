@@ -572,34 +572,27 @@ the immutable committee master at that position through the manifest cache. A
 missing binding is deferred or rejected; it never silently selects another
 member.
 
-The dedicated `mtEXPORT_SHARES` relay is the immediate post-validation flood and
-subscription path. Proposal carriage republishes each validator's own retained
-shares as a bounded authenticated backup; it does not carry that node's full
-collector union. Both feed the same collector and verification logic.
-Proposal-carried material is still untrusted until the proposal and share
-semantics verify.
+The dedicated `mtEXPORT_SHARES` relay distributes post-validation contributions
+without waiting for proposal publication. Receivers check canonical framing
+and message bounds, then schedule verification and admission on the runnable
+`jtEXPORT_SHARES` (`exportShares`) job category. At most two batches execute
+concurrently; this bounds active verification, not the total queued backlog.
+Only application-admitted contributions are eligible for onward relay.
 
-Historical dispatch bug verified at `bac9e1df65`: the direct receive handler in
-`PeerImp::onMessage(TMExportShares)` posts `recvExportShares` as `jtPEER`.
-`JobTypes` assigns that type limit zero, and `JobQueue::getNextJob` cannot
-dispatch it. The application callback is wired to the common admission
-function, but that queued receive path did not execute. Fix `12f9200a2a`
-routes it through the dedicated runnable `jtEXPORT_SHARES` category
-(`exportShares`), allowing two simultaneous batches. JobQueue now rejects
-measurement-only categories before queue insertion. The concurrency limit is
-not a global queued-byte/backlog cap. This was an implementation gap, not a
-proposal-only admission rule. Proposal carriage
-remains an independent working path; carrying only the validator's own shares
-once per round is not itself a defect when those proposals propagate and are
-admitted. Neither observation alone explains a particular gateway mismatch.
+Proposal carriage provides another authenticated distribution path. Each
+validator attaches its own retained contributions once per origin/position per
+round, rather than sending its full collector union. The proposal signature
+binds the attached payload's digest. Both transports use the same share
+verification and collector-admission logic; neither bypasses those checks.
 
-The collector forms one complete bounded unique-share union over all live
-origins, keyed by `(W, committeePosition)`. A second distinct valid contribution
-at one position is conflicting and contributes zero for that origin. The union
-is projected into an ephemeral sidecar map; its root is advertised in signed
-`ExtendedPosition` traffic. qC is not a root filter: below-qC partial material
-still participates in the common union, while qC is checked only when deciding
-which witnesses can be materialized.
+The collector retains contributions across rounds, keyed by
+`(W, committeePosition)`. A second distinct valid contribution at one position
+makes that position conflicted and removes it from the unique-share projection.
+Each round builds one bounded ephemeral sidecar map from unique contributions
+whose origins are pending in its immutable execution parent. The map's root is
+advertised in signed `ExtendedPosition` traffic. qC is not a root filter:
+below-qC partial material still participates in the common union, while qC is
+checked only when deciding which witnesses can be materialized.
 
 Export sidecar publication is local-material only. Peer-advertised roots are qV
 alignment evidence; they do not reconstruct missing signatures. A node injects
@@ -652,21 +645,22 @@ shares only while they remain pending in the publication-time validated view,
 and republishes retained live shares once per validated cursor. Collector
 admission and publication are separate: validation can advance between them,
 leaving an admitted contribution retained but unpublished. Clients deduplicate
-by origin and committee position. Slow subscribers
-must not hold collector or consensus locks, and silence after an origin leaves
+by origin and committee position. Slow subscribers must not hold collector or
+consensus locks, and silence after an origin leaves
 the pending set is not a durable terminal event.
 
 This remains intentionally leaner than XPOP. XRPL sees ordinary multisignatures,
 not a proof of Xahau finality. XPOP carries the reverse-chain proof material and
 drives the matching callback after target finality.
 
-Export and RNG should make progress largely in parallel. The implementation at
-`bac9e1df65` overlaps share collection with RNG, but `extensionsTick()` runs
-Export's alignment gate only after RNG's early-return waits. That ordering is
-under review; it is not an established requirement (local follow-up:
-`.ai-docs/issues/open/medium-export-rng-gate-overlap.md`). An export-side
-convergence failure must not change RNG semantics; an RNG fallback must not
-make export unsafe. Each feature has its own gate and fallback.
+Export and RNG have separate completion conditions and bounded fallbacks.
+Share collection progresses alongside RNG, but the current establish loop
+services RNG before Export alignment, so RNG waits postpone progress of the
+Export gate. Allowing both gates to progress during the same establish ticks
+is an open scheduling improvement, not a reason to couple their outcomes.
+Ledger acceptance requires each enabled gate to finish its decision. An
+export-side convergence failure must not change RNG semantics; an RNG fallback
+must not make export unsafe.
 
 Accept-time cleanup must preserve Export state through `onPreBuild` whenever
 `featureExport` is enabled so the signature witness pseudo can be injected.
