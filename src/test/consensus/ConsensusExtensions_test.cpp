@@ -415,6 +415,7 @@ struct FakeExtensions
     int exportBuilds = 0;
     int acceptedExportClears = 0;
     std::optional<uint256> acceptedExportHash;
+    std::optional<uint256> acceptedEntropyHash;
     int entropyBuilds = 0;
     int participantDiagnostics = 0;
     int selfSeeds = 0;
@@ -548,13 +549,15 @@ struct FakeExtensions
     }
 
     void
-    acceptEntropySet(uint256 const&)
+    acceptEntropySet(uint256 const& hash)
     {
+        acceptedEntropyHash = hash;
     }
 
     void
     clearAcceptedEntropySet()
     {
+        acceptedEntropyHash.reset();
     }
 
     uint256
@@ -673,6 +676,17 @@ struct ExtensionTickHarness
     {
         ExtendedPosition peerPosition{txSetHash};
         peerPosition.exportSigSetHash = exportSigSetHash;
+        peers.emplace(
+            makeNode(id), FakePeerPosition{makeNode(id), peerPosition});
+    }
+
+    void
+    addBothPeer(std::uint8_t id, FakeExtensions const& ext)
+    {
+        ExtendedPosition peerPosition{position.txSetHash};
+        peerPosition.commitSetHash = ext.commitHash;
+        peerPosition.entropySetHash = ext.entropyHash;
+        peerPosition.exportSigSetHash = ext.exportHash;
         peers.emplace(
             makeNode(id), FakePeerPosition{makeNode(id), peerPosition});
     }
@@ -3712,6 +3726,153 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExportAdvancesDuringRngWaits()
+    {
+        testcase(
+            "Export advances during each RNG wait without accepting early");
+        using namespace std::chrono_literals;
+        for (auto mode : {ConsensusMode::proposing, ConsensusMode::observing})
+        {
+            for (auto state :
+                 {EstablishState::ConvergingTx,
+                  EstablishState::ConvergingCommit,
+                  EstablishState::ConvergingReveal})
+            {
+                FakeExtensions ext;
+                ext.rngOn = true;
+                ext.estState_ = state;
+                ext.commitQuorum = false;
+                ext.commits = ext.proofedCommits = 0;
+                ext.minimumReveals = ext.anyReveals = false;
+                ExtensionTickHarness h;
+                h.mode = mode;
+                for (std::uint8_t i = 1; i <= 4; ++i)
+                    h.addBothPeer(i, ext);
+
+                BEAST_EXPECT(!h.tick(ext).readyForAccept);
+                BEAST_EXPECT(h.position.exportSigSetHash == ext.exportHash);
+                BEAST_EXPECT(ext.exportSigGateStarted_);
+                BEAST_EXPECT(!ext.acceptedExportHash);
+                BEAST_EXPECT(!h.tick(ext, 100ms).readyForAccept);
+                BEAST_EXPECT(ext.acceptedExportHash == ext.exportHash);
+                BEAST_EXPECT(!ext.acceptedEntropyHash);
+
+                ext.commitQuorum = true;
+                ext.commits = ext.proofedCommits = 4;
+                ext.minimumReveals = ext.anyReveals = true;
+                bool ready = false;
+                for (int tick = 2; tick <= 5 && !ready; ++tick)
+                    ready = h.tick(ext, tick * 100ms).readyForAccept;
+                BEAST_EXPECT(ready);
+                BEAST_EXPECT(ext.acceptedExportHash == ext.exportHash);
+                BEAST_EXPECT(ext.acceptedEntropyHash == ext.entropyHash);
+                BEAST_EXPECT(h.position.exportSigSetHash == ext.exportHash);
+                BEAST_EXPECT(h.position.entropySetHash == ext.entropyHash);
+                if (mode == ConsensusMode::observing)
+                    BEAST_EXPECT(h.proposes == 0);
+            }
+        }
+    }
+
+    void
+    testExportExpiryDoesNotEndRngWait()
+    {
+        testcase("Export expires independently while RNG continues");
+        using namespace std::chrono_literals;
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.commitQuorum = false;
+        ext.commits = ext.proofedCommits = 0;
+        ext.minimumReveals = ext.anyReveals = false;
+        ext.localExportSigs = false;
+        ext.livePendingExportLatches = true;
+        ExtensionTickHarness h;
+        for (std::uint8_t i = 1; i <= 4; ++i)
+            h.addBothPeer(i, ext);
+        auto const deadline = detail::sidecarConvergenceTimeout(h.parms);
+        BEAST_EXPECT(!h.tick(ext).readyForAccept);
+        BEAST_EXPECT(ext.exportSigGateStarted_);
+        auto const start = ext.exportSigGateStart_;
+
+        ext.commitQuorum = true;
+        ext.commits = ext.proofedCommits = 4;
+        BEAST_EXPECT(!h.tick(ext, deadline / 2).readyForAccept);
+        BEAST_EXPECT(!h.tick(ext, deadline / 2 + 1ms).readyForAccept);
+        BEAST_EXPECT(!h.tick(ext, deadline + 1ms).readyForAccept);
+        BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+        BEAST_EXPECT(!ext.acceptedExportHash);
+        BEAST_EXPECT(!ext.acceptedEntropyHash);
+
+        ext.localExportSigs = true;
+        ext.minimumReveals = ext.anyReveals = true;
+        BEAST_EXPECT(!h.tick(ext, deadline + 2ms).readyForAccept);
+        BEAST_EXPECT(h.tick(ext, deadline + 3ms).readyForAccept);
+        BEAST_EXPECT(ext.exportSigConvergenceFailed_);
+        BEAST_EXPECT(ext.exportSigGateStart_ == start);
+        BEAST_EXPECT(!ext.acceptedExportHash);
+        BEAST_EXPECT(!h.position.exportSigSetHash);
+        BEAST_EXPECT(ext.acceptedEntropyHash == ext.entropyHash);
+    }
+
+    void
+    testRngFallbackPreservesAlignedExport()
+    {
+        testcase("RNG fallback does not suppress concurrently aligned Export");
+        using namespace std::chrono_literals;
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.commitQuorum = false;
+        ext.commits = ext.proofedCommits = 0;
+        ExtensionTickHarness h;
+        for (std::uint8_t i = 1; i <= 4; ++i)
+            h.addBothPeer(i, ext);
+        BEAST_EXPECT(!h.tick(ext).readyForAccept);
+        BEAST_EXPECT(!h.tick(ext, 100ms).readyForAccept);
+        BEAST_EXPECT(ext.acceptedExportHash == ext.exportHash);
+        BEAST_EXPECT(
+            h.tick(ext, h.parms.rngPIPELINE_TIMEOUT + 1ms).readyForAccept);
+        BEAST_EXPECT(ext.acceptedExportHash == ext.exportHash);
+        BEAST_EXPECT(!ext.acceptedEntropyHash);
+    }
+
+    void
+    testParallelGateRechecksOrdinarySet()
+    {
+        testcase("early Export alignment cannot bypass a changed ordinary set");
+        using namespace std::chrono_literals;
+        FakeExtensions ext;
+        ext.rngOn = true;
+        ext.commitQuorum = false;
+        ext.commits = ext.proofedCommits = 0;
+        ExtensionTickHarness h;
+        for (std::uint8_t i = 1; i <= 4; ++i)
+            h.addBothPeer(i, ext);
+        BEAST_EXPECT(!h.tick(ext).readyForAccept);
+        BEAST_EXPECT(!h.tick(ext, 100ms).readyForAccept);
+        BEAST_EXPECT(ext.acceptedExportHash == ext.exportHash);
+        auto const start = ext.exportSigGateStart_;
+
+        h.position.txSetHash = makeHash("changed-ordinary-set");
+        h.txns.hash = h.position.txSetHash;
+        h.position.entropySetHash = ext.entropyHash;
+        ext.estState_ = EstablishState::ConvergingReveal;
+        ext.entropySetPublished_ = true;
+        h.peers.clear();
+        for (std::uint8_t i = 1; i <= 4; ++i)
+            h.addEntropyPeer(i, ext.entropyHash, h.position.txSetHash);
+        BEAST_EXPECT(!h.tick(ext, 200ms).readyForAccept);
+        BEAST_EXPECT(ext.acceptedEntropyHash == ext.entropyHash);
+        BEAST_EXPECT(ext.exportSigGateStart_ == start);
+
+        h.peers.clear();
+        for (std::uint8_t i = 1; i <= 4; ++i)
+            h.addBothPeer(i, ext);
+        BEAST_EXPECT(h.tick(ext, 300ms).readyForAccept);
+        BEAST_EXPECT(ext.acceptedExportHash == ext.exportHash);
+        BEAST_EXPECT(ext.acceptedEntropyHash == ext.entropyHash);
+    }
+
+    void
     testExportSigGateRequiresQuorumAlignment()
     {
         testcase("Export sig gate requires quorum alignment");
@@ -5305,6 +5466,10 @@ public:
         testDiagnosticsJsonAndPositionLogging();
         testDecoratePositionSkipsWhenDisabled();
         testExportSigGateRequiresQuorumAlignment();
+        testExportAdvancesDuringRngWaits();
+        testExportExpiryDoesNotEndRngWait();
+        testRngFallbackPreservesAlignedExport();
+        testParallelGateRechecksOrdinarySet();
         testRngEntropyGateAllowsQuorumDespiteMissingObservation();
         testRngEntropyGateDoesNotCountUnpublishedObserverRoot();
         testRngEntropyConflictAllowsQuorumDespiteMissingObservation();
