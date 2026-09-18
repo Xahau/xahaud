@@ -27,6 +27,7 @@
 #include <xrpld/overlay/detail/OverlayImpl.h>
 #include <xrpld/overlay/detail/PeerStrand.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
+#include <xrpld/overlay/detail/Transport.h>
 #include <xrpld/overlay/detail/ProtocolVersion.h>
 #include <xrpld/peerfinder/PeerfinderManager.h>
 #include <xrpl/basics/Log.h>
@@ -76,9 +77,7 @@ private:
     beast::WrappedSink p_sink_;
     beast::Journal const journal_;
     beast::Journal const p_journal_;
-    std::unique_ptr<stream_type> stream_ptr_;
-    socket_type& socket_;
-    stream_type& stream_;
+    std::unique_ptr<Transport> transport_;
     boost::asio::strand<boost::asio::executor> strand_;
     waitable_timer timer_;
     std::unique_ptr<TimeoutCounterTimer> vtimer_;
@@ -248,7 +247,7 @@ public:
         PublicKey const& publicKey,
         ProtocolVersion protocol,
         Resource::Consumer consumer,
-        std::unique_ptr<stream_type>&& stream_ptr,
+        std::unique_ptr<Transport>&& transport,
         OverlayImpl& overlay);
 
     /** Create outgoing, handshaked peer. */
@@ -256,7 +255,7 @@ public:
     template <class Buffers>
     PeerImp(
         Application& app,
-        std::unique_ptr<stream_type>&& stream_ptr,
+        std::unique_ptr<Transport>&& transport,
         Buffers const& buffers,
         std::shared_ptr<PeerFinder::Slot>&& slot,
         http_response_type&& response,
@@ -666,7 +665,7 @@ private:
 template <class Buffers>
 PeerImp::PeerImp(
     Application& app,
-    std::unique_ptr<stream_type>&& stream_ptr,
+    std::unique_ptr<Transport>&& transport,
     Buffers const& buffers,
     std::shared_ptr<PeerFinder::Slot>&& slot,
     http_response_type&& response,
@@ -682,11 +681,9 @@ PeerImp::PeerImp(
     , p_sink_(app_.journal("Protocol"), makePrefix(id))
     , journal_(sink_)
     , p_journal_(p_sink_)
-    , stream_ptr_(std::move(stream_ptr))
-    , socket_(stream_ptr_->next_layer().socket())
-    , stream_(*stream_ptr_)
-    , strand_(makePeerStrand(app.config(), socket_.get_executor()))
-    , timer_(waitable_timer{socket_.get_executor()})
+    , transport_(std::move(transport))
+    , strand_(makePeerStrand(app.config(), transport_->get_executor()))
+    , timer_(waitable_timer{transport_->get_executor()})
     , vtimer_(app.makePeerTimer())
     , remote_address_(slot->remote_endpoint())
     , overlay_(overlay)

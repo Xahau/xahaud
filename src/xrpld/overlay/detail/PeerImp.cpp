@@ -73,7 +73,7 @@ PeerImp::PeerImp(
     PublicKey const& publicKey,
     ProtocolVersion protocol,
     Resource::Consumer consumer,
-    std::unique_ptr<stream_type>&& stream_ptr,
+    std::unique_ptr<Transport>&& transport,
     OverlayImpl& overlay)
     : Child(overlay)
     , app_(app)
@@ -82,11 +82,9 @@ PeerImp::PeerImp(
     , p_sink_(app_.journal("Protocol"), makePrefix(id))
     , journal_(sink_)
     , p_journal_(p_sink_)
-    , stream_ptr_(std::move(stream_ptr))
-    , socket_(stream_ptr_->next_layer().socket())
-    , stream_(*stream_ptr_)
-    , strand_(makePeerStrand(app.config(), socket_.get_executor()))
-    , timer_(waitable_timer{socket_.get_executor()})
+    , transport_(std::move(transport))
+    , strand_(makePeerStrand(app.config(), transport_->get_executor()))
+    , timer_(waitable_timer{transport_->get_executor()})
     , vtimer_(app.makePeerTimer())
     , remote_address_(slot->remote_endpoint())
     , overlay_(overlay)
@@ -219,7 +217,7 @@ PeerImp::stop()
 {
     if (!strand_.running_in_this_thread())
         return post(strand_, std::bind(&PeerImp::stop, shared_from_this()));
-    if (socket_.is_open())
+    if (transport_->is_open())
     {
         // The rationale for using different severity levels is that
         // outbound connections are under our control and may be logged
@@ -281,17 +279,15 @@ PeerImp::send(std::shared_ptr<Message> const& m)
     if (sendq_size != 0)
         return;
 
-    boost::asio::async_write(
-        stream_,
-        boost::asio::buffer(
-            send_queue_.front()->getBuffer(compressionEnabled_)),
-        bind_executor(
-            strand_,
-            std::bind(
-                &PeerImp::onWriteMessage,
-                shared_from_this(),
-                std::placeholders::_1,
-                std::placeholders::_2)));
+    transport_->async_write(
+        toConstBuffers(boost::asio::buffer(
+            send_queue_.front()->getBuffer(compressionEnabled_))),
+        strand_,
+        std::bind(
+            &PeerImp::onWriteMessage,
+            shared_from_this(),
+            std::placeholders::_1,
+            std::placeholders::_2));
 }
 
 void
@@ -572,12 +568,12 @@ PeerImp::close()
     XRPL_ASSERT(
         strand_.running_in_this_thread(),
         "ripple::PeerImp::close : strand in this thread");
-    if (socket_.is_open())
+    if (transport_->is_open())
     {
         detaching_ = true;  // DEPRECATED
         error_code ec;
         timer_.cancel(ec);
-        socket_.close(ec);
+        transport_->close();
         overlay_.incPeerDisconnect();
         if (inbound_)
         {
@@ -600,7 +596,7 @@ PeerImp::fail(std::string const& reason)
                 (void(Peer::*)(std::string const&)) & PeerImp::fail,
                 shared_from_this(),
                 reason));
-    if (journal_.active(beast::severities::kWarning) && socket_.is_open())
+    if (journal_.active(beast::severities::kWarning) && transport_->is_open())
     {
         std::string const n = name();
         JLOG(journal_.warn()) << (n.empty() ? remote_address_.to_string() : n)
@@ -615,7 +611,7 @@ PeerImp::fail(std::string const& name, error_code ec)
     XRPL_ASSERT(
         strand_.running_in_this_thread(),
         "ripple::PeerImp::fail : strand in this thread");
-    if (socket_.is_open())
+    if (transport_->is_open())
     {
         JLOG(journal_.warn())
             << name << " from " << toBase58(TokenType::NodePublic, publicKey_)
@@ -631,7 +627,8 @@ PeerImp::gracefulClose()
         strand_.running_in_this_thread(),
         "ripple::PeerImp::gracefulClose : strand in this thread");
     XRPL_ASSERT(
-        socket_.is_open(), "ripple::PeerImp::gracefulClose : socket is open");
+        transport_->is_open(),
+        "ripple::PeerImp::gracefulClose : socket is open");
     XRPL_ASSERT(
         !gracefulClose_,
         "ripple::PeerImp::gracefulClose : socket is not closing");
@@ -639,10 +636,10 @@ PeerImp::gracefulClose()
     if (send_queue_.size() > 0)
         return;
     setTimer();
-    stream_.async_shutdown(bind_executor(
+    transport_->async_shutdown(
         strand_,
         std::bind(
-            &PeerImp::onShutdown, shared_from_this(), std::placeholders::_1)));
+            &PeerImp::onShutdown, shared_from_this(), std::placeholders::_1));
 }
 
 void
@@ -696,7 +693,7 @@ PeerImp::makePrefix(id_t id)
 void
 PeerImp::onTimer(error_code const& ec)
 {
-    if (!socket_.is_open())
+    if (!transport_->is_open())
         return;
 
     if (ec == boost::asio::error::operation_aborted)
@@ -779,7 +776,7 @@ PeerImp::doAccept()
 
     JLOG(journal_.debug()) << "doAccept: " << remote_address_;
 
-    auto const sharedValue = makeSharedValue(*stream_ptr_, journal_);
+    auto const sharedValue = transport_->makeSharedValue(journal_);
 
     // This shouldn't fail since we already computed
     // the shared value successfully in OverlayImpl
@@ -818,15 +815,12 @@ PeerImp::doAccept()
         app_);
 
     // Write the whole buffer and only start protocol when that's done.
-    boost::asio::async_write(
-        stream_,
-        write_buffer->data(),
-        boost::asio::transfer_all(),
-        bind_executor(
-            strand_,
-            [this, write_buffer, self = shared_from_this()](
-                error_code ec, std::size_t bytes_transferred) {
-                if (!socket_.is_open())
+    transport_->async_write(
+        toConstBuffers(write_buffer->data()),
+        strand_,
+        [this, write_buffer, self = shared_from_this()](
+            error_code ec, std::size_t bytes_transferred) {
+                if (!transport_->is_open())
                     return;
                 if (ec == boost::asio::error::operation_aborted)
                     return;
@@ -835,7 +829,7 @@ PeerImp::doAccept()
                 if (write_buffer->size() == bytes_transferred)
                     return doProtocolStart();
                 return fail("Failed to write header");
-            }));
+            });
 }
 
 std::string
@@ -896,7 +890,7 @@ PeerImp::doProtocolStart()
 void
 PeerImp::onReadMessage(error_code ec, std::size_t bytes_transferred)
 {
-    if (!socket_.is_open())
+    if (!transport_->is_open())
         return;
     if (ec == boost::asio::error::operation_aborted)
         return;
@@ -936,7 +930,7 @@ PeerImp::onReadMessage(error_code ec, std::size_t bytes_transferred)
 
         if (ec)
             return fail("onReadMessage", ec);
-        if (!socket_.is_open())
+        if (!transport_->is_open())
             return;
         if (gracefulClose_)
             return;
@@ -946,21 +940,21 @@ PeerImp::onReadMessage(error_code ec, std::size_t bytes_transferred)
     }
 
     // Timeout on writes only
-    stream_.async_read_some(
-        read_buffer_.prepare(std::max(Tuning::readBufferBytes, hint)),
-        bind_executor(
-            strand_,
-            std::bind(
-                &PeerImp::onReadMessage,
-                shared_from_this(),
-                std::placeholders::_1,
-                std::placeholders::_2)));
+    transport_->async_read_some(
+        toMutableBuffers(
+            read_buffer_.prepare(std::max(Tuning::readBufferBytes, hint))),
+        strand_,
+        std::bind(
+            &PeerImp::onReadMessage,
+            shared_from_this(),
+            std::placeholders::_1,
+            std::placeholders::_2));
 }
 
 void
 PeerImp::onWriteMessage(error_code ec, std::size_t bytes_transferred)
 {
-    if (!socket_.is_open())
+    if (!transport_->is_open())
         return;
     if (ec == boost::asio::error::operation_aborted)
         return;
@@ -983,27 +977,25 @@ PeerImp::onWriteMessage(error_code ec, std::size_t bytes_transferred)
     if (!send_queue_.empty())
     {
         // Timeout on writes only
-        return boost::asio::async_write(
-            stream_,
-            boost::asio::buffer(
-                send_queue_.front()->getBuffer(compressionEnabled_)),
-            bind_executor(
-                strand_,
-                std::bind(
-                    &PeerImp::onWriteMessage,
-                    shared_from_this(),
-                    std::placeholders::_1,
-                    std::placeholders::_2)));
+        return transport_->async_write(
+            toConstBuffers(boost::asio::buffer(
+                send_queue_.front()->getBuffer(compressionEnabled_))),
+            strand_,
+            std::bind(
+                &PeerImp::onWriteMessage,
+                shared_from_this(),
+                std::placeholders::_1,
+                std::placeholders::_2));
     }
 
     if (gracefulClose_)
     {
-        return stream_.async_shutdown(bind_executor(
+        return transport_->async_shutdown(
             strand_,
             std::bind(
                 &PeerImp::onShutdown,
                 shared_from_this(),
-                std::placeholders::_1)));
+                std::placeholders::_1));
     }
 }
 

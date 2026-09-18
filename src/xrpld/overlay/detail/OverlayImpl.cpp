@@ -291,7 +291,7 @@ OverlayImpl::onHandoff(
             publicKey,
             *negotiatedVersion,
             consumer,
-            std::move(stream_ptr),
+            std::make_unique<SslTransport>(std::move(stream_ptr)),
             *this);
         {
             // As we are not on the strand, run() must be called
