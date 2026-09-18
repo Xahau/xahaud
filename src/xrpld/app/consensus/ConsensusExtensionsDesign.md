@@ -660,9 +660,10 @@ gate performs no alignment work and does not hold up the other. With both
 disabled, extensions add no acceptance delay.
 
 Each gate starts and measures its own bounded observation window independently.
-Export can therefore align or expire while RNG is still progressing. Readiness
-is re-evaluated against current peer positions and the ordinary transaction
-set, not latched across changes in those inputs. An export-side convergence
+Export can therefore align or expire while RNG is still progressing. Successful
+alignment is rechecked against current peer positions and the ordinary
+transaction set while the other gate is waiting; an expired Export decision
+remains terminal for the round. An export-side convergence
 failure must not change RNG semantics; an RNG fallback must not make export
 unsafe.
 
