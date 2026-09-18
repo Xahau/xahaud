@@ -571,8 +571,7 @@ PeerImp::close()
     if (transport_->is_open())
     {
         detaching_ = true;  // DEPRECATED
-        error_code ec;
-        timer_.cancel(ec);
+        cancelTimer();
         transport_->close();
         overlay_.incPeerDisconnect();
         if (inbound_)
