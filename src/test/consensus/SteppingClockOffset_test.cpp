@@ -123,8 +123,7 @@ class SteppingClockOffset_test : public beast::unit_test::suite
         std::string offsets;
         for (std::uint32_t i = 0; i < n; ++i)
         {
-            auto const co =
-                net.node(i).app().timeKeeper().closeOffset();
+            auto const co = net.node(i).app().timeKeeper().closeOffset();
             if (co != seconds{0})
                 anyFeedback = true;
             offsets += (i ? "," : "") + std::to_string(co.count()) + "s";
@@ -164,8 +163,7 @@ class SteppingClockOffset_test : public beast::unit_test::suite
         chain.push_back(uint256{1u + firstNoConsensusSeq});
         for (std::uint32_t i = 0; i < n; ++i)
             chain.push_back(uint256{static_cast<std::uint64_t>(
-                1000 +
-                net.node(i).app().timeKeeper().closeOffset().count())});
+                1000 + net.node(i).app().timeKeeper().closeOffset().count())});
         return Payload{std::move(chain)};
     }
 
@@ -175,10 +173,9 @@ class SteppingClockOffset_test : public beast::unit_test::suite
         testcase(
             "rung 1 — ±2s inside the close-time bin: absorbed, feedback "
             "engages, bit-for-bit replay");
-        expectReplays(
-            *this, "absorbed offsets", [this](SteppingNetwork& net) {
-                return runSkewed(net, {0, +1, -1, +2, -2});
-            });
+        expectReplays(*this, "absorbed offsets", [this](SteppingNetwork& net) {
+            return runSkewed(net, {0, +1, -1, +2, -2});
+        });
     }
 
     void
@@ -187,10 +184,9 @@ class SteppingClockOffset_test : public beast::unit_test::suite
         testcase(
             "rung 2 — 0..20s across bins: close-time votes disagree, no "
             "safety loss, bit-for-bit replay");
-        expectReplays(
-            *this, "bin straddle", [this](SteppingNetwork& net) {
-                return runSkewed(net, {0, 5, 10, 15, 20});
-            });
+        expectReplays(*this, "bin straddle", [this](SteppingNetwork& net) {
+            return runSkewed(net, {0, 5, 10, 15, 20});
+        });
     }
 
     void
@@ -200,10 +196,9 @@ class SteppingClockOffset_test : public beast::unit_test::suite
             "rung 2b — 6 nodes 2/2/2 across 0s/10s/20s bins: no close-time "
             "majority, agree-to-disagree fires, no safety loss, bit-for-bit "
             "replay");
-        expectReplays(
-            *this, "no-majority split", [this](SteppingNetwork& net) {
-                return runSkewed(net, {0, 0, 10, 10, 20, 20}, true);
-            });
+        expectReplays(*this, "no-majority split", [this](SteppingNetwork& net) {
+            return runSkewed(net, {0, 0, 10, 10, 20, 20}, true);
+        });
     }
 
 public:

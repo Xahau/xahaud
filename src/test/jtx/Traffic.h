@@ -38,7 +38,8 @@ struct TrafficTx
 makeAccounts(std::size_t n, std::string prefix = "gen-")
 {
     if (n < 2)
-        throw std::logic_error("traffic::makeAccounts: need at least two accounts");
+        throw std::logic_error(
+            "traffic::makeAccounts: need at least two accounts");
 
     std::vector<jtx::Account> accounts;
     accounts.reserve(n);
@@ -79,7 +80,10 @@ struct ThreadedFundOptions
 };
 
 [[nodiscard]] inline bool
-allAccountsValidated(MultiNode& net, std::vector<jtx::Account> const& accounts, std::uint32_t seq)
+allAccountsValidated(
+    MultiNode& net,
+    std::vector<jtx::Account> const& accounts,
+    std::uint32_t seq)
 {
     if (seq == 0)
         return false;
@@ -114,7 +118,9 @@ fundThreaded(
     for (auto const& account : accounts)
     {
         auto const txn = net.submit(
-            node, jtx::pay(jtx::Account::master, account, amount), jtx::Account::master);
+            node,
+            jtx::pay(jtx::Account::master, account, amount),
+            jtx::Account::master);
         if (txn->getResult() != tesSUCCESS)
             throw std::logic_error(
                 "traffic::fundThreaded: pay(" + account.name() +
@@ -129,13 +135,15 @@ fundThreaded(
                 "traffic::fundThreaded: funding did not validate within " +
                 std::to_string(options.maxBeats) + " beats");
 
-        auto const tick = net.threadedTick(options.tickDuration, options.tickOptions);
+        auto const tick =
+            net.threadedTick(options.tickDuration, options.tickOptions);
         ++beats;
         if (options.onTick)
             options.onTick(tick);
 
         if (!net.validatedForkFree())
-            throw std::logic_error("traffic::fundThreaded: validated fork during funding");
+            throw std::logic_error(
+                "traffic::fundThreaded: validated fork during funding");
     }
     return beats;
 }
@@ -143,7 +151,8 @@ fundThreaded(
 // Single-caller contract: the scenario thread serializes payment() and burst().
 // Do not call them concurrently. The accounts managed by a Generator are
 // exclusive to that generator; any out-of-band submit from those accounts will
-// desync the owned sequence book. Rebuilding that book is future growth, not a v1 feature.
+// desync the owned sequence book. Rebuilding that book is future growth, not a
+// v1 feature.
 class Generator
 {
 public:
@@ -172,7 +181,8 @@ public:
         : engine_(seed), accounts_(std::move(accounts))
     {
         if (accounts_.size() < 2)
-            throw std::logic_error("traffic::Generator: need at least two accounts");
+            throw std::logic_error(
+                "traffic::Generator: need at least two accounts");
 
         snapshotSequences(net, snapshotNode);
     }
@@ -193,17 +203,24 @@ public:
     payment(MultiNode& net, std::size_t node, XRPAmount lo, XRPAmount hi)
     {
         if (accounts_.size() < 2)
-            throw std::logic_error("traffic::Generator::payment: need at least two accounts");
+            throw std::logic_error(
+                "traffic::Generator::payment: need at least two accounts");
 
         auto const [srcIndex, dstIndex] = distinctPair();
         return paymentFrom(net, node, srcIndex, dstIndex, lo, hi);
     }
 
     std::vector<TrafficTx>
-    burst(MultiNode& net, std::size_t node, std::size_t count, XRPAmount lo, XRPAmount hi)
+    burst(
+        MultiNode& net,
+        std::size_t node,
+        std::size_t count,
+        XRPAmount lo,
+        XRPAmount hi)
     {
         if (accounts_.size() < 2)
-            throw std::logic_error("traffic::Generator::burst: need at least two accounts");
+            throw std::logic_error(
+                "traffic::Generator::burst: need at least two accounts");
 
         std::vector<TrafficTx> out;
         out.reserve(count);
@@ -228,7 +245,8 @@ public:
                 "traffic::Generator::roundRobinBurst: need at least two "
                 "accounts");
         if (maxPerSource == 0)
-            throw std::logic_error("traffic::Generator::roundRobinBurst: maxPerSource is zero");
+            throw std::logic_error(
+                "traffic::Generator::roundRobinBurst: maxPerSource is zero");
         if (sentBySource.size() != accounts_.size())
             throw std::logic_error(
                 "traffic::Generator::roundRobinBurst: source counter size "
@@ -247,10 +265,17 @@ public:
         out.reserve(count);
         for (std::size_t i = 0; i < count; ++i)
         {
-            auto const srcIndex = nextRoundRobinSource(sentBySource, maxPerSource);
+            auto const srcIndex =
+                nextRoundRobinSource(sentBySource, maxPerSource);
             ++sentBySource[srcIndex];
             out.push_back(paymentFrom(
-                net, node, srcIndex, randomDestination(srcIndex), lo, hi, resultPolicy));
+                net,
+                node,
+                srcIndex,
+                randomDestination(srcIndex),
+                lo,
+                hi,
+                resultPolicy));
         }
         return out;
     }
@@ -277,7 +302,8 @@ private:
         auto const seq = net.minValidated();
         auto const ledger = net.ledger(snapshotNode, seq);
         if (!ledger)
-            throw std::logic_error("traffic::Generator: funding ledger unavailable");
+            throw std::logic_error(
+                "traffic::Generator: funding ledger unavailable");
 
         nextSeq_.clear();
         nextSeq_.reserve(accounts_.size());
@@ -286,7 +312,8 @@ private:
             auto const sle = ledger->read(keylet::account(account.id()));
             if (!sle)
                 throw std::logic_error(
-                    "traffic::Generator: missing funded account " + account.name());
+                    "traffic::Generator: missing funded account " +
+                    account.name());
             nextSeq_.push_back(sle->getFieldU32(sfSequence));
         }
     }
@@ -311,7 +338,9 @@ private:
     }
 
     [[nodiscard]] std::size_t
-    nextRoundRobinSource(std::vector<std::size_t> const& sentBySource, std::size_t maxPerSource)
+    nextRoundRobinSource(
+        std::vector<std::size_t> const& sentBySource,
+        std::size_t maxPerSource)
     {
         auto const n = accounts_.size();
         for (std::size_t i = 0; i < n; ++i)
@@ -323,7 +352,8 @@ private:
                 return src;
             }
         }
-        throw std::logic_error("traffic::Generator::roundRobinBurst: no available source");
+        throw std::logic_error(
+            "traffic::Generator::roundRobinBurst: no available source");
     }
 
     TrafficTx
@@ -351,27 +381,32 @@ private:
         {
             if (!ownsSequence(result))
                 throw std::logic_error(
-                    "traffic::Generator::payment: hard submit result " + transToken(result) +
-                    " for " + src.name() + " sequence " + std::to_string(sequence));
+                    "traffic::Generator::payment: hard submit result " +
+                    transToken(result) + " for " + src.name() + " sequence " +
+                    std::to_string(sequence));
         }
         ++nextSeq_[srcIndex];
-        return TrafficTx{std::move(submitted), id, src, dst, amount, sequence, result};
+        return TrafficTx{
+            std::move(submitted), id, src, dst, amount, sequence, result};
     }
 
     [[nodiscard]] XRPAmount
     randomAmount(XRPAmount lo, XRPAmount hi)
     {
         if (lo.drops() <= 0 || hi.drops() <= 0)
-            throw std::logic_error("traffic::Generator: payment amounts must be positive");
+            throw std::logic_error(
+                "traffic::Generator: payment amounts must be positive");
         if (hi < lo)
-            throw std::logic_error("traffic::Generator: amount high bound is below low bound");
+            throw std::logic_error(
+                "traffic::Generator: amount high bound is below low bound");
 
         auto const loDrops = lo.drops();
         auto const hiDrops = hi.drops();
         auto const span = static_cast<std::uint64_t>(hiDrops - loDrops) + 1;
         if (span == 0)
             throw std::logic_error("traffic::Generator: amount span overflow");
-        return XRPAmount{loDrops + static_cast<XRPAmount::value_type>(engine_() % span)};
+        return XRPAmount{
+            loDrops + static_cast<XRPAmount::value_type>(engine_() % span)};
     }
 };
 

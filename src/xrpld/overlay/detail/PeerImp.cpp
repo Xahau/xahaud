@@ -45,10 +45,10 @@
 
 #include <algorithm>
 #include <memory>
-#include <vector>
 #include <mutex>
 #include <numeric>
 #include <sstream>
+#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -872,16 +872,16 @@ PeerImp::doAccept()
         strand_,
         [this, write_buffer, self = shared_from_this()](
             error_code ec, std::size_t bytes_transferred) {
-                if (!transport_->is_open())
-                    return;
-                if (ec == boost::asio::error::operation_aborted)
-                    return;
-                if (ec)
-                    return fail("onWriteResponse", ec);
-                if (write_buffer->size() == bytes_transferred)
-                    return doProtocolStart();
-                return fail("Failed to write header");
-            });
+            if (!transport_->is_open())
+                return;
+            if (ec == boost::asio::error::operation_aborted)
+                return;
+            if (ec)
+                return fail("onWriteResponse", ec);
+            if (write_buffer->size() == bytes_transferred)
+                return doProtocolStart();
+            return fail("Failed to write header");
+        });
 }
 
 std::string

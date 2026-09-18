@@ -1,18 +1,20 @@
 #pragma once
 //------------------------------------------------------------------------------
-// SimTransport — the in-process sim implementation of ripple::Transport (the §5.1
-// seam). It replaces the production ssl_stream with a deterministic byte pipe so
-// the REAL PeerImp can run with no TCP/TLS. Two endpoints share a SimWire:
-// bytes written by one endpoint become readable by the other, and vice versa.
+// SimTransport — the in-process sim implementation of ripple::Transport (the
+// §5.1 seam). It replaces the production ssl_stream with a deterministic byte
+// pipe so the REAL PeerImp can run with no TCP/TLS. Two endpoints share a
+// SimWire: bytes written by one endpoint become readable by the other, and vice
+// versa.
 //
-// Completions are ALWAYS posted on the supplied executor (never invoked inline),
-// matching asio's contract, and the shared pipe state is mutex-guarded because
-// the two endpoints live on different nodes' io_contexts (different threads).
+// Completions are ALWAYS posted on the supplied executor (never invoked
+// inline), matching asio's contract, and the shared pipe state is mutex-guarded
+// because the two endpoints live on different nodes' io_contexts (different
+// threads).
 //
-// Stage 1 (spec §6/§7): paired with SimOverlay, this lets real PeerImps exchange
-// protocol messages over the bus. makeSharedValue() returns a per-wire constant
-// so both ends agree on the handshake shared value (prod derives it from the TLS
-// session; buildHandshake/verifyHandshake are reused verbatim).
+// Stage 1 (spec §6/§7): paired with SimOverlay, this lets real PeerImps
+// exchange protocol messages over the bus. makeSharedValue() returns a per-wire
+// constant so both ends agree on the handshake shared value (prod derives it
+// from the TLS session; buildHandshake/verifyHandshake are reused verbatim).
 //------------------------------------------------------------------------------
 #include <xrpld/overlay/detail/ProtocolMessage.h>
 #include <xrpld/overlay/detail/Transport.h>
@@ -123,9 +125,7 @@ class SimTransportActivity
     }
 
     static std::atomic<std::uint64_t>&
-    startedCounter(
-        SimTransportPostKind kind,
-        SimTransportActivity& activity)
+    startedCounter(SimTransportPostKind kind, SimTransportActivity& activity)
     {
         switch (kind)
         {
@@ -140,9 +140,7 @@ class SimTransportActivity
     }
 
     static std::atomic<std::uint64_t>&
-    finishedCounter(
-        SimTransportPostKind kind,
-        SimTransportActivity& activity)
+    finishedCounter(SimTransportPostKind kind, SimTransportActivity& activity)
     {
         switch (kind)
         {
@@ -229,10 +227,7 @@ trackedPost(
 
     activity->beginPost(kind);
     boost::asio::post(
-        strand,
-        [activity,
-         kind,
-         h = std::forward<Handler>(handler)]() mutable {
+        strand, [activity, kind, h = std::forward<Handler>(handler)]() mutable {
             struct Finish
             {
                 std::shared_ptr<SimTransportActivity> activity;
@@ -247,8 +242,8 @@ trackedPost(
         });
 }
 
-// One direction of the wire: a byte stream with at most one pending async reader
-// (PeerImp keeps a single async_read_some outstanding).
+// One direction of the wire: a byte stream with at most one pending async
+// reader (PeerImp keeps a single async_read_some outstanding).
 class SimPipe
 {
     mutable std::mutex m_;
@@ -265,17 +260,18 @@ class SimPipe
 
 public:
     // S3.4 — the deterministic-delivery seam. When set (stepping mode), a READY
-    // read completion is routed HERE instead of posted on the reader's strand: the
-    // functor (built in simConnect) captures the shared SteppingController + THIS
-    // reader's nodeId + the link delay and calls scheduleDelivery(), so a delivered
-    // message arrives as a scheduled event (+delay) on the one stepping thread —
-    // clean stack, deterministic order, and the strictly-positive delay breaks the
-    // same-instant ricochet. Null (prod/hybrid) → boost::asio::post, byte-identical.
-    // In stepping mode SimPipe therefore NEVER posts a read completion inline.
-    // The trailing string is DIAGNOSTIC PROVENANCE: the protocol message
-    // name(s) this delivery carries (frame-tracked in writeRaw/drainInto).
-    // It becomes the scheduler event's label — printed by the replay
-    // ladder, never folded into the fingerprint.
+    // read completion is routed HERE instead of posted on the reader's strand:
+    // the functor (built in simConnect) captures the shared SteppingController
+    // + THIS reader's nodeId + the link delay and calls scheduleDelivery(), so
+    // a delivered message arrives as a scheduled event (+delay) on the one
+    // stepping thread — clean stack, deterministic order, and the
+    // strictly-positive delay breaks the same-instant ricochet. Null
+    // (prod/hybrid) → boost::asio::post, byte-identical. In stepping mode
+    // SimPipe therefore NEVER posts a read completion inline. The trailing
+    // string is DIAGNOSTIC PROVENANCE: the protocol message name(s) this
+    // delivery carries (frame-tracked in writeRaw/drainInto). It becomes the
+    // scheduler event's label — printed by the replay ladder, never folded into
+    // the fingerprint.
     using DeliveryRouter = std::function<
         void(Transport::executor_type, std::function<void()>, std::string)>;
 
@@ -299,9 +295,10 @@ private:
     std::deque<std::pair<std::uint16_t, std::size_t>> frames_;
     std::shared_ptr<SimTransportActivity> activity_;
 
-    // Deliver a ready read completion: through the router (stepping) or by posting
-    // on the reader's strand (prod/hybrid). MUST be called with m_ released — the
-    // router enters the scheduler, and post() runs the handler on the strand.
+    // Deliver a ready read completion: through the router (stepping) or by
+    // posting on the reader's strand (prod/hybrid). MUST be called with m_
+    // released — the router enters the scheduler, and post() runs the handler
+    // on the strand.
     void
     deliver(
         Transport::executor_type const& strand,
@@ -359,8 +356,8 @@ private:
 
 public:
     // Install the deterministic-delivery router (stepping mode). Called once at
-    // wiring time, BEFORE any traffic or any PeerImp reads this pipe; a null router
-    // leaves prod/hybrid behaviour (asio post) untouched.
+    // wiring time, BEFORE any traffic or any PeerImp reads this pipe; a null
+    // router leaves prod/hybrid behaviour (asio post) untouched.
     void
     setDeliveryRouter(DeliveryRouter r)
     {
@@ -491,7 +488,9 @@ public:
         auto [n, label] = drainInto(r.buffers);
         lock.unlock();
         deliver(
-            r.strand, [h = std::move(r.handler), n = n]() mutable { h({}, n); }, std::move(label));
+            r.strand,
+            [h = std::move(r.handler), n = n]() mutable { h({}, n); },
+            std::move(label));
         return true;
     }
 
@@ -523,7 +522,7 @@ class SimTransport : public Transport
 {
     Transport::executor_type executor_;  // this node's io_context executor
     std::shared_ptr<SimPipe> rx_;        // this endpoint reads from here
-    std::shared_ptr<SimPipe> tx_;        // this endpoint writes into here (peer's rx)
+    std::shared_ptr<SimPipe> tx_;  // this endpoint writes into here (peer's rx)
     std::shared_ptr<uint256 const> sharedValue_;
     std::shared_ptr<SimTransportActivity> activity_;
     bool open_ = true;
@@ -594,7 +593,8 @@ public:
             strand,
             SimTransportPostKind::write,
             [h = std::move(handler), accepted, total]() mutable {
-                h(accepted ? Transport::error_code{} : boost::asio::error::broken_pipe,
+                h(accepted ? Transport::error_code{}
+                           : boost::asio::error::broken_pipe,
                   accepted ? total : 0);
             });
     }
@@ -625,14 +625,16 @@ public:
     }
 };
 
-// Owns the two directional pipes + the per-wire handshake shared value, and hands
-// out the two paired endpoints. A and B's executors are their respective nodes'.
+// Owns the two directional pipes + the per-wire handshake shared value, and
+// hands out the two paired endpoints. A and B's executors are their respective
+// nodes'.
 //
-// Stateful + SEVERABLE: the SimWire creates and RETAINS the two directional pipes
-// in its ctor, then co-owns them with the SimTransports it hands out (the pipes are
-// shared_ptr). So after the PeerImps are live, a test can call sever() to close the
-// VERY pipe objects those live PeerImps read from — fulfilling each side's single
-// pending async_read_some with EOF and driving a deterministic partition/eclipse.
+// Stateful + SEVERABLE: the SimWire creates and RETAINS the two directional
+// pipes in its ctor, then co-owns them with the SimTransports it hands out (the
+// pipes are shared_ptr). So after the PeerImps are live, a test can call
+// sever() to close the VERY pipe objects those live PeerImps read from —
+// fulfilling each side's single pending async_read_some with EOF and driving a
+// deterministic partition/eclipse.
 class SimWire
 {
     std::shared_ptr<SimPipe> a2b_;  // A writes, B reads
@@ -655,15 +657,17 @@ public:
         std::shared_ptr<SimTransportActivity> activity = {})
     {
         // makeSharedValue()/verifyHandshake reject a zero shared value (a zero
-        // means the two TLS finished-messages hashed identically — a MITM tell).
-        // The sim has no TLS, so guarantee a deterministic NON-ZERO value here.
+        // means the two TLS finished-messages hashed identically — a MITM
+        // tell). The sim has no TLS, so guarantee a deterministic NON-ZERO
+        // value here.
         uint256 nonZero = sharedValue;
         if (nonZero == uint256{})
             nonZero.data()[0] = 1;
         auto sv = std::make_shared<uint256 const>(nonZero);
-        // S3.4 deterministic delivery (stepping mode): A reads from b2a_, B reads
-        // from a2b_, so each reader's completions route through ITS node's router.
-        // Empty routers (prod/hybrid) leave the pipes on the asio-post path.
+        // S3.4 deterministic delivery (stepping mode): A reads from b2a_, B
+        // reads from a2b_, so each reader's completions route through ITS
+        // node's router. Empty routers (prod/hybrid) leave the pipes on the
+        // asio-post path.
         if (routerForA)
             b2a_->setDeliveryRouter(std::move(routerForA));
         if (routerForB)
@@ -726,15 +730,17 @@ public:
     void
     configureDelayedWrites(ScheduleDelayed&& make)
     {
-        // make(nodeSide, pipe) -> DelayedWrite; side A reads b2a_, B reads a2b_.
+        // make(nodeSide, pipe) -> DelayedWrite; side A reads b2a_, B reads
+        // a2b_.
         a2b_->setDelayedWriter(make(/*towardA=*/false, a2b_));
         b2a_->setDelayedWriter(make(/*towardA=*/true, b2a_));
     }
 
-    // Deterministic partition: close BOTH directional pipes. Each close() fulfils
-    // the peer's single pending async_read_some with EOF (boost::asio::error::eof)
-    // -> PeerImp fail()s -> OverlayImpl drops it -> size() decreases on BOTH ends.
-    // Idempotent (SimPipe::close just re-sets closed_).
+    // Deterministic partition: close BOTH directional pipes. Each close()
+    // fulfils the peer's single pending async_read_some with EOF
+    // (boost::asio::error::eof)
+    // -> PeerImp fail()s -> OverlayImpl drops it -> size() decreases on BOTH
+    // ends. Idempotent (SimPipe::close just re-sets closed_).
     void
     sever()
     {

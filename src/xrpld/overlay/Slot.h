@@ -658,8 +658,7 @@ private:
     // to discard duplicate message from the same peer. A message
     // is aged after IDLED seconds. A message received IDLED seconds
     // after it was relayed is ignored by PeerImp.
-    messages peersWithMessage_{
-        beast::get_abstract_clock<clock_type>()};
+    messages peersWithMessage_{beast::get_abstract_clock<clock_type>()};
 };
 
 template <typename clock_type>

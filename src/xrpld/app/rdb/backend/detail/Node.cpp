@@ -297,8 +297,7 @@ saveValidatedLedger(
     }
 
     {
-        boost::format deleteLedger(
-            "DELETE FROM Ledgers WHERE LedgerSeq = %u;");
+        boost::format deleteLedger("DELETE FROM Ledgers WHERE LedgerSeq = %u;");
         boost::format deleteTrans1(
             "DELETE FROM Transactions WHERE LedgerSeq = %u;");
         boost::format deleteTrans2(

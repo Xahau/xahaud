@@ -21,9 +21,9 @@
 #include <test/jtx/SteppingNetwork.h>
 #include <test/jtx/SteppingReplay.h>
 
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 
 #include <cstdint>
 #include <optional>
@@ -63,8 +63,8 @@ class SteppingLargeNet_test : public beast::unit_test::suite
         {
             if (!BEAST_EXPECT(net.validSeq(n) >= 5))
             {
-                log << "  quorum stalled; diagnostics: "
-                    << net.jobDiagnostics() << std::endl;
+                log << "  quorum stalled; diagnostics: " << net.jobDiagnostics()
+                    << std::endl;
                 return std::nullopt;
             }
         }

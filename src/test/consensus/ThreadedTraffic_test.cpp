@@ -1,8 +1,8 @@
 //------------------------------------------------------------------------------
 // ThreadedTraffic -- seeded tx traffic over the threaded virtual-time harness.
 //
-// This is intentionally safety-only: inputs are seeded, but inclusion timing and
-// TxQ/consensus interleavings are real-thread nondeterministic.
+// This is intentionally safety-only: inputs are seeded, but inclusion timing
+// and TxQ/consensus interleavings are real-thread nondeterministic.
 //------------------------------------------------------------------------------
 #include <test/jtx/SteppingNetwork.h>
 #include <test/jtx/Traffic.h>
@@ -11,9 +11,9 @@
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/overlay/Overlay.h>
 
-#include <xrpl/beast/unit_test/suite.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/net/HTTPClientSSLContext.h>
+#include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TER.h>
 
@@ -93,14 +93,16 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     [[nodiscard]] static bool
     defaultGeneratorShape(RunConfig const& config)
     {
-        return config.validators == 3 && config.accounts == 8 && config.burstsPerBeat == 1 &&
-            config.burstSize == 3 && config.maxPerSourcePerBeat == 1 && !config.txqPressure;
+        return config.validators == 3 && config.accounts == 8 &&
+            config.burstsPerBeat == 1 && config.burstSize == 3 &&
+            config.maxPerSourcePerBeat == 1 && !config.txqPressure;
     }
 
     [[nodiscard]] static std::size_t
     maxBurstsPerTargetPerBeat(RunConfig const& config)
     {
-        return (config.burstsPerBeat + config.validators - 1) / config.validators;
+        return (config.burstsPerBeat + config.validators - 1) /
+            config.validators;
     }
 
     [[nodiscard]] static OverlayFactory
@@ -167,7 +169,9 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         std::string v;
         if (auto const pos = a.find("runs="); pos != std::string::npos)
             v = a.substr(pos + 5);
-        else if (!a.empty() && a.find_first_not_of("0123456789") == std::string::npos)
+        else if (
+            !a.empty() &&
+            a.find_first_not_of("0123456789") == std::string::npos)
             v = a;
 
         std::size_t n = 0;
@@ -190,7 +194,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             if (end == std::string::npos)
                 end = a.size();
             auto const eq = a.find('=', start);
-            if (eq != std::string::npos && eq < end && a.compare(start, eq - start, name) == 0)
+            if (eq != std::string::npos && eq < end &&
+                a.compare(start, eq - start, name) == 0)
             {
                 std::size_t n = 0;
                 bool sawDigit = false;
@@ -219,7 +224,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             if (end == std::string::npos)
                 end = a.size();
             auto const eq = a.find('=', start);
-            if (eq != std::string::npos && eq < end && a.compare(start, eq - start, name) == 0)
+            if (eq != std::string::npos && eq < end &&
+                a.compare(start, eq - start, name) == 0)
             {
                 return a.substr(eq + 1, end - eq - 1);
             }
@@ -229,7 +235,9 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     }
 
     void
-    noteSubmitResults(RunOutcome& out, std::vector<traffic::TrafficTx> const& burst)
+    noteSubmitResults(
+        RunOutcome& out,
+        std::vector<traffic::TrafficTx> const& burst)
     {
         for (auto const& r : burst)
             if (r.submitResult == terQUEUED)
@@ -251,7 +259,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             if (metrics.txCount > 0)
                 ++out.queueHitSamples;
             out.maxQueueDepth = std::max(out.maxQueueDepth, metrics.txCount);
-            out.maxOpenLedgerTx = std::max(out.maxOpenLedgerTx, metrics.txInLedger);
+            out.maxOpenLedgerTx =
+                std::max(out.maxOpenLedgerTx, metrics.txInLedger);
         }
     }
 
@@ -261,7 +270,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         auto const view = app.openLedger().current();
         auto const sle = view->read(keylet::account(account.id()));
         if (!sle)
-            throw std::logic_error("ThreadedTraffic accountSeq: missing account root");
+            throw std::logic_error(
+                "ThreadedTraffic accountSeq: missing account root");
         return sle->getFieldU32(sfSequence);
     }
 
@@ -284,7 +294,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         auto current = app.getLedgerMaster().getClosedLedger();
         for (std::size_t i = 0; i < generations; ++i)
         {
-            auto next = std::make_shared<Ledger>(*current, app.timeKeeper().closeTime());
+            auto next = std::make_shared<Ledger>(
+                *current, app.timeKeeper().closeTime());
             next->setImmutable(true);
             current = std::move(next);
         }
@@ -292,7 +303,9 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     }
 
     static void
-    installOpenLedgerParent(Application& app, std::shared_ptr<Ledger const> const& ledger)
+    installOpenLedgerParent(
+        Application& app,
+        std::shared_ptr<Ledger const> const& ledger)
     {
         OrderedTxs locals{uint256{}};
         OrderedTxs retries{uint256{}};
@@ -330,16 +343,20 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     [[nodiscard]] static std::vector<uint256>
     sortedByParentHash(std::vector<uint256> ids, LedgerHash const& parentHash)
     {
-        std::sort(ids.begin(), ids.end(), [&parentHash](uint256 const& a, uint256 const& b) {
-            return (a ^ parentHash) < (b ^ parentHash);
-        });
+        std::sort(
+            ids.begin(),
+            ids.end(),
+            [&parentHash](uint256 const& a, uint256 const& b) {
+                return (a ^ parentHash) < (b ^ parentHash);
+            });
         return ids;
     }
 
     [[nodiscard]] static bool
     sameOrder(std::vector<uint256> const& lhs, std::vector<uint256> const& rhs)
     {
-        return lhs.size() == rhs.size() && std::equal(lhs.begin(), lhs.end(), rhs.begin());
+        return lhs.size() == rhs.size() &&
+            std::equal(lhs.begin(), lhs.end(), rhs.begin());
     }
 
     [[nodiscard]] static std::string
@@ -356,7 +373,10 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     }
 
     [[nodiscard]] static Json::Value
-    sequencedNoop(jtx::Account const& account, std::uint32_t sequence, std::uint64_t feeDrops)
+    sequencedNoop(
+        jtx::Account const& account,
+        std::uint32_t sequence,
+        std::uint64_t feeDrops)
     {
         auto tx = jtx::noop(account);
         tx[jss::Sequence] = sequence;
@@ -372,7 +392,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         std::uint32_t sequence,
         std::uint64_t feeDrops)
     {
-        auto const txn = net.submit(node, sequencedNoop(account, sequence, feeDrops), account);
+        auto const txn = net.submit(
+            node, sequencedNoop(account, sequence, feeDrops), account);
         return txn->getResult();
     }
 
@@ -416,15 +437,18 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     fillOpenLedger(MultiNode& net, std::size_t node)
     {
         auto& app = net[node].app();
-        auto const metrics = app.getTxQ().getMetrics(*app.openLedger().current());
+        auto const metrics =
+            app.getTxQ().getMetrics(*app.openLedger().current());
         auto seq = accountSeq(app, jtx::Account::master);
         auto const fee = baseFeeDrops(app);
         for (std::size_t i = metrics.txInLedger; i <= metrics.txPerLedger; ++i)
         {
-            auto const result = submitSequencedNoop(net, node, jtx::Account::master, seq++, fee);
+            auto const result = submitSequencedNoop(
+                net, node, jtx::Account::master, seq++, fee);
             if (result != tesSUCCESS && result != terQUEUED)
                 throw std::logic_error(
-                    "ThreadedTraffic fillOpenLedger: noop returned " + transToken(result));
+                    "ThreadedTraffic fillOpenLedger: noop returned " +
+                    transToken(result));
         }
     }
 
@@ -435,14 +459,18 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         out.totalDrain += tick.wallElapsed;
         out.maxPolls = std::max(out.maxPolls, tick.polls);
         out.maxQuietStreak = std::max(out.maxQuietStreak, tick.maxQuietStreak);
-        out.maxBufferedBytes = std::max(out.maxBufferedBytes, tick.maxBufferedBytes);
-        out.maxBusyJobQueues = std::max(out.maxBusyJobQueues, tick.maxBusyJobQueues);
+        out.maxBufferedBytes =
+            std::max(out.maxBufferedBytes, tick.maxBufferedBytes);
+        out.maxBusyJobQueues =
+            std::max(out.maxBusyJobQueues, tick.maxBusyJobQueues);
         out.maxSuspended = std::max(out.maxSuspended, tick.maxSuspended);
         out.sawBufferedBytes = out.sawBufferedBytes || tick.sawBufferedBytes;
         out.sawTransportPosts = out.sawTransportPosts || tick.sawTransportPosts;
         out.sawJobWork = out.sawJobWork || tick.sawJobWork;
-        out.readStarted += tick.transportEnd.readStarted - tick.transportStart.readStarted;
-        out.writeStarted += tick.transportEnd.writeStarted - tick.transportStart.writeStarted;
+        out.readStarted +=
+            tick.transportEnd.readStarted - tick.transportStart.readStarted;
+        out.writeStarted +=
+            tick.transportEnd.writeStarted - tick.transportStart.writeStarted;
     }
 
     bool
@@ -466,10 +494,12 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             ok = BEAST_EXPECT(r.tx->getID() == r.id) && ok;
             ok = BEAST_EXPECT(stx->getTransactionID() == r.id) && ok;
             ok = BEAST_EXPECT(stx->getAccountID(sfAccount) == r.src.id()) && ok;
-            ok = BEAST_EXPECT(stx->getAccountID(sfDestination) == r.dst.id()) && ok;
+            ok = BEAST_EXPECT(stx->getAccountID(sfDestination) == r.dst.id()) &&
+                ok;
             ok = BEAST_EXPECT(stx->getFieldU32(sfSequence) == r.sequence) && ok;
             ok = BEAST_EXPECT(
-                     stx->getFieldAmount(sfAmount) == jtx::PrettyAmount{r.amount}.value()) &&
+                     stx->getFieldAmount(sfAmount) ==
+                     jtx::PrettyAmount{r.amount}.value()) &&
                 ok;
 
             auto const [it, inserted] = lastSeq.emplace(r.src.id(), r.sequence);
@@ -483,7 +513,10 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     }
 
     [[nodiscard]] ValidationCheck
-    validatedBy(MultiNode& net, std::vector<traffic::TrafficTx> const& records, std::uint32_t seq)
+    validatedBy(
+        MultiNode& net,
+        std::vector<traffic::TrafficTx> const& records,
+        std::uint32_t seq)
     {
         std::set<uint256> remaining;
         for (auto const& r : records)
@@ -522,28 +555,34 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         for (auto const& account : accounts)
         {
             auto const txn = net.submit(
-                node, jtx::pay(jtx::Account::master, account, amount), jtx::Account::master);
+                node,
+                jtx::pay(jtx::Account::master, account, amount),
+                jtx::Account::master);
             if (txn->getResult() != tesSUCCESS)
                 throw std::logic_error(
                     "fundThreadedSerial: pay(" + account.name() +
                     ") not applied: " + transToken(txn->getResult()));
 
             funded.push_back(account);
-            while (!traffic::allAccountsValidated(net, funded, net.minValidated()))
+            while (
+                !traffic::allAccountsValidated(net, funded, net.minValidated()))
             {
                 if (beats >= config.maxFundingBeats)
                     throw std::logic_error(
                         "fundThreadedSerial: funding did not validate within " +
                         std::to_string(config.maxFundingBeats) + " beats");
 
-                auto const tick = net.threadedTick(std::chrono::seconds{1}, tickOptions);
+                auto const tick =
+                    net.threadedTick(std::chrono::seconds{1}, tickOptions);
                 noteTick(out, tick);
                 ++beats;
 
                 if (out.totalDrain > runTotalTimeout)
-                    throw std::logic_error("fundThreadedSerial: funding drain budget exceeded");
+                    throw std::logic_error(
+                        "fundThreadedSerial: funding drain budget exceeded");
                 if (!net.validatedForkFree())
-                    throw std::logic_error("fundThreadedSerial: validated fork during funding");
+                    throw std::logic_error(
+                        "fundThreadedSerial: validated fork during funding");
             }
         }
         return beats;
@@ -554,7 +593,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     {
         auto const activity = net.simActivitySnapshot();
         log << "  " << label << ": pipeBytes=" << net.simBufferedBytes()
-            << " posts=" << activity.inFlightPosts << " epoch=" << activity.epoch << " seqs=[";
+            << " posts=" << activity.inFlightPosts
+            << " epoch=" << activity.epoch << " seqs=[";
         char const* sep = "";
         for (std::uint32_t i = 0; i < net.size(); ++i)
         {
@@ -563,9 +603,11 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             auto& jq = net[i].app().getJobQueue();
             auto const view = net[i].app().openLedger().current();
             auto const metrics = net[i].app().getTxQ().getMetrics(*view);
-            log << sep << "n" << i << "{closed=" << net.closedSeq(i) << ",valid=" << net.validSeq(i)
+            log << sep << "n" << i << "{closed=" << net.closedSeq(i)
+                << ",valid=" << net.validSeq(i)
                 << ",idle=" << (jq.isIdle() ? "true" : "false")
-                << ",suspended=" << jq.suspendedCount() << ",queue=" << metrics.txCount
+                << ",suspended=" << jq.suspendedCount()
+                << ",queue=" << metrics.txCount
                 << ",openTx=" << metrics.txInLedger << "}";
             sep = ",";
         }
@@ -589,12 +631,14 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         unl.reserve(config.validators);
         for (std::size_t i = 0; i < config.validators; ++i)
         {
-            keys.push_back(ValidatorKey::fromPassphrase("threaded-traffic-" + std::to_string(i)));
+            keys.push_back(ValidatorKey::fromPassphrase(
+                "threaded-traffic-" + std::to_string(i)));
             unl.push_back(keys.back().pubKey);
         }
 
         auto factory = simOverlayFactory();
-        auto configHook = config.txqPressure ? txqPressureConfigHook() : ConfigHook{};
+        auto configHook =
+            config.txqPressure ? txqPressureConfigHook() : ConfigHook{};
         for (auto const& key : keys)
             net.add(
                 TrustConfig{key.seed, unl},
@@ -641,7 +685,14 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             if (config.txqPressure)
             {
                 out.fundingBeats = fundThreadedSerial(
-                    net, 0, accounts, jtx::XRP(1000), config, tickOptions, out, runTotalTimeout);
+                    net,
+                    0,
+                    accounts,
+                    jtx::XRP(1000),
+                    config,
+                    tickOptions,
+                    out,
+                    runTotalTimeout);
             }
             else
             {
@@ -651,14 +702,16 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                 fundOptions.onTick = [&](auto const& tick) {
                     noteTick(out, tick);
                     if (out.totalDrain > runTotalTimeout)
-                        throw std::logic_error("threaded traffic funding drain budget exceeded");
+                        throw std::logic_error(
+                            "threaded traffic funding drain budget exceeded");
                 };
-                out.fundingBeats =
-                    traffic::fundThreaded(net, 0, accounts, jtx::XRP(1000), fundOptions);
+                out.fundingBeats = traffic::fundThreaded(
+                    net, 0, accounts, jtx::XRP(1000), fundOptions);
             }
 
             std::vector<traffic::TrafficTx> records;
-            records.reserve(config.trafficBeats * config.burstsPerBeat * config.burstSize);
+            records.reserve(
+                config.trafficBeats * config.burstsPerBeat * config.burstSize);
             RunOutcome trafficActivity;
             std::set<std::size_t> targetNodes;
 
@@ -682,14 +735,20 @@ class ThreadedTraffic_test : public beast::unit_test::suite
 
             if (defaultGeneratorShape(config))
             {
-                traffic::Generator gen(net, 0, std::move(accounts), kTrafficSeed + run);
+                traffic::Generator gen(
+                    net, 0, std::move(accounts), kTrafficSeed + run);
 
                 for (std::size_t beat = 0; beat < config.trafficBeats; ++beat)
                 {
-                    auto const target = (beat * config.burstsPerBeat) % net.size();
+                    auto const target =
+                        (beat * config.burstsPerBeat) % net.size();
                     targetNodes.insert(target);
                     auto burst = gen.burst(
-                        net, target, config.burstSize, XRPAmount{10}, XRPAmount{1'000'000});
+                        net,
+                        target,
+                        config.burstSize,
+                        XRPAmount{10},
+                        XRPAmount{1'000'000});
                     noteSubmitResults(out, burst);
                     records.insert(records.end(), burst.begin(), burst.end());
 
@@ -704,20 +763,23 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                 for (std::size_t target = 0; target < net.size(); ++target)
                 {
                     std::vector<jtx::Account> group;
-                    for (std::size_t i = target; i < accounts.size(); i += net.size())
+                    for (std::size_t i = target; i < accounts.size();
+                         i += net.size())
                     {
                         group.push_back(accounts[i]);
                     }
-                    generators.push_back(
-                        std::make_unique<traffic::Generator>(
-                            net,
-                            0,
-                            std::move(group),
-                            kTrafficSeed + run + (target + 1) * 0x9E3779B97F4A7C15ull));
+                    generators.push_back(std::make_unique<traffic::Generator>(
+                        net,
+                        0,
+                        std::move(group),
+                        kTrafficSeed + run +
+                            (target + 1) * 0x9E3779B97F4A7C15ull));
                 }
 
-                using SubmitResultPolicy = traffic::Generator::SubmitResultPolicy;
-                auto constexpr deferSubmitResult = SubmitResultPolicy::DeferToValidatedLedger;
+                using SubmitResultPolicy =
+                    traffic::Generator::SubmitResultPolicy;
+                auto constexpr deferSubmitResult =
+                    SubmitResultPolicy::DeferToValidatedLedger;
                 auto const sourceLimit = config.maxPerSourcePerBeat;
                 for (std::size_t beat = 0; beat < config.trafficBeats; ++beat)
                 {
@@ -726,10 +788,13 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                     for (auto const& generator : generators)
                         sentByTarget.emplace_back(generator->size(), 0);
 
-                    for (std::size_t burstIndex = 0; burstIndex < config.burstsPerBeat;
+                    for (std::size_t burstIndex = 0;
+                         burstIndex < config.burstsPerBeat;
                          ++burstIndex)
                     {
-                        auto const target = (beat * config.burstsPerBeat + burstIndex) % net.size();
+                        auto const target =
+                            (beat * config.burstsPerBeat + burstIndex) %
+                            net.size();
                         targetNodes.insert(target);
                         // The scaled threaded path stresses async TxQ and
                         // held-tx retries. Transaction::result_ is mutable
@@ -746,7 +811,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                             sourceLimit,
                             deferSubmitResult);
                         noteSubmitResults(out, burst);
-                        records.insert(records.end(), burst.begin(), burst.end());
+                        records.insert(
+                            records.end(), burst.begin(), burst.end());
                         if (config.txqPressure)
                             noteTxQMetrics(net, out);
                     }
@@ -760,7 +826,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
 
             while (out.scenarioBeats < config.maxScenarioBeats)
             {
-                auto const check = validatedBy(net, records, net.minValidated());
+                auto const check =
+                    validatedBy(net, records, net.minValidated());
                 if (check.allPresent)
                     break;
 
@@ -789,7 +856,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             if (!BEAST_EXPECT(check.allPresent))
             {
                 log << "  run " << run << ": " << check.remaining
-                    << " generated transactions not validated by seq " << out.finalSeq << std::endl;
+                    << " generated transactions not validated by seq "
+                    << out.finalSeq << std::endl;
                 logThreadedState(net, "missing traffic");
                 return std::nullopt;
             }
@@ -810,13 +878,15 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             if (config.txqPressure)
             {
                 if (!BEAST_EXPECTS(
-                        out.queuedSubmits > 0, "txq pressure mode must observe terQUEUED submits"))
+                        out.queuedSubmits > 0,
+                        "txq pressure mode must observe terQUEUED submits"))
                 {
                     logThreadedState(net, "txq pressure no terQUEUED");
                     return std::nullopt;
                 }
                 if (!BEAST_EXPECTS(
-                        out.maxQueueDepth > 0, "txq pressure mode must sample non-empty TxQ depth"))
+                        out.maxQueueDepth > 0,
+                        "txq pressure mode must sample non-empty TxQ depth"))
                 {
                     logThreadedState(net, "txq pressure no queue depth");
                     return std::nullopt;
@@ -824,8 +894,9 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             }
             if (!BEAST_EXPECT(targetNodes.size() == net.size()))
             {
-                log << "  run " << run << ": traffic targeted " << targetNodes.size() << "/"
-                    << net.size() << " nodes" << std::endl;
+                log << "  run " << run << ": traffic targeted "
+                    << targetNodes.size() << "/" << net.size() << " nodes"
+                    << std::endl;
                 return std::nullopt;
             }
 
@@ -835,11 +906,16 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             out.trafficReadStarted = trafficActivity.readStarted;
             out.trafficWriteStarted = trafficActivity.writeStarted;
             bool trafficActivityOk = true;
-            trafficActivityOk = BEAST_EXPECT(out.trafficSawBufferedBytes) && trafficActivityOk;
-            trafficActivityOk = BEAST_EXPECT(out.trafficSawTransportPosts) && trafficActivityOk;
-            trafficActivityOk = BEAST_EXPECT(out.trafficSawJobWork) && trafficActivityOk;
-            trafficActivityOk = BEAST_EXPECT(out.trafficReadStarted > 0) && trafficActivityOk;
-            trafficActivityOk = BEAST_EXPECT(out.trafficWriteStarted > 0) && trafficActivityOk;
+            trafficActivityOk =
+                BEAST_EXPECT(out.trafficSawBufferedBytes) && trafficActivityOk;
+            trafficActivityOk =
+                BEAST_EXPECT(out.trafficSawTransportPosts) && trafficActivityOk;
+            trafficActivityOk =
+                BEAST_EXPECT(out.trafficSawJobWork) && trafficActivityOk;
+            trafficActivityOk =
+                BEAST_EXPECT(out.trafficReadStarted > 0) && trafficActivityOk;
+            trafficActivityOk =
+                BEAST_EXPECT(out.trafficWriteStarted > 0) && trafficActivityOk;
             if (!trafficActivityOk)
             {
                 logThreadedState(net, "traffic activity failure");
@@ -848,7 +924,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
 
             auto const activity = net.simActivitySnapshot();
             out.maxBufferedBytes = std::max<std::size_t>(
-                out.maxBufferedBytes, static_cast<std::size_t>(activity.maxBufferedBytes));
+                out.maxBufferedBytes,
+                static_cast<std::size_t>(activity.maxBufferedBytes));
 
             BEAST_EXPECT(net.simBufferedBytes() == 0);
             BEAST_EXPECT(activity.inFlightPosts == 0);
@@ -856,7 +933,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         }
         catch (std::exception const& e)
         {
-            log << "  run " << run << " threaded traffic exception: " << e.what() << std::endl;
+            log << "  run " << run
+                << " threaded traffic exception: " << e.what() << std::endl;
             logThreadedState(net, "exception");
             BEAST_EXPECT(false);
             return std::nullopt;
@@ -867,7 +945,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     testTxQParentHashCompRung0()
     {
         testcase(
-            "TxQ parentHashComp raw MultiNode control without consensus ticking or RPC fibers");
+            "TxQ parentHashComp raw MultiNode control without consensus "
+            "ticking or RPC fibers");
 
         using namespace std::chrono;
 
@@ -881,7 +960,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         unl.reserve(2);
         for (std::size_t i = 0; i < 2; ++i)
         {
-            keys.push_back(ValidatorKey::fromPassphrase("txq-parenthashcomp-" + std::to_string(i)));
+            keys.push_back(ValidatorKey::fromPassphrase(
+                "txq-parenthashcomp-" + std::to_string(i)));
             unl.push_back(keys.back().pubKey);
         }
 
@@ -897,35 +977,44 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(net.allUp()))
             return;
 
-        if (!BEAST_EXPECTS(iterations > 1, "txqParentHashComp iterations must be greater than 1"))
+        if (!BEAST_EXPECTS(
+                iterations > 1,
+                "txqParentHashComp iterations must be greater than 1"))
             return;
 
         static constexpr std::size_t readerPreseed = 1;
-        auto const writerAccounts = makeTxQAccounts("txq-rung0-multinode-writer-", 16);
-        auto const readerAccounts =
-            makeTxQAccounts("txq-rung0-multinode-reader-", iterations + readerPreseed);
+        auto const writerAccounts =
+            makeTxQAccounts("txq-rung0-multinode-writer-", 16);
+        auto const readerAccounts = makeTxQAccounts(
+            "txq-rung0-multinode-reader-", iterations + readerPreseed);
         try
         {
-            seedAccountRoots(net, 0, writerAccounts, XRPAmount{50'000'000'000'000});
-            seedAccountRoots(net, 1, readerAccounts, XRPAmount{50'000'000'000'000});
+            seedAccountRoots(
+                net, 0, writerAccounts, XRPAmount{50'000'000'000'000});
+            seedAccountRoots(
+                net, 1, readerAccounts, XRPAmount{50'000'000'000'000});
             fillOpenLedger(net, 0);
             fillOpenLedger(net, 1);
 
             auto const writerFee = baseFeeDrops(net[0].app()) * 10;
             for (auto const& account : writerAccounts)
             {
-                auto const result = submitSequencedNoop(net, 0, account, 1, writerFee);
+                auto const result =
+                    submitSequencedNoop(net, 0, account, 1, writerFee);
                 if (!BEAST_EXPECTS(
-                        result == terQUEUED, "writer setup submit returned " + transToken(result)))
+                        result == terQUEUED,
+                        "writer setup submit returned " + transToken(result)))
                     return;
             }
 
             // Seed one same-fee reader candidate so later inserts must compare
             // against an existing byFee_ entry instead of growing an empty set.
             auto const readerFee = baseFeeDrops(net[1].app()) * 10;
-            auto const result = submitSequencedNoop(net, 1, readerAccounts.front(), 1, readerFee);
+            auto const result = submitSequencedNoop(
+                net, 1, readerAccounts.front(), 1, readerFee);
             if (!BEAST_EXPECTS(
-                    result == terQUEUED, "reader preseed submit returned " + transToken(result)))
+                    result == terQUEUED,
+                    "reader preseed submit returned " + transToken(result)))
                 return;
         }
         catch (std::exception const& e)
@@ -935,9 +1024,17 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         }
 
         auto const writerQueueBefore =
-            net[0].app().getTxQ().getMetrics(*net[0].app().openLedger().current()).txCount;
+            net[0]
+                .app()
+                .getTxQ()
+                .getMetrics(*net[0].app().openLedger().current())
+                .txCount;
         auto const readerQueueBefore =
-            net[1].app().getTxQ().getMetrics(*net[1].app().openLedger().current()).txCount;
+            net[1]
+                .app()
+                .getTxQ()
+                .getMetrics(*net[1].app().openLedger().current())
+                .txCount;
         auto const writerParentHash = openLedgerParentHash(net[0].app());
         auto const readerParentHash = openLedgerParentHash(net[1].app());
 
@@ -976,10 +1073,11 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                 while (!stop.load(relaxed))
                 {
                     auto changed = false;
-                    app.openLedger().modify([&](OpenView& view, beast::Journal) {
-                        changed = app.getTxQ().accept(app, view);
-                        return changed;
-                    });
+                    app.openLedger().modify(
+                        [&](OpenView& view, beast::Journal) {
+                            changed = app.getTxQ().accept(app, view);
+                            return changed;
+                        });
                     acceptCalls.fetch_add(1, relaxed);
                     if (changed)
                         acceptChanged.fetch_add(1, relaxed);
@@ -1010,10 +1108,11 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                     std::this_thread::yield();
 
                 insertActive.store(true, relaxed);
-                for (std::size_t i = 0; i < iterations && !stop.load(relaxed); ++i)
+                for (std::size_t i = 0; i < iterations && !stop.load(relaxed);
+                     ++i)
                 {
-                    auto const result =
-                        submitSequencedNoop(net, 1, readerAccounts[i + readerPreseed], 1, fee);
+                    auto const result = submitSequencedNoop(
+                        net, 1, readerAccounts[i + readerPreseed], 1, fee);
                     if (result == terQUEUED)
                     {
                         queuedSubmits.fetch_add(1, relaxed);
@@ -1021,7 +1120,9 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                     else
                     {
                         unexpectedSubmits.fetch_add(1, relaxed);
-                        recordError("insert thread: submit returned " + transToken(result));
+                        recordError(
+                            "insert thread: submit returned " +
+                            transToken(result));
                         break;
                     }
                     if ((i & 0x3f) == 0)
@@ -1047,26 +1148,29 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         stop.store(true, relaxed);
         acceptThread.join();
 
-        auto const elapsed = duration_cast<milliseconds>(steady_clock::now() - t0).count();
-        auto const writerMetrics =
-            net[0].app().getTxQ().getMetrics(*net[0].app().openLedger().current());
-        auto const readerMetrics =
-            net[1].app().getTxQ().getMetrics(*net[1].app().openLedger().current());
+        auto const elapsed =
+            duration_cast<milliseconds>(steady_clock::now() - t0).count();
+        auto const writerMetrics = net[0].app().getTxQ().getMetrics(
+            *net[0].app().openLedger().current());
+        auto const readerMetrics = net[1].app().getTxQ().getMetrics(
+            *net[1].app().openLedger().current());
 
-        std::cout << "  txq-parenthashcomp rung=0 multinode iterations=" << iterations
-                  << " readerPreseed=" << readerPreseed
+        std::cout << "  txq-parenthashcomp rung=0 multinode iterations="
+                  << iterations << " readerPreseed=" << readerPreseed
                   << " queuedSubmits=" << queuedSubmits.load(relaxed)
                   << " unexpectedSubmits=" << unexpectedSubmits.load(relaxed)
                   << " acceptCalls=" << acceptCalls.load(relaxed)
                   << " acceptChanged=" << acceptChanged.load(relaxed)
                   << " acceptDuringInsert=" << acceptDuringInsert.load(relaxed)
-                  << " acceptDuringQueuedInserts=" << acceptDuringQueuedInserts.load(relaxed)
+                  << " acceptDuringQueuedInserts="
+                  << acceptDuringQueuedInserts.load(relaxed)
                   << " writerQueueBefore=" << writerQueueBefore
                   << " readerQueueBefore=" << readerQueueBefore
                   << " writerQueue=" << writerMetrics.txCount
                   << " readerQueue=" << readerMetrics.txCount
                   << " writerParentHash=" << to_string(writerParentHash)
-                  << " readerParentHash=" << to_string(readerParentHash) << " parentHashesEqual="
+                  << " readerParentHash=" << to_string(readerParentHash)
+                  << " parentHashesEqual="
                   << (writerParentHash == readerParentHash ? "true" : "false")
                   << " elapsedMs=" << elapsed << std::endl;
 
@@ -1085,7 +1189,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     void
     testTxQParentHashCompSteppingOracle()
     {
-        testcase("TxQ parentHashComp deterministic stepping queue-order oracle");
+        testcase(
+            "TxQ parentHashComp deterministic stepping queue-order oracle");
 
         constexpr std::size_t readerPreseed = 2;
         constexpr std::size_t maxProbeInserts = 64;
@@ -1107,7 +1212,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         // Deterministically diverge the two real open-ledger parent hashes
         // without exposing TxQ internals. OpenLedger::accept is the production
         // path NetworkOPs uses after accepting a new LCL; the test supplies the
-        // closed descendants directly so no consensus scheduling luck is involved.
+        // closed descendants directly so no consensus scheduling luck is
+        // involved.
         auto const writerClosed = makeClosedDescendant(net[0].app(), 1);
         auto const readerClosed = makeClosedDescendant(net[1].app(), 2);
         installOpenLedgerParent(net[0].app(), writerClosed);
@@ -1118,11 +1224,12 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(writerParentHash != readerParentHash))
             return;
 
-        auto const readerAccounts =
-            makeTxQAccounts("txq-oracle-reader-", readerPreseed + maxProbeInserts);
+        auto const readerAccounts = makeTxQAccounts(
+            "txq-oracle-reader-", readerPreseed + maxProbeInserts);
         try
         {
-            seedAccountRoots(net, 1, readerAccounts, XRPAmount{50'000'000'000'000});
+            seedAccountRoots(
+                net, 1, readerAccounts, XRPAmount{50'000'000'000'000});
             fillOpenLedger(net, 1);
         }
         catch (std::exception const& e)
@@ -1135,16 +1242,19 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         repopulateTxQWithOpenLedgerParent(net[1].app());
         for (std::size_t i = 0; i < readerPreseed; ++i)
         {
-            auto const result = submitSequencedNoop(net, 1, readerAccounts[i], 1, readerFee);
+            auto const result =
+                submitSequencedNoop(net, 1, readerAccounts[i], 1, readerFee);
             if (!BEAST_EXPECTS(
-                    result == terQUEUED, "reader preseed submit returned " + transToken(result)))
+                    result == terQUEUED,
+                    "reader preseed submit returned " + transToken(result)))
                 return;
         }
 
         auto before = queuedTxIds(net[1].app());
         if (!BEAST_EXPECT(before.size() == readerPreseed))
             return;
-        if (!BEAST_EXPECT(sameOrder(before, sortedByParentHash(before, readerParentHash))))
+        if (!BEAST_EXPECT(sameOrder(
+                before, sortedByParentHash(before, readerParentHash))))
             return;
 
         // Regression trigger: before issue 017's fix, a different TxQ instance
@@ -1161,29 +1271,39 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         for (; probeInserts < maxProbeInserts;)
         {
             auto const result = submitSequencedNoop(
-                net, 1, readerAccounts[readerPreseed + probeInserts], 1, readerFee);
+                net,
+                1,
+                readerAccounts[readerPreseed + probeInserts],
+                1,
+                readerFee);
             if (!BEAST_EXPECTS(
-                    result == terQUEUED, "reader probe submit returned " + transToken(result)))
+                    result == terQUEUED,
+                    "reader probe submit returned " + transToken(result)))
                 return;
             ++probeInserts;
 
             observed = queuedTxIds(net[1].app());
             expected = sortedByParentHash(observed, readerParentHash);
             wrongSaltOrder = sortedByParentHash(observed, writerParentHash);
-            wrongSaltDiverged = wrongSaltDiverged || !sameOrder(expected, wrongSaltOrder);
+            wrongSaltDiverged =
+                wrongSaltDiverged || !sameOrder(expected, wrongSaltOrder);
             if (!sameOrder(observed, expected))
                 break;
         }
 
-        log << "  txq-parenthashcomp oracle writerParentHash=" << to_string(writerParentHash)
-            << " readerParentHash=" << to_string(readerParentHash) << " preseed=" << readerPreseed
-            << " probeInserts=" << probeInserts << " queueSize=" << observed.size() << " observed=["
-            << shortIds(observed) << "] expectedReaderSalt=[" << shortIds(expected)
-            << "] expectedWriterSalt=[" << shortIds(wrongSaltOrder) << "]" << std::endl;
+        log << "  txq-parenthashcomp oracle writerParentHash="
+            << to_string(writerParentHash)
+            << " readerParentHash=" << to_string(readerParentHash)
+            << " preseed=" << readerPreseed << " probeInserts=" << probeInserts
+            << " queueSize=" << observed.size() << " observed=["
+            << shortIds(observed) << "] expectedReaderSalt=["
+            << shortIds(expected) << "] expectedWriterSalt=["
+            << shortIds(wrongSaltOrder) << "]" << std::endl;
 
         BEAST_EXPECTS(
             wrongSaltDiverged,
-            "TxQ parent-hash oracle sample did not distinguish reader and writer salts");
+            "TxQ parent-hash oracle sample did not distinguish reader and "
+            "writer salts");
         BEAST_EXPECTS(
             sameOrder(observed, expected),
             "TxQ byFee_ order changed after another TxQ instance rewrote the "
@@ -1199,7 +1319,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         constexpr bool secondNodePolicy = false;
         if (!BEAST_EXPECTS(
                 firstNodePolicy != secondNodePolicy,
-                "gHttpClientSslContext oracle requires divergent node policies"))
+                "gHttpClientSslContext oracle requires divergent node "
+                "policies"))
             return;
 
         MultiNode net(*this, /*virtualClock=*/true, /*stepping=*/true);
@@ -1214,10 +1335,12 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(net.allUp()))
             return;
 
-        auto const node0AfterFirstBoot = net[0].app().getHTTPClientSSLContext().sslVerify();
+        auto const node0AfterFirstBoot =
+            net[0].app().getHTTPClientSSLContext().sslVerify();
         if (!BEAST_EXPECTS(
                 node0AfterFirstBoot == firstNodePolicy,
-                "node0 HTTP client SSL context reflects node0 policy after node0 boot"))
+                "node0 HTTP client SSL context reflects node0 policy after "
+                "node0 boot"))
             return;
 
         net.add(
@@ -1229,10 +1352,13 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(net.allUp()))
             return;
 
-        auto const node0AfterSecondBoot = net[0].app().getHTTPClientSSLContext().sslVerify();
-        auto const node1AfterSecondBoot = net[1].app().getHTTPClientSSLContext().sslVerify();
+        auto const node0AfterSecondBoot =
+            net[0].app().getHTTPClientSSLContext().sslVerify();
+        auto const node1AfterSecondBoot =
+            net[1].app().getHTTPClientSSLContext().sslVerify();
 
-        log << "  ghttpclientsslcontext oracle node0Intended=" << yesno(firstNodePolicy)
+        log << "  ghttpclientsslcontext oracle node0Intended="
+            << yesno(firstNodePolicy)
             << " node1Intended=" << yesno(secondNodePolicy)
             << " node0AfterNode0=" << yesno(node0AfterFirstBoot)
             << " node0AfterNode1=" << yesno(node0AfterSecondBoot)
@@ -1257,10 +1383,11 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         auto const runs = runsArg(/*fallback=*/3);
         auto const mode = stringArg("mode", "seeded");
         testcase(
-            mode == "txqPressure" ? "threaded traffic: TxQ pressure validates queued chained "
-                                    "bursts under real worker interleavings"
-                                  : "threaded traffic: seeded bursts validate under real worker "
-                                    "interleavings");
+            mode == "txqPressure"
+                ? "threaded traffic: TxQ pressure validates queued chained "
+                  "bursts under real worker interleavings"
+                : "threaded traffic: seeded bursts validate under real worker "
+                  "interleavings");
 
         RunConfig config;
         if (mode == "txqPressure")
@@ -1274,7 +1401,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             config.maxPerSourcePerBeat = 2;
         }
         else if (!BEAST_EXPECTS(
-                     mode == "seeded", "ThreadedTraffic mode must be seeded or txqPressure"))
+                     mode == "seeded",
+                     "ThreadedTraffic mode must be seeded or txqPressure"))
         {
             return;
         }
@@ -1282,25 +1410,34 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         config.validators = sizeArg("validators", config.validators);
         config.accounts = sizeArg("population", config.accounts);
         config.accounts = sizeArg("accounts", config.accounts);
-        config.formationTarget =
-            static_cast<std::uint32_t>(sizeArg("formationTarget", config.formationTarget));
-        config.maxFormationBeats = sizeArg("maxFormationBeats", config.maxFormationBeats);
-        config.maxFundingBeats = sizeArg("maxFundingBeats", config.maxFundingBeats);
-        config.maxScenarioBeats = sizeArg("maxScenarioBeats", config.maxScenarioBeats);
+        config.formationTarget = static_cast<std::uint32_t>(
+            sizeArg("formationTarget", config.formationTarget));
+        config.maxFormationBeats =
+            sizeArg("maxFormationBeats", config.maxFormationBeats);
+        config.maxFundingBeats =
+            sizeArg("maxFundingBeats", config.maxFundingBeats);
+        config.maxScenarioBeats =
+            sizeArg("maxScenarioBeats", config.maxScenarioBeats);
         config.trafficBeats = sizeArg("beats", config.trafficBeats);
         config.trafficBeats = sizeArg("trafficBeats", config.trafficBeats);
         config.burstsPerBeat = sizeArg("bursts", config.burstsPerBeat);
         config.burstsPerBeat = sizeArg("burstsPerBeat", config.burstsPerBeat);
         config.burstSize = sizeArg("burstSize", config.burstSize);
-        config.maxPerSourcePerBeat = sizeArg("chainLength", config.maxPerSourcePerBeat);
-        config.maxPerSourcePerBeat = sizeArg("maxPerSource", config.maxPerSourcePerBeat);
+        config.maxPerSourcePerBeat =
+            sizeArg("chainLength", config.maxPerSourcePerBeat);
+        config.maxPerSourcePerBeat =
+            sizeArg("maxPerSource", config.maxPerSourcePerBeat);
 
-        if (!BEAST_EXPECTS(config.validators >= 2, "ThreadedTraffic requires validators >= 2"))
-            return;
-        if (!BEAST_EXPECTS(config.accounts >= 2, "ThreadedTraffic requires accounts >= 2"))
+        if (!BEAST_EXPECTS(
+                config.validators >= 2,
+                "ThreadedTraffic requires validators >= 2"))
             return;
         if (!BEAST_EXPECTS(
-                config.formationTarget > 0, "ThreadedTraffic requires formationTarget > 0"))
+                config.accounts >= 2, "ThreadedTraffic requires accounts >= 2"))
+            return;
+        if (!BEAST_EXPECTS(
+                config.formationTarget > 0,
+                "ThreadedTraffic requires formationTarget > 0"))
             return;
         if (!BEAST_EXPECTS(
                 config.maxFormationBeats > 0 && config.maxFundingBeats > 0 &&
@@ -1308,8 +1445,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                 "ThreadedTraffic requires positive beat budgets"))
             return;
         if (!BEAST_EXPECTS(
-                config.trafficBeats > 0 && config.burstsPerBeat > 0 && config.burstSize > 0 &&
-                    config.maxPerSourcePerBeat > 0,
+                config.trafficBeats > 0 && config.burstsPerBeat > 0 &&
+                    config.burstSize > 0 && config.maxPerSourcePerBeat > 0,
                 "ThreadedTraffic requires positive traffic shape"))
             return;
         if (!BEAST_EXPECTS(
@@ -1328,11 +1465,13 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                     "per validator"))
                 return;
 
-            auto const minAccountsPerTarget = config.accounts / config.validators;
+            auto const minAccountsPerTarget =
+                config.accounts / config.validators;
             auto const maxPaymentsPerTargetBeat =
                 maxBurstsPerTargetPerBeat(config) * config.burstSize;
             if (!BEAST_EXPECTS(
-                    maxPaymentsPerTargetBeat <= minAccountsPerTarget * config.maxPerSourcePerBeat,
+                    maxPaymentsPerTargetBeat <=
+                        minAccountsPerTarget * config.maxPerSourcePerBeat,
                     "Scaled ThreadedTraffic burst shape exceeds per-target "
                     "account pool"))
                 return;
@@ -1341,15 +1480,19 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         MultiNode::ThreadedTickOptions options;
         options.quietPolls = 3;
         options.pollInterval = 1ms;
-        options.stallTimeout = std::chrono::milliseconds{sizeArg("stallMs", 30000)};
-        options.totalTimeout = std::chrono::milliseconds{sizeArg("totalMs", 30000)};
-        auto const runTotalTimeout = std::chrono::milliseconds{sizeArg("runTotalMs", 30000)};
+        options.stallTimeout =
+            std::chrono::milliseconds{sizeArg("stallMs", 30000)};
+        options.totalTimeout =
+            std::chrono::milliseconds{sizeArg("totalMs", 30000)};
+        auto const runTotalTimeout =
+            std::chrono::milliseconds{sizeArg("runTotalMs", 30000)};
 
         RunOutcome aggregate;
         std::size_t converged = 0;
         for (std::size_t run = 0; run < runs; ++run)
         {
-            auto outcome = runThreadedTraffic(run, config, options, runTotalTimeout);
+            auto outcome =
+                runThreadedTraffic(run, config, options, runTotalTimeout);
             if (!BEAST_EXPECT(outcome.has_value()))
                 return;
 
@@ -1357,42 +1500,55 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             aggregate.formationBeats += outcome->formationBeats;
             aggregate.fundingBeats += outcome->fundingBeats;
             aggregate.scenarioBeats += outcome->scenarioBeats;
-            aggregate.maxDrain = std::max(aggregate.maxDrain, outcome->maxDrain);
+            aggregate.maxDrain =
+                std::max(aggregate.maxDrain, outcome->maxDrain);
             aggregate.totalDrain += outcome->totalDrain;
-            aggregate.maxPolls = std::max(aggregate.maxPolls, outcome->maxPolls);
-            aggregate.maxQuietStreak = std::max(aggregate.maxQuietStreak, outcome->maxQuietStreak);
+            aggregate.maxPolls =
+                std::max(aggregate.maxPolls, outcome->maxPolls);
+            aggregate.maxQuietStreak =
+                std::max(aggregate.maxQuietStreak, outcome->maxQuietStreak);
             aggregate.maxBufferedBytes =
                 std::max(aggregate.maxBufferedBytes, outcome->maxBufferedBytes);
             aggregate.maxBusyJobQueues =
                 std::max(aggregate.maxBusyJobQueues, outcome->maxBusyJobQueues);
-            aggregate.maxSuspended = std::max(aggregate.maxSuspended, outcome->maxSuspended);
-            aggregate.sawBufferedBytes = aggregate.sawBufferedBytes || outcome->sawBufferedBytes;
-            aggregate.sawTransportPosts = aggregate.sawTransportPosts || outcome->sawTransportPosts;
+            aggregate.maxSuspended =
+                std::max(aggregate.maxSuspended, outcome->maxSuspended);
+            aggregate.sawBufferedBytes =
+                aggregate.sawBufferedBytes || outcome->sawBufferedBytes;
+            aggregate.sawTransportPosts =
+                aggregate.sawTransportPosts || outcome->sawTransportPosts;
             aggregate.sawJobWork = aggregate.sawJobWork || outcome->sawJobWork;
             aggregate.trafficSawBufferedBytes =
-                aggregate.trafficSawBufferedBytes || outcome->trafficSawBufferedBytes;
+                aggregate.trafficSawBufferedBytes ||
+                outcome->trafficSawBufferedBytes;
             aggregate.trafficSawTransportPosts =
-                aggregate.trafficSawTransportPosts || outcome->trafficSawTransportPosts;
-            aggregate.trafficSawJobWork = aggregate.trafficSawJobWork || outcome->trafficSawJobWork;
+                aggregate.trafficSawTransportPosts ||
+                outcome->trafficSawTransportPosts;
+            aggregate.trafficSawJobWork =
+                aggregate.trafficSawJobWork || outcome->trafficSawJobWork;
             aggregate.readStarted += outcome->readStarted;
             aggregate.writeStarted += outcome->writeStarted;
             aggregate.trafficReadStarted += outcome->trafficReadStarted;
             aggregate.trafficWriteStarted += outcome->trafficWriteStarted;
             aggregate.payments += outcome->payments;
-            aggregate.finalSeq = std::max(aggregate.finalSeq, outcome->finalSeq);
+            aggregate.finalSeq =
+                std::max(aggregate.finalSeq, outcome->finalSeq);
             aggregate.queuedSubmits += outcome->queuedSubmits;
             aggregate.queueSamples += outcome->queueSamples;
             aggregate.queueHitSamples += outcome->queueHitSamples;
-            aggregate.maxQueueDepth = std::max(aggregate.maxQueueDepth, outcome->maxQueueDepth);
+            aggregate.maxQueueDepth =
+                std::max(aggregate.maxQueueDepth, outcome->maxQueueDepth);
             aggregate.maxOpenLedgerTx =
                 std::max(aggregate.maxOpenLedgerTx, outcome->maxOpenLedgerTx);
 
             if (runs > 1)
             {
-                log << "  threaded-traffic progress run=" << (run + 1) << "/" << runs
-                    << " converged=1"
-                    << " mode=" << (config.txqPressure ? "txqPressure" : "seeded")
-                    << " payments=" << outcome->payments << " finalSeq=" << outcome->finalSeq
+                log << "  threaded-traffic progress run=" << (run + 1) << "/"
+                    << runs << " converged=1"
+                    << " mode="
+                    << (config.txqPressure ? "txqPressure" : "seeded")
+                    << " payments=" << outcome->payments
+                    << " finalSeq=" << outcome->finalSeq
                     << " drainMs=" << outcome->totalDrain.count()
                     << " maxDrainMs=" << outcome->maxDrain.count()
                     << " scenarioBeats=" << outcome->scenarioBeats;
@@ -1409,10 +1565,14 @@ class ThreadedTraffic_test : public beast::unit_test::suite
 
         log << "  threaded-traffic R=" << runs << " converged=" << converged
             << " mode=" << (config.txqPressure ? "txqPressure" : "seeded")
-            << " validators=" << config.validators << " accounts=" << config.accounts
-            << " trafficBeats=" << config.trafficBeats << " burstsPerBeat=" << config.burstsPerBeat
-            << " burstSize=" << config.burstSize << " maxPerSource=" << config.maxPerSourcePerBeat
-            << " payments=" << aggregate.payments << " finalSeqMax=" << aggregate.finalSeq
+            << " validators=" << config.validators
+            << " accounts=" << config.accounts
+            << " trafficBeats=" << config.trafficBeats
+            << " burstsPerBeat=" << config.burstsPerBeat
+            << " burstSize=" << config.burstSize
+            << " maxPerSource=" << config.maxPerSourcePerBeat
+            << " payments=" << aggregate.payments
+            << " finalSeqMax=" << aggregate.finalSeq
             << " queuedSubmits=" << aggregate.queuedSubmits
             << " queueHitSamples=" << aggregate.queueHitSamples
             << " queueSamples=" << aggregate.queueSamples
@@ -1423,10 +1583,12 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             << " scenarioBeats=" << aggregate.scenarioBeats
             << " maxDrainMs=" << aggregate.maxDrain.count()
             << " totalDrainMs=" << aggregate.totalDrain.count()
-            << " maxPolls=" << aggregate.maxPolls << " maxQuietStreak=" << aggregate.maxQuietStreak
+            << " maxPolls=" << aggregate.maxPolls
+            << " maxQuietStreak=" << aggregate.maxQuietStreak
             << " maxPipeBytes=" << aggregate.maxBufferedBytes
             << " maxBusyJobQueues=" << aggregate.maxBusyJobQueues
-            << " maxSuspended=" << aggregate.maxSuspended << " readPosts=" << aggregate.readStarted
+            << " maxSuspended=" << aggregate.maxSuspended
+            << " readPosts=" << aggregate.readStarted
             << " writePosts=" << aggregate.writeStarted
             << " trafficReadPosts=" << aggregate.trafficReadStarted
             << " trafficWritePosts=" << aggregate.trafficWriteStarted
@@ -1437,7 +1599,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         BEAST_EXPECT(converged == runs);
         BEAST_EXPECT(
             aggregate.payments ==
-            runs * config.trafficBeats * config.burstsPerBeat * config.burstSize);
+            runs * config.trafficBeats * config.burstsPerBeat *
+                config.burstSize);
         BEAST_EXPECT(aggregate.trafficSawBufferedBytes);
         BEAST_EXPECT(aggregate.trafficSawTransportPosts);
         BEAST_EXPECT(aggregate.trafficSawJobWork);

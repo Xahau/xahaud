@@ -86,9 +86,10 @@ logFirstTraceDivergence(
         ++i;
     s.log << "  trace sizes: run1=" << a.size() << " runK=" << b.size()
           << ", first divergence at index " << i << std::endl;
-    auto const dump = [&s](char const* label,
-                           std::vector<HarnessScheduler::TraceEvent> const& t,
-                           std::size_t at) {
+    auto const dump = [&s](
+                          char const* label,
+                          std::vector<HarnessScheduler::TraceEvent> const& t,
+                          std::size_t at) {
         auto const lo = at >= 6 ? at - 6 : 0;
         for (auto j = lo; j < std::min(t.size(), at + 10); ++j)
             s.log << "    " << label << "[" << j << "] when=" << t[j].when

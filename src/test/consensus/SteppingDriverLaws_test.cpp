@@ -53,9 +53,9 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
     using ms = std::chrono::milliseconds;
     using s = std::chrono::seconds;
 
-    // A no-op clock sync — the controller HARD-fails if none is installed before
-    // any event runs (SteppingController_test pins that), so every app-free test
-    // installs this before driving the scheduler.
+    // A no-op clock sync — the controller HARD-fails if none is installed
+    // before any event runs (SteppingController_test pins that), so every
+    // app-free test installs this before driving the scheduler.
     static std::function<void(time_point)>
     noopClock()
     {
@@ -75,7 +75,10 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
         // reach it; it stays queued for the beat that eventually owns it.
         bool injectionRan = false;
         c.scheduleAt(
-            t0 + s{10}, Tier::process, 0, [&]() { injectionRan = true; },
+            t0 + s{10},
+            Tier::process,
+            0,
+            [&]() { injectionRan = true; },
             Kind::inject);
 
         SteppingController::BeatSpec spec;
@@ -97,8 +100,8 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
             100000);
 
         BEAST_EXPECT(heartbeatRan);
-        BEAST_EXPECT(deliveryRan);         // the cascade settled inside the beat
-        BEAST_EXPECT(!injectionRan);       // the +10s injection did NOT run
+        BEAST_EXPECT(deliveryRan);    // the cascade settled inside the beat
+        BEAST_EXPECT(!injectionRan);  // the +10s injection did NOT run
         BEAST_EXPECT(c.scheduler().size() == 1);  // only the injection remains
         // now() reached the last in-horizon event (the +5ms delivery) and never
         // crossed the horizon.
@@ -109,7 +112,8 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
     void
     testFenceLaw()
     {
-        testcase("fence: executing beyond it throws (named); scheduling is legal");
+        testcase(
+            "fence: executing beyond it throws (named); scheduling is legal");
         HarnessScheduler sched;
         auto const t0 = sched.now();
         sched.setFence(t0 + s{1});
@@ -120,12 +124,16 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
         // next line IS the no-throw assertion.)
         bool ran = false;
         sched.at(
-            t0 + s{2}, Tier::process, /*nodeId*/ 7,
-            [&]() { ran = true; }, Kind::inject);
+            t0 + s{2},
+            Tier::process,
+            /*nodeId*/ 7,
+            [&]() { ran = true; },
+            Kind::inject);
         BEAST_EXPECT(sched.size() == 1);
 
-        // Stepping it while the fence stands must throw, and the diagnostic must
-        // name the offending event's KIND ("inject") so a driver bug is legible.
+        // Stepping it while the fence stands must throw, and the diagnostic
+        // must name the offending event's KIND ("inject") so a driver bug is
+        // legible.
         bool threw = false;
         std::string what;
         try
@@ -148,11 +156,12 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
         BEAST_EXPECT(sched.empty());
     }
 
-    // The fixed compose workload: two beats over nodes {0,1}, each fire records a
-    // trace entry and schedules a +5ms delivery that records another. Run once as
-    // two explicit beats (asLoop=false), once as a driver-style loop (asLoop=true)
-    // — both explicitly preserve t0. Public tick() re-anchors each call and
-    // therefore is not the operation whose composition this test proves.
+    // The fixed compose workload: two beats over nodes {0,1}, each fire records
+    // a trace entry and schedules a +5ms delivery that records another. Run
+    // once as two explicit beats (asLoop=false), once as a driver-style loop
+    // (asLoop=true) — both explicitly preserve t0. Public tick() re-anchors
+    // each call and therefore is not the operation whose composition this test
+    // proves.
     std::vector<std::string>
     runComposeWorkload(SteppingController& c, bool asLoop)
     {
@@ -193,18 +202,20 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
         SteppingController looped;
         looped.setSyncClock(noopClock());
 
-        auto const traceUnrolled = runComposeWorkload(unrolled, /*asLoop*/ false);
+        auto const traceUnrolled =
+            runComposeWorkload(unrolled, /*asLoop*/ false);
         auto const traceLooped = runComposeWorkload(looped, /*asLoop*/ true);
 
-        BEAST_EXPECT(!traceUnrolled.empty());        // the workload did work
-        BEAST_EXPECT(traceUnrolled.size() == 8);     // 2 beats * (2 fire + 2 recv)
+        BEAST_EXPECT(!traceUnrolled.empty());     // the workload did work
+        BEAST_EXPECT(traceUnrolled.size() == 8);  // 2 beats * (2 fire + 2 recv)
         BEAST_EXPECT(traceUnrolled == traceLooped);  // byte-identical
     }
 
     void
     testDrivenSetLaw()
     {
-        testcase("driven set: fires exactly its nodeIds, in order, at its skew");
+        testcase(
+            "driven set: fires exactly its nodeIds, in order, at its skew");
         SteppingController c;
         c.setSyncClock(noopClock());
         auto const when = c.now() + s{1};
@@ -227,9 +238,9 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
             100000);
 
         BEAST_EXPECT(fired.size() == 2);  // exactly the driven set, nobody else
-        BEAST_EXPECT(fired[0] == 1 && fired[1] == 3);        // in order
-        BEAST_EXPECT(firedAt[0] == when);                    // position 0: no skew
-        BEAST_EXPECT(firedAt[1] == when + ms{100});          // position 1: +skew
+        BEAST_EXPECT(fired[0] == 1 && fired[1] == 3);  // in order
+        BEAST_EXPECT(firedAt[0] == when);              // position 0: no skew
+        BEAST_EXPECT(firedAt[1] == when + ms{100});    // position 1: +skew
     }
 
     void
@@ -243,10 +254,17 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
         bool nearRan = false;  // 1500ms: covered by beat #1's horizon (t0+2s)
         bool farRan = false;   // +10s: covered by neither beat
         c.scheduleAt(
-            t0 + ms{1500}, Tier::process, 0, [&]() { nearRan = true; },
+            t0 + ms{1500},
+            Tier::process,
+            0,
+            [&]() { nearRan = true; },
             Kind::inject);
         c.scheduleAt(
-            t0 + s{10}, Tier::process, 0, [&]() { farRan = true; }, Kind::inject);
+            t0 + s{10},
+            Tier::process,
+            0,
+            [&]() { farRan = true; },
+            Kind::inject);
 
         // Pure horizon-bounded settles (no heartbeats of their own): each beat
         // owns [when, when+dt] and touches nothing beyond it.
@@ -256,19 +274,20 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
         auto stop = []() { return false; };
 
         c.beat(t0 + s{1}, spec, {}, stop, 100000);  // horizon t0+2s
-        BEAST_EXPECT(nearRan);                       // 1500ms <= t0+2s: runs
-        BEAST_EXPECT(!farRan);                       // +10s stays queued
+        BEAST_EXPECT(nearRan);                      // 1500ms <= t0+2s: runs
+        BEAST_EXPECT(!farRan);                      // +10s stays queued
         BEAST_EXPECT(c.scheduler().size() == 1);
 
         c.beat(t0 + s{2}, spec, {}, stop, 100000);  // horizon t0+3s
-        BEAST_EXPECT(!farRan);                       // still beyond, untouched
-        BEAST_EXPECT(c.scheduler().size() == 1);     // the +10s injection survives
+        BEAST_EXPECT(!farRan);                      // still beyond, untouched
+        BEAST_EXPECT(c.scheduler().size() == 1);  // the +10s injection survives
     }
 
     void
     testQuietGapLaw()
     {
-        testcase("quiet gap: stepUntilTime settles <= until, leaves later queued");
+        testcase(
+            "quiet gap: stepUntilTime settles <= until, leaves later queued");
         SteppingController c;
         c.setSyncClock(noopClock());
         auto const t0 = c.now();
@@ -283,10 +302,11 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
 
         c.stepUntilTime(until, 100000);
 
-        BEAST_EXPECT(boundaryRan);          // the event at exactly `until` ran
-        BEAST_EXPECT(!farRan);              // the +10s event did not
-        BEAST_EXPECT(c.now() == until);     // time landed on the gap boundary
-        BEAST_EXPECT(c.scheduler().size() == 1);  // the far event is still queued
+        BEAST_EXPECT(boundaryRan);       // the event at exactly `until` ran
+        BEAST_EXPECT(!farRan);           // the +10s event did not
+        BEAST_EXPECT(c.now() == until);  // time landed on the gap boundary
+        BEAST_EXPECT(
+            c.scheduler().size() == 1);  // the far event is still queued
     }
 
     void
@@ -305,12 +325,15 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
         c.advanceTimeTo(t0 + s{60}, 100);
         BEAST_EXPECT(due && !future);
         BEAST_EXPECT(c.now() == t0 + s{60});
-        BEAST_EXPECT((synced == std::vector<time_point>{t0 + s{10}, t0 + s{60}}));
+        BEAST_EXPECT(
+            (synced == std::vector<time_point>{t0 + s{10}, t0 + s{60}}));
         BEAST_EXPECT(c.scheduler().size() == 1);
 
-        BEAST_EXPECT(except<std::logic_error>([&]() { c.advanceTimeTo(t0 + s{59}, 100); }));
+        BEAST_EXPECT(except<std::logic_error>(
+            [&]() { c.advanceTimeTo(t0 + s{59}, 100); }));
         BEAST_EXPECT(c.now() == t0 + s{60});
-        BEAST_EXPECT(except<std::logic_error>([&]() { c.advanceTimeTo(t0 + s{90}, 0); }));
+        BEAST_EXPECT(except<std::logic_error>(
+            [&]() { c.advanceTimeTo(t0 + s{90}, 0); }));
         BEAST_EXPECT(!future && c.now() == t0 + s{60});
         BEAST_EXPECT(c.scheduler().size() == 1);
         c.advanceTimeTo(t0 + s{90}, 100);
@@ -354,9 +377,9 @@ class SteppingDriverLaws_test : public beast::unit_test::suite
             [&stopChecks]() { return stopChecks++ >= 1; },
             100000);
 
-        BEAST_EXPECT(fired.size() == 1);           // only node 0 ran
+        BEAST_EXPECT(fired.size() == 1);  // only node 0 ran
         BEAST_EXPECT(fired[0] == 0);
-        BEAST_EXPECT(c.scheduler().size() == 1);   // node 1's heartbeat lingers
+        BEAST_EXPECT(c.scheduler().size() == 1);  // node 1's heartbeat lingers
 
         // A second beat (no new heartbeats) runs the leftover. Because beat()
         // captured `fire` BY VALUE, the leftover event holds a live copy of the

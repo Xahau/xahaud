@@ -28,9 +28,9 @@
 #include <test/jtx/amount.h>
 #include <test/jtx/pay.h>
 
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 
 #include <chrono>
 #include <cstdint>
@@ -83,8 +83,8 @@ class SteppingCombined_test : public beast::unit_test::suite
         // from its node's open ledger at its virtual instant.
         std::vector<uint256> txids;
         net.in(milliseconds{500}, 1, [&]() {
-            txids.push_back(net.submit(1, pay(alice, bob, XRP(1000)), alice)
-                                ->getID());
+            txids.push_back(
+                net.submit(1, pay(alice, bob, XRP(1000)), alice)->getID());
         });
         net.in(milliseconds{1500}, 2, [&]() {
             txids.push_back(
@@ -157,8 +157,8 @@ class SteppingCombined_test : public beast::unit_test::suite
             for (std::uint32_t seq = 1; seq <= pub->info().seq; ++seq)
                 complete = complete && lm.haveLedger(seq);
             if (!BEAST_EXPECT(complete))
-                log << "  node " << i << " incomplete: "
-                    << lm.getCompleteLedgers() << std::endl;
+                log << "  node " << i
+                    << " incomplete: " << lm.getCompleteLedgers() << std::endl;
         }
         log << "  history backfilled to genesis on nodes 0, 4 and 5"
             << std::endl;

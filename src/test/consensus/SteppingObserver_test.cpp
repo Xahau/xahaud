@@ -15,11 +15,11 @@
 #include <test/jtx/amount.h>
 #include <test/jtx/pay.h>
 
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TER.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 
 #include <cstdint>
 #include <optional>
@@ -62,9 +62,8 @@ class SteppingObserver_test : public beast::unit_test::suite
         // A client submits THROUGH the observer: the tx relays to the
         // validators, is agreed, and validates everywhere.
         Account const alice{"alice"};
-        auto const txn =
-            net.submit(obs, pay(Account::master, alice, XRP(10000)),
-                       Account::master);
+        auto const txn = net.submit(
+            obs, pay(Account::master, alice, XRP(10000)), Account::master);
         BEAST_EXPECT(txn->getResult() == tesSUCCESS);
 
         auto const target = net.minValidatedSeq() + 3;

@@ -6,21 +6,24 @@
 // can wire two nodes' PeerImps together over an in-process byte-pipe bus
 // (SimTransport) with NO TCP/TLS — partition/eclipse become deterministic.
 //
-// Design (spec §5.1/§6/§7): rather than re-stub Overlay's 22 virtuals, SimOverlay
-// `: public OverlayImpl` and inherits the entire production peer container, relay
-// and metrics machinery. The ONLY deltas vs prod are:
+// Design (spec §5.1/§6/§7): rather than re-stub Overlay's 22 virtuals,
+// SimOverlay
+// `: public OverlayImpl` and inherits the entire production peer container,
+// relay and metrics machinery. The ONLY deltas vs prod are:
 //
-//   1. A no-op Resolver (the sim has no DNS). OverlayImpl stores `Resolver&`, so
+//   1. A no-op Resolver (the sim has no DNS). OverlayImpl stores `Resolver&`,
+//   so
 //      it is supplied through the base-from-member idiom: a tiny base owns the
-//      Resolver and is listed BEFORE OverlayImpl so it is fully constructed when
-//      the OverlayImpl base ctor binds the reference.
+//      Resolver and is listed BEFORE OverlayImpl so it is fully constructed
+//      when the OverlayImpl base ctor binds the reference.
 //   2. start() keeps peerFinder setConfig+start (slots need it) but SKIPS the
-//      bootstrap DNS resolve and the once-per-second maintenance Timer — the sim
-//      autoconnects nothing and is driven deterministically by simConnect().
+//      bootstrap DNS resolve and the once-per-second maintenance Timer — the
+//      sim autoconnects nothing and is driven deterministically by
+//      simConnect().
 //
-// simConnect() (below) stands up a real handshaked PeerImp pair across two nodes'
-// SimOverlays over a SimWire — this is the §7 crux that lets real PeerImps
-// exchange protocol messages (proposals/validations) over the bus.
+// simConnect() (below) stands up a real handshaked PeerImp pair across two
+// nodes' SimOverlays over a SimWire — this is the §7 crux that lets real
+// PeerImps exchange protocol messages (proposals/validations) over the bus.
 //
 // Spec: .ai-docs/specs/csf-peerimp-hybrid-overlay-harness.md (Stage 1).
 //------------------------------------------------------------------------------
@@ -56,7 +59,8 @@ namespace ripple::test {
 
 // A Resolver that never resolves anything. The sim has no DNS and SimOverlay
 // never issues a resolve, so every method is a safe no-op. (Resolver's pure
-// virtual dtor is defined out-of-line in ResolverAsio.cpp, so deriving is cheap.)
+// virtual dtor is defined out-of-line in ResolverAsio.cpp, so deriving is
+// cheap.)
 class NoopResolver : public Resolver
 {
 public:
@@ -79,8 +83,8 @@ public:
 };
 
 namespace detail {
-// base-from-member: owns the Resolver so it outlives — and is constructed before
-// — the OverlayImpl base that binds `Resolver&`.
+// base-from-member: owns the Resolver so it outlives — and is constructed
+// before — the OverlayImpl base that binds `Resolver&`.
 struct SimResolverHolder
 {
     NoopResolver resolver;
@@ -109,8 +113,8 @@ public:
 
     // Like OverlayImpl::start() but deterministic: configure + start peerFinder
     // (slots/activate need it) yet SKIP the bootstrap DNS resolve and the
-    // maintenance Timer (no autoconnect, no endpoint gossip). The work-guard and
-    // teardown plumbing come from the OverlayImpl base unchanged.
+    // maintenance Timer (no autoconnect, no endpoint gossip). The work-guard
+    // and teardown plumbing come from the OverlayImpl base unchanged.
     void
     start() override
     {
@@ -125,12 +129,13 @@ public:
     }
 };
 
-// Optional deterministic-stepping wiring for simConnect (S3.4). When `controller`
-// is non-null, each node's cross-node read completions are routed onto the shared
-// SteppingController: a delivered message arrives as a scheduled event (+linkDelay)
-// on the one stepping thread instead of an inline asio post. nodeIdA/nodeIdB are
-// the two nodes' scheduler identities; linkDelay is the per-link latency and MUST
-// be strictly positive (scheduleDelivery rejects a same-instant delivery). Default
+// Optional deterministic-stepping wiring for simConnect (S3.4). When
+// `controller` is non-null, each node's cross-node read completions are routed
+// onto the shared SteppingController: a delivered message arrives as a
+// scheduled event (+linkDelay) on the one stepping thread instead of an inline
+// asio post. nodeIdA/nodeIdB are the two nodes' scheduler identities; linkDelay
+// is the per-link latency and MUST be strictly positive (scheduleDelivery
+// rejects a same-instant delivery). Default
 // {} (controller == nullptr) → unchanged hybrid behaviour (asio post).
 struct SimSteppingLink
 {
@@ -161,23 +166,25 @@ struct SimSteppingLink
 //
 // Faithfulness note: prod pairs one OUTBOUND PeerImp (ConnectAttempt, which has
 // already consumed the 101 response off the wire) with one INBOUND PeerImp
-// (onHandoff, whose doAccept() WRITES the 101 response onto the wire). Replaying
-// that asymmetry here would require driving the HTTP handshake byte-by-byte over
-// the bus (a beast http parser fed from the pipe), because a directly-constructed
-// outbound peer would mis-read the inbound peer's doAccept() response as a
-// protocol message and disconnect. Instead both peers are built via the OUTBOUND
-// (already-handshaked) ctor: neither writes an HTTP response, the pipes stay
-// clean, and both go straight to doProtocolStart() and exchange REAL protocol
-// messages over the bus. The handshake itself is still EXERCISED for real — we
-// build each side's response with the production makeResponse()/buildHandshake()
-// (real Session-Signature over a shared value) and verify it with the production
-// verifyHandshake() to derive the peer's public key — it just isn't byte-streamed
-// over the bus. Each peer ends up active (in ids_), so size()==1 on both nodes.
+// (onHandoff, whose doAccept() WRITES the 101 response onto the wire).
+// Replaying that asymmetry here would require driving the HTTP handshake
+// byte-by-byte over the bus (a beast http parser fed from the pipe), because a
+// directly-constructed outbound peer would mis-read the inbound peer's
+// doAccept() response as a protocol message and disconnect. Instead both peers
+// are built via the OUTBOUND (already-handshaked) ctor: neither writes an HTTP
+// response, the pipes stay clean, and both go straight to doProtocolStart() and
+// exchange REAL protocol messages over the bus. The handshake itself is still
+// EXERCISED for real — we build each side's response with the production
+// makeResponse()/buildHandshake() (real Session-Signature over a shared value)
+// and verify it with the production verifyHandshake() to derive the peer's
+// public key — it just isn't byte-streamed over the bus. Each peer ends up
+// active (in ids_), so size()==1 on both nodes.
 //
-// Returns the heap-allocated SimWire (it owns the two directional pipes, co-owned
-// with the live PeerImps' SimTransports). The caller keeps the handle so it can
-// later sever() the bus — closing the same pipe objects the PeerImps read from —
-// for a deterministic partition. Ignore the return value to just connect.
+// Returns the heap-allocated SimWire (it owns the two directional pipes,
+// co-owned with the live PeerImps' SimTransports). The caller keeps the handle
+// so it can later sever() the bus — closing the same pipe objects the PeerImps
+// read from — for a deterministic partition. Ignore the return value to just
+// connect.
 //------------------------------------------------------------------------------
 inline std::shared_ptr<SimWire>
 simConnect(Application& a, Application& b, SimSteppingLink link = {})
@@ -196,17 +203,19 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
     beast::IP::Endpoint const epB{loopback, portB};  // node b's address
 
     // A single deterministic NON-ZERO shared value for the wire/handshake (the
-    // sim's stand-in for the TLS finished-message cookie). Both makeResponse and
-    // verifyHandshake below use THIS value, so the Session-Signature verifies.
+    // sim's stand-in for the TLS finished-message cookie). Both makeResponse
+    // and verifyHandshake below use THIS value, so the Session-Signature
+    // verifies.
     uint256 sharedValue;
     sharedValue.data()[0] = 0xA5;
 
     // S3.4: in stepping mode, build a per-node delivery router that hands each
-    // ready read completion to the shared SteppingController (scheduled +linkDelay
-    // on the stepping thread). The completion is dispatched THROUGH the reader's
-    // (inline) strand so PeerImp's read handler runs in strand context — the EOF
-    // path flows into fail(), which asserts strand_.running_in_this_thread(). With
-    // a null controller both routers stay empty → endpoints() leaves the asio path.
+    // ready read completion to the shared SteppingController (scheduled
+    // +linkDelay on the stepping thread). The completion is dispatched THROUGH
+    // the reader's (inline) strand so PeerImp's read handler runs in strand
+    // context — the EOF path flows into fail(), which asserts
+    // strand_.running_in_this_thread(). With a null controller both routers
+    // stay empty → endpoints() leaves the asio path.
     SimPipe::DeliveryRouter routerForA, routerForB;
     if (link.controller)
     {
@@ -217,12 +226,12 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
                        Transport::executor_type strand,
                        std::function<void()> completion,
                        std::string label) {
-                // Teardown: the scheduler is being dropped and this may run on the
-                // io poll-pump thread (off the stepping thread) as peers close
-                // during app->run() shutdown. Drop the residual completion — the
-                // node is going away and determinism no longer applies — rather
-                // than scheduling off-thread (which hard-fails) or running it inline
-                // (which races the shutdown).
+                // Teardown: the scheduler is being dropped and this may run on
+                // the io poll-pump thread (off the stepping thread) as peers
+                // close during app->run() shutdown. Drop the residual
+                // completion — the node is going away and determinism no longer
+                // applies — rather than scheduling off-thread (which
+                // hard-fails) or running it inline (which races the shutdown).
                 if (c->draining())
                     return;
                 c->scheduleDelivery(
@@ -263,7 +272,7 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
                            std::vector<std::uint8_t> bytes) {
                     auto label = "delayed:" +
                         protocolMessageName(
-                            static_cast<int>(peekMessageType(bytes)));
+                                     static_cast<int>(peekMessageType(bytes)));
                     c->scheduleDelivery(
                         nodeId,
                         delay,
@@ -276,7 +285,8 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
             });
     }
 
-    beast::IP::Address const publicIp{};  // unspecified -> no Local-IP, IP checks skipped
+    beast::IP::Address const
+        publicIp{};  // unspecified -> no Local-IP, IP checks skipped
     auto const version =
         negotiateProtocolVersion(supportedProtocolVersions()).value();
 
@@ -304,20 +314,44 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
     // identity over sharedValue). remoteIp is the OTHER node's (loopback)
     // address, so buildHandshake adds no Remote-IP/Local-IP headers.
     auto respFromB = makeResponse(
-        false, makePeerRequest(b), publicIp, epA.address(), sharedValue,
-        ovB.OverlayImpl::setup().networkID, version, b);
+        false,
+        makePeerRequest(b),
+        publicIp,
+        epA.address(),
+        sharedValue,
+        ovB.OverlayImpl::setup().networkID,
+        version,
+        b);
     auto respFromA = makeResponse(
-        false, makePeerRequest(a), publicIp, epB.address(), sharedValue,
-        ovA.OverlayImpl::setup().networkID, version, a);
+        false,
+        makePeerRequest(a),
+        publicIp,
+        epB.address(),
+        sharedValue,
+        ovA.OverlayImpl::setup().networkID,
+        version,
+        a);
 
-    // Each node verifies the other's response (real security checks) -> peer key.
+    // Each node verifies the other's response (real security checks) -> peer
+    // key.
     PublicKey const pkB = verifyHandshake(
-        respFromB, sharedValue, ovA.OverlayImpl::setup().networkID, publicIp, epB.address(), a);
+        respFromB,
+        sharedValue,
+        ovA.OverlayImpl::setup().networkID,
+        publicIp,
+        epB.address(),
+        a);
     PublicKey const pkA = verifyHandshake(
-        respFromA, sharedValue, ovB.OverlayImpl::setup().networkID, publicIp, epA.address(), b);
+        respFromA,
+        sharedValue,
+        ovB.OverlayImpl::setup().networkID,
+        publicIp,
+        epA.address(),
+        b);
 
-    // Build + activate one peer per node (mirrors ConnectAttempt::processResponse:
-    // new_outbound_slot -> onConnected -> activate -> make_shared<PeerImp> -> addActive).
+    // Build + activate one peer per node (mirrors
+    // ConnectAttempt::processResponse: new_outbound_slot -> onConnected ->
+    // activate -> make_shared<PeerImp> -> addActive).
     auto wire = [](Application& app,
                    SimOverlay& ov,
                    std::unique_ptr<SimTransport>&& transport,
@@ -326,7 +360,8 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
                    http_response_type&& response,
                    PublicKey const& peerKey,
                    ProtocolVersion ver) {
-        auto usage = ov.OverlayImpl::resourceManager().newUnlimitedEndpoint(remoteEp);
+        auto usage =
+            ov.OverlayImpl::resourceManager().newUnlimitedEndpoint(remoteEp);
         auto slot = ov.OverlayImpl::peerFinder().new_outbound_slot(remoteEp);
         if (slot == nullptr)
             return false;
@@ -351,10 +386,24 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
         return true;
     };
 
-    bool const wiredA =
-        wire(a, ovA, std::move(transportA), epA, epB, std::move(respFromB), pkB, version);
-    bool const wiredB =
-        wire(b, ovB, std::move(transportB), epB, epA, std::move(respFromA), pkA, version);
+    bool const wiredA = wire(
+        a,
+        ovA,
+        std::move(transportA),
+        epA,
+        epB,
+        std::move(respFromB),
+        pkB,
+        version);
+    bool const wiredB = wire(
+        b,
+        ovB,
+        std::move(transportB),
+        epB,
+        epA,
+        std::move(respFromA),
+        pkA,
+        version);
     if (!wiredA || !wiredB)
     {
         simWire->sever();

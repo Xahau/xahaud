@@ -61,7 +61,8 @@ class ThreadedConsensus_test : public beast::unit_test::suite
         if (auto const pos = a.find("runs="); pos != std::string::npos)
             v = a.substr(pos + 5);
         else if (
-            !a.empty() && a.find_first_not_of("0123456789") == std::string::npos)
+            !a.empty() &&
+            a.find_first_not_of("0123456789") == std::string::npos)
             v = a;
         std::size_t n = 0;
         for (char const c : v)
@@ -118,12 +119,12 @@ class ThreadedConsensus_test : public beast::unit_test::suite
         auto const activity = net.simActivitySnapshot();
         log << "  " << label << ": pipeBytes=" << net.simBufferedBytes()
             << " posts=" << activity.inFlightPosts
-            << " epoch=" << activity.epoch
-            << " read=" << activity.readStarted << "/" << activity.readFinished
+            << " epoch=" << activity.epoch << " read=" << activity.readStarted
+            << "/" << activity.readFinished
             << " write=" << activity.writeStarted << "/"
-            << activity.writeFinished << " shutdown="
-            << activity.shutdownStarted << "/" << activity.shutdownFinished
-            << " seqs=[";
+            << activity.writeFinished
+            << " shutdown=" << activity.shutdownStarted << "/"
+            << activity.shutdownFinished << " seqs=[";
         char const* sep = "";
         for (std::uint32_t i = 0; i < net.size(); ++i)
         {
@@ -247,7 +248,8 @@ class ThreadedConsensus_test : public beast::unit_test::suite
 
         auto const endActivity = net.simActivitySnapshot();
         out.readStarted = endActivity.readStarted - startActivity.readStarted;
-        out.writeStarted = endActivity.writeStarted - startActivity.writeStarted;
+        out.writeStarted =
+            endActivity.writeStarted - startActivity.writeStarted;
         out.shutdownStarted =
             endActivity.shutdownStarted - startActivity.shutdownStarted;
         out.maxBufferedBytes = std::max<std::size_t>(
@@ -262,7 +264,8 @@ class ThreadedConsensus_test : public beast::unit_test::suite
     void
     testTrackerSites()
     {
-        testcase("threaded tracker covers pipe bytes and read/write/shutdown posts");
+        testcase(
+            "threaded tracker covers pipe bytes and read/write/shutdown posts");
 
         boost::asio::io_context ioc;
         auto exec = Transport::executor_type(ioc.get_executor());
@@ -352,13 +355,14 @@ class ThreadedConsensus_test : public beast::unit_test::suite
             aggregate.maxDrain =
                 std::max(aggregate.maxDrain, outcome->maxDrain);
             aggregate.totalDrain += outcome->totalDrain;
-            aggregate.maxPolls = std::max(aggregate.maxPolls, outcome->maxPolls);
+            aggregate.maxPolls =
+                std::max(aggregate.maxPolls, outcome->maxPolls);
             aggregate.maxQuietStreak =
                 std::max(aggregate.maxQuietStreak, outcome->maxQuietStreak);
             aggregate.maxBufferedBytes =
                 std::max(aggregate.maxBufferedBytes, outcome->maxBufferedBytes);
-            aggregate.maxBusyJobQueues = std::max(
-                aggregate.maxBusyJobQueues, outcome->maxBusyJobQueues);
+            aggregate.maxBusyJobQueues =
+                std::max(aggregate.maxBusyJobQueues, outcome->maxBusyJobQueues);
             aggregate.maxSuspended =
                 std::max(aggregate.maxSuspended, outcome->maxSuspended);
             aggregate.sawBufferedBytes =
@@ -370,13 +374,14 @@ class ThreadedConsensus_test : public beast::unit_test::suite
             aggregate.writeStarted += outcome->writeStarted;
             aggregate.shutdownStarted += outcome->shutdownStarted;
             allDrains.insert(
-                allDrains.end(), outcome->drains.begin(), outcome->drains.end());
+                allDrains.end(),
+                outcome->drains.begin(),
+                outcome->drains.end());
         }
 
         auto const med = median(allDrains);
         log << "  threaded-k0 R=" << runs << " converged=" << converged
-            << " target=" << kTarget
-            << " totalBeats=" << aggregate.beats
+            << " target=" << kTarget << " totalBeats=" << aggregate.beats
             << " maxDrainMs=" << aggregate.maxDrain.count()
             << " totalDrainMs=" << aggregate.totalDrain.count()
             << " medianDrainMs=" << med.count()
@@ -390,8 +395,7 @@ class ThreadedConsensus_test : public beast::unit_test::suite
             << " shutdownPosts=" << aggregate.shutdownStarted
             << " stallMs=" << options.stallTimeout.count()
             << " totalMs=" << options.totalTimeout.count()
-            << " runTotalMs=" << runTotalTimeout.count()
-            << std::endl;
+            << " runTotalMs=" << runTotalTimeout.count() << std::endl;
 
         BEAST_EXPECT(converged == runs);
         BEAST_EXPECT(aggregate.sawBufferedBytes);

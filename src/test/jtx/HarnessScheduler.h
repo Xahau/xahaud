@@ -5,12 +5,13 @@
 // fix for the 3-node convergence flake: instead of letting each node's run()
 // thread service io while the virtual clock advances per tick — and *guessing*
 // (a wall-clock settle) when the message ricochet has quiesced — every message
-// delivery and every resulting bit of processing becomes an EVENT on ONE virtual
-// clock, run on ONE stepping thread in a TOTALLY-ORDERED sequence. Quiescence is
-// then implicit (the queue is empty), not drained-for.
+// delivery and every resulting bit of processing becomes an EVENT on ONE
+// virtual clock, run on ONE stepping thread in a TOTALLY-ORDERED sequence.
+// Quiescence is then implicit (the queue is empty), not drained-for.
 //
 // Modeled on csf::Scheduler (src/test/csf/Scheduler.h) but with the explicit
-// same-time tie-break csf lacks: events are totally ordered by the composite key
+// same-time tie-break csf lacks: events are totally ordered by the composite
+// key
 //
 //     (when, tier, nodeId, seq)
 //
@@ -18,17 +19,19 @@
 //   tier   — priority class AT THE SAME INSTANT (e.g. a message is delivered
 //            before the heartbeat that consumes it; the deferred accept runs
 //            after the heartbeat returns). A stable, explicit tie-break so a
-//            same-time cascade is reproducible regardless of *who* scheduled it;
+//            same-time cascade is reproducible regardless of *who* scheduled
+//            it;
 //   nodeId — the owning node, so two nodes acting at the same instant have a
 //            fixed cross-node order;
 //   seq    — a monotonic insertion counter; FIFO among otherwise-equal events,
-//            and (being unique) it makes the key a TOTAL order so std::set never
-//            collapses two distinct events.
+//            and (being unique) it makes the key a TOTAL order so std::set
+//            never collapses two distinct events.
 //
-// Single-threaded by construction: all scheduling AND stepping happen on the one
-// stepping thread (handlers run inline from stepOne()), so insertion is race-free
-// and the resulting order is fully determined by the key — not by thread timing.
-// This is TEST-ONLY infrastructure; it touches no production code.
+// Single-threaded by construction: all scheduling AND stepping happen on the
+// one stepping thread (handlers run inline from stepOne()), so insertion is
+// race-free and the resulting order is fully determined by the key — not by
+// thread timing. This is TEST-ONLY infrastructure; it touches no production
+// code.
 //------------------------------------------------------------------------------
 #include <xrpl/basics/contract.h>
 
@@ -51,37 +54,42 @@ class HarnessScheduler
 {
 public:
     // Matches ManualSteadyClock (test/jtx/MultiNode.h): the harness's shared
-    // virtual steady clock is a beast::abstract_clock<std::chrono::steady_clock>,
-    // so the scheduler advances time in the same units it will later drive.
+    // virtual steady clock is a
+    // beast::abstract_clock<std::chrono::steady_clock>, so the scheduler
+    // advances time in the same units it will later drive.
     using time_point = std::chrono::steady_clock::time_point;
     using duration = std::chrono::steady_clock::duration;
 
-    // Priority class among events at the SAME virtual instant (lower runs first).
-    // Spaced by 10 so intermediate tiers can be slotted in without renumbering.
-    // The values encode the harness's intended same-instant pipeline:
+    // Priority class among events at the SAME virtual instant (lower runs
+    // first). Spaced by 10 so intermediate tiers can be slotted in without
+    // renumbering. The values encode the harness's intended same-instant
+    // pipeline:
     //   deliver → process → heartbeat → accept → advance → timer.
     //
-    // SEMANTICS (pinned for the integration): a tier is a STABLE SORT KEY, NOT a
-    // hard phase barrier. stepOne() always runs the single globally-earliest
-    // (when,tier,nodeId,seq) event — so an event added at the CURRENT instant in a
-    // LOWER tier than the one running becomes the next to run (it is not deferred
-    // to "next instant"). The harness therefore observes one causality convention:
+    // SEMANTICS (pinned for the integration): a tier is a STABLE SORT KEY, NOT
+    // a hard phase barrier. stepOne() always runs the single globally-earliest
+    // (when,tier,nodeId,seq) event — so an event added at the CURRENT instant
+    // in a LOWER tier than the one running becomes the next to run (it is not
+    // deferred to "next instant"). The harness therefore observes one causality
+    // convention:
     //   - cross-node effects (a delivered message → the reply it triggers) are
     //     scheduled in the FUTURE (now()+linkDelay), so they never collide with
     //     the instant that produced them;
-    //   - intra-node sequencing at the SAME instant flows FORWARD in tier — e.g.
-    //     a heartbeat (Tier::heartbeat) defers its ledger build to Tier::accept at
-    //     now(), so accept runs right after the heartbeat returns (locks released),
-    //     never before it.
-    // Code must not rely on a tier being "exhausted" before a later tier starts;
-    // it relies only on this forward-causality discipline at scheduling time.
+    //   - intra-node sequencing at the SAME instant flows FORWARD in tier —
+    //   e.g.
+    //     a heartbeat (Tier::heartbeat) defers its ledger build to Tier::accept
+    //     at now(), so accept runs right after the heartbeat returns (locks
+    //     released), never before it.
+    // Code must not rely on a tier being "exhausted" before a later tier
+    // starts; it relies only on this forward-causality discipline at scheduling
+    // time.
     enum class Tier : int {
-        deliver = 0,     // bytes arrive on a node's rx pipe (link delay elapsed)
-        process = 10,    // onMessage → the consensus job that message triggers
+        deliver = 0,   // bytes arrive on a node's rx pipe (link delay elapsed)
+        process = 10,  // onMessage → the consensus job that message triggers
         heartbeat = 20,  // consensus heartbeat / timerEntry
-        accept = 30,     // deferred accept / ledger-build, AFTER heartbeat returns
-        advance = 35,    // advance the validated ledger, AFTER accept builds it
-        timer = 40,      // acquire / timeout timers
+        accept = 30,  // deferred accept / ledger-build, AFTER heartbeat returns
+        advance = 35,  // advance the validated ledger, AFTER accept builds it
+        timer = 40,    // acquire / timeout timers
     };
 
     // PROVENANCE, not ordering: what CREATED an event. Orthogonal to Tier (its
@@ -118,7 +126,8 @@ public:
         bool
         operator==(TraceEvent const& o) const
         {
-            return when == o.when && tier == o.tier && nodeId == o.nodeId && kind == o.kind;
+            return when == o.when && tier == o.tier && nodeId == o.nodeId &&
+                kind == o.kind;
         }
     };
 
@@ -171,11 +180,15 @@ public:
             }
 
             [[nodiscard]] static NodeMultipliers
-            single(std::uint32_t nodeId, std::uint32_t value, std::uint32_t fallback = 1)
+            single(
+                std::uint32_t nodeId,
+                std::uint32_t value,
+                std::uint32_t fallback = 1)
             {
                 NodeMultipliers out;
                 out.defaultValue = fallback;
-                out.values.resize(static_cast<std::size_t>(nodeId) + 1, fallback);
+                out.values.resize(
+                    static_cast<std::size_t>(nodeId) + 1, fallback);
                 out.values[nodeId] = value;
                 return out;
             }
@@ -206,10 +219,12 @@ public:
         [[nodiscard]] std::uint32_t
         eventWeight(std::uint32_t nodeId, Kind kind) const
         {
-            auto const product = static_cast<std::uint64_t>(weights.weight(kind)) *
+            auto const product =
+                static_cast<std::uint64_t>(weights.weight(kind)) *
                 static_cast<std::uint64_t>(nodeMultipliers.multiplier(nodeId));
             if (product > std::numeric_limits<std::uint32_t>::max())
-                Throw<std::overflow_error>("HarnessScheduler::ProfiledPacer event weight overflow");
+                Throw<std::overflow_error>(
+                    "HarnessScheduler::ProfiledPacer event weight overflow");
             return static_cast<std::uint32_t>(product);
         }
 
@@ -324,14 +339,15 @@ private:
         int tier;
         std::uint32_t nodeId;
         std::uint64_t seq;
-        Kind kind;                 // provenance; ordering ignores this
-        std::string label;         // diagnostic provenance; ordering ignores this
+        Kind kind;          // provenance; ordering ignores this
+        std::string label;  // diagnostic provenance; ordering ignores this
         std::function<void()> fn;  // ordering ignores this; operator() is const
 
         bool
         operator<(Event const& o) const
         {
-            return std::tie(when, tier, nodeId, seq) < std::tie(o.when, o.tier, o.nodeId, o.seq);
+            return std::tie(when, tier, nodeId, seq) <
+                std::tie(o.when, o.tier, o.nodeId, o.seq);
         }
     };
 
@@ -368,8 +384,9 @@ public:
     HarnessScheduler&
     operator=(HarnessScheduler const&) = delete;
 
-    // A handle to a scheduled-but-not-yet-fired event, for cancel(). Valid until
-    // the event fires (stepOne erases it) or it is cancelled. Mirrors csf's token.
+    // A handle to a scheduled-but-not-yet-fired event, for cancel(). Valid
+    // until the event fires (stepOne erases it) or it is cancelled. Mirrors
+    // csf's token.
     struct CancelToken
     {
     private:
@@ -401,8 +418,8 @@ public:
         queue_.clear();
     }
 
-    // Drop only pending events owned by one node. Used by lifecycle tests when a
-    // node is stopped while the rest of the stepping network remains alive.
+    // Drop only pending events owned by one node. Used by lifecycle tests when
+    // a node is stopped while the rest of the stepping network remains alive.
     std::size_t
     clearNode(std::uint32_t nodeId)
     {
@@ -462,14 +479,15 @@ public:
         return fence_;
     }
 
-    // Schedule fn to run at virtual time `when` (in priority class `tier`, owned
-    // by `nodeId`). PRECONDITION: `when >= now()`. Scheduling into the past is a
-    // causality bug (e.g. a delivered message replying "before" it arrived), so it
-    // THROWS — in EVERY build, not silently clamped — to surface exactly the
-    // transport-scheduling mistakes this harness exists to make deterministic. (A
-    // plain runtime throw, not XRPL_ASSERT, because the latter is stripped in
-    // Release — and the determinism proofs run in Release.) For a deliberately-
-    // stale event (a timer whose virtual deadline already elapsed) use atOrNow().
+    // Schedule fn to run at virtual time `when` (in priority class `tier`,
+    // owned by `nodeId`). PRECONDITION: `when >= now()`. Scheduling into the
+    // past is a causality bug (e.g. a delivered message replying "before" it
+    // arrived), so it THROWS — in EVERY build, not silently clamped — to
+    // surface exactly the transport-scheduling mistakes this harness exists to
+    // make deterministic. (A plain runtime throw, not XRPL_ASSERT, because the
+    // latter is stripped in Release — and the determinism proofs run in
+    // Release.) For a deliberately- stale event (a timer whose virtual deadline
+    // already elapsed) use atOrNow().
     template <class Fn>
     CancelToken
     at(time_point when,
@@ -483,11 +501,13 @@ public:
             Throw<std::logic_error>(
                 "HarnessScheduler::at: when is in the past "
                 "(use atOrNow() for an intentionally-stale event)");
-        return insert(when, tier, nodeId, std::forward<Fn>(fn), kind, std::move(label));
+        return insert(
+            when, tier, nodeId, std::forward<Fn>(fn), kind, std::move(label));
     }
 
-    // Like at(), but CLAMPS a past `when` up to now() instead of asserting — for
-    // intentionally-stale events only (a timer whose deadline already passed).
+    // Like at(), but CLAMPS a past `when` up to now() instead of asserting —
+    // for intentionally-stale events only (a timer whose deadline already
+    // passed).
     template <class Fn>
     CancelToken
     atOrNow(
@@ -499,7 +519,12 @@ public:
         std::string label = {})
     {
         return insert(
-            when < now_ ? now_ : when, tier, nodeId, std::forward<Fn>(fn), kind, std::move(label));
+            when < now_ ? now_ : when,
+            tier,
+            nodeId,
+            std::forward<Fn>(fn),
+            kind,
+            std::move(label));
     }
 
     // Schedule fn to run `delay` from now (delay >= 0).
@@ -512,11 +537,17 @@ public:
        Kind kind = Kind::other,
        std::string label = {})
     {
-        return at(now_ + delay, tier, nodeId, std::forward<Fn>(fn), kind, std::move(label));
+        return at(
+            now_ + delay,
+            tier,
+            nodeId,
+            std::forward<Fn>(fn),
+            kind,
+            std::move(label));
     }
 
-    // Cancel a not-yet-fired event. Precondition: the event has neither fired nor
-    // already been cancelled (same contract as csf::Scheduler::cancel).
+    // Cancel a not-yet-fired event. Precondition: the event has neither fired
+    // nor already been cancelled (same contract as csf::Scheduler::cancel).
     void
     cancel(CancelToken const& token)
     {
@@ -538,16 +569,16 @@ public:
         auto const executedWhen = now_ < it->when ? it->when : now_;
         if (fence_ && executedWhen > *fence_)
             Throw<std::logic_error>(
-                std::string("HarnessScheduler::stepOne: next event (kind=") + kindName(it->kind) +
-                ", node " + std::to_string(it->nodeId) +
+                std::string("HarnessScheduler::stepOne: next event (kind=") +
+                kindName(it->kind) + ", node " + std::to_string(it->nodeId) +
                 ") lies beyond the planted fence — a driver tried to execute "
                 "a future it does not own");
         now_ = executedWhen;
         // Fold the event's identity into the executed-order fingerprint
         // BEFORE running it (a throwing handler was still executed).
         foldTraceAt(*it, executedWhen);
-        // Copy the handler out and erase BEFORE running so the handler may safely
-        // (re)schedule, and an event can't observe itself still queued.
+        // Copy the handler out and erase BEFORE running so the handler may
+        // safely (re)schedule, and an event can't observe itself still queued.
         auto fn = it->fn;
         queue_.erase(it);
         fn();
@@ -556,8 +587,8 @@ public:
 
     // Run the single earliest event under K-profiled pacing.
     //
-    // HorizonMode::global is the original model: the event is CHARGED BEFORE its
-    // handler runs, so the handler observes the charged completion time via
+    // HorizonMode::global is the original model: the event is CHARGED BEFORE
+    // its handler runs, so the handler observes the charged completion time via
     // scheduler_.now() / the clock-sync wrapper. If the requested charge would
     // pass the beat horizon, the event still executes at the horizon, the clamp
     // is recorded, and the caller should stop the beat.
@@ -589,9 +620,8 @@ public:
         auto const start = now_ < it->when ? it->when : now_;
         if (fence_ && start > *fence_)
             Throw<std::logic_error>(
-                std::string(
-                    "HarnessScheduler::stepOneProfiled: next event "
-                    "(kind=") +
+                std::string("HarnessScheduler::stepOneProfiled: next event "
+                            "(kind=") +
                 kindName(it->kind) + ", node " + std::to_string(it->nodeId) +
                 ") lies beyond the planted fence — a driver tried to execute "
                 "a future it does not own");
@@ -599,7 +629,8 @@ public:
         auto const kindWeight = pacer.weights.weight(it->kind);
         auto const weight = pacer.eventWeight(it->nodeId, it->kind);
         auto const requested = pacer.eventCost(it->nodeId, it->kind);
-        auto const nodeMultiplier = pacer.nodeMultipliers.multiplier(it->nodeId);
+        auto const nodeMultiplier =
+            pacer.nodeMultipliers.multiplier(it->nodeId);
         stats.ensureNode(it->nodeId);
         auto& nodeLag = stats.nodeLag[it->nodeId];
         auto& nodeHorizon = stats.nodeBeatHorizon[it->nodeId];
@@ -612,15 +643,19 @@ public:
 
         auto budget = start < horizon ? horizon - start : duration::zero();
         if (pacer.horizonMode == ProfiledPacer::HorizonMode::perNode)
-            budget = nodeConsumed < budget ? budget - nodeConsumed : duration::zero();
+            budget = nodeConsumed < budget ? budget - nodeConsumed
+                                           : duration::zero();
         auto const consumed = requested <= budget ? requested : budget;
         nodeConsumed += consumed;
         auto const executedWhen =
-            pacer.horizonMode == ProfiledPacer::HorizonMode::global ? start + consumed : start;
+            pacer.horizonMode == ProfiledPacer::HorizonMode::global
+            ? start + consumed
+            : start;
         bool const clamped = consumed != requested;
         if (pacer.horizonMode == ProfiledPacer::HorizonMode::perNode && clamped)
             nodeLag += requested - consumed;
-        auto const observedWhen = pacer.horizonMode == ProfiledPacer::HorizonMode::perNode
+        auto const observedWhen =
+            pacer.horizonMode == ProfiledPacer::HorizonMode::perNode
             ? start - nodeLag
             : executedWhen;
 
@@ -702,9 +737,9 @@ public:
         return ran;
     }
 
-    // Run all events with when <= `until`, then advance now() to `until`. Events
-    // scheduled by handlers that still fall within [now, until] are also run.
-    // Returns true if any events remain after `until`.
+    // Run all events with when <= `until`, then advance now() to `until`.
+    // Events scheduled by handlers that still fall within [now, until] are also
+    // run. Returns true if any events remain after `until`.
     bool
     stepUntil(time_point until)
     {
@@ -742,7 +777,8 @@ private:
     [[nodiscard]] TraceEvent
     traceEventAt(Event const& e, time_point when) const
     {
-        return TraceEvent{when.time_since_epoch().count(), e.tier, e.nodeId, e.kind, e.label};
+        return TraceEvent{
+            when.time_since_epoch().count(), e.tier, e.nodeId, e.kind, e.label};
     }
 
     void
@@ -762,8 +798,9 @@ private:
     }
 
     // Shared insert for at()/atOrNow(): stamps the monotonic seq (total order +
-    // FIFO tie-break among equal (when,tier,nodeId)) and returns a cancel handle.
-    // `when` is taken as already validated (at) or clamped (atOrNow) by the caller.
+    // FIFO tie-break among equal (when,tier,nodeId)) and returns a cancel
+    // handle. `when` is taken as already validated (at) or clamped (atOrNow) by
+    // the caller.
     template <class Fn>
     CancelToken
     insert(
@@ -774,15 +811,14 @@ private:
         Kind kind,
         std::string label = {})
     {
-        auto const [it, inserted] = queue_.insert(
-            Event{
-                when,
-                static_cast<int>(tier),
-                nodeId,
-                nextSeq_++,
-                kind,
-                std::move(label),
-                std::function<void()>(std::forward<Fn>(fn))});
+        auto const [it, inserted] = queue_.insert(Event{
+            when,
+            static_cast<int>(tier),
+            nodeId,
+            nextSeq_++,
+            kind,
+            std::move(label),
+            std::function<void()>(std::forward<Fn>(fn))});
         (void)inserted;  // seq is unique → always inserted
         return CancelToken{it};
     }

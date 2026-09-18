@@ -74,7 +74,9 @@ class SteppingTiming_test : public beast::unit_test::suite
         auto const validatedBefore = net.validSeq(1);
         net.advanceTime(seconds{60});
         BEAST_EXPECT(net.controller().now() == schedulerBefore + seconds{60});
-        BEAST_EXPECT(net.node(1).app().getStopwatch().now() == steadyBefore + seconds{60});
+        BEAST_EXPECT(
+            net.node(1).app().getStopwatch().now() ==
+            steadyBefore + seconds{60});
         BEAST_EXPECT(net.node(1).clock().now() == netBefore + seconds{60});
         BEAST_EXPECT(net.validSeq(1) == validatedBefore);
         BEAST_EXPECT(net.offThreadJobs() == 0 && net.failedJobs() == 0);
@@ -105,8 +107,8 @@ class SteppingTiming_test : public beast::unit_test::suite
             BEAST_EXPECT(v >= lastValidated);  // monotone between beats
             lastValidated = v;
         }
-        log << "  validated seq " << net.minValidatedSeq() << " after "
-            << beats << " imperative beats" << std::endl;
+        log << "  validated seq " << net.minValidatedSeq() << " after " << beats
+            << " imperative beats" << std::endl;
         BEAST_EXPECT(net.minValidatedSeq() >= 3);
         BEAST_EXPECT(beats < kMaxBeats);
         BEAST_EXPECT(net.offThreadJobs() == 0);
@@ -142,12 +144,12 @@ class SteppingTiming_test : public beast::unit_test::suite
         Account const bob{"bob"};
         std::shared_ptr<Transaction> txA, txB;
         net.in(milliseconds{2500}, 0, [&]() {
-            txA = net.submit(0, pay(Account::master, alice, XRP(1000)),
-                             Account::master);
+            txA = net.submit(
+                0, pay(Account::master, alice, XRP(1000)), Account::master);
         });
         net.in(seconds{15}, 2, [&]() {
-            txB = net.submit(2, pay(Account::master, bob, XRP(1000)),
-                             Account::master);
+            txB = net.submit(
+                2, pay(Account::master, bob, XRP(1000)), Account::master);
         });
 
         auto const target = net.minValidatedSeq() + 6;
@@ -212,10 +214,10 @@ class SteppingTiming_test : public beast::unit_test::suite
     // link delay (5ms here). At skew >= linkDelay, a fast node's validation
     // reaches a slow node BEFORE the slow node has built that ledger, and
     // handleNewValidation fires the real ledger-ACQUIRE path (jtADVANCE
-    // "getConsensusLedger2" -> InboundLedgers) — correctly fail-loud, because the acquire
-    // closure graph is not modeled yet. Raising skew past linkDelay is the
-    // entry ticket for the late-joiner/acquire increment (plan §5.6), not a
-    // config tweak.
+    // "getConsensusLedger2" -> InboundLedgers) — correctly fail-loud, because
+    // the acquire closure graph is not modeled yet. Raising skew past linkDelay
+    // is the entry ticket for the late-joiner/acquire increment (plan §5.6),
+    // not a config tweak.
     std::vector<uint256>
     runSkewed(std::uint32_t target)
     {
@@ -253,8 +255,8 @@ class SteppingTiming_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(!chain1.empty() && !chain2.empty()))
             return;
         BEAST_EXPECT(chain1 == chain2);
-        log << "  skewed chains "
-            << (chain1 == chain2 ? "MATCH" : "DIFFER") << std::endl;
+        log << "  skewed chains " << (chain1 == chain2 ? "MATCH" : "DIFFER")
+            << std::endl;
     }
 
 public:

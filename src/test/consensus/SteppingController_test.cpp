@@ -4,20 +4,22 @@
 // directly), pinning the deterministic-dispatch contract the 2-node experiment
 // relies on:
 //   - JobType → tier mapping (consensus-critical vs fall-through);
-//   - the hook ENQUEUES claimed jobs (returns true) and leaves the rest (false);
+//   - the hook ENQUEUES claimed jobs (returns true) and leaves the rest
+//   (false);
 //   - clock coherence is mandatory (missing setSyncClock → hard failure) and is
 //     applied at the event's virtual time;
 //   - cross-node delivery delay must be strictly positive;
 //   - off-stepping-thread consensus jobs fail hard (and are counted);
-//   - dropPending() releases pending events (teardown safety vs JobCounter::join).
+//   - dropPending() releases pending events (teardown safety vs
+//   JobCounter::join).
 //   - canonicalAllJobs runs non-denied real closures without weakening strict
 //     known-only discovery mode.
 // Spec: csf-peerimp-hybrid-overlay-harness.md (Stage 3).
 //------------------------------------------------------------------------------
 #include <test/jtx/SteppingController.h>
 
-#include <xrpl/beast/unit_test/suite.h>
 #include <xrpld/core/Job.h>
+#include <xrpl/beast/unit_test/suite.h>
 
 #include <chrono>
 #include <stdexcept>
@@ -91,20 +93,26 @@ class SteppingController_test : public beast::unit_test::suite
     void
     testJobHookClosedWorld()
     {
-        testcase("closed-world hook: enqueue modeled, drop no-ops, FAIL unmodeled");
+        testcase(
+            "closed-world hook: enqueue modeled, drop no-ops, FAIL unmodeled");
         using D = JobQueue::JobDisposition;
         SteppingController c;
-        c.setSyncClock([](SteppingController::time_point) {});  // no-op (required)
+        c.setSyncClock(
+            [](SteppingController::time_point) {});  // no-op (required)
         auto hook = c.makeJobHook(/*nodeId*/ 0);
 
         bool ran = false;
         // A modeled consensus job is claimedQueued and ENQUEUED, not run yet.
-        BEAST_EXPECT(hook(jtPROPOSAL_t, "checkPropose", [&]() { ran = true; }) == D::claimedQueued);
+        BEAST_EXPECT(hook(jtPROPOSAL_t, "checkPropose", [&]() {
+                         ran = true;
+                     }) == D::claimedQueued);
         BEAST_EXPECT(c.scheduler().size() == 1);
         BEAST_EXPECT(!ran);  // enqueue-only: nothing runs at the post site
 
-        // A harness no-op is claimedDropped (reported not-queued; counter-safe).
-        BEAST_EXPECT(hook(jtCLIENT_CONSENSUS, "PubCons", [&]() {}) == D::claimedDropped);
+        // A harness no-op is claimedDropped (reported not-queued;
+        // counter-safe).
+        BEAST_EXPECT(
+            hook(jtCLIENT_CONSENSUS, "PubCons", [&]() {}) == D::claimedDropped);
         BEAST_EXPECT(c.scheduler().size() == 1);  // still just the proposal
 
         // The enqueued modeled job runs only when the scheduler is stepped.
@@ -119,12 +127,14 @@ class SteppingController_test : public beast::unit_test::suite
             // Unmodeled type FAILS HARD; and jtADVANCE under a name outside
             // the modeled set (AdvanceLedger/GetConsL1/GetConsL2/TryFill)
             // must also FAIL — an unknown path can't slip in via the type.
-            BEAST_EXPECT(except<std::logic_error>([&]() { failHook(jtSWEEP, "Sweep", [&]() {}); }));
-            BEAST_EXPECT(except<std::logic_error>([&]() {
-                failHook(jtADVANCE, "UnknownAdvance", [&]() {});
-            }));
+            BEAST_EXPECT(except<std::logic_error>(
+                [&]() { failHook(jtSWEEP, "Sweep", [&]() {}); }));
+            BEAST_EXPECT(except<std::logic_error>(
+                [&]() { failHook(jtADVANCE, "UnknownAdvance", [&]() {}); }));
             BEAST_EXPECT(cFail.failedJobs() == 2);
-            BEAST_EXPECT(cFail.jobDiagnostics().find("UnknownAdvance") != std::string::npos);
+            BEAST_EXPECT(
+                cFail.jobDiagnostics().find("UnknownAdvance") !=
+                std::string::npos);
         }
     }
 
@@ -140,18 +150,22 @@ class SteppingController_test : public beast::unit_test::suite
         auto hook = c.makeJobHook(/*nodeId*/ 0);
 
         bool acquireRan = false;
-        BEAST_EXPECT(
-            hook(jtADVANCE, "getConsensusLedger2", [&]() { acquireRan = true; }) == D::claimedQueued);
+        BEAST_EXPECT(hook(jtADVANCE, "getConsensusLedger2", [&]() {
+                         acquireRan = true;
+                     }) == D::claimedQueued);
         BEAST_EXPECT(c.failedJobs() == 0);
         BEAST_EXPECT(c.scheduler().size() == 1);
         BEAST_EXPECT(c.stepOne());
         BEAST_EXPECT(acquireRan);
 
-        // True harness no-ops are still dropped, not promoted by canonical mode.
-        BEAST_EXPECT(hook(jtCLIENT_CONSENSUS, "PubCons", []() {}) == D::claimedDropped);
+        // True harness no-ops are still dropped, not promoted by canonical
+        // mode.
+        BEAST_EXPECT(
+            hook(jtCLIENT_CONSENSUS, "PubCons", []() {}) == D::claimedDropped);
 
         // Explicitly denied background/client lanes still fail loud.
-        BEAST_EXPECT(except<std::logic_error>([&]() { hook(jtSWEEP, "sweep", []() {}); }));
+        BEAST_EXPECT(except<std::logic_error>(
+            [&]() { hook(jtSWEEP, "sweep", []() {}); }));
         BEAST_EXPECT(c.failedJobs() == 1);
         BEAST_EXPECT(c.jobDiagnostics().find("sweep") != std::string::npos);
     }
@@ -171,9 +185,10 @@ class SteppingController_test : public beast::unit_test::suite
         bool acquireRan = false;
         BEAST_EXPECT(hook(jtVALIDATION_t, "ChkTrust", [&]() {
                          outerRan = true;
-                         BEAST_EXPECT(hook(jtADVANCE, "getConsensusLedger2", [&]() {
-                                          acquireRan = true;
-                                      }) == D::claimedQueued);
+                         BEAST_EXPECT(
+                             hook(jtADVANCE, "getConsensusLedger2", [&]() {
+                                 acquireRan = true;
+                             }) == D::claimedQueued);
                      }) == D::claimedQueued);
 
         BEAST_EXPECT(c.stepOne());
@@ -202,26 +217,29 @@ class SteppingController_test : public beast::unit_test::suite
                          }
                          catch (std::logic_error const&)
                          {
-                             // Production code may catch the original hook failure.
-                             // The controller's post-event audit must still fail.
+                             // Production code may catch the original hook
+                             // failure. The controller's post-event audit must
+                             // still fail.
                          }
                      }) == D::claimedQueued);
 
         BEAST_EXPECT(except<std::logic_error>([&]() { c.stepOne(); }));
         BEAST_EXPECT(c.failedJobs() == 1);
-        BEAST_EXPECT(c.jobDiagnostics().find("UnknownAdvance") != std::string::npos);
+        BEAST_EXPECT(
+            c.jobDiagnostics().find("UnknownAdvance") != std::string::npos);
     }
 
     void
     testClockSyncRequiredAndApplied()
     {
-        testcase("clock sync is mandatory and applied at the event's virtual time");
+        testcase(
+            "clock sync is mandatory and applied at the event's virtual time");
         {
             // No setSyncClock installed → running an event fails hard.
             SteppingController c;
             auto hook = c.makeJobHook(0);
-            BEAST_EXPECT(
-                hook(jtNETOP_TIMER, "hb", []() {}) == JobQueue::JobDisposition::claimedQueued);
+            BEAST_EXPECT(hook(jtNETOP_TIMER, "hb", []() {
+                         }) == JobQueue::JobDisposition::claimedQueued);
             BEAST_EXPECT(except<std::logic_error>([&]() { c.stepOne(); }));
         }
         {
@@ -254,22 +272,27 @@ class SteppingController_test : public beast::unit_test::suite
         c.scheduleDelivery(0, ms{5}, []() {});  // ok
         BEAST_EXPECT(c.scheduler().size() == 1);
         // Zero / negative delay is a bug (would be same-instant as its cause).
-        BEAST_EXPECT(except<std::logic_error>([&]() { c.scheduleDelivery(0, ms{0}, []() {}); }));
-        BEAST_EXPECT(except<std::logic_error>([&]() { c.scheduleDelivery(0, ms{-1}, []() {}); }));
+        BEAST_EXPECT(except<std::logic_error>(
+            [&]() { c.scheduleDelivery(0, ms{0}, []() {}); }));
+        BEAST_EXPECT(except<std::logic_error>(
+            [&]() { c.scheduleDelivery(0, ms{-1}, []() {}); }));
     }
 
     void
     testProfiledPerNodeHorizonDoesNotGloballyStall()
     {
-        testcase("profiled per-node horizon: slow node lags without stalling peers");
+        testcase(
+            "profiled per-node horizon: slow node lags without stalling peers");
 
         using Pacer = SteppingController::ProfiledPacer;
 
         SteppingController c;
-        std::vector<std::pair<std::uint32_t, SteppingController::time_point>> synced;
-        c.setSyncClock([&](std::uint32_t nodeId, SteppingController::time_point t) {
-            synced.emplace_back(nodeId, t);
-        });
+        std::vector<std::pair<std::uint32_t, SteppingController::time_point>>
+            synced;
+        c.setSyncClock(
+            [&](std::uint32_t nodeId, SteppingController::time_point t) {
+                synced.emplace_back(nodeId, t);
+            });
 
         auto const start = c.now() + ms{1000};
         std::vector<std::uint32_t> ran;
@@ -298,19 +321,21 @@ class SteppingController_test : public beast::unit_test::suite
             [&]() { ran.push_back(0); },
             HarnessScheduler::Kind::job);
 
-        Pacer const pacer{/*k=*/1,
-                          /*unitCost=*/ms{30},
-                          Pacer::KindWeights::flat(),
-                          Pacer::NodeMultipliers::single(/*nodeId=*/0, /*value=*/10),
-                          Pacer::HorizonMode::perNode};
+        Pacer const pacer{
+            /*k=*/1,
+            /*unitCost=*/ms{30},
+            Pacer::KindWeights::flat(),
+            Pacer::NodeMultipliers::single(/*nodeId=*/0, /*value=*/10),
+            Pacer::HorizonMode::perNode};
         SteppingController::ProfiledStepStats stats;
 
         auto const steps = c.profiledBeat(
             start,
-            SteppingController::BeatSpec{/*nodeIds=*/{},
-                                         /*dt=*/ms{100},
-                                         /*skew=*/ms{0},
-                                         /*fireHeartbeats=*/false},
+            SteppingController::BeatSpec{
+                /*nodeIds=*/{},
+                /*dt=*/ms{100},
+                /*skew=*/ms{0},
+                /*fireHeartbeats=*/false},
             pacer,
             stats,
             [](std::uint32_t) {},
@@ -345,7 +370,8 @@ class SteppingController_test : public beast::unit_test::suite
     void
     testOffThreadConsensusJobFailsHard()
     {
-        testcase("consensus job off the stepping thread fails hard + is counted");
+        testcase(
+            "consensus job off the stepping thread fails hard + is counted");
         SteppingController c;  // stepping thread = this test thread
         c.setSyncClock([](SteppingController::time_point) {});
         auto hook = c.makeJobHook(0);

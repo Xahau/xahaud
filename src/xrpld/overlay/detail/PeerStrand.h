@@ -77,8 +77,8 @@ makePeerStrand(
     boost::asio::any_io_executor const& transportExecutor)
 {
     if (config.inlineStrands)
-        return boost::asio::make_strand(boost::asio::executor(
-            InlineExecutor{transportExecutor.context()}));
+        return boost::asio::make_strand(
+            boost::asio::executor(InlineExecutor{transportExecutor.context()}));
     return boost::asio::make_strand(transportExecutor);
 }
 

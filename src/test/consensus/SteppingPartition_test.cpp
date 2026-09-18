@@ -15,9 +15,9 @@
 //------------------------------------------------------------------------------
 #include <test/jtx/SteppingNetwork.h>
 
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 
 #include <cstdint>
 #include <optional>
@@ -29,10 +29,10 @@ class SteppingPartition_test : public beast::unit_test::suite
 {
     struct PartitionOutcome
     {
-        std::uint32_t stalledAt = 0;    // validated seq when the cut happened
+        std::uint32_t stalledAt = 0;  // validated seq when the cut happened
         std::uint32_t survivorClosed = 0;  // survivors' closedSeq during stall
-        std::uint32_t recoveredTo = 0;  // validated seq after heal
-        std::vector<uint256> chain;     // node 2's hashes [2 .. recoveredTo]
+        std::uint32_t recoveredTo = 0;     // validated seq after heal
+        std::vector<uint256> chain;        // node 2's hashes [2 .. recoveredTo]
     };
 
     std::optional<PartitionOutcome>

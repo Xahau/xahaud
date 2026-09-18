@@ -10,12 +10,13 @@
 //   A. one PEERED node comes up + tears down cleanly.
 //   B. two coexist in one process.
 //   C. two connect over the real loopback overlay (PeerImp handshake).
-//   D. two validators converge on a shared validated ledger  <- the Stage 0 gate.
-//   E. three validators converge (harness generalizes past N=2).
-//   F–J. SimOverlay / SimTransport in-process bus rungs (Stage 1).
-//   K. gating spike: two validators converge on a shared validated ledger driven
+//   D. two validators converge on a shared validated ledger  <- the Stage 0
+//   gate. E. three validators converge (harness generalizes past N=2). F–J.
+//   SimOverlay / SimTransport in-process bus rungs (Stage 1). K. gating spike:
+//   two validators converge on a shared validated ledger driven
 //      ENTIRELY by VIRTUAL ticks — manual consensus heartbeat + manual steady/
-//      NetClock clocks, NO asio wall-clock heartbeat (Stage 2 driver mechanism).
+//      NetClock clocks, NO asio wall-clock heartbeat (Stage 2 driver
+//      mechanism).
 //
 // Spec: .ai-docs/specs/csf-peerimp-hybrid-overlay-harness.md (Stage 0/1/2).
 //------------------------------------------------------------------------------
@@ -27,8 +28,8 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/overlay/Overlay.h>
 
-#include <xrpl/beast/unit_test/suite.h>
 #include <xrpld/app/rdb/RelationalDatabase.h>
+#include <xrpl/beast/unit_test/suite.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -90,12 +91,13 @@ class HarnessNet_test : public beast::unit_test::suite
     void
     testTwoNodesConverge()
     {
-        testcase("D: two peered validators converge on a shared validated ledger");
+        testcase(
+            "D: two peered validators converge on a shared validated ledger");
         using namespace std::chrono_literals;
         MultiNode net(*this);
 
-        // Two distinct validators; each node trusts BOTH (UNL size 2 → quorum 2:
-        // both must validate, the intended safety property).
+        // Two distinct validators; each node trusts BOTH (UNL size 2 → quorum
+        // 2: both must validate, the intended safety property).
         auto const valA = ValidatorKey::fromPassphrase("harness-validator-A");
         auto const valB = ValidatorKey::fromPassphrase("harness-validator-B");
         std::vector<std::string> const unl{valA.pubKey, valB.pubKey};
@@ -115,8 +117,8 @@ class HarnessNet_test : public beast::unit_test::suite
         bool const converged = net.waitForValidated(2, 90s);
         log << "  validated: node0="
             << net[0].app().getLedgerMaster().getValidLedgerIndex()
-            << " node1="
-            << net[1].app().getLedgerMaster().getValidLedgerIndex() << std::endl;
+            << " node1=" << net[1].app().getLedgerMaster().getValidLedgerIndex()
+            << std::endl;
         BEAST_EXPECT(converged);
 
         // They must agree on history: same hash at a common validated seq.
@@ -154,7 +156,8 @@ class HarnessNet_test : public beast::unit_test::suite
 
         auto const pump = net.pumpClocks();
         bool const converged = net.waitForValidated(2, 120s);
-        log << "  validated: n0=" << net[0].app().getLedgerMaster().getValidLedgerIndex()
+        log << "  validated: n0="
+            << net[0].app().getLedgerMaster().getValidLedgerIndex()
             << " n1=" << net[1].app().getLedgerMaster().getValidLedgerIndex()
             << " n2=" << net[2].app().getLedgerMaster().getValidLedgerIndex()
             << std::endl;
@@ -166,13 +169,14 @@ class HarnessNet_test : public beast::unit_test::suite
     void
     testSimOverlayStandup()
     {
-        testcase("F: node stands up with an injected SimOverlay (Stage 1 scaffold)");
+        testcase(
+            "F: node stands up with an injected SimOverlay (Stage 1 scaffold)");
         MultiNode net(*this);
         // Inject the in-process SimOverlay via the S0.1 factory instead of the
-        // real loopback overlay. Stage 1 increment 1: prove a node stands up with
-        // a valid-but-EMPTY overlay (two-phase standup — beginConsensus fires
-        // right after overlay construction, so size()/getActivePeers() must be
-        // valid at t=0). No transport yet, so no peers.
+        // real loopback overlay. Stage 1 increment 1: prove a node stands up
+        // with a valid-but-EMPTY overlay (two-phase standup — beginConsensus
+        // fires right after overlay construction, so size()/getActivePeers()
+        // must be valid at t=0). No transport yet, so no peers.
         auto& n = net.add(std::nullopt, [](Application& app) {
             return std::unique_ptr<Overlay>(std::make_unique<SimOverlay>(app));
         });
@@ -185,7 +189,9 @@ class HarnessNet_test : public beast::unit_test::suite
     void
     testSimTransportBus()
     {
-        testcase("G: SimTransport delivers bytes end-to-end over the in-process bus");
+        testcase(
+            "G: SimTransport delivers bytes end-to-end over the in-process "
+            "bus");
         // The bus primitive in isolation (no Application): B posts a read, A
         // writes, B's read completes with the bytes on its executor.
         boost::asio::io_context ioc;
@@ -217,8 +223,7 @@ class HarnessNet_test : public beast::unit_test::suite
         ioc.run();
         BEAST_EXPECT(writeDone && readDone);
         BEAST_EXPECT(readN == msg.size());
-        BEAST_EXPECT(
-            std::string(rbuf.begin(), rbuf.begin() + readN) == msg);
+        BEAST_EXPECT(std::string(rbuf.begin(), rbuf.begin() + readN) == msg);
     }
 
     void
@@ -245,8 +250,8 @@ class HarnessNet_test : public beast::unit_test::suite
         // Stand up a real handshaked PeerImp pair over a SimWire (no TCP/TLS).
         simConnect(net[0].app(), net[1].app());
 
-        // Each SimOverlay must reach one active (post-handshake) peer — proof the
-        // real PeerImps are alive and talking over the bus.
+        // Each SimOverlay must reach one active (post-handshake) peer — proof
+        // the real PeerImps are alive and talking over the bus.
         BEAST_EXPECT(net.waitForPeers(1, 20s));
         log << "  node0 peers=" << net[0].app().overlay().size()
             << " node1 peers=" << net[1].app().overlay().size() << std::endl;
@@ -282,8 +287,8 @@ class HarnessNet_test : public beast::unit_test::suite
         bool const converged = net.waitForValidated(2, 120s);
         log << "  validated: node0="
             << net[0].app().getLedgerMaster().getValidLedgerIndex()
-            << " node1="
-            << net[1].app().getLedgerMaster().getValidLedgerIndex() << std::endl;
+            << " node1=" << net[1].app().getLedgerMaster().getValidLedgerIndex()
+            << std::endl;
         BEAST_EXPECT(converged);
         if (converged)
             BEAST_EXPECT(net.ledgersAgree(net.minValidated()));
@@ -308,13 +313,12 @@ class HarnessNet_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(net.allUp()))
             return;
 
-        // Stand up the handshaked PeerImp pair over a SimWire and keep the handle
-        // so we can sever the bus on cue.
+        // Stand up the handshaked PeerImp pair over a SimWire and keep the
+        // handle so we can sever the bus on cue.
         auto wire = simConnect(net[0].app(), net[1].app());
         if (!BEAST_EXPECT(net.waitForPeers(1, 20s)))
             return;
-        log << "  before sever: node0 peers="
-            << net[0].app().overlay().size()
+        log << "  before sever: node0 peers=" << net[0].app().overlay().size()
             << " node1 peers=" << net[1].app().overlay().size() << std::endl;
 
         // Sever BOTH directional pipes. Each PeerImp's pending async_read_some
@@ -330,8 +334,8 @@ class HarnessNet_test : public beast::unit_test::suite
             20s);
         auto const dt = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - t0);
-        log << "  after sever (" << dt.count() << "ms): node0 peers="
-            << net[0].app().overlay().size()
+        log << "  after sever (" << dt.count()
+            << "ms): node0 peers=" << net[0].app().overlay().size()
             << " node1 peers=" << net[1].app().overlay().size() << std::endl;
         BEAST_EXPECT(dropped);
     }
@@ -344,10 +348,11 @@ class HarnessNet_test : public beast::unit_test::suite
             "(manual heartbeat + manual clocks, no asio wall-clock)");
         using namespace std::chrono_literals;
 
-        // virtualClock=true: both nodes run on a shared manual STEADY clock with
-        // the asio consensus heartbeat suppressed (Config::manualHeartbeat). This
-        // mirrors rung I (two SimOverlay validators, UNL size 2 -> quorum 2) but
-        // is driven by tick() — the Stage 2 mechanism — instead of pumpClocks()
+        // virtualClock=true: both nodes run on a shared manual STEADY clock
+        // with the asio consensus heartbeat suppressed
+        // (Config::manualHeartbeat). This mirrors rung I (two SimOverlay
+        // validators, UNL size 2 -> quorum 2) but is driven by tick() — the
+        // Stage 2 mechanism — instead of pumpClocks()
         // + the ~1s asio heartbeat.
         MultiNode net(*this, /*virtualClock=*/true);
 
@@ -362,17 +367,18 @@ class HarnessNet_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(net.allUp()))
             return;
 
-        // The PeerImp handshake is synchronous (simConnect), so peers are active
-        // immediately; this bounded wall poll just confirms it.
+        // The PeerImp handshake is synchronous (simConnect), so peers are
+        // active immediately; this bounded wall poll just confirms it.
         simConnect(net[0].app(), net[1].app());
         if (!BEAST_EXPECT(net.waitForPeers(1, 20s)))
             return;
 
-        // Drive consensus purely on virtual ticks: each tick advances the steady
-        // AND NetClock clocks by 1s (the production heartbeat granularity) and
-        // fires ONE manual heartbeat per node. No asio wall-clock heartbeat is
-        // involved (manualHeartbeat=true). The tick count is bounded, so a stall
-        // surfaces as a FAIL (not a hang) — runVirtual returns at the cap.
+        // Drive consensus purely on virtual ticks: each tick advances the
+        // steady AND NetClock clocks by 1s (the production heartbeat
+        // granularity) and fires ONE manual heartbeat per node. No asio
+        // wall-clock heartbeat is involved (manualHeartbeat=true). The tick
+        // count is bounded, so a stall surfaces as a FAIL (not a hang) —
+        // runVirtual returns at the cap.
         constexpr std::size_t kMaxTicks = 200;
         auto const ticks = net.runVirtual(/*target=*/2, kMaxTicks, 1s);
         bool const converged = net.minValidated() >= 2;
@@ -380,8 +386,8 @@ class HarnessNet_test : public beast::unit_test::suite
         log << "  virtual ticks=" << ticks << " (cap " << kMaxTicks << ")"
             << " validated: node0="
             << net[0].app().getLedgerMaster().getValidLedgerIndex()
-            << " node1="
-            << net[1].app().getLedgerMaster().getValidLedgerIndex() << std::endl;
+            << " node1=" << net[1].app().getLedgerMaster().getValidLedgerIndex()
+            << std::endl;
 
         BEAST_EXPECT(converged);
         BEAST_EXPECT(ticks < kMaxTicks);  // converged strictly within the bound
@@ -397,11 +403,12 @@ class HarnessNet_test : public beast::unit_test::suite
             "(validation stalls — the bless-the-tip precondition)");
         using namespace std::chrono_literals;
 
-        // Rung K's 2-validator virtual-time setup, but PARTITIONED mid-run. With
-        // UNL size 2 -> quorum 2, severing the only link makes quorum unreachable
-        // for either node, so NO further ledger can fully-validate. Under virtual
-        // time this is DETERMINISTIC (a fixed tick budget) — unlike the wall-clock
-        // version that was deferred from S1.3c as inherently flaky.
+        // Rung K's 2-validator virtual-time setup, but PARTITIONED mid-run.
+        // With UNL size 2 -> quorum 2, severing the only link makes quorum
+        // unreachable for either node, so NO further ledger can fully-validate.
+        // Under virtual time this is DETERMINISTIC (a fixed tick budget) —
+        // unlike the wall-clock version that was deferred from S1.3c as
+        // inherently flaky.
         MultiNode net(*this, /*virtualClock=*/true);
 
         auto const valA = ValidatorKey::fromPassphrase("harness-validator-A");
@@ -434,8 +441,9 @@ class HarnessNet_test : public beast::unit_test::suite
             net[1].app().overlay().size() == 0);
         auto const partitionedIdx = net.minValidated();
 
-        // Phase 3 — quorum lost: a generous virtual-time budget must NOT advance
-        // any node's FULLY-VALIDATED ledger (no quorum -> no validation).
+        // Phase 3 — quorum lost: a generous virtual-time budget must NOT
+        // advance any node's FULLY-VALIDATED ledger (no quorum -> no
+        // validation).
         constexpr std::size_t kStallTicks = 30;
         for (std::size_t i = 0; i < kStallTicks; ++i)
             net.tick(1s);
@@ -444,7 +452,8 @@ class HarnessNet_test : public beast::unit_test::suite
         auto const v1 = net[1].app().getLedgerMaster().getValidLedgerIndex();
         auto const maxAfter = v0 > v1 ? v0 : v1;
         log << "  converged=" << partitionedIdx << ", after " << kStallTicks
-            << " partitioned ticks: node0=" << v0 << " node1=" << v1 << std::endl;
+            << " partitioned ticks: node0=" << v0 << " node1=" << v1
+            << std::endl;
 
         // The bless-the-tip precondition, deterministically: quorum loss stalls
         // full validation — neither node advances past the partition point.
@@ -463,16 +472,20 @@ class HarnessNet_test : public beast::unit_test::suite
         // each time) and compare the validated-ledger hash at a fixed seq. For
         // empty ledgers the hash depends only on prev-hash + (empty) tx tree +
         // (deterministic) state tree + closeTime; closeTime is driven by the
-        // shared manual clock (deterministic), and cookies (PRNG) are validation
-        // metadata NOT hashed into the ledger. So the hash should be IDENTICAL
-        // across runs even though job/io threading is not single-threaded.
+        // shared manual clock (deterministic), and cookies (PRNG) are
+        // validation metadata NOT hashed into the ledger. So the hash should be
+        // IDENTICAL across runs even though job/io threading is not
+        // single-threaded.
         auto runOnce = [this]() -> uint256 {
             MultiNode net(*this, /*virtualClock=*/true);
-            auto const valA = ValidatorKey::fromPassphrase("harness-validator-A");
-            auto const valB = ValidatorKey::fromPassphrase("harness-validator-B");
+            auto const valA =
+                ValidatorKey::fromPassphrase("harness-validator-A");
+            auto const valB =
+                ValidatorKey::fromPassphrase("harness-validator-B");
             std::vector<std::string> const unl{valA.pubKey, valB.pubKey};
             auto simFactory = [](Application& app) {
-                return std::unique_ptr<Overlay>(std::make_unique<SimOverlay>(app));
+                return std::unique_ptr<Overlay>(
+                    std::make_unique<SimOverlay>(app));
             };
             net.add(TrustConfig{valA.seed, unl}, simFactory);
             net.add(TrustConfig{valB.seed, unl}, simFactory);
@@ -489,7 +502,8 @@ class HarnessNet_test : public beast::unit_test::suite
         auto const h1 = runOnce();
         auto const h2 = runOnce();
         log << "  validated seq-2 hash run1==run2: "
-            << ((h1 == h2 && h1 != uint256{}) ? "MATCH" : "DIFFER") << std::endl;
+            << ((h1 == h2 && h1 != uint256{}) ? "MATCH" : "DIFFER")
+            << std::endl;
         BEAST_EXPECT(h1 != uint256{});  // both runs validated seq 2
         BEAST_EXPECT(h1 == h2);         // reproducible run-to-run
     }
@@ -541,7 +555,8 @@ class HarnessNet_test : public beast::unit_test::suite
         // ("latest") reads that table, so wait for the row before stopping.
         if (!BEAST_EXPECT(waitUntil(
                 [&] {
-                    auto const max = net[1].app().getRelationalDatabase().getMaxLedgerSeq();
+                    auto const max =
+                        net[1].app().getRelationalDatabase().getMaxLedgerSeq();
                     return max && *max >= validatedBefore;
                 },
                 10s)))
@@ -554,8 +569,9 @@ class HarnessNet_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(net.restartNode(1).isUp()))
             return;
         auto const resumed = net.closedSeq(1);
-        log << "  genesisClosed=" << genesisClosed << " validatedBefore=" << validatedBefore
-            << " resumed=" << resumed << std::endl;
+        log << "  genesisClosed=" << genesisClosed
+            << " validatedBefore=" << validatedBefore << " resumed=" << resumed
+            << std::endl;
         BEAST_EXPECT(resumed >= validatedBefore);
         BEAST_EXPECT(net.databasePath(1) == dbPath);
 
@@ -577,7 +593,9 @@ class HarnessNet_test : public beast::unit_test::suite
     void
     testFreshRestartWithoutLoadableLedger()
     {
-        testcase("N: fresh restart of a node that never validated a loadable ledger");
+        testcase(
+            "N: fresh restart of a node that never validated a loadable "
+            "ledger");
         MultiNode net(*this, /*virtualClock=*/true);
         auto simFactory = [](Application& app) {
             return std::unique_ptr<Overlay>(std::make_unique<SimOverlay>(app));
@@ -587,7 +605,8 @@ class HarnessNet_test : public beast::unit_test::suite
             return;
         auto const genesisClosed = net.closedSeq(0);
         auto const dbPath = net.databasePath(0);
-        log << "  genesisClosed=" << genesisClosed << " validSeq=" << net.validSeq(0) << std::endl;
+        log << "  genesisClosed=" << genesisClosed
+            << " validSeq=" << net.validSeq(0) << std::endl;
 
         net.stopNode(0);
         if (!BEAST_EXPECT(net.restartNodeFresh(0).isUp()))

@@ -1,25 +1,27 @@
 //------------------------------------------------------------------------------
-// SteppingDiscovery (Stage 3, S3.3b discovery phase) — the cheap, decisive first
-// experiment of the deterministic push: ENUMERATE every JobQueue job type that an
-// empty-ledger 2-node consensus actually posts, and from which thread. It reuses
-// the working hybrid convergence (rung K: SimOverlay + simConnect + virtual ticks)
-// and just OBSERVES, via an install-before-setup dispatch hook that records the
-// type then returns false (jobs still run on workers — pure observation).
+// SteppingDiscovery (Stage 3, S3.3b discovery phase) — the cheap, decisive
+// first experiment of the deterministic push: ENUMERATE every JobQueue job type
+// that an empty-ledger 2-node consensus actually posts, and from which thread.
+// It reuses the working hybrid convergence (rung K: SimOverlay + simConnect +
+// virtual ticks) and just OBSERVES, via an install-before-setup dispatch hook
+// that records the type then returns false (jobs still run on workers — pure
+// observation).
 //
 // This is the "closed world" the strict stepping mode must model or gate: each
 // type here is either a consensus event we route onto the scheduler, or a
-// background poster we must turn off. "posted off-driver-thread" flags the types
-// that, in the hybrid, come from worker/io threads — i.e. the timing leaks the
-// deterministic mode has to eliminate. Spec: csf-...-harness.md (Stage 3).
+// background poster we must turn off. "posted off-driver-thread" flags the
+// types that, in the hybrid, come from worker/io threads — i.e. the timing
+// leaks the deterministic mode has to eliminate. Spec: csf-...-harness.md
+// (Stage 3).
 //------------------------------------------------------------------------------
 #include <test/jtx/MultiNode.h>
 #include <test/jtx/SimOverlay.h>
 #include <test/jtx/SimTransport.h>
 
-#include <xrpl/beast/unit_test/suite.h>
 #include <xrpld/core/Job.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/core/JobTypes.h>
+#include <xrpl/beast/unit_test/suite.h>
 
 #include <chrono>
 #include <map>
@@ -38,13 +40,15 @@ class SteppingDiscovery_test : public beast::unit_test::suite
     testEnumerateJobs()
     {
         testcase(
-            "discovery: job types posted during empty-ledger 2-node convergence");
+            "discovery: job types posted during empty-ledger 2-node "
+            "convergence");
         using namespace std::chrono_literals;
 
-        // Thread-safe recorder, keyed by (JobType, per-job NAME). The name matters:
-        // one JobType can serve several call sites (e.g. jtADVANCE is used for both
-        // AdvanceLedger and the GetConsL1/GetConsL2 ledger-ACQUIRE paths), so the
-        // closed world must classify by (type, name), not type alone.
+        // Thread-safe recorder, keyed by (JobType, per-job NAME). The name
+        // matters: one JobType can serve several call sites (e.g. jtADVANCE is
+        // used for both AdvanceLedger and the GetConsL1/GetConsL2
+        // ledger-ACQUIRE paths), so the closed world must classify by (type,
+        // name), not type alone.
         struct Key
         {
             JobType type;

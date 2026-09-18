@@ -19,9 +19,9 @@
 #include <test/jtx/SteppingNetwork.h>
 #include <test/jtx/SteppingReplay.h>
 
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 
 #include <ripple.pb.h>
 
@@ -120,8 +120,7 @@ class SteppingGrind_test : public beast::unit_test::suite
                     net.faultLink(
                         0,
                         to,
-                        simfaults::dropWithProbability(
-                            *engines->back(), 0.10));
+                        simfaults::dropWithProbability(*engines->back(), 0.10));
                 }
                 auto const target = net.minValidatedSeq() + 3;
                 net.runTo(target);

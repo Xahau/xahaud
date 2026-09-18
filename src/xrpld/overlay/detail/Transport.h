@@ -1,12 +1,13 @@
 #pragma once
 //------------------------------------------------------------------------------
-// Transport — abstracts PeerImp's socket I/O (read/write/close/executor/shutdown
+// Transport — abstracts PeerImp's socket I/O
+// (read/write/close/executor/shutdown
 // + the handshake shared-value) behind a runtime virtual interface, so the REAL
-// PeerImp can run over the production ssl_stream OR an in-process bus (the Stage 1
-// test harness). See spec §5.1: this is a thin, devirtualizable shim, NOT the
-// deleted ~40-site PeerImpT<Transport> template weld. PeerImp is constructed at
-// exactly two sites (OverlayImpl.cpp, ConnectAttempt.cpp), both of which wrap
-// their ssl_stream in an SslTransport.
+// PeerImp can run over the production ssl_stream OR an in-process bus (the
+// Stage 1 test harness). See spec §5.1: this is a thin, devirtualizable shim,
+// NOT the deleted ~40-site PeerImpT<Transport> template weld. PeerImp is
+// constructed at exactly two sites (OverlayImpl.cpp, ConnectAttempt.cpp), both
+// of which wrap their ssl_stream in an SslTransport.
 //------------------------------------------------------------------------------
 #include <xrpld/overlay/detail/Handshake.h>
 
@@ -53,8 +54,9 @@ public:
 
     // Completions are invoked on `strand` (the impl binds it), matching prod's
     // bind_executor(strand_, handler). Buffers are passed as vectors so the
-    // interface can stay non-templated; the impl copies the descriptors into the
-    // composed op (the underlying bytes are owned by the caller for the op's life).
+    // interface can stay non-templated; the impl copies the descriptors into
+    // the composed op (the underlying bytes are owned by the caller for the
+    // op's life).
     virtual void
     async_read_some(
         std::vector<boost::asio::mutable_buffer> buffers,
@@ -71,13 +73,15 @@ public:
     async_shutdown(executor_type strand, ShutdownHandler handler) = 0;
 
     // Hard, immediate socket close (prod's `socket_.close(ec)`; the error is
-    // discarded, matching the call site's NOLINT(bugprone-unused-return-value)).
-    // Distinct from async_shutdown's graceful TLS teardown.
+    // discarded, matching the call site's
+    // NOLINT(bugprone-unused-return-value)). Distinct from async_shutdown's
+    // graceful TLS teardown.
     virtual void
     close() = 0;
 
     // The one TLS-internals touch (handshake, cold/once-per-connection). Prod
-    // hashes the live OpenSSL session; the sim impl returns a deterministic value.
+    // hashes the live OpenSSL session; the sim impl returns a deterministic
+    // value.
     [[nodiscard]] virtual std::optional<uint256>
     makeSharedValue(beast::Journal journal) = 0;
 };
@@ -125,7 +129,9 @@ public:
     {
         // The composed async_write transfers ALL bytes (prod's transfer_all()).
         boost::asio::async_write(
-            *stream_, buffers, boost::asio::bind_executor(strand, std::move(handler)));
+            *stream_,
+            buffers,
+            boost::asio::bind_executor(strand, std::move(handler)));
     }
 
     void
