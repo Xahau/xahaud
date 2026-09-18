@@ -6,6 +6,7 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpl/basics/strHex.h>
+#include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
@@ -76,6 +77,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::uint32_t serviceLag = 0;
         std::uint32_t reorderedShares = 0;
         std::uint32_t invertedSharePairs = 0;
+        std::vector<uint256> shareSendOrder;
+        std::vector<uint256> shareRecvOrder;
     };
 
     template <class T>
@@ -94,6 +97,15 @@ class SteppingExtensions_test : public beast::unit_test::suite
         if (!result)
             throw std::logic_error("Invalid fixture frame payload");
         return result;
+    }
+
+    static uint256
+    directBatchId(protocol::TMExportShares const& batch)
+    {
+        Serializer s;
+        for (auto const& share : batch.shares())
+            s.addRaw(share.data(), share.size());
+        return s.getSHA512Half();
     }
 
     static bool
@@ -147,7 +159,16 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         beast::IP::Endpoint const&,
                         ::google::protobuf::Message const& msg) {
                         if (type == protocol::mtEXPORT_SHARES)
+                        {
                             ++stats->directFrames.at(id);
+                            if (id == observer)
+                            {
+                                auto const& batch = static_cast<
+                                    protocol::TMExportShares const&>(msg);
+                                stats->shareRecvOrder.push_back(
+                                    directBatchId(batch));
+                            }
+                        }
                         if (type == protocol::mtLEDGER_DATA)
                         {
                             auto const& data =
@@ -551,11 +572,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         if (!batch || batch->shares_size() == 0)
                             return f;
                         ++stats->reorderedShares;
+                        stats->shareSendOrder.push_back(directBatchId(*batch));
                         // Node 0's frames sit; nodes 1 and 2 overtake them.
-                        auto const delay = (from == 0) ? 800ms : 50ms;
-                        if (from != 0)
-                            ++stats->invertedSharePairs;
-                        f.delay = delay;
+                        f.delay = (from == 0) ? 800ms : 50ms;
                         return f;
                     });
         }
@@ -746,7 +765,29 @@ class SteppingExtensions_test : public beast::unit_test::suite
         if (fault == Fault::reorderShares)
         {
             BEAST_EXPECT(stats->reorderedShares >= 2);
+            BEAST_EXPECT(
+                stats->shareSendOrder.size() == stats->shareRecvOrder.size());
+            std::map<uint256, std::vector<std::size_t>> recvAt;
+            for (std::size_t i = 0; i < stats->shareRecvOrder.size(); ++i)
+                recvAt[stats->shareRecvOrder[i]].push_back(i);
+            std::map<uint256, std::size_t> consumed;
+            std::vector<std::size_t> recvIndex(stats->shareSendOrder.size());
+            for (std::size_t i = 0; i < stats->shareSendOrder.size(); ++i)
+            {
+                auto const& id = stats->shareSendOrder[i];
+                auto const slot = consumed[id]++;
+                if (!BEAST_EXPECT(slot < recvAt[id].size()))
+                    break;
+                recvIndex[i] = recvAt[id][slot];
+            }
+            for (std::size_t i = 0; i < recvIndex.size(); ++i)
+                for (std::size_t j = i + 1; j < recvIndex.size(); ++j)
+                    if (recvIndex[j] < recvIndex[i])
+                        ++stats->invertedSharePairs;
             BEAST_EXPECT(stats->invertedSharePairs != 0);
+            log << "  share-order: sent=" << stats->shareSendOrder.size()
+                << " recv=" << stats->shareRecvOrder.size()
+                << " inversions=" << stats->invertedSharePairs << std::endl;
         }
         if (origin)
         {
@@ -832,7 +873,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
             localMismatches,
             stats->exportAheadOfRng,
             stats->rngAheadOfExport,
-            stats->serviceLag));
+            stats->serviceLag,
+            stats->invertedSharePairs,
+            stats->shareSendOrder.size(),
+            stats->shareRecvOrder.size()));
         return outcome;
     }
 
@@ -879,10 +923,6 @@ class SteppingExtensions_test : public beast::unit_test::suite
             !submitIntent(world.owner, 2, shortWindow) ||
             !submitIntent(owner2, 1, longWindow))
             return std::nullopt;
-        // Below-qC isolation of one origin would require dropping selected
-        // contributions out of signed proposal frames. Dropping the whole
-        // proposal also drops other origins and ordinary agreement. Left
-        // as a gap.
 
         auto const target = warmLedger + 12;
         net.runTo(target, SteppingNetwork::RunBudget{1600, 1'200'000});
@@ -890,47 +930,88 @@ class SteppingExtensions_test : public beast::unit_test::suite
             return std::nullopt;
         BEAST_EXPECT(net.ledgersAgree(target));
         BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(net.offThreadJobs() == 0);
+        BEAST_EXPECT(world.observed->secrets[observer] == 0);
+        BEAST_EXPECT(world.observed->ownReleases[observer] == 0);
+        for (std::uint32_t i = 0; i < observer; ++i)
+        {
+            BEAST_EXPECT(world.observed->ownReleases[i] != 0);
+            BEAST_EXPECT(world.observed->unauthorizedReleases[i] == 0);
+        }
         auto const collected = net.node(observer)
                                    .app()
                                    .getConsensusExtensions()
                                    .postValidationExportSigCollector()
                                    .fullUnionSnapshot();
         BEAST_EXPECT(collected.size() == origins.size());
-        std::uint32_t witnessed = 0;
-        std::set<uint256> witnessOrigins;
+        std::map<uint256, std::uint32_t> witnessHits;
+        std::set<uint256> unexpected;
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= target; ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (std::uint32_t i = 1; i <= observer; ++i)
+            {
+                auto const ledger = net.ledger(i, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            outcome.push_back(canonical->info().hash);
+            for (auto const& [tx, meta] : canonical->txs)
+            {
+                if (tx->getTxnType() != ttEXPORT_SIGNATURES)
+                    continue;
+                if (!BEAST_EXPECT(meta != nullptr))
+                    return std::nullopt;
+                auto const origin = tx->getFieldH256(sfTransactionHash);
+                auto const expected =
+                    std::find(origins.begin(), origins.end(), origin);
+                if (expected == origins.end())
+                    unexpected.insert(origin);
+                else
+                    ++witnessHits[origin];
+                auto const txBytes = tx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                outcome.push_back(sha512Half(makeSlice(txBytes), makeSlice(metaBytes)));
+                for (std::uint32_t i = 0; i <= observer; ++i)
+                {
+                    auto const ledger = net.ledger(i, seq);
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : ledger->txs)
+                    {
+                        if (peerTx->getTxnType() != ttEXPORT_SIGNATURES ||
+                            peerTx->getFieldH256(sfTransactionHash) != origin)
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes);
+                        BEAST_EXPECT(
+                            peerMeta != nullptr &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+        }
+        BEAST_EXPECT(unexpected.empty());
         for (auto const& origin : origins)
         {
             auto const found = collected.find(origin);
             if (!BEAST_EXPECT(found != collected.end()))
                 return std::nullopt;
-            auto const seq = witnessAt(net, origin, warmLedger);
             BEAST_EXPECT(found->second.size() == observer);
+            BEAST_EXPECT(witnessHits[origin] == 1);
+            auto const seq = witnessAt(net, origin, warmLedger);
             BEAST_EXPECT(seq != 0);
             if (seq)
-            {
-                ++witnessed;
-                witnessOrigins.insert(origin);
-                auto const ledger = net.ledger(observer, seq);
-                if (!BEAST_EXPECT(ledger))
-                    return std::nullopt;
-                std::uint32_t hits = 0;
-                for (auto const& [tx, meta] : ledger->txs)
-                {
-                    if (tx->getTxnType() != ttEXPORT_SIGNATURES)
-                        continue;
-                    BEAST_EXPECT(meta != nullptr);
-                    if (tx->getFieldH256(sfTransactionHash) == origin)
-                        ++hits;
-                }
-                BEAST_EXPECT(hits == 1);
-            }
+                BEAST_EXPECT(world.observed->builds[observer].contains(
+                    {seq,
+                     net.ledgerHash(0, seq - 1),
+                     net.ledgerHash(0, seq)}));
         }
-        BEAST_EXPECT(witnessed == origins.size());
-        BEAST_EXPECT(witnessOrigins.size() == origins.size());
-        std::vector<uint256> outcome;
-        for (auto seq = warmLedger; seq <= target; ++seq)
-            if (auto const ledger = net.ledger(observer, seq))
-                outcome.push_back(ledger->info().hash);
         outcome.insert(outcome.end(), origins.begin(), origins.end());
         return outcome;
     }
