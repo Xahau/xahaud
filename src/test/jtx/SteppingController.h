@@ -155,6 +155,8 @@ private:
     std::vector<std::string> failedJobs_;
     static constexpr std::size_t maxRecentJobs_ = 40;
     std::map<std::pair<std::uint32_t, int>, duration> jobLags_;
+    std::map<std::tuple<std::uint32_t, JobType, std::string>, duration> namedJobLags_;
+    std::function<void(std::uint32_t, JobType, std::string const&)> beforeJob_;
 
     [[nodiscard]] static char const*
     jobTypeName(JobType t)
@@ -401,8 +403,10 @@ private:
     }
 
     [[nodiscard]] duration
-    jobLag(std::uint32_t nodeId, Tier tier) const
+    jobLag(std::uint32_t nodeId, Tier tier, JobType type, std::string const& name) const
     {
+        if (auto const it = namedJobLags_.find({nodeId, type, name}); it != namedJobLags_.end())
+            return it->second;
         auto const it = jobLags_.find({nodeId, static_cast<int>(tier)});
         return it == jobLags_.end() ? duration::zero() : it->second;
     }
@@ -509,6 +513,28 @@ public:
     }
 
     void
+    setJobLag(std::uint32_t nodeId, JobType type, std::string name, duration lag)
+    {
+        requireSteppingThread("setJobLag");
+        if (lag < duration::zero())
+            Throw<std::logic_error>("SteppingController::setJobLag: lag must be non-negative");
+        auto const key = std::make_tuple(nodeId, type, std::move(name));
+        if (lag == duration::zero())
+            namedJobLags_.erase(key);
+        else
+            namedJobLags_[key] = lag;
+    }
+
+    // Passive scenario inspection after clock sync, immediately before the real
+    // job body. This does not enqueue, suppress or replace that body.
+    void
+    observeJobs(std::function<void(std::uint32_t, JobType, std::string const&)> observer)
+    {
+        requireSteppingThread("observeJobs");
+        beforeJob_ = std::move(observer);
+    }
+
+    void
     clearJobLag(std::uint32_t nodeId)
     {
         requireSteppingThread("clearJobLag");
@@ -519,6 +545,11 @@ public:
             else
                 ++it;
         }
+        for (auto it = namedJobLags_.begin(); it != namedJobLags_.end();)
+            if (std::get<0>(it->first) == nodeId)
+                it = namedJobLags_.erase(it);
+            else
+                ++it;
     }
 
     [[nodiscard]] std::size_t
@@ -857,7 +888,7 @@ public:
                             "' arrived off the stepping thread [thread='" +
                             std::string(beast::getCurrentThreadName()) + "']");
                     }
-                    auto const lag = jobLag(nodeId, classification.tier);
+                    auto const lag = jobLag(nodeId, classification.tier, t, name);
                     recordJob(
                         nodeId, t, name, lag == duration::zero() ? "queued" : "queued:lagged");
                     if (lag != duration::zero())
@@ -872,6 +903,8 @@ public:
                                 if (lag != duration::zero())
                                     clearLaggedPending(nodeId, tier, t, name, lag);
                                 recordJob(nodeId, t, name, "run");
+                                if (beforeJob_)
+                                    beforeJob_(nodeId, t, name);
                                 f();
                             }),
                         HarnessScheduler::Kind::job,

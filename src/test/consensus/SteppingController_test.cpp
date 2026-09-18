@@ -184,6 +184,47 @@ class SteppingController_test : public beast::unit_test::suite
     }
 
     void
+    testNamedJobLagAndObservation()
+    {
+        testcase("named lag delays only the selected job; observations precede real bodies");
+        SteppingController c;
+        c.setSyncClock([](SteppingController::time_point) {});
+        c.setJobLag(0, Tier::process, ms{2});
+        c.setJobLag(0, jtADVANCE, "validatedLedgerWork", ms{7});
+        auto hook0 = c.makeJobHook(0);
+        auto hook1 = c.makeJobHook(1);
+        std::vector<int> order;
+        std::vector<SteppingController::time_point> times;
+        bool observed = false;
+        c.observeJobs([&](std::uint32_t, JobType, std::string const&) {
+            BEAST_EXPECT(!observed);
+            observed = true;
+        });
+        auto body = [&](int id) {
+            BEAST_EXPECT(observed);
+            observed = false;
+            order.push_back(id);
+            times.push_back(c.now());
+        };
+        using D = JobQueue::JobDisposition;
+        BEAST_EXPECT(hook0(jtADVANCE, "validatedLedgerWork", [&] { body(3); }) == D::claimedQueued);
+        BEAST_EXPECT(hook0(jtADVANCE, "getConsensusLedger2", [&] { body(1); }) == D::claimedQueued);
+        BEAST_EXPECT(hook0(jtPROPOSAL_t, "checkPropose", [&] { body(2); }) == D::claimedQueued);
+        BEAST_EXPECT(hook1(jtADVANCE, "validatedLedgerWork", [&] { body(0); }) == D::claimedQueued);
+        while (c.stepOne()) {}
+        BEAST_EXPECT((order == std::vector<int>{0, 1, 2, 3}));
+        BEAST_EXPECT((times == std::vector<SteppingController::time_point>{
+            {}, SteppingController::time_point{ms{2}}, SteppingController::time_point{ms{2}},
+            SteppingController::time_point{ms{7}}}));
+        c.clearJobLag(0);
+        auto const now = c.now();
+        BEAST_EXPECT(hook0(jtADVANCE, "validatedLedgerWork", [&] { body(4); }) == D::claimedQueued);
+        BEAST_EXPECT(c.stepOne());
+        BEAST_EXPECT(times.back() == now);
+        BEAST_EXPECT(except<std::logic_error>([&] { c.setJobLag(0, jtADVANCE, "W", ms{-1}); }));
+    }
+
+    void
     testCanonicalAllJobsPolicy()
     {
         testcase("canonicalAllJobs: enqueue real non-denied closures");
@@ -448,6 +489,7 @@ public:
     {
         testClassify();
         testExtensionWorkScheduled();
+        testNamedJobLagAndObservation();
         testJobHookClosedWorld();
         testCanonicalAllJobsPolicy();
         testCanonicalNestedJobNotSwallowed();

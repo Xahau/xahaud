@@ -39,6 +39,7 @@ class STTx;
 
 namespace test {
 class ConsensusExtensions_test;
+class SteppingExtensions_test;
 }  // namespace test
 
 /// Concrete alias for the consensus tick context.
@@ -52,6 +53,8 @@ using TickContext = ConsensusTick<ExtendedPosition, RCLCxPeerPos, RCLTxSet>;
 class ConsensusExtensions
 {
     friend class test::ConsensusExtensions_test;
+    // DSF observes accepted evidence at real job boundaries; it does not seed it.
+    friend class test::SteppingExtensions_test;
 
     Application& app_;
     ExportSigCollector postValidationExportSigCollector_;
