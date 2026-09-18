@@ -446,6 +446,11 @@ public:
 
 private:
     void
+    notifyLifecycleHook(
+        std::string const& event,
+        std::string const& detail) const;
+
+    void
     close();
 
     void

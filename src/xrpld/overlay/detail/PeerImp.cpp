@@ -243,19 +243,46 @@ PeerImp::send(std::shared_ptr<Message> const& m)
 {
     if (!strand_.running_in_this_thread())
         return post(strand_, std::bind(&PeerImp::send, shared_from_this(), m));
+
+    auto const& sendHook = app_.config().harnessPeerSend;
+    bool hookInfoInitialized = false;
+    std::uint16_t hookType = 0;
+    std::string hookName;
+    auto notifySendHook = [&](std::string const& stage) {
+        if (!sendHook)
+            return;
+        if (!hookInfoInitialized)
+        {
+            hookType = static_cast<std::uint16_t>(m->getMessageType());
+            hookName = protocolMessageName(hookType);
+            hookInfoInitialized = true;
+        }
+        sendHook(hookType, hookName, id_, remote_address_, stage, *m);
+    };
+    notifySendHook("call");
     if (gracefulClose_)
+    {
+        notifySendHook("skip:gracefulClose");
         return;
+    }
     if (detaching_)
+    {
+        notifySendHook("skip:detaching");
         return;
+    }
 
     auto validator = m->getValidatorKey();
     if (validator && !squelch_.expireSquelch(*validator))
+    {
+        notifySendHook("skip:squelch");
         return;
+    }
 
     overlay_.reportTraffic(
         safe_cast<TrafficCount::category>(m->getCategory()),
         false,
         static_cast<int>(m->getBuffer(compressionEnabled_).size()));
+    notifySendHook("queued");
 
     auto sendq_size = send_queue_.size();
 
@@ -563,6 +590,25 @@ PeerImp::hasRange(std::uint32_t uMin, std::uint32_t uMax)
 //------------------------------------------------------------------------------
 
 void
+PeerImp::notifyLifecycleHook(
+    std::string const& event,
+    std::string const& detail) const
+{
+    if (auto const& hook = app_.config().harnessPeerLifecycle)
+    {
+        hook(
+            event,
+            detail,
+            id_,
+            remote_address_,
+            transport_->is_open(),
+            detaching_,
+            gracefulClose_,
+            send_queue_.size());
+    }
+}
+
+void
 PeerImp::close()
 {
     XRPL_ASSERT(
@@ -570,9 +616,12 @@ PeerImp::close()
         "ripple::PeerImp::close : strand in this thread");
     if (transport_->is_open())
     {
+        notifyLifecycleHook("close:enter", "");
         detaching_ = true;  // DEPRECATED
+        notifyLifecycleHook("close:detaching", "");
         cancelTimer();
         transport_->close();
+        notifyLifecycleHook("close:closed", "");
         overlay_.incPeerDisconnect();
         if (inbound_)
         {
@@ -595,6 +644,7 @@ PeerImp::fail(std::string const& reason)
                 (void(Peer::*)(std::string const&)) & PeerImp::fail,
                 shared_from_this(),
                 reason));
+    notifyLifecycleHook("fail", reason);
     if (journal_.active(beast::severities::kWarning) && transport_->is_open())
     {
         std::string const n = name();
@@ -610,6 +660,7 @@ PeerImp::fail(std::string const& name, error_code ec)
     XRPL_ASSERT(
         strand_.running_in_this_thread(),
         "ripple::PeerImp::fail : strand in this thread");
+    notifyLifecycleHook("fail:error", name + ": " + ec.message());
     if (transport_->is_open())
     {
         JLOG(journal_.warn())
@@ -631,7 +682,9 @@ PeerImp::gracefulClose()
     XRPL_ASSERT(
         !gracefulClose_,
         "ripple::PeerImp::gracefulClose : socket is not closing");
+    notifyLifecycleHook("gracefulClose:enter", "");
     gracefulClose_ = true;
+    notifyLifecycleHook("gracefulClose:set", "");
     if (send_queue_.size() > 0)
         return;
     setTimer();
@@ -1040,6 +1093,8 @@ PeerImp::onMessageBegin(
         overlay_.addTxMetrics(
             static_cast<MessageType>(type), static_cast<std::uint64_t>(size));
     }
+    if (auto const& hook = app_.config().harnessPeerMessage)
+        hook(type, name, id_, remote_address_, *m);
     JLOG(journal_.trace()) << "onMessageBegin: " << type << " " << size << " "
                            << uncompressed_size << " " << isCompressed;
 }
@@ -2309,12 +2364,20 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
             val->setSeen(closeTime);
         }
 
+        auto const seq = val->getFieldU32(sfLedgerSequence);
+        auto const hash = val->getLedgerHash();
+        auto const reportValidation = [&](bool trusted, char const* outcome) {
+            if (auto const& hook = app_.config().harnessValidation)
+                hook(std::to_string(id()), trusted, seq, hash, outcome);
+        };
+
         if (!isCurrent(
                 app_.getValidations().parms(),
                 app_.timeKeeper().closeTime(),
                 val->getSignTime(),
                 val->getSeenTime()))
         {
+            reportValidation(false, "peerNotCurrent");
             JLOG(p_journal_.trace()) << "Validation: Not current";
             fee_.update(Resource::feeUselessData, "not current");
             return;
@@ -2330,7 +2393,10 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         // then this happens here I.e. before further wasting CPU verifying the
         // signature of an untrusted key
         if (!isTrusted && app_.config().RELAY_UNTRUSTED_VALIDATIONS == -1)
+        {
+            reportValidation(false, "peerUntrustedDrop");
             return;
+        }
 
         auto key = sha512Half(makeSlice(m->validation()));
 
@@ -2346,12 +2412,14 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
                 (app_.getStopwatch().now() - *relayed) < reduce_relay::IDLED)
                 overlay_.updateSlotAndSquelch(
                     key, val->getSignerPublic(), id_, protocol::mtVALIDATION);
+            reportValidation(isTrusted, "peerDuplicate");
             JLOG(p_journal_.trace()) << "Validation: duplicate";
             return;
         }
 
         if (!isTrusted && (tracking_.load() == Tracking::diverged))
         {
+            reportValidation(false, "peerDivergedDrop");
             JLOG(p_journal_.debug())
                 << "Dropping untrusted validation from diverged peer";
         }
@@ -2370,6 +2438,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
                 return ret;
             }();
 
+            reportValidation(
+                isTrusted, isTrusted ? "peerQueuedTrust" : "peerQueuedUntrust");
             std::weak_ptr<PeerImp> weak = shared_from_this();
             app_.getJobQueue().addJob(
                 isTrusted ? jtVALIDATION_t : jtVALIDATION_ut,
@@ -2381,6 +2451,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMValidation> const& m)
         }
         else
         {
+            reportValidation(false, "peerLoadedDrop");
             JLOG(p_journal_.debug())
                 << "Dropping untrusted validation for load";
         }
@@ -2980,8 +3051,19 @@ PeerImp::checkValidation(
     uint256 const& key,
     std::shared_ptr<protocol::TMValidation> const& packet)
 {
+    auto const reportValidation = [&](char const* outcome) {
+        if (auto const& hook = app_.config().harnessValidation)
+            hook(
+                std::to_string(id()),
+                val->isTrusted(),
+                val->getFieldU32(sfLedgerSequence),
+                val->getLedgerHash(),
+                outcome);
+    };
+
     if (!val->isValid())
     {
+        reportValidation("peerInvalidSignature");
         std::string desc{"Validation forwarded by peer is invalid"};
         JLOG(p_journal_.debug()) << desc;
         charge(Resource::feeInvalidSignature, desc);
@@ -2991,6 +3073,7 @@ PeerImp::checkValidation(
     // FIXME it should be safe to remove this try/catch. Investigate codepaths.
     try
     {
+        reportValidation("peerRecvValidation");
         if (app_.getOPs().recvValidation(val, std::to_string(id())) ||
             cluster())
         {

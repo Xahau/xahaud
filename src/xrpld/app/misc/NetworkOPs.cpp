@@ -2557,6 +2557,13 @@ NetworkOPsImp::recvValidation(
 {
     JLOG(m_journal.trace())
         << "recvValidation " << val->getLedgerHash() << " from " << source;
+    if (auto const& hook = app_.config().harnessValidation)
+        hook(
+            "ops:" + source,
+            val->isTrusted(),
+            val->getFieldU32(sfLedgerSequence),
+            val->getLedgerHash(),
+            "opsRecvEnter");
 
     // handleNewValidation(app_, val, source);
     // https://github.com/XRPLF/rippled/commit/fbbea9e6e25795a8a6bd1bf64b780771933a9579
@@ -2570,15 +2577,36 @@ NetworkOPsImp::recvValidation(
             pendingValidations_.insert(val->getLedgerHash());
         scope_unlock unlock(lock);
         handleNewValidation(app_, val, source, bypassAccept, m_journal);
+        if (auto const& hook = app_.config().harnessValidation)
+            hook(
+                "ops:" + source,
+                val->isTrusted(),
+                val->getFieldU32(sfLedgerSequence),
+                val->getLedgerHash(),
+                "opsRecvHandled");
     }
     catch (std::exception const& e)
     {
+        if (auto const& hook = app_.config().harnessValidation)
+            hook(
+                "ops:" + source,
+                val->isTrusted(),
+                val->getFieldU32(sfLedgerSequence),
+                val->getLedgerHash(),
+                std::string("opsRecvException:") + e.what());
         JLOG(m_journal.warn())
             << "Exception thrown for handling new validation "
             << val->getLedgerHash() << ": " << e.what();
     }
     catch (...)
     {
+        if (auto const& hook = app_.config().harnessValidation)
+            hook(
+                "ops:" + source,
+                val->isTrusted(),
+                val->getFieldU32(sfLedgerSequence),
+                val->getLedgerHash(),
+                "opsRecvUnknownException");
         JLOG(m_journal.warn())
             << "Unknown exception thrown for handling new validation "
             << val->getLedgerHash();

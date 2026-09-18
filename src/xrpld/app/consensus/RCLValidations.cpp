@@ -179,6 +179,9 @@ handleNewValidation(
     auto const& hash = val->getLedgerHash();
     auto const seq = val->getFieldU32(sfLedgerSequence);
 
+    if (auto const& hook = app.config().harnessValidation)
+        hook(source, val->isTrusted(), seq, hash, "handleEnter");
+
     // A validator that rotated its ephemeral key while this node was not
     // listening signs with a key no held manifest mentions, which is
     // indistinguishable from a validator this node has never heard of. Every
@@ -211,8 +214,17 @@ handleNewValidation(
     auto& validations = app.getValidations();
 
     // masterKey is seated only if validator is trusted or listed
+    if (auto const& hook = app.config().harnessValidation)
+        hook(
+            source,
+            val->isTrusted(),
+            seq,
+            hash,
+            masterKey ? "handleListed" : "handleUnlisted");
     auto const outcome =
         validations.add(calcNodeID(masterKey.value_or(signingKey)), val);
+    if (auto const& hook = app.config().harnessValidation)
+        hook(source, val->isTrusted(), seq, hash, to_string(outcome));
 
     if (outcome == ValStatus::current)
     {
