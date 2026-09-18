@@ -1362,6 +1362,27 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
 
     Pathfinder::initPathTable();
 
+    // Overlay must exist before START_UP ledger load. LOAD -> switchLCL ->
+    // checkAccept can tryAdvance/getFetchPack and call overlay() while
+    // validators are still unloaded (quorum 0). Object only; start() is later.
+    // VFALCO NOTE Unfortunately, in stand-alone mode some code still
+    //             foolishly calls overlay(). When this is fixed we can
+    //             move the instantiation inside a conditional:
+    //
+    //             if (!config_.standalone())
+    overlay_ = overlayFactory_
+        ? overlayFactory_(*this)
+        : make_Overlay(
+              *this,
+              setup_Overlay(*config_),
+              *serverHandler_,
+              *m_resourceManager,
+              *m_resolver,
+              get_io_service(),
+              *config_,
+              m_collectorManager->collector());
+    add(*overlay_);  // add to PropertyStream
+
     auto const startUp = config_->START_UP;
     JLOG(m_journal.debug()) << "startUp: " << startUp;
     if (startUp == Config::FRESH)
@@ -1489,24 +1510,6 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
     // Server
     //
     //----------------------------------------------------------------------
-
-    // VFALCO NOTE Unfortunately, in stand-alone mode some code still
-    //             foolishly calls overlay(). When this is fixed we can
-    //             move the instantiation inside a conditional:
-    //
-    //             if (!config_.standalone())
-    overlay_ = overlayFactory_
-        ? overlayFactory_(*this)
-        : make_Overlay(
-              *this,
-              setup_Overlay(*config_),
-              *serverHandler_,
-              *m_resourceManager,
-              *m_resolver,
-              get_io_service(),
-              *config_,
-              m_collectorManager->collector());
-    add(*overlay_);  // add to PropertyStream
 
     // start first consensus round
     if (!m_networkOPs->beginConsensus(
