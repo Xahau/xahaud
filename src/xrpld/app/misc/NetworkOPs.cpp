@@ -183,7 +183,7 @@ public:
               ledgerMaster,
               *m_localTX,
               app.getInboundTransactions(),
-              beast::get_abstract_clock<std::chrono::steady_clock>(),
+              clock,
               validatorKeys,
               app_.logs().journal("LedgerConsensus"))
         , m_ledgerMaster(ledgerMaster)
@@ -334,6 +334,9 @@ public:
     */
     void
     setStateTimer() override;
+
+    void
+    heartbeatTick() override;
 
     void
     setNeedNetworkLedger() override;
@@ -907,6 +910,9 @@ NetworkOPsImp::setTimer(
 void
 NetworkOPsImp::setHeartbeatTimer()
 {
+    if (app_.config().manualHeartbeat)
+        return;
+
     setTimer(
         heartbeatTimer_,
         mConsensus.parms().ledgerGRANULARITY,
@@ -916,6 +922,14 @@ NetworkOPsImp::setHeartbeatTimer()
             });
         },
         [this]() { setHeartbeatTimer(); });
+}
+
+void
+NetworkOPsImp::heartbeatTick()
+{
+    m_job_queue.addJob(jtNETOP_TIMER, "NetOPs.heartbeat", [this]() {
+        processHeartbeatTimer();
+    });
 }
 
 void

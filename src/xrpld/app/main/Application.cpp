@@ -61,6 +61,7 @@
 #include <xrpld/shamap/NodeFamily.h>
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/basics/contract.h>
+#include <xrpl/basics/random.h>
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/ResolverAsio.h>
 #include <xrpl/basics/random.h>
@@ -80,6 +81,7 @@
 #include <boost/system/error_code.hpp>
 
 #include <date/date.h>
+#include <functional>
 
 #include <chrono>
 #include <condition_variable>
@@ -172,6 +174,9 @@ public:
     OverlayFactory overlayFactory_;
     TimeoutCounterTimerFactory peerTimerFactory_;
     TimeoutCounterTimerFactory timeoutCounterTimerFactory_;
+    Stopwatch& stopwatch_;
+    Stopwatch& preciseStopwatch_;
+    std::function<beast::xor_shift_engine&()> prng_;
 
     std::unique_ptr<DatagramMonitor> datagram_monitor_;
 
@@ -282,9 +287,8 @@ public:
         std::unique_ptr<Logs> logs,
         std::unique_ptr<TimeKeeper> timeKeeper,
         OverlayFactory overlayFactory,
-        [[maybe_unused]] beast::abstract_clock<std::chrono::steady_clock>*
-            injectedClock,
-        [[maybe_unused]] beast::xor_shift_engine* injectedPrng,
+        beast::abstract_clock<std::chrono::steady_clock>* injectedClock,
+        beast::xor_shift_engine* injectedPrng,
         TimeoutCounterTimerFactory timeoutCounterTimerFactory,
         TimeoutCounterTimerFactory peerTimerFactory)
         : BasicApp(numberOfThreads(*config))
@@ -310,6 +314,16 @@ public:
                   return makeAsioTimeoutCounterTimer(getIOService());
               };
           }())
+        , stopwatch_(injectedClock ? *injectedClock : stopwatch())
+        , preciseStopwatch_(
+              injectedClock
+                  ? *injectedClock
+                  : beast::get_abstract_clock<std::chrono::steady_clock>())
+        , prng_([injectedPrng]() -> beast::xor_shift_engine& {
+              if (injectedPrng)
+                  return *injectedPrng;
+              return default_prng();
+          })
         , instanceCookie_(
               1 +
               rand_int(
@@ -374,14 +388,14 @@ public:
               "NodeCache",
               16384,
               std::chrono::seconds{90},
-              stopwatch(),
+              stopwatch_,
               logs_->journal("TaggedCache"))
 
         , cachedSLEs_(
               "Cached SLEs",
               0,
               std::chrono::minutes(1),
-              stopwatch(),
+              stopwatch_,
               logs_->journal("CachedSLEs"))
 
         , validatorKeys_(*config_, m_journal)
@@ -404,7 +418,7 @@ public:
 
         , m_ledgerMaster(std::make_unique<LedgerMaster>(
               *this,
-              stopwatch(),
+              stopwatch_,
               m_collectorManager->collector(),
               logs_->journal("LedgerMaster")))
 
@@ -416,7 +430,7 @@ public:
         //
         , m_inboundLedgers(make_InboundLedgers(
               *this,
-              stopwatch(),
+              stopwatch_,
               m_collectorManager->collector()))
 
         , m_inboundTransactions(make_InboundTransactions(
@@ -435,12 +449,12 @@ public:
               "AcceptedLedger",
               4,
               std::chrono::minutes{1},
-              stopwatch(),
+              stopwatch_,
               logs_->journal("TaggedCache"))
 
         , m_networkOPs(make_NetworkOPs(
               *this,
-              stopwatch(),
+              preciseStopwatch_,
               config_->standalone(),
               config_->NETWORK_QUORUM,
               config_->START_VALID,
@@ -484,12 +498,12 @@ public:
               std::make_unique<LoadFeeTrack>(logs_->journal("LoadManager")))
 
         , hashRouter_(std::make_unique<HashRouter>(
-              stopwatch(),
+              stopwatch_,
               HashRouter::getDefaultHoldTime()))
 
         , mValidations(
               ValidationParms(),
-              stopwatch(),
+              stopwatch_,
               *this,
               logs_->journal("Validations"))
 
@@ -654,6 +668,24 @@ public:
         if (!peerTimerFactory_)
             return nullptr;
         return peerTimerFactory_();
+    }
+
+    Stopwatch&
+    getStopwatch() override
+    {
+        return stopwatch_;
+    }
+
+    Stopwatch&
+    getPreciseStopwatch() override
+    {
+        return preciseStopwatch_;
+    }
+
+    beast::xor_shift_engine&
+    getPrng() override
+    {
+        return prng_();
     }
 
     std::chrono::milliseconds
@@ -2183,7 +2215,7 @@ ApplicationImp::loadOldLedger(
                         hash,
                         0,
                         InboundLedger::Reason::GENERIC,
-                        stopwatch(),
+                        stopwatch_,
                         make_DummyPeerSet(*this));
                     if (il->checkLocal())
                         loadLedger = il->getLedger();
@@ -2227,7 +2259,7 @@ ApplicationImp::loadOldLedger(
                     replayLedger->info().parentHash,
                     0,
                     InboundLedger::Reason::GENERIC,
-                    stopwatch(),
+                    stopwatch_,
                     make_DummyPeerSet(*this));
 
                 if (il->checkLocal())
