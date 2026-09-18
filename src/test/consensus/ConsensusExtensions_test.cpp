@@ -684,9 +684,13 @@ struct ExtensionTickHarness
     addBothPeer(std::uint8_t id, FakeExtensions const& ext)
     {
         ExtendedPosition peerPosition{position.txSetHash};
-        peerPosition.commitSetHash = ext.commitHash;
-        peerPosition.entropySetHash = ext.entropyHash;
-        peerPosition.exportSigSetHash = ext.exportHash;
+        if (ext.rngOn)
+        {
+            peerPosition.commitSetHash = ext.commitHash;
+            peerPosition.entropySetHash = ext.entropyHash;
+        }
+        if (ext.exportOn)
+            peerPosition.exportSigSetHash = ext.exportHash;
         peers.emplace(
             makeNode(id), FakePeerPosition{makeNode(id), peerPosition});
     }
@@ -3726,6 +3730,50 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testExtensionGateEnablementMatrix()
+    {
+        testcase(
+            "RNG Export enablement matrix in proposing and observing modes");
+        using namespace std::chrono_literals;
+        for (bool rng : {false, true})
+        {
+            for (bool exports : {false, true})
+            {
+                for (auto mode :
+                     {ConsensusMode::proposing, ConsensusMode::observing})
+                {
+                    FakeExtensions ext;
+                    ext.rngOn = rng;
+                    ext.exportOn = exports;
+                    ext.estState_ = EstablishState::ConvergingReveal;
+                    ExtensionTickHarness h;
+                    h.mode = mode;
+                    for (std::uint8_t i = 1; i <= 4; ++i)
+                        h.addBothPeer(i, ext);
+
+                    auto first = h.tick(ext);
+                    BEAST_EXPECT(first.readyForAccept == (!rng && !exports));
+                    if (rng || exports)
+                        BEAST_EXPECT(h.tick(ext, 100ms).readyForAccept);
+                    BEAST_EXPECT(h.position.entropySetHash.has_value() == rng);
+                    BEAST_EXPECT(
+                        h.position.exportSigSetHash.has_value() == exports);
+                    BEAST_EXPECT(ext.acceptedEntropyHash.has_value() == rng);
+                    BEAST_EXPECT(ext.acceptedExportHash.has_value() == exports);
+                    BEAST_EXPECT((ext.entropyBuilds > 0) == rng);
+                    BEAST_EXPECT((ext.exportBuilds > 0) == exports);
+                    BEAST_EXPECT(ext.entropySetPublished_ == rng);
+                    BEAST_EXPECT(ext.exportSigGateStarted_ == exports);
+                    BEAST_EXPECT(!ext.entropyFailed);
+                    BEAST_EXPECT(!ext.exportSigConvergenceFailed_);
+                    if (mode == ConsensusMode::observing || (!rng && !exports))
+                        BEAST_EXPECT(h.proposes == 0);
+                }
+            }
+        }
+    }
+
+    void
     testExportAdvancesDuringRngWaits()
     {
         testcase(
@@ -5467,6 +5515,7 @@ public:
         testDecoratePositionSkipsWhenDisabled();
         testExportSigGateRequiresQuorumAlignment();
         testExportAdvancesDuringRngWaits();
+        testExtensionGateEnablementMatrix();
         testExportExpiryDoesNotEndRngWait();
         testRngFallbackPreservesAlignedExport();
         testParallelGateRechecksOrdinarySet();
