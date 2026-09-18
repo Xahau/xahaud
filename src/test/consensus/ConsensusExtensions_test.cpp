@@ -667,6 +667,7 @@ struct ExtensionTickHarness
     LedgerIndex buildSeq = 2;
     int updates = 0;
     int proposes = 0;
+    std::vector<ExtendedPosition> proposedPositions;
 
     void
     addPeer(
@@ -743,7 +744,11 @@ struct ExtensionTickHarness
                     position = newPosition;
                     ++updates;
                 },
-            .propose = [&]() { ++proposes; },
+            .propose =
+                [&]() {
+                    ++proposes;
+                    proposedPositions.push_back(position);
+                },
             .haveConsensus = []() { return true; },
             .getTxns = [&]() -> FakeTxSet const& { return txns; }};
 
@@ -3753,6 +3758,19 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
                     auto first = h.tick(ext);
                     BEAST_EXPECT(first.readyForAccept == (!rng && !exports));
+                    if (mode == ConsensusMode::proposing && (rng || exports))
+                    {
+                        BEAST_EXPECT(h.proposedPositions.size() == 1);
+                        if (!h.proposedPositions.empty())
+                        {
+                            auto const& published = h.proposedPositions.back();
+                            BEAST_EXPECT(
+                                published.entropySetHash.has_value() == rng);
+                            BEAST_EXPECT(
+                                published.exportSigSetHash.has_value() ==
+                                exports);
+                        }
+                    }
                     if (rng || exports)
                         BEAST_EXPECT(h.tick(ext, 100ms).readyForAccept);
                     BEAST_EXPECT(h.position.entropySetHash.has_value() == rng);

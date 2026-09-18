@@ -137,19 +137,10 @@ inspectTxConvergedSidecarPeers(
     return state;
 }
 
-}  // namespace detail
-
-/// Shared RNG sub-state machine and export sig convergence gate.
-///
-/// Templated so both production (ConsensusExtensions) and test (CSF Peer)
-/// run the same logic with different leaf method implementations.
-///
-/// @param ext  Object providing RNG methods (hasQuorumOfCommits, etc.)
-///             and state members (estState_, revealPhaseStart_, etc.)
-/// @param ctx  ConsensusTick with callbacks into the consensus engine
-template <class Ext, class Ctx>
+/// Advance RNG without deciding whether the other extension is ready.
+template <class Ext, class Ctx, class Propose>
 ExtensionTickResult
-extensionsTick(Ext& ext, Ctx const& ctx)
+rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
 {
     // --- RNG Sub-state Checkpoints ---
     // These sub-states use union convergence (not avalanche).
@@ -172,35 +163,10 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     // crash between commit and reveal.
 
     bool const isRngEnabled = ext.rngEnabled();
-    bool const isExportEnabled = ext.exportEnabled();
     auto const toMs = [](auto duration) {
         return std::chrono::duration_cast<std::chrono::milliseconds>(duration)
             .count();
     };
-
-    JLOG(ext.j_.trace()) << "RNGGATE: phaseEstablish"
-                         << " buildSeq=" << ctx.buildSeq << " prevSeq="
-                         << (static_cast<std::uint32_t>(ctx.buildSeq) - 1)
-                         << " rngEnabled=" << (isRngEnabled ? "yes" : "no")
-                         << " exportEnabled="
-                         << (isExportEnabled ? "yes" : "no")
-                         << " estState=" << static_cast<int>(ext.estState_)
-                         << " mode=" << to_string(ctx.mode)
-                         << " roundMs=" << ctx.roundTime.count();
-
-    if (isRngEnabled || isExportEnabled)
-    {
-        if constexpr (requires {
-                          ext.recordParticipantDiagnostics(
-                              ctx.mode, ctx.peerPositions);
-                      })
-        {
-            // Diagnostic only: this records the active-UNL participants visible
-            // to this node so proposals can carry a signed hash for debugging
-            // timing/degraded-network cases. It is not a quorum denominator.
-            ext.recordParticipantDiagnostics(ctx.mode, ctx.peerPositions);
-        }
-    }
 
     if (isRngEnabled)
     {
@@ -295,7 +261,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         ctx.updatePosition(newPos);
 
                         if (ctx.mode == ConsensusMode::proposing)
-                            ctx.propose();
+                            requestProposal();
                     }
 
                     JLOG(ext.j_.debug())
@@ -329,7 +295,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             // still publish to create an additional delivery window for
             // entropySetHash observation.
             if (ctx.mode == ConsensusMode::proposing)
-                ctx.propose();
+                requestProposal();
 
             JLOG(ext.j_.debug())
                 << "RNG: published entropySet"
@@ -364,7 +330,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 ctx.updatePosition(newPos);
 
                 if (ctx.mode == ConsensusMode::proposing)
-                    ctx.propose();
+                    requestProposal();
 
                 ext.estState_ = EstablishState::ConvergingCommit;
                 ext.commitHashConflictStart_ = {};
@@ -415,7 +381,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                 newPos.commitSetHash = commitSetHash;
                 ctx.updatePosition(newPos);
                 if (ctx.mode == ConsensusMode::proposing)
-                    ctx.propose();
+                    requestProposal();
                 ext.estState_ = EstablishState::ConvergingCommit;
                 ext.commitHashConflictStart_ = {};
                 JLOG(ext.j_.debug())
@@ -486,7 +452,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     ctx.updatePosition(pos);
 
                     if (ctx.mode == ConsensusMode::proposing)
-                        ctx.propose();
+                        requestProposal();
 
                     JLOG(ext.j_.debug())
                         << "RNG: refreshed commitSetHash"
@@ -566,7 +532,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             ctx.updatePosition(newPos);
 
             if (ctx.mode == ConsensusMode::proposing)
-                ctx.propose();
+                requestProposal();
 
             ext.estState_ = EstablishState::ConvergingReveal;
             //@@end rng-reveal-transition
@@ -725,7 +691,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         failedPos.entropySetHash.reset();
                         ctx.updatePosition(failedPos);
                         if (ctx.mode == ConsensusMode::proposing)
-                            ctx.propose();
+                            requestProposal();
                     };
                     //@@end rng-entropy-observation-state
 
@@ -741,7 +707,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                             newPos.entropySetHash = refreshedHash;
                             ctx.updatePosition(newPos);
                             if (ctx.mode == ConsensusMode::proposing)
-                                ctx.propose();
+                                requestProposal();
                             JLOG(ext.j_.debug())
                                 << "RNG: refreshed entropySetHash"
                                 << " reason=local-refresh"
@@ -910,7 +876,20 @@ extensionsTick(Ext& ext, Ctx const& ctx)
             << " mode=" << to_string(ctx.mode);
     }
 
-    // Export sig convergence gate: runs after RNG sub-states when Export has
+    return {.readyForAccept = true};
+}
+
+/// Advance Export alignment independently of RNG's wait/accept decision.
+template <class Ext, class Ctx, class Propose>
+ExtensionTickResult
+exportTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
+{
+    auto const toMs = [](auto duration) {
+        return std::chrono::duration_cast<std::chrono::milliseconds>(duration)
+            .count();
+    };
+
+    // Export sig convergence gate: advances when Export has
     // verified signatures to publish or when tx-converged peers advertise
     // exportSigSetHash roots we can locally materialize. This is a bounded
     // safety coordination window, not a wait-for-Export-success mechanism.
@@ -1050,7 +1029,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     ctx.updatePosition(currentPos);
 
                     if (ctx.mode == ConsensusMode::proposing)
-                        ctx.propose();
+                        requestProposal();
                 }
 
                 JLOG(ext.j_.debug())
@@ -1088,7 +1067,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                     ctx.updatePosition(currentPos);
 
                     if (ctx.mode == ConsensusMode::proposing)
-                        ctx.propose();
+                        requestProposal();
 
                     JLOG(ext.j_.debug()) << "Export: published exportSigSetHash"
                                          << " buildSeq=" << buildSeqExport
@@ -1146,7 +1125,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
                         current.exportSigSetHash = refreshedHash;
                         ctx.updatePosition(current);
                         if (ctx.mode == ConsensusMode::proposing)
-                            ctx.propose();
+                            requestProposal();
                         JLOG(ext.j_.debug())
                             << "Export: refreshed exportSigSetHash"
                             << " reason=local-refresh"
@@ -1265,6 +1244,60 @@ extensionsTick(Ext& ext, Ctx const& ctx)
     }
 
     return {.readyForAccept = true};
+}
+
+}  // namespace detail
+
+/// Advance both enabled gates on each eligible establish tick.
+/// Production and CSF use the same coordination with different leaf methods.
+template <class Ext, class Ctx>
+ExtensionTickResult
+extensionsTick(Ext& ext, Ctx const& ctx)
+{
+    bool const isRngEnabled = ext.rngEnabled();
+    bool const isExportEnabled = ext.exportEnabled();
+    JLOG(ext.j_.trace()) << "RNGGATE: phaseEstablish"
+                         << " buildSeq=" << ctx.buildSeq << " prevSeq="
+                         << (static_cast<std::uint32_t>(ctx.buildSeq) - 1)
+                         << " rngEnabled=" << (isRngEnabled ? "yes" : "no")
+                         << " exportEnabled="
+                         << (isExportEnabled ? "yes" : "no")
+                         << " estState=" << static_cast<int>(ext.estState_)
+                         << " mode=" << to_string(ctx.mode)
+                         << " roundMs=" << ctx.roundTime.count();
+
+    if (isRngEnabled || isExportEnabled)
+    {
+        if constexpr (requires {
+                          ext.recordParticipantDiagnostics(
+                              ctx.mode, ctx.peerPositions);
+                      })
+        {
+            // Diagnostic only, not a quorum denominator.
+            ext.recordParticipantDiagnostics(ctx.mode, ctx.peerPositions);
+        }
+    }
+
+    // Each gate updates the current position through the shared context.
+    // With both enabled, publish their combined updates once at the end of
+    // this tick. Preserve the existing single-feature proposal timing.
+    bool proposalPending = false;
+    auto const requestProposal = [&] {
+        if (isRngEnabled && isExportEnabled)
+            proposalPending = true;
+        else
+            ctx.propose();
+    };
+
+    // Do not short-circuit: a wait in either gate must not prevent the other
+    // from collecting alignment evidence or making its bounded decision.
+    // Re-evaluate both against current peer positions each tick; a cached
+    // ready flag could retain support from an earlier ordinary tx set.
+    auto const rng = detail::rngTick(ext, ctx, requestProposal);
+    auto const exports = detail::exportTick(ext, ctx, requestProposal);
+    if (proposalPending)
+        ctx.propose();
+    return {.readyForAccept = rng.readyForAccept && exports.readyForAccept};
 }
 
 }  // namespace ripple
