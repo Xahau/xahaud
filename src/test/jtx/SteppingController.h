@@ -745,6 +745,13 @@ public:
                 if (name == "MakeFetchPack")
                     return {Action::enqueue, Tier::process};
                 return {Action::fail};
+            case JtWal:
+                // Longer histories trigger SQLite's passive WAL checkpoint.
+                // Run its real deferred closure, including the running_ reset;
+                // dropping it would change persistence/teardown behaviour.
+                return name == "WAL"
+                    ? Classification{Action::enqueue, Tier::process}
+                    : Classification{Action::fail};
             case JtClientFeeChange:  // "PubFee"  — fee-change sub notify (no subs)
             case JtClientConsensus:  // "PubCons" — consensus-state sub notify (no subs)
             case JtUpdatePf:         // "OB3"     — pathfinding update (none here)

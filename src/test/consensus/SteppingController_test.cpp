@@ -76,6 +76,10 @@ class SteppingController_test : public beast::unit_test::suite
             cls(jtEXPORT_SHARES, "recvExportShares").action == A::enqueue &&
             cls(jtEXPORT_SHARES, "recvExportShares").tier == Tier::process);
         BEAST_EXPECT(cls(jtEXPORT_SHARES, "UnknownShareWork").action == A::fail);
+        BEAST_EXPECT(
+            cls(jtWAL, "WAL").action == A::enqueue &&
+            cls(jtWAL, "WAL").tier == Tier::process);
+        BEAST_EXPECT(cls(jtWAL, "UnknownCheckpoint").action == A::fail);
 
         // The acquire data pipeline: peer-serving reads and received-data
         // processing run in arrival order; the TimeoutCounter retry is a timer.
@@ -129,6 +133,14 @@ class SteppingController_test : public beast::unit_test::suite
         BEAST_EXPECT(c.empty());
         BEAST_EXPECT(c.failedJobs() == 0);
         BEAST_EXPECT(c.jobDiagnostics().find("JtExportShares") != std::string::npos);
+
+        bool checkpointRan = false;
+        BEAST_EXPECT(
+            hook(jtWAL, "WAL", [&]() { checkpointRan = true; }) == D::claimedQueued);
+        BEAST_EXPECT(!checkpointRan);
+        BEAST_EXPECT(c.stepOne());
+        BEAST_EXPECT(checkpointRan);
+        BEAST_EXPECT(c.empty());
     }
 
     void
