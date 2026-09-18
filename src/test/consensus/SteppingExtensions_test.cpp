@@ -51,6 +51,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         // the node's by-sequence ledger lookup. A set deduplicates peer sends.
         using Build = std::tuple<std::uint32_t, uint256, uint256>;
         std::array<std::set<Build>, 4> builds;
+        std::array<std::set<uint256>, 4> acquiredHashes;
         std::array<std::size_t, 4> secrets{};
         std::array<std::size_t, 4> directFrames{};
         std::array<std::size_t, 4> proposalFrames{};
@@ -121,6 +122,20 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         ::google::protobuf::Message const& msg) {
                         if (type == protocol::mtEXPORT_SHARES)
                             ++stats->directFrames.at(id);
+                        if (type == protocol::mtLEDGER_DATA)
+                        {
+                            auto const& data =
+                                static_cast<protocol::TMLedgerData const&>(msg);
+                            if (data.ledgerhash().size() == uint256::bytes)
+                            {
+                                uint256 hash;
+                                std::copy(
+                                    data.ledgerhash().begin(),
+                                    data.ledgerhash().end(),
+                                    hash.begin());
+                                stats->acquiredHashes.at(id).insert(hash);
+                            }
+                        }
                         if (type == protocol::mtPROPOSE_LEDGER)
                         {
                             auto const& proposal =
@@ -462,7 +477,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             fault == Fault::noProposalShares ||
             fault == Fault::duplicateTraffic || fault == Fault::slowObserver)
             BEAST_EXPECT(localMismatches == 0);
-        if (sluggish || fault == Fault::noShares)
+        if (sluggish)
             BEAST_EXPECT(localMismatches != 0);
         std::map<std::uint32_t, uint256> validatedHistory;
         for (std::uint32_t i = 0; i <= observer; ++i)
@@ -572,7 +587,15 @@ class SteppingExtensions_test : public beast::unit_test::suite
             else
                 BEAST_EXPECT(stats->proposalFrames[observer] != 0);
             if (fault == Fault::noShares)
+            {
                 BEAST_EXPECT(found == collected.end());
+                // Authority can overtake this observer before it finishes a
+                // divergent build. Acquisition, not a mandatory JUMP, is the
+                // recovery contract when both live evidence routes are absent.
+                if (witnessSeq)
+                    BEAST_EXPECT(stats->acquiredHashes[observer].contains(
+                        net.ledgerHash(0, witnessSeq)));
+            }
             else if (!late)
                 BEAST_EXPECT(
                     found != collected.end() &&
