@@ -7,6 +7,9 @@
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/Serializer.h>
+#include <xrpl/protocol/SerialIter.h>
+#include <xrpld/shamap/SHAMap.h>
+#include <xrpld/shamap/SHAMapItem.h>
 #include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
@@ -79,6 +82,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::uint32_t invertedSharePairs = 0;
         std::vector<uint256> shareSendOrder;
         std::vector<uint256> shareRecvOrder;
+        std::uint32_t droppedStarvedDirect = 0;
+        std::uint32_t droppedStarvedProposals = 0;
+        bool sawPartialCandidate = false;
+        std::size_t candidateLeavesA = 0;
+        std::size_t candidateLeavesB = 0;
     };
 
     template <class T>
@@ -106,6 +114,27 @@ class SteppingExtensions_test : public beast::unit_test::suite
         for (auto const& share : batch.shares())
             s.addRaw(share.data(), share.size());
         return s.getSHA512Half();
+    }
+
+    static std::size_t
+    originSidecarLeaves(SHAMap const& map, uint256 const& origin)
+    {
+        std::size_t n = 0;
+        map.visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                try
+                {
+                    SerialIter sit{item->slice()};
+                    STObject const obj{sit, sfGeneric};
+                    if (obj.isFieldPresent(sfTransactionHash) &&
+                        obj.getFieldH256(sfTransactionHash) == origin)
+                        ++n;
+                }
+                catch (...)
+                {
+                }
+            });
+        return n;
     }
 
     static bool
@@ -299,10 +328,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
         intent(
             jtx::Account const& acct,
             std::uint32_t ticket,
-            std::uint32_t lastLedger)
+            std::uint32_t lastLedger,
+            std::vector<std::uint32_t> const& slots = {0, 1, 2})
         {
             std::vector<PublicKey> keys;
-            for (std::uint32_t i = 0; i < observer; ++i)
+            for (auto const i : slots)
                 keys.push_back(
                     net.node(i).app().getValidatorKeys().keys->masterPublicKey);
             auto const roster = canonicalizeExportCommittee(
@@ -1016,6 +1046,199 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+    std::optional<std::vector<uint256>>
+    incompleteOriginInCandidate(SteppingNetwork& net)
+    {
+        World world(net, false, true);
+        if (!ready(world))
+            return std::nullopt;
+        auto const fund = world.submit(
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(fund && fund->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto const open =
+            net.node(observer).app().openLedger().current()->seq();
+        auto const window = open + ExportLimits::maxAdmissionWindowLedgers;
+        auto const txA = world.submit(
+            observer,
+            world.intent(world.owner, 1, window, {0, 1}),
+            world.owner);
+        auto const txB = world.submit(
+            observer,
+            world.intent(world.owner, 2, window, {0, 1, 2}),
+            world.owner);
+        if (!BEAST_EXPECT(
+                txA && txA->getResult() == tesSUCCESS && txB &&
+                txB->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const originA = txA->getID();
+        auto const originB = txB->getID();
+        auto const qA = ExportLimits::committeeQuorumThreshold(2);
+        auto const qB = ExportLimits::committeeQuorumThreshold(3);
+        auto const stats = world.observed;
+        net.faultFrames(
+            2,
+            observer,
+            [stats, originB](std::uint16_t type, SimPipe::Frame bytes) {
+                SimFault f;
+                auto const hit = [&](std::string const& blob) {
+                    auto const share = ExportShare::parse(makeSlice(blob));
+                    return share && share->originTxn == originB;
+                };
+                if (type == protocol::mtEXPORT_SHARES)
+                {
+                    auto const batch =
+                        decodeFrame<protocol::TMExportShares>(bytes);
+                    for (auto const& share : batch->shares())
+                        if (hit(share))
+                        {
+                            ++stats->droppedStarvedDirect;
+                            f.drop = true;
+                            return f;
+                        }
+                }
+                if (type == protocol::mtPROPOSE_LEDGER)
+                {
+                    auto const proposal =
+                        decodeFrame<protocol::TMProposeSet>(bytes);
+                    for (auto const& share : proposal->exportsignatures())
+                        if (hit(share))
+                        {
+                            ++stats->droppedStarvedProposals;
+                            f.drop = true;
+                            return f;
+                        }
+                }
+                return f;
+            });
+        net.controller().observeJobs(
+            [this, &net, stats, originA, originB, qA, qB](
+                std::uint32_t id, JobType, std::string const&) {
+                if (id != observer || !net.isLive(id) ||
+                    stats->sawPartialCandidate)
+                    return;
+                auto& ce = net.node(id).app().getConsensusExtensions();
+                if (!ce.roundParentLedger_ || !ce.exportSigSetMap_)
+                    return;
+                auto const& parent = *ce.roundParentLedger_;
+                auto const pending =
+                    ce.pendingRoundExports(parent.info().seq + 1);
+                if (!pending.contains(originA) || !pending.contains(originB))
+                    return;
+                auto const leavesA =
+                    originSidecarLeaves(*ce.exportSigSetMap_, originA);
+                auto const leavesB =
+                    originSidecarLeaves(*ce.exportSigSetMap_, originB);
+                if (leavesA == qA && leavesB > 0 && leavesB < qB)
+                {
+                    stats->sawPartialCandidate = true;
+                    stats->candidateLeavesA = leavesA;
+                    stats->candidateLeavesB = leavesB;
+                }
+            });
+
+        auto const mid = warmLedger + 8;
+        net.runTo(mid, SteppingNetwork::RunBudget{1600, 1'200'000});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= mid))
+            return std::nullopt;
+        BEAST_EXPECT(stats->droppedStarvedDirect != 0);
+        BEAST_EXPECT(stats->droppedStarvedProposals != 0);
+        BEAST_EXPECT(stats->sawPartialCandidate);
+        BEAST_EXPECT(stats->candidateLeavesA == qA);
+        BEAST_EXPECT(stats->candidateLeavesB > 0);
+        BEAST_EXPECT(stats->candidateLeavesB < qB);
+        log << "  candidate: A=" << stats->candidateLeavesA << "/" << qA
+            << " B=" << stats->candidateLeavesB << "/" << qB
+            << " droppedDirect=" << stats->droppedStarvedDirect
+            << " droppedProposals=" << stats->droppedStarvedProposals
+            << std::endl;
+
+        net.faultFrames(2, observer, {});
+        auto const target = warmLedger + 12;
+        net.runTo(target, SteppingNetwork::RunBudget{1600, 1'200'000});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
+            return std::nullopt;
+        BEAST_EXPECT(net.ledgersAgree(target));
+        BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(net.offThreadJobs() == 0);
+        BEAST_EXPECT(stats->secrets[observer] == 0);
+        BEAST_EXPECT(stats->ownReleases[observer] == 0);
+        auto const seqA = witnessAt(net, originA, warmLedger);
+        BEAST_EXPECT(seqA != 0);
+        if (seqA)
+            BEAST_EXPECT(stats->builds[observer].contains(
+                {seqA,
+                 net.ledgerHash(0, seqA - 1),
+                 net.ledgerHash(0, seqA)}));
+        std::map<uint256, std::uint32_t> hits;
+        std::set<uint256> unexpected;
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= target; ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (std::uint32_t i = 1; i <= observer; ++i)
+            {
+                auto const ledger = net.ledger(i, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            outcome.push_back(canonical->info().hash);
+            for (auto const& [tx, meta] : canonical->txs)
+            {
+                if (tx->getTxnType() != ttEXPORT_SIGNATURES)
+                    continue;
+                if (!BEAST_EXPECT(meta != nullptr))
+                    return std::nullopt;
+                auto const origin = tx->getFieldH256(sfTransactionHash);
+                if (origin != originA && origin != originB)
+                    unexpected.insert(origin);
+                else
+                    ++hits[origin];
+                auto const txBytes = tx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                outcome.push_back(
+                    sha512Half(makeSlice(txBytes), makeSlice(metaBytes)));
+                for (std::uint32_t i = 0; i <= observer; ++i)
+                {
+                    auto const ledger = net.ledger(i, seq);
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : ledger->txs)
+                    {
+                        if (peerTx->getTxnType() != ttEXPORT_SIGNATURES ||
+                            peerTx->getFieldH256(sfTransactionHash) != origin)
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes);
+                        BEAST_EXPECT(
+                            peerMeta != nullptr &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+        }
+        BEAST_EXPECT(unexpected.empty());
+        BEAST_EXPECT(hits[originA] == 1);
+        // B may be witnessed by the informed cohort; observer may acquire.
+        BEAST_EXPECT(hits[originB] <= 1);
+        outcome.push_back(originA);
+        outcome.push_back(originB);
+        outcome.push_back(sha512Half(
+            static_cast<std::uint32_t>(stats->candidateLeavesA),
+            static_cast<std::uint32_t>(stats->candidateLeavesB)));
+        return outcome;
+    }
+
 public:
     void
     run() override
@@ -1141,6 +1364,16 @@ public:
                 "overlapping Export origins stay distinct",
                 [this](SteppingNetwork& net) {
                     return overlappingOrigins(net);
+                });
+        }
+        if (matches("incomplete origin in global candidate"))
+        {
+            testcase("incomplete origin in global candidate");
+            expectReplays(
+                *this,
+                "incomplete origin in global candidate",
+                [this](SteppingNetwork& net) {
+                    return incompleteOriginInCandidate(net);
                 });
         }
         BEAST_EXPECT(selected != 0);
