@@ -473,14 +473,14 @@ InboundLedger::done()
     // We hold the PeerSet lock, so must dispatch
     app_.getJobQueue().addJob(
         jtLEDGER_DATA, "AcquisitionDone", [self = shared_from_this()]() {
-            if (self->complete_ && !self->failed_)
+            if (self->isComplete() && !self->isFailed())
             {
                 self->app_.getLedgerMaster().checkAccept(self->getLedger());
                 self->app_.getLedgerMaster().tryAdvance();
             }
             else
                 self->app_.getInboundLedgers().logFailure(
-                    self->hash_, self->mSeq);
+                    self->hash_, self->getSeq());
         });
 }
 
@@ -1041,10 +1041,11 @@ InboundLedger::gotData(
     std::weak_ptr<Peer> peer,
     std::shared_ptr<protocol::TMLedgerData> const& data)
 {
-    std::lock_guard sl(mReceivedDataLock);
-
+    ScopedLockType const stateLock(mtx_);
     if (isDone())
         return false;
+
+    std::lock_guard sl(mReceivedDataLock);
 
     mReceivedData.emplace_back(peer, data);
 
