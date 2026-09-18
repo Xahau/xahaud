@@ -383,6 +383,11 @@ public:
     reportFeeChange() override;
     void
     reportConsensusStateChange(ConsensusPhase phase);
+    void
+    reportConsensusStateChangeIfNeeded(
+        ConsensusPhase phase,
+        std::unique_ptr<std::stringstream> const& clog,
+        bool logPhase);
 
     void
     updateLocalTx(ReadView const& view) override;
@@ -674,7 +679,8 @@ private:
 
     RCLConsensus mConsensus;
 
-    ConsensusPhase mLastConsensusPhase;
+    std::mutex lastConsensusPhaseMutex_;
+    ConsensusPhase mLastConsensusPhase{ConsensusPhase::open};
 
     LedgerMaster& m_ledgerMaster;
 
@@ -1010,14 +1016,8 @@ NetworkOPsImp::processHeartbeatTimer()
 
     mConsensus.timerEntry(app_.timeKeeper().closeTime(), clog.ss());
 
-    CLOG(clog.ss()) << "consensus phase " << to_string(mLastConsensusPhase);
     const ConsensusPhase currPhase = mConsensus.phase();
-    if (mLastConsensusPhase != currPhase)
-    {
-        reportConsensusStateChange(currPhase);
-        mLastConsensusPhase = currPhase;
-        CLOG(clog.ss()) << " changed to " << to_string(mLastConsensusPhase);
-    }
+    reportConsensusStateChangeIfNeeded(currPhase, clog.ss(), true);
     CLOG(clog.ss()) << ". ";
 
     setHeartbeatTimer();
@@ -2094,11 +2094,7 @@ NetworkOPsImp::beginConsensus(
         clog);
 
     const ConsensusPhase currPhase = mConsensus.phase();
-    if (mLastConsensusPhase != currPhase)
-    {
-        reportConsensusStateChange(currPhase);
-        mLastConsensusPhase = currPhase;
-    }
+    reportConsensusStateChangeIfNeeded(currPhase, clog, false);
 
     JLOG(m_journal.debug()) << "Initiating consensus engine";
     return true;
@@ -3223,6 +3219,24 @@ NetworkOPsImp::reportConsensusStateChange(ConsensusPhase phase)
         jtCLIENT_CONSENSUS,
         "reportConsensusStateChange->pubConsensus",
         [this, phase]() { pubConsensus(phase); });
+}
+
+void
+NetworkOPsImp::reportConsensusStateChangeIfNeeded(
+    ConsensusPhase phase,
+    std::unique_ptr<std::stringstream> const& clog,
+    bool logPhase)
+{
+    std::scoped_lock const lock(lastConsensusPhaseMutex_);
+    if (logPhase)
+        CLOG(clog) << "consensus phase " << to_string(mLastConsensusPhase);
+    if (mLastConsensusPhase != phase)
+    {
+        reportConsensusStateChange(phase);
+        mLastConsensusPhase = phase;
+        if (logPhase)
+            CLOG(clog) << " changed to " << to_string(mLastConsensusPhase);
+    }
 }
 
 inline void
