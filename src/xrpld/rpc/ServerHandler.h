@@ -98,6 +98,7 @@ private:
     std::mutex mutex_;
     std::condition_variable condition_;
     bool stopped_{false};
+    bool listenersStarted_{false};
     std::map<std::reference_wrapper<Port const>, int> count_;
 
     // A private type used to restrict access to the ServerHandler constructor.
@@ -134,6 +135,9 @@ public:
 
     void
     setup(Setup const& setup, beast::Journal journal);
+
+    void
+    setupWithoutListeners(Setup const& setup);
 
     Setup const&
     setup() const

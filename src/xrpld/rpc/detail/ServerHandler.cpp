@@ -132,6 +132,8 @@ void
 ServerHandler::setup(Setup const& setup, beast::Journal journal)
 {
     setup_ = setup;
+    stopped_ = false;
+    listenersStarted_ = true;
     endpoints_ = m_server->ports(setup.ports);
 
     // fix auto ports
@@ -154,11 +156,22 @@ ServerHandler::setup(Setup const& setup, beast::Journal journal)
     }
 }
 
+void
+ServerHandler::setupWithoutListeners(Setup const& setup)
+{
+    setup_ = setup;
+    endpoints_.clear();
+    stopped_ = true;
+    listenersStarted_ = false;
+}
+
 //------------------------------------------------------------------------------
 
 void
 ServerHandler::stop()
 {
+    if (!listenersStarted_)
+        return;
     m_server->close();
     {
         std::unique_lock lock(mutex_);

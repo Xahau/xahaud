@@ -25,6 +25,8 @@
 
 namespace ripple {
 
+class HTTPClientSSLContext;
+
 /** Subscription object for JSON RPC. */
 class RPCSub : public InfoSub
 {
@@ -42,6 +44,7 @@ std::shared_ptr<RPCSub>
 make_RPCSub(
     InfoSub::Source& source,
     JobQueue& jobQueue,
+    HTTPClientSSLContext& sslContext,
     std::string const& strUrl,
     std::string const& strUsername,
     std::string const& strPassword,

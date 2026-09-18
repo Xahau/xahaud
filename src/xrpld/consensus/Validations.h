@@ -310,6 +310,9 @@ class Validations
     // Sequence of the largest validation received from each node
     hash_map<NodeID, SeqEnforcer<Seq>> seqEnforcers_;
 
+    // Each validation store owns its keep-range refresh schedule.
+    std::chrono::steady_clock::time_point refreshTime_{};
+
     //! Validations from listed nodes, indexed by ledger id (partial and full)
     beast::aged_unordered_map<
         ID,
@@ -735,13 +738,12 @@ public:
             {
                 // We only need to refresh the keep range when it's just about
                 // to expire. Track the next time we need to refresh.
-                static std::chrono::steady_clock::time_point refreshTime;
                 if (auto const now = byLedger_.clock().now();
-                    refreshTime <= now)
+                    refreshTime_ <= now)
                 {
                     // The next refresh time is shortly before the expiration
                     // time from now.
-                    refreshTime = now + parms_.validationSET_EXPIRES -
+                    refreshTime_ = now + parms_.validationSET_EXPIRES -
                         parms_.validationFRESHNESS;
 
                     for (auto i = byLedger_.begin(); i != byLedger_.end(); ++i)

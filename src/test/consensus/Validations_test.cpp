@@ -756,6 +756,43 @@ class Validations_test : public beast::unit_test::suite
     }
 
     void
+    testIndependentExpiry()
+    {
+        using namespace std::chrono_literals;
+        testcase("keep-range refresh belongs to each Validations instance");
+        SuiteJournal j("Validations_test", *this);
+        LedgerHistoryHelper h;
+        Ledger const ledger = h["a"];
+        constexpr Ledger::Seq one(1);
+
+        // Exercise both call orders. Distinct later clock epochs keep this
+        // regression independent of the earlier single-instance expiry tests.
+        for (std::size_t first = 0; first != 2; ++first)
+        {
+            TestHarness a(h.oracle), b(h.oracle);
+            TestHarness* nodes[]{&a, &b};
+            for (auto* node : nodes)
+            {
+                node->clock().advance(std::chrono::hours{24 * (first + 1)});
+                auto const validator = node->makeNode();
+                BEAST_EXPECT(
+                    node->add(validator.validate(ledger)) ==
+                    ValStatus::current);
+                node->vals().setSeqToKeep(ledger.seq(), ledger.seq() + one);
+                node->clock().advance(
+                    node->parms().validationSET_EXPIRES + 1ms);
+            }
+
+            nodes[first]->vals().expire(j);
+            BEAST_EXPECT(
+                nodes[first]->vals().numTrustedForLedger(ledger.id()) == 1);
+            nodes[1 - first]->vals().expire(j);
+            BEAST_EXPECT(
+                nodes[1 - first]->vals().numTrustedForLedger(ledger.id()) == 1);
+        }
+    }
+
+    void
     testFlush()
     {
         // Test final flush of validations
@@ -1135,6 +1172,7 @@ class Validations_test : public beast::unit_test::suite
         testGetCurrentPublicKeys();
         testTrustedByLedgerFunctions();
         testExpire();
+        testIndependentExpiry();
         testFlush();
         testGetPreferredLedger();
         testGetPreferredLCL();

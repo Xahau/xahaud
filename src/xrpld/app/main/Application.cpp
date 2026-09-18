@@ -28,6 +28,7 @@
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/PendingSaves.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/ledger/detail/TimeoutCounter.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/BasicApp.h>
 #include <xrpld/app/main/DBInit.h>
@@ -50,6 +51,7 @@
 #include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/core/DatabaseCon.h>
+#include <xrpld/net/HTTPClientSSLContext.h>
 #include <xrpld/nodestore/DummyScheduler.h>
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/PeerReservationTable.h>
@@ -61,6 +63,7 @@
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/ResolverAsio.h>
+#include <xrpl/basics/contract.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/asio/io_latency_probe.h>
@@ -78,6 +81,7 @@
 #include <boost/system/error_code.hpp>
 
 #include <date/date.h>
+#include <functional>
 
 #include <chrono>
 #include <condition_variable>
@@ -167,12 +171,20 @@ public:
     std::unique_ptr<Config> config_;
     std::unique_ptr<Logs> logs_;
     std::unique_ptr<TimeKeeper> timeKeeper_;
+    OverlayFactory overlayFactory_;
+    TimeoutCounterTimerFactory peerTimerFactory_;
+    TimeoutCounterTimerFactory timeoutCounterTimerFactory_;
+    Stopwatch& stopwatch_;
+    Stopwatch& preciseStopwatch_;
+    std::function<beast::xor_shift_engine&()> prng_;
 
     std::unique_ptr<DatagramMonitor> datagram_monitor_;
 
     std::uint64_t const instanceCookie_;
 
     beast::Journal m_journal;
+    // HTTP clients borrow this context for this Application's lifetime.
+    HTTPClientSSLContext httpClientSslContext_;
     std::unique_ptr<perf::PerfLog> perfLog_;
     Application::MutexType m_masterMutex;
 
@@ -248,6 +260,9 @@ public:
     static std::size_t
     numberOfThreads(Config const& config)
     {
+        if (config.steppingMode)
+            return 0;
+
 #if RIPPLE_SINGLE_IO_SERVICE_THREAD
         return 1;
 #else
@@ -272,17 +287,52 @@ public:
     ApplicationImp(
         std::unique_ptr<Config> config,
         std::unique_ptr<Logs> logs,
-        std::unique_ptr<TimeKeeper> timeKeeper)
+        std::unique_ptr<TimeKeeper> timeKeeper,
+        OverlayFactory overlayFactory,
+        beast::abstract_clock<std::chrono::steady_clock>* injectedClock,
+        beast::xor_shift_engine* injectedPrng,
+        TimeoutCounterTimerFactory timeoutCounterTimerFactory,
+        TimeoutCounterTimerFactory peerTimerFactory)
         : BasicApp(numberOfThreads(*config))
         , config_(std::move(config))
         , logs_(std::move(logs))
         , timeKeeper_(std::move(timeKeeper))
+        , overlayFactory_(std::move(overlayFactory))
+        , peerTimerFactory_([&]() -> TimeoutCounterTimerFactory {
+            if (config_->steppingMode && !peerTimerFactory)
+                Throw<std::logic_error>(
+                    "steppingMode requires a peer heartbeat timer factory "
+                    "at make_Application()");
+            return std::move(peerTimerFactory);
+        }())
+        , timeoutCounterTimerFactory_([&]() -> TimeoutCounterTimerFactory {
+            if (timeoutCounterTimerFactory)
+                return std::move(timeoutCounterTimerFactory);
+            if (config_->steppingMode)
+                Throw<std::logic_error>(
+                    "steppingMode requires a TimeoutCounterTimerFactory "
+                    "at make_Application()");
+            return [this]() {
+                return makeAsioTimeoutCounterTimer(getIOService());
+            };
+        }())
+        , stopwatch_(injectedClock ? *injectedClock : stopwatch())
+        , preciseStopwatch_(
+              injectedClock
+                  ? *injectedClock
+                  : beast::get_abstract_clock<std::chrono::steady_clock>())
+        , prng_([injectedPrng]() -> beast::xor_shift_engine& {
+            if (injectedPrng)
+                return *injectedPrng;
+            return default_prng();
+        })
         , instanceCookie_(
               1 +
               rand_int(
                   crypto_prng(),
                   std::numeric_limits<std::uint64_t>::max() - 1))
         , m_journal(logs_->journal("Application"))
+        , httpClientSslContext_(*config_, logs_->journal("HTTPClient"))
 
         // PerfLog must be started before any other threads are launched.
         , perfLog_(perf::make_PerfLog(
@@ -301,6 +351,9 @@ public:
 
         , m_jobQueue(std::make_unique<JobQueue>(
               [](std::unique_ptr<Config> const& config) {
+                  if (config->steppingMode)
+                      return 0;
+
                   if (config->standalone() && !config->FORCE_MULTI_THREAD)
                       return 1;
 
@@ -338,14 +391,14 @@ public:
               "NodeCache",
               16384,
               std::chrono::seconds{90},
-              stopwatch(),
+              stopwatch_,
               logs_->journal("TaggedCache"))
 
         , cachedSLEs_(
               "Cached SLEs",
               0,
               std::chrono::minutes(1),
-              stopwatch(),
+              stopwatch_,
               logs_->journal("CachedSLEs"))
 
         , validatorKeys_(*config_, m_journal)
@@ -368,7 +421,7 @@ public:
 
         , m_ledgerMaster(std::make_unique<LedgerMaster>(
               *this,
-              stopwatch(),
+              stopwatch_,
               m_collectorManager->collector(),
               logs_->journal("LedgerMaster")))
 
@@ -380,7 +433,7 @@ public:
         //
         , m_inboundLedgers(make_InboundLedgers(
               *this,
-              stopwatch(),
+              stopwatch_,
               m_collectorManager->collector()))
 
         , m_inboundTransactions(make_InboundTransactions(
@@ -399,12 +452,12 @@ public:
               "AcceptedLedger",
               4,
               std::chrono::minutes{1},
-              stopwatch(),
+              stopwatch_,
               logs_->journal("TaggedCache"))
 
         , m_networkOPs(make_NetworkOPs(
               *this,
-              stopwatch(),
+              preciseStopwatch_,
               config_->standalone(),
               config_->NETWORK_QUORUM,
               config_->START_VALID,
@@ -448,12 +501,12 @@ public:
               std::make_unique<LoadFeeTrack>(logs_->journal("LoadManager")))
 
         , hashRouter_(std::make_unique<HashRouter>(
-              stopwatch(),
+              stopwatch_,
               HashRouter::getDefaultHoldTime()))
 
         , mValidations(
               ValidationParms(),
-              stopwatch(),
+              stopwatch_,
               *this,
               logs_->journal("Validations"))
 
@@ -541,6 +594,12 @@ public:
         return *config_;
     }
 
+    HTTPClientSSLContext&
+    getHTTPClientSSLContext() override
+    {
+        return httpClientSslContext_;
+    }
+
     CollectorManager&
     getCollectorManager() override
     {
@@ -604,6 +663,38 @@ public:
     getIOService() override
     {
         return get_io_service();
+    }
+
+    std::unique_ptr<TimeoutCounterTimer>
+    makeTimeoutCounterTimer() override
+    {
+        return timeoutCounterTimerFactory_();
+    }
+
+    std::unique_ptr<TimeoutCounterTimer>
+    makePeerTimer() override
+    {
+        if (!peerTimerFactory_)
+            return nullptr;
+        return peerTimerFactory_();
+    }
+
+    Stopwatch&
+    getStopwatch() override
+    {
+        return stopwatch_;
+    }
+
+    Stopwatch&
+    getPreciseStopwatch() override
+    {
+        return preciseStopwatch_;
+    }
+
+    beast::xor_shift_engine&
+    getPrng() override
+    {
+        return prng_();
     }
 
     std::chrono::milliseconds
@@ -1192,19 +1283,22 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
     // signal set occurs or the signal set is cancelled. Subsequent signals are
     // effectively ignored (technically, they are queued up, waiting for a call
     // to async_wait).
-    m_signals.add(SIGINT);
-    m_signals.add(SIGTERM);
-    m_signals.async_wait(
-        [this](boost::system::error_code const& ec, int signum) {
-            // Indicates the signal handler has been aborted; do nothing
-            if (ec == boost::asio::error::operation_aborted)
-                return;
+    if (config_->installSignalHandlers)
+    {
+        m_signals.add(SIGINT);
+        m_signals.add(SIGTERM);
+        m_signals.async_wait(
+            [this](boost::system::error_code const& ec, int signum) {
+                // Indicates the signal handler has been aborted; do nothing
+                if (ec == boost::asio::error::operation_aborted)
+                    return;
 
-            JLOG(m_journal.info()) << "Received signal " << signum;
+                JLOG(m_journal.info()) << "Received signal " << signum;
 
-            if (signum == SIGTERM || signum == SIGINT)
-                signalStop();
-        });
+                if (signum == SIGTERM || signum == SIGINT)
+                    signalStop();
+            });
+    }
 
     auto debug_log = config_->getDebugLogFile();
 
@@ -1410,15 +1504,16 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
     //             move the instantiation inside a conditional:
     //
     //             if (!config_.standalone())
-    overlay_ = make_Overlay(
-        *this,
-        setup_Overlay(*config_),
-        *serverHandler_,
-        *m_resourceManager,
-        *m_resolver,
-        get_io_service(),
-        *config_,
-        m_collectorManager->collector());
+    overlay_ = overlayFactory_ ? overlayFactory_(*this)
+                               : make_Overlay(
+                                     *this,
+                                     setup_Overlay(*config_),
+                                     *serverHandler_,
+                                     *m_resourceManager,
+                                     *m_resolver,
+                                     get_io_service(),
+                                     *config_,
+                                     m_collectorManager->collector());
     add(*overlay_);  // add to PropertyStream
 
     // start first consensus round
@@ -1434,9 +1529,16 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         {
             auto setup = setup_ServerHandler(
                 *config_, beast::logstream{m_journal.error()});
-            setup.makeContexts();
-            serverHandler_->setup(setup, m_journal);
-            fixConfigPorts(*config_, serverHandler_->endpoints());
+            if (config_->bindServerListeners)
+            {
+                setup.makeContexts();
+                serverHandler_->setup(setup, m_journal);
+                fixConfigPorts(*config_, serverHandler_->endpoints());
+            }
+            else
+            {
+                serverHandler_->setupWithoutListeners(setup);
+            }
         }
         catch (std::exception const& e)
         {
@@ -1578,7 +1680,7 @@ ApplicationImp::start(bool withTimers)
 void
 ApplicationImp::run()
 {
-    if (!config_->standalone())
+    if (!config_->standalone() && config_->armStallDetector)
     {
         // VFALCO NOTE This seems unnecessary. If we properly refactor the load
         //             manager then the deadlock detector can just always be
@@ -1741,6 +1843,10 @@ ApplicationImp::startGenesisLedger()
     auto const next =
         std::make_shared<Ledger>(*genesis, timeKeeper().closeTime());
     next->updateSkipList();
+    // Consensus-built ledgers flush their state trees, but this genesis
+    // successor bypasses that path. Persist its state before it can be
+    // advertised as complete or loaded by a restarted node.
+    next->stateMap().flushDirty(hotACCOUNT_NODE);
     XRPL_ASSERT(
         next->read(keylet::fees()),
         "ripple::ApplicationImp::startGenesisLedger : valid ledger fees");
@@ -2128,7 +2234,7 @@ ApplicationImp::loadOldLedger(
                         hash,
                         0,
                         InboundLedger::Reason::GENERIC,
-                        stopwatch(),
+                        stopwatch_,
                         make_DummyPeerSet(*this));
                     if (il->checkLocal())
                         loadLedger = il->getLedger();
@@ -2172,7 +2278,7 @@ ApplicationImp::loadOldLedger(
                     replayLedger->info().parentHash,
                     0,
                     InboundLedger::Reason::GENERIC,
-                    stopwatch(),
+                    stopwatch_,
                     make_DummyPeerSet(*this));
 
                 if (il->checkLocal())
@@ -2436,10 +2542,22 @@ std::unique_ptr<Application>
 make_Application(
     std::unique_ptr<Config> config,
     std::unique_ptr<Logs> logs,
-    std::unique_ptr<TimeKeeper> timeKeeper)
+    std::unique_ptr<TimeKeeper> timeKeeper,
+    OverlayFactory overlayFactory,
+    beast::abstract_clock<std::chrono::steady_clock>* injectedClock,
+    beast::xor_shift_engine* injectedPrng,
+    TimeoutCounterTimerFactory timeoutCounterTimerFactory,
+    TimeoutCounterTimerFactory peerTimerFactory)
 {
     return std::make_unique<ApplicationImp>(
-        std::move(config), std::move(logs), std::move(timeKeeper));
+        std::move(config),
+        std::move(logs),
+        std::move(timeKeeper),
+        std::move(overlayFactory),
+        injectedClock,
+        injectedPrng,
+        std::move(timeoutCounterTimerFactory),
+        std::move(peerTimerFactory));
 }
 
 void

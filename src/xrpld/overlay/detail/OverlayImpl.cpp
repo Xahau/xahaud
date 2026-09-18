@@ -133,7 +133,7 @@ OverlayImpl::OverlayImpl(
     , m_resourceManager(resourceManager)
     , m_peerFinder(PeerFinder::make_Manager(
           io_service,
-          stopwatch(),
+          app_.getStopwatch(),
           app_.journal("PeerFinder"),
           config,
           collector,
@@ -291,7 +291,7 @@ OverlayImpl::onHandoff(
             publicKey,
             *negotiatedVersion,
             consumer,
-            std::move(stream_ptr),
+            std::make_unique<SslTransport>(std::move(stream_ptr)),
             *this);
         {
             // As we are not on the strand, run() must be called
@@ -1272,7 +1272,7 @@ OverlayImpl::relay(
     txMetrics_.addMetrics(enabledTarget, toSkip.size(), disabled);
 
     if (enabledTarget > enabledInSkip)
-        std::shuffle(peers.begin(), peers.end(), default_prng());
+        std::shuffle(peers.begin(), peers.end(), app_.getPrng());
 
     JLOG(journal_.trace()) << "relaying tx, total peers " << peers.size()
                            << " selected " << enabledTarget << " skip "

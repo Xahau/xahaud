@@ -21,6 +21,8 @@
 #include <xrpld/shamap/SHAMapSyncFilter.h>
 #include <xrpl/basics/random.h>
 
+#include <algorithm>
+
 namespace ripple {
 
 void
@@ -235,7 +237,7 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
                 // Switch to processing the child node
                 node = static_cast<SHAMapInnerNode*>(d);
                 nodeID = nodeID.getChildNodeID(branch);
-                firstChild = rand_int(255);
+                firstChild = rand_int(f_.prng(), 255);
                 currentChild = 0;
                 fullBelow = true;
             }
@@ -262,28 +264,30 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
 void
 SHAMap::gmn_ProcessDeferredReads(MissingNodes& mn)
 {
-    // Process all deferred reads
-    int complete = 0;
-    while (complete != mn.deferred_)
+    // Wait for all deferred reads, then process in (parentID, branch) order.
+    // finishedReads_ is appended in reader-completion order; arrival-order
+    // processing would make missingNodes_ and the --mn.max_ cutoff depend on
+    // that race.
     {
-        std::tuple<
-            SHAMapInnerNode*,
-            SHAMapNodeID,
-            int,
-            std::shared_ptr<SHAMapTreeNode>>
-            deferredNode;
-        {
-            std::unique_lock<std::mutex> lock{mn.deferLock_};
+        std::unique_lock<std::mutex> lock{mn.deferLock_};
+        while (mn.finishedReads_.size() !=
+               static_cast<std::size_t>(mn.deferred_))
+            mn.deferCondVar_.wait(lock);
+    }
+    std::sort(
+        mn.finishedReads_.begin(),
+        mn.finishedReads_.end(),
+        [](auto const& a, auto const& b) {
+            return std::forward_as_tuple(std::get<1>(a), std::get<2>(a)) <
+                std::forward_as_tuple(std::get<1>(b), std::get<2>(b));
+        });
 
-            while (mn.finishedReads_.size() <= complete)
-                mn.deferCondVar_.wait(lock);
-            deferredNode = std::move(mn.finishedReads_[complete++]);
-        }
-
+    for (auto& deferredNode : mn.finishedReads_)
+    {
         auto parent = std::get<0>(deferredNode);
         auto const& parentID = std::get<1>(deferredNode);
         auto branch = std::get<2>(deferredNode);
-        auto nodePtr = std::get<3>(deferredNode);
+        auto nodePtr = std::move(std::get<3>(deferredNode));
         auto const& nodeHash = parent->getChildHash(branch);
 
         if (nodePtr)
@@ -342,7 +346,7 @@ SHAMap::getMissingNodes(int max, SHAMapSyncFilter* filter)
     MissingNodes::StackEntry pos{
         static_cast<SHAMapInnerNode*>(root_.get()),
         SHAMapNodeID(),
-        rand_int(255),
+        rand_int(f_.prng(), 255),
         0,
         true};
     auto& node = std::get<0>(pos);
@@ -395,11 +399,28 @@ SHAMap::getMissingNodes(int max, SHAMapSyncFilter* filter)
 
             if (mn.stack_.empty() && !mn.resumes_.empty())
             {
-                // Recheck nodes we could not finish before
-                for (auto const& [innerNode, nodeId] : mn.resumes_)
+                // Recheck nodes we could not finish before. resumes_ is keyed
+                // by SHAMapInnerNode* (heap-address order); refill the stack
+                // in SHAMapNodeID order so the walk and its PRNG draws do not
+                // depend on allocator placement.
+                std::vector<std::pair<SHAMapInnerNode*, SHAMapNodeID>> resumes(
+                    mn.resumes_.begin(), mn.resumes_.end());
+                std::sort(
+                    resumes.begin(),
+                    resumes.end(),
+                    [](auto const& a, auto const& b) {
+                        return a.second < b.second;
+                    });
+                for (auto const& [innerNode, nodeId] : resumes)
+                {
                     if (!innerNode->isFullBelow(mn.generation_))
                         mn.stack_.push(std::make_tuple(
-                            innerNode, nodeId, rand_int(255), 0, true));
+                            innerNode,
+                            nodeId,
+                            rand_int(f_.prng(), 255),
+                            0,
+                            true));
+                }
 
                 mn.resumes_.clear();
             }

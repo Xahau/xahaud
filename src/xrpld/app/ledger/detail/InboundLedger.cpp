@@ -434,6 +434,8 @@ InboundLedger::pmDowncast()
 void
 InboundLedger::done()
 {
+    ScopedLockType const sl(mtx_);
+
     if (mSignaled)
         return;
 
@@ -471,14 +473,14 @@ InboundLedger::done()
     // We hold the PeerSet lock, so must dispatch
     app_.getJobQueue().addJob(
         jtLEDGER_DATA, "AcquisitionDone", [self = shared_from_this()]() {
-            if (self->complete_ && !self->failed_)
+            if (self->isComplete() && !self->isFailed())
             {
                 self->app_.getLedgerMaster().checkAccept(self->getLedger());
                 self->app_.getLedgerMaster().tryAdvance();
             }
             else
                 self->app_.getInboundLedgers().logFailure(
-                    self->hash_, self->mSeq);
+                    self->hash_, self->getSeq());
         });
 }
 
@@ -1039,10 +1041,11 @@ InboundLedger::gotData(
     std::weak_ptr<Peer> peer,
     std::shared_ptr<protocol::TMLedgerData> const& data)
 {
-    std::lock_guard sl(mReceivedDataLock);
-
+    ScopedLockType const stateLock(mtx_);
     if (isDone())
         return false;
+
+    std::lock_guard sl(mReceivedDataLock);
 
     mReceivedData.emplace_back(peer, data);
 
@@ -1213,32 +1216,31 @@ struct PeerDataCounts
 
     // call F with the `peer` parameter with a random sample of at most n values
     // of the counts vector.
-    template <class F>
+    template <class F, class URBG>
     void
-    sampleN(std::size_t n, F&& f)
+    sampleN(std::size_t n, F&& f, URBG&& rng)
     {
         if (counts.empty())
             return;
 
-        auto outFunc = [&f](auto&& v) { f(v.first); };
-        std::minstd_rand rng{std::random_device{}()};
-#if _MSC_VER
+        std::vector<std::pair<std::shared_ptr<Peer>, int>> population(
+            counts.begin(), counts.end());
+        std::sort(
+            population.begin(),
+            population.end(),
+            [](auto const& a, auto const& b) {
+                return a.first->id() < b.first->id();
+            });
         std::vector<std::pair<std::shared_ptr<Peer>, int>> s;
         s.reserve(n);
         std::sample(
-            counts.begin(), counts.end(), std::back_inserter(s), n, rng);
-        for (auto& v : s)
-        {
-            outFunc(v);
-        }
-#else
-        std::sample(
-            counts.begin(),
-            counts.end(),
-            boost::make_function_output_iterator(outFunc),
+            population.begin(),
+            population.end(),
+            std::back_inserter(s),
             n,
             rng);
-#endif
+        for (auto& v : s)
+            f(v.first);
     }
 };
 }  // namespace detail
@@ -1288,9 +1290,12 @@ InboundLedger::runData()
     // Select a random sample of the peers that gives us the most nodes that are
     // useful
     dataCounts.prune();
-    dataCounts.sampleN(maxUsefulPeers, [&](std::shared_ptr<Peer> const& peer) {
-        trigger(peer, TriggerReason::reply);
-    });
+    dataCounts.sampleN(
+        maxUsefulPeers,
+        [&](std::shared_ptr<Peer> const& peer) {
+            trigger(peer, TriggerReason::reply);
+        },
+        app_.getPrng());
 }
 
 Json::Value

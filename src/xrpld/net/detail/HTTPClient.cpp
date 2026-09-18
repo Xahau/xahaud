@@ -28,17 +28,8 @@
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl.hpp>
 #include <boost/regex.hpp>
-#include <optional>
 
 namespace ripple {
-
-static std::optional<HTTPClientSSLContext> httpClientSSLContext;
-
-void
-HTTPClient::initializeSSLContext(Config const& config, beast::Journal j)
-{
-    httpClientSSLContext.emplace(config, j);
-}
 
 //------------------------------------------------------------------------------
 //
@@ -52,10 +43,12 @@ class HTTPClientImp : public std::enable_shared_from_this<HTTPClientImp>,
 public:
     HTTPClientImp(
         boost::asio::io_service& io_service,
+        HTTPClientSSLContext& sslContext,
         const unsigned short port,
         std::size_t maxResponseSize,
         beast::Journal& j)
-        : mSocket(io_service, httpClientSSLContext->context())
+        : mSocket(io_service, sslContext.context())
+        , sslContext_(sslContext)
         , mResolver(io_service)
         , mHeader(maxClientHeaderBytes)
         , mPort(port)
@@ -242,7 +235,7 @@ public:
         if (!mShutdown)
         {
             mShutdown = ecResult ? ecResult
-                                 : httpClientSSLContext->preConnectVerify(
+                                 : sslContext_.preConnectVerify(
                                        mSocket.SSLSocket(), mDeqSites[0]);
         }
 
@@ -282,7 +275,7 @@ public:
         {
             JLOG(j_.trace()) << "Connected.";
 
-            mShutdown = httpClientSSLContext->postConnectVerify(
+            mShutdown = sslContext_.postConnectVerify(
                 mSocket.SSLSocket(), mDeqSites[0]);
 
             if (mShutdown)
@@ -524,6 +517,7 @@ private:
 
     bool mSSL;
     AutoSocket mSocket;
+    HTTPClientSSLContext& sslContext_;
     boost::asio::ip::tcp::resolver mResolver;
     std::shared_ptr<boost::asio::ip::tcp::resolver::query> mQuery;
     boost::asio::streambuf mRequest;
@@ -558,6 +552,7 @@ void
 HTTPClient::get(
     bool bSSL,
     boost::asio::io_service& io_service,
+    HTTPClientSSLContext& sslContext,
     std::deque<std::string> deqSites,
     const unsigned short port,
     std::string const& strPath,
@@ -569,8 +564,8 @@ HTTPClient::get(
         std::string const& strData)> complete,
     beast::Journal& j)
 {
-    auto client =
-        std::make_shared<HTTPClientImp>(io_service, port, responseMax, j);
+    auto client = std::make_shared<HTTPClientImp>(
+        io_service, sslContext, port, responseMax, j);
     client->get(bSSL, deqSites, strPath, timeout, complete);
 }
 
@@ -578,6 +573,7 @@ void
 HTTPClient::get(
     bool bSSL,
     boost::asio::io_service& io_service,
+    HTTPClientSSLContext& sslContext,
     std::string strSite,
     const unsigned short port,
     std::string const& strPath,
@@ -591,8 +587,8 @@ HTTPClient::get(
 {
     std::deque<std::string> deqSites(1, strSite);
 
-    auto client =
-        std::make_shared<HTTPClientImp>(io_service, port, responseMax, j);
+    auto client = std::make_shared<HTTPClientImp>(
+        io_service, sslContext, port, responseMax, j);
     client->get(bSSL, deqSites, strPath, timeout, complete);
 }
 
@@ -600,6 +596,7 @@ void
 HTTPClient::request(
     bool bSSL,
     boost::asio::io_service& io_service,
+    HTTPClientSSLContext& sslContext,
     std::string strSite,
     const unsigned short port,
     std::function<void(boost::asio::streambuf& sb, std::string const& strHost)>
@@ -614,8 +611,8 @@ HTTPClient::request(
 {
     std::deque<std::string> deqSites(1, strSite);
 
-    auto client =
-        std::make_shared<HTTPClientImp>(io_service, port, responseMax, j);
+    auto client = std::make_shared<HTTPClientImp>(
+        io_service, sslContext, port, responseMax, j);
     client->request(bSSL, deqSites, setRequest, timeout, complete);
 }
 

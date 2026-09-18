@@ -25,9 +25,32 @@
 #include <xrpl/beast/clock/abstract_clock.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <boost/asio/basic_waitable_timer.hpp>
+#include <boost/asio/io_service.hpp>
+#include <functional>
+#include <memory>
 #include <mutex>
 
 namespace ripple {
+
+class TimeoutCounterTimer
+{
+public:
+    virtual ~TimeoutCounterTimer() = default;
+
+    virtual void
+    expiresAfter(
+        std::chrono::milliseconds interval,
+        std::function<void()> handler) = 0;
+
+    virtual void
+    cancel() = 0;
+};
+
+std::unique_ptr<TimeoutCounterTimer>
+makeAsioTimeoutCounterTimer(boost::asio::io_service& io);
+
+using TimeoutCounterTimerFactory =
+    std::function<std::unique_ptr<TimeoutCounterTimer>()>;
 
 /**
     This class is an "active" object. It maintains its own timer
@@ -144,7 +167,7 @@ private:
     void
     invokeOnTimer();
 
-    boost::asio::basic_waitable_timer<std::chrono::steady_clock> timer_;
+    std::unique_ptr<TimeoutCounterTimer> timer_;
 };
 
 }  // namespace ripple

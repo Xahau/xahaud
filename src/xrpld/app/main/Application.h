@@ -24,12 +24,16 @@
 #include <xrpld/shamap/FullBelowCache.h>
 #include <xrpld/shamap/TreeNodeCache.h>
 #include <xrpl/basics/TaggedCache.h>
+#include <xrpl/basics/chrono.h>
+#include <xrpl/beast/clock/abstract_clock.h>
 #include <xrpl/beast/utility/PropertyStream.h>
+#include <xrpl/beast/xor_shift_engine.h>
 #include <xrpl/protocol/Protocol.h>
 #include <boost/asio.hpp>
 #include <boost/filesystem/path.hpp>
 #include <boost/program_options.hpp>
 #include <boost/system/error_code.hpp>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -69,6 +73,7 @@ using CachedSLEs = TaggedCache<uint256, SLE const>;
 class CollectorManager;
 class Family;
 class HashRouter;
+class HTTPClientSSLContext;
 class Logs;
 class LoadFeeTrack;
 class JobQueue;
@@ -110,6 +115,14 @@ template <class Adaptor>
 class Validations;
 class RCLValidationsAdaptor;
 using RCLValidations = Validations<RCLValidationsAdaptor>;
+
+class TimeoutCounterTimer;
+class Application;
+
+using TimeoutCounterTimerFactory =
+    std::function<std::unique_ptr<TimeoutCounterTimer>()>;
+
+using OverlayFactory = std::function<std::unique_ptr<Overlay>(Application&)>;
 
 class Application : public beast::PropertyStream::Source
 {
@@ -163,8 +176,26 @@ public:
     virtual Config&
     config() = 0;
 
+    virtual HTTPClientSSLContext&
+    getHTTPClientSSLContext() = 0;
+
     virtual boost::asio::io_service&
     getIOService() = 0;
+
+    [[nodiscard]] virtual std::unique_ptr<TimeoutCounterTimer>
+    makeTimeoutCounterTimer() = 0;
+
+    [[nodiscard]] virtual std::unique_ptr<TimeoutCounterTimer>
+    makePeerTimer() = 0;
+
+    virtual Stopwatch&
+    getStopwatch() = 0;
+
+    virtual Stopwatch&
+    getPreciseStopwatch() = 0;
+
+    virtual beast::xor_shift_engine&
+    getPrng() = 0;
 
     virtual CollectorManager&
     getCollectorManager() = 0;
@@ -282,7 +313,12 @@ std::unique_ptr<Application>
 make_Application(
     std::unique_ptr<Config> config,
     std::unique_ptr<Logs> logs,
-    std::unique_ptr<TimeKeeper> timeKeeper);
+    std::unique_ptr<TimeKeeper> timeKeeper,
+    OverlayFactory overlayFactory = {},
+    beast::abstract_clock<std::chrono::steady_clock>* injectedClock = nullptr,
+    beast::xor_shift_engine* injectedPrng = nullptr,
+    TimeoutCounterTimerFactory timeoutCounterTimerFactory = {},
+    TimeoutCounterTimerFactory peerTimerFactory = {});
 
 /** Location of the receipt left behind when the server stops because it does
     not support a network amendment. */

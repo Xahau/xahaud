@@ -19,7 +19,6 @@
 
 #include <xrpld/core/Config.h>
 #include <xrpld/core/ConfigSections.h>
-#include <xrpld/net/HTTPClient.h>
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
@@ -402,8 +401,6 @@ Config::setup(
 
         legacy("database_path", boost::filesystem::absolute(dataDir).string());
     }
-
-    HTTPClient::initializeSSLContext(*this, j_);
 
     if (RUN_STANDALONE)
         LEDGER_HISTORY = 0;

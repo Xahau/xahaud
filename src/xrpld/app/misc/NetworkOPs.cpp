@@ -183,7 +183,7 @@ public:
               ledgerMaster,
               *m_localTX,
               app.getInboundTransactions(),
-              beast::get_abstract_clock<std::chrono::steady_clock>(),
+              clock,
               validatorKeys,
               app_.logs().journal("LedgerConsensus"))
         , m_ledgerMaster(ledgerMaster)
@@ -336,6 +336,9 @@ public:
     setStateTimer() override;
 
     void
+    heartbeatTick() override;
+
+    void
     setNeedNetworkLedger() override;
     void
     clearNeedNetworkLedger() override;
@@ -383,6 +386,11 @@ public:
     reportFeeChange() override;
     void
     reportConsensusStateChange(ConsensusPhase phase);
+    void
+    reportConsensusStateChangeIfNeeded(
+        ConsensusPhase phase,
+        std::unique_ptr<std::stringstream> const& clog,
+        bool logPhase);
 
     void
     updateLocalTx(ReadView const& view) override;
@@ -674,12 +682,14 @@ private:
 
     RCLConsensus mConsensus;
 
-    ConsensusPhase mLastConsensusPhase;
+    std::mutex lastConsensusPhaseMutex_;
+    ConsensusPhase mLastConsensusPhase{ConsensusPhase::open};
 
     LedgerMaster& m_ledgerMaster;
 
     SubInfoMapType mSubAccount;
     SubInfoMapType mSubRTAccount;
+    bool firstLedgerPublished_{true};  // Guarded by mSubLock.
 
     subRpcMapType mRpcSubMap;
 
@@ -900,6 +910,9 @@ NetworkOPsImp::setTimer(
 void
 NetworkOPsImp::setHeartbeatTimer()
 {
+    if (app_.config().manualHeartbeat)
+        return;
+
     setTimer(
         heartbeatTimer_,
         mConsensus.parms().ledgerGRANULARITY,
@@ -909,6 +922,14 @@ NetworkOPsImp::setHeartbeatTimer()
             });
         },
         [this]() { setHeartbeatTimer(); });
+}
+
+void
+NetworkOPsImp::heartbeatTick()
+{
+    m_job_queue.addJob(jtNETOP_TIMER, "NetOPs.heartbeat", [this]() {
+        processHeartbeatTimer();
+    });
 }
 
 void
@@ -1010,14 +1031,8 @@ NetworkOPsImp::processHeartbeatTimer()
 
     mConsensus.timerEntry(app_.timeKeeper().closeTime(), clog.ss());
 
-    CLOG(clog.ss()) << "consensus phase " << to_string(mLastConsensusPhase);
     const ConsensusPhase currPhase = mConsensus.phase();
-    if (mLastConsensusPhase != currPhase)
-    {
-        reportConsensusStateChange(currPhase);
-        mLastConsensusPhase = currPhase;
-        CLOG(clog.ss()) << " changed to " << to_string(mLastConsensusPhase);
-    }
+    reportConsensusStateChangeIfNeeded(currPhase, clog.ss(), true);
     CLOG(clog.ss()) << ". ";
 
     setHeartbeatTimer();
@@ -2094,11 +2109,7 @@ NetworkOPsImp::beginConsensus(
         clog);
 
     const ConsensusPhase currPhase = mConsensus.phase();
-    if (mLastConsensusPhase != currPhase)
-    {
-        reportConsensusStateChange(currPhase);
-        mLastConsensusPhase = currPhase;
-    }
+    reportConsensusStateChangeIfNeeded(currPhase, clog, false);
 
     JLOG(m_journal.debug()) << "Initiating consensus engine";
     return true;
@@ -2546,6 +2557,13 @@ NetworkOPsImp::recvValidation(
 {
     JLOG(m_journal.trace())
         << "recvValidation " << val->getLedgerHash() << " from " << source;
+    if (auto const& hook = app_.config().harnessValidation)
+        hook(
+            "ops:" + source,
+            val->isTrusted(),
+            val->getFieldU32(sfLedgerSequence),
+            val->getLedgerHash(),
+            "opsRecvEnter");
 
     // handleNewValidation(app_, val, source);
     // https://github.com/XRPLF/rippled/commit/fbbea9e6e25795a8a6bd1bf64b780771933a9579
@@ -2559,15 +2577,36 @@ NetworkOPsImp::recvValidation(
             pendingValidations_.insert(val->getLedgerHash());
         scope_unlock unlock(lock);
         handleNewValidation(app_, val, source, bypassAccept, m_journal);
+        if (auto const& hook = app_.config().harnessValidation)
+            hook(
+                "ops:" + source,
+                val->isTrusted(),
+                val->getFieldU32(sfLedgerSequence),
+                val->getLedgerHash(),
+                "opsRecvHandled");
     }
     catch (std::exception const& e)
     {
+        if (auto const& hook = app_.config().harnessValidation)
+            hook(
+                "ops:" + source,
+                val->isTrusted(),
+                val->getFieldU32(sfLedgerSequence),
+                val->getLedgerHash(),
+                std::string("opsRecvException:") + e.what());
         JLOG(m_journal.warn())
             << "Exception thrown for handling new validation "
             << val->getLedgerHash() << ": " << e.what();
     }
     catch (...)
     {
+        if (auto const& hook = app_.config().harnessValidation)
+            hook(
+                "ops:" + source,
+                val->isTrusted(),
+                val->getFieldU32(sfLedgerSequence),
+                val->getLedgerHash(),
+                "opsRecvUnknownException");
         JLOG(m_journal.warn())
             << "Unknown exception thrown for handling new validation "
             << val->getLedgerHash();
@@ -3168,11 +3207,10 @@ NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
         }
 
         {
-            static bool firstTime = true;
-            if (firstTime)
+            if (firstLedgerPublished_)
             {
                 // First validated ledger, start delayed SubAccountHistory
-                firstTime = false;
+                firstLedgerPublished_ = false;
                 for (auto& outer : mSubAccountHistory)
                 {
                     for (auto& inner : outer.second)
@@ -3223,6 +3261,24 @@ NetworkOPsImp::reportConsensusStateChange(ConsensusPhase phase)
         jtCLIENT_CONSENSUS,
         "reportConsensusStateChange->pubConsensus",
         [this, phase]() { pubConsensus(phase); });
+}
+
+void
+NetworkOPsImp::reportConsensusStateChangeIfNeeded(
+    ConsensusPhase phase,
+    std::unique_ptr<std::stringstream> const& clog,
+    bool logPhase)
+{
+    std::scoped_lock const lock(lastConsensusPhaseMutex_);
+    if (logPhase)
+        CLOG(clog) << "consensus phase " << to_string(mLastConsensusPhase);
+    if (mLastConsensusPhase != phase)
+    {
+        reportConsensusStateChange(phase);
+        mLastConsensusPhase = phase;
+        if (logPhase)
+            CLOG(clog) << " changed to " << to_string(mLastConsensusPhase);
+    }
 }
 
 inline void

@@ -97,6 +97,19 @@ JobQueue::addRefCountedJob(
         << __func__ << " : Adding job : " << name << " : " << type;
     JobTypeData& data(iter->second);
 
+    if (dispatchHook_)
+    {
+        switch (dispatchHook_(type, name, func))
+        {
+            case JobDisposition::claimedQueued:
+                return true;
+            case JobDisposition::claimedDropped:
+                return false;
+            case JobDisposition::pass:
+                break;
+        }
+    }
+
     // FIXME: Workaround incorrect client shutdown ordering
     // do not add jobs to a queue with no threads
     XRPL_ASSERT(
@@ -274,6 +287,34 @@ JobQueue::rendezvous()
     cv_.wait(lock, [this] { return m_processCount == 0 && m_jobSet.empty(); });
 }
 
+bool
+JobQueue::isIdle() const
+{
+    std::lock_guard lock(m_mutex);
+    return m_processCount == 0 && m_jobSet.empty();
+}
+
+std::uint64_t
+JobQueue::lastJob() const
+{
+    std::lock_guard lock(m_mutex);
+    return m_lastJob;
+}
+
+std::uint64_t
+JobQueue::completedJobs() const
+{
+    std::lock_guard lock(m_mutex);
+    return m_completedJobs;
+}
+
+int
+JobQueue::suspendedCount() const
+{
+    std::lock_guard lock(m_mutex);
+    return nSuspend_;
+}
+
 JobTypeData&
 JobQueue::getJobTypeData(JobType type)
 {
@@ -427,6 +468,7 @@ JobQueue::processTask(int instance)
         // otherwise destructors with side effects can access
         // parent objects that are already destroyed.
         finishJob(type);
+        ++m_completedJobs;
         if (--m_processCount == 0 && m_jobSet.empty())
             cv_.notify_all();
     }

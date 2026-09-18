@@ -353,6 +353,7 @@ class HTTPClient_test : public beast::unit_test::suite
     void
     fireRequest(
         boost::asio::io_service& ios,
+        HTTPClientSSLContext& sslContext,
         std::string const& host,
         unsigned short port,
         std::atomic<int>& completed,
@@ -362,6 +363,7 @@ class HTTPClient_test : public beast::unit_test::suite
         HTTPClient::request(
             false,  // no SSL
             ios,
+            sslContext,
             host,
             port,
             [](boost::asio::streambuf& sb, std::string const& strHost) {
@@ -405,7 +407,13 @@ class HTTPClient_test : public beast::unit_test::suite
 
         {
             boost::asio::io_service ios;
-            fireRequest(ios, "127.0.0.1", server.port(), completed, j);
+            fireRequest(
+                ios,
+                env.app().getHTTPClientSSLContext(),
+                "127.0.0.1",
+                server.port(),
+                completed,
+                j);
             ios.run();
         }
 
@@ -432,7 +440,13 @@ class HTTPClient_test : public beast::unit_test::suite
 
         {
             boost::asio::io_service ios;
-            fireRequest(ios, "127.0.0.1", server.port(), completed, j);
+            fireRequest(
+                ios,
+                env.app().getHTTPClientSSLContext(),
+                "127.0.0.1",
+                server.port(),
+                completed,
+                j);
             ios.run();
         }
 
@@ -462,7 +476,13 @@ class HTTPClient_test : public beast::unit_test::suite
 
         {
             boost::asio::io_service ios;
-            fireRequest(ios, "127.0.0.1", port, completed, j);
+            fireRequest(
+                ios,
+                env.app().getHTTPClientSSLContext(),
+                "127.0.0.1",
+                port,
+                completed,
+                j);
             ios.run();
         }
 
@@ -492,6 +512,7 @@ class HTTPClient_test : public beast::unit_test::suite
             // Short timeout to keep the test fast.
             fireRequest(
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 completed,
@@ -528,6 +549,7 @@ class HTTPClient_test : public beast::unit_test::suite
             boost::asio::io_service ios;
             fireRequest(
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 completed,
@@ -558,7 +580,13 @@ class HTTPClient_test : public beast::unit_test::suite
 
         {
             boost::asio::io_service ios;
-            fireRequest(ios, "127.0.0.1", server.port(), completed, j);
+            fireRequest(
+                ios,
+                env.app().getHTTPClientSSLContext(),
+                "127.0.0.1",
+                server.port(),
+                completed,
+                j);
             ios.run();
         }
 
@@ -599,6 +627,7 @@ class HTTPClient_test : public beast::unit_test::suite
             boost::asio::io_service ios;
             fireRequest(
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 completed,
@@ -644,7 +673,13 @@ class HTTPClient_test : public beast::unit_test::suite
             boost::asio::io_service ios;
             for (int i = 0; i < N; ++i)
             {
-                fireRequest(ios, "127.0.0.1", server.port(), completed, j);
+                fireRequest(
+                    ios,
+                    env.app().getHTTPClientSSLContext(),
+                    "127.0.0.1",
+                    server.port(),
+                    completed,
+                    j);
             }
             ios.run();
         }
@@ -682,7 +717,13 @@ class HTTPClient_test : public beast::unit_test::suite
             boost::asio::io_service ios;
             for (int i = 0; i < N; ++i)
             {
-                fireRequest(ios, "127.0.0.1", server.port(), completed, j);
+                fireRequest(
+                    ios,
+                    env.app().getHTTPClientSSLContext(),
+                    "127.0.0.1",
+                    server.port(),
+                    completed,
+                    j);
             }
             ios.run();
         }
@@ -727,6 +768,7 @@ class HTTPClient_test : public beast::unit_test::suite
             boost::asio::io_service ios;
             fireRequest(
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 completed,
@@ -776,6 +818,7 @@ class HTTPClient_test : public beast::unit_test::suite
             HTTPClient::request(
                 false,
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 [](boost::asio::streambuf& sb, std::string const& strHost) {
@@ -827,6 +870,7 @@ class HTTPClient_test : public beast::unit_test::suite
             HTTPClient::request(
                 false,
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 [](boost::asio::streambuf& sb, std::string const& strHost) {
@@ -880,6 +924,7 @@ class HTTPClient_test : public beast::unit_test::suite
             Json::Value params(Json::arrayValue);
             RPCCall::fromNetwork(
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 "",
@@ -929,6 +974,7 @@ class HTTPClient_test : public beast::unit_test::suite
             Json::Value params(Json::arrayValue);
             RPCCall::fromNetwork(
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 "",
@@ -987,6 +1033,7 @@ class HTTPClient_test : public beast::unit_test::suite
         HTTPClient::request(
             false,
             ios,
+            env.app().getHTTPClientSSLContext(),
             "127.0.0.1",
             server.port(),
             [](boost::asio::streambuf& sb, std::string const& strHost) {
@@ -1057,6 +1104,7 @@ class HTTPClient_test : public beast::unit_test::suite
             HTTPClient::request(
                 false,
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 [](boost::asio::streambuf& sb, std::string const& strHost) {
@@ -1128,6 +1176,7 @@ class HTTPClient_test : public beast::unit_test::suite
             HTTPClient::get(
                 false,  // no SSL
                 ios,
+                env.app().getHTTPClientSSLContext(),
                 "127.0.0.1",
                 server.port(),
                 "/test",
