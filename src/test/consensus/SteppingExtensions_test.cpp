@@ -1116,7 +1116,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 return f;
             });
         net.controller().observeJobs(
-            [this, &net, stats, originA, originB, qA, qB](
+            [&net, stats, originA, originB](
                 std::uint32_t id, JobType, std::string const&) {
                 if (id != observer || !net.isLive(id) ||
                     stats->sawPartialCandidate)
@@ -1133,7 +1133,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     originSidecarLeaves(*ce.exportSigSetMap_, originA);
                 auto const leavesB =
                     originSidecarLeaves(*ce.exportSigSetMap_, originB);
-                if (leavesA == qA && leavesB > 0 && leavesB < qB)
+                auto const needA =
+                    ExportLimits::committeeQuorumThreshold(2);
+                auto const needB =
+                    ExportLimits::committeeQuorumThreshold(3);
+                if (leavesA == needA && leavesB > 0 && leavesB < needB)
                 {
                     stats->sawPartialCandidate = true;
                     stats->candidateLeavesA = leavesA;
