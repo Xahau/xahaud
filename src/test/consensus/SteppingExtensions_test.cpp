@@ -102,6 +102,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         Buffer badSignature;
         std::uint32_t badFramesReceived = 0;
         bool sawBadWhilePending = false;
+        std::map<uint256, std::array<std::size_t, 4>> originOwnReleases;
     };
 
     template <class T>
@@ -181,6 +182,17 @@ class SteppingExtensions_test : public beast::unit_test::suite
             : hashOfSeq(
                   *validated, share.originLedgerSeq, app.journal("Ledger"));
         return hash && *hash == share.originLedgerHash;
+    }
+
+    static bool
+    ledgerHasTx(std::shared_ptr<Ledger const> const& ledger, uint256 const& id)
+    {
+        if (!ledger)
+            return false;
+        for (auto const& [tx, meta] : ledger->txs)
+            if (tx->getTransactionID() == id)
+                return true;
+        return false;
     }
 
     struct World
@@ -303,6 +315,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
                                     share->signingKey == keys.keys->publicKey)
                                 {
                                     ++stats->ownReleases[id];
+                                    ++stats->originOwnReleases[share->originTxn]
+                                                              [id];
                                     if (!authorizedAtEmission(app, *share))
                                         ++stats->unauthorizedReleases[id];
                                 }
@@ -1791,6 +1805,254 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+    std::optional<std::vector<uint256>>
+    noQuorumPartitionHeal(SteppingNetwork& net)
+    {
+        using namespace std::chrono_literals;
+        World world(net, true, true);
+        if (!ready(world))
+            return std::nullopt;
+        auto const stats = world.observed;
+        auto const [quorum, trusted] =
+            net.node(0).app().validators().getQuorumKeys();
+        auto const remaining = observer - 1;
+        if (!BEAST_EXPECT(quorum > remaining))
+        {
+            log << "  remaining validators would still meet quorum"
+                << " quorum=" << quorum << " remaining=" << remaining
+                << " trusted=" << trusted.size() << std::endl;
+            return std::nullopt;
+        }
+        auto const funding = world.submit(
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto originReleases = [&](uint256 const& origin) {
+            auto const it = stats->originOwnReleases.find(origin);
+            if (it == stats->originOwnReleases.end())
+                return std::size_t{0};
+            std::size_t n = 0;
+            for (auto const c : it->second)
+                n += c;
+            return n;
+        };
+
+        auto const stallValid = net.minValidatedSeq();
+        auto const stallHash = net.ledgerHash(0, stallValid);
+        net.isolateNodeAndFlush(2);
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    return net.closedSeq(0) > stallValid &&
+                        net.validSeq(0) <= stallValid &&
+                        net.validSeq(1) <= stallValid &&
+                        net.validSeq(observer) <= stallValid;
+                },
+                SteppingNetwork::RunBudget{20, 1'200'000})))
+        {
+            log << "  survivors did not close past stalled validation"
+                << " closed=" << net.closedSeq(0)
+                << " valid=" << net.validSeq(0) << std::endl;
+            return std::nullopt;
+        }
+        BEAST_EXPECT(net.mode(2) == OperatingMode::DISCONNECTED);
+        for (std::uint32_t n = 0; n <= observer; ++n)
+            BEAST_EXPECT(net.validSeq(n) <= stallValid);
+        BEAST_EXPECT(net.closedSeq(1) == net.closedSeq(0));
+
+        auto const open = net.node(0).app().openLedger().current()->seq();
+        auto const gapTx = world.submit(
+            0,
+            world.intent(
+                world.owner, 1, open + ExportLimits::maxAdmissionWindowLedgers),
+            world.owner);
+        if (!BEAST_EXPECT(gapTx && gapTx->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const origin = gapTx->getID();
+        auto const releasesAtSubmit = originReleases(origin);
+        auto originClosedOn0 = [&] {
+            for (auto seq = stallValid + 1; seq <= net.closedSeq(0); ++seq)
+                if (ledgerHasTx(net.ledger(0, seq), origin))
+                    return true;
+            return false;
+        };
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    return originClosedOn0() && net.validSeq(0) <= stallValid;
+                },
+                SteppingNetwork::RunBudget{20, 1'200'000})))
+        {
+            log << "  speculative origin missing from closed history"
+                << " closed=" << net.closedSeq(0)
+                << " valid=" << net.validSeq(0)
+                << " open=" << net.node(0).app().openLedger().current()->seq()
+                << std::endl;
+            return std::nullopt;
+        }
+        for (std::uint32_t n = 0; n <= observer; ++n)
+            BEAST_EXPECT(net.validSeq(n) <= stallValid);
+
+        std::uint32_t specSeq = 0;
+        for (auto seq = stallValid + 1; seq <= net.closedSeq(0); ++seq)
+        {
+            if (ledgerHasTx(net.ledger(0, seq), origin))
+            {
+                specSeq = seq;
+                break;
+            }
+        }
+        if (!BEAST_EXPECT(specSeq > stallValid))
+            return std::nullopt;
+        BEAST_EXPECT(net.ledgerHash(0, specSeq) == net.ledgerHash(1, specSeq));
+        BEAST_EXPECT(net.validSeq(0) < specSeq);
+        BEAST_EXPECT(!ledgerHasTx(net.ledger(0, stallValid), origin));
+        auto const specHash = net.ledgerHash(0, specSeq);
+        auto const preHealClosed = net.closedSeq(0);
+        auto const preHealClosedHash = net.ledgerHash(0, preHealClosed);
+        auto const preHealReleases = originReleases(origin);
+        BEAST_EXPECT(preHealReleases == releasesAtSubmit);
+        BEAST_EXPECT(stats->unauthorizedReleases[0] == 0);
+        BEAST_EXPECT(stats->unauthorizedReleases[1] == 0);
+
+        net.reconnectNode(2);
+        auto const target = stallValid + 4;
+        net.runTo(target, SteppingNetwork::RunBudget{1600, 1'200'000});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
+        {
+            log << "  heal did not restore validation " << net.jobDiagnostics()
+                << std::endl;
+            return std::nullopt;
+        }
+        BEAST_EXPECT(net.ledgersAgree(target));
+        BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(net.mode(2) == OperatingMode::FULL);
+        BEAST_EXPECT(net.offThreadJobs() == 0);
+        BEAST_EXPECT(net.failedJobs() == 0);
+        BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
+        BEAST_EXPECT(stats->secrets[observer] == 0);
+        BEAST_EXPECT(stats->ownReleases[observer] == 0);
+
+        bool originInValidated = false;
+        for (auto seq = warmLedger; seq <= net.minValidatedSeq(); ++seq)
+            originInValidated =
+                originInValidated || ledgerHasTx(net.ledger(0, seq), origin);
+        auto witnessSeq = witnessAt(net, origin, warmLedger);
+        if (originInValidated && witnessSeq == 0)
+        {
+            net.runTo(
+                net.minValidatedSeq() + 3,
+                SteppingNetwork::RunBudget{1600, 1'200'000});
+            witnessSeq = witnessAt(net, origin, warmLedger);
+        }
+        uint256 witnessedOrigin = origin;
+        bool expired = false;
+        if (witnessSeq == 0)
+        {
+            expired = true;
+            BEAST_EXPECT(!originInValidated);
+            auto const postOpen =
+                net.node(0).app().openLedger().current()->seq();
+            auto const postTx = world.submit(
+                0,
+                world.intent(
+                    world.owner,
+                    2,
+                    postOpen + ExportLimits::maxAdmissionWindowLedgers),
+                world.owner);
+            if (!BEAST_EXPECT(postTx && postTx->getResult() == tesSUCCESS))
+                return std::nullopt;
+            witnessedOrigin = postTx->getID();
+            auto const postTarget = net.minValidatedSeq() + 4;
+            net.runTo(postTarget, SteppingNetwork::RunBudget{1600, 1'200'000});
+            if (!BEAST_EXPECT(net.minValidatedSeq() >= postTarget))
+                return std::nullopt;
+            witnessSeq = witnessAt(net, witnessedOrigin, warmLedger);
+            if (!BEAST_EXPECT(witnessSeq != 0))
+                return std::nullopt;
+        }
+
+        auto const finalTarget = net.minValidatedSeq();
+        BEAST_EXPECT(net.ledgersAgree(finalTarget));
+        BEAST_EXPECT(net.validatedForkFree());
+        std::map<uint256, std::uint32_t> hits;
+        std::set<uint256> unexpected;
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= finalTarget; ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (std::uint32_t i = 1; i <= observer; ++i)
+            {
+                auto const ledger = net.ledger(i, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            outcome.push_back(canonical->info().hash);
+            for (auto const& [wtx, meta] : canonical->txs)
+            {
+                if (wtx->getTxnType() != ttEXPORT_SIGNATURES)
+                    continue;
+                if (!BEAST_EXPECT(meta != nullptr))
+                    return std::nullopt;
+                auto const id = wtx->getFieldH256(sfTransactionHash);
+                if (id != witnessedOrigin && id != origin)
+                    unexpected.insert(id);
+                else
+                    ++hits[id];
+                auto const txBytes = wtx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                outcome.push_back(
+                    sha512Half(makeSlice(txBytes), makeSlice(metaBytes)));
+                for (std::uint32_t i = 0; i <= observer; ++i)
+                {
+                    auto const ledger = net.ledger(i, seq);
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : ledger->txs)
+                    {
+                        if (peerTx->getTxnType() != ttEXPORT_SIGNATURES ||
+                            peerTx->getFieldH256(sfTransactionHash) != id)
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes);
+                        BEAST_EXPECT(
+                            peerMeta != nullptr &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+        }
+        BEAST_EXPECT(unexpected.empty());
+        BEAST_EXPECT(hits[witnessedOrigin] == 1);
+        if (expired)
+            BEAST_EXPECT(hits[origin] == 0);
+        log << "  no-quorum: quorum=" << quorum << " stallValid=" << stallValid
+            << " specSeq=" << specSeq << " preHealClosed=" << preHealClosed
+            << " releases=" << preHealReleases << " expired=" << expired
+            << " witness=" << witnessSeq << std::endl;
+        outcome.push_back(stallHash);
+        outcome.push_back(specHash);
+        outcome.push_back(preHealClosedHash);
+        outcome.push_back(origin);
+        outcome.push_back(witnessedOrigin);
+        outcome.push_back(sha512Half(
+            stallValid,
+            specSeq,
+            preHealClosed,
+            static_cast<std::uint32_t>(preHealReleases),
+            static_cast<std::uint32_t>(expired),
+            witnessSeq));
+        return outcome;
+    }
+
 public:
     void
     run() override
@@ -1948,6 +2210,21 @@ public:
                 "invalid Export share does not poison an honest contribution",
                 [this](SteppingNetwork& net) {
                     return invalidShareDoesNotPoison(net);
+                });
+        }
+        if (matches(
+                "no-quorum partition does not release Export before validated "
+                "ancestry"))
+        {
+            testcase(
+                "no-quorum partition does not release Export before validated "
+                "ancestry");
+            expectReplays(
+                *this,
+                "no-quorum partition does not release Export before validated "
+                "ancestry",
+                [this](SteppingNetwork& net) {
+                    return noQuorumPartitionHeal(net);
                 });
         }
         BEAST_EXPECT(selected != 0);
