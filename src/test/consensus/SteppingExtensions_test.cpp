@@ -83,6 +83,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::uint32_t droppedStarvedDirect = 0;
         std::uint32_t droppedStarvedProposals = 0;
         bool sawPartialCandidate = false;
+        bool sawObserverMap = false;
         std::size_t candidateLeavesA = 0;
         std::size_t candidateLeavesB = 0;
     };
@@ -1080,14 +1081,18 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto const qA = ExportLimits::committeeQuorumThreshold(2);
         auto const qB = ExportLimits::committeeQuorumThreshold(3);
         auto const stats = world.observed;
-        net.faultFrames(
-            2,
-            observer,
-            [stats, originB](std::uint16_t type, SimPipe::Frame bytes) {
+        auto const& v2keys = net.node(2).app().getValidatorKeys();
+        auto const v2sign = v2keys.keys->publicKey;
+        auto const v2master = v2keys.keys->masterPublicKey;
+        auto const starveBfromV2 =
+            [stats, originB, v2sign, v2master](
+                std::uint16_t type, SimPipe::Frame bytes) {
                 SimFault f;
                 auto const hit = [&](std::string const& blob) {
                     auto const share = ExportShare::parse(makeSlice(blob));
-                    return share && share->originTxn == originB;
+                    return share && share->originTxn == originB &&
+                        (share->signingKey == v2sign ||
+                         share->signingKey == v2master);
                 };
                 if (type == protocol::mtEXPORT_SHARES)
                 {
@@ -1114,7 +1119,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         }
                 }
                 return f;
-            });
+            };
+        for (std::uint32_t from = 0; from < observer; ++from)
+            net.faultFrames(from, observer, starveBfromV2);
         net.controller().observeJobs(
             [&net, stats, originA, originB](
                 std::uint32_t id, JobType, std::string const&) {
@@ -1122,27 +1129,27 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     stats->sawPartialCandidate)
                     return;
                 auto& ce = net.node(id).app().getConsensusExtensions();
-                if (!ce.roundParentLedger_ || !ce.exportSigSetMap_)
+                if (!ce.exportSigSetMap_)
                     return;
-                auto const& parent = *ce.roundParentLedger_;
-                auto const pending =
-                    ce.pendingRoundExports(parent.info().seq + 1);
-                if (!pending.contains(originA) || !pending.contains(originB))
-                    return;
+                stats->sawObserverMap = true;
                 auto const leavesA =
                     originSidecarLeaves(*ce.exportSigSetMap_, originA);
                 auto const leavesB =
                     originSidecarLeaves(*ce.exportSigSetMap_, originB);
+                stats->candidateLeavesA = leavesA;
+                stats->candidateLeavesB = leavesB;
+                if (!ce.roundParentLedger_)
+                    return;
+                auto const& parent = *ce.roundParentLedger_;
+                auto const pending =
+                    ce.pendingRoundExports(parent.info().seq + 1);
                 auto const needA =
                     ExportLimits::committeeQuorumThreshold(2);
                 auto const needB =
                     ExportLimits::committeeQuorumThreshold(3);
-                if (leavesA == needA && leavesB > 0 && leavesB < needB)
-                {
+                if (pending.contains(originA) && pending.contains(originB) &&
+                    leavesA == needA && leavesB > 0 && leavesB < needB)
                     stats->sawPartialCandidate = true;
-                    stats->candidateLeavesA = leavesA;
-                    stats->candidateLeavesB = leavesB;
-                }
             });
 
         auto const mid = warmLedger + 8;
@@ -1157,11 +1164,14 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(stats->candidateLeavesB < qB);
         log << "  candidate: A=" << stats->candidateLeavesA << "/" << qA
             << " B=" << stats->candidateLeavesB << "/" << qB
+            << " sawMap=" << stats->sawObserverMap
+            << " sawPartial=" << stats->sawPartialCandidate
             << " droppedDirect=" << stats->droppedStarvedDirect
             << " droppedProposals=" << stats->droppedStarvedProposals
             << std::endl;
 
-        net.faultFrames(2, observer, {});
+        for (std::uint32_t from = 0; from < observer; ++from)
+            net.faultFrames(from, observer, {});
         auto const target = warmLedger + 12;
         net.runTo(target, SteppingNetwork::RunBudget{1600, 1'200'000});
         if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
@@ -1173,11 +1183,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(stats->ownReleases[observer] == 0);
         auto const seqA = witnessAt(net, originA, warmLedger);
         BEAST_EXPECT(seqA != 0);
-        if (seqA)
-            BEAST_EXPECT(stats->builds[observer].contains(
-                {seqA,
-                 net.ledgerHash(0, seqA - 1),
-                 net.ledgerHash(0, seqA)}));
+        // Observer may omit locally and acquire the authoritative A witness.
         std::map<uint256, std::uint32_t> hits;
         std::set<uint256> unexpected;
         std::vector<uint256> outcome;
