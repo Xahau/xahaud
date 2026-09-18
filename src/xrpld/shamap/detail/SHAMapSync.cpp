@@ -235,7 +235,7 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
                 // Switch to processing the child node
                 node = static_cast<SHAMapInnerNode*>(d);
                 nodeID = nodeID.getChildNodeID(branch);
-                firstChild = rand_int(255);
+                firstChild = rand_int(f_.prng(), 255);
                 currentChild = 0;
                 fullBelow = true;
             }
@@ -342,7 +342,7 @@ SHAMap::getMissingNodes(int max, SHAMapSyncFilter* filter)
     MissingNodes::StackEntry pos{
         static_cast<SHAMapInnerNode*>(root_.get()),
         SHAMapNodeID(),
-        rand_int(255),
+        rand_int(f_.prng(), 255),
         0,
         true};
     auto& node = std::get<0>(pos);
@@ -399,7 +399,7 @@ SHAMap::getMissingNodes(int max, SHAMapSyncFilter* filter)
                 for (auto const& [innerNode, nodeId] : mn.resumes_)
                     if (!innerNode->isFullBelow(mn.generation_))
                         mn.stack_.push(std::make_tuple(
-                            innerNode, nodeId, rand_int(255), 0, true));
+                            innerNode, nodeId, rand_int(f_.prng(), 255), 0, true));
 
                 mn.resumes_.clear();
             }

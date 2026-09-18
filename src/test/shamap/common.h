@@ -24,6 +24,7 @@
 #include <xrpld/nodestore/Manager.h>
 #include <xrpld/shamap/Family.h>
 #include <xrpl/basics/chrono.h>
+#include <xrpl/basics/random.h>
 
 namespace ripple {
 namespace tests {
@@ -78,6 +79,12 @@ public:
     journal() override
     {
         return j_;
+    }
+
+    beast::xor_shift_engine&
+    prng() override
+    {
+        return default_prng();
     }
 
     std::shared_ptr<FullBelowCache>

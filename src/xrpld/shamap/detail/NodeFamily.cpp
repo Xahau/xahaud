@@ -46,6 +46,12 @@ NodeFamily::NodeFamily(Application& app, CollectorManager& cm)
 {
 }
 
+beast::xor_shift_engine&
+NodeFamily::prng()
+{
+    return app_.getPrng();
+}
+
 void
 NodeFamily::sweep()
 {

@@ -25,6 +25,7 @@
 #include <xrpld/shamap/TreeNodeCache.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/beast/xor_shift_engine.h>
 #include <cstdint>
 
 namespace ripple {
@@ -52,6 +53,9 @@ public:
 
     virtual beast::Journal const&
     journal() = 0;
+
+    virtual beast::xor_shift_engine&
+    prng() = 0;
 
     /** Return a pointer to the Family Full Below Cache */
     virtual std::shared_ptr<FullBelowCache>
