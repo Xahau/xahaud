@@ -33,6 +33,7 @@
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/overlay/Cluster.h>
+#include <xrpld/overlay/detail/ExportShareJob.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/overlay/detail/Tuning.h>
 #include <xrpld/perflog/PerfLog.h>
@@ -1193,9 +1194,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
         return;
 
     std::weak_ptr<PeerImp> weak = shared_from_this();
-    app_.getJobQueue().addJob(
-        jtPEER,
-        "recvExportShares",
+    detail::postExportShareJob(
+        app_.getJobQueue(),
         [weak, m, shares = std::move(*shares), fresh = std::move(fresh)]() {
             auto const peer = weak.lock();
             if (!peer)

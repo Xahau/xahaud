@@ -16,7 +16,9 @@
 */
 //==============================================================================
 
+#include <test/jtx/Env.h>
 #include <xrpld/overlay/Message.h>
+#include <xrpld/overlay/detail/ExportShareJob.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
 #include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpl/beast/unit_test.h>
@@ -28,8 +30,10 @@
 #include <boost/asio/buffer.hpp>
 #include <boost/beast/core/multi_buffer.hpp>
 
+#include <future>
 #include <memory>
 #include <string>
+#include <thread>
 #include <type_traits>
 
 namespace ripple {
@@ -145,6 +149,43 @@ class ExportShareTransport_test : public beast::unit_test::suite
     }
 
     void
+    testReceiveJobDispatch()
+    {
+        testcase("ExportShare production posting boundary dispatches work");
+        auto const type = detail::exportShareJobType;
+        auto const& info = JobTypes::instance().get(type);
+        // Fail before posting an undrainable special-category job: otherwise
+        // the old bug would also hang the application's shutdown in this test.
+        if (!BEAST_EXPECT(!info.special() && info.limit() > 0))
+            return;
+
+        jtx::Env env{*this};
+        auto& queue = env.app().getJobQueue();
+        auto completed = std::make_shared<std::promise<std::thread::id>>();
+        auto result = completed->get_future();
+        auto payload = std::make_shared<ExportShare>(makeShare());
+        std::weak_ptr<ExportShare> retained = payload;
+        BEAST_EXPECT(detail::postExportShareJob(queue, [completed, payload] {
+            // Exercise captured payload access on an actual worker.
+            if (payload->validShape())
+                completed->set_value(std::this_thread::get_id());
+        }));
+        payload.reset();
+        using namespace std::chrono_literals;
+        if (BEAST_EXPECT(result.wait_for(5s) == std::future_status::ready))
+            BEAST_EXPECT(result.get() != std::this_thread::get_id());
+        queue.rendezvous();
+        BEAST_EXPECT(queue.getJobCountTotal(type) == 0);
+        BEAST_EXPECT(retained.expired());
+
+        queue.stop();
+        auto ranAfterStop = std::make_shared<std::atomic<bool>>(false);
+        BEAST_EXPECT(!detail::postExportShareJob(
+            queue, [ranAfterStop] { *ranAfterStop = true; }));
+        BEAST_EXPECT(!*ranAfterStop);
+    }
+
+    void
     testDispatchAndTraffic()
     {
         testcase("ExportShare protocol dispatch and traffic category");
@@ -182,6 +223,7 @@ public:
     {
         testBatchBounds();
         testDispatchAndTraffic();
+        testReceiveJobDispatch();
     }
 };
 
