@@ -248,6 +248,9 @@ public:
     static std::size_t
     numberOfThreads(Config const& config)
     {
+        if (config.steppingMode)
+            return 0;
+
 #if RIPPLE_SINGLE_IO_SERVICE_THREAD
         return 1;
 #else
@@ -301,6 +304,9 @@ public:
 
         , m_jobQueue(std::make_unique<JobQueue>(
               [](std::unique_ptr<Config> const& config) {
+                  if (config->steppingMode)
+                      return 0;
+
                   if (config->standalone() && !config->FORCE_MULTI_THREAD)
                       return 1;
 
@@ -1192,19 +1198,22 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
     // signal set occurs or the signal set is cancelled. Subsequent signals are
     // effectively ignored (technically, they are queued up, waiting for a call
     // to async_wait).
-    m_signals.add(SIGINT);
-    m_signals.add(SIGTERM);
-    m_signals.async_wait(
-        [this](boost::system::error_code const& ec, int signum) {
-            // Indicates the signal handler has been aborted; do nothing
-            if (ec == boost::asio::error::operation_aborted)
-                return;
+    if (config_->installSignalHandlers)
+    {
+        m_signals.add(SIGINT);
+        m_signals.add(SIGTERM);
+        m_signals.async_wait(
+            [this](boost::system::error_code const& ec, int signum) {
+                // Indicates the signal handler has been aborted; do nothing
+                if (ec == boost::asio::error::operation_aborted)
+                    return;
 
-            JLOG(m_journal.info()) << "Received signal " << signum;
+                JLOG(m_journal.info()) << "Received signal " << signum;
 
-            if (signum == SIGTERM || signum == SIGINT)
-                signalStop();
-        });
+                if (signum == SIGTERM || signum == SIGINT)
+                    signalStop();
+            });
+    }
 
     auto debug_log = config_->getDebugLogFile();
 
@@ -1578,7 +1587,7 @@ ApplicationImp::start(bool withTimers)
 void
 ApplicationImp::run()
 {
-    if (!config_->standalone())
+    if (!config_->standalone() && config_->armStallDetector)
     {
         // VFALCO NOTE This seems unnecessary. If we properly refactor the load
         //             manager then the deadlock detector can just always be

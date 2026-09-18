@@ -327,6 +327,28 @@ public:
 
     /* Be very careful to make sure these bool params
         are in the right order. */
+    // When false, the process does not install SIGINT/SIGTERM handlers — lets a
+    // test harness run N Applications in one process without signal collisions.
+    bool installSignalHandlers = true;
+
+    // When false, the LoadManager deadlock/stall detector is not armed — avoids
+    // the wall-clock watchdog under a paused virtual clock.
+    bool armStallDetector = true;
+
+    // When false, Application::setup parses server configuration but does not
+    // bind RPC/peer listening sockets. Production leaves it true.
+    bool bindServerListeners = true;
+
+    // When true, NetworkOPs does not arm the asio consensus heartbeat timer.
+    bool manualHeartbeat = false;
+
+    // When true, PeerImp strands run inline on the caller (stepping harness).
+    bool inlineStrands = false;
+
+    // When true, io threads and JobQueue workers drop to 0 so a stepping
+    // harness can drive the node on one virtual timeline. Production is false.
+    bool steppingMode = false;
+
     void
     setup(
         std::string const& strConf,
