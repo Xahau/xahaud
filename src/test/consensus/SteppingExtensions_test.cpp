@@ -5,13 +5,14 @@
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
-#include <xrpl/basics/strHex.h>
-#include <xrpl/protocol/Serializer.h>
 #include <xrpld/shamap/SHAMap.h>
+#include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STObject.h>
+#include <xrpl/protocol/Serializer.h>
+#include <xrpl/protocol/SidecarType.h>
 #include <xrpl/protocol/TxFlags.h>
 
 #include <algorithm>
@@ -115,25 +116,43 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return s.getSHA512Half();
     }
 
-    static std::size_t
+    static std::optional<std::size_t>
     originSidecarLeaves(SHAMap const& map, uint256 const& origin)
     {
-        std::size_t n = 0;
+        std::set<std::uint32_t> positions;
+        bool malformed = false;
         map.visitLeaves(
             [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                if (malformed)
+                    return;
                 try
                 {
                     SerialIter sit{item->slice()};
                     STObject const obj{sit, sfGeneric};
-                    if (obj.isFieldPresent(sfTransactionHash) &&
-                        obj.getFieldH256(sfTransactionHash) == origin)
-                        ++n;
+                    if (!obj.isFieldPresent(sfSidecarType) ||
+                        obj.getFieldU8(sfSidecarType) != sidecarExportSig ||
+                        !obj.isFieldPresent(sfTransactionHash) ||
+                        !obj.isFieldPresent(sfTransactionIndex) ||
+                        !obj.isFieldPresent(sfSigningPubKey) ||
+                        !obj.isFieldPresent(sfTxnSignature))
+                    {
+                        malformed = true;
+                        return;
+                    }
+                    if (obj.getFieldH256(sfTransactionHash) != origin)
+                        return;
+                    if (!positions.insert(obj.getFieldU32(sfTransactionIndex))
+                             .second)
+                        malformed = true;
                 }
                 catch (...)
                 {
+                    malformed = true;
                 }
             });
-        return n;
+        if (malformed)
+            return std::nullopt;
+        return positions.size();
     }
 
     static bool
@@ -179,53 +198,52 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     return sha512Half(
                         std::string{"DSF entropy fixture"}, id, parent, seq);
                 };
-                cfg.harnessPeerMessage =
-                    [stats, id](
-                        std::uint16_t type,
-                        std::string const&,
-                        std::uint32_t,
-                        beast::IP::Endpoint const&,
-                        ::google::protobuf::Message const& msg) {
-                        if (type == protocol::mtEXPORT_SHARES)
+                cfg.harnessPeerMessage = [stats, id](
+                                             std::uint16_t type,
+                                             std::string const&,
+                                             std::uint32_t,
+                                             beast::IP::Endpoint const&,
+                                             ::google::protobuf::Message const&
+                                                 msg) {
+                    if (type == protocol::mtEXPORT_SHARES)
+                    {
+                        ++stats->directFrames.at(id);
+                        if (id == observer)
                         {
-                            ++stats->directFrames.at(id);
-                            if (id == observer)
-                            {
-                                auto const& batch = static_cast<
-                                    protocol::TMExportShares const&>(msg);
-                                stats->shareRecvOrder.push_back(
-                                    directBatchId(batch));
-                            }
+                            auto const& batch =
+                                static_cast<protocol::TMExportShares const&>(
+                                    msg);
+                            stats->shareRecvOrder.push_back(
+                                directBatchId(batch));
                         }
-                        if (type == protocol::mtLEDGER_DATA)
+                    }
+                    if (type == protocol::mtLEDGER_DATA)
+                    {
+                        auto const& data =
+                            static_cast<protocol::TMLedgerData const&>(msg);
+                        if (data.ledgerhash().size() == uint256::bytes)
                         {
-                            auto const& data =
-                                static_cast<protocol::TMLedgerData const&>(msg);
-                            if (data.ledgerhash().size() == uint256::bytes)
-                            {
-                                uint256 hash;
-                                std::copy(
-                                    data.ledgerhash().begin(),
-                                    data.ledgerhash().end(),
-                                    hash.begin());
-                                stats->acquiredHashes.at(id).insert(hash);
-                            }
+                            uint256 hash;
+                            std::copy(
+                                data.ledgerhash().begin(),
+                                data.ledgerhash().end(),
+                                hash.begin());
+                            stats->acquiredHashes.at(id).insert(hash);
                         }
-                        if (type == protocol::mtPROPOSE_LEDGER)
-                        {
-                            auto const& proposal =
-                                static_cast<protocol::TMProposeSet const&>(msg);
-                            if (proposal.exportsignatures_size())
-                                ++stats->proposalFrames.at(id);
-                            SerialIter iter{
-                                makeSlice(proposal.currenttxhash())};
-                            auto const position =
-                                ExtendedPosition::fromSerialIter(
-                                    iter, proposal.currenttxhash().size());
-                            if (position && position->exportSigSetHash)
-                                ++stats->exportRootFrames.at(id);
-                        }
-                    };
+                    }
+                    if (type == protocol::mtPROPOSE_LEDGER)
+                    {
+                        auto const& proposal =
+                            static_cast<protocol::TMProposeSet const&>(msg);
+                        if (proposal.exportsignatures_size())
+                            ++stats->proposalFrames.at(id);
+                        SerialIter iter{makeSlice(proposal.currenttxhash())};
+                        auto const position = ExtendedPosition::fromSerialIter(
+                            iter, proposal.currenttxhash().size());
+                        if (position && position->exportSigSetHash)
+                            ++stats->exportRootFrames.at(id);
+                    }
+                };
             });
             net.validators(3);
             net.observer();
@@ -591,8 +609,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 net.faultFrames(
                     from,
                     observer,
-                    [stats, from](
-                        std::uint16_t type, SimPipe::Frame bytes) {
+                    [stats, from](std::uint16_t type, SimPipe::Frame bytes) {
                         SimFault f;
                         if (type != protocol::mtEXPORT_SHARES)
                             return f;
@@ -931,23 +948,19 @@ class SteppingExtensions_test : public beast::unit_test::suite
 
         auto const open =
             net.node(observer).app().openLedger().current()->seq();
-        auto const longWindow =
-            open + ExportLimits::maxAdmissionWindowLedgers;
+        auto const longWindow = open + ExportLimits::maxAdmissionWindowLedgers;
         auto const shortWindow = open + 3;
         std::vector<uint256> origins;
-        auto const submitIntent =
-            [&](jtx::Account const& acct,
-                std::uint32_t ticket,
-                std::uint32_t lastLedger) {
-                auto const tx = world.submit(
-                    observer,
-                    world.intent(acct, ticket, lastLedger),
-                    acct);
-                if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
-                    return false;
-                origins.push_back(tx->getID());
-                return true;
-            };
+        auto const submitIntent = [&](jtx::Account const& acct,
+                                      std::uint32_t ticket,
+                                      std::uint32_t lastLedger) {
+            auto const tx = world.submit(
+                observer, world.intent(acct, ticket, lastLedger), acct);
+            if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
+                return false;
+            origins.push_back(tx->getID());
+            return true;
+        };
         if (!submitIntent(world.owner, 1, longWindow) ||
             !submitIntent(world.owner, 2, shortWindow) ||
             !submitIntent(owner2, 1, longWindow))
@@ -1004,7 +1017,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     ++witnessHits[origin];
                 auto const txBytes = tx->getSerializer().getData();
                 auto const metaBytes = meta->getSerializer().getData();
-                outcome.push_back(sha512Half(makeSlice(txBytes), makeSlice(metaBytes)));
+                outcome.push_back(
+                    sha512Half(makeSlice(txBytes), makeSlice(metaBytes)));
                 for (std::uint32_t i = 0; i <= observer; ++i)
                 {
                     auto const ledger = net.ledger(i, seq);
@@ -1037,9 +1051,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             BEAST_EXPECT(seq != 0);
             if (seq)
                 BEAST_EXPECT(world.observed->builds[observer].contains(
-                    {seq,
-                     net.ledgerHash(0, seq - 1),
-                     net.ledgerHash(0, seq)}));
+                    {seq, net.ledgerHash(0, seq - 1), net.ledgerHash(0, seq)}));
         }
         outcome.insert(outcome.end(), origins.begin(), origins.end());
         return outcome;
@@ -1084,73 +1096,71 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto const& v2keys = net.node(2).app().getValidatorKeys();
         auto const v2sign = v2keys.keys->publicKey;
         auto const v2master = v2keys.keys->masterPublicKey;
-        auto const starveBfromV2 =
-            [stats, originB, v2sign, v2master](
-                std::uint16_t type, SimPipe::Frame bytes) {
-                SimFault f;
-                auto const hit = [&](std::string const& blob) {
-                    auto const share = ExportShare::parse(makeSlice(blob));
-                    return share && share->originTxn == originB &&
-                        (share->signingKey == v2sign ||
-                         share->signingKey == v2master);
-                };
-                if (type == protocol::mtEXPORT_SHARES)
-                {
-                    auto const batch =
-                        decodeFrame<protocol::TMExportShares>(bytes);
-                    for (auto const& share : batch->shares())
-                        if (hit(share))
-                        {
-                            ++stats->droppedStarvedDirect;
-                            f.drop = true;
-                            return f;
-                        }
-                }
-                if (type == protocol::mtPROPOSE_LEDGER)
-                {
-                    auto const proposal =
-                        decodeFrame<protocol::TMProposeSet>(bytes);
-                    for (auto const& share : proposal->exportsignatures())
-                        if (hit(share))
-                        {
-                            ++stats->droppedStarvedProposals;
-                            f.drop = true;
-                            return f;
-                        }
-                }
-                return f;
+        auto const starveBfromV2 = [stats, originB, v2sign, v2master](
+                                       std::uint16_t type,
+                                       SimPipe::Frame bytes) {
+            SimFault f;
+            auto const hit = [&](std::string const& blob) {
+                auto const share = ExportShare::parse(makeSlice(blob));
+                return share && share->originTxn == originB &&
+                    (share->signingKey == v2sign ||
+                     share->signingKey == v2master);
             };
+            if (type == protocol::mtEXPORT_SHARES)
+            {
+                auto const batch = decodeFrame<protocol::TMExportShares>(bytes);
+                for (auto const& share : batch->shares())
+                    if (hit(share))
+                    {
+                        ++stats->droppedStarvedDirect;
+                        f.drop = true;
+                        return f;
+                    }
+            }
+            if (type == protocol::mtPROPOSE_LEDGER)
+            {
+                auto const proposal =
+                    decodeFrame<protocol::TMProposeSet>(bytes);
+                for (auto const& share : proposal->exportsignatures())
+                    if (hit(share))
+                    {
+                        ++stats->droppedStarvedProposals;
+                        f.drop = true;
+                        return f;
+                    }
+            }
+            return f;
+        };
         for (std::uint32_t from = 0; from < observer; ++from)
             net.faultFrames(from, observer, starveBfromV2);
-        net.controller().observeJobs(
-            [&net, stats, originA, originB](
-                std::uint32_t id, JobType, std::string const&) {
-                if (id != observer || !net.isLive(id) ||
-                    stats->sawPartialCandidate)
-                    return;
-                auto& ce = net.node(id).app().getConsensusExtensions();
-                if (!ce.exportSigSetMap_)
-                    return;
-                stats->sawObserverMap = true;
-                auto const leavesA =
-                    originSidecarLeaves(*ce.exportSigSetMap_, originA);
-                auto const leavesB =
-                    originSidecarLeaves(*ce.exportSigSetMap_, originB);
-                stats->candidateLeavesA = leavesA;
-                stats->candidateLeavesB = leavesB;
-                if (!ce.roundParentLedger_)
-                    return;
-                auto const& parent = *ce.roundParentLedger_;
-                auto const pending =
-                    ce.pendingRoundExports(parent.info().seq + 1);
-                auto const needA =
-                    ExportLimits::committeeQuorumThreshold(2);
-                auto const needB =
-                    ExportLimits::committeeQuorumThreshold(3);
-                if (pending.contains(originA) && pending.contains(originB) &&
-                    leavesA == needA && leavesB > 0 && leavesB < needB)
-                    stats->sawPartialCandidate = true;
-            });
+        net.controller().observeJobs([&net, stats, originA, originB](
+                                         std::uint32_t id,
+                                         JobType,
+                                         std::string const&) {
+            if (id != observer || !net.isLive(id) || stats->sawPartialCandidate)
+                return;
+            auto& ce = net.node(id).app().getConsensusExtensions();
+            if (!ce.exportSigSetMap_)
+                return;
+            stats->sawObserverMap = true;
+            auto const leavesA =
+                originSidecarLeaves(*ce.exportSigSetMap_, originA);
+            auto const leavesB =
+                originSidecarLeaves(*ce.exportSigSetMap_, originB);
+            if (!leavesA || !leavesB)
+                return;
+            stats->candidateLeavesA = *leavesA;
+            stats->candidateLeavesB = *leavesB;
+            if (!ce.roundParentLedger_)
+                return;
+            auto const& parent = *ce.roundParentLedger_;
+            auto const pending = ce.pendingRoundExports(parent.info().seq + 1);
+            auto const needA = ExportLimits::committeeQuorumThreshold(2);
+            auto const needB = ExportLimits::committeeQuorumThreshold(3);
+            if (pending.contains(originA) && pending.contains(originB) &&
+                *leavesA == needA && *leavesB > 0 && *leavesB < needB)
+                stats->sawPartialCandidate = true;
+        });
 
         auto const mid = warmLedger + 8;
         net.runTo(mid, SteppingNetwork::RunBudget{1600, 1'200'000});
@@ -1169,6 +1179,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             << " droppedDirect=" << stats->droppedStarvedDirect
             << " droppedProposals=" << stats->droppedStarvedProposals
             << std::endl;
+        net.controller().observeJobs({});
 
         for (std::uint32_t from = 0; from < observer; ++from)
             net.faultFrames(from, observer, {});
