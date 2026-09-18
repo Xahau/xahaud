@@ -63,6 +63,9 @@ class SteppingCsf_test : public beast::unit_test::suite
         bool converged = false;
         bool exactlyOneAccepted = false;
         bool acceptedSetVerified = false;
+        // Availability before any verification-only backfill. False when
+        // no transaction was accepted, or its historical ledger is missing.
+        bool historyReadyAtSnapshot = false;
 
         [[nodiscard]] bool
         operator==(KProfiledDisputeSample const& o) const
@@ -85,7 +88,8 @@ class SteppingCsf_test : public beast::unit_test::suite
                 submittedA == o.submittedA && submittedB == o.submittedB &&
                 forkFree == o.forkFree && converged == o.converged &&
                 exactlyOneAccepted == o.exactlyOneAccepted &&
-                acceptedSetVerified == o.acceptedSetVerified;
+                acceptedSetVerified == o.acceptedSetVerified &&
+                historyReadyAtSnapshot == o.historyReadyAtSnapshot;
         }
     };
 
@@ -613,7 +617,8 @@ class SteppingCsf_test : public beast::unit_test::suite
                         return false;
                 return true;
             };
-            if (!historyReady())
+            out.historyReadyAtSnapshot = historyReady();
+            if (!out.historyReadyAtSnapshot)
             {
                 BEAST_EXPECT(
                     net.runUntil(historyReady, SteppingNetwork::RunBudget{30}));
@@ -675,7 +680,9 @@ class SteppingCsf_test : public beast::unit_test::suite
             << ", submitted=" << out.submittedA << "/" << out.submittedB
             << ", exactlyOneAccepted=" << out.exactlyOneAccepted
             << ", forkFree=" << out.forkFree << ", converged=" << out.converged
-            << ", acceptedSetVerified=" << out.acceptedSetVerified << std::endl;
+            << ", acceptedSetVerified=" << out.acceptedSetVerified
+            << ", historyReadyAtSnapshot=" << out.historyReadyAtSnapshot
+            << std::endl;
         if (stats.saturated())
         {
             log << "    first clamp: kind="
@@ -761,7 +768,7 @@ class SteppingCsf_test : public beast::unit_test::suite
              0,    true,
              true, true,
              true, true,
-             true},
+             true, true},
             {1,     0xcd0c3925c08f8867ull,
              2631,  2570,
              1157,  15,
@@ -776,7 +783,7 @@ class SteppingCsf_test : public beast::unit_test::suite
              2,     true,
              true,  true,
              true,  true,
-             true},
+             true,  true},
             {2,     0xb41f328428a05fadull,
              3129,  3863,
              1655,  38,
@@ -791,7 +798,7 @@ class SteppingCsf_test : public beast::unit_test::suite
              2,     true,
              true,  true,
              true,  true,
-             true},
+             true,  true},
             {3,      0xfe5e1b925376f76cull,
              4516,   7273,
              3042,   107,
@@ -806,7 +813,7 @@ class SteppingCsf_test : public beast::unit_test::suite
              3,      true,
              true,   true,
              true,   true,
-             true},
+             true,   false},
             {4,      0x2da6d32dc5defa09ull,
              4986,   8340,
              3512,   160,
@@ -821,7 +828,7 @@ class SteppingCsf_test : public beast::unit_test::suite
              2,      true,
              true,   true,
              false,  false,
-             false},
+             false,  false},
         }};
 
         bool sawResolvedUnderPressure = false;

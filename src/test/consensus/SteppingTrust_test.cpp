@@ -57,6 +57,7 @@ class SteppingTrust_test : public beast::unit_test::suite
         bool safeResolved = false;
         bool unresolved = false;
         bool saturated = false;
+        std::int64_t unitCostMs = 5;
 
         [[nodiscard]] bool
         operator==(KProfiledForkCell const& o) const
@@ -80,7 +81,7 @@ class SteppingTrust_test : public beast::unit_test::suite
                 submittedA == o.submittedA && submittedB == o.submittedB &&
                 forkFree == o.forkFree && forked == o.forked &&
                 safeResolved == o.safeResolved && unresolved == o.unresolved &&
-                saturated == o.saturated;
+                saturated == o.saturated && unitCostMs == o.unitCostMs;
         }
     };
 
@@ -496,7 +497,10 @@ class SteppingTrust_test : public beast::unit_test::suite
     }
 
     KProfiledForkCell
-    runKProfiledForkCell(std::uint32_t overlap, std::uint32_t k)
+    runKProfiledForkCell(
+        std::uint32_t overlap,
+        std::uint32_t k,
+        std::chrono::milliseconds unitCost = std::chrono::milliseconds{5})
     {
         using namespace jtx;
         using namespace std::chrono;
@@ -504,6 +508,7 @@ class SteppingTrust_test : public beast::unit_test::suite
         KProfiledForkCell out;
         out.overlap = overlap;
         out.k = k;
+        out.unitCostMs = unitCost.count();
         if (!BEAST_EXPECT(overlap + 2 <= kForkPeers))
             return out;
         auto const shape = forkShape(overlap);
@@ -544,10 +549,7 @@ class SteppingTrust_test : public beast::unit_test::suite
             out.target,
             SteppingNetwork::KProfiledOptions{
                 /*k=*/k,
-                // A 1ms unit samples the lighter
-                // resolved regime at K=1; K=5
-                // retains the donor's 5ms workload.
-                /*unitCost=*/milliseconds{1},
+                /*unitCost=*/unitCost,
                 HarnessScheduler::ProfiledPacer::NodeMultipliers{}},
             SteppingNetwork::RunBudget{
                 /*heartbeats=*/160, /*steps=*/1'000'000});
@@ -621,8 +623,8 @@ class SteppingTrust_test : public beast::unit_test::suite
         out.saturated = stats.saturated();
 
         log << "  profiled-fork-cell overlap=" << overlap << " K=" << k
-            << ": fp=0x" << std::hex << out.fingerprint << std::dec
-            << ", events=" << out.events
+            << " unitMs=" << unitCost.count() << ": fp=0x" << std::hex
+            << out.fingerprint << std::dec << ", events=" << out.events
             << ", weightedEvents=" << out.weightedEvents
             << ", steps=" << out.steps << ", beats=" << out.beats
             << ", minValidated=" << out.minValidated
@@ -978,9 +980,9 @@ class SteppingTrust_test : public beast::unit_test::suite
             "K-profiled fork envelope: overlap x pressure margin stays "
             "classified without vacuous cells");
 
-        // Xahaud snapshots at a 1ms unit: K=5 retains the original 5ms
-        // workloads, while K=1 also exercises safe progress under lighter
-        // pressure. Keep all semantic outcome checks below.
+        // Retain the donor's K axis with its 5ms unit. Extra explicitly
+        // labelled 1ms cells also exercise progress under lighter pressure.
+        // A sample is identified by overlap, K AND unitCostMs.
         std::array<KProfiledForkCell, 9> const kExpected = {{
             {0,     0,     0xc37088e4d4e3963bull,
              3439,  0,     2020,
@@ -992,7 +994,7 @@ class SteppingTrust_test : public beast::unit_test::suite
              0,     0,     0,
              0,     true,  true,
              false, true,  false,
-             false, false},
+             false, false, 5},
             {0,     1,     0xe24a6cdd8143ee3bull,
              3435,  4492,  2016,
              12,    8,     8,
@@ -1003,8 +1005,8 @@ class SteppingTrust_test : public beast::unit_test::suite
              1312,  582,   0,
              0,     true,  true,
              false, true,  false,
-             false, false},
-            {0,     5,     0x6b8e98d604c1dc3ull,
+             false, false, 1},
+            {0,     1,     0x6b8e98d604c1dc3ull,
              3811,  5339,  2392,
              26,    8,     8,
              7,     8,     6,
@@ -1014,7 +1016,7 @@ class SteppingTrust_test : public beast::unit_test::suite
              1281,  807,   52,
              2,     true,  true,
              false, true,  false,
-             false, true},
+             false, true,  5},
             {4,     0,     0xa1e1f2f26258ff6bull,
              6095,  0,     4169,
              0,     8,     8,
@@ -1025,7 +1027,7 @@ class SteppingTrust_test : public beast::unit_test::suite
              0,     0,     0,
              0,     true,  true,
              true,  false, true,
-             false, false},
+             false, false, 5},
             {4,     1,     0xd6b2b12cd133b749ull,
              6204,  9633,  4278,
              14,    8,     8,
@@ -1036,8 +1038,8 @@ class SteppingTrust_test : public beast::unit_test::suite
              2895,  1219,  22,
              3,     true,  true,
              true,  false, true,
-             false, true},
-            {4,     5,      0xa86e8c666502b3e1ull,
+             false, true,  1},
+            {4,     1,      0xa86e8c666502b3e1ull,
              14863, 32496,  12937,
              160,   5,      5,
              4,     8,      0,
@@ -1047,7 +1049,7 @@ class SteppingTrust_test : public beast::unit_test::suite
              2838,  8134,   453,
              3,     true,   true,
              true,  false,  false,
-             true,  true},
+             true,  true,   5},
             {6,     0,     0x6c8223b782035f7bull,
              6098,  0,     4068,
              0,     8,     8,
@@ -1058,7 +1060,7 @@ class SteppingTrust_test : public beast::unit_test::suite
              0,     0,     0,
              0,     true,  true,
              true,  false, true,
-             false, false},
+             false, false, 5},
             {6,     1,     0xfc8fb2511a1f834aull,
              6208,  9304,  4178,
              13,    8,     8,
@@ -1069,8 +1071,8 @@ class SteppingTrust_test : public beast::unit_test::suite
              2950,  1080,  16,
              3,     true,  true,
              true,  false, true,
-             false, true},
-            {6,     5,      0x503867b2788354e5ull,
+             false, true,  1},
+            {6,     1,      0x503867b2788354e5ull,
              15243, 32498,  13213,
              160,   5,      11,
              10,    8,      0,
@@ -1080,7 +1082,7 @@ class SteppingTrust_test : public beast::unit_test::suite
              3641,  7589,   466,
              2,     true,   true,
              true,  false,  false,
-             true,  true},
+             true,  true,   5},
         }};
 
         bool sawForkUnderPressureControl = false;
@@ -1089,8 +1091,10 @@ class SteppingTrust_test : public beast::unit_test::suite
         bool sawPressureStallNoFork = false;
         for (auto const& expected : kExpected)
         {
-            auto const cell =
-                runKProfiledForkCell(expected.overlap, expected.k);
+            auto const cell = runKProfiledForkCell(
+                expected.overlap,
+                expected.k,
+                std::chrono::milliseconds{expected.unitCostMs});
             BEAST_EXPECT(cell == expected);
             BEAST_EXPECT(cell.submittedA);
             BEAST_EXPECT(cell.submittedB);
