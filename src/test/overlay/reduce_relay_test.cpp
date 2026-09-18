@@ -1411,6 +1411,40 @@ vp_squelched=1
     };
 
     void
+    testIndependentHashRouters()
+    {
+        testcase("Duplicate-message tracking belongs to each Slots instance");
+        Handler handler;
+        reduce_relay::Slots<ManualClock> first(env_.app().logs(), handler);
+        reduce_relay::Slots<ManualClock> second(env_.app().logs(), handler);
+        auto const validator = network_.validator(0);
+        constexpr Peer::id_t peer = 42;
+
+        for (std::uint64_t n = 1; n <= 2; ++n)
+        {
+            uint256 const message{0x5A710000ULL + n};
+            first.updateSlotAndSquelch(
+                message, validator, peer, protocol::MessageType::mtVALIDATION);
+            second.updateSlotAndSquelch(
+                message, validator, peer, protocol::MessageType::mtVALIDATION);
+        }
+
+        for (auto* slots : {&first, &second})
+        {
+            auto const peers = slots->getPeers(validator);
+            if (BEAST_EXPECT(peers.size() == 1 && peers.contains(peer)))
+                BEAST_EXPECT(std::get<1>(peers.at(peer)) == 1);
+            // A duplicate is still suppressed within its own instance.
+            slots->updateSlotAndSquelch(
+                uint256{0x5A710002ULL},
+                validator,
+                peer,
+                protocol::MessageType::mtVALIDATION);
+            BEAST_EXPECT(slots->getPeers(validator) == peers);
+        }
+    }
+
+    void
     testRandomSquelch(bool l)
     {
         doTest("Random Squelch", l, [&](bool l) {
@@ -1575,6 +1609,7 @@ public:
         testSelectedPeerDisconnects(log);
         testSelectedPeerStopsRelaying(log);
         testInternalHashRouter(log);
+        testIndependentHashRouters();
         testRandomSquelch(log);
         testHandshake(log);
     }
