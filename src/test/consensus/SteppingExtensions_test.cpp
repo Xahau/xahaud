@@ -1295,40 +1295,54 @@ class SteppingExtensions_test : public beast::unit_test::suite
             return std::nullopt;
         auto const origin = tx->getID();
         net.runTo(warmLedger + 6);
-        auto const diag = net.jobDiagnostics();
-        auto const pendingExports = net.node(observer)
-                                        .app()
-                                        .getConsensusExtensions()
-                                        .hasEligiblePendingExports();
-        auto const lagged =
-            diag.find("queued:lagged") != std::string::npos ||
-            diag.find("laggedPending") != std::string::npos;
-        stats->queuedExportWork =
-            diag.find("validatedLedgerWork") != std::string::npos &&
-            lagged && pendingExports;
-        if (!BEAST_EXPECT(stats->queuedExportWork))
-        {
-            log << "  no queued Export work pendingExports="
-                << pendingExports << " lagged=" << lagged << " " << diag
-                << std::endl;
-            return std::nullopt;
-        }
         BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
         BEAST_EXPECT(stats->ownReleases[observer] == 0);
         BEAST_EXPECT(stats->secrets[observer] == 0);
+        auto const preSeq = net.validSeq(observer);
+        auto const preHash = net.ledgerHash(observer, preSeq);
 
         auto const staleHorizon = net.controller().now() + 25s;
         net.at(staleHorizon, observer, [stats]() {
             stats->oldGenerationRan = true;
         });
-        auto const seqBeforeStop = net.validSeq(0);
         net.isolateNodeAndFlush(observer);
+        stats->queuedExportWork =
+            net.controller().laggedPendingJobCount(
+                observer, jtADVANCE, "validatedLedgerWork") > 0 &&
+            net.node(observer)
+                .app()
+                .getConsensusExtensions()
+                .hasEligiblePendingExports();
+        if (!BEAST_EXPECT(stats->queuedExportWork))
+        {
+            log << "  no current lagged validatedLedgerWork: "
+                << net.jobDiagnostics() << std::endl;
+            return std::nullopt;
+        }
         net.stopNode(observer);
         BEAST_EXPECT(!net.isLive(observer));
+        auto const seqBeforeStop = net.validSeq(0);
+        auto const open = net.node(0).app().openLedger().current()->seq();
+        auto const gapTx = world.submit(
+            0,
+            world.intent(
+                world.owner,
+                2,
+                open + ExportLimits::maxAdmissionWindowLedgers,
+                {0, 1, 2}),
+            world.owner);
+        if (!BEAST_EXPECT(gapTx && gapTx->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const originGap = gapTx->getID();
         net.runOnly({0, 1, 2}, seqBeforeStop + 3);
         BEAST_EXPECT(net.validSeq(0) > seqBeforeStop);
-        net.advanceTime(std::chrono::milliseconds{26'000});
-        BEAST_EXPECT(!stats->oldGenerationRan);
+        BEAST_EXPECT(net.validSeq(1) > seqBeforeStop);
+        BEAST_EXPECT(net.validSeq(2) > seqBeforeStop);
+        BEAST_EXPECT(net.ledgerHash(0, seqBeforeStop) ==
+            net.ledgerHash(1, seqBeforeStop));
+        auto const gapWitness = witnessAt(net, originGap, seqBeforeStop);
+        BEAST_EXPECT(gapWitness > seqBeforeStop);
+        BEAST_EXPECT(net.controller().now() < staleHorizon);
 
         net.restartNode(observer);
         if (!BEAST_EXPECT(net.isLive(observer)))
@@ -1336,6 +1350,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
         net.reconnectNode(observer);
         net.clearLag(observer);
+        BEAST_EXPECT(net.controller().now() < staleHorizon);
         net.at(net.controller().now() + 1s, observer, [stats]() {
             stats->newGenerationRan = true;
         });
@@ -1344,8 +1359,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
         net.runTo(target, SteppingNetwork::RunBudget{1600, 1'200'000});
         if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
             return std::nullopt;
+        BEAST_EXPECT(net.controller().now() > staleHorizon);
         BEAST_EXPECT(stats->newGenerationRan);
         BEAST_EXPECT(!stats->oldGenerationRan);
+        BEAST_EXPECT(net.ledgerHash(0, preSeq) == preHash);
+        BEAST_EXPECT(net.ledgerHash(observer, preSeq) == preHash);
         BEAST_EXPECT(net.ledgersAgree(target));
         BEAST_EXPECT(net.validatedForkFree());
         BEAST_EXPECT(net.offThreadJobs() == 0);
@@ -1354,6 +1372,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(stats->ownReleases[observer] == 0);
         auto const seqA = witnessAt(net, origin, warmLedger);
         BEAST_EXPECT(seqA != 0);
+        BEAST_EXPECT(witnessAt(net, originGap, seqBeforeStop) == gapWitness);
         std::map<uint256, std::uint32_t> hits;
         std::set<uint256> unexpected;
         std::vector<uint256> outcome;
@@ -1377,10 +1396,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 if (!BEAST_EXPECT(meta != nullptr))
                     return std::nullopt;
                 auto const id = tx->getFieldH256(sfTransactionHash);
-                if (id != origin)
+                if (id != origin && id != originGap)
                     unexpected.insert(id);
                 else
-                    ++hits[origin];
+                    ++hits[id];
                 auto const txBytes = tx->getSerializer().getData();
                 auto const metaBytes = meta->getSerializer().getData();
                 outcome.push_back(
@@ -1406,10 +1425,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
             }
         }
         BEAST_EXPECT(unexpected.empty());
-        BEAST_EXPECT(hits[origin] == 1);
+        BEAST_EXPECT(hits[origin] <= 1);
+        BEAST_EXPECT(hits[originGap] == 1);
         outcome.push_back(origin);
+        outcome.push_back(originGap);
         return outcome;
-    }
 
 public:
     void

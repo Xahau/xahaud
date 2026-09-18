@@ -411,6 +411,27 @@ private:
         return it == jobLags_.end() ? duration::zero() : it->second;
     }
 
+    // Read-only view of currently delayed jobs for one node/type/name.
+    // Does not include completed historical jobCounts.
+    [[nodiscard]] std::size_t
+    laggedPendingJobCount(
+        std::uint32_t nodeId,
+        JobType type,
+        std::string const& name) const
+    {
+        std::scoped_lock lock(diagnosticsMutex_);
+        auto const prefix = "n" + std::to_string(nodeId) + " ";
+        auto const needle = jobLabel(type, name);
+        std::size_t n = 0;
+        for (auto const& [label, count] : laggedPendingJobs_)
+        {
+            if (label.compare(0, prefix.size(), prefix) == 0 &&
+                label.find(needle) != std::string::npos)
+                n += count;
+        }
+        return n;
+    }
+
     void
     throwIfFailedJobs() const
     {

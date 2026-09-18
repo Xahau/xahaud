@@ -225,6 +225,43 @@ class SteppingController_test : public beast::unit_test::suite
     }
 
     void
+    testLaggedPendingJobCount()
+    {
+        testcase("laggedPendingJobCount is current, per node and name");
+        SteppingController c;
+        c.setSyncClock([](SteppingController::time_point) {});
+        c.setJobLag(0, jtADVANCE, "validatedLedgerWork", ms{7});
+        c.setJobLag(1, jtADVANCE, "validatedLedgerWork", ms{7});
+        c.setJobLag(0, jtADVANCE, "getConsensusLedger2", ms{7});
+        auto hook0 = c.makeJobHook(0);
+        auto hook1 = c.makeJobHook(1);
+        using D = JobQueue::JobDisposition;
+        BEAST_EXPECT(
+            hook0(jtADVANCE, "validatedLedgerWork", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(
+            hook0(jtADVANCE, "validatedLedgerWork", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(
+            hook0(jtADVANCE, "getConsensusLedger2", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(
+            hook1(jtADVANCE, "validatedLedgerWork", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(0, jtADVANCE, "validatedLedgerWork") == 2);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(0, jtADVANCE, "getConsensusLedger2") == 1);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(1, jtADVANCE, "validatedLedgerWork") == 1);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(1, jtADVANCE, "getConsensusLedger2") == 0);
+        while (c.stepOne())
+        {
+        }
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(0, jtADVANCE, "validatedLedgerWork") == 0);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(1, jtADVANCE, "validatedLedgerWork") == 0);
+    }
+
+    void
     testCanonicalAllJobsPolicy()
     {
         testcase("canonicalAllJobs: enqueue real non-denied closures");
@@ -490,6 +527,7 @@ public:
         testClassify();
         testExtensionWorkScheduled();
         testNamedJobLagAndObservation();
+        testLaggedPendingJobCount();
         testJobHookClosedWorld();
         testCanonicalAllJobsPolicy();
         testCanonicalNestedJobNotSwallowed();
