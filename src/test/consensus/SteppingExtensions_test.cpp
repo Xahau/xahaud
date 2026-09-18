@@ -24,7 +24,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
 {
     static constexpr std::uint32_t networkID = 21337;
     static constexpr std::uint32_t observer = 3;
-    static constexpr std::uint32_t warmLedger = 257;
+    // The first flag vote has fewer than 256 ancestors and only establishes
+    // validation retention. The second can score a complete history window.
+    static constexpr std::uint32_t warmLedger = 2 * FLAG_LEDGER_INTERVAL + 1;
 
     struct Observations
     {
@@ -122,7 +124,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto& net = world.net;
         if (!BEAST_EXPECT(net.allUp() && net.meshReady()))
             return false;
-        net.runTo(warmLedger, SteppingNetwork::RunBudget{10'000, 2'000'000});
+        net.runTo(warmLedger, SteppingNetwork::RunBudget{(warmLedger + 32) * 60, 2'000'000});
         if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger))
         {
             log << net.jobDiagnostics() << std::endl;
@@ -137,7 +139,13 @@ class SteppingExtensions_test : public beast::unit_test::suite
             BEAST_EXPECT(ledger->rules().enabled(featureExport) == world.exportEnabled);
             auto const report = ledger->read(keylet::UNLReport());
             if (!BEAST_EXPECT(report && report->getFieldArray(sfActiveValidators).size() == observer))
+            {
+                log << "active-view warmup: node=" << i << " seq=" << warmLedger
+                    << " report=" << static_cast<bool>(report) << " members="
+                    << (report ? report->getFieldArray(sfActiveValidators).size() : 0)
+                    << std::endl;
                 return false;
+            }
         }
         BEAST_EXPECT(net.ledgersAgree(warmLedger));
         BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
