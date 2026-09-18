@@ -253,6 +253,7 @@ GenesisMint::doApply()
 
             sle->setFieldAmount(sfBalance, amt);
         }
+        //@@end genesis-mint-account-without-account-index
         else if (amt > beast::zero)
         {
             // Credit the account

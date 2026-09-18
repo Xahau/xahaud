@@ -29,6 +29,16 @@
 #include <sstream>
 
 namespace ripple {
+template <class Position_t>
+auto const&
+positionTxSetID(Position_t const& position)
+{
+    if constexpr (requires { position.txSetHash; })
+        return position.txSetHash;
+    else
+        return position;
+}
+
 /** Represents a proposed position taken during a round of consensus.
 
     During consensus, peers seek agreement on a set of transactions to
@@ -229,6 +239,7 @@ public:
     }
 
     //! The digest for this proposal, used for signing purposes.
+    //@@start consensus-proposal-signing-hash
     uint256 const&
     signingHash() const
     {
@@ -244,6 +255,7 @@ public:
 
         return signingHash_.value();
     }
+    //@@end consensus-proposal-signing-hash
 
 private:
     //! Unique identifier of prior ledger this proposal is based on
@@ -274,9 +286,14 @@ operator==(
     ConsensusProposal<NodeID_t, LedgerID_t, Position_t> const& a,
     ConsensusProposal<NodeID_t, LedgerID_t, Position_t> const& b)
 {
+    // Equality here is consensus transaction-set identity, not byte-for-byte
+    // equality of signed ExtendedPosition sidecar fields.
+    //@@start consensus-proposal-txset-identity
     return a.nodeID() == b.nodeID() && a.proposeSeq() == b.proposeSeq() &&
-        a.prevLedger() == b.prevLedger() && a.position() == b.position() &&
+        a.prevLedger() == b.prevLedger() &&
+        positionTxSetID(a.position()) == positionTxSetID(b.position()) &&
         a.closeTime() == b.closeTime() && a.seenTime() == b.seenTime();
+    //@@end consensus-proposal-txset-identity
 }
 }  // namespace ripple
 #endif

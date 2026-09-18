@@ -82,7 +82,18 @@ supported_amendments()
                 Throw<std::runtime_error>(
                     "Unknown feature: " + s + "  in supportedAmendments.");
         }
-        return FeatureBitset(feats);
+        //@@start rng-test-environment-gating
+        // ConsensusEntropy is a supported amendment, but it is intentionally
+        // excluded from the default jtx fixture set.
+        //
+        // Enabling it changes every closed ledger by injecting a deterministic
+        // ttCONSENSUS_ENTROPY pseudo-transaction. Many legacy Env tests make
+        // exact transaction-count / metadata-shape assertions and are not
+        // trying to exercise ledger-wide entropy materialization. Keep those
+        // default fixtures stable; tests that cover entropy opt in explicitly
+        // with `supported_amendments() | featureConsensusEntropy`.
+        return FeatureBitset(feats) - featureConsensusEntropy;
+        //@@end rng-test-environment-gating
     }();
     return ids;
 }

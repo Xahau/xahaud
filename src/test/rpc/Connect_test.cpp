@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/core/Config.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
@@ -46,11 +47,61 @@ class Connect_test : public beast::unit_test::suite
         }
     }
 
+    void
+    testDisconnect()
+    {
+        testcase("Disconnect");
+
+        using namespace test::jtx;
+
+        Env env{*this};
+        const_cast<Config&>(env.app().config()).setupControl(true, true, false);
+        BEAST_EXPECT(!env.app().config().standalone());
+
+        {
+            auto const result = env.rpc("json", "disconnect", "{}");
+            BEAST_EXPECT(result[jss::result][jss::status] == "error");
+            BEAST_EXPECT(result[jss::result].isMember(jss::error));
+            BEAST_EXPECT(
+                result[jss::result][jss::error_message].asString().find("ip") !=
+                std::string::npos);
+        }
+
+        {
+            auto const result = env.rpc(
+                "json", "disconnect", R"({"ip":"127.0.0.1","port":"bad"})");
+            BEAST_EXPECT(result[jss::result][jss::status] == "error");
+            BEAST_EXPECT(result[jss::result][jss::error] == "invalidParams");
+        }
+
+        {
+            auto const result =
+                env.rpc("json", "disconnect", R"({"ip":"0.0.0.0"})");
+            BEAST_EXPECT(result[jss::result][jss::status] == "success");
+            BEAST_EXPECT(
+                result[jss::result][jss::message].asString().find(
+                    "port: 21337") != std::string::npos);
+            BEAST_EXPECT(
+                result[jss::result][jss::message].asString().find("peers: 0") !=
+                std::string::npos);
+        }
+
+        {
+            auto const result = env.rpc(
+                "json", "disconnect", R"({"ip":"127.0.0.1","port":6000})");
+            BEAST_EXPECT(result[jss::result][jss::status] == "success");
+            BEAST_EXPECT(
+                result[jss::result][jss::message].asString().find(
+                    "port: 6000") != std::string::npos);
+        }
+    }
+
 public:
     void
     run() override
     {
         testErrors();
+        testDisconnect();
     }
 };
 

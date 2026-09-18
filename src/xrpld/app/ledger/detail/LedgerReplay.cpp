@@ -27,12 +27,14 @@ LedgerReplay::LedgerReplay(
     std::shared_ptr<Ledger const> replay)
     : parent_{std::move(parent)}, replay_{std::move(replay)}
 {
+    //@@start ledger-replay-ordered-txns
     for (auto const& item : replay_->txMap())
     {
         auto txPair = replay_->txRead(item.key());  // non-const so can be moved
         auto const txIndex = (*txPair.second)[sfTransactionIndex];
         orderedTxns_.emplace(txIndex, std::move(txPair.first));
     }
+    //@@end ledger-replay-ordered-txns
 }
 
 LedgerReplay::LedgerReplay(

@@ -72,6 +72,17 @@ public:
             BEAST_EXPECT(result[jss::result][jss::status] == "success");
         }
 
+        {
+            auto const& exportFlags =
+                result[jss::result][jss::TRANSACTION_FLAGS]["Export"];
+            BEAST_EXPECT(
+                exportFlags["tfExportEraseLatch"].asUInt() ==
+                tfExportEraseLatch);
+            BEAST_EXPECT(
+                exportFlags["tfExportEraseCommittee"].asUInt() ==
+                tfExportEraseCommittee);
+        }
+
         // check exception SFields
         {
             auto const fieldExists = [&](std::string name) {

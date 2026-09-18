@@ -115,3 +115,10 @@ enum AMMClawbackFlags : uint32_t {
 enum BridgeModifyFlags : uint32_t {
     tfClearAccountCreateAmount = 0x00010000,
 };
+
+enum ExportFlags : uint32_t {
+    // Lifecycle control: erase the named latch and forfeit any later callback.
+    tfExportEraseLatch = 0x00010000,
+    // Committee control: erase the named immutable committee object.
+    tfExportEraseCommittee = 0x00020000,
+};

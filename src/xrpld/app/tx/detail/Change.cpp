@@ -23,20 +23,60 @@
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/detail/Change.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
+#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/ledger/Sandbox.h>
+#include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/EntropyTier.h>
+#include <xrpl/protocol/ExportCommittee.h>
+#include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/ValidatorBitset.h>
+#include <bit>
+#include <set>
 #include <string_view>
 
 namespace ripple {
+
+namespace {
+
+bool
+validEntropyContributorMask(
+    std::uint8_t tier,
+    std::uint16_t count,
+    std::uint16_t denominator,
+    Blob const& contributors)
+{
+    if (count > denominator)
+        return false;
+
+    if (tier == entropyTierConsensusFallback)
+        return count == 0 && denominator == 0 && contributors.empty();
+
+    if (tier < entropyTierParticipantAligned || tier > entropyTierValidatorFull)
+        return false;
+
+    if (tier == entropyTierValidatorFull && count != denominator)
+        return false;
+
+    auto const bitset =
+        validateValidatorBitset(makeSlice(contributors), denominator);
+    return bitset && bitset->selected() == count;
+}
+
+}  // namespace
 
 NotTEC
 Change::preflight(PreflightContext const& ctx)
@@ -46,6 +86,7 @@ Change::preflight(PreflightContext const& ctx)
         return ret;
 
     auto account = ctx.tx.getAccountID(sfAccount);
+    //@@start rng-pseudo-common-preflight
     if (account != beast::zero)
     {
         JLOG(ctx.j.warn()) << "Change: Bad source id";
@@ -73,6 +114,7 @@ Change::preflight(PreflightContext const& ctx)
         JLOG(ctx.j.warn()) << "Change: Bad sequence";
         return temBAD_SEQUENCE;
     }
+    //@@end rng-pseudo-common-preflight
 
     if (ctx.tx.getTxnType() == ttUNL_MODIFY &&
         !ctx.rules.enabled(featureNegativeUNL))
@@ -98,6 +140,87 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
+    //@@start rng-consensus-entropy-preflight
+    if (ctx.tx.getTxnType() == ttCONSENSUS_ENTROPY)
+    {
+        if (!ctx.rules.enabled(featureConsensusEntropy))
+        {
+            JLOG(ctx.j.warn()) << "Change: ConsensusEntropy is not enabled.";
+            return temDISABLED;
+        }
+
+        if (!ctx.tx.isFieldPresent(sfDigest))
+        {
+            JLOG(ctx.j.warn()) << "Change: ConsensusEntropy must have sfDigest";
+            return temMALFORMED;
+        }
+
+        if (!ctx.tx.isFieldPresent(sfEntropyCount) ||
+            !ctx.tx.isFieldPresent(sfEntropyDenominator) ||
+            !ctx.tx.isFieldPresent(sfEntropyContributors) ||
+            !ctx.tx.isFieldPresent(sfEntropyTier))
+        {
+            JLOG(ctx.j.warn())
+                << "Change: ConsensusEntropy missing entropy metadata";
+            return temMALFORMED;
+        }
+
+        if (!validEntropyContributorMask(
+                ctx.tx.getFieldU8(sfEntropyTier),
+                ctx.tx.getFieldU16(sfEntropyCount),
+                ctx.tx.getFieldU16(sfEntropyDenominator),
+                ctx.tx.getFieldVL(sfEntropyContributors)))
+        {
+            JLOG(ctx.j.warn())
+                << "Change: ConsensusEntropy invalid contributor mask";
+            return temMALFORMED;
+        }
+    }
+    //@@end rng-consensus-entropy-preflight
+
+    if (ctx.tx.getTxnType() == ttEXPORT_SIGNATURES)
+    {
+        if (!ctx.rules.enabled(featureExport))
+        {
+            JLOG(ctx.j.warn()) << "Change: ExportSignatures is not enabled.";
+            return temDISABLED;
+        }
+
+        if (!ctx.tx.isFieldPresent(sfExportedTxn) ||
+            !ctx.tx.isFieldPresent(sfExportContributors) ||
+            ctx.tx.getFieldVL(sfExportContributors).empty())
+        {
+            JLOG(ctx.j.warn())
+                << "Change: ExportSignatures missing assembled witness";
+            return temMALFORMED;
+        }
+
+        if (!ctx.tx.isFieldPresent(sfTransactionHash) ||
+            !ctx.tx.isFieldPresent(sfLedgerSequence))
+        {
+            JLOG(ctx.j.warn())
+                << "Change: ExportSignatures missing witness binding";
+            return temMALFORMED;
+        }
+
+        try
+        {
+            if (!ExportResultBuilder::signaturesFromWitness(ctx.tx))
+            {
+                JLOG(ctx.j.warn())
+                    << "Change: ExportSignatures malformed signer payload";
+                return temMALFORMED;
+            }
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(ctx.j.warn())
+                << "Change: ExportSignatures malformed signer payload: "
+                << e.what();
+            return temMALFORMED;
+        }
+    }
+
     return tesSUCCESS;
 }
 
@@ -106,11 +229,13 @@ Change::preclaim(PreclaimContext const& ctx)
 {
     // If tapOPEN_LEDGER is resurrected into ApplyFlags,
     // this block can be moved to preflight.
+    //@@start rng-pseudo-open-ledger-reject
     if (ctx.view.open())
     {
         JLOG(ctx.j.warn()) << "Change transaction against open ledger";
         return temINVALID;
     }
+    //@@end rng-pseudo-open-ledger-reject
 
     switch (ctx.tx.getTxnType())
     {
@@ -153,10 +278,14 @@ Change::preclaim(PreclaimContext const& ctx)
                     return temDISABLED;
             }
             return tesSUCCESS;
+        //@@start rng-pseudo-closed-ledger-allow
         case ttAMENDMENT:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
+        case ttCONSENSUS_ENTROPY:
+        case ttEXPORT_SIGNATURES:
             return tesSUCCESS;
+        //@@end rng-pseudo-closed-ledger-allow
         case ttUNL_REPORT: {
             if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
                 ctx.app.config().IMPORT_VL_KEYS.empty())
@@ -211,10 +340,163 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
+        case ttCONSENSUS_ENTROPY:
+            return applyConsensusEntropy();
+        case ttEXPORT_SIGNATURES:
+            return applyExportSignatures();
         default:
             UNREACHABLE("ripple::Change::doApply : invalid transaction type");
             return tefFAILURE;
     }
+}
+
+TER
+Change::applyExportSignatures()
+{
+    //@@start export-later-ledger-witness-apply
+    if (ctx_.tx.getFieldU32(sfLedgerSequence) != view().info().seq)
+        return tefFAILURE;
+
+    auto const origin = ctx_.tx.getFieldH256(sfTransactionHash);
+    auto signingPayload = ExportLedgerOps::exportWitnessSigningPayload(ctx_.tx);
+    auto signatures = ExportResultBuilder::signaturesFromWitness(ctx_.tx);
+    if (!signingPayload || !signatures || signatures->empty())
+        return tefFAILURE;
+
+    auto const stamp = ExportOriginMemo::parse(*signingPayload);
+    if (!stamp || !stamp.value().anchor ||
+        stamp.value().origin.sourceDomain != ctx_.app.config().NETWORK_ID ||
+        stamp.value().origin.transactionHash != origin)
+        return tefFAILURE;
+
+    auto const targetDomain = signingPayload->isFieldPresent(sfNetworkID)
+        ? signingPayload->getFieldU32(sfNetworkID)
+        : std::uint32_t{0};
+    if (stamp.value().origin.targetDomain != targetDomain ||
+        !signingPayload->isFieldPresent(sfTicketSequence))
+        return tefFAILURE;
+
+    auto const account = signingPayload->getAccountID(sfAccount);
+    auto const latchKey = keylet::exportLatch(account, origin);
+    auto const parent = ctx_.replayParentLedger();
+    if (!parent || parent->info().hash != view().info().parentHash)
+        return tefBAD_LEDGER;
+
+    auto const parentLatch = parent->read(latchKey);
+    if (!parentLatch || parentLatch->getType() != ltEXPORT_LATCH ||
+        !parentLatch->isFieldPresent(sfExportCommitteeHash) ||
+        !parentLatch->isFieldPresent(sfLastLedgerSequence) ||
+        parentLatch->getAccountID(sfAccount) != account ||
+        parentLatch->getFieldH256(sfTransactionHash) != origin ||
+        parentLatch->getFieldU32(sfTicketSequence) !=
+            signingPayload->getFieldU32(sfTicketSequence) ||
+        stamp.value().anchor->ledgerSequence !=
+            parentLatch->getFieldU32(sfLedgerSequence))
+        return tefFAILURE;
+
+    // The origin-keyed latch can only exist on descendants of the ledger that
+    // created it. Do not query mutable local history here: qC authenticated the
+    // anchor bytes, while replay must depend only on transaction and state.
+    auto const identity = ExportOriginMemo::projectIdentity(*signingPayload);
+    if (!identity ||
+        ExportResultBuilder::exportIntentHash(identity.value()) !=
+            parentLatch->getFieldH256(sfDigest))
+        return tefFAILURE;
+
+    auto const committeeHash = parentLatch->getFieldH256(sfExportCommitteeHash);
+    auto const committeeSLE =
+        parent->read(keylet::exportCommittee(account, committeeHash));
+    if (!committeeSLE || !committeeSLE->isFieldPresent(sfExportCommittee))
+        return tefFAILURE;
+    auto const& roster = committeeSLE->getFieldVL(sfExportCommittee);
+    if (!ExportLedgerOps::isMatchingExportCommittee(
+            *committeeSLE, account, committeeHash, makeSlice(roster)))
+        return tefFAILURE;
+    auto const committee = resolveExportCommittee(makeSlice(roster));
+    if (!committee)
+        return tefFAILURE;
+
+    auto const& contributors = ctx_.tx.getFieldVL(sfExportContributors);
+    auto const contributorSet = validateValidatorBitset(
+        makeSlice(contributors), committee->members.size());
+    if (!contributorSet)
+        return tefFAILURE;
+
+    if (contributorSet->selected() < committee->quorum ||
+        contributorSet->selected() != signatures->size())
+        return tefFAILURE;
+
+    hash_set<AccountID> signerAccounts;
+    for (auto const& [position, witness] : *signatures)
+    {
+        if (position >= committee->members.size() ||
+            (contributors[position / 8] &
+             static_cast<std::uint8_t>(1u << (position % 8))) == 0)
+            return tefFAILURE;
+
+        auto const signer = calcAccountID(witness.signingKey);
+        if (!signerAccounts.insert(signer).second)
+            return tefFAILURE;
+        auto const data = buildMultiSigningData(*signingPayload, signer);
+        if (!verify(
+                witness.signingKey,
+                data.slice(),
+                Slice{witness.signature.data(), witness.signature.size()}))
+            return tefFAILURE;
+    }
+
+    // A concurrently ordered explicit erase or XPOP may remove the latch after
+    // the accepted sidecar selected this witness. Publication expiry may make
+    // the retained latch transition-free. Validate the durable evidence above
+    // against the immutable parent in either case, then consult the evolving
+    // view only to decide whether any state transition remains.
+    auto const currentLatch = view().read(latchKey);
+    if (!currentLatch ||
+        view().info().seq > currentLatch->getFieldU32(sfLastLedgerSequence))
+        return tesSUCCESS;
+
+    return ExportLedgerOps::recordExportWitness(
+        view(), ctx_.rawView(), latchKey, ctx_.tx.getTransactionID(), j_);
+    //@@end export-later-ledger-witness-apply
+}
+
+TER
+Change::applyConsensusEntropy()
+{
+    if (ctx_.tx.getFieldU32(sfLedgerSequence) != view().info().seq)
+        return tefFAILURE;
+
+    auto const entropy = ctx_.tx.getFieldH256(sfDigest);
+
+    //@@start rng-consensus-entropy-sle-write
+    auto sle = view().peek(keylet::consensusEntropy());
+    bool const created = !sle;
+
+    if (created)
+        sle = std::make_shared<SLE>(keylet::consensusEntropy());
+
+    sle->setFieldH256(sfDigest, entropy);
+    sle->setFieldU16(sfEntropyCount, ctx_.tx.getFieldU16(sfEntropyCount));
+    sle->setFieldU16(
+        sfEntropyDenominator, ctx_.tx.getFieldU16(sfEntropyDenominator));
+    sle->setFieldVL(
+        sfEntropyContributors, ctx_.tx.getFieldVL(sfEntropyContributors));
+    sle->setFieldU8(sfEntropyTier, ctx_.tx.getFieldU8(sfEntropyTier));
+    sle->setFieldU32(sfLedgerSequence, view().info().seq);
+    // Note: sfPreviousTxnID and sfPreviousTxnLgrSeq are set automatically
+    // by ApplyStateTable::threadItem() because isThreadedType() returns true
+    // for ledger entries that have sfPreviousTxnID in their format.
+
+    if (created)
+        view().insert(sle);
+    else
+        view().update(sle);
+    //@@end rng-consensus-entropy-sle-write
+
+    JLOG(j_.info()) << "ConsensusEntropy: updated entropy to " << entropy
+                    << " at ledger " << view().info().seq;
+
+    return tesSUCCESS;
 }
 
 TER
@@ -594,8 +876,7 @@ Change::activateXahauGenesis()
     }
 
     {
-        ripple::STArray hooks{
-            sfHooks, static_cast<std::size_t>(genesis_hooks.size())};
+        ripple::STArray hooks{sfHooks, genesis_hooks.size()};
         int hookCount = 0;
         uint32_t hookReserve = 0;
 

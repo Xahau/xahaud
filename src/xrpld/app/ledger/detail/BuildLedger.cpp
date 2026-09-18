@@ -25,6 +25,9 @@
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/TxFormats.h>
+
+#include <set>
 
 namespace ripple {
 
@@ -97,6 +100,7 @@ buildLedgerImpl(
 std::size_t
 applyTransactions(
     Application& app,
+    std::shared_ptr<Ledger const> const& parent,
     std::shared_ptr<Ledger const> const& built,
     CanonicalTXSet& txns,
     std::set<TxID>& failed,
@@ -106,6 +110,50 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
+    ApplyOptions const applyOptions{parent};
+
+    //@@start rng-entropy-first-application
+    // CRITICAL: Apply consensus entropy pseudo-tx FIRST before any other
+    // transactions. This ensures hooks can read entropy during this ledger.
+    for (auto it = txns.begin(); it != txns.end(); /* manual */)
+    {
+        if (it->second->getTxnType() != ttCONSENSUS_ENTROPY)
+        {
+            ++it;
+            continue;
+        }
+
+        auto const txid = it->first.getTXID();
+        JLOG(j.debug()) << "Applying entropy tx FIRST: " << txid;
+
+        try
+        {
+            auto const result = applyTransaction(
+                app, view, *it->second, true, tapNONE, j, applyOptions);
+
+            if (result == ApplyTransactionResult::Success)
+            {
+                ++count;
+                JLOG(j.debug()) << "Entropy tx applied successfully";
+            }
+            else
+            {
+                failed.insert(txid);
+                JLOG(j.warn()) << "Entropy tx failed to apply";
+            }
+        }
+        catch (std::exception const& ex)
+        {
+            JLOG(j.warn()) << "Entropy tx throws: " << ex.what();
+            failed.insert(txid);
+        }
+
+        it = txns.erase(it);
+        break;  // Only one entropy tx per ledger
+    }
+    //@@end rng-entropy-first-application
+
+    //@@start rng-normal-tx-pass-after-entropy
     // Attempt to apply all of the retriable transactions
     for (int pass = 0; pass < LEDGER_TOTAL_PASSES; ++pass)
     {
@@ -128,7 +176,13 @@ applyTransactions(
                 }
 
                 switch (applyTransaction(
-                    app, view, *it->second, certainRetry, tapNONE, j))
+                    app,
+                    view,
+                    *it->second,
+                    certainRetry,
+                    tapNONE,
+                    j,
+                    applyOptions))
                 {
                     case ApplyTransactionResult::Success:
                         it = txns.erase(it);
@@ -167,6 +221,7 @@ applyTransactions(
         if (!changes || (pass >= LEDGER_RETRY_PASSES))
             certainRetry = false;
     }
+    //@@end rng-normal-tx-pass-after-entropy
 
     // If there are any transactions left, we must have
     // tried them in at least one final pass
@@ -203,8 +258,8 @@ buildLedger(
             JLOG(j.debug())
                 << "Attempting to apply " << txns.size() << " transactions";
 
-            auto const applied =
-                applyTransactions(app, built, txns, failedTxns, accum, j);
+            auto const applied = applyTransactions(
+                app, parent, built, txns, failedTxns, accum, j);
 
             if (!txns.empty() || !failedTxns.empty())
                 JLOG(j.debug()) << "Applied " << applied << " transactions; "
@@ -235,8 +290,11 @@ buildLedger(
         app,
         j,
         [&](OpenView& accum, std::shared_ptr<Ledger> const& built) {
+            ApplyOptions const applyOptions{replayData.parent()};
+
             for (auto& tx : replayData.orderedTxns())
-                applyTransaction(app, accum, *tx.second, false, applyFlags, j);
+                applyTransaction(
+                    app, accum, *tx.second, false, applyFlags, j, applyOptions);
         });
 }
 

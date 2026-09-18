@@ -276,6 +276,37 @@ public:
     }
 
     void
+    testInboundEndpointsIgnorePort(beast::Journal j)
+    {
+        testcase("Inbound endpoints ignore port");
+
+        TestLogic logic(j);
+        Charge const fee(1000);
+
+        auto loopbackA = logic.newInboundEndpoint(
+            beast::IP::Endpoint::from_string("127.0.0.1:1111"));
+        auto loopbackB = logic.newInboundEndpoint(
+            beast::IP::Endpoint::from_string("127.0.0.1:2222"));
+        auto loopbackOther = logic.newInboundEndpoint(
+            beast::IP::Endpoint::from_string("127.0.0.2:1111"));
+
+        loopbackA.charge(fee);
+        BEAST_EXPECT(loopbackB.balance() == loopbackA.balance());
+        BEAST_EXPECT(loopbackOther.balance() == 0);
+
+        auto nonLoopbackA = logic.newInboundEndpoint(
+            beast::IP::Endpoint::from_string("192.0.2.1:1111"));
+        auto nonLoopbackB = logic.newInboundEndpoint(
+            beast::IP::Endpoint::from_string("192.0.2.1:2222"));
+        auto nonLoopbackOther = logic.newInboundEndpoint(
+            beast::IP::Endpoint::from_string("192.0.2.2:1111"));
+
+        nonLoopbackA.charge(fee);
+        BEAST_EXPECT(nonLoopbackB.balance() == nonLoopbackA.balance());
+        BEAST_EXPECT(nonLoopbackOther.balance() == 0);
+    }
+
+    void
     run() override
     {
         using namespace beast::severities;
@@ -284,6 +315,7 @@ public:
         testDrop(journal, true);
         testDrop(journal, false);
         testCharges(journal);
+        testInboundEndpointsIgnorePort(journal);
         testImports(journal);
         testImport(journal);
     }

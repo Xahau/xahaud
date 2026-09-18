@@ -318,6 +318,7 @@ Remit::doApply()
     }
 
     // if the destination doesn't exist, create it.
+    //@@start remit-account-index-allocation
     bool const createDst = !sleDstAcc;
     if (createDst)
     {
@@ -356,6 +357,7 @@ Remit::doApply()
         sleDstAcc->setFieldAmount(sfBalance, STAmount{XRPAmount{0}});
         sb.insert(sleDstAcc);
     }
+    //@@end remit-account-index-allocation
 
     // if theres a minted uritoken the sender pays for that
     if (ctx_.tx.isFieldPresent(sfMintURIToken))

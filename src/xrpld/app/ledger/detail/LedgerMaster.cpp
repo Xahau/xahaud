@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
@@ -25,6 +26,7 @@
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/PendingSaves.h>
 #include <xrpld/app/ledger/detail/PublishGap.h>
+#include <xrpld/app/ledger/detail/ValidatedLedgerWorkQueue.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -72,6 +74,11 @@ static constexpr std::chrono::minutes MAX_LEDGER_AGE_ACQUIRE{1};
 // Don't acquire history if write load is too high
 static constexpr int MAX_WRITE_LOAD_ACQUIRE{8192};
 
+// The newest validation event is retained when this local scheduling queue is
+// saturated. A future consumer can rescan the durable pending index from that
+// point, so this is not a protocol limit.
+static constexpr std::size_t VALIDATED_LEDGER_WORK_QUEUE_CAPACITY{256};
+
 // Helper function for LedgerMaster::doAdvance()
 // Return true if candidateLedger should be fetched from the network.
 static bool
@@ -109,6 +116,9 @@ LedgerMaster::LedgerMaster(
     : app_(app)
     , m_journal(journal)
     , mLedgerHistory(collector, app)
+    , mValidatedLedgerWorkQueue(
+          std::make_shared<detail::ValidatedLedgerWorkQueue>(
+              VALIDATED_LEDGER_WORK_QUEUE_CAPACITY))
     , standalone_(app_.config().standalone())
     , fetch_depth_(
           app_.getSHAMapStore().clampFetchDepth(app_.config().FETCH_DEPTH))
@@ -123,6 +133,8 @@ LedgerMaster::LedgerMaster(
     , m_stats(std::bind(&LedgerMaster::collect_metrics, this), collector)
 {
 }
+
+LedgerMaster::~LedgerMaster() = default;
 
 LedgerIndex
 LedgerMaster::getCurrentLedgerIndex()
@@ -359,6 +371,34 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
 }
 
 void
+LedgerMaster::enqueueValidatedLedgerWork(detail::ValidatedLedgerWork work)
+{
+    auto const result = mValidatedLedgerWorkQueue->enqueue(std::move(work));
+    if (result.evicted)
+    {
+        JLOG(m_journal.warn())
+            << "Validated-ledger work queue evicted seq=" << result.evicted->seq
+            << " hash=" << result.evicted->hash;
+    }
+
+    if (!result.needsDrain)
+        return;
+
+    auto const queue = mValidatedLedgerWorkQueue;
+    auto const extensions = app_.getConsensusExtensionsWeak();
+    if (!app_.getJobQueue().addJob(
+            jtADVANCE, "validatedLedgerWork", [queue, extensions]() {
+                queue->drain(
+                    [extensions](
+                        detail::ValidatedLedgerWork const& work) noexcept {
+                        if (auto const service = extensions.lock())
+                            service->onValidatedLedger(work.seq, work.hash);
+                    });
+            }))
+        mValidatedLedgerWorkQueue->cancelDrain();
+}
+
+void
 LedgerMaster::setPubLedger(std::shared_ptr<Ledger const> const& l)
 {
     mPubLedger = l;
@@ -463,6 +503,8 @@ LedgerMaster::switchLCL(std::shared_ptr<Ledger const> const& lastClosed)
     if (standalone_)
     {
         setFullLedger(lastClosed, true, false);
+        enqueueValidatedLedgerWork(
+            {lastClosed->info().seq, lastClosed->info().hash});
         tryAdvance();
     }
     else
@@ -1071,6 +1113,7 @@ LedgerMaster::checkAccept(std::shared_ptr<Ledger const> const& ledger)
     ledger->setValidated();
     ledger->setFull();
     setValidLedger(ledger);
+    enqueueValidatedLedgerWork({ledger->info().seq, ledger->info().hash});
 
     JLOG(m_journal.info()) << "checkAccept (" << ledger->info().seq
                            << ") = validated\n";

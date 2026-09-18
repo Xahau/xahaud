@@ -245,6 +245,27 @@ public:
         beast::Journal const&);
 };
 
+/** An Export committee is canonical, content-addressed, and immutable. */
+class ValidExportCommittee
+{
+    bool invalid_ = false;
+
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&);
+};
+
 /**
  * @brief Invariant: Trust lines using XRP are not allowed.
  *
@@ -711,6 +732,7 @@ using InvariantChecks = std::tuple<
     AccountRootsNotDeleted,
     AccountRootsDeletedClean,
     LedgerEntryTypesMatch,
+    ValidExportCommittee,
     XRPBalanceChecks,
     XRPNotCreated,
     NoXRPTrustLines,

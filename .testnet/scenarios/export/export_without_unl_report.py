@@ -1,0 +1,97 @@
+""":descr: Export fails closed without a ledger-anchored UNLReport view.
+
+Network-mode Export must not derive authority from a node-local trusted-config
+view. An explicit parent binding still fails if that parent has no UNLReport,
+and no Export latch is created.
+"""
+
+from __future__ import annotations
+
+from export_helpers import (
+    EXPORT_RETRY_LEDGER_WINDOW,
+    assert_export_latch,
+    export_authority,
+    require_export,
+    wait_for_validated_transaction,
+)
+
+
+async def scenario(ctx, log):
+    await require_export(ctx, log, require_unl_report=False)
+
+    await ctx.fund_accounts({"alice": 10000, "bob": 1000})
+    log("Accounts funded")
+
+    alice = ctx.account("alice")
+    bob = ctx.account("bob")
+    current_seq = ctx.validated_ledger_index(0)
+
+    log(f"Current ledger: {current_seq}")
+    log("UNLReport intentionally absent; export must not use local config view")
+
+    result = await ctx.submit_and_wait(
+        {
+            "TransactionType": "Export",
+            "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
+            "Fee": "1000000",
+            **export_authority(ctx, require_unl_report=False),
+            "ExportedTxn": {
+                "TransactionType": "Payment",
+                "Account": alice.address,
+                "Destination": bob.address,
+                "Amount": "1000000",
+                "Fee": "10",
+                "Sequence": 0,
+                "TicketSequence": 1,
+                "FirstLedgerSequence": current_seq + 1,
+                "LastLedgerSequence": current_seq + EXPORT_RETRY_LEDGER_WINDOW,
+                "Flags": 2147483648,
+                "SigningPubKey": "",
+            },
+        },
+        alice.wallet,
+        timeout=60,
+    )
+
+    engine_result = result.get("engine_result", "")
+    log(f"Export submit result: {engine_result}")
+
+    if engine_result == "tesSUCCESS":
+        raise AssertionError(
+            "Export should not succeed without a ledger-anchored UNLReport view"
+        )
+
+    if engine_result != "tecEXPORT_COMMITTEE_UNAVAILABLE":
+        raise AssertionError(
+            "Expected tecEXPORT_COMMITTEE_UNAVAILABLE without UNLReport view, "
+            f"got {engine_result}"
+        )
+
+    tx_hash = result.get("tx_json", {}).get("hash")
+    if not tx_hash:
+        raise AssertionError(f"Rejected Export missing tx hash: {result}")
+    validated = await wait_for_validated_transaction(
+        ctx, tx_hash, after_ledger=current_seq
+    )
+    meta = validated.get("meta", validated.get("metaData", {}))
+    if meta.get("TransactionResult") != "tecEXPORT_COMMITTEE_UNAVAILABLE":
+        raise AssertionError(f"Unexpected validated result: {validated}")
+
+    final_seq = validated.get("ledger_index")
+    final_ledger = ctx.ledger(final_seq) or {}
+    ledger_hash = final_ledger.get("ledger_hash") or final_ledger.get("ledger", {}).get(
+        "hash"
+    )
+    if not ledger_hash:
+        raise AssertionError(f"Validated failure ledger unavailable: {final_ledger}")
+    log(f"Export failure validated in ledger {final_seq}")
+
+    assert_export_latch(
+        ctx,
+        alice.address,
+        log,
+        expect_exists=False,
+        ledger_hash=ledger_hash,
+    )
+
+    log("PASS")

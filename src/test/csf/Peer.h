@@ -20,6 +20,7 @@
 #define RIPPLE_TEST_CSF_PEER_H_INCLUDED
 
 #include <test/csf/CollectorRef.h>
+#include <test/csf/Proposal.h>
 #include <test/csf/Scheduler.h>
 #include <test/csf/TrustGraph.h>
 #include <test/csf/Tx.h>
@@ -28,11 +29,15 @@
 #include <test/csf/ledgers.h>
 #include <xrpld/consensus/Consensus.h>
 #include <xrpld/consensus/Validations.h>
+#include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/utility/WrappedSink.h>
+#include <xrpl/protocol/EntropyTier.h>
+#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <boost/container/flat_map.hpp>
-#include <boost/container/flat_set.hpp>
 #include <algorithm>
+#include <string>
+#include <vector>
 
 namespace ripple {
 namespace test {
@@ -51,6 +56,47 @@ namespace bc = boost::container;
        by Collectors
      - Exposes most internal state for forcibly simulating arbitrary scenarios
 */
+/// Content-addressed local sidecar snapshot store, simulating the
+/// same-process materialization cache used by consensus extensions.
+/// Shared across all peers in a simulation so an accepted root can be replayed
+/// deterministically, but peers do not merge sidecar roots from each other.
+struct SidecarStore
+{
+    enum class Type { commit, reveal, exportSig };
+
+    using EntrySet = hash_map<PeerID, uint256>;
+
+    struct TaggedSet
+    {
+        Type type;
+        EntrySet entries;
+    };
+
+    void
+    publish(uint256 const& hash, Type type, EntrySet const& entries)
+    {
+        sets_[hash] = {type, entries};
+    }
+
+    TaggedSet const*
+    fetch(uint256 const& hash) const
+    {
+        auto it = sets_.find(hash);
+        return it != sets_.end() ? &it->second : nullptr;
+    }
+
+private:
+    std::map<uint256, TaggedSet> sets_;
+};
+
+/** A validator's post-validation Export share in the CSF model. */
+struct CsfExportShare
+{
+    Ledger::ID originLedger;
+    PeerID signer;
+    uint256 signature;
+};
+
 struct Peer
 {
     /** Basic wrapper of a proposed position taken by a peer.
@@ -61,6 +107,8 @@ struct Peer
     class Position
     {
     public:
+        using Proposal = csf::Proposal;
+
         Position(Proposal const& p) : proposal_(p)
         {
         }
@@ -75,6 +123,18 @@ struct Peer
         getJson() const
         {
             return proposal_.getJson();
+        }
+
+        PeerKey
+        publicKey() const
+        {
+            return {proposal_.nodeID(), 0};
+        }
+
+        std::uint64_t
+        signature() const
+        {
+            return 0;
         }
 
         std::string
@@ -169,6 +229,7 @@ struct Peer
     using NodeKey_t = PeerKey;
     using TxSet_t = TxSet;
     using PeerPosition_t = Position;
+    using Position_t = ProposalPosition;
     using Result = ConsensusResult<Peer>;
     using NodeKey = Validation::NodeKey;
 
@@ -187,6 +248,9 @@ struct Peer
 
     //! The oracle that manages unique ledgers
     LedgerOracle& oracle;
+
+    //! Shared sidecar store (simulates InboundTransactions)
+    SidecarStore& sidecarStore;
 
     //! Scheduler of events
     Scheduler& scheduler;
@@ -257,6 +321,917 @@ struct Peer
     // Simulation parameters
     ConsensusParms consensusParms;
 
+    /// RNG consensus extensions for CSF. Owns all RNG state and methods,
+    /// same pattern as ConsensusExtensions for production.
+    struct Extensions
+    {
+        Peer& peer;
+        beast::Journal j_;
+
+        // Sub-state machine
+        EstablishState estState_{EstablishState::ConvergingTx};
+        std::chrono::steady_clock::time_point revealPhaseStart_{};
+        std::chrono::steady_clock::time_point commitHashConflictStart_{};
+        bool entropySetPublished_{false};
+        std::chrono::steady_clock::time_point entropyPublishStart_{};
+        bool exportSigGateStarted_{false};
+        std::chrono::steady_clock::time_point exportSigGateStart_{};
+        bool exportSigConvergenceFailed_{false};
+
+        // RNG state
+        bool enableRngConsensus_ = false;
+        bool enableExportConsensus_ = false;
+        hash_set<PeerID> unlNodes_;
+        hash_set<PeerID> likelyParticipants_;
+        hash_map<PeerID, uint256> pendingCommits_;
+        hash_map<PeerID, uint256> pendingReveals_;
+        hash_map<PeerID, uint256> pendingExportSigs_;
+        std::optional<Ledger::ID> releasedExportOrigin_;
+        hash_map<PeerID, PeerKey> nodeKeys_;
+        uint256 myEntropySecret_;
+        bool commitSetFrozen_ = false;
+        // Hash of the entropy reveal set this peer last advertised
+        // (buildEntropySet). The tick gate copies it to
+        // acceptedEntropySetHash_ after observation/alignment checks pass; only
+        // that accepted snapshot may feed finalizeRoundEntropy.
+        uint256 lastEntropySetHash_{};
+        std::optional<uint256> acceptedEntropySetHash_;
+        std::optional<uint256> acceptedExportSigSetHash_;
+        bool entropyFailed_ = false;
+
+        // Last round summary (for test assertions)
+        uint256 lastEntropyDigest_;
+        std::uint16_t lastEntropyCount_ = 0;
+        std::uint16_t lastEntropyDenominator_ = 0;
+        bool lastEntropyWasFallback_ = true;
+        EntropyTier lastEntropyTier_ = entropyTierNone;
+        bool lastExportSucceeded_ = false;
+        bool lastExportDeferred_ = false;
+        std::optional<uint256> lastExportWitnessEffect_;
+
+        // Optional test hook: force a specific commit-set hash
+        std::optional<uint256> forcedCommitSetHash_;
+        // Optional test hook: force a specific entropy-set hash
+        std::optional<uint256> forcedEntropySetHash_;
+        // Optional test hook: force a specific export sig-set hash
+        std::optional<uint256> forcedExportSigSetHash_;
+        // Optional test hook: remain an active proposer but omit the
+        // entropySetHash advertisement after building the sidecar. This models
+        // a silent sidecar advertiser without shrinking the fixed UNL
+        // denominator.
+        bool suppressOwnEntropySetHash_ = false;
+
+        struct ProposalSidecarOverrides
+        {
+            std::optional<uint256> commitSetHash;
+            std::optional<uint256> entropySetHash;
+            std::optional<uint256> exportSigSetHash;
+        };
+
+        // Optional test hooks: send recipient-specific sidecar hashes in
+        // proposals. These model Byzantine equivocation without changing
+        // normal CSF broadcast behavior.
+        hash_map<PeerID, ProposalSidecarOverrides> equivocateSidecarsTo_;
+
+        // Optional test hook: drop reveals from specific peers
+        // (simulates asymmetric reveal delivery / packet loss)
+        hash_set<PeerID> dropRevealFrom_;
+        // Optional test hook: drop proposal-carried export signatures.
+        hash_set<PeerID> dropExportSigFrom_;
+        // Optional test hook: drop direct post-validation Export shares from
+        // specific validators while still receiving their proposals.
+        hash_set<PeerID> dropDirectExportSigFrom_;
+        // Cumulative diagnostics proving that both delivery paths were
+        // exercised by a composed-loss regression.
+        hash_set<PeerID> droppedProposalExportSigs_;
+        hash_set<PeerID> droppedDirectExportSigs_;
+        // Optional test hook: stay an active proposer but do not originate an
+        // export signature, so tests can force missing local export material.
+        bool suppressOwnExportSig_ = false;
+        // Model accepted Export witness bytes as an accept-time ledger effect.
+        bool modelExportWitnessLedgerEffect_ = false;
+        // Optional test hook: exercise generic Consensus bootstrap timing
+        // without making the CSF runtime-config aware.
+        bool testBootstrapFastStartEnabled_ = false;
+
+        explicit Extensions(Peer& p) : peer(p), j_(p.j)
+        {
+        }
+
+        // --- RNG methods ---
+
+        bool
+        rngEnabled() const
+        {
+            return enableRngConsensus_;
+        }
+
+        bool
+        exportEnabled() const
+        {
+            return enableExportConsensus_;
+        }
+
+        bool
+        exportFinalizationViewAnchored() const
+        {
+            // CSF does not model ledger-backed UNLReport state. Its configured
+            // trust universe is the authoritative view for the simulation.
+            return true;
+        }
+
+        bool
+        testSuppressExportSigSetHash() const
+        {
+            return false;
+        }
+
+        bool
+        testSuppressEntropySetHash() const
+        {
+            return suppressOwnEntropySetHash_;
+        }
+
+        std::size_t
+        quorumThreshold() const
+        {
+            if (!enableRngConsensus_)
+                return (std::numeric_limits<std::size_t>::max)() / 4;
+            auto const base = unlNodes_.size();
+            return calculateQuorumThreshold(base == 0 ? 1 : base);
+        }
+
+        std::size_t
+        tier2Threshold() const
+        {
+            if (!enableRngConsensus_)
+                return (std::numeric_limits<std::size_t>::max)() / 4;
+            auto const base = unlNodes_.size();
+            return calculateParticipantThreshold(base == 0 ? 1 : base);
+        }
+
+        std::size_t
+        entropyGateThreshold() const
+        {
+            // Lowest enabled accepted tier's bar, mirroring production: the
+            // pipeline/entropy gate engages here, then finalizeRoundEntropy
+            // labels by aligned count. In the tier-2 band tier2 < quorum; at
+            // sizes where the band collapses (e.g. n=5) this is just quorum.
+            return std::min(quorumThreshold(), tier2Threshold());
+        }
+
+        std::size_t
+        exportRootAlignmentThreshold() const
+        {
+            if (!enableExportConsensus_)
+                return (std::numeric_limits<std::size_t>::max)() / 4;
+            auto const base =
+                unlNodes_.empty() ? std::size_t{1} : unlNodes_.size();
+            return calculateQuorumThreshold(base);
+        }
+
+        std::size_t
+        exportCommitteeThreshold() const
+        {
+            if (!enableExportConsensus_)
+                return (std::numeric_limits<std::size_t>::max)() / 4;
+            // CSF models the full simulated UNL as the configured Export
+            // committee. Production reads this threshold from each intent's
+            // ledger-anchored committee instead of the active validation view.
+            auto const base =
+                unlNodes_.empty() ? std::size_t{1} : unlNodes_.size();
+            return ExportLimits::committeeQuorumThreshold(base);
+        }
+
+        std::size_t
+        pendingCommitCount() const
+        {
+            return pendingCommits_.size();
+        }
+
+        std::size_t
+        proofedCommitCount() const
+        {
+            // CSF models commit sidecars directly and has no separate proposal
+            // proof cache; every pending commit is emit-eligible in this model.
+            return pendingCommitCount();
+        }
+
+        std::size_t
+        pendingRevealCount() const
+        {
+            return pendingReveals_.size();
+        }
+
+        std::size_t
+        expectedProposerCount() const
+        {
+            return likelyParticipants_.size();
+        }
+
+        bool
+        hasQuorumOfCommits() const
+        {
+            if (!enableRngConsensus_)
+                return false;
+            return pendingCommits_.size() >= quorumThreshold();
+        }
+
+        bool
+        hasMinimumReveals() const
+        {
+            if (!enableRngConsensus_)
+                return false;
+            return pendingReveals_.size() >= pendingCommits_.size();
+        }
+
+        bool
+        hasAnyReveals() const
+        {
+            if (!enableRngConsensus_)
+                return false;
+            return !pendingReveals_.empty();
+        }
+
+        uint256
+        buildCommitSet(Ledger::Seq seq)
+        {
+            if (forcedCommitSetHash_)
+                return *forcedCommitSetHash_;
+            auto const hash = hashRngSet(pendingCommits_, seq, "commit");
+            peer.sidecarStore.publish(
+                hash, SidecarStore::Type::commit, pendingCommits_);
+            return hash;
+        }
+
+        uint256
+        buildEntropySet(Ledger::Seq seq)
+        {
+            if (forcedEntropySetHash_)
+            {
+                lastEntropySetHash_ = *forcedEntropySetHash_;
+                return *forcedEntropySetHash_;
+            }
+            auto const hash = hashRngSet(pendingReveals_, seq, "reveal");
+            peer.sidecarStore.publish(
+                hash, SidecarStore::Type::reveal, pendingReveals_);
+            lastEntropySetHash_ = hash;
+            return hash;
+        }
+
+        uint256
+        buildExportSigSet(Ledger::Seq seq)
+        {
+            if (forcedExportSigSetHash_)
+                return *forcedExportSigSetHash_;
+            auto const hash = hashRngSet(pendingExportSigs_, seq, "export-sig");
+            peer.sidecarStore.publish(
+                hash, SidecarStore::Type::exportSig, pendingExportSigs_);
+            return hash;
+        }
+
+        void
+        generateEntropySecret()
+        {
+            if (!enableRngConsensus_)
+                return;
+            auto const seq =
+                static_cast<std::uint32_t>(peer.lastClosedLedger.seq()) + 1;
+            myEntropySecret_ = sha512Half(
+                std::string("csf-rng-secret"),
+                static_cast<std::uint32_t>(peer.id),
+                peer.key.second,
+                seq,
+                peer.completedLedgers);
+        }
+
+        uint256
+        getEntropySecret() const
+        {
+            return myEntropySecret_;
+        }
+
+        void
+        selfSeedReveal()
+        {
+            if (!enableRngConsensus_)
+                return;
+            // Self-seed our own reveal into pendingReveals_ so it
+            // counts toward reveal quorum.  The real code does this
+            // in decorateMessage; the CSF does it here since it has
+            // no equivalent serialization hook.
+            if (myEntropySecret_ != uint256{})
+                pendingReveals_[peer.id] = myEntropySecret_;
+        }
+
+        void
+        setEntropyFailed()
+        {
+            if (!enableRngConsensus_)
+                return;
+            entropyFailed_ = true;
+        }
+
+        void
+        freezeRngCommitSet()
+        {
+            if (!enableRngConsensus_)
+                return;
+            commitSetFrozen_ = true;
+        }
+
+        void
+        acceptEntropySet(uint256 const& hash)
+        {
+            acceptedEntropySetHash_ = hash;
+        }
+
+        void
+        clearAcceptedEntropySet()
+        {
+            acceptedEntropySetHash_.reset();
+        }
+
+        void
+        acceptExportSigSet(uint256 const& hash)
+        {
+            acceptedExportSigSetHash_ = hash;
+        }
+
+        void
+        clearAcceptedExportSigSet()
+        {
+            acceptedExportSigSetHash_.reset();
+        }
+
+        Proposal
+        proposalWithRecipientSidecarHashes(
+            Proposal const& proposal,
+            PeerID recipient) const
+        {
+            auto position = proposal.position();
+            auto const it = equivocateSidecarsTo_.find(recipient);
+            if (it == equivocateSidecarsTo_.end())
+                return proposal;
+
+            if (it->second.commitSetHash)
+                position.commitSetHash = it->second.commitSetHash;
+            if (it->second.entropySetHash)
+                position.entropySetHash = it->second.entropySetHash;
+            if (it->second.exportSigSetHash)
+                position.exportSigSetHash = it->second.exportSigSetHash;
+
+            return Proposal{
+                proposal.prevLedger(),
+                proposal.proposeSeq(),
+                position,
+                proposal.closeTime(),
+                proposal.seenTime(),
+                proposal.nodeID()};
+        }
+
+        bc::flat_map<PeerID, Proposal>
+        proposalEquivocations(Proposal const& proposal) const
+        {
+            bc::flat_map<PeerID, Proposal> out;
+            for (auto const& [recipient, _] : equivocateSidecarsTo_)
+            {
+                out.emplace(
+                    recipient,
+                    proposalWithRecipientSidecarHashes(proposal, recipient));
+            }
+            return out;
+        }
+
+        void
+        clearRngState()
+        {
+            pendingCommits_.clear();
+            pendingReveals_.clear();
+            nodeKeys_.clear();
+            likelyParticipants_.clear();
+            myEntropySecret_.zero();
+            lastEntropySetHash_.zero();
+            acceptedEntropySetHash_.reset();
+            acceptedExportSigSetHash_.reset();
+            entropyFailed_ = false;
+            commitSetFrozen_ = false;
+            exportSigGateStarted_ = false;
+            exportSigGateStart_ = {};
+            exportSigConvergenceFailed_ = false;
+        }
+
+        std::optional<CsfExportShare>
+        releaseExportForValidated(Ledger const& ledger)
+        {
+            if (!enableExportConsensus_ || !peer.runAsValidator ||
+                ledger.id() != peer.fullyValidatedLedger.id())
+                return std::nullopt;
+
+            if (!releasedExportOrigin_ || *releasedExportOrigin_ != ledger.id())
+            {
+                releasedExportOrigin_ = ledger.id();
+                pendingExportSigs_.clear();
+            }
+
+            auto const signature = sha512Half(
+                std::string("csf-export-sig"),
+                static_cast<std::uint32_t>(peer.id),
+                peer.key.second,
+                static_cast<std::uint32_t>(ledger.id()),
+                static_cast<std::uint32_t>(ledger.seq()));
+            if (suppressOwnExportSig_)
+                return std::nullopt;
+
+            pendingExportSigs_[peer.id] = signature;
+            return CsfExportShare{ledger.id(), peer.id, signature};
+        }
+
+        bool
+        ingestDirectExportShare(CsfExportShare const& share)
+        {
+            if (!enableExportConsensus_ || !releasedExportOrigin_ ||
+                share.originLedger != *releasedExportOrigin_ ||
+                share.originLedger != peer.fullyValidatedLedger.id() ||
+                !isUNLReportMember(share.signer))
+                return false;
+
+            if (dropDirectExportSigFrom_.contains(share.signer))
+            {
+                droppedDirectExportSigs_.insert(share.signer);
+                return false;
+            }
+
+            auto const [_, inserted] = pendingExportSigs_.insert_or_assign(
+                share.signer, share.signature);
+            return inserted;
+        }
+
+        void
+        cacheUNLReport()
+        {
+            unlNodes_.clear();
+            for (auto const* p : peer.trustGraph.trustedPeers(&peer))
+            {
+                if (!peer.runAsValidator && p->id == peer.id)
+                    continue;
+                unlNodes_.insert(p->id);
+            }
+            if (peer.runAsValidator)
+                unlNodes_.insert(peer.id);
+        }
+
+        void
+        setExpectedProposers(hash_set<PeerID> proposers)
+        {
+            bool const includeSelf = peer.runAsValidator;
+            if (!proposers.empty())
+            {
+                hash_set<PeerID> filtered;
+                for (auto const& nid : proposers)
+                {
+                    if (!includeSelf && nid == peer.id)
+                        continue;
+                    if (isUNLReportMember(nid))
+                        filtered.insert(nid);
+                }
+                if (includeSelf)
+                    filtered.insert(peer.id);
+                likelyParticipants_ = std::move(filtered);
+                return;
+            }
+            likelyParticipants_.clear();
+            if (!unlNodes_.empty())
+                likelyParticipants_ = unlNodes_;
+        }
+
+        void
+        harvestRngData(
+            PeerID const& nodeId,
+            PeerKey const& publicKey,
+            ProposalPosition const& position,
+            std::uint32_t,
+            NetClock::time_point,
+            Ledger::ID const& prevLedger,
+            std::uint64_t)
+        {
+            if (!enableRngConsensus_ && !enableExportConsensus_)
+                return;
+            if (!isUNLReportMember(nodeId))
+                return;
+
+            nodeKeys_.insert_or_assign(nodeId, publicKey);
+
+            if (enableRngConsensus_ && position.myCommitment &&
+                !commitSetFrozen_)
+            {
+                auto [it, inserted] =
+                    pendingCommits_.emplace(nodeId, *position.myCommitment);
+                if (!inserted && it->second != *position.myCommitment)
+                {
+                    it->second = *position.myCommitment;
+                    pendingReveals_.erase(nodeId);
+                }
+            }
+
+            auto const harvestExportShare = [&] {
+                if (!enableExportConsensus_ ||
+                    !position.exportSignatureOrigin ||
+                    !position.myExportSignature || !releasedExportOrigin_ ||
+                    *position.exportSignatureOrigin != *releasedExportOrigin_)
+                    return;
+                if (dropExportSigFrom_.contains(nodeId))
+                {
+                    droppedProposalExportSigs_.insert(nodeId);
+                    return;
+                }
+                pendingExportSigs_[nodeId] = *position.myExportSignature;
+            };
+
+            if (!enableRngConsensus_ || !position.myReveal)
+            {
+                harvestExportShare();
+                return;
+            }
+
+            // Test hook: drop reveals from specific peers
+            if (dropRevealFrom_.count(nodeId) == 0)
+            {
+                auto const commitIt = pendingCommits_.find(nodeId);
+                if (commitIt != pendingCommits_.end())
+                {
+                    auto const prevIt = peer.ledgers.find(prevLedger);
+                    if (prevIt != peer.ledgers.end())
+                    {
+                        auto const seq =
+                            static_cast<std::uint32_t>(prevIt->second.seq()) +
+                            1;
+                        auto const expected = sha512Half(
+                            *position.myReveal,
+                            static_cast<std::uint32_t>(publicKey.first),
+                            publicKey.second,
+                            seq);
+                        if (expected == commitIt->second)
+                            pendingReveals_[nodeId] = *position.myReveal;
+                    }
+                }
+            }
+
+            harvestExportShare();
+        }
+
+        bool
+        isUNLReportMember(PeerID const& nodeId) const
+        {
+            return unlNodes_.count(nodeId) > 0;
+        }
+
+        bool
+        localIsActiveValidator() const
+        {
+            return isUNLReportMember(peer.id);
+        }
+
+        void
+        finalizeRoundEntropy(
+            std::uint32_t seq,
+            std::uint32_t prevLedgerId,
+            std::size_t txSetId)
+        {
+            // CSF analog of the Tier 1 consensus-bound fallback: derived
+            // from already-agreed round inputs, so all same-LCL peers
+            // compute the same non-zero digest. Mirrors production's
+            // sha512Half(HashPrefix::entropyFallback, prevHash, txSet, seq).
+            auto const fallbackEntropy = [&] {
+                return sha512Half(
+                    std::string("csf-rng-fallback"),
+                    prevLedgerId,
+                    static_cast<std::uint64_t>(txSetId),
+                    seq);
+            };
+
+            if (!enableRngConsensus_)
+            {
+                // RNG disabled: no pseudo-tx at all in production; keep the
+                // zero digest as the "none" marker.
+                lastEntropyDigest_.zero();
+                lastEntropyCount_ = 0;
+                lastEntropyDenominator_ = 0;
+                lastEntropyWasFallback_ = true;
+                lastEntropyTier_ = entropyTierNone;
+                return;
+            }
+
+            // Fallback when the tick gate did not accept an entropy sidecar or
+            // the accepted sidecar yielded no reveals.
+            auto const fallback = [&] {
+                lastEntropyDigest_ = fallbackEntropy();
+                lastEntropyCount_ = 0;
+                lastEntropyDenominator_ = 0;
+                lastEntropyWasFallback_ = true;
+                lastEntropyTier_ = entropyTierConsensusFallback;
+            };
+
+            // Finalize from the snapshot of the entropy set this peer last
+            // advertised (the sidecar-store entry for lastEntropySetHash_) —
+            // the analog of production injecting from the frozen
+            // entropySetMap_, NOT live pendingReveals_. Proposal-carried
+            // reveals that never entered the advertised/aligned set are not
+            // counted, matching ConsensusExtensions::selectEntropy.
+            auto const* acceptedSet = acceptedEntropySetHash_
+                ? peer.sidecarStore.fetch(*acceptedEntropySetHash_)
+                : nullptr;
+
+            std::vector<std::pair<PeerKey, uint256>> ordered;
+            // Defensive: lastEntropySetHash_ only ever names a reveal set (the
+            // per-type salt in hashRngSet rules out a cross-type collision),
+            // but guard the type so a commit/export-sig snapshot can never be
+            // counted as entropy.
+            if (acceptedSet && acceptedSet->type == SidecarStore::Type::reveal)
+            {
+                ordered.reserve(acceptedSet->entries.size());
+                for (auto const& [nodeId, reveal] : acceptedSet->entries)
+                {
+                    auto const it = nodeKeys_.find(nodeId);
+                    if (it == nodeKeys_.end())
+                        continue;
+                    ordered.emplace_back(it->second, reveal);
+                }
+            }
+
+            if (ordered.empty())
+            {
+                fallback();
+                return;
+            }
+
+            std::sort(
+                ordered.begin(),
+                ordered.end(),
+                [](auto const& a, auto const& b) {
+                    if (a.first.first != b.first.first)
+                        return a.first.first < b.first.first;
+                    return a.first.second < b.first.second;
+                });
+
+            uint256 digest = sha512Half(
+                std::string("csf-rng-entropy"),
+                static_cast<std::uint32_t>(seq));
+            for (auto const& [keyId, reveal] : ordered)
+            {
+                digest = sha512Half(
+                    digest,
+                    static_cast<std::uint32_t>(keyId.first),
+                    keyId.second,
+                    reveal);
+            }
+
+            // Tier ladder over the aligned reveal count (mirrors production
+            // selectEntropy): full active view -> validator_full, >= quorum ->
+            // validator_quorum, >= tier2 -> participant_aligned, else too few
+            // aligned to trust -> fall back.
+            auto const count = ordered.size();
+            if (count == unlNodes_.size())
+                lastEntropyTier_ = entropyTierValidatorFull;
+            else if (count >= quorumThreshold())
+                lastEntropyTier_ = entropyTierValidatorQuorum;
+            else if (count >= tier2Threshold())
+                lastEntropyTier_ = entropyTierParticipantAligned;
+            else
+            {
+                fallback();
+                return;
+            }
+            lastEntropyDigest_ = digest;
+            lastEntropyCount_ = static_cast<std::uint16_t>(count);
+            lastEntropyDenominator_ =
+                static_cast<std::uint16_t>(unlNodes_.size());
+            lastEntropyWasFallback_ = false;
+        }
+
+        void
+        finalizeRoundExport()
+        {
+            lastExportWitnessEffect_.reset();
+            if (!enableExportConsensus_)
+            {
+                lastExportSucceeded_ = false;
+                lastExportDeferred_ = false;
+                return;
+            }
+
+            auto const* acceptedSet = acceptedExportSigSetHash_
+                ? peer.sidecarStore.fetch(*acceptedExportSigSetHash_)
+                : nullptr;
+            std::size_t activeSigCount = 0;
+            if (acceptedSet &&
+                acceptedSet->type == SidecarStore::Type::exportSig)
+            {
+                activeSigCount = std::count_if(
+                    acceptedSet->entries.begin(),
+                    acceptedSet->entries.end(),
+                    [&](auto const& entry) {
+                        return isUNLReportMember(entry.first);
+                    });
+            }
+
+            lastExportSucceeded_ = activeSigCount >= exportCommitteeThreshold();
+            lastExportDeferred_ = !lastExportSucceeded_;
+            if (lastExportSucceeded_ && acceptedExportSigSetHash_)
+                lastExportWitnessEffect_ = *acceptedExportSigSetHash_;
+        }
+
+        // --- Lifecycle hooks (matching design doc) ---
+
+        template <class Ledger_t>
+        void
+        onRoundStart(
+            Ledger_t const& /* prevLedger */,
+            hash_set<PeerID> lastProposers)
+        {
+            clearRngState();
+            cacheUNLReport();
+            setExpectedProposers(std::move(lastProposers));
+            resetSubState();
+        }
+
+        void
+        onTrustedPeerProposal(
+            PeerID const& nodeId,
+            PeerKey const& publicKey,
+            ProposalPosition const& position,
+            std::uint32_t proposeSeq,
+            NetClock::time_point closeTime,
+            Ledger::ID const& prevLedger,
+            std::uint64_t signature)
+        {
+            harvestRngData(
+                nodeId,
+                publicKey,
+                position,
+                proposeSeq,
+                closeTime,
+                prevLedger,
+                signature);
+        }
+
+        template <class Ledger_t>
+        void
+        decoratePosition(
+            ProposalPosition& pos,
+            Ledger_t const& prevLedger,
+            bool proposing)
+        {
+            decorateExportPosition(pos, prevLedger, proposing);
+
+            if (!enableRngConsensus_ || !proposing || !peer.runAsValidator)
+                return;
+            generateEntropySecret();
+            auto const seq = static_cast<std::uint32_t>(prevLedger.seq()) + 1;
+            auto const commitment = sha512Half(
+                myEntropySecret_,
+                static_cast<std::uint32_t>(peer.id),
+                peer.key.second,
+                seq);
+            pos.myCommitment = commitment;
+            pendingCommits_[peer.id] = commitment;
+            nodeKeys_.insert_or_assign(peer.id, peer.key);
+        }
+
+        template <class Ledger_t>
+        void
+        decorateExportPosition(
+            ProposalPosition& pos,
+            Ledger_t const& prevLedger,
+            bool proposing)
+        {
+            if (!enableExportConsensus_ || !proposing || !peer.runAsValidator)
+                return;
+
+            auto const own = pendingExportSigs_.find(peer.id);
+            if (!releasedExportOrigin_ || own == pendingExportSigs_.end())
+                return;
+
+            pos.exportSignatureOrigin = *releasedExportOrigin_;
+            pos.myExportSignature = own->second;
+            nodeKeys_.insert_or_assign(peer.id, peer.key);
+        }
+
+        void
+        appendJson(Json::Value&) const
+        {
+        }
+
+        template <class Pos>
+        void
+        logPosition(
+            Pos const&,
+            beast::Journal,
+            beast::severities::Severity = beast::severities::kTrace) const
+        {
+        }
+
+        // --- Stubs for features CSF doesn't model ---
+        bool
+        testBootstrapFastStartEnabled() const
+        {
+            return testBootstrapFastStartEnabled_;
+        }
+        bool
+        hasPendingExportSigs() const
+        {
+            return enableExportConsensus_ && !pendingExportSigs_.empty();
+        }
+        bool
+        hasEligiblePendingExports() const
+        {
+            return enableExportConsensus_ && releasedExportOrigin_.has_value();
+        }
+        void
+        setExportSigConvergenceFailed()
+        {
+            if (enableExportConsensus_)
+                exportSigConvergenceFailed_ = true;
+        }
+
+        // --- Sub-state accessors ---
+        bool
+        extensionsBusy() const
+        {
+            return estState_ != EstablishState::ConvergingTx ||
+                (exportEnabled() &&
+                 (exportSigGateStarted_ || hasPendingExportSigs()));
+        }
+        EstablishState
+        estState() const
+        {
+            return estState_;
+        }
+        void
+        resetSubState()
+        {
+            estState_ = EstablishState::ConvergingTx;
+            revealPhaseStart_ = {};
+            commitHashConflictStart_ = {};
+            entropySetPublished_ = false;
+            entropyPublishStart_ = {};
+            commitSetFrozen_ = false;
+            exportSigGateStarted_ = false;
+            exportSigGateStart_ = {};
+            exportSigConvergenceFailed_ = false;
+        }
+
+        /// Defined in test/csf/PeerTick.h (keeps xrpld/app dependency
+        /// out of this header).
+        template <class Ctx>
+        ExtensionTickResult
+        onTick(Ctx const& ctx);
+
+    private:
+        uint256
+        hashRngSet(
+            hash_map<PeerID, uint256> const& entries,
+            Ledger::Seq seq,
+            std::string const& domain) const
+        {
+            std::vector<std::pair<std::uint32_t, uint256>> ordered;
+            ordered.reserve(entries.size());
+            for (auto const& [nodeId, digest] : entries)
+            {
+                if (!isUNLReportMember(nodeId))
+                    continue;
+                ordered.emplace_back(
+                    static_cast<std::uint32_t>(nodeId), digest);
+            }
+            if (ordered.empty())
+                return uint256{};
+            std::sort(
+                ordered.begin(),
+                ordered.end(),
+                [](auto const& a, auto const& b) { return a.first < b.first; });
+            uint256 out = sha512Half(
+                std::string("csf-rng-set"),
+                domain,
+                static_cast<std::uint32_t>(seq));
+            for (auto const& [nodeId, digest] : ordered)
+                out = sha512Half(out, nodeId, digest);
+            return out;
+        }
+    };
+
+    Extensions extensions_{*this};
+
+    Extensions&
+    ce()
+    {
+        return extensions_;
+    }
+    Extensions const&
+    ce() const
+    {
+        return extensions_;
+    }
+
     //! The collectors to report events to
     CollectorRefs& collectors;
 
@@ -278,13 +1253,15 @@ struct Peer
         BasicNetwork<Peer*>& n,
         TrustGraph<Peer*>& tg,
         CollectorRefs& c,
-        beast::Journal jIn)
+        beast::Journal jIn,
+        SidecarStore& sc)
         : sink(jIn, "Peer " + to_string(i) + ": ")
         , j(sink)
         , consensus(s.clock(), *this, j)
         , id{i}
         , key{id, 0}
         , oracle{o}
+        , sidecarStore{sc}
         , scheduler{s}
         , net{n}
         , trustGraph(tg)
@@ -322,6 +1299,21 @@ struct Peer
     {
         // Use the scheduler time and not the peer's (skewed) local time
         collectors.on(id, scheduler.now(), event);
+    }
+
+    // CsfExportShare is a focused test transport, not part of the historical
+    // CollectorRef event ABI. Its path coverage is recorded by Extensions.
+    void
+    issue(Share<CsfExportShare> const&)
+    {
+    }
+    void
+    issue(Relay<CsfExportShare> const&)
+    {
+    }
+    void
+    issue(Receive<CsfExportShare> const&)
+    {
     }
 
     //--------------------------------------------------------------------------
@@ -426,10 +1418,14 @@ struct Peer
                     {
                         // if the ledger is found, send it back to the original
                         // requesting peer where it is added to the available
-                        // ledgers
+                        // ledgers and reconsidered against validations that
+                        // may already have reached quorum while acquisition
+                        // was in flight.
                         to->net.send(to, from, [from, ledger = it->second]() {
                             from->acquiringLedgers.erase(ledger.id());
-                            from->ledgers.emplace(ledger.id(), ledger);
+                            auto const [stored, _] =
+                                from->ledgers.emplace(ledger.id(), ledger);
+                            from->checkFullyValidated(stored->second);
                         });
                     }
                 });
@@ -510,15 +1506,15 @@ struct Peer
     {
         issue(CloseLedger{prevLedger, openTxs});
 
+        Position_t pos{TxSet::calcID(openTxs)};
+
+        ce().decoratePosition(
+            pos, prevLedger, mode == ConsensusMode::proposing);
+
         return Result(
             TxSet{openTxs},
             Proposal(
-                prevLedger.id(),
-                Proposal::seqJoin,
-                TxSet::calcID(openTxs),
-                closeTime,
-                now(),
-                id));
+                prevLedger.id(), Proposal::seqJoin, pos, closeTime, now(), id));
     }
 
     void
@@ -553,13 +1549,23 @@ struct Peer
         schedule(delays.ledgerAccept, [=, this]() {
             const bool proposing = mode == ConsensusMode::proposing;
             const bool consensusFail = result.state == ConsensusState::MovedOn;
+            auto const seq = static_cast<std::uint32_t>(prevLedger.seq()) + 1;
+
+            ce().finalizeRoundEntropy(
+                seq,
+                static_cast<std::uint32_t>(prevLedger.id()),
+                result.txns.id());
+            ce().finalizeRoundExport();
 
             TxSet const acceptedTxs = injectTxs(prevLedger, result.txns);
             Ledger const newLedger = oracle.accept(
                 prevLedger,
                 acceptedTxs.txs(),
                 closeResolution,
-                result.position.closeTime());
+                result.position.closeTime(),
+                ce().modelExportWitnessLedgerEffect_
+                    ? ce().lastExportWitnessEffect_
+                    : std::nullopt);
             ledgers[newLedger.id()] = newLedger;
 
             issue(AcceptLedger{newLedger, lastClosedLedger});
@@ -670,6 +1676,16 @@ struct Peer
         send(BroadcastMesg<M>{m, router.nextSeq++, this->id}, this->id);
     }
 
+    void
+    share(Proposal const& p)
+    {
+        issue(Share<Proposal>{p});
+        send(
+            BroadcastMesg<Proposal>{
+                p, router.nextSeq++, this->id, ce().proposalEquivocations(p)},
+            this->id);
+    }
+
     // Unwrap the Position and share the raw proposal
     void
     share(Position const& p)
@@ -739,6 +1755,10 @@ struct Peer
         M mesg;
         std::size_t seq;
         PeerID origin;
+        // Optional origin-authored recipient-specific messages. Used only by
+        // tests that model Byzantine equivocation; relays preserve the map so
+        // each recipient sees the origin's intended variant regardless of path.
+        bc::flat_map<PeerID, M> recipientMessages = {};
     };
 
     struct Router
@@ -762,12 +1782,19 @@ struct Peer
                 // used on the other end
                 if (link.target->router.lastObservedSeq[bm.origin] < bm.seq)
                 {
-                    issue(Relay<M>{link.target->id, bm.mesg});
+                    auto outbound = bm;
+                    if (auto const it =
+                            bm.recipientMessages.find(link.target->id);
+                        it != bm.recipientMessages.end())
+                    {
+                        outbound.mesg = it->second;
+                    }
+                    issue(Relay<M>{link.target->id, outbound.mesg});
                     net.send(
                         this,
                         link.target,
-                        [to = link.target, bm, id = this->id] {
-                            to->receive(bm, id);
+                        [to = link.target, outbound, id = this->id] {
+                            to->receive(outbound, id);
                         });
                 }
             }
@@ -843,6 +1870,12 @@ struct Peer
 
         // Will only relay if current
         return addTrustedValidation(v);
+    }
+
+    bool
+    handle(CsfExportShare const& share)
+    {
+        return ce().ingestDirectExportShare(share);
     }
 
     bool

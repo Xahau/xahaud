@@ -12,6 +12,13 @@ option(xrpld "Build xrpld" ON)
 
 option(tests "Build tests" ON)
 
+option(xahaud_runtime_test_config
+  "Enable XAHAUD_RUNTIME_TEST_CONFIG env and runtime_config RPC fault-injection controls"
+  OFF)
+# Conan 2 local opt-in:
+# [conf]
+# tools.cmake.cmaketoolchain:extra_variables={"xahaud_runtime_test_config":"ON"}
+
 option(unity "Creates a build using UNITY support in cmake. This is the default" ON)
 if(unity)
   if(NOT is_ci)

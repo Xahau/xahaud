@@ -56,9 +56,9 @@ getVersionString()
         (versionString == std::string("0.") + std::string("0.0") ||
          versionString == std::string("0.0.0+DEBUG")))
     {
-        std::string y = std::string(__DATE__ + 7);
+        std::string y = std::string(&__DATE__[7]);
         std::string d = std::string(
-            __DATE__ + 4 + (__DATE__[4] == ' ' ? 1 : 0),
+            &__DATE__[4 + (__DATE__[4] == ' ' ? 1 : 0)],
             __DATE__[4] == ' ' ? 1 : 2);
         std::string m;
         switch (__DATE__[0])

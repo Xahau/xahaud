@@ -23,14 +23,81 @@
 #include <test/csf/Validation.h>
 #include <test/csf/ledgers.h>
 #include <xrpld/consensus/ConsensusProposal.h>
+#include <xrpl/basics/base_uint.h>
+#include <xrpl/beast/hash/hash_append.h>
+#include <cstdint>
+#include <optional>
+#include <ostream>
+#include <string>
 
 namespace ripple {
 namespace test {
 namespace csf {
-/** Proposal is a position taken in the consensus process and is represented
-    directly from the generic types.
+/** Position sidecar for CSF that can model RNG commit/reveal fields.
+
+    Core tx-set convergence remains keyed on txSetHash only, matching
+    production's ExtendedPosition behavior.
 */
-using Proposal = ConsensusProposal<PeerID, Ledger::ID, TxSet::ID>;
+struct RngPosition
+{
+    TxSet::ID txSetHash{};
+    std::optional<uint256> commitSetHash;
+    std::optional<uint256> entropySetHash;
+    std::optional<uint256> exportSigSetHash;
+    std::optional<uint256> myCommitment;
+    std::optional<uint256> myReveal;
+    std::optional<Ledger::ID> exportSignatureOrigin;
+    std::optional<uint256> myExportSignature;
+
+    RngPosition() = default;
+    explicit RngPosition(TxSet::ID txSet) : txSetHash(txSet)
+    {
+    }
+
+    void
+    updateTxSet(TxSet::ID txSet)
+    {
+        txSetHash = txSet;
+    }
+};
+
+inline std::string
+to_string(RngPosition const& pos)
+{
+    return std::to_string(pos.txSetHash);
+}
+
+inline std::ostream&
+operator<<(std::ostream& os, RngPosition const& pos)
+{
+    return os << pos.txSetHash;
+}
+
+template <class Hasher>
+void
+hash_append(Hasher& h, RngPosition const& pos)
+{
+    using beast::hash_append;
+    auto appendOpt = [&](auto const& o) {
+        hash_append(h, static_cast<std::uint8_t>(o.has_value() ? 1 : 0));
+        if (o)
+            hash_append(h, *o);
+    };
+
+    hash_append(h, pos.txSetHash);
+    appendOpt(pos.commitSetHash);
+    appendOpt(pos.entropySetHash);
+    appendOpt(pos.exportSigSetHash);
+    appendOpt(pos.myCommitment);
+    appendOpt(pos.myReveal);
+    appendOpt(pos.exportSignatureOrigin);
+    appendOpt(pos.myExportSignature);
+}
+
+/** Proposal is a position taken in the consensus process.
+ */
+using Proposal = ConsensusProposal<PeerID, Ledger::ID, RngPosition>;
+using ProposalPosition = RngPosition;
 
 }  // namespace csf
 }  // namespace test

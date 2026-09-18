@@ -25,6 +25,8 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
+#include <xrpld/shamap/SHAMapSyncFilter.h>
+#include <xrpld/shamap/SHAMapTreeNode.h>
 
 #include <memory>
 
@@ -40,6 +42,27 @@ enum {
     MAX_TIMEOUTS = 20,
 };
 
+namespace {
+
+std::unique_ptr<SHAMapSyncFilter>
+makeSyncFilter(Application& app)
+{
+    return std::make_unique<ConsensusTransSetSF>(app, app.getTempNodeCache());
+}
+
+bool
+isCandidateTransactionSetWireNode(Slice rawNode)
+{
+    if (rawNode.empty())
+        return false;
+
+    auto const wireType = rawNode[rawNode.size() - 1];
+    return wireType == wireTypeInner || wireType == wireTypeCompressedInner ||
+        wireType == wireTypeTransaction;
+}
+
+}  // namespace
+
 TransactionAcquire::TransactionAcquire(
     Application& app,
     uint256 const& hash,
@@ -53,6 +76,8 @@ TransactionAcquire::TransactionAcquire(
     , mHaveRoot(false)
     , mPeerSet(std::move(peerSet))
 {
+    // Candidate set acquisition is content-addressed; normal reply limits, peer
+    // scoring, charging, and timeout behavior apply.
     mMap = std::make_shared<SHAMap>(
         SHAMapType::TRANSACTION, hash, app_.getNodeFamily());
     mMap->setUnbacked();
@@ -145,8 +170,8 @@ TransactionAcquire::trigger(std::shared_ptr<Peer> const& peer)
     }
     else
     {
-        ConsensusTransSetSF sf(app_, app_.getTempNodeCache());
-        auto nodes = mMap->getMissingNodes(256, &sf);
+        auto sf = makeSyncFilter(app_);
+        auto nodes = mMap->getMissingNodes(256, sf.get());
 
         if (nodes.empty())
         {
@@ -198,10 +223,17 @@ TransactionAcquire::takeNodes(
         if (data.empty())
             return SHAMapAddNode::invalid();
 
-        ConsensusTransSetSF sf(app_, app_.getTempNodeCache());
+        auto sf = makeSyncFilter(app_);
 
         for (auto const& d : data)
         {
+            if (!isCandidateTransactionSetWireNode(d.second))
+            {
+                JLOG(journal_.warn())
+                    << "TX acquire got non-transaction-set wire node";
+                return SHAMapAddNode::invalid();
+            }
+
             if (d.first.isRoot())
             {
                 if (mHaveRoot)
@@ -216,7 +248,7 @@ TransactionAcquire::takeNodes(
                 else
                     mHaveRoot = true;
             }
-            else if (!mMap->addKnownNode(d.first, d.second, &sf).isGood())
+            else if (!mMap->addKnownNode(d.first, d.second, sf.get()).isGood())
             {
                 JLOG(journal_.warn()) << "TX acquire got bad non-root node";
                 return SHAMapAddNode::invalid();

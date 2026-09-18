@@ -49,6 +49,17 @@ struct TER_test : public beast::unit_test::suite
         }
     }
 
+    void
+    testLocalCodeValues()
+    {
+        // Local TEL codes are still serialized and surfaced by tests/tools, so
+        // new branch-local codes should append without moving existing values.
+        static_assert(TERtoInt(telENV_RPC_FAILED) == -380);
+        static_assert(TERtoInt(telEXPORT_LATCH_REQUIRED) == -379);
+        BEAST_EXPECT(TER::fromInt(-380) == telENV_RPC_FAILED);
+        BEAST_EXPECT(TER::fromInt(-379) == telEXPORT_LATCH_REQUIRED);
+    }
+
     // Helper template that makes sure two types are not convertible or
     // assignable if not the same.
     // o I1 one tuple index.
@@ -288,6 +299,7 @@ struct TER_test : public beast::unit_test::suite
     run() override
     {
         testTransResultInfo();
+        testLocalCodeValues();
         testConversion();
         testComparison();
     }

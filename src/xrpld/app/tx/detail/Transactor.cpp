@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
@@ -59,10 +60,9 @@ preflight0(PreflightContext const& ctx)
         uint32_t nodeNID = ctx.app.config().NETWORK_ID;
         std::optional<uint32_t> txNID = ctx.tx[~sfNetworkID];
 
-        if (nodeNID <= 1024)
+        if (!requiresTxNetworkID(nodeNID))
         {
-            // legacy networks have ids less than 1024, these networks cannot
-            // specify NetworkID in txn
+            // Legacy networks cannot specify NetworkID in txn.
             if (txNID)
                 return telNETWORK_ID_MAKES_TX_NON_CANONICAL;
         }
@@ -909,11 +909,11 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getFieldU32(sfNetworkID) == 65535)
         return tesSUCCESS;
 
-    // pass ttIMPORTs, their signatures are checked at the preflight against the
-    // internal xpop txn
+    // Import distinguishes B2M proof authorization from callback account
+    // authorization or an explicit per-intent callback fee allowance.
     if (ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT)
-        return tesSUCCESS;
+        return Import::checkImportSign(ctx);
 
     // pass ttMANIFEST_SETs, their signatures are checked in preflight against
     // the manifest's internal key logic
@@ -921,6 +921,12 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
+    return checkAccountSign(ctx);
+}
+
+NotTEC
+Transactor::checkAccountSign(PreclaimContext const& ctx)
+{
     if (ctx.flags & tapDRY_RUN)
     {
         // This code must be different for `simulate`
@@ -2047,6 +2053,7 @@ Transactor::operator()()
         for (auto& hookResult : hookResults)
         {
             hook::finalizeHookResult(hookResult, ctx_, isTesSuccess(result));
+
             if (hookResult.executeAgainAsWeak)
             {
                 if (aawMap.find(hookResult.account) == aawMap.end())
@@ -2423,6 +2430,39 @@ Transactor::operator()()
 
         if (ctx_.size() > oversizeMetaDataCap)
             result = tecOVERSIZE;
+    }
+
+    if (applied && isTesSuccess(result))
+    {
+        auto const limitResult = ctx_.checkExportEmissionLimit(result);
+        if (!isTesSuccess(limitResult))
+        {
+            result = limitResult;
+
+            auto const resetResult = reset(fee);
+            if (!isTesSuccess(resetResult.first))
+            {
+                result = resetResult.first;
+                applied = false;
+            }
+            else
+            {
+                fee = resetResult.second;
+                result = ctx_.checkInvariants(result, fee);
+                applied = isTesSuccess(result) || isTecClaim(result);
+            }
+        }
+    }
+
+    // An opt-in callback allowance does not authorize repeated fee-only
+    // attempts when a Hook or later apply check rejects the callback.
+    if (isTecClaim(result) && !allowsFeeOnlyClaim())
+    {
+        JLOG(j_.debug()) << "Callback allowance does not cover fee-only result "
+                         << transToken(result);
+        ctx_.discard();
+        result = tefBAD_AUTH;
+        applied = false;
     }
 
     std::optional<TxMeta> metadata;

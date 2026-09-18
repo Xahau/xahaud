@@ -43,6 +43,7 @@ namespace ripple {
 #define SF_PRIVATE4 0x0800
 #define SF_PRIVATE5 0x1000
 #define SF_PRIVATE6 0x2000
+#define SF_PRIVATE7 0x8000
 
 #define SF_EMITTED 0x4000
 

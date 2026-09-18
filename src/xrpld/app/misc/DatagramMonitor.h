@@ -2,6 +2,7 @@
 #ifndef RIPPLE_APP_MAIN_DATAGRAMMONITOR_H_INCLUDED
 #define RIPPLE_APP_MAIN_DATAGRAMMONITOR_H_INCLUDED
 
+#include <xrpld/app/consensus/RCLConsensus.h>
 #include <xrpld/app/ledger/AcceptedLedger.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/LedgerMaster.h>

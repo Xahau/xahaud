@@ -62,6 +62,22 @@ emittedDir() noexcept;
 Keylet
 emittedTxn(uint256 const& id) noexcept;
 
+/** Locate an Export latch by its permanent source issuance identity.
+
+    The source Export transaction ID is content-addressed and cannot be reused,
+    including after AccountDelete.
+*/
+Keylet
+exportLatch(AccountID const& account, uint256 const& originTxnHash) noexcept;
+
+/** Locate an immutable Export committee owned by an account. */
+Keylet
+exportCommittee(AccountID const& account, uint256 const& digest) noexcept;
+
+/** The fixed global directory of Export latches awaiting witness work. */
+Keylet const&
+pendingExports() noexcept;
+
 Keylet
 hookDefinition(uint256 const& hash) noexcept;
 
@@ -117,6 +133,10 @@ negativeUNL() noexcept;
 
 Keylet const&
 UNLReport() noexcept;
+
+/** The (fixed) index of the object containing consensus-derived entropy. */
+Keylet const&
+consensusEntropy() noexcept;
 
 /** The beginning of an order book */
 struct book_t

@@ -59,6 +59,8 @@ doChannelVerify(RPC::JsonContext&);
 Json::Value
 doConnect(RPC::JsonContext&);
 Json::Value
+doDisconnect(RPC::JsonContext&);
+Json::Value
 doConsensusInfo(RPC::JsonContext&);
 Json::Value
 doDepositAuthorized(RPC::JsonContext&);
@@ -118,6 +120,8 @@ Json::Value
 doRandom(RPC::JsonContext&);
 Json::Value
 doResume(RPC::JsonContext&);
+Json::Value
+doRuntimeConfig(RPC::JsonContext&);
 Json::Value
 doPeerReservationsAdd(RPC::JsonContext&);
 Json::Value
