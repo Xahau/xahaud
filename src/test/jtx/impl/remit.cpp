@@ -89,6 +89,15 @@ uri::operator()(Env& env, JTx& jt) const
     {
         jt.jv[sfMintURIToken.jsonName][sfDigest.fieldName] = *digest_;
     }
+    if (transferFee_)
+    {
+        jt.jv[sfMintURIToken.jsonName][sfTransferFee.jsonName] = *transferFee_;
+    }
+    if (transferFeeRecipient_)
+    {
+        jt.jv[sfMintURIToken.jsonName][sfTransferFeeRecipient.jsonName] =
+            transferFeeRecipient_->human();
+    }
 }
 
 }  // namespace remit
