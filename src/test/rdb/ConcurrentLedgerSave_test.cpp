@@ -1,6 +1,7 @@
 #include <test/jtx.h>
 
 #include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/rdb/backend/detail/Node.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/core/JobQueue.h>
@@ -37,7 +38,7 @@ class ConcurrentLedgerSave_test : public beast::unit_test::suite
             env(pay(alice, bob, drops(i + 1)));
             transactionIDs[i] = env.tx()->getTransactionID();
             env.close();
-            ledgers[i] = env.closed();
+            ledgers[i] = env.app().getLedgerMaster().getClosedLedger();
         }
         env.app().getJobQueue().rendezvous();
 
@@ -68,7 +69,7 @@ class ConcurrentLedgerSave_test : public beast::unit_test::suite
                 {
                     for (int attempt = 0; attempt < savesPerWriter; ++attempt)
                     {
-                        if (!detail::saveValidatedLedger(
+                        if (!ripple::detail::saveValidatedLedger(
                                 *ledgerDBs[i],
                                 *transactionDBs[i],
                                 env.app(),
