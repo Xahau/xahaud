@@ -52,6 +52,12 @@ enum ApplyFlags : std::uint32_t {
     // applied inside its parent transaction's application. Only ever set by
     // Transactor::applyAtomicEmissions.
     tapATOMIC_EMIT = 0x2000,
+
+    // Together with tapATOMIC_EMIT: the atomic group this inner txn belongs
+    // to failed, so the txn is applied fee-only (no hooks, no doApply) and
+    // recorded as tecHOOK_EMIT_FAILED, exactly like a tec transaction. Only
+    // ever set by Transactor::applyFailedAtomicEmissions.
+    tapATOMIC_EMIT_FAILED = 0x4000,
 };
 
 constexpr ApplyFlags

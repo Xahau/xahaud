@@ -232,6 +232,12 @@ protected:
     // be applied inside this transaction, right after it, all-or-nothing.
     std::vector<std::shared_ptr<Transaction>> atomicEmissions_;
 
+    // The atomic emissions of a group that failed. They are re-applied
+    // fee-only (tapATOMIC_EMIT_FAILED) after the parent's tec is committed,
+    // so that a failed group costs the hook account the same fees as a
+    // successful one.
+    std::vector<std::shared_ptr<Transaction>> failedAtomicEmissions_;
+
     // Move a hook result's emit_atomic queue into atomicEmissions_ (strong
     // executions only; ok == false discards the queue).
     void
@@ -242,9 +248,16 @@ protected:
     std::pair<TER, uint256>
     applyAtomicEmissions(OpenView& sandbox);
 
-    // Propagate the sandbox (parent + inners) into ctx_.base().
+    // Propagate the sandbox into ctx_.base(). `includesParent` says whether
+    // the parent txn was applied into the sandbox (it must be listed in an
+    // open ledger even though the inners are not).
     void
-    commitSandbox(OpenView& sandbox);
+    commitSandbox(OpenView& sandbox, bool includesParent);
+
+    // After the parent has been committed as tecHOOK_EMIT_FAILED: apply every
+    // inner of the failed group fee-only into ctx_.base().
+    void
+    applyFailedAtomicEmissions();
 
     // Undo the first pass of the post-apply pipeline so the existing tec
     // path can run: restore the strong-phase hook metadata, drop the weak

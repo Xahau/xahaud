@@ -16928,6 +16928,7 @@ public:
             auto const aliceBefore = env.balance(alice).value().xrp().drops();
             auto const seqBefore = env.seq(alice);
 
+            auto const dropsBefore = env.closed()->info().drops.drops();
             env(invoke(alice, {dstP(bob), amtP(huge)}),
                 M("atomic unfunded"),
                 fee(XRP(1)),
@@ -16936,16 +16937,14 @@ public:
             BEAST_EXPECT(env.balance(bob).value().xrp().drops() == bobBefore);
             env.close();
 
+            // the parent (tec) and the inner, recorded fee-only as a tec
             auto const ledger = env.closed();
-            BEAST_EXPECT(countTxs(ledger) == 1);
+            BEAST_EXPECT(countTxs(ledger) == 2);
             auto const outerMeta = txMeta(ledger, outerId);
             BEAST_REQUIRE(outerMeta);
             BEAST_EXPECT(
                 outerMeta->getFieldU8(sfTransactionResult) ==
                 tecHOOK_EMIT_FAILED);
-            BEAST_EXPECT(
-                env.balance(alice).value().xrp().drops() ==
-                aliceBefore - XRP(1).value().xrp().drops());
             BEAST_EXPECT(env.seq(alice) == seqBefore + 1);
             BEAST_EXPECT(!hookStateExists(alice));
             BEAST_EXPECT(!hasEmittedTxnNode(*outerMeta));
@@ -16969,9 +16968,32 @@ public:
                     JsonOptions::none)[sfHookEmittedTransactionResult
                                            .jsonName] ==
                 transToken(tecUNFUNDED_PAYMENT));
+
+            // the inner is in the ledger as a fee-only tec: no hooks ran, no
+            // payment happened, but its fee was charged to the hook account
+            auto const innerId = emissions[0].getFieldH256(sfEmittedTxnID);
+            auto const [innerTx, innerMeta] = ledger->txRead(innerId);
+            BEAST_REQUIRE(innerTx && innerMeta);
             BEAST_EXPECT(
-                ledger->txExists(emissions[0].getFieldH256(sfEmittedTxnID)) ==
-                false);
+                innerMeta->getFieldU8(sfTransactionResult) ==
+                tecHOOK_EMIT_FAILED);
+            BEAST_EXPECT(
+                innerMeta->getFieldU32(sfTransactionIndex) ==
+                outerMeta->getFieldU32(sfTransactionIndex) + 1);
+            BEAST_EXPECT(!innerMeta->isFieldPresent(sfHookExecutions));
+            auto const& ed = const_cast<STTx&>(*innerTx)
+                                 .getField(sfEmitDetails)
+                                 .downcast<STObject>();
+            BEAST_EXPECT(ed.getFieldH256(sfEmitParentTxnID) == outerId);
+            auto const innerFee = innerTx->getFieldAmount(sfFee).xrp().drops();
+            BEAST_EXPECT(innerFee > 0);
+            BEAST_EXPECT(
+                env.balance(alice).value().xrp().drops() ==
+                aliceBefore - XRP(1).value().xrp().drops() - innerFee);
+            BEAST_EXPECT(
+                dropsBefore - ledger->info().drops.drops() ==
+                XRP(1).value().xrp().drops() + innerFee);
+            BEAST_EXPECT(env.le(keylet::emittedTxn(innerId)) == nullptr);
 
             env.close();
             BEAST_EXPECT(countTxs(env.closed()) == 0);
@@ -16982,12 +17004,17 @@ public:
         //    the parent fails with the inner's tecHOOK_REJECTED recorded
         setHook(bob, {hso(reject_wasm, overrideFlag)});
         {
+            auto const bobBefore = env.balance(bob).value().xrp().drops();
             env(invoke(alice, {dstP(bob), amtP(1000)}),
                 M("atomic rejected by tsh"),
                 fee(XRP(1)),
                 ter(tecHOOK_EMIT_FAILED));
             auto const outerId = env.tx()->getTransactionID();
             env.close();
+            // parent + fee-only inner; bob's rejecting hook did not run
+            // again for the fee-only application and bob received nothing
+            BEAST_EXPECT(countTxs(env.closed()) == 2);
+            BEAST_EXPECT(env.balance(bob).value().xrp().drops() == bobBefore);
             auto const outerMeta = txMeta(env.closed(), outerId);
             BEAST_REQUIRE(outerMeta);
             auto const& emissions = outerMeta->getFieldArray(sfHookEmissions);
@@ -17056,7 +17083,9 @@ public:
             auto const outerMeta2 = txMeta(env.closed(), outerId2);
             BEAST_REQUIRE(outerMeta2);
             BEAST_EXPECT(!hasEmittedTxnNode(*outerMeta2));
-            BEAST_EXPECT(countTxs(env.closed()) == 1);
+            // parent + the atomic inner (fee-only); the normal emission is
+            // gone with the directory entry
+            BEAST_EXPECT(countTxs(env.closed()) == 2);
             env.close();
             BEAST_EXPECT(countTxs(env.closed()) == 0);
             BEAST_EXPECT(
@@ -17096,7 +17125,17 @@ public:
                 ter(tecHOOK_EMIT_FAILED));
             auto const outerId2 = env.tx()->getTransactionID();
             env.close();
-            BEAST_EXPECT(countTxs(env.closed()) == 1);
+            // parent + both inners fee-only (the first one succeeded on its
+            // own but is rolled back and charged with the group)
+            BEAST_EXPECT(countTxs(env.closed()) == 3);
+            for (auto const& t : env.closed()->txs)
+            {
+                if (t.first->getTransactionID() == outerId2)
+                    continue;
+                BEAST_EXPECT(
+                    t.second->getFieldU8(sfTransactionResult) ==
+                    tecHOOK_EMIT_FAILED);
+            }
             BEAST_EXPECT(
                 env.balance(bob).value().xrp().drops() == bobBefore + 3000);
             auto const outerMeta2 = txMeta(env.closed(), outerId2);
@@ -17258,7 +17297,7 @@ public:
 
             env.close();  // the emitted txn is injected and applied here
             auto const ledger = env.closed();
-            BEAST_EXPECT(countTxs(ledger) == 1);
+            BEAST_EXPECT(countTxs(ledger) == 2);  // emitted outer + its inner
             auto const emittedMeta = txMeta(ledger, emittedId);
             BEAST_REQUIRE(emittedMeta);
             BEAST_EXPECT(

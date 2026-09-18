@@ -2028,6 +2028,16 @@ Transactor::operator()()
 
     auto result = ctx_.preclaimResult;
 
+    // Inner txn of a failed emit_atomic group: charge the fee and record the
+    // txn as tecHOOK_EMIT_FAILED, but run neither hooks nor doApply. This
+    // makes a failed group cost the hook account exactly what a successful
+    // one costs. The real cause is recorded on the parent's HookEmission
+    // (HookEmittedTransactionResult); the parent is reachable through
+    // EmitDetails.EmitParentTxnID.
+    bool const feeOnlyAtomicInner = (ctx_.flags() & tapATOMIC_EMIT_FAILED) != 0;
+    if (feeOnlyAtomicInner && isTesSuccess(result))
+        result = tecHOOK_EMIT_FAILED;
+
     bool const hooksEnabled = view().rules().enabled(featureHooks);
 
     // AgainAsWeak map stores information about accounts whose strongly executed
@@ -2041,6 +2051,7 @@ Transactor::operator()()
     // Pre-application (Strong TSH) Hooks are executed here
     // These TSH have the right to rollback.
     // Weak TSH and callback are executed post-application.
+    // (a fee-only atomic inner never gets here: its result is already a tec)
     if (hooksEnabled && isTesSuccess(result))
     {
         // this state map will be shared across all hooks in this execution
@@ -2432,7 +2443,7 @@ reapply:
     // Post-application (Weak TSH/AAW) Hooks are executed here.
     // These TSH do not have the ability to rollback.
     // The callback, if any, is also executed here.
-    if (applied && hooksEnabled)
+    if (applied && hooksEnabled && !feeOnlyAtomicInner)
     {
         // weakly executed hooks have access to a provisional TxMeta
         // for this tx application.
@@ -2493,6 +2504,9 @@ reapply:
     // no reset); route it through the tec pipeline instead.
     if (!atomicEmissions_.empty() && applied && !isTesSuccess(result))
     {
+        JLOG(j_.warn()) << "HookEmit[" << ctx_.tx.getTransactionID()
+                        << "]: parent failed with " << transToken(result)
+                        << " after atomic emission, rolling the group back";
         rewindAtomicEmissions(strongExecMeta, strongEmitMeta);
         goto reapply;
     }
@@ -2532,7 +2546,7 @@ reapply:
             if (isTesSuccess(innerTer))
             {
                 if (!(ctx_.flags() & tapDRY_RUN))
-                    commitSandbox(sandbox);
+                    commitSandbox(sandbox, /*includesParent=*/true);
             }
             else
             {
@@ -2550,6 +2564,11 @@ reapply:
         {
             // Once we call apply, we will no longer be able to look at view()
             metadata = ctx_.apply(result);
+
+            // second pass of a failed emit_atomic group: the parent is now
+            // committed as a tec, charge the inners' fees right after it
+            if (!failedAtomicEmissions_.empty() && !(ctx_.flags() & tapDRY_RUN))
+                applyFailedAtomicEmissions();
         }
     }
 
@@ -2624,7 +2643,7 @@ Transactor::applyAtomicEmissions(OpenView& sandbox)
 }
 
 void
-Transactor::commitSandbox(OpenView& sandbox)
+Transactor::commitSandbox(OpenView& sandbox, bool includesParent)
 {
     auto& base = ctx_.base();
     if (base.open())
@@ -2635,14 +2654,54 @@ Transactor::commitSandbox(OpenView& sandbox)
         // copy surviving into a consensus set would collide with the
         // parent's own re-emission). The parent itself is listed as usual.
         sandbox.applyState(base);
-        auto s = std::make_shared<Serializer>();
-        ctx_.tx.add(*s);
-        base.rawTxInsert(ctx_.tx.getTransactionID(), s, nullptr);
+        if (includesParent)
+        {
+            auto s = std::make_shared<Serializer>();
+            ctx_.tx.add(*s);
+            base.rawTxInsert(ctx_.tx.getTransactionID(), s, nullptr);
+        }
     }
     else
     {
         sandbox.apply(base);
     }
+}
+
+void
+Transactor::applyFailedAtomicEmissions()
+{
+    // The parent has already been committed to ctx_.base() with its tec.
+    // Apply each inner fee-only on top of it; their TransactionIndex values
+    // follow the parent's. Each inner is independent here (no all-or-nothing
+    // between them any more), so one failing preclaim (e.g. the hook account
+    // no longer covers its fee) only drops that inner.
+    OpenView sandbox(batch_view, ctx_.base());
+    for (auto const& tpTrans : failedAtomicEmissions_)
+    {
+        auto const& stx = *tpTrans->getSTransaction();
+        try
+        {
+            auto const r = ripple::apply(
+                ctx_.app,
+                sandbox,
+                stx,
+                tapATOMIC_EMIT | tapATOMIC_EMIT_FAILED,
+                j_);
+            if (!r.applied)
+                JLOG(j_.warn()) << "HookEmit[" << ctx_.tx.getTransactionID()
+                                << "]: fee-only application of atomic txn "
+                                << stx.getTransactionID()
+                                << " was not applied: " << transToken(r.ter);
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(j_.warn()) << "HookEmit[" << ctx_.tx.getTransactionID()
+                            << "]: fee-only application of atomic txn "
+                            << stx.getTransactionID() << " threw: " << e.what();
+        }
+    }
+    failedAtomicEmissions_.clear();
+    commitSandbox(sandbox, /*includesParent=*/false);
 }
 
 void
@@ -2658,6 +2717,9 @@ Transactor::rewindAtomicEmissions(
     // weak TSH accumulated by addWeakTSHFromBalanceChanges() during the
     // discarded pass; nothing else ever clears this set
     additionalWeakTSH_.clear();
+    // keep the inners: they are re-applied fee-only once the parent's tec
+    // has been committed (applyFailedAtomicEmissions)
+    failedAtomicEmissions_ = std::move(atomicEmissions_);
     atomicEmissions_.clear();
 }
 
