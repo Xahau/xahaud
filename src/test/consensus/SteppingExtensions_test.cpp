@@ -46,6 +46,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::array<std::size_t, 4> proposalFrames{};
         std::uint32_t droppedDirect = 0;
         std::uint32_t delayedValidations = 0;
+        std::uint32_t delayedValidatorTraffic = 0;
         std::uint32_t validationGap = 0;
         std::uint32_t validatedAheadOfClosed = 0;
     };
@@ -250,7 +251,17 @@ class SteppingExtensions_test : public beast::unit_test::suite
         if (fault == Fault::slowObserver)
             net.lagAccept(observer, 5s);
         if (fault == Fault::slowValidator)
+        {
             net.lagAccept(1, 2s);
+            for (std::uint32_t to = 0; to <= observer; ++to)
+                if (to != 1)
+                    net.faultLink(1, to, [stats](std::uint16_t, std::size_t) {
+                        ++stats->delayedValidatorTraffic;
+                        SimFault f;
+                        f.delay = 2500ms;
+                        return f;
+                    });
+        }
 
         if (fault != Fault::none)
         {
@@ -273,6 +284,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 if (fault == Fault::lateValidations)
                     for (std::uint32_t from = 0; from < observer; ++from)
                         net.faultLink(from, observer, {});
+                if (fault == Fault::slowValidator)
+                    for (std::uint32_t to = 0; to <= observer; ++to)
+                        if (to != 1)
+                            net.faultLink(1, to, {});
             });
         }
         auto const payment = world.submit(
@@ -362,7 +377,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
         }
         BEAST_EXPECT(entropySeen == rng);
         if (fault == Fault::slowValidator)
+        {
             BEAST_EXPECT(partialEntropySeen);
+            BEAST_EXPECT(stats->delayedValidatorTraffic != 0);
+        }
         BEAST_EXPECT(paymentSeen);
         BEAST_EXPECT(witnessSeen == exportOn);
         if (origin)
@@ -396,6 +414,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             << " partialEntropy=" << partialEntropySeen
             << " directDropped=" << stats->droppedDirect
             << " validationsDelayed=" << stats->delayedValidations
+            << " validatorTrafficDelayed=" << stats->delayedValidatorTraffic
             << " validationGap=" << stats->validationGap
             << " validatedAhead=" << stats->validatedAheadOfClosed
             << " observerJumps=" << net.closedJumps(observer).size()
@@ -403,6 +422,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         outcome.push_back(sha512Half(
             stats->droppedDirect,
             stats->delayedValidations,
+            stats->delayedValidatorTraffic,
             stats->validationGap,
             stats->validatedAheadOfClosed));
         return outcome;
@@ -412,12 +432,29 @@ public:
     void
     run() override
     {
+        // Optional focused iteration, e.g. --unittest-arg=case=validator.
+        // Keep replays=N available to the existing replay combinator.
+        std::string filter;
+        if (auto const at = arg().find("case="); at != std::string::npos)
+        {
+            filter = arg().substr(at + 5);
+            filter = filter.substr(0, filter.find(','));
+        }
+        std::size_t selected = 0;
+        auto matches = [&](std::string const& label) {
+            if (!filter.empty() && label.find(filter) == std::string::npos)
+                return false;
+            ++selected;
+            return true;
+        };
         for (auto const rng : {false, true})
             for (auto const exportOn : {false, true})
             {
                 auto const label = std::string{"feature matrix rng="} +
                     (rng ? "on" : "off") +
                     " export=" + (exportOn ? "on" : "off");
+                if (!matches(label))
+                    continue;
                 testcase(label);
                 expectReplays(
                     *this,
@@ -443,11 +480,13 @@ public:
                   true,
                   true},
               std::tuple{
-                  "one RNG validator builds two seconds late then recovers",
+                  "one RNG validator with slow builds and traffic recovers",
                   Fault::slowValidator,
                   true,
                   false}})
         {
+            if (!matches(label))
+                continue;
             testcase(label);
             auto const selectedFault = fault;
             auto const enableRng = rng;
@@ -461,6 +500,7 @@ public:
                         net, enableRng, enableExport, selectedFault);
                 });
         }
+        BEAST_EXPECT(selected != 0);
     }
 };
 
