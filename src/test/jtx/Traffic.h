@@ -114,7 +114,7 @@ fundThreaded(
     for (auto const& account : accounts)
     {
         auto const txn = net.submit(
-            node, jtx::pay(jtx::Account::kMaster, account, amount), jtx::Account::kMaster);
+            node, jtx::pay(jtx::Account::master, account, amount), jtx::Account::master);
         if (txn->getResult() != tesSUCCESS)
             throw std::logic_error(
                 "traffic::fundThreaded: pay(" + account.name() +

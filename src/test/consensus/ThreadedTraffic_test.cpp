@@ -119,7 +119,7 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             section.set("ledgers_in_queue", "8");
             section.set("minimum_queue_size", "200");
             section.set("minimum_txn_in_ledger", "1");
-            section.set("minimum_txn_in_ledger"Standalone, "1");
+            section.set("minimum_txn_in_ledger_standalone", "1");
             section.set("target_txn_in_ledger", "1");
             section.set("maximum_txn_in_ledger", "2");
             section.set("maximum_txn_per_account", "16");
@@ -134,7 +134,7 @@ class ThreadedTraffic_test : public beast::unit_test::suite
         return [](Config& cfg) {
             auto& section = cfg.section("transaction_queue");
             section.set("minimum_txn_in_ledger", "3");
-            section.set("minimum_txn_in_ledger"Standalone, "3");
+            section.set("minimum_txn_in_ledger_standalone", "3");
             section.set("target_txn_in_ledger", "3");
             section.set("maximum_txn_in_ledger", "3");
             section.set("minimum_queue_size", "50000");
@@ -149,8 +149,8 @@ class ThreadedTraffic_test : public beast::unit_test::suite
     {
         return [sslVerify](Config& cfg) {
             cfg.SSL_VERIFY = sslVerify;
-            cfg.SSL_VERIFYDir.clear();
-            cfg.SSL_VERIFYFile.clear();
+            cfg.SSL_VERIFY_DIR.clear();
+            cfg.SSL_VERIFY_FILE.clear();
         };
     }
 
@@ -303,7 +303,7 @@ class ThreadedTraffic_test : public beast::unit_test::suite
             locals,
             /*retriesFirst=*/false,
             retries,
-            TapNone,
+            tapNONE,
             "txq-parenthashcomp-oracle");
     }
 
