@@ -2003,8 +2003,8 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
 
     auto const hash = map->getHash().as_uint256();
     // TODO: move consensus-extension snapshots out of InboundTransactions.
-    // They are same-process materialization caches only; sidecar roots are no
-    // longer advertised, fetched, served, or merged from peers.
+    // Roots are advertised in proposals, but these maps are same-process
+    // materialization caches, not peer-fetchable transaction-set candidates.
     app_.getInboundTransactions().giveSet(hash, map, false);
 
     JLOG(j_.debug()) << "RNG: built commitSet SHAMap"
@@ -2069,8 +2069,8 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
 
     auto const hash = map->getHash().as_uint256();
     // TODO: move consensus-extension snapshots out of InboundTransactions.
-    // They are same-process materialization caches only; sidecar roots are no
-    // longer advertised, fetched, served, or merged from peers.
+    // Roots are advertised in proposals, but these maps are same-process
+    // materialization caches, not peer-fetchable transaction-set candidates.
     app_.getInboundTransactions().giveSet(hash, map, false);
 
     JLOG(j_.debug()) << "RNG: built entropySet SHAMap"
@@ -2140,8 +2140,8 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 
     auto const hash = map->getHash().as_uint256();
     // TODO: move consensus-extension snapshots out of InboundTransactions.
-    // They are same-process materialization caches only; sidecar roots are no
-    // longer advertised, fetched, served, or merged from peers.
+    // Roots are advertised in proposals, but these maps are same-process
+    // materialization caches, not peer-fetchable transaction-set candidates.
     app_.getInboundTransactions().giveSet(hash, map, false);
 
     // The moving validated cursor is diagnostic only at this boundary.
