@@ -1430,6 +1430,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         outcome.push_back(origin);
         outcome.push_back(originGap);
         return outcome;
+    }
 
 public:
     void
