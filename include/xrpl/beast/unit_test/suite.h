@@ -12,9 +12,12 @@
 #include <boost/filesystem.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/throw_exception.hpp>
+#include <map>
+#include <mutex>
 #include <ostream>
 #include <sstream>
 #include <string>
+#include <thread>
 
 namespace beast {
 namespace unit_test {
@@ -67,28 +70,64 @@ private:
         }
     };
 
+    // Journal writers and direct suite logging share this buffer. Expose no
+    // put area, so every write takes the lock through the streambuf virtuals.
+    // Keep unfinished text per thread: one writer's flush must not consume
+    // another writer's partial message.
     template <class CharT, class Traits, class Allocator>
-    class log_buf : public std::basic_stringbuf<CharT, Traits, Allocator>
+    class log_buf : public std::basic_streambuf<CharT, Traits>
     {
+        using string_type = std::basic_string<CharT, Traits, Allocator>;
+        using int_type = typename Traits::int_type;
+
         suite& suite_;
+        std::mutex mutex_;
+        std::map<std::thread::id, string_type> pending_;
 
     public:
         explicit log_buf(suite& self) : suite_(self)
         {
         }
 
-        ~log_buf()
+        ~log_buf() override
         {
-            sync();
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (auto const& [id, text] : pending_)
+                if (!text.empty())
+                    suite_.runner_->log(text);
+        }
+
+    protected:
+        int_type
+        overflow(int_type ch) override
+        {
+            if (Traits::eq_int_type(ch, Traits::eof()))
+                return Traits::not_eof(ch);
+            std::lock_guard<std::mutex> lock(mutex_);
+            pending_[std::this_thread::get_id()].push_back(
+                Traits::to_char_type(ch));
+            return ch;
+        }
+
+        std::streamsize
+        xsputn(CharT const* text, std::streamsize size) override
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            pending_[std::this_thread::get_id()].append(
+                text, static_cast<std::size_t>(size));
+            return size;
         }
 
         int
         sync() override
         {
-            auto const& s = this->str();
-            if (s.size() > 0)
-                suite_.runner_->log(s);
-            this->str("");
+            std::lock_guard<std::mutex> lock(mutex_);
+            auto& text = pending_[std::this_thread::get_id()];
+            if (!text.empty())
+            {
+                suite_.runner_->log(text);
+                text.clear();
+            }
             return 0;
         }
     };
