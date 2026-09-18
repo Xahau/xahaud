@@ -785,6 +785,21 @@ public:
         throw std::logic_error("SteppingNetwork::faultLink: no live wire between nodes");
     }
 
+    // Content-aware whole-frame faults, e.g. lose only share-bearing proposals.
+    SteppingNetwork&
+    faultFrames(std::uint32_t from, std::uint32_t to, SimPipe::FrameFault injector)
+    {
+        requireSlot(from, "faultFrames");
+        requireSlot(to, "faultFrames");
+        for (auto it = links_.rbegin(); it != links_.rend(); ++it)
+            if (it->connects(from, to) && it->wire && !it->wire->severed())
+            {
+                it->wire->setFrameFault(it->a == from, std::move(injector));
+                return *this;
+            }
+        throw std::logic_error("SteppingNetwork::faultFrames: no live wire between nodes");
+    }
+
     SteppingNetwork&
     linkDelays(latency::Profile profile)
     {
