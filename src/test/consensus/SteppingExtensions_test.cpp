@@ -87,6 +87,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
         bool sawObserverMap = false;
         std::size_t candidateLeavesA = 0;
         std::size_t candidateLeavesB = 0;
+        bool queuedExportWork = false;
+        bool oldGenerationRan = false;
+        bool newGenerationRan = false;
     };
 
     template <class T>
@@ -1258,6 +1261,150 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+    std::optional<std::vector<uint256>>
+    observerRestartAcrossExport(SteppingNetwork& net)
+    {
+        using namespace std::chrono_literals;
+        World world(net, true, true);
+        if (!ready(world))
+            return std::nullopt;
+        auto const funding = world.submit(
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto const stats = world.observed;
+        net.controller().setJobLag(
+            observer, jtADVANCE, "validatedLedgerWork", 20s);
+        net.controller().observeJobs(
+            [&net, stats](
+                std::uint32_t id, JobType type, std::string const& name) {
+                if (id != observer || !net.isLive(id))
+                    return;
+                if (type != jtADVANCE || name != "validatedLedgerWork")
+                    return;
+                auto& ce = net.node(id).app().getConsensusExtensions();
+                if (ce.hasEligiblePendingExports())
+                    stats->queuedExportWork = true;
+            });
+
+        auto const payment = world.submit(
+            observer,
+            jtx::pay(world.owner, world.destination, jtx::XRP(1000)),
+            world.owner);
+        if (!BEAST_EXPECT(payment && payment->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const tx = world.submit(observer, world.intent(), world.owner);
+        if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const origin = tx->getID();
+        net.runTo(warmLedger + 6);
+        net.controller().observeJobs({});
+        if (!BEAST_EXPECT(stats->queuedExportWork))
+            return std::nullopt;
+        BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
+        BEAST_EXPECT(stats->ownReleases[observer] == 0);
+        BEAST_EXPECT(stats->secrets[observer] == 0);
+
+        auto const staleHorizon = net.controller().now() + 25s;
+        net.at(staleHorizon, observer, [stats]() {
+            stats->oldGenerationRan = true;
+        });
+        auto const seqBeforeStop = net.validSeq(0);
+        net.isolateNodeAndFlush(observer);
+        net.stopNode(observer);
+        BEAST_EXPECT(!net.isLive(observer));
+        net.runOnly({0, 1, 2}, seqBeforeStop + 3);
+        BEAST_EXPECT(net.validSeq(0) > seqBeforeStop);
+        net.advanceTime(std::chrono::milliseconds{26'000});
+        BEAST_EXPECT(!stats->oldGenerationRan);
+
+        net.restartNode(observer);
+        if (!BEAST_EXPECT(net.isLive(observer)))
+            return std::nullopt;
+        BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
+        net.reconnectNode(observer);
+        net.clearLag(observer);
+        net.at(net.controller().now() + 1s, observer, [stats]() {
+            stats->newGenerationRan = true;
+        });
+
+        auto const target = net.validSeq(0) + 4;
+        net.runTo(target, SteppingNetwork::RunBudget{1600, 1'200'000});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
+            return std::nullopt;
+        BEAST_EXPECT(stats->newGenerationRan);
+        BEAST_EXPECT(!stats->oldGenerationRan);
+        BEAST_EXPECT(net.ledgersAgree(target));
+        BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(net.offThreadJobs() == 0);
+        BEAST_EXPECT(net.failedJobs() == 0);
+        BEAST_EXPECT(stats->secrets[observer] == 0);
+        BEAST_EXPECT(stats->ownReleases[observer] == 0);
+        auto const seqA = witnessAt(net, origin, warmLedger);
+        BEAST_EXPECT(seqA != 0);
+        std::map<uint256, std::uint32_t> hits;
+        std::set<uint256> unexpected;
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= target; ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (std::uint32_t i = 1; i <= observer; ++i)
+            {
+                auto const ledger = net.ledger(i, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            outcome.push_back(canonical->info().hash);
+            for (auto const& [tx, meta] : canonical->txs)
+            {
+                if (tx->getTxnType() != ttEXPORT_SIGNATURES)
+                    continue;
+                if (!BEAST_EXPECT(meta != nullptr))
+                    return std::nullopt;
+                auto const id = tx->getFieldH256(sfTransactionHash);
+                if (id != origin)
+                    unexpected.insert(id);
+                else
+                    ++hits[origin];
+                auto const txBytes = tx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                outcome.push_back(
+                    sha512Half(makeSlice(txBytes), makeSlice(metaBytes)));
+                for (std::uint32_t i = 0; i <= observer; ++i)
+                {
+                    auto const ledger = net.ledger(i, seq);
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : ledger->txs)
+                    {
+                        if (peerTx->getTxnType() != ttEXPORT_SIGNATURES ||
+                            peerTx->getFieldH256(sfTransactionHash) != origin)
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes);
+                        BEAST_EXPECT(
+                            peerMeta != nullptr &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+        }
+        BEAST_EXPECT(unexpected.empty());
+        BEAST_EXPECT(hits[origin] == 1);
+        outcome.push_back(origin);
+        return outcome;
+    }
+
 public:
     void
     run() override
@@ -1393,6 +1540,16 @@ public:
                 "incomplete origin in global candidate",
                 [this](SteppingNetwork& net) {
                     return incompleteOriginInCandidate(net);
+                });
+        }
+        if (matches("observer restarts across Export-bearing history"))
+        {
+            testcase("observer restarts across Export-bearing history");
+            expectReplays(
+                *this,
+                "observer restarts across Export-bearing history",
+                [this](SteppingNetwork& net) {
+                    return observerRestartAcrossExport(net);
                 });
         }
         BEAST_EXPECT(selected != 0);
