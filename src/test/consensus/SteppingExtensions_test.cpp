@@ -449,11 +449,16 @@ public:
                   false}})
         {
             testcase(label);
+            auto const selectedFault = fault;
+            auto const enableRng = rng;
+            auto const enableExport = exportOn;
             expectReplays(
                 *this,
                 label,
-                [this, fault, rng, exportOn](SteppingNetwork& net) {
-                    return scenario(net, rng, exportOn, fault);
+                [this, selectedFault, enableRng, enableExport](
+                    SteppingNetwork& net) {
+                    return scenario(
+                        net, enableRng, enableExport, selectedFault);
                 });
         }
     }
