@@ -5338,6 +5338,36 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testHarnessEntropyRequiresStepping()
+    {
+        testcase("harness entropy cannot replace production randomness outside stepping");
+        using namespace jtx;
+        {
+            Env env{*this, envconfig(), FeatureBitset{}};
+            ConsensusExtensions ce{env.app(), activeNoopJournal()};
+            BEAST_EXPECT(!env.app().config().harnessEntropySecret);
+            ce.generateEntropySecret();
+            auto const first = ce.getEntropySecret();
+            ce.generateEntropySecret();
+            BEAST_EXPECT(!first.isZero());
+            BEAST_EXPECT(!ce.getEntropySecret().isZero());
+            BEAST_EXPECT(first != ce.getEntropySecret());
+        }
+        bool called = false;
+        auto cfg = envconfig();
+        cfg->harnessEntropySecret = [&](uint256 const&, std::uint32_t) {
+            called = true;
+            return uint256{17};
+        };
+        Env env{*this, std::move(cfg), FeatureBitset{}};
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        BEAST_EXPECT(!env.app().config().steppingMode);
+        BEAST_EXPECT(except<std::logic_error>([&] { ce.generateEntropySecret(); }));
+        BEAST_EXPECT(!called);
+        BEAST_EXPECT(ce.getEntropySecret().isZero());
+    }
+
+    void
     testPublicHookNoopAndFailureBranches()
     {
         testcase("public hook no-op and failure branches");
@@ -5494,6 +5524,7 @@ public:
     run() override
     {
         testSidecarPeerAlignmentHelper();
+        testHarnessEntropyRequiresStepping();
         testSidecarSplitBrainEquivocationThreshold();
         testActiveValidatorViewBuilderPrefersUNLReport();
         testActiveValidatorViewBuilderFallback();
