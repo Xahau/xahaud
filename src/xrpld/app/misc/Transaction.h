@@ -29,6 +29,7 @@
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxMeta.h>
 
+#include <mutex>
 #include <optional>
 #include <variant>
 
@@ -100,30 +101,35 @@ public:
     LedgerIndex
     getLedger() const
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         return mLedgerIndex;
     }
 
     bool
     isValidated() const
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         return mLedgerIndex != 0;
     }
 
     TransStatus
     getStatus() const
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         return mStatus;
     }
 
     TER
-    getResult()
+    getResult() const
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         return mResult;
     }
 
     void
     setResult(TER terResult)
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         mResult = terResult;
     }
 
@@ -137,12 +143,14 @@ public:
     void
     setStatus(TransStatus status)
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         mStatus = status;
     }
 
     void
     setLedger(LedgerIndex ledger)
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         mLedgerIndex = ledger;
     }
 
@@ -212,6 +220,7 @@ public:
     SubmitResult
     getSubmitResult() const
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         return submitResult_;
     }
 
@@ -221,6 +230,7 @@ public:
     void
     clearSubmitResult()
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         submitResult_.clear();
     }
 
@@ -230,6 +240,7 @@ public:
     void
     setApplied()
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         submitResult_.applied = true;
     }
 
@@ -239,6 +250,7 @@ public:
     void
     setQueued()
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         submitResult_.queued = true;
     }
 
@@ -248,6 +260,7 @@ public:
     void
     setBroadcast()
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         submitResult_.broadcast = true;
     }
 
@@ -257,6 +270,7 @@ public:
     void
     setKept()
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         submitResult_.kept = true;
     }
 
@@ -289,6 +303,7 @@ public:
     std::optional<CurrentLedgerState>
     getCurrentLedgerState() const
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         return currentLedgerState_;
     }
 
@@ -306,6 +321,7 @@ public:
         std::uint32_t accountSeq,
         std::uint32_t availableSeq)
     {
+        std::scoped_lock const lock(mutableStateMutex_);
         currentLedgerState_.emplace(
             validatedLedger, fee, accountSeq, availableSeq);
     }
@@ -391,6 +407,9 @@ private:
 
     uint256 mTransactionID;
 
+    // Response and locator state is read by RPC/relay while NetworkOPs
+    // updates it. Snapshot the related locator fields together for JSON.
+    mutable std::mutex mutableStateMutex_;
     LedgerIndex mLedgerIndex = 0;
     std::optional<uint32_t> mTxnSeq;
     std::optional<uint16_t> mNetworkID;
