@@ -534,6 +534,8 @@ private:
         FeeLevel64 const feeLevel;
         /// Transaction ID.
         TxID const txID;
+        // Updated only while absent from the intrusive byFee_ index.
+        uint256 parentHashSortKey;
         /// Account submitting the transaction.
         AccountID const account;
         /// Expiration ledger for the transaction
@@ -589,16 +591,6 @@ private:
         */
         static constexpr int retriesAllowed = 10;
 
-        /** The hash of the parent ledger.
-
-           This is used to pseudo-randomize the transaction order when
-           populating byFee_, by XORing it with the transaction hash (txID).
-           Using a single static and doing the XOR operation every time was
-           tested to be as fast or faster than storing the computed "sort key",
-           and obviously uses less memory.
-         */
-        static LedgerHash parentHashComp;
-
     public:
         /// Constructor
         MaybeTx(
@@ -607,6 +599,12 @@ private:
             FeeLevel64 feeLevel,
             ApplyFlags const flags,
             PreflightResult const& pfresult);
+
+        void
+        setParentHashSortKey(LedgerHash const& parentHash)
+        {
+            parentHashSortKey = txID ^ parentHash;
+        }
 
         /// Attempt to apply the queued transaction to the open ledger.
         ApplyResult
@@ -663,8 +661,7 @@ private:
         operator()(const MaybeTx& lhs, const MaybeTx& rhs) const
         {
             if (lhs.feeLevel == rhs.feeLevel)
-                return (lhs.txID ^ MaybeTx::parentHashComp) <
-                    (rhs.txID ^ MaybeTx::parentHashComp);
+                return lhs.parentHashSortKey < rhs.parentHashSortKey;
             return lhs.feeLevel > rhs.feeLevel;
         }
     };
@@ -798,9 +795,7 @@ private:
     */
     std::optional<size_t> maxSize_;
 
-    /**
-        parentHash_ used for logging only
-    */
+    /// Parent hash used to salt newly queued candidates.
     LedgerHash parentHash_{beast::zero};
 
     /** Most queue operations are done under the master lock,
