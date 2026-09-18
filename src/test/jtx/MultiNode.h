@@ -14,7 +14,7 @@
 //     Log.cpp / Env.cpp:82-121) — owned by MultiNode, never per node;
 //   - per-node TempDir database_path (Config.cpp:1230 requires it non-standalone);
 //   - static [validators] UNL + per-node [validation_seed] for trust/quorum;
-//   - default StartUpType::Normal → no needNetworkLedger, so a genesis network
+//   - default Config::NORMAL → no needNetworkLedger, so a genesis network
 //     bootstraps consensus directly.
 //------------------------------------------------------------------------------
 #include <test/jtx/Account.h>
@@ -33,6 +33,7 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/core/Config.h>
+#include <xrpld/core/ConfigSections.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/Peer.h>
 
@@ -58,6 +59,7 @@
 #include <xrpl/protocol/TxMeta.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpld/app/misc/NetworkOPs.h>  // getOPs().heartbeatTick() (virtual driver)
+#include <xrpl/beast/utility/temp_dir.h>
 
 #include <boost/asio/ip/address.hpp>
 
@@ -78,6 +80,8 @@
 
 namespace ripple::test {
 
+using TempDir = beast::temp_dir;
+
 // A validator identity: [validation_seed] (base58 s...) plus the matching trusted
 // node public key (base58 n...) that other nodes list in [validators]. The
 // secp256k1 derivation mirrors ValidatorKeys.cpp so the advertised key equals
@@ -91,8 +95,8 @@ struct ValidatorKey
     fromPassphrase(std::string const& passphrase)
     {
         auto const s = generateSeed(passphrase);
-        auto const sk = generateSecretKey(KeyType::Secp256k1, s);
-        auto const pk = derivePublicKey(KeyType::Secp256k1, sk);
+        auto const sk = generateSecretKey(KeyType::secp256k1, s);
+        auto const pk = derivePublicKey(KeyType::secp256k1, sk);
         return {toBase58(s), toBase58(TokenType::NodePublic, pk)};
     }
 };
@@ -324,7 +328,7 @@ class NodeBundle
     bool stepping_ = false;
 
 public:
-    NodeBundle(beast::unit_test::Suite& suite, NodeSpec spec) : stepping_(spec.stepping)
+    NodeBundle(beast::unit_test::suite& suite, NodeSpec spec) : stepping_(spec.stepping)
     {
         using namespace jtx;
 
@@ -345,7 +349,7 @@ public:
         // path is stable across stop/restart, which preserves the restart
         // catch-up semantics that (accidentally) relied on the static's
         // persistence.
-        cfg->overwrite(Sections::kNodeDatabase, Keys::kPath, spec.dbPath);
+        cfg->overwrite(ConfigSection::nodeDatabase(), "path", spec.dbPath);
         // A from-genesis network's true earliest ledger is 1. The default
         // (XRP_LEDGER_EARLIEST_SEQ = 32570, mainnet's first available ledger)
         // floors LedgerMaster's prevMissing() ABOVE every sequence a genesis
@@ -354,14 +358,14 @@ public:
         // in every scenario — found when SteppingCombined's late joiner
         // ended with complete=[11-15] and zero backfill. Real from-genesis
         // networks (altnets, sidechains) set this; so does the harness.
-        cfg->overwrite(Sections::kNodeDatabase, Keys::kEarliestSeq, "1");
+        cfg->overwrite(ConfigSection::nodeDatabase(), "earliest_seq", "1");
         switch (spec.ledgerStart)
         {
             case LedgerStart::Fresh:
                 break;  // Keep the normal fresh-ledger startup from envconfig.
             case LedgerStart::LoadLatest:
-                cfg->startUp = StartUpType::Load;
-                cfg->startLedger = "latest";
+                cfg->START_UP = Config::LOAD;
+                cfg->START_LEDGER = "latest";
                 break;
         }
 
@@ -374,8 +378,8 @@ public:
         {
             cfg->bindServerListeners = false;
             static std::atomic<std::uint16_t> nextSyntheticPeerPort{30000};
-            cfg->section(Sections::kPortPeer)
-                .set(Keys::kPort, std::to_string(nextSyntheticPeerPort++));
+            cfg->section(PORT_PEER)
+                .set("port", std::to_string(nextSyntheticPeerPort++));
         }
 
         // Stepping mode: 0 io threads + 0 JobQueue workers (so nothing app-visible
@@ -399,15 +403,15 @@ public:
             spec.configHook(*cfg);
 
         // Optional validator identity + static UNL (no [validator_list_sites]
-        // needed — Application.cpp:1338/1349). Default StartUpType::Normal means
+        // needed — Application.cpp:1338/1349). Default Config::NORMAL means
         // needNetworkLedger is not set, so a genesis network can converge. An
         // empty validationSeed = OBSERVER: UNL only, no signing identity.
         if (spec.trust)
         {
             if (!spec.trust->validationSeed.empty())
-                cfg->section(Sections::kValidationSeed)
+                cfg->section(SECTION_VALIDATION_SEED)
                     .append(std::vector<std::string>{spec.trust->validationSeed});
-            cfg->section(Sections::kValidators).append(spec.trust->validators);
+            cfg->section(SECTION_VALIDATORS).append(spec.trust->validators);
         }
 
         auto tk = std::make_unique<ManualTimeKeeper>();
@@ -434,7 +438,7 @@ public:
             return;
         }
 
-        tk_->set(app_->getLedgerMaster().getClosedLedger()->header().closeTime);
+        tk_->set(app_->getLedgerMaster().getClosedLedger()->info().closeTime);
         // Don't start timers explicitly; the consensus heartbeat is armed by
         // setStateTimer in setup() (Application.cpp:1422) for non-standalone.
         app_->start(false);
@@ -510,7 +514,7 @@ public:
     [[nodiscard]] std::uint16_t
     peerPort() const
     {
-        auto const p = app_->config()[Sections::kPortPeer].get<std::uint16_t>(Keys::kPort);
+        auto const p = app_->config()[PORT_PEER].get<std::uint16_t>("port");
         return p.value_or(0);
     }
 };
@@ -520,7 +524,7 @@ public:
 // wait-for-validated, ledger agreement, clock pumping).
 class MultiNode
 {
-    beast::unit_test::Suite& suite_;
+    beast::unit_test::suite& suite_;
     // Shared virtual steady clock (Stage 2). Created ONLY in virtual-clock mode.
     // Declared before nodes_ so reverse member-destruction tears the nodes down
     // first (their consensus/validation readers stop) and the clock last; the
@@ -605,7 +609,7 @@ public:
     // SteppingController. Drive with runStepping(); inspect via controller(). The
     // two flags are independent only in that stepping forces a steady clock.
     explicit MultiNode(
-        beast::unit_test::Suite& suite,
+        beast::unit_test::suite& suite,
         bool virtualClock = false,
         bool stepping = false)
         : suite_(suite)
@@ -616,7 +620,7 @@ public:
     {
         // ONE shared debug sink for the whole harness (Stage 0 §6.6; only one
         // owner process-wide).
-        setDebugLogSink(std::make_unique<SuiteJournalSink>("Debug", beast::Severity::Fatal, suite));
+        setDebugLogSink(std::make_unique<SuiteJournalSink>("Debug", beast::severities::kFatal, suite));
 
         // Clock coherence: every scheduler event first advances injected clocks.
         // Normal/global runs still refresh every node from one virtual time. In
@@ -1001,7 +1005,7 @@ public:
         if (!isLive(i))
             return uint256{};
         auto const l = nodes_[i]->app().getLedgerMaster().getLedgerBySeq(seq);
-        return l ? l->header().hash : uint256{};
+        return l ? l->info().hash : uint256{};
     }
 
     [[nodiscard]] std::shared_ptr<Ledger const>
@@ -1038,7 +1042,7 @@ public:
             AppliedTx a;
             a.txid = tx->getTransactionID();
             a.account = tx->getAccountID(sfAccount);
-            TxMeta const meta(a.txid, l->header().seq, *metaObj);
+            TxMeta const meta(a.txid, l->info().seq, *metaObj);
             a.index = meta.getIndex();
             a.result = meta.getResultTER();
             out.push_back(a);
@@ -1058,7 +1062,7 @@ public:
         if (!isLive(i))
             return uint256{};
         auto const l = nodes_[i]->app().getLedgerMaster().getClosedLedger();
-        return l ? l->header().hash : uint256{};
+        return l ? l->info().hash : uint256{};
     }
 
     [[nodiscard]] std::uint32_t
@@ -1067,7 +1071,7 @@ public:
         if (!isLive(i))
             return 0;
         auto const l = nodes_[i]->app().getLedgerMaster().getClosedLedger();
-        return l ? l->header().seq : 0;
+        return l ? l->info().seq : 0;
     }
 
     [[nodiscard]] std::vector<uint256>
@@ -1225,8 +1229,8 @@ public:
             if (!l)
                 return false;
             if (!h)
-                h = l->header().hash;
-            else if (*h != l->header().hash)
+                h = l->info().hash;
+            else if (*h != l->info().hash)
                 return false;
         }
         return true;
@@ -1274,11 +1278,11 @@ public:
         if (!isLive(i))
             throw std::logic_error("MultiNode::submit: node is not live");
         auto& app = nodes_[i]->app();
-        auto const view = app.getOpenLedger().current();
+        auto const view = app.openLedger().current();
         if (!tx.isMember(jss::Fee))
-            jtx::fillFee(tx, *view);
+            jtx::fill_fee(tx, *view);
         if (!tx.isMember(jss::Sequence))
-            jtx::fillSeq(tx, *view);
+            jtx::fill_seq(tx, *view);
         if (!tx.isMember(jss::TxnSignature))
             jtx::sign(tx, signer);
         auto stx = sterilize(STTx{jtx::parse(tx)});
@@ -1287,7 +1291,7 @@ public:
         if (txn->getStatus() == TransStatus::INVALID)
             throw std::logic_error("MultiNode::submit: invalid transaction: " + reason);
         app.getOPs().processTransaction(
-            txn, /*bUnlimited=*/false, /*bLocal=*/true, NetworkOPs::FailHard::No);
+            txn, /*bUnlimited=*/false, /*bLocal=*/true, NetworkOPs::FailHard::no);
         return txn;
     }
 

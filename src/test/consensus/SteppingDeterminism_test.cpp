@@ -36,7 +36,7 @@
 
 namespace ripple::test {
 
-class SteppingDeterminism_test : public beast::unit_test::Suite
+class SteppingDeterminism_test : public beast::unit_test::suite
 {
     // Drive N validators on a full mesh to `target` in the given net, assert
     // the structural invariants, and return node 0's validated hash chain
@@ -308,7 +308,7 @@ class SteppingDeterminism_test : public beast::unit_test::Suite
     }
 
     [[nodiscard]] static std::optional<std::vector<uint256>>
-    runPerNodeHorizonScenario(beast::unit_test::Suite& suite, SteppingNetwork& net)
+    runPerNodeHorizonScenario(beast::unit_test::suite& suite, SteppingNetwork& net)
     {
         using namespace std::chrono;
 

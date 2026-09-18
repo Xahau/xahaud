@@ -53,7 +53,7 @@ struct ReplaySnapshot
 
 // Parse `replays=N` (or a bare integer) out of --unittest-arg. Zero if absent.
 [[nodiscard]] inline int
-replayArg(beast::unit_test::Suite& s)
+replayArg(beast::unit_test::suite& s)
 {
     auto const& a = s.arg();
     std::string v;
@@ -76,7 +76,7 @@ namespace detail {
 
 inline void
 logFirstTraceDivergence(
-    beast::unit_test::Suite& s,
+    beast::unit_test::suite& s,
     std::vector<HarnessScheduler::TraceEvent> const& a,
     std::vector<HarnessScheduler::TraceEvent> const& b)
 {
@@ -107,7 +107,7 @@ logFirstTraceDivergence(
 // same wire in both runs).
 inline void
 logFirstSendDivergence(
-    beast::unit_test::Suite& s,
+    beast::unit_test::suite& s,
     SteppingNetwork::Forensics const& a,
     SteppingNetwork::Forensics const& b)
 {
@@ -147,7 +147,7 @@ logFirstSendDivergence(
 
 inline void
 logFirstValDivergence(
-    beast::unit_test::Suite& s,
+    beast::unit_test::suite& s,
     SteppingNetwork::Forensics const& a,
     SteppingNetwork::Forensics const& b)
 {
@@ -177,7 +177,7 @@ logFirstValDivergence(
 // grind — the scenario itself failed). Returns true if all runs matched.
 inline bool
 expectReplays(
-    beast::unit_test::Suite& s,
+    beast::unit_test::suite& s,
     char const* label,
     std::function<std::optional<std::vector<uint256>>(SteppingNetwork&)> const&
         scenario,

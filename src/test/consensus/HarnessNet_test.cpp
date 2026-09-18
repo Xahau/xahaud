@@ -28,7 +28,7 @@
 #include <xrpld/overlay/Overlay.h>
 
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpl/rdb/RelationalDatabase.h>
+#include <xrpld/app/rdb/RelationalDatabase.h>
 
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
@@ -42,7 +42,7 @@
 
 namespace ripple::test {
 
-class HarnessNet_test : public beast::unit_test::Suite
+class HarnessNet_test : public beast::unit_test::suite
 {
     void
     testSingleNodeBringUp()
@@ -483,7 +483,7 @@ class HarnessNet_test : public beast::unit_test::Suite
                 return uint256{};
             net.runVirtual(/*target=*/3, 200, 1s);
             auto const l = net[0].app().getLedgerMaster().getLedgerBySeq(2);
-            return l ? l->header().hash : uint256{};
+            return l ? l->info().hash : uint256{};
         };
 
         auto const h1 = runOnce();
@@ -497,7 +497,7 @@ class HarnessNet_test : public beast::unit_test::Suite
     // A restarted node is rebuilt on its stable slot (same database directory,
     // same identity). The two restart entry points differ ONLY in the startup
     // policy handed to Application::setup: restartNode loads the latest saved
-    // ledger (StartUpType::Load, "latest"); restartNodeFresh ignores the saved
+    // ledger (Config::LOAD, "latest"); restartNodeFresh ignores the saved
     // ledgers and starts from genesis. Same database, opposite outcome — so a
     // harness that silently forwards the wrong policy fails the fresh leg.
     void

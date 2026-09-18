@@ -317,7 +317,7 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
         respFromA, sharedValue, ovB.OverlayImpl::setup().networkID, publicIp, epA.address(), b);
 
     // Build + activate one peer per node (mirrors ConnectAttempt::processResponse:
-    // newOutboundSlot -> onConnected -> activate -> make_shared<PeerImp> -> addActive).
+    // new_outbound_slot -> onConnected -> activate -> make_shared<PeerImp> -> addActive).
     auto wire = [](Application& app,
                    SimOverlay& ov,
                    std::unique_ptr<SimTransport>&& transport,
@@ -327,7 +327,7 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
                    PublicKey const& peerKey,
                    ProtocolVersion ver) {
         auto usage = ov.OverlayImpl::resourceManager().newUnlimitedEndpoint(remoteEp);
-        auto [slot, result] = ov.OverlayImpl::peerFinder().newOutboundSlot(remoteEp);
+        auto slot = ov.OverlayImpl::peerFinder().new_outbound_slot(remoteEp);
         if (slot == nullptr)
             return false;
         if (!ov.OverlayImpl::peerFinder().onConnected(slot, localEp))

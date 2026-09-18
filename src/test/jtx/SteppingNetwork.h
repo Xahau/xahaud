@@ -32,7 +32,7 @@
 #include <xrpl/resource/Fees.h>
 #include <xrpl/resource/ResourceManager.h>
 
-#include <xrpl.pb.h>
+#include <ripple.pb.h>
 
 #include <algorithm>
 #include <chrono>
@@ -287,7 +287,7 @@ public:
     };
 
 private:
-    beast::unit_test::Suite& suite_;
+    beast::unit_test::suite& suite_;
     MultiNode net_;
     HarnessScheduler::duration linkDelay_;
     std::vector<ValidatorKey> validators_;
@@ -375,11 +375,11 @@ private:
             return false;
 
         auto l = net_[node].app().getLedgerMaster().getLedgerBySeq(to.closedSeq);
-        if (!l || l->header().hash != to.closedHash)
+        if (!l || l->info().hash != to.closedHash)
             return false;
-        while (l && l->header().seq > from.closedSeq)
-            l = net_[node].app().getLedgerMaster().getLedgerByHash(l->header().parentHash);
-        return l && l->header().hash == from.closedHash;
+        while (l && l->info().seq > from.closedSeq)
+            l = net_[node].app().getLedgerMaster().getLedgerByHash(l->info().parentHash);
+        return l && l->info().hash == from.closedHash;
     }
 
     static OverlayFactory
@@ -410,7 +410,7 @@ private:
 
 public:
     explicit SteppingNetwork(
-        beast::unit_test::Suite& suite,
+        beast::unit_test::suite& suite,
         HarnessScheduler::duration linkDelay = std::chrono::milliseconds{5})
         : suite_(suite)
         , net_(suite, /*virtualClock=*/true, /*stepping=*/true)
@@ -904,8 +904,8 @@ private:
             throw std::logic_error(
                 "SteppingNetwork::injectValidation: unparsable validator "
                 "seed");
-        auto const sk = generateSecretKey(KeyType::Secp256k1, *seed);
-        auto const pk = derivePublicKey(KeyType::Secp256k1, sk);
+        auto const sk = generateSecretKey(KeyType::secp256k1, *seed);
+        auto const pk = derivePublicKey(KeyType::secp256k1, sk);
         auto const signTime = app.timeKeeper().closeTime() + spec.signTimeSkew;
 
         auto v = std::make_shared<STValidation>(
@@ -914,7 +914,7 @@ private:
                 v.setFieldH256(sfConsensusHash, spec.consensusHash);
                 v.setFieldU32(sfLedgerSequence, spec.seq);
                 if (spec.fullValidation)
-                    v.setFlag(kVfFullValidation);
+                    v.setFlag(vfFullValidation);
                 // Pinned cookie: the one field validate() draws from a
                 // per-session random. Fixing it keeps the bytes — and thus
                 // the replay — deterministic.
@@ -1257,7 +1257,7 @@ public:
         return net_.submit(node, std::move(tx), signer);
     }
 
-    // §5.3: fund accounts from the genesis master (jtx::Account::kMaster is the
+    // §5.3: fund accounts from the genesis master (jtx::Account::master is the
     // "masterpassphrase" account the genesis ledger endows), submitted on
     // `node`, then run the network until the payments validate. FAIL-LOUD:
     // throws if a payment does not apply tesSUCCESS or if any live node's
@@ -1274,7 +1274,7 @@ public:
         for (auto const& account : accounts)
         {
             auto const txn = submit(
-                node, jtx::pay(jtx::Account::kMaster, account, amount), jtx::Account::kMaster);
+                node, jtx::pay(jtx::Account::master, account, amount), jtx::Account::master);
             if (txn->getResult() != tesSUCCESS)
                 throw std::logic_error(
                     "SteppingNetwork::fund: pay(" + account.name() +
@@ -1347,16 +1347,16 @@ public:
     [[nodiscard]] Json::Value
     rpc(std::uint32_t node,
         std::string const& method,
-        Json::Value params = Json::Value{Json::ValueType::Object},
+        Json::Value params = Json::objectValue,
         Role role = Role::ADMIN)
     {
         requireNode(node, "rpc");
         auto& app = net_[node].app();
         params[jss::command] = method;
-        resource::Charge loadType = resource::kFeeReferenceRpc;
+        Resource::Charge loadType = Resource::feeReferenceRPC;
         auto consumer = app.getResourceManager().newUnlimitedEndpoint(
             beast::IP::Endpoint(boost::asio::ip::make_address(getEnvLocalhostAddr()), 0));
-        rpc::JsonContext context{
+        RPC::JsonContext context{
             {app.journal("SteppingRPC"),
              app,
              loadType,
@@ -1364,12 +1364,13 @@ public:
              app.getLedgerMaster(),
              consumer,
              role,
-             /*coro=*/nullptr,
-             /*infoSub=*/nullptr,
-             rpc::kApiMaximumSupportedVersion},
-            std::move(params)};
+             {},
+             {},
+             RPC::apiMaximumSupportedVersion},
+            std::move(params),
+            {}};
         Json::Value result;
-        rpc::doCommand(context, result);
+        RPC::doCommand(context, result);
         return result;
     }
 
@@ -1420,7 +1421,7 @@ public:
         auto const l = ledger(node, seq);
         if (!l)
             return std::nullopt;
-        return l->header().closeTime;
+        return l->info().closeTime;
     }
 
     // The SAFETY oracle (promoted from SteppingFaults so hand-written
