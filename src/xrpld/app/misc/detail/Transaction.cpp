@@ -64,6 +64,7 @@ Transaction::setStatus(
     std::optional<std::uint32_t> tseq,
     std::optional<std::uint16_t> netID)
 {
+    std::scoped_lock const lock(mutableStateMutex_);
     mStatus = ts;
     mLedgerIndex = lseq;
     if (tseq)
@@ -167,37 +168,47 @@ Transaction::getJson(JsonOptions options, bool binary) const
     Json::Value ret(
         mTransaction->getJson(options & ~JsonOptions::include_date, binary));
 
+    LedgerIndex ledgerIndex;
+    std::optional<std::uint32_t> transactionSeq;
+    std::optional<std::uint16_t> networkID;
+    {
+        std::scoped_lock const lock(mutableStateMutex_);
+        ledgerIndex = mLedgerIndex;
+        transactionSeq = mTxnSeq;
+        networkID = mNetworkID;
+    }
+
     // NOTE Binary STTx::getJson output might not be a JSON object
-    if (ret.isObject() && mLedgerIndex)
+    if (ret.isObject() && ledgerIndex)
     {
         if (!(options & JsonOptions::disable_API_prior_V2))
         {
             // Behaviour before API version 2
-            ret[jss::inLedger] = mLedgerIndex;
+            ret[jss::inLedger] = ledgerIndex;
         }
 
         // TODO: disable_API_prior_V3 to disable output of both `date` and
         // `ledger_index` elements (taking precedence over include_date)
-        ret[jss::ledger_index] = mLedgerIndex;
+        ret[jss::ledger_index] = ledgerIndex;
 
         if (options & JsonOptions::include_date)
         {
-            auto ct = mApp.getLedgerMaster().getCloseTimeBySeq(mLedgerIndex);
+            auto ct = mApp.getLedgerMaster().getCloseTimeBySeq(ledgerIndex);
             if (ct)
                 ret[jss::date] = ct->time_since_epoch().count();
         }
 
         // compute outgoing CTID
         // override local network id if it's explicitly in the txn
-        std::optional netID = mNetworkID;
+        auto netID = networkID;
         if (mTransaction->isFieldPresent(sfNetworkID))
             netID = mTransaction->getFieldU32(sfNetworkID);
 
-        if (mTxnSeq && netID && *mTxnSeq <= 0xFFFFU && *netID < 0xFFFFU &&
-            mLedgerIndex < 0xFFFFFFFUL)
+        if (transactionSeq && netID && *transactionSeq <= 0xFFFFU &&
+            *netID < 0xFFFFU && ledgerIndex < 0xFFFFFFFUL)
         {
             std::optional<std::string> ctid =
-                RPC::encodeCTID(mLedgerIndex, *mTxnSeq, *netID);
+                RPC::encodeCTID(ledgerIndex, *transactionSeq, *netID);
             if (ctid)
                 ret[jss::ctid] = *ctid;
         }

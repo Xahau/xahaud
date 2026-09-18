@@ -38,13 +38,13 @@ LedgerHistory::LedgerHistory(
           "LedgerCache",
           app_.config().getValueFor(SizedItem::ledgerSize),
           std::chrono::seconds{app_.config().getValueFor(SizedItem::ledgerAge)},
-          stopwatch(),
+          app_.getStopwatch(),
           app_.journal("TaggedCache"))
     , m_consensus_validated(
           "ConsensusValidated",
           64,
           std::chrono::minutes{5},
-          stopwatch(),
+          app_.getStopwatch(),
           app_.journal("TaggedCache"))
     , j_(app.journal("LedgerHistory"))
 {

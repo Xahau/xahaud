@@ -165,6 +165,11 @@ public:
     virtual void
     setStateTimer() = 0;
 
+    /** Posts the same heartbeat job the asio timer would. Used when
+        Config::manualHeartbeat suppresses the wall-clock timer. */
+    virtual void
+    heartbeatTick() = 0;
+
     virtual void
     setNeedNetworkLedger() = 0;
     virtual void

@@ -82,6 +82,15 @@ no_admin(std::unique_ptr<Config> cfg)
 }
 
 std::unique_ptr<Config>
+peeredEnvconfig(std::unique_ptr<Config> cfg)
+{
+    cfg->setupControl(true, true, false);
+    cfg->installSignalHandlers = false;
+    cfg->armStallDetector = false;
+    return cfg;
+}
+
+std::unique_ptr<Config>
 no_admin_networkid(std::unique_ptr<Config> cfg)
 {
     cfg->NETWORK_ID = 21337;

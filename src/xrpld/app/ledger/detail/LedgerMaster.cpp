@@ -193,12 +193,15 @@ LedgerMaster::getPublishedLedgerAge()
     std::chrono::seconds ret = app_.timeKeeper().closeTime().time_since_epoch();
     ret -= pubClose;
     ret = (ret > 0s) ? ret : 0s;
-    static std::chrono::seconds lastRet = -1s;
+    static std::atomic<std::chrono::seconds::rep> lastRet{-1};
+    auto const retCount = ret.count();
+    auto observedLastRet = lastRet.load(std::memory_order_relaxed);
 
-    if (ret != lastRet)
+    if (retCount != observedLastRet &&
+        lastRet.compare_exchange_strong(
+            observedLastRet, retCount, std::memory_order_relaxed))
     {
-        JLOG(m_journal.trace()) << "Published ledger age is " << ret.count();
-        lastRet = ret;
+        JLOG(m_journal.trace()) << "Published ledger age is " << retCount;
     }
     return ret;
 }
@@ -218,12 +221,15 @@ LedgerMaster::getValidatedLedgerAge()
     std::chrono::seconds ret = app_.timeKeeper().closeTime().time_since_epoch();
     ret -= valClose;
     ret = (ret > 0s) ? ret : 0s;
-    static std::chrono::seconds lastRet = -1s;
+    static std::atomic<std::chrono::seconds::rep> lastRet{-1};
+    auto const retCount = ret.count();
+    auto observedLastRet = lastRet.load(std::memory_order_relaxed);
 
-    if (ret != lastRet)
+    if (retCount != observedLastRet &&
+        lastRet.compare_exchange_strong(
+            observedLastRet, retCount, std::memory_order_relaxed))
     {
-        JLOG(m_journal.trace()) << "Validated ledger age is " << ret.count();
-        lastRet = ret;
+        JLOG(m_journal.trace()) << "Validated ledger age is " << retCount;
     }
     return ret;
 }
@@ -848,6 +854,10 @@ LedgerMaster::getFetchPack(LedgerIndex missing, InboundLedger::Reason reason)
     {
         int maxScore = 0;
         auto peerList = app_.overlay().getActivePeers();
+        std::sort(
+            peerList.begin(), peerList.end(), [](auto const& a, auto const& b) {
+                return a->id() < b->id();
+            });
         for (auto const& peer : peerList)
         {
             if (peer->hasRange(missing, missing + 1))
@@ -2314,7 +2324,11 @@ LedgerMaster::doAdvance(std::unique_lock<std::recursive_mutex>& sl)
             }
 
             app_.getOPs().clearNeedNetworkLedger();
-            progress = newPFWork("pf:newLedger", sl);
+            // Publishing is progress even without pathfinding clients. Keep
+            // the shutdown guard so this loop cannot re-enter history work
+            // after the Application starts stopping.
+            newPFWork("pf:newLedger", sl);
+            progress = !app_.isStopping();
         }
         if (progress)
             mAdvanceWork = true;
@@ -2415,10 +2429,10 @@ LedgerMaster::makeFetchPack(
     std::weak_ptr<Peer> const& wPeer,
     std::shared_ptr<protocol::TMGetObjectByHash> const& request,
     uint256 haveLedgerHash,
-    UptimeClock::time_point uptime)
+    Stopwatch::time_point requestedAt)
 {
     using namespace std::chrono_literals;
-    if (UptimeClock::now() > uptime + 1s)
+    if (app_.getStopwatch().now() > requestedAt + 1s)
     {
         JLOG(m_journal.info()) << "Fetch pack request got stale";
         return;
@@ -2525,7 +2539,7 @@ LedgerMaster::makeFetchPack(
 
             have = std::move(want);
             want = getLedgerByHash(have->info().parentHash);
-        } while (want && UptimeClock::now() <= uptime + 1s);
+        } while (want && app_.getStopwatch().now() <= requestedAt + 1s);
 
         auto msg = std::make_shared<Message>(reply, protocol::mtGET_OBJECTS);
 

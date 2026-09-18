@@ -86,6 +86,13 @@ public:
     std::vector<uint8_t> const&
     getBuffer(Compressed tryCompressed);
 
+    /** Protocol message type from the packed uncompressed header. */
+    [[nodiscard]] int
+    getMessageType() const
+    {
+        return getType(buffer_.data());
+    }
+
     /** Get the traffic category */
     std::size_t
     getCategory() const

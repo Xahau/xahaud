@@ -22,6 +22,7 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/overlay/detail/OverlayImpl.h>
 #include <xrpld/overlay/detail/PeerImp.h>
+#include <xrpld/overlay/detail/Transport.h>
 #include <xrpld/peerfinder/detail/SlotImp.h>
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/beast/unit_test.h>
@@ -116,7 +117,7 @@ private:
                   publicKey,
                   protocol,
                   consumer,
-                  std::move(stream_ptr),
+                  std::make_unique<SslTransport>(std::move(stream_ptr)),
                   overlay)
         {
             sid_++;

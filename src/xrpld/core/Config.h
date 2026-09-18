@@ -36,6 +36,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -44,9 +45,16 @@
 #include <utility>
 #include <vector>
 
+namespace google {
+namespace protobuf {
+class Message;
+}
+}  // namespace google
+
 namespace ripple {
 
 class Rules;
+class Message;
 
 //------------------------------------------------------------------------------
 
@@ -327,6 +335,64 @@ public:
 
     /* Be very careful to make sure these bool params
         are in the right order. */
+    // When false, the process does not install SIGINT/SIGTERM handlers — lets a
+    // test harness run N Applications in one process without signal collisions.
+    bool installSignalHandlers = true;
+
+    // When false, the LoadManager deadlock/stall detector is not armed — avoids
+    // the wall-clock watchdog under a paused virtual clock.
+    bool armStallDetector = true;
+
+    // When false, Application::setup parses server configuration but does not
+    // bind RPC/peer listening sockets. Production leaves it true.
+    bool bindServerListeners = true;
+
+    // When true, NetworkOPs does not arm the asio consensus heartbeat timer.
+    bool manualHeartbeat = false;
+
+    // When true, PeerImp strands run inline on the caller (stepping harness).
+    bool inlineStrands = false;
+
+    // When true, io threads and JobQueue workers drop to 0 so a stepping
+    // harness can drive the node on one virtual timeline. Production is false.
+    bool steppingMode = false;
+
+    using HarnessPeerMessageHook = std::function<void(
+        std::uint16_t type,
+        std::string const& name,
+        std::uint32_t peerId,
+        beast::IP::Endpoint const& remoteAddress,
+        ::google::protobuf::Message const& message)>;
+    HarnessPeerMessageHook harnessPeerMessage;
+
+    using HarnessPeerSendHook = std::function<void(
+        std::uint16_t type,
+        std::string const& name,
+        std::uint32_t peerId,
+        beast::IP::Endpoint const& remoteAddress,
+        std::string const& stage,
+        Message& message)>;
+    HarnessPeerSendHook harnessPeerSend;
+
+    using HarnessPeerLifecycleHook = std::function<void(
+        std::string const& event,
+        std::string const& detail,
+        std::uint32_t peerId,
+        beast::IP::Endpoint const& remoteAddress,
+        bool transportOpen,
+        bool detaching,
+        bool gracefulClose,
+        std::size_t sendQueueSize)>;
+    HarnessPeerLifecycleHook harnessPeerLifecycle;
+
+    using HarnessValidationHook = std::function<void(
+        std::string const& source,
+        bool trusted,
+        std::uint32_t seq,
+        uint256 const& hash,
+        std::string const& outcome)>;
+    HarnessValidationHook harnessValidation;
+
     void
     setup(
         std::string const& strConf,

@@ -29,6 +29,7 @@
 #include <boost/coroutine/all.hpp>
 #include <boost/range/begin.hpp>  // workaround for boost 1.72 bug
 #include <boost/range/end.hpp>    // workaround for boost 1.72 bug
+#include <functional>
 
 namespace ripple {
 
@@ -140,6 +141,14 @@ public:
 
     using JobFunction = std::function<void()>;
 
+    // pass: queue on workers. claimedQueued/claimedDropped: the hook owns the
+    // job (enqueue on a harness scheduler, or drop). Consulted before the
+    // no-threads assert so a claimed job needs no workers. Empty hook = prod.
+    enum class JobDisposition { pass, claimedQueued, claimedDropped };
+
+    using DispatchHook = std::function<
+        JobDisposition(JobType, std::string const&, JobFunction const&)>;
+
     JobQueue(
         int threadCount,
         beast::insight::Collector::ptr const& collector,
@@ -172,6 +181,13 @@ public:
             return addRefCountedJob(type, name, std::move(*optionalCountedJob));
         }
         return false;
+    }
+
+    /** Install a dispatch hook. Call before job flow and do not mutate later. */
+    void
+    setDispatchHook(DispatchHook hook)
+    {
+        dispatchHook_ = std::move(hook);
     }
 
     /** Creates a coroutine and adds a job to the queue which will run it.
@@ -224,6 +240,19 @@ public:
     void
     rendezvous();
 
+    /** True when rendezvous() would not block. */
+    [[nodiscard]] bool
+    isIdle() const;
+
+    [[nodiscard]] std::uint64_t
+    lastJob() const;
+
+    [[nodiscard]] std::uint64_t
+    completedJobs() const;
+
+    [[nodiscard]] int
+    suspendedCount() const;
+
     void
     stop();
 
@@ -246,8 +275,11 @@ private:
     beast::Journal m_journal;
     mutable std::mutex m_mutex;
     std::uint64_t m_lastJob;
+    std::uint64_t m_completedJobs{0};
     std::set<Job> m_jobSet;
     JobCounter jobCounter_;
+    // Empty in production. Read without a lock in addRefCountedJob.
+    DispatchHook dispatchHook_;
     std::atomic_bool stopping_{false};
     std::atomic_bool stopped_{false};
     JobDataMap m_jobData;

@@ -32,7 +32,6 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/consensus/LedgerTiming.h>
-#include <xrpld/net/HTTPClient.h>
 #include <xrpld/net/RPCCall.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/basics/contract.h>
@@ -78,8 +77,6 @@ Env::AppBundle::AppBundle(
     }
     auto timeKeeper_ = std::make_unique<ManualTimeKeeper>();
     timeKeeper = timeKeeper_.get();
-    // Hack so we don't have to call Config::setup
-    HTTPClient::initializeSSLContext(*config, debugLog());
     owned = make_Application(
         std::move(config), std::move(logs), std::move(timeKeeper_));
     app = owned.get();

@@ -31,7 +31,7 @@ NodeFamily::NodeFamily(Application& app, CollectorManager& cm)
     , j_(app.journal("NodeFamily"))
     , fbCache_(std::make_shared<FullBelowCache>(
           "Node family full below cache",
-          stopwatch(),
+          app.getStopwatch(),
           app.journal("NodeFamilyFulLBelowCache"),
           cm.collector(),
           fullBelowTargetSize,
@@ -41,9 +41,15 @@ NodeFamily::NodeFamily(Application& app, CollectorManager& cm)
           app.config().getValueFor(SizedItem::treeCacheSize),
           std::chrono::seconds(
               app.config().getValueFor(SizedItem::treeCacheAge)),
-          stopwatch(),
+          app.getStopwatch(),
           j_))
 {
+}
+
+beast::xor_shift_engine&
+NodeFamily::prng()
+{
+    return app_.getPrng();
 }
 
 void

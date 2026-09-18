@@ -45,6 +45,9 @@
 #include <boost/beast/core/multi_buffer.hpp>
 #include <boost/endian/conversion.hpp>
 #include <algorithm>
+#include <array>
+#include <limits>
+#include <type_traits>
 
 namespace ripple {
 
@@ -73,6 +76,61 @@ class compression_test : public beast::unit_test::suite
 {
     using Compressed = compression::Compressed;
     using Algorithm = compression::Algorithm;
+
+    struct CoalescedMessageHandler
+    {
+        std::vector<std::uint32_t> seqs;
+        bool unexpectedMessage = false;
+
+        bool
+        compressionEnabled() const
+        {
+            return false;
+        }
+
+        // invokeProtocolMessage's TMManifests size gate (upstream) reads this
+        // off the handler; this test coalesces non-manifest frames, so the
+        // gate must never trip.
+        [[nodiscard]] std::size_t
+        maxManifestsMessageSize() const
+        {
+            return std::numeric_limits<std::size_t>::max();
+        }
+
+        void
+        onMessageBegin(
+            std::uint16_t,
+            std::shared_ptr<::google::protobuf::Message> const&,
+            std::uint32_t,
+            std::uint32_t,
+            bool)
+        {
+        }
+
+        template <class T>
+        void
+        onMessage(std::shared_ptr<T> const& message)
+        {
+            if constexpr (std::is_same_v<T, protocol::TMPing>)
+                seqs.push_back(message->seq());
+            else
+                unexpectedMessage = true;
+        }
+
+        void
+        onMessageEnd(
+            std::uint16_t,
+            std::shared_ptr<::google::protobuf::Message> const&)
+        {
+        }
+
+        void
+        onMessageUnknown(std::uint16_t)
+        {
+            unexpectedMessage = true;
+        }
+    };
+
 
 public:
     compression_test()
@@ -463,6 +521,56 @@ public:
     }
 
     void
+    testCoalescedUncompressedMessages()
+    {
+        testcase("Coalesced uncompressed messages");
+
+        protocol::TMPing ping1;
+        ping1.set_type(protocol::TMPing::ptPING);
+        ping1.set_seq(1);
+
+        protocol::TMPing ping2;
+        ping2.set_type(protocol::TMPing::ptPONG);
+        ping2.set_seq(2);
+
+        Message message1(ping1, protocol::mtPING);
+        Message message2(ping2, protocol::mtPING);
+
+        auto const& buffer1 = message1.getBuffer(Compressed::Off);
+        auto const& buffer2 = message2.getBuffer(Compressed::Off);
+
+        std::vector<std::uint8_t> wire;
+        wire.reserve(buffer1.size() + buffer2.size());
+        wire.insert(wire.end(), buffer1.begin(), buffer1.end());
+        wire.insert(wire.end(), buffer2.begin(), buffer2.end());
+
+        CoalescedMessageHandler handler;
+
+        std::size_t hint = 0;
+        std::array<boost::asio::const_buffer, 1> buffers{
+            boost::asio::buffer(wire)};
+
+        auto const first = invokeProtocolMessage(buffers, handler, hint);
+
+        BEAST_EXPECT(!first.second);
+        BEAST_EXPECT(first.first == buffer1.size());
+        BEAST_EXPECT(handler.seqs.size() == 1);
+        BEAST_EXPECT(handler.seqs[0] == 1);
+        BEAST_EXPECT(!handler.unexpectedMessage);
+
+        std::array<boost::asio::const_buffer, 1> remaining{
+            boost::asio::buffer(wire.data() + first.first, wire.size() - first.first)};
+
+        auto const second = invokeProtocolMessage(remaining, handler, hint);
+
+        BEAST_EXPECT(!second.second);
+        BEAST_EXPECT(second.first == buffer2.size());
+        BEAST_EXPECT(handler.seqs.size() == 2);
+        BEAST_EXPECT(handler.seqs[1] == 2);
+        BEAST_EXPECT(!handler.unexpectedMessage);
+    }
+
+    void
     testHandshake()
     {
         testcase("Handshake");
@@ -533,6 +641,7 @@ public:
     run() override
     {
         testProtocol();
+        testCoalescedUncompressedMessages();
         testHandshake();
     }
 };

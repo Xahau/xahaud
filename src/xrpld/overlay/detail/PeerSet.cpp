@@ -21,6 +21,7 @@
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/PeerSet.h>
+#include <algorithm>
 
 namespace ripple {
 
@@ -73,12 +74,18 @@ PeerSetImpl::addPeers(
     std::vector<ScoredPeer> pairs;
     pairs.reserve(overlay.size());
 
-    overlay.foreach([&](auto const& peer) {
-        auto const score = peer->getScore(hasItem(peer));
-        pairs.emplace_back(score, std::move(peer));
-    });
-
+    overlay.foreach(
+        [&](auto const& peer) { pairs.emplace_back(0, std::move(peer)); });
     std::sort(
+        pairs.begin(),
+        pairs.end(),
+        [](ScoredPeer const& lhs, ScoredPeer const& rhs) {
+            return lhs.second->id() < rhs.second->id();
+        });
+    for (auto& pair : pairs)
+        pair.first = pair.second->getScore(hasItem(pair.second));
+
+    std::stable_sort(
         pairs.begin(),
         pairs.end(),
         [](ScoredPeer const& lhs, ScoredPeer const& rhs) {

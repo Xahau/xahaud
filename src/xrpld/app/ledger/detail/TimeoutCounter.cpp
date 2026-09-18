@@ -21,10 +21,58 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/overlay/Overlay.h>
+#include <boost/asio/error.hpp>
 
 namespace ripple {
 
 using namespace std::chrono_literals;
+
+namespace {
+
+class AsioTimeoutCounterTimer : public TimeoutCounterTimer
+{
+public:
+    explicit AsioTimeoutCounterTimer(boost::asio::io_service& io) : timer_(io)
+    {
+    }
+
+    void
+    expiresAfter(
+        std::chrono::milliseconds interval,
+        std::function<void()> handler) override
+    {
+        timer_.expires_after(interval);
+        timer_.async_wait(
+            [h = std::move(handler)](boost::system::error_code const& ec) {
+                if (ec == boost::asio::error::operation_aborted)
+                    return;
+                h();
+            });
+    }
+
+    void
+    cancel() override
+    {
+        try
+        {
+            timer_.cancel();
+        }
+        catch (boost::system::system_error const&)
+        {
+        }
+    }
+
+private:
+    boost::asio::basic_waitable_timer<std::chrono::steady_clock> timer_;
+};
+
+}  // namespace
+
+std::unique_ptr<TimeoutCounterTimer>
+makeAsioTimeoutCounterTimer(boost::asio::io_service& io)
+{
+    return std::make_unique<AsioTimeoutCounterTimer>(io);
+}
 
 TimeoutCounter::TimeoutCounter(
     Application& app,
@@ -41,7 +89,7 @@ TimeoutCounter::TimeoutCounter(
     , progress_(false)
     , timerInterval_(interval)
     , queueJobParameter_(std::move(jobParameter))
-    , timer_(app_.getIOService())
+    , timer_(app_.makeTimeoutCounterTimer())
 {
     XRPL_ASSERT(
         (timerInterval_ > 10ms) && (timerInterval_ < 30s),
@@ -53,18 +101,13 @@ TimeoutCounter::setTimer(ScopedLockType& sl)
 {
     if (isDone())
         return;
-    timer_.expires_after(timerInterval_);
-    timer_.async_wait(
-        [wptr = pmDowncast()](boost::system::error_code const& ec) {
-            if (ec == boost::asio::error::operation_aborted)
-                return;
-
-            if (auto ptr = wptr.lock())
-            {
-                ScopedLockType sl(ptr->mtx_);
-                ptr->queueJob(sl);
-            }
-        });
+    timer_->expiresAfter(timerInterval_, [wptr = pmDowncast()]() {
+        if (auto ptr = wptr.lock())
+        {
+            ScopedLockType sl(ptr->mtx_);
+            ptr->queueJob(sl);
+        }
+    });
 }
 
 void

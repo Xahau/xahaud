@@ -60,6 +60,9 @@ public:
         return j_;
     }
 
+    beast::xor_shift_engine&
+    prng() override;
+
     std::shared_ptr<FullBelowCache>
     getFullBelowCache() override
     {

@@ -234,6 +234,77 @@ class TxQPosNegFlows_test : public beast::unit_test::suite
 
 public:
     void
+    testQueueIsolation()
+    {
+        using namespace jtx;
+        testcase("an independent TxQ cannot change another queue's ordering");
+        Env env(*this, makeConfig({{"minimum_txn_in_ledger_standalone", "2"}}));
+        Account const alice("isolation-alice"), bob("isolation-bob");
+        auto const olderParent = env.app().getLedgerMaster().getClosedLedger();
+        env.fund(XRP(50000), noripple(alice, bob));
+        env.close();
+
+        auto& primary = env.app().getTxQ();
+        auto const parentHash = env.current()->info().parentHash;
+        auto const otherHash = olderParent->info().hash;
+        if (!BEAST_EXPECT(parentHash != otherHash))
+            return;
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            BEAST_EXPECT(!primary.accept(env.app(), view));
+            return false;
+        });
+        fillQueue(env, env.master);
+        BEAST_EXPECT(primary.getTxs().empty());
+
+        auto const aliceTx = env.jt(noop(alice), last_ledger_seq(50)).stx;
+        auto const aliceID = aliceTx->getTransactionID();
+        std::optional<std::uint32_t> bobDeadline;
+        uint256 bobID;
+        // Choose a deterministic witness whose ordering flips under two real
+        // ledger parents. The second queue need not contain any transactions.
+        for (std::uint32_t deadline = 100; deadline < 356; ++deadline)
+        {
+            auto const candidate =
+                env.jt(noop(bob), last_ledger_seq(deadline)).stx;
+            auto const id = candidate->getTransactionID();
+            if (((aliceID ^ parentHash) < (id ^ parentHash)) !=
+                ((aliceID ^ otherHash) < (id ^ otherHash)))
+            {
+                bobDeadline = deadline;
+                bobID = id;
+                break;
+            }
+        }
+        if (!BEAST_EXPECT(bobDeadline.has_value()))
+            return;
+
+        env(noop(alice), last_ledger_seq(50), ter(terQUEUED));
+        if (!BEAST_EXPECT(primary.getTxs().size() == 1))
+            return;
+        BEAST_EXPECT(primary.getTxs()[0].txn->getTransactionID() == aliceID);
+
+        TxQ independent(setup_TxQ(env.app().config()), env.journal);
+        OpenView foreign(open_ledger, olderParent.get(), olderParent->rules());
+        BEAST_EXPECT(!independent.accept(env.app(), foreign));
+        BEAST_EXPECT(independent.getTxs().empty());
+        BEAST_EXPECT(foreign.info().parentHash == otherHash);
+
+        env(noop(bob), last_ledger_seq(*bobDeadline), ter(terQUEUED));
+        auto const queued = primary.getTxs();
+        if (!BEAST_EXPECT(queued.size() == 2))
+            return;
+        BEAST_EXPECT(
+            std::any_of(queued.begin(), queued.end(), [&](auto const& tx) {
+                return tx.txn->getTransactionID() == bobID;
+            }));
+        BEAST_EXPECT(queued[0].feeLevel == queued[1].feeLevel);
+        bool const aliceFirst = (aliceID ^ parentHash) < (bobID ^ parentHash);
+        BEAST_EXPECT(
+            queued[0].txn->getTransactionID() ==
+            (aliceFirst ? aliceID : bobID));
+    }
+
+    void
     testQueueSeq(FeatureBitset features)
     {
         using namespace jtx;
@@ -5114,6 +5185,16 @@ class TxQMetaInfo_test : public TxQPosNegFlows_test
     }
 };
 
+class TxQIsolation_test : public TxQPosNegFlows_test
+{
+    void
+    run() override
+    {
+        testQueueIsolation();
+    }
+};
+
+BEAST_DEFINE_TESTSUITE(TxQIsolation, app, ripple);
 BEAST_DEFINE_TESTSUITE_PRIO(TxQPosNegFlows, app, ripple, 1);
 BEAST_DEFINE_TESTSUITE_PRIO(TxQMetaInfo, app, ripple, 1);
 

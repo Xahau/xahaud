@@ -295,8 +295,6 @@ TxQ::FeeMetrics::escalatedSeriesFeeLevel(
     return {totalFeeLevel.has_value(), *totalFeeLevel};
 }
 
-LedgerHash TxQ::MaybeTx::parentHashComp{};
-
 TxQ::MaybeTx::MaybeTx(
     std::shared_ptr<STTx const> const& txn_,
     TxID const& txID_,
@@ -306,6 +304,7 @@ TxQ::MaybeTx::MaybeTx(
     : txn(txn_)
     , feeLevel(feeLevel_)
     , txID(txID_)
+    , parentHashSortKey(txID_)
     , account(txn_->getAccountID(sfAccount))
     , firstValid(getFirstLedgerSequence(*txn_))
     , lastValid(getLastLedgerSequence(*txn_))
@@ -1386,6 +1385,7 @@ TxQ::apply(
         {tx, transactionID, feeLevelPaid, flags, pfresult});
 
     // Then index it into the byFee lookup.
+    candidate.setParentHashSortKey(parentHash_);
     byFee_.insert(candidate);
     JLOG(j_.debug()) << "Added transaction " << candidate.txID
                      << " with result " << transToken(pfresult.ter) << " from "
@@ -1890,12 +1890,11 @@ TxQ::accept(Application& app, OpenView& view)
     // time, create a new list and merge the old list into it.
     byFee_.clear();
 
-    MaybeTx::parentHashComp = parentHash;
-
     for (auto& [_, account] : byAccount_)
     {
         for (auto& [_, candidate] : account.transactions)
         {
+            candidate.setParentHashSortKey(parentHash);
             byFee_.insert(candidate);
         }
     }

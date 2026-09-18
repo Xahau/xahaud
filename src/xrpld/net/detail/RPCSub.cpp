@@ -35,6 +35,7 @@ public:
     RPCSubImp(
         InfoSub::Source& source,
         JobQueue& jobQueue,
+        HTTPClientSSLContext& sslContext,
         std::string const& strUrl,
         std::string const& strUsername,
         std::string const& strPassword,
@@ -42,6 +43,7 @@ public:
         std::size_t maxQueueSize)
         : RPCSub(source)
         , m_jobQueue(jobQueue)
+        , sslContext_(sslContext)
         , mUrl(strUrl)
         , mSSL(false)
         , mUsername(strUsername)
@@ -191,6 +193,7 @@ private:
 
                     RPCCall::fromNetwork(
                         io_service,
+                        sslContext_,
                         mIp,
                         mPort,
                         mUsername,
@@ -247,6 +250,7 @@ private:
 
 private:
     JobQueue& m_jobQueue;
+    HTTPClientSSLContext& sslContext_;
 
     std::string mUrl;
     std::string mIp;
@@ -283,6 +287,7 @@ std::shared_ptr<RPCSub>
 make_RPCSub(
     InfoSub::Source& source,
     JobQueue& jobQueue,
+    HTTPClientSSLContext& sslContext,
     std::string const& strUrl,
     std::string const& strUsername,
     std::string const& strPassword,
@@ -292,6 +297,7 @@ make_RPCSub(
     return std::make_shared<RPCSubImp>(
         std::ref(source),
         std::ref(jobQueue),
+        std::ref(sslContext),
         strUrl,
         strUsername,
         strPassword,
