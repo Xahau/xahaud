@@ -339,6 +339,11 @@ public:
         auto cfg = peeredEnvconfig(envconfig());
         // Non-standalone REQUIRES a real database_path (Config.cpp:1230).
         cfg->legacy("database_path", spec.dbPath);
+        // xahaud envconfig defaults [relational_db] to rwdb (per-Application
+        // in-memory). Donor envconfig leaves sqlite, so restartNode can LOAD
+        // latest from files under database_path. Keep that persistence here;
+        // otherwise setup() fails with "specified ledger could not be loaded".
+        cfg->overwrite(SECTION_RELATIONAL_DB, "backend", "sqlite");
         // The memory nodestore backend is a PROCESS-GLOBAL static keyed by
         // the [node_db] path string, and envconfig's fixed "main" would make
         // every node in every run share one content-addressed table that
