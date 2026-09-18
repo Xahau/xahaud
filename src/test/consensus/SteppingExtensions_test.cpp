@@ -7,9 +7,7 @@
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/Serializer.h>
-#include <xrpl/protocol/SerialIter.h>
 #include <xrpld/shamap/SHAMap.h>
-#include <xrpld/shamap/SHAMapItem.h>
 #include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/Feature.h>
