@@ -17,6 +17,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -41,6 +42,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
 
     struct Observations
     {
+        // Seq, parent hash, built hash, captured before acquisition can replace
+        // the node's by-sequence ledger lookup. A set deduplicates peer sends.
+        using Build = std::tuple<std::uint32_t, uint256, uint256>;
+        std::array<std::set<Build>, 4> builds;
         std::array<std::size_t, 4> secrets{};
         std::array<std::size_t, 4> directFrames{};
         std::array<std::size_t, 4> proposalFrames{};
@@ -99,6 +104,54 @@ class SteppingExtensions_test : public beast::unit_test::suite
             net.validators(3);
             net.observer();
             net.mesh();
+            for (std::uint32_t id = 0; id <= observer; ++id)
+            {
+                auto const prior = net.node(id).app().config().harnessPeerSend;
+                net.raw().setPeerSendHook(
+                    id,
+                    [stats = observed, id, prior](
+                        std::uint16_t type,
+                        std::string const& name,
+                        std::uint32_t peer,
+                        beast::IP::Endpoint const& remote,
+                        std::string const& stage,
+                        Message& message) {
+                        if (prior)
+                            prior(type, name, peer, remote, stage, message);
+                        if (type != protocol::mtSTATUS_CHANGE ||
+                            stage != "call")
+                            return;
+                        // Uncompressed protocol frames have a six-byte header.
+                        auto const& frame =
+                            message.getBuffer(compression::Compressed::Off);
+                        protocol::TMStatusChange status;
+                        if (frame.size() < 6 ||
+                            !status.ParseFromArray(
+                                frame.data() + 6,
+                                static_cast<int>(frame.size() - 6)))
+                            throw std::logic_error(
+                                "Invalid fixture status frame");
+                        if (status.newevent() != protocol::neACCEPTED_LEDGER ||
+                            status.ledgerseq() <= warmLedger + 2)
+                            return;
+                        if (status.ledgerhashprevious().size() !=
+                                uint256::bytes ||
+                            status.ledgerhash().size() != uint256::bytes)
+                            throw std::logic_error(
+                                "Invalid fixture status hashes");
+                        uint256 parent, hash;
+                        std::copy(
+                            status.ledgerhashprevious().begin(),
+                            status.ledgerhashprevious().end(),
+                            parent.begin());
+                        std::copy(
+                            status.ledgerhash().begin(),
+                            status.ledgerhash().end(),
+                            hash.begin());
+                        stats->builds.at(id).emplace(
+                            status.ledgerseq(), parent, hash);
+                    });
+            }
         }
 
         std::shared_ptr<Transaction>
@@ -317,6 +370,21 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(net.validatedForkFree());
         BEAST_EXPECT(net.offThreadJobs() == 0);
         BEAST_EXPECT(net.failedJobs() == 0);
+        std::uint32_t localMismatches = 0;
+        std::uint32_t localBuilds = 0;
+        for (std::uint32_t i = 0; i <= observer; ++i)
+            for (auto const& [seq, parent, hash] : stats->builds[i])
+                if (seq <= target && parent == net.ledgerHash(0, seq - 1))
+                {
+                    ++localBuilds;
+                    localMismatches += hash != net.ledgerHash(0, seq);
+                }
+        BEAST_EXPECT(localBuilds != 0);
+        if (fault == Fault::none || fault == Fault::noDirectShares ||
+            fault == Fault::slowObserver)
+            BEAST_EXPECT(localMismatches == 0);
+        if (fault == Fault::slowValidator)
+            BEAST_EXPECT(localMismatches != 0);
         std::map<std::uint32_t, uint256> validatedHistory;
         for (std::uint32_t i = 0; i <= observer; ++i)
         {
@@ -385,7 +453,13 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(witnessSeen == exportOn);
         if (origin)
         {
-            BEAST_EXPECT(witnessAt(net, *origin, warmLedger) != 0);
+            auto const witnessSeq = witnessAt(net, *origin, warmLedger);
+            BEAST_EXPECT(witnessSeq != 0);
+            if (witnessSeq && fault != Fault::lateValidations)
+                BEAST_EXPECT(stats->builds[observer].contains(
+                    {witnessSeq,
+                     net.ledgerHash(0, witnessSeq - 1),
+                     net.ledgerHash(0, witnessSeq)}));
             if (fault == Fault::noDirectShares)
             {
                 BEAST_EXPECT(stats->droppedDirect != 0);
@@ -417,6 +491,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
             << " validatorTrafficDelayed=" << stats->delayedValidatorTraffic
             << " validationGap=" << stats->validationGap
             << " validatedAhead=" << stats->validatedAheadOfClosed
+            << " localBuilds=" << localBuilds
+            << " localMismatches=" << localMismatches
             << " observerJumps=" << net.closedJumps(observer).size()
             << std::endl;
         outcome.push_back(sha512Half(
@@ -424,7 +500,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
             stats->delayedValidations,
             stats->delayedValidatorTraffic,
             stats->validationGap,
-            stats->validatedAheadOfClosed));
+            stats->validatedAheadOfClosed,
+            localBuilds,
+            localMismatches));
         return outcome;
     }
 
