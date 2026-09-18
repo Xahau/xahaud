@@ -85,6 +85,7 @@ struct ExportShareResolution
 {
     ExportShareResolutionStatus status;
     std::optional<ResolvedExportShare> value;
+    char const* reason;
 };
 
 bool
@@ -124,25 +125,43 @@ resolveExportShare(
     beast::Journal j)
 {
     if (!validated)
-        return {ExportShareResolutionStatus::deferred, std::nullopt};
+        return {
+            ExportShareResolutionStatus::deferred,
+            std::nullopt,
+            "no-validated-ledger"};
     if (!validated->rules().enabled(featureExport))
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "feature-disabled"};
     if (share.originLedgerSeq > validated->info().seq)
-        return {ExportShareResolutionStatus::deferred, std::nullopt};
+        return {
+            ExportShareResolutionStatus::deferred,
+            std::nullopt,
+            "origin-not-validated"};
 
     auto const canonicalOriginHash =
         share.originLedgerSeq == validated->info().seq
         ? std::optional<uint256>{validated->info().hash}
         : hashOfSeq(*validated, share.originLedgerSeq, j);
     if (!canonicalOriginHash)
-        return {ExportShareResolutionStatus::deferred, std::nullopt};
+        return {
+            ExportShareResolutionStatus::deferred,
+            std::nullopt,
+            "origin-ancestry-unavailable"};
     if (*canonicalOriginHash != share.originLedgerHash)
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "origin-ancestry-mismatch"};
 
     auto const latchKey = keylet::exportLatch(share.owner, share.originTxn);
     auto const latch = validated->read(latchKey);
     if (!latch)
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "latch-missing"};
     if (latch->getType() != ltEXPORT_LATCH ||
         !latch->isFieldPresent(sfTransactionHash) ||
         !latch->isFieldPresent(sfExportCommitteeHash) ||
@@ -152,43 +171,72 @@ resolveExportShare(
         latch->getAccountID(sfAccount) != share.owner ||
         latch->getFieldH256(sfTransactionHash) != share.originTxn ||
         latch->getFieldU32(sfLedgerSequence) != share.originLedgerSeq)
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "latch-identity-mismatch"};
     if (!latch->isFieldPresent(sfExportNode) ||
         latch->isFieldPresent(sfExportSignatureHash) ||
         validated->info().seq > latch->getFieldU32(sfLastLedgerSequence))
-        return {ExportShareResolutionStatus::duplicate, std::nullopt};
+        return {
+            ExportShareResolutionStatus::duplicate,
+            std::nullopt,
+            latch->isFieldPresent(sfExportSignatureHash) ? "already-witnessed"
+                : !latch->isFieldPresent(sfExportNode)   ? "not-pending"
+                                                       : "publication-expired"};
 
     auto const originLedger =
         app.getLedgerMaster().getLedgerByHash(share.originLedgerHash);
     if (!originLedger)
-        return {ExportShareResolutionStatus::deferred, std::nullopt};
+        return {
+            ExportShareResolutionStatus::deferred,
+            std::nullopt,
+            "origin-ledger-unavailable"};
     if (originLedger->info().seq != share.originLedgerSeq)
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "origin-ledger-sequence-mismatch"};
 
     auto const [outer, _] = originLedger->txRead(share.originTxn);
     if (!outer || outer->getTxnType() != ttEXPORT ||
         !outer->isFieldPresent(sfExportedTxn) ||
         outer->getAccountID(sfAccount) != share.owner)
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "origin-intent-mismatch"};
 
     if (!outer->isFieldPresent(sfExportCommitteeHash) ||
         outer->getFieldH256(sfExportCommitteeHash) !=
             latch->getFieldH256(sfExportCommitteeHash))
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "committee-hash-mismatch"};
 
     auto const committeeHash = latch->getFieldH256(sfExportCommitteeHash);
     auto const committeeSLE =
         validated->read(keylet::exportCommittee(share.owner, committeeHash));
     if (!committeeSLE || !committeeSLE->isFieldPresent(sfExportCommittee))
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "committee-unavailable"};
 
     auto const& roster = committeeSLE->getFieldVL(sfExportCommittee);
     if (!ExportLedgerOps::isMatchingExportCommittee(
             *committeeSLE, share.owner, committeeHash, makeSlice(roster)))
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "committee-roster-mismatch"};
     auto const committee = resolveExportCommittee(makeSlice(roster));
     if (!committee || share.committeePosition >= committee->members.size())
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "committee-position-invalid"};
 
     auto const& expectedMaster = committee->members[share.committeePosition];
     auto const resolvedMaster =
@@ -205,13 +253,22 @@ resolveExportShare(
                 committee->members.begin(),
                 committee->members.end(),
                 share.signingKey) != committee->members.end())
-            return {ExportShareResolutionStatus::invalid, std::nullopt};
-        return {ExportShareResolutionStatus::duplicate, std::nullopt};
+            return {
+                ExportShareResolutionStatus::invalid,
+                std::nullopt,
+                "signer-attribution-mismatch"};
+        return {
+            ExportShareResolutionStatus::duplicate,
+            std::nullopt,
+            "signer-attribution-unknown"};
     }
 
     auto const baseTarget = ExportLedgerOps::exportIntentTarget(*outer);
     if (!baseTarget)
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "target-invalid"};
     auto const targetNetworkID = baseTarget->isFieldPresent(sfNetworkID)
         ? baseTarget->getFieldU32(sfNetworkID)
         : std::uint32_t{0};
@@ -226,11 +283,15 @@ resolveExportShare(
     if (!identity || !signingPayload ||
         ExportResultBuilder::exportIntentHash(identity.value()) !=
             latch->getFieldH256(sfDigest))
-        return {ExportShareResolutionStatus::invalid, std::nullopt};
+        return {
+            ExportShareResolutionStatus::invalid,
+            std::nullopt,
+            "release-payload-mismatch"};
 
     return {
         ExportShareResolutionStatus::resolved,
-        ResolvedExportShare{std::move(signingPayload.value())}};
+        ResolvedExportShare{std::move(signingPayload.value())},
+        "resolved"};
 }
 
 ExportShare
@@ -289,8 +350,21 @@ ConsensusExtensions::publishExportShareLocked(
 
     auto const identity = std::pair{share.originTxn, share.committeePosition};
     if (!exportStreamEmittedShares_.insert(identity).second)
+    {
+        JLOG(j_.trace()) << "ExportShare: publication duplicate"
+                         << " origin=" << share.originTxn
+                         << " position=" << unsigned(share.committeePosition)
+                         << " wire=" << share.wireHash()
+                         << " validatedSeq=" << validatedLedgerSeq;
         return false;
+    }
 
+    JLOG(j_.trace()) << "ExportShare: publication dispatch"
+                     << " origin=" << share.originTxn
+                     << " position=" << unsigned(share.committeePosition)
+                     << " wire=" << share.wireHash()
+                     << " validatedSeq=" << validatedLedgerSeq
+                     << " validatedHash=" << validatedLedgerHash;
     app_.getOPs().pubExportSignature(
         share, validatedLedgerSeq, validatedLedgerHash);
     return true;
@@ -319,7 +393,15 @@ ConsensusExtensions::deferExportShare(
     if (share.originLedgerSeq <= validatedLedgerSeq ||
         share.originLedgerSeq - validatedLedgerSeq >
             maxDeferredExportShareFutureLedgers_)
+    {
+        JLOG(j_.trace()) << "ExportShare: defer not retained"
+                         << " origin=" << share.originTxn
+                         << " wire=" << share.wireHash()
+                         << " originSeq=" << share.originLedgerSeq
+                         << " validatedSeq=" << validatedLedgerSeq
+                         << " reason=outside-future-window";
         return {ExportShareDisposition::deferred, ExportShareCharge::none};
+    }
 
     std::size_t const serializedBytes = share.serialize().size();
     auto const wireHash = share.wireHash();
@@ -341,6 +423,10 @@ ConsensusExtensions::deferExportShare(
             if (auto const it = deferredExportShares_.find(wireHash);
                 it != deferredExportShares_.end())
             {
+                JLOG(j_.trace())
+                    << "ExportShare: defer duplicate"
+                    << " origin=" << share.originTxn << " wire=" << wireHash
+                    << " validatedSeq=" << validatedLedgerSeq;
                 if (!it->second.charge && deferredCharge)
                     it->second.charge = std::move(deferredCharge);
                 return {
@@ -356,8 +442,15 @@ ConsensusExtensions::deferExportShare(
                 (newOrigin &&
                  deferredExportShareOrigins_.size() >=
                      maxDeferredExportShareOrigins_))
+            {
+                JLOG(j_.trace())
+                    << "ExportShare: defer not retained"
+                    << " origin=" << share.originTxn << " wire=" << wireHash
+                    << " validatedSeq=" << validatedLedgerSeq
+                    << " reason=capacity";
                 return {
                     ExportShareDisposition::deferred, ExportShareCharge::none};
+            }
 
             deferredExportShareBytes_ += serializedBytes;
             ++deferredExportShareOrigins_[share.originTxn];
@@ -365,10 +458,25 @@ ConsensusExtensions::deferExportShare(
                 wireHash,
                 DeferredExportShare{
                     share, std::move(deferredCharge), serializedBytes});
+            JLOG(j_.trace())
+                << "ExportShare: defer queued"
+                << " origin=" << share.originTxn
+                << " position=" << unsigned(share.committeePosition)
+                << " wire=" << wireHash
+                << " originSeq=" << share.originLedgerSeq
+                << " validatedSeq=" << validatedLedgerSeq
+                << " retrySeq=" << deferredExportShareRetrySeq_
+                << " queueSize=" << deferredExportShares_.size();
         }
     }
     if (retryImmediately)
+    {
+        JLOG(j_.trace()) << "ExportShare: defer immediate retry"
+                         << " origin=" << share.originTxn
+                         << " wire=" << wireHash
+                         << " validatedSeq=" << validatedLedgerSeq;
         return admitExportShare(share, std::move(deferredCharge), false);
+    }
     return {ExportShareDisposition::deferred, ExportShareCharge::none};
 }
 
@@ -402,6 +510,10 @@ ConsensusExtensions::retryDeferredExportShares(
             retry.push_back(std::move(it->second));
             it = deferredExportShares_.erase(it);
         }
+        JLOG(j_.trace()) << "ExportShare: retry batch"
+                         << " callbackValidatedSeq=" << validatedLedgerSeq
+                         << " ready=" << retry.size()
+                         << " remaining=" << deferredExportShares_.size();
     }
 
     scope_exit retryDone([this] {
@@ -412,7 +524,18 @@ ConsensusExtensions::retryDeferredExportShares(
 
     for (auto& deferred : retry)
     {
+        JLOG(j_.trace()) << "ExportShare: retry begin"
+                         << " origin=" << deferred.share.originTxn
+                         << " position="
+                         << unsigned(deferred.share.committeePosition)
+                         << " wire=" << deferred.share.wireHash()
+                         << " callbackValidatedSeq=" << validatedLedgerSeq;
         auto const result = admitExportShare(deferred.share, {}, false);
+        JLOG(j_.trace()) << "ExportShare: retry result"
+                         << " origin=" << deferred.share.originTxn
+                         << " wire=" << deferred.share.wireHash()
+                         << " disposition="
+                         << static_cast<unsigned>(result.disposition);
         if (result.isAccepted())
         {
             auto const frame = deferred.share.serialize();
@@ -445,15 +568,38 @@ ConsensusExtensions::admitExportShare(
     bool const allowDeferral)
 {
     if (!exportShareServiceStarted_.load(std::memory_order_acquire))
+    {
+        JLOG(j_.trace()) << "ExportShare: admission skipped"
+                         << " origin=" << share.originTxn
+                         << " wire=" << share.wireHash()
+                         << " reason=service-stopped";
         return {ExportShareDisposition::duplicate, ExportShareCharge::none};
+    }
 
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
+    JLOG(j_.trace()) << "ExportShare: admission begin"
+                     << " origin=" << share.originTxn
+                     << " position=" << unsigned(share.committeePosition)
+                     << " wire=" << share.wireHash()
+                     << " originSeq=" << share.originLedgerSeq
+                     << " originHash=" << share.originLedgerHash
+                     << " allowDeferral=" << allowDeferral << " validatedSeq="
+                     << (validated ? validated->info().seq : 0)
+                     << " validatedHash="
+                     << (validated ? to_string(validated->info().hash)
+                                   : "none");
     if (allowDeferral && validated &&
         share.originLedgerSeq > validated->info().seq)
         return deferExportShare(
             share, std::move(deferredCharge), validated->info().seq);
 
     auto resolved = resolveExportShare(app_, share, validated, j_);
+    JLOG(j_.trace()) << "ExportShare: resolution"
+                     << " origin=" << share.originTxn
+                     << " position=" << unsigned(share.committeePosition)
+                     << " wire=" << share.wireHash() << " validatedSeq="
+                     << (validated ? validated->info().seq : 0)
+                     << " reason=" << resolved.reason;
     if (resolved.status == ExportShareResolutionStatus::deferred)
         return {ExportShareDisposition::deferred, ExportShareCharge::none};
     if (resolved.status == ExportShareResolutionStatus::duplicate)
@@ -465,12 +611,22 @@ ConsensusExtensions::admitExportShare(
 
     if (!postValidationExportSigCollector_.registerOrigin(
             share.originTxn, validated->info().seq))
+    {
+        JLOG(j_.trace()) << "ExportShare: collector registration deferred"
+                         << " origin=" << share.originTxn
+                         << " wire=" << share.wireHash();
         return {ExportShareDisposition::deferred, ExportShareCharge::none};
+    }
 
     ExportSigCollector::Contribution contribution{
         share.committeePosition, share.signingKey, share.signature};
     auto admission = postValidationExportSigCollector_.beginAttributedAdmission(
         share.originTxn, std::move(contribution), validated->info().seq);
+    JLOG(j_.trace()) << "ExportShare: collector begin"
+                     << " origin=" << share.originTxn
+                     << " wire=" << share.wireHash()
+                     << " result=" << static_cast<unsigned>(admission.result)
+                     << " ticket=" << static_cast<bool>(admission.ticket);
     if (admission.result != ExportSigCollector::BeginResult::verify ||
         !admission.ticket)
     {
@@ -504,6 +660,13 @@ ConsensusExtensions::admitExportShare(
         Slice{share.signature.data(), share.signature.size()});
     auto outcome = postValidationExportSigCollector_.admitContribution(
         std::move(*admission.ticket), signatureVerified, validated->info().seq);
+    JLOG(j_.trace()) << "ExportShare: collector commit"
+                     << " origin=" << share.originTxn
+                     << " position=" << unsigned(share.committeePosition)
+                     << " wire=" << share.wireHash()
+                     << " validatedSeq=" << validated->info().seq
+                     << " signatureVerified=" << signatureVerified
+                     << " result=" << static_cast<unsigned>(outcome.result);
     if (outcome.result == ExportSigCollector::AdmitResult::accepted)
     {
         std::lock_guard streamLock(exportStreamMutex_);
@@ -511,7 +674,16 @@ ConsensusExtensions::admitExportShare(
             return {ExportShareDisposition::duplicate, ExportShareCharge::none};
         auto const latest = app_.getLedgerMaster().getValidatedLedger();
         if (!latest || !isPendingExportShare(*latest, share, j_))
+        {
+            JLOG(j_.trace())
+                << "ExportShare: publication skipped after admission"
+                << " origin=" << share.originTxn << " wire=" << share.wireHash()
+                << " admissionValidatedSeq=" << validated->info().seq
+                << " publicationValidatedSeq="
+                << (latest ? latest->info().seq : 0)
+                << " reason=not-pending-at-publication";
             return {ExportShareDisposition::duplicate, ExportShareCharge::none};
+        }
         publishExportShareLocked(
             share, latest->info().seq, latest->info().hash);
         return {ExportShareDisposition::accepted, ExportShareCharge::none};
@@ -549,19 +721,42 @@ ConsensusExtensions::onValidatedLedger(
     {
         auto const eventLedger = app_.getLedgerMaster().getLedgerByHash(hash);
         auto const validated = app_.getLedgerMaster().getValidatedLedger();
+        JLOG(j_.trace()) << "ExportShare: validated callback begin"
+                         << " eventSeq=" << seq << " eventHash=" << hash
+                         << " haveEventLedger="
+                         << static_cast<bool>(eventLedger) << " validatedSeq="
+                         << (validated ? validated->info().seq : 0)
+                         << " validatedHash="
+                         << (validated ? to_string(validated->info().hash)
+                                       : "none");
         if (!eventLedger || eventLedger->info().seq != seq || !validated ||
             validated->info().seq < seq ||
             !validated->rules().enabled(featureExport))
+        {
+            JLOG(j_.trace()) << "ExportShare: validated callback skipped"
+                             << " eventSeq=" << seq
+                             << " reason=unusable-event-or-validated-ledger";
             return;
+        }
         auto const canonicalEventHash = seq == validated->info().seq
             ? std::optional<uint256>{validated->info().hash}
             : hashOfSeq(*validated, seq, j_);
         if (!canonicalEventHash || *canonicalEventHash != hash)
+        {
+            JLOG(j_.trace())
+                << "ExportShare: validated callback skipped"
+                << " eventSeq=" << seq
+                << " reason=event-ancestry-unavailable-or-mismatch";
             return;
+        }
 
         auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
         if (cfg && cfg->noExportSig && *cfg->noExportSig)
+        {
+            JLOG(j_.trace()) << "ExportShare: validated callback skipped"
+                             << " eventSeq=" << seq << " reason=no-export-sig";
             return;
+        }
 
         postValidationExportSigCollector_.cleanupStale(validated->info().seq);
 
@@ -581,6 +776,12 @@ ConsensusExtensions::onValidatedLedger(
                     pendingExportLatches(*validated, validated->info().seq);
                 auto const unionSnapshot =
                     postValidationExportSigCollector_.fullUnionSnapshot();
+                JLOG(j_.trace())
+                    << "ExportShare: validated replay snapshot"
+                    << " eventSeq=" << seq
+                    << " validatedSeq=" << validated->info().seq
+                    << " pendingOrigins=" << live.size()
+                    << " collectedOrigins=" << unionSnapshot.size();
                 for (auto const& [origin, latch] : live)
                 {
                     auto const it = unionSnapshot.find(origin);
@@ -738,11 +939,22 @@ ConsensusExtensions::onValidatedLedger(
         for (std::size_t first = 0; first < shares.size();
              first += ExportLimits::maxExportSharesPerRelay)
         {
+            JLOG(j_.trace()) << "ExportShare: local release batch"
+                             << " eventSeq=" << seq
+                             << " validatedSeq=" << validated->info().seq
+                             << " total=" << shares.size();
             protocol::TMExportShares message;
             auto const last = std::min(
                 shares.size(), first + ExportLimits::maxExportSharesPerRelay);
             for (auto i = first; i < last; ++i)
             {
+                JLOG(j_.trace())
+                    << "ExportShare: local release frame"
+                    << " eventSeq=" << seq
+                    << " validatedSeq=" << validated->info().seq
+                    << " origin=" << shares[i].originTxn
+                    << " position=" << unsigned(shares[i].committeePosition)
+                    << " wire=" << shares[i].wireHash();
                 auto const frame = shares[i].serialize();
                 message.add_shares(frame.data(), frame.size());
             }
@@ -3163,10 +3375,14 @@ ConsensusExtensions::logPosition(
 std::size_t
 ConsensusExtensions::harvestExportSignatures(
     PublicKey const& senderPK,
-    uint256 const&,
+    uint256 const& proposalParent,
     std::vector<std::string> const& exportSignatures,
-    char const*)
+    char const* source)
 {
+    JLOG(j_.trace()) << "ExportShare: proposal batch"
+                     << " source=" << source << " parent=" << proposalParent
+                     << " entries=" << exportSignatures.size()
+                     << " enabled=" << exportEnabled();
     if (!exportEnabled() || exportSignatures.empty() ||
         exportSignatures.size() > ExportLimits::maxExportSharesPerRelay)
         return 0;
@@ -3177,7 +3393,17 @@ ConsensusExtensions::harvestExportSignatures(
         auto const share = ExportShare::parse(makeSlice(bytes));
         if (!share || share->signingKey != senderPK ||
             share->serialize().slice() != makeSlice(bytes))
+        {
+            JLOG(j_.trace()) << "ExportShare: proposal frame rejected"
+                             << " source=" << source
+                             << " parsed=" << static_cast<bool>(share);
             continue;
+        }
+        JLOG(j_.trace()) << "ExportShare: proposal frame"
+                         << " source=" << source << " parent=" << proposalParent
+                         << " origin=" << share->originTxn
+                         << " position=" << unsigned(share->committeePosition)
+                         << " wire=" << share->wireHash();
         if (onExportShare(*share))
             ++accepted;
     }

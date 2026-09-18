@@ -1177,7 +1177,15 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
         // against the same receiver state.
         auto const admissionKey =
             sha512Half((*shares)[i].wireHash(), validatedSeq);
-        if (app_.getHashRouter().addSuppressionPeer(admissionKey, id_))
+        bool const freshForState =
+            app_.getHashRouter().addSuppressionPeer(admissionKey, id_);
+        JLOG(journal_.trace())
+            << "ExportShare: wire received"
+            << " peer=" << id_ << " origin=" << (*shares)[i].originTxn
+            << " position=" << unsigned((*shares)[i].committeePosition)
+            << " wire=" << (*shares)[i].wireHash()
+            << " suppressionSeq=" << validatedSeq << " fresh=" << freshForState;
+        if (freshForState)
             fresh.push_back(i);
     }
 
@@ -1206,6 +1214,12 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
                     };
                 auto const admission = peer->overlay_.acceptExportShare(
                     shares[index], chargeDeferred);
+                JLOG(peer->journal_.trace())
+                    << "ExportShare: wire admission result"
+                    << " peer=" << peer->id_
+                    << " origin=" << shares[index].originTxn
+                    << " wire=" << shares[index].wireHash() << " disposition="
+                    << static_cast<unsigned>(admission.disposition);
                 if (admission.isAccepted())
                 {
                     // Stable raw-wire routing begins only after semantic
