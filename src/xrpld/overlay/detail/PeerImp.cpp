@@ -40,6 +40,7 @@
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/asio/dispatch.hpp>
 #include <boost/beast/core/ostream.hpp>
 
 #include <algorithm>
@@ -84,17 +85,18 @@ PeerImp::PeerImp(
     , stream_ptr_(std::move(stream_ptr))
     , socket_(stream_ptr_->next_layer().socket())
     , stream_(*stream_ptr_)
-    , strand_(socket_.get_executor())
+    , strand_(makePeerStrand(app.config(), socket_.get_executor()))
     , timer_(waitable_timer{socket_.get_executor()})
+    , vtimer_(app.makePeerTimer())
     , remote_address_(slot->remote_endpoint())
     , overlay_(overlay)
     , inbound_(true)
     , protocol_(protocol)
     , tracking_(Tracking::unknown)
-    , trackingTime_(clock_type::now())
+    , trackingTime_(steadyNow())
     , publicKey_(publicKey)
-    , lastPingTime_(clock_type::now())
-    , creationTime_(clock_type::now())
+    , lastPingTime_(steadyNow())
+    , creationTime_(steadyNow())
     , squelch_(app_.journal("Squelch"))
     , usage_(consumer)
     , fee_{Resource::feeTrivialPeer, ""}
@@ -646,6 +648,14 @@ PeerImp::gracefulClose()
 void
 PeerImp::setTimer()
 {
+    if (vtimer_)
+    {
+        vtimer_->expiresAfter(peerTimerInterval, [self = shared_from_this()]() {
+            boost::asio::dispatch(
+                self->strand_, [self]() { self->onTimer({}); });
+        });
+        return;
+    }
     error_code ec;
     timer_.expires_from_now(peerTimerInterval, ec);
 
@@ -664,6 +674,11 @@ PeerImp::setTimer()
 void
 PeerImp::cancelTimer()
 {
+    if (vtimer_)
+    {
+        vtimer_->cancel();
+        return;
+    }
     error_code ec;
     timer_.cancel(ec);
 }
@@ -706,7 +721,7 @@ PeerImp::onTimer(error_code const& ec)
 
         {
             std::lock_guard sl(recentLock_);
-            duration = clock_type::now() - trackingTime_;
+            duration = steadyNow() - trackingTime_;
         }
 
         if ((t == Tracking::diverged &&
@@ -727,7 +742,7 @@ PeerImp::onTimer(error_code const& ec)
         return;
     }
 
-    lastPingTime_ = clock_type::now();
+    lastPingTime_ = steadyNow();
     lastPingSeq_ = rand_int<std::uint32_t>(app_.getPrng());
 
     protocol::TMPing message;
@@ -1090,7 +1105,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMPing> const& m)
 
             // Update latency estimate
             auto const rtt = std::chrono::round<std::chrono::milliseconds>(
-                clock_type::now() - lastPingTime_);
+                steadyNow() - lastPingTime_);
 
             std::lock_guard sl(recentLock_);
 
@@ -1963,7 +1978,7 @@ PeerImp::checkTracking(std::uint32_t seq1, std::uint32_t seq2)
         std::lock_guard sl(recentLock_);
 
         tracking_ = Tracking::diverged;
-        trackingTime_ = clock_type::now();
+        trackingTime_ = steadyNow();
     }
 }
 

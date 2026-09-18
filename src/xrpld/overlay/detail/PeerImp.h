@@ -23,7 +23,9 @@
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/ledger/detail/LedgerReplayMsgHandler.h>
 #include <xrpld/overlay/Squelch.h>
+#include <xrpld/app/ledger/detail/TimeoutCounter.h>
 #include <xrpld/overlay/detail/OverlayImpl.h>
+#include <xrpld/overlay/detail/PeerStrand.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
 #include <xrpld/overlay/detail/ProtocolVersion.h>
 #include <xrpld/peerfinder/PeerfinderManager.h>
@@ -79,6 +81,7 @@ private:
     stream_type& stream_;
     boost::asio::strand<boost::asio::executor> strand_;
     waitable_timer timer_;
+    std::unique_ptr<TimeoutCounterTimer> vtimer_;
 
     // Updated at each stage of the connection process to reflect
     // the current conditions as closely as possible.
@@ -366,7 +369,7 @@ public:
     clock_type::duration
     uptime() const
     {
-        return clock_type::now() - creationTime_;
+        return steadyNow() - creationTime_;
     }
 
     Json::Value
@@ -457,6 +460,12 @@ private:
 
     void
     cancelTimer();
+
+    clock_type::time_point
+    steadyNow() const
+    {
+        return app_.getPreciseStopwatch().now();
+    }
 
     static std::string
     makePrefix(id_t id);
@@ -676,17 +685,18 @@ PeerImp::PeerImp(
     , stream_ptr_(std::move(stream_ptr))
     , socket_(stream_ptr_->next_layer().socket())
     , stream_(*stream_ptr_)
-    , strand_(socket_.get_executor())
+    , strand_(makePeerStrand(app.config(), socket_.get_executor()))
     , timer_(waitable_timer{socket_.get_executor()})
+    , vtimer_(app.makePeerTimer())
     , remote_address_(slot->remote_endpoint())
     , overlay_(overlay)
     , inbound_(false)
     , protocol_(protocol)
     , tracking_(Tracking::unknown)
-    , trackingTime_(clock_type::now())
+    , trackingTime_(steadyNow())
     , publicKey_(publicKey)
-    , lastPingTime_(clock_type::now())
-    , creationTime_(clock_type::now())
+    , lastPingTime_(steadyNow())
+    , creationTime_(steadyNow())
     , squelch_(app_.journal("Squelch"))
     , usage_(usage)
     , fee_{Resource::feeTrivialPeer}
