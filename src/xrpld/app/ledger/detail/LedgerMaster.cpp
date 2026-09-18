@@ -2277,7 +2277,11 @@ LedgerMaster::doAdvance(std::unique_lock<std::recursive_mutex>& sl)
             }
 
             app_.getOPs().clearNeedNetworkLedger();
-            progress = newPFWork("pf:newLedger", sl);
+            // Publishing is progress even without pathfinding clients. Keep
+            // the shutdown guard so this loop cannot re-enter history work
+            // after the Application starts stopping.
+            newPFWork("pf:newLedger", sl);
+            progress = !app_.isStopping();
         }
         if (progress)
             mAdvanceWork = true;
