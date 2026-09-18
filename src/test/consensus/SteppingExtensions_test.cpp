@@ -12,10 +12,13 @@
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/TxFlags.h>
 
+#include <algorithm>
 #include <array>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace ripple::test {
@@ -28,11 +31,23 @@ class SteppingExtensions_test : public beast::unit_test::suite
     // validation retention. The second can score a complete history window.
     static constexpr std::uint32_t warmLedger = 2 * FLAG_LEDGER_INTERVAL + 1;
 
+    enum class Fault {
+        none,
+        noDirectShares,
+        slowObserver,
+        lateValidations,
+        slowValidator
+    };
+
     struct Observations
     {
         std::array<std::size_t, 4> secrets{};
         std::array<std::size_t, 4> directFrames{};
         std::array<std::size_t, 4> proposalFrames{};
+        std::uint32_t droppedDirect = 0;
+        std::uint32_t delayedValidations = 0;
+        std::uint32_t validationGap = 0;
+        std::uint32_t validatedAheadOfClosed = 0;
     };
 
     struct World
@@ -40,14 +55,16 @@ class SteppingExtensions_test : public beast::unit_test::suite
         SteppingNetwork& net;
         bool rng;
         bool exportEnabled;
-        std::shared_ptr<Observations> observed = std::make_shared<Observations>();
+        std::shared_ptr<Observations> observed =
+            std::make_shared<Observations>();
         jtx::Account owner{"dsf-export-owner"};
         jtx::Account destination{"dsf-export-destination"};
 
         World(SteppingNetwork& network, bool rngOn, bool exportOn)
             : net(network), rng(rngOn), exportEnabled(exportOn)
         {
-            net.configureNodes([stats = observed, rngOn, exportOn](std::uint32_t id, Config& cfg) {
+            net.configureNodes([stats = observed, rngOn, exportOn](
+                                   std::uint32_t id, Config& cfg) {
                 cfg.NETWORK_ID = networkID;
                 // Let the real flag-ledger vote produce the common active view.
                 cfg.features.insert(featureNegativeUNL);
@@ -56,17 +73,25 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     cfg.features.insert(featureConsensusEntropy);
                 if (exportOn)
                     cfg.features.insert(featureExport);
-                cfg.harnessEntropySecret = [stats, id](uint256 const& parent, std::uint32_t seq) {
+                cfg.harnessEntropySecret = [stats, id](
+                                               uint256 const& parent,
+                                               std::uint32_t seq) {
                     ++stats->secrets.at(id);
-                    return sha512Half(std::string{"DSF entropy fixture"}, id, parent, seq);
+                    return sha512Half(
+                        std::string{"DSF entropy fixture"}, id, parent, seq);
                 };
                 cfg.harnessPeerMessage =
-                    [stats, id](std::uint16_t type, std::string const&, std::uint32_t,
-                                beast::IP::Endpoint const&, ::google::protobuf::Message const& msg) {
+                    [stats, id](
+                        std::uint16_t type,
+                        std::string const&,
+                        std::uint32_t,
+                        beast::IP::Endpoint const&,
+                        ::google::protobuf::Message const& msg) {
                         if (type == protocol::mtEXPORT_SHARES)
                             ++stats->directFrames.at(id);
                         if (type == protocol::mtPROPOSE_LEDGER &&
-                            static_cast<protocol::TMProposeSet const&>(msg).exportsignatures_size())
+                            static_cast<protocol::TMProposeSet const&>(msg)
+                                .exportsignatures_size())
                             ++stats->proposalFrames.at(id);
                     };
             });
@@ -87,8 +112,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
         {
             std::vector<PublicKey> keys;
             for (std::uint32_t i = 0; i < observer; ++i)
-                keys.push_back(net.node(i).app().getValidatorKeys().keys->masterPublicKey);
-            auto const roster = canonicalizeExportCommittee(makeSlice(serializeExportCommittee(keys)));
+                keys.push_back(
+                    net.node(i).app().getValidatorKeys().keys->masterPublicKey);
+            auto const roster = canonicalizeExportCommittee(
+                makeSlice(serializeExportCommittee(keys)));
             if (!roster)
                 throw std::logic_error("Invalid fixture committee");
 
@@ -113,7 +140,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 ExportLimits::maxAdmissionWindowLedgers;
             tx[sfExportedTxn.jsonName] = inner.getJson(JsonOptions::none);
             tx[sfExportCommittee.jsonName] = strHex(*roster);
-            tx[sfExportCommitteeHash.jsonName] = to_string(exportCommitteeHash(makeSlice(*roster)));
+            tx[sfExportCommitteeHash.jsonName] =
+                to_string(exportCommitteeHash(makeSlice(*roster)));
             return tx;
         }
     };
@@ -124,7 +152,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto& net = world.net;
         if (!BEAST_EXPECT(net.allUp() && net.meshReady()))
             return false;
-        net.runTo(warmLedger, SteppingNetwork::RunBudget{(warmLedger + 32) * 60, 2'000'000});
+        net.runTo(
+            warmLedger,
+            SteppingNetwork::RunBudget{(warmLedger + 32) * 60, 2'000'000});
         if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger))
         {
             log << net.jobDiagnostics() << std::endl;
@@ -135,14 +165,21 @@ class SteppingExtensions_test : public beast::unit_test::suite
             auto const ledger = net.ledger(i, warmLedger);
             if (!BEAST_EXPECT(ledger != nullptr))
                 return false;
-            BEAST_EXPECT(ledger->rules().enabled(featureConsensusEntropy) == world.rng);
-            BEAST_EXPECT(ledger->rules().enabled(featureExport) == world.exportEnabled);
+            BEAST_EXPECT(
+                ledger->rules().enabled(featureConsensusEntropy) == world.rng);
+            BEAST_EXPECT(
+                ledger->rules().enabled(featureExport) == world.exportEnabled);
             auto const report = ledger->read(keylet::UNLReport());
-            if (!BEAST_EXPECT(report && report->getFieldArray(sfActiveValidators).size() == observer))
+            if (!BEAST_EXPECT(
+                    report &&
+                    report->getFieldArray(sfActiveValidators).size() ==
+                        observer))
             {
                 log << "active-view warmup: node=" << i << " seq=" << warmLedger
                     << " report=" << static_cast<bool>(report) << " members="
-                    << (report ? report->getFieldArray(sfActiveValidators).size() : 0)
+                    << (report
+                            ? report->getFieldArray(sfActiveValidators).size()
+                            : 0)
                     << std::endl;
                 return false;
             }
@@ -166,22 +203,82 @@ class SteppingExtensions_test : public beast::unit_test::suite
     }
 
     std::optional<std::vector<uint256>>
-    baseline(SteppingNetwork& net, bool rng, bool exportOn)
+    scenario(
+        SteppingNetwork& net,
+        bool rng,
+        bool exportOn,
+        Fault fault = Fault::none)
     {
         World world(net, rng, exportOn);
         if (!ready(world))
             return std::nullopt;
 
         auto const funding = world.submit(
-            observer, jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
             jtx::Account::master);
         if (!BEAST_EXPECT(funding->getResult() == tesSUCCESS))
             return std::nullopt;
         net.runTo(warmLedger + 2);
         if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
             return std::nullopt;
+
+        using namespace std::chrono_literals;
+        net.recordChainHistory();
+        auto const stats = world.observed;
+        if (fault == Fault::noDirectShares || fault == Fault::lateValidations)
+            for (std::uint32_t from = 0; from < observer; ++from)
+                net.faultLink(
+                    from,
+                    observer,
+                    [stats, fault](std::uint16_t type, std::size_t) {
+                        SimFault f;
+                        if (fault == Fault::noDirectShares &&
+                            type == protocol::mtEXPORT_SHARES)
+                        {
+                            ++stats->droppedDirect;
+                            f.drop = true;
+                        }
+                        if (fault == Fault::lateValidations &&
+                            type == protocol::mtVALIDATION)
+                        {
+                            ++stats->delayedValidations;
+                            f.delay = 5s;
+                        }
+                        return f;
+                    });
+        if (fault == Fault::slowObserver)
+            net.lagAccept(observer, 5s);
+        if (fault == Fault::slowValidator)
+            net.lagAccept(1, 2s);
+
+        if (fault != Fault::none)
+        {
+            // Observe the impaired interval, then heal. These probes read
+            // ledger cursors only; they do not alter node time or consensus.
+            for (int second = 1; second < 16; ++second)
+                net.in(std::chrono::seconds{second}, observer, [&net, stats]() {
+                    auto const v = net.validSeq(observer);
+                    auto const c = net.closedSeq(observer);
+                    if (v > c)
+                        stats->validatedAheadOfClosed =
+                            std::max(stats->validatedAheadOfClosed, v - c);
+                    for (std::uint32_t i = 0; i < observer; ++i)
+                        if (net.validSeq(i) > v)
+                            stats->validationGap = std::max(
+                                stats->validationGap, net.validSeq(i) - v);
+                });
+            net.in(16s, observer, [&net, fault]() {
+                net.clearLag(observer).clearLag(1);
+                if (fault == Fault::lateValidations)
+                    for (std::uint32_t from = 0; from < observer; ++from)
+                        net.faultLink(from, observer, {});
+            });
+        }
         auto const payment = world.submit(
-            observer, jtx::pay(world.owner, world.destination, jtx::XRP(1000)), world.owner);
+            observer,
+            jtx::pay(world.owner, world.destination, jtx::XRP(1000)),
+            world.owner);
         if (!BEAST_EXPECT(payment->getResult() == tesSUCCESS))
             return std::nullopt;
 
@@ -194,18 +291,50 @@ class SteppingExtensions_test : public beast::unit_test::suite
             origin = tx->getID();
         }
         auto const target = warmLedger + 8;
-        net.runTo(target);
+        net.runTo(
+            target,
+            SteppingNetwork::RunBudget{1200, 1'000'000},
+            SteppingNetwork::Cadence{
+                fault == Fault::slowValidator ? 250ms : 1000ms});
         if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
             return std::nullopt;
         BEAST_EXPECT(net.ledgersAgree(target));
         BEAST_EXPECT(net.validatedForkFree());
         BEAST_EXPECT(net.offThreadJobs() == 0);
         BEAST_EXPECT(net.failedJobs() == 0);
+        std::map<std::uint32_t, uint256> validatedHistory;
+        for (std::uint32_t i = 0; i <= observer; ++i)
+        {
+            std::uint32_t last = 0;
+            for (auto const& sample : net.chainHistory(i))
+            {
+                BEAST_EXPECT(sample.validSeq >= last);
+                last = sample.validSeq;
+                if (sample.validSeq)
+                {
+                    auto const [it, inserted] = validatedHistory.emplace(
+                        sample.validSeq, sample.validHash);
+                    BEAST_EXPECT(inserted || it->second == sample.validHash);
+                }
+            }
+        }
+        if (fault == Fault::slowObserver)
+            BEAST_EXPECT(stats->validatedAheadOfClosed != 0);
+        if (fault == Fault::lateValidations)
+        {
+            BEAST_EXPECT(stats->delayedValidations != 0);
+            BEAST_EXPECT(stats->validationGap != 0);
+        }
+        if (fault == Fault::slowObserver || fault == Fault::slowValidator)
+            BEAST_EXPECT(
+                net.jobDiagnostics().find("queued:lagged JtAccept") !=
+                std::string::npos);
         BEAST_EXPECT(world.observed->secrets[observer] == 0);
         for (std::uint32_t i = 0; i < observer; ++i)
             BEAST_EXPECT((world.observed->secrets[i] != 0) == rng);
 
         bool entropySeen = false;
+        bool partialEntropySeen = false;
         bool paymentSeen = false;
         bool witnessSeen = false;
         std::vector<uint256> outcome;
@@ -220,20 +349,41 @@ class SteppingExtensions_test : public beast::unit_test::suite
             {
                 BEAST_EXPECT(meta != nullptr);
                 entropySeen |= tx->getTxnType() == ttCONSENSUS_ENTROPY;
+                if (tx->getTxnType() == ttCONSENSUS_ENTROPY)
+                    partialEntropySeen |=
+                        tx->getFieldU16(sfEntropyCount) != observer;
                 paymentSeen |= tx->getTransactionID() == payment->getID();
                 witnessSeen |= tx->getTxnType() == ttEXPORT_SIGNATURES;
-                if (tx->getTxnType() == ttCONSENSUS_ENTROPY && seq > warmLedger)
+                if (tx->getTxnType() == ttCONSENSUS_ENTROPY &&
+                    seq > warmLedger && fault != Fault::slowValidator)
                     BEAST_EXPECT(tx->getFieldU16(sfEntropyCount) == observer);
             }
             outcome.push_back(ledger->info().hash);
         }
         BEAST_EXPECT(entropySeen == rng);
+        if (fault == Fault::slowValidator)
+            BEAST_EXPECT(partialEntropySeen);
         BEAST_EXPECT(paymentSeen);
         BEAST_EXPECT(witnessSeen == exportOn);
         if (origin)
         {
             BEAST_EXPECT(witnessAt(net, *origin, warmLedger) != 0);
-            BEAST_EXPECT(world.observed->directFrames[observer] != 0);
+            if (fault == Fault::noDirectShares)
+            {
+                BEAST_EXPECT(stats->droppedDirect != 0);
+                BEAST_EXPECT(stats->directFrames[observer] == 0);
+                auto const collected = net.node(observer)
+                                           .app()
+                                           .getConsensusExtensions()
+                                           .postValidationExportSigCollector()
+                                           .fullUnionSnapshot();
+                auto const found = collected.find(*origin);
+                BEAST_EXPECT(
+                    found != collected.end() &&
+                    found->second.size() == observer);
+            }
+            else
+                BEAST_EXPECT(world.observed->directFrames[observer] != 0);
             BEAST_EXPECT(world.observed->proposalFrames[observer] != 0);
         }
         else
@@ -241,6 +391,20 @@ class SteppingExtensions_test : public beast::unit_test::suite
             BEAST_EXPECT(world.observed->directFrames[observer] == 0);
             BEAST_EXPECT(world.observed->proposalFrames[observer] == 0);
         }
+        log << "  behaviour: witness=" << witnessSeen
+            << " entropy=" << entropySeen
+            << " partialEntropy=" << partialEntropySeen
+            << " directDropped=" << stats->droppedDirect
+            << " validationsDelayed=" << stats->delayedValidations
+            << " validationGap=" << stats->validationGap
+            << " validatedAhead=" << stats->validatedAheadOfClosed
+            << " observerJumps=" << net.closedJumps(observer).size()
+            << std::endl;
+        outcome.push_back(sha512Half(
+            stats->droppedDirect,
+            stats->delayedValidations,
+            stats->validationGap,
+            stats->validatedAheadOfClosed));
         return outcome;
     }
 
@@ -251,13 +415,47 @@ public:
         for (auto const rng : {false, true})
             for (auto const exportOn : {false, true})
             {
-                auto const label = std::string{"feature matrix rng="} + (rng ? "on" : "off") +
+                auto const label = std::string{"feature matrix rng="} +
+                    (rng ? "on" : "off") +
                     " export=" + (exportOn ? "on" : "off");
                 testcase(label);
-                expectReplays(*this, label.c_str(), [this, rng, exportOn](SteppingNetwork& net) {
-                    return baseline(net, rng, exportOn);
-                });
+                expectReplays(
+                    *this,
+                    label.c_str(),
+                    [this, rng, exportOn](SteppingNetwork& net) {
+                        return scenario(net, rng, exportOn);
+                    });
             }
+        for (auto const& [label, fault, rng, exportOn] :
+             {std::tuple{
+                  "observer gets Export material only through proposals",
+                  Fault::noDirectShares,
+                  false,
+                  true},
+              std::tuple{
+                  "observer builds five seconds late while validations advance",
+                  Fault::slowObserver,
+                  true,
+                  true},
+              std::tuple{
+                  "observer hears validations five seconds late",
+                  Fault::lateValidations,
+                  true,
+                  true},
+              std::tuple{
+                  "one RNG validator builds two seconds late then recovers",
+                  Fault::slowValidator,
+                  true,
+                  false}})
+        {
+            testcase(label);
+            expectReplays(
+                *this,
+                label,
+                [this, fault, rng, exportOn](SteppingNetwork& net) {
+                    return scenario(net, rng, exportOn, fault);
+                });
+        }
     }
 };
 
