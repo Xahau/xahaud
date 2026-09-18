@@ -64,6 +64,7 @@ public:
     bool
     isComplete() const
     {
+        ScopedLockType const sl(mtx_);
         return complete_;
     }
 
@@ -71,18 +72,21 @@ public:
     bool
     isFailed() const
     {
+        ScopedLockType const sl(mtx_);
         return failed_;
     }
 
     std::shared_ptr<Ledger const>
     getLedger() const
     {
+        ScopedLockType const sl(mtx_);
         return mLedger;
     }
 
     std::uint32_t
     getSeq() const
     {
+        ScopedLockType const sl(mtx_);
         return mSeq;
     }
 
@@ -109,12 +113,14 @@ public:
     void
     touch()
     {
+        ScopedLockType const sl(mtx_);
         mLastAction = m_clock.now();
     }
 
     clock_type::time_point
     getLastAction() const
     {
+        ScopedLockType const sl(mtx_);
         return mLastAction;
     }
 
