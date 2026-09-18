@@ -107,9 +107,9 @@ class SteppingTxStress_test : public beast::unit_test::suite
     // positions and the receiver acquires the disputed set for real —
     // fail-louding on jtTXN_DATA "recvPeerData" (PeerImp.cpp:1791), exactly
     // the discovery plan §5.1 forecast. The jtTXN_DATA closure graph
-    // ("recvPeerData"/"completeAcquire" data, "TransactionAcquire" timer — three distinct
-    // call sites, classified by NAME) is modeled in SteppingController
-    // since; this sweep now stands as its regression gate.
+    // ("recvPeerData"/"completeAcquire" data, "TransactionAcquire" timer —
+    // three distinct call sites, classified by NAME) is modeled in
+    // SteppingController since; this sweep now stands as its regression gate.
     void
     testSubmitNearCloseSweep()
     {
@@ -128,13 +128,16 @@ class SteppingTxStress_test : public beast::unit_test::suite
             if (!BEAST_EXPECT(net.allUp() && net.meshReady()))
                 return;
             // Skew 10ms = 2× the 5ms link delay — past the acquire boundary.
-            net.runTo(3, {}, SteppingNetwork::Cadence{seconds{1}, milliseconds{10}});
+            net.runTo(
+                3, {}, SteppingNetwork::Cadence{seconds{1}, milliseconds{10}});
             if (!BEAST_EXPECT(net.minValidatedSeq() >= 3))
                 return;
 
             net.in(milliseconds{offsetMs}, 0, [&]() {
                 net.submit(
-                    0, pay(Account::master, alice, XRP(10000)), Account::master);
+                    0,
+                    pay(Account::master, alice, XRP(10000)),
+                    Account::master);
             });
             auto const target = net.minValidatedSeq() + 3;
             net.runTo(
@@ -157,7 +160,7 @@ class SteppingTxStress_test : public beast::unit_test::suite
                 return;
             }
             sawTxSetAcquire = sawTxSetAcquire ||
-                net.jobDiagnostics().find("'RcvPeerData'") !=
+                net.jobDiagnostics().find("'recvPeerData'") !=
                     std::string::npos;
         }
         // This sweep is the tx-set acquire path's regression gate, so it

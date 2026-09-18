@@ -29,11 +29,12 @@ class SteppingTraffic_test : public beast::unit_test::suite
     using Payload = std::optional<std::vector<uint256>>;
 
     static constexpr std::uint64_t kTrafficSeed = 0x5452414646494331ull;
-    static constexpr std::uint64_t kTrafficFingerprint =
-        0x4b1c6cb7b9297b94ull;
+    static constexpr std::uint64_t kTrafficFingerprint = 0x4b1c6cb7b9297b94ull;
     static constexpr std::uint64_t kTrafficEvents = 1413;
     static constexpr std::uint64_t kTrafficPayloadFingerprint =
-        0xc0d32e8eec25e026ull;
+        // Payload includes xahaud ledger/transaction hashes. Keep the donor
+        // event-order pin above and the independent semantic/replay checks.
+        0xd77bfa4d445420e3ull;
 
     static std::uint64_t
     payloadFingerprint(std::vector<uint256> const& payload)
@@ -68,8 +69,7 @@ class SteppingTraffic_test : public beast::unit_test::suite
             ok = BEAST_EXPECT(r.tx->getID() == r.id) && ok;
             ok = BEAST_EXPECT(stx->getTransactionID() == r.id) && ok;
             ok = BEAST_EXPECT(stx->getAccountID(sfAccount) == r.src.id()) && ok;
-            ok =
-                BEAST_EXPECT(stx->getAccountID(sfDestination) == r.dst.id()) &&
+            ok = BEAST_EXPECT(stx->getAccountID(sfDestination) == r.dst.id()) &&
                 ok;
             ok = BEAST_EXPECT(stx->getFieldU32(sfSequence) == r.sequence) && ok;
             ok = BEAST_EXPECT(
@@ -77,8 +77,7 @@ class SteppingTraffic_test : public beast::unit_test::suite
                      jtx::PrettyAmount{r.amount}.value()) &&
                 ok;
 
-            auto const [it, inserted] =
-                lastSeq.emplace(r.src.id(), r.sequence);
+            auto const [it, inserted] = lastSeq.emplace(r.src.id(), r.sequence);
             if (!inserted)
             {
                 ok = BEAST_EXPECT(r.sequence == it->second + 1) && ok;
@@ -148,9 +147,9 @@ class SteppingTraffic_test : public beast::unit_test::suite
         auto const steps = net.runTo(target);
         log << "  traffic: " << records.size() << " payments, " << steps
             << " scheduler events to minValidated=" << net.minValidatedSeq()
-            << " (target " << target << "), offThreadJobs="
-            << net.offThreadJobs() << ", failedJobs=" << net.failedJobs()
-            << std::endl;
+            << " (target " << target
+            << "), offThreadJobs=" << net.offThreadJobs()
+            << ", failedJobs=" << net.failedJobs() << std::endl;
 
         if (!net.expectConverged(target))
         {

@@ -61,18 +61,24 @@ class SteppingTrust_test : public beast::unit_test::suite
         [[nodiscard]] bool
         operator==(KProfiledForkCell const& o) const
         {
-            return overlap == o.overlap && k == o.k && fingerprint == o.fingerprint &&
-                events == o.events && weightedEvents == o.weightedEvents && steps == o.steps &&
+            return overlap == o.overlap && k == o.k &&
+                fingerprint == o.fingerprint && events == o.events &&
+                weightedEvents == o.weightedEvents && steps == o.steps &&
                 beats == o.beats && minValidated == o.minValidated &&
-                maxValidated == o.maxValidated && forkCheckedSeqs == o.forkCheckedSeqs &&
-                target == o.target && divergentSeq == o.divergentSeq && agreedSeq == o.agreedSeq &&
-                txASeq == o.txASeq && txBSeq == o.txBSeq && clampHits == o.clampHits &&
-                requestedMs == o.requestedMs && consumedMs == o.consumedMs &&
-                maxConsumedBeatMs == o.maxConsumedBeatMs && schedulerMs == o.schedulerMs &&
-                heartbeatEvents == o.heartbeatEvents && deliverEvents == o.deliverEvents &&
-                jobEvents == o.jobEvents && timerEvents == o.timerEvents &&
-                firstClampWeight == o.firstClampWeight && submittedA == o.submittedA &&
-                submittedB == o.submittedB && forkFree == o.forkFree && forked == o.forked &&
+                maxValidated == o.maxValidated &&
+                forkCheckedSeqs == o.forkCheckedSeqs && target == o.target &&
+                divergentSeq == o.divergentSeq && agreedSeq == o.agreedSeq &&
+                txASeq == o.txASeq && txBSeq == o.txBSeq &&
+                clampHits == o.clampHits && requestedMs == o.requestedMs &&
+                consumedMs == o.consumedMs &&
+                maxConsumedBeatMs == o.maxConsumedBeatMs &&
+                schedulerMs == o.schedulerMs &&
+                heartbeatEvents == o.heartbeatEvents &&
+                deliverEvents == o.deliverEvents && jobEvents == o.jobEvents &&
+                timerEvents == o.timerEvents &&
+                firstClampWeight == o.firstClampWeight &&
+                submittedA == o.submittedA && submittedB == o.submittedB &&
+                forkFree == o.forkFree && forked == o.forked &&
                 safeResolved == o.safeResolved && unresolved == o.unresolved &&
                 saturated == o.saturated;
         }
@@ -184,8 +190,10 @@ class SteppingTrust_test : public beast::unit_test::suite
         {
             for (std::uint32_t j = i + 1; j < kForkPeers; ++j)
             {
-                auto const inSmall = contains(shape.small, i) && contains(shape.small, j);
-                auto const inMajority = contains(shape.majority, i) && contains(shape.majority, j);
+                auto const inSmall =
+                    contains(shape.small, i) && contains(shape.small, j);
+                auto const inMajority =
+                    contains(shape.majority, i) && contains(shape.majority, j);
                 if (!inSmall && !inMajority)
                     continue;
                 if (!BEAST_EXPECT(net.connect(i, j) != nullptr))
@@ -232,7 +240,9 @@ class SteppingTrust_test : public beast::unit_test::suite
     [[nodiscard]] static std::int64_t
     asMs(HarnessScheduler::time_point t)
     {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(t.time_since_epoch()).count();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   t.time_since_epoch())
+            .count();
     }
 
     void
@@ -246,26 +256,34 @@ class SteppingTrust_test : public beast::unit_test::suite
     {
         log << "  fork-state " << label << ": tips";
         for (std::uint32_t i = 0; i < kForkPeers; ++i)
-            log << " n" << i << "(c=" << net.closedSeq(i) << ",v=" << net.validSeq(i) << ")";
+            log << " n" << i << "(c=" << net.closedSeq(i)
+                << ",v=" << net.validSeq(i) << ")";
         log << std::endl;
 
         for (auto seq = prior + 1; seq <= net.minValidatedSeq(); ++seq)
         {
             auto const hA = net.ledgerHash(shape.a.front(), seq);
             auto const hB = net.ledgerHash(shape.b.front(), seq);
-            log << "  fork-state seq=" << seq << " allAgree=" << net.validatedAgree(shape.all, seq)
+            log << "  fork-state seq=" << seq
+                << " allAgree=" << net.validatedAgree(shape.all, seq)
                 << " aAgree=" << net.validatedAgree(shape.a, seq)
                 << " bAgree=" << net.validatedAgree(shape.b, seq)
                 << " aHash=" << to_string(hA).substr(0, 12)
                 << " bHash=" << to_string(hB).substr(0, 12);
             if (txA)
-                log << " txA@a=" << findAppliedSeq(net, shape.a.front(), seq, seq, *txA).has_value()
+                log << " txA@a="
+                    << findAppliedSeq(net, shape.a.front(), seq, seq, *txA)
+                           .has_value()
                     << " txA@b="
-                    << findAppliedSeq(net, shape.b.front(), seq, seq, *txA).has_value();
+                    << findAppliedSeq(net, shape.b.front(), seq, seq, *txA)
+                           .has_value();
             if (txB)
-                log << " txB@a=" << findAppliedSeq(net, shape.a.front(), seq, seq, *txB).has_value()
+                log << " txB@a="
+                    << findAppliedSeq(net, shape.a.front(), seq, seq, *txB)
+                           .has_value()
                     << " txB@b="
-                    << findAppliedSeq(net, shape.b.front(), seq, seq, *txB).has_value();
+                    << findAppliedSeq(net, shape.b.front(), seq, seq, *txB)
+                           .has_value();
             log << std::endl;
         }
     }
@@ -276,7 +294,7 @@ class SteppingTrust_test : public beast::unit_test::suite
         std::uint64_t count = 0;
         for (auto const& ev : net.controller().scheduler().traceLog())
             if (ev.kind == HarnessScheduler::Kind::job &&
-                ev.label.find("jtTXN_DATA") != std::string::npos)
+                ev.label.find("JtTxnData") != std::string::npos)
                 ++count;
         return count;
     }
@@ -303,13 +321,17 @@ class SteppingTrust_test : public beast::unit_test::suite
         std::optional<TER> resultB;
         net.in(milliseconds{500}, shape.aOnly.front(), [&]() {
             auto const tx = net.submit(
-                shape.aOnly.front(), pay(Account::master, a, XRP(100000)), Account::master);
+                shape.aOnly.front(),
+                pay(Account::master, a, XRP(100000)),
+                Account::master);
             resultA = tx->getResult();
             txA = tx->getID();
         });
         net.in(milliseconds{500}, shape.bOnly.front(), [&]() {
             auto const tx = net.submit(
-                shape.bOnly.front(), pay(Account::master, b, XRP(100000)), Account::master);
+                shape.bOnly.front(),
+                pay(Account::master, b, XRP(100000)),
+                Account::master);
             resultB = tx->getResult();
             txB = tx->getID();
         });
@@ -321,7 +343,8 @@ class SteppingTrust_test : public beast::unit_test::suite
                 [&]() {
                     if (!txA || !txB)
                         return false;
-                    for (auto seq = prior + 1; seq <= net.minValidatedSeq(); ++seq)
+                    for (auto seq = prior + 1; seq <= net.minValidatedSeq();
+                         ++seq)
                     {
                         if (!net.validatedAgree(shape.all, seq))
                             continue;
@@ -338,8 +361,10 @@ class SteppingTrust_test : public beast::unit_test::suite
                 SteppingNetwork::RunBudget{/*heartbeats=*/80})))
         {
             logForkState("safe", net, shape, prior, txA, txB);
-            log << "  local submit A: " << (resultA ? transToken(*resultA) : "not-run")
-                << ", B: " << (resultB ? transToken(*resultB) : "not-run") << std::endl;
+            log << "  local submit A: "
+                << (resultA ? transToken(*resultA) : "not-run")
+                << ", B: " << (resultB ? transToken(*resultB) : "not-run")
+                << std::endl;
             log << "  diagnostics: " << net.jobDiagnostics() << std::endl;
             return std::nullopt;
         }
@@ -358,8 +383,9 @@ class SteppingTrust_test : public beast::unit_test::suite
         BEAST_EXPECT(net.validatedForkFree());
         BEAST_EXPECT(aSeq.has_value() != bSeq.has_value());
 
-        log << "  fork-safe overlap=6 fingerprint 0x" << std::hex << net.traceFingerprint()
-            << std::dec << ", traceCount=" << net.traceCount() << std::endl;
+        log << "  fork-safe overlap=6 fingerprint 0x" << std::hex
+            << net.traceFingerprint() << std::dec
+            << ", traceCount=" << net.traceCount() << std::endl;
         std::vector<uint256> payload;
         for (std::uint32_t seq = 2; seq <= *target; ++seq)
             payload.push_back(net.ledgerHash(0, seq));
@@ -390,13 +416,17 @@ class SteppingTrust_test : public beast::unit_test::suite
         std::optional<TER> resultB;
         net.in(milliseconds{500}, shape.aOnly.front(), [&]() {
             auto const tx = net.submit(
-                shape.aOnly.front(), pay(Account::master, a, XRP(100000)), Account::master);
+                shape.aOnly.front(),
+                pay(Account::master, a, XRP(100000)),
+                Account::master);
             resultA = tx->getResult();
             txA = tx->getID();
         });
         net.in(milliseconds{500}, shape.bOnly.front(), [&]() {
             auto const tx = net.submit(
-                shape.bOnly.front(), pay(Account::master, b, XRP(100000)), Account::master);
+                shape.bOnly.front(),
+                pay(Account::master, b, XRP(100000)),
+                Account::master);
             resultB = tx->getResult();
             txB = tx->getID();
         });
@@ -406,15 +436,19 @@ class SteppingTrust_test : public beast::unit_test::suite
                 [&]() {
                     if (!txA || !txB)
                         return false;
-                    for (auto seq = prior + 1; seq <= net.minValidatedSeq(); ++seq)
+                    for (auto seq = prior + 1; seq <= net.minValidatedSeq();
+                         ++seq)
                     {
-                        if (!net.validatedAgree(shape.a, seq) || !net.validatedAgree(shape.b, seq))
+                        if (!net.validatedAgree(shape.a, seq) ||
+                            !net.validatedAgree(shape.b, seq))
                             continue;
                         if (net.ledgerHash(shape.a.front(), seq) ==
                             net.ledgerHash(shape.b.front(), seq))
                             continue;
-                        if (!findAppliedSeq(net, shape.a.front(), seq, seq, *txA) ||
-                            !findAppliedSeq(net, shape.b.front(), seq, seq, *txB))
+                        if (!findAppliedSeq(
+                                net, shape.a.front(), seq, seq, *txA) ||
+                            !findAppliedSeq(
+                                net, shape.b.front(), seq, seq, *txB))
                             continue;
                         target = seq;
                         return true;
@@ -424,8 +458,10 @@ class SteppingTrust_test : public beast::unit_test::suite
                 SteppingNetwork::RunBudget{/*heartbeats=*/80})))
         {
             logForkState("envelope", net, shape, prior, txA, txB);
-            log << "  local submit A: " << (resultA ? transToken(*resultA) : "not-run")
-                << ", B: " << (resultB ? transToken(*resultB) : "not-run") << std::endl;
+            log << "  local submit A: "
+                << (resultA ? transToken(*resultA) : "not-run")
+                << ", B: " << (resultB ? transToken(*resultB) : "not-run")
+                << std::endl;
             log << "  diagnostics: " << net.jobDiagnostics() << std::endl;
             return std::nullopt;
         }
@@ -442,13 +478,15 @@ class SteppingTrust_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(target))
             return std::nullopt;
         BEAST_EXPECT(
-            net.ledgerHash(shape.a.front(), *target) != net.ledgerHash(shape.b.front(), *target));
+            net.ledgerHash(shape.a.front(), *target) !=
+            net.ledgerHash(shape.b.front(), *target));
         BEAST_EXPECT(!net.validatedForkFree());
         BEAST_EXPECT(net.expectApplied(shape.a.front(), *target, *txA));
         BEAST_EXPECT(net.expectApplied(shape.b.front(), *target, *txB));
 
-        log << "  fork-envelope overlap=0 fingerprint 0x" << std::hex << net.traceFingerprint()
-            << std::dec << ", traceCount=" << net.traceCount() << std::endl;
+        log << "  fork-envelope overlap=0 fingerprint 0x" << std::hex
+            << net.traceFingerprint() << std::dec
+            << ", traceCount=" << net.traceCount() << std::endl;
         std::vector<uint256> payload;
         payload.push_back(net.ledgerHash(shape.a.front(), *target));
         payload.push_back(net.ledgerHash(shape.b.front(), *target));
@@ -487,23 +525,32 @@ class SteppingTrust_test : public beast::unit_test::suite
         std::optional<TER> resultB;
         net.in(milliseconds{500}, shape.aOnly.front(), [&]() {
             auto const tx = net.submit(
-                shape.aOnly.front(), pay(Account::master, a, XRP(100000)), Account::master);
+                shape.aOnly.front(),
+                pay(Account::master, a, XRP(100000)),
+                Account::master);
             resultA = tx->getResult();
             txA = tx->getID();
         });
         net.in(milliseconds{500}, shape.bOnly.front(), [&]() {
             auto const tx = net.submit(
-                shape.bOnly.front(), pay(Account::master, b, XRP(100000)), Account::master);
+                shape.bOnly.front(),
+                pay(Account::master, b, XRP(100000)),
+                Account::master);
             resultB = tx->getResult();
             txB = tx->getID();
         });
 
         auto const stats = net.runProfiledTo(
             out.target,
-            SteppingNetwork::KProfiledOptions{/*k=*/k,
-                                              /*unitCost=*/milliseconds{5},
-                                              HarnessScheduler::ProfiledPacer::NodeMultipliers{}},
-            SteppingNetwork::RunBudget{/*heartbeats=*/160, /*steps=*/1'000'000});
+            SteppingNetwork::KProfiledOptions{
+                /*k=*/k,
+                // A 1ms unit samples the lighter
+                // resolved regime at K=1; K=5
+                // retains the donor's 5ms workload.
+                /*unitCost=*/milliseconds{1},
+                HarnessScheduler::ProfiledPacer::NodeMultipliers{}},
+            SteppingNetwork::RunBudget{
+                /*heartbeats=*/160, /*steps=*/1'000'000});
 
         out.fingerprint = net.traceFingerprint();
         out.events = net.traceCount();
@@ -518,14 +565,14 @@ class SteppingTrust_test : public beast::unit_test::suite
         out.requestedMs = asMs(stats.requestedVirtualAdvance);
         out.consumedMs = asMs(stats.consumedVirtualAdvance);
         out.schedulerMs = asMs(stats.schedulerNow);
-        out.heartbeatEvents =
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::heartbeat)];
-        out.deliverEvents =
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::deliver)];
-        out.jobEvents =
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::job)];
-        out.timerEvents =
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::timer)];
+        out.heartbeatEvents = stats.eventsByKind[HarnessScheduler::kindIndex(
+            HarnessScheduler::Kind::heartbeat)];
+        out.deliverEvents = stats.eventsByKind[HarnessScheduler::kindIndex(
+            HarnessScheduler::Kind::deliver)];
+        out.jobEvents = stats.eventsByKind[HarnessScheduler::kindIndex(
+            HarnessScheduler::Kind::job)];
+        out.timerEvents = stats.eventsByKind[HarnessScheduler::kindIndex(
+            HarnessScheduler::Kind::timer)];
         out.firstClampWeight = stats.firstClampWeight;
         for (auto const d : stats.consumedPerBeat)
         {
@@ -537,26 +584,30 @@ class SteppingTrust_test : public beast::unit_test::suite
         out.submittedA = resultA && *resultA == tesSUCCESS && txA.has_value();
         out.submittedB = resultB && *resultB == tesSUCCESS && txB.has_value();
         if (txA)
-            if (auto const seq =
-                    findAppliedSeq(net, shape.a.front(), prior + 1, out.maxValidated, *txA))
+            if (auto const seq = findAppliedSeq(
+                    net, shape.a.front(), prior + 1, out.maxValidated, *txA))
                 out.txASeq = *seq;
         if (txB)
-            if (auto const seq =
-                    findAppliedSeq(net, shape.b.front(), prior + 1, out.maxValidated, *txB))
+            if (auto const seq = findAppliedSeq(
+                    net, shape.b.front(), prior + 1, out.maxValidated, *txB))
                 out.txBSeq = *seq;
 
         for (auto seq = prior + 1; seq <= out.maxValidated; ++seq)
         {
-            if (net.validatedAgree(shape.a, seq) && net.validatedAgree(shape.b, seq) &&
-                net.ledgerHash(shape.a.front(), seq) != net.ledgerHash(shape.b.front(), seq) &&
-                txA && txB && findAppliedSeq(net, shape.a.front(), seq, seq, *txA) &&
+            if (net.validatedAgree(shape.a, seq) &&
+                net.validatedAgree(shape.b, seq) &&
+                net.ledgerHash(shape.a.front(), seq) !=
+                    net.ledgerHash(shape.b.front(), seq) &&
+                txA && txB &&
+                findAppliedSeq(net, shape.a.front(), seq, seq, *txA) &&
                 findAppliedSeq(net, shape.b.front(), seq, seq, *txB))
             {
                 out.divergentSeq = seq;
                 break;
             }
             if (net.validatedAgree(shape.all, seq) && txA && txB &&
-                (findAppliedSeq(net, 0, seq, seq, *txA) || findAppliedSeq(net, 0, seq, seq, *txB)))
+                (findAppliedSeq(net, 0, seq, seq, *txA) ||
+                 findAppliedSeq(net, 0, seq, seq, *txB)))
             {
                 out.agreedSeq = seq;
             }
@@ -564,32 +615,42 @@ class SteppingTrust_test : public beast::unit_test::suite
 
         out.forkFree = net.validatedForkFree();
         out.forked = out.divergentSeq != 0 && !out.forkFree;
-        out.safeResolved = out.forkFree && out.agreedSeq != 0 && out.minValidated >= out.target;
+        out.safeResolved = out.forkFree && out.agreedSeq != 0 &&
+            out.minValidated >= out.target;
         out.unresolved = !out.forked && !out.safeResolved;
         out.saturated = stats.saturated();
 
-        log << "  profiled-fork-cell overlap=" << overlap << " K=" << k << ": fp=0x" << std::hex
-            << out.fingerprint << std::dec << ", events=" << out.events
-            << ", weightedEvents=" << out.weightedEvents << ", steps=" << out.steps
-            << ", beats=" << out.beats << ", minValidated=" << out.minValidated
-            << ", maxValidated=" << out.maxValidated << ", forkCheckedSeqs=" << out.forkCheckedSeqs
-            << ", target=" << out.target << ", divergentSeq=" << out.divergentSeq
+        log << "  profiled-fork-cell overlap=" << overlap << " K=" << k
+            << ": fp=0x" << std::hex << out.fingerprint << std::dec
+            << ", events=" << out.events
+            << ", weightedEvents=" << out.weightedEvents
+            << ", steps=" << out.steps << ", beats=" << out.beats
+            << ", minValidated=" << out.minValidated
+            << ", maxValidated=" << out.maxValidated
+            << ", forkCheckedSeqs=" << out.forkCheckedSeqs
+            << ", target=" << out.target
+            << ", divergentSeq=" << out.divergentSeq
             << ", agreedSeq=" << out.agreedSeq << ", txASeq=" << out.txASeq
             << ", txBSeq=" << out.txBSeq << ", clampHits=" << out.clampHits
-            << ", requestedMs=" << out.requestedMs << ", consumedMs=" << out.consumedMs
-            << ", maxBeatMs=" << out.maxConsumedBeatMs << ", schedulerMs=" << out.schedulerMs
+            << ", requestedMs=" << out.requestedMs
+            << ", consumedMs=" << out.consumedMs
+            << ", maxBeatMs=" << out.maxConsumedBeatMs
+            << ", schedulerMs=" << out.schedulerMs
             << ", kindEvents={heartbeat:" << out.heartbeatEvents
             << ", deliver:" << out.deliverEvents << ", job:" << out.jobEvents
-            << ", timer:" << out.timerEvents << "}, firstClampWeight=" << out.firstClampWeight
+            << ", timer:" << out.timerEvents
+            << "}, firstClampWeight=" << out.firstClampWeight
             << ", submitted=" << out.submittedA << "/" << out.submittedB
             << ", forkFree=" << out.forkFree << ", forked=" << out.forked
-            << ", safeResolved=" << out.safeResolved << ", unresolved=" << out.unresolved
+            << ", safeResolved=" << out.safeResolved
+            << ", unresolved=" << out.unresolved
             << ", saturated=" << out.saturated << std::endl;
         if (stats.saturated())
         {
             log << "    first clamp: kind="
                 << HarnessScheduler::kindName(stats.firstClampEvent.kind)
-                << ", tier=" << HarnessScheduler::tierName(stats.firstClampEvent.tier)
+                << ", tier="
+                << HarnessScheduler::tierName(stats.firstClampEvent.tier)
                 << ", node=" << stats.firstClampEvent.nodeId
                 << ", requestedMs=" << asMs(stats.firstClampRequested)
                 << ", budgetMs=" << asMs(stats.firstClampBudget)
@@ -640,7 +701,8 @@ class SteppingTrust_test : public beast::unit_test::suite
 
         auto const dropRawTx = [](std::uint16_t type, std::size_t) {
             SimFault f;
-            f.drop = type == static_cast<std::uint16_t>(protocol::mtTRANSACTION);
+            f.drop =
+                type == static_cast<std::uint16_t>(protocol::mtTRANSACTION);
             return f;
         };
         for (auto const a : shape.majorityA)
@@ -654,17 +716,21 @@ class SteppingTrust_test : public beast::unit_test::suite
         std::optional<uint256> txA;
         std::optional<uint256> txB;
         net.in(milliseconds{500}, shape.minority.front(), [&]() {
-            auto const tx =
-                net.submit(shape.minority.front(), pay(tx0, Account::master, XRP(1)), tx0);
+            auto const tx = net.submit(
+                shape.minority.front(), pay(tx0, Account::master, XRP(1)), tx0);
             if (tx->getResult() != tesSUCCESS)
-                log << "  wrong-LCL local submit A: " << transToken(tx->getResult()) << std::endl;
+                log << "  wrong-LCL local submit A: "
+                    << transToken(tx->getResult()) << std::endl;
             txA = tx->getID();
         });
         net.in(milliseconds{500}, shape.majorityB.front(), [&]() {
-            auto const tx =
-                net.submit(shape.majorityB.front(), pay(tx1, Account::master, XRP(2)), tx1);
+            auto const tx = net.submit(
+                shape.majorityB.front(),
+                pay(tx1, Account::master, XRP(2)),
+                tx1);
             if (tx->getResult() != tesSUCCESS)
-                log << "  wrong-LCL local submit B: " << transToken(tx->getResult()) << std::endl;
+                log << "  wrong-LCL local submit B: "
+                    << transToken(tx->getResult()) << std::endl;
             txB = tx->getID();
         });
 
@@ -689,13 +755,16 @@ class SteppingTrust_test : public beast::unit_test::suite
         {
             log << "  wrong-LCL split tips";
             for (std::uint32_t i = 0; i < kForkPeers; ++i)
-                log << " n" << i << "(c=" << net.closedSeq(i) << ",v=" << net.validSeq(i) << ")";
+                log << " n" << i << "(c=" << net.closedSeq(i)
+                    << ",v=" << net.validSeq(i) << ")";
             log << std::endl;
             log << "  diagnostics: " << net.jobDiagnostics() << std::endl;
             return std::nullopt;
         }
-        auto const acquireDuringSplit = countTxnAcquireJobs(net) - acquireBefore;
-        log << "  wrong-LCL tx-set acquire jobs during split: " << acquireDuringSplit << std::endl;
+        auto const acquireDuringSplit =
+            countTxnAcquireJobs(net) - acquireBefore;
+        log << "  wrong-LCL tx-set acquire jobs during split: "
+            << acquireDuringSplit << std::endl;
         if (!BEAST_EXPECT(acquireDuringSplit > 0))
             return std::nullopt;
         if (!BEAST_EXPECT(net.validatedForkFree()))
@@ -711,8 +780,8 @@ class SteppingTrust_test : public beast::unit_test::suite
         auto const target = *wrongSeq + 4;
         if (!BEAST_EXPECT(net.runUntil(
                 [&]() {
-                    return net.minValidatedSeq() >= target && net.validatedForkFree() &&
-                        net.ledgersAgree(target);
+                    return net.minValidatedSeq() >= target &&
+                        net.validatedForkFree() && net.ledgersAgree(target);
                 },
                 SteppingNetwork::RunBudget{/*heartbeats=*/120})))
         {
@@ -723,11 +792,14 @@ class SteppingTrust_test : public beast::unit_test::suite
             return std::nullopt;
         if (!BEAST_EXPECT(!net.closedJumps(shape.minority.front()).empty()))
             return std::nullopt;
-        if (!BEAST_EXPECT(net.expectAbandonedClosed(shape.minority.front(), *wrongHash)))
+        if (!BEAST_EXPECT(
+                net.expectAbandonedClosed(shape.minority.front(), *wrongHash)))
             return std::nullopt;
 
-        log << "  wrong-LCL fingerprint 0x" << std::hex << net.traceFingerprint() << std::dec
-            << ", traceCount=" << net.traceCount() << ", wrongSeq=" << *wrongSeq << std::endl;
+        log << "  wrong-LCL fingerprint 0x" << std::hex
+            << net.traceFingerprint() << std::dec
+            << ", traceCount=" << net.traceCount() << ", wrongSeq=" << *wrongSeq
+            << std::endl;
 
         std::vector<uint256> payload;
         for (std::uint32_t seq = 2; seq <= target; ++seq)
@@ -764,8 +836,9 @@ class SteppingTrust_test : public beast::unit_test::suite
         if (!net.expectConverged(3))
             return std::nullopt;
 
-        log << "  latency replacement fingerprint 0x" << std::hex << net.traceFingerprint()
-            << std::dec << ", traceCount=" << net.traceCount() << std::endl;
+        log << "  latency replacement fingerprint 0x" << std::hex
+            << net.traceFingerprint() << std::dec
+            << ", traceCount=" << net.traceCount() << std::endl;
         std::vector<uint256> payload;
         for (std::uint32_t seq = 2; seq <= 3; ++seq)
             payload.push_back(net.ledgerHash(0, seq));
@@ -792,7 +865,8 @@ class SteppingTrust_test : public beast::unit_test::suite
         auto const prior = net.minValidatedSeq();
 
         net.lagAccept(0, seconds{20});
-        auto const tx = net.submit(1, pay(source, Account::master, XRP(1)), source);
+        auto const tx =
+            net.submit(1, pay(source, Account::master, XRP(1)), source);
         if (!BEAST_EXPECT(tx->getResult() == tesSUCCESS))
             return std::nullopt;
 
@@ -805,7 +879,8 @@ class SteppingTrust_test : public beast::unit_test::suite
                             return false;
                     }
                     auto const target = net.validSeq(1);
-                    if (net.jobDiagnostics().find("laggedPending") == std::string::npos)
+                    if (net.jobDiagnostics().find("laggedPending") ==
+                        std::string::npos)
                         return false;
                     aheadTarget = target;
                     return true;
@@ -817,14 +892,17 @@ class SteppingTrust_test : public beast::unit_test::suite
         }
         auto const diagnostics = net.jobDiagnostics();
         BEAST_EXPECT(diagnostics.find("laggedPending") != std::string::npos);
-        log << "  accept lag pending at target " << *aheadTarget << ": n0 valid=" << net.validSeq(0)
+        log << "  accept lag pending at target " << *aheadTarget
+            << ": n0 valid=" << net.validSeq(0)
             << ", quorum valid=" << net.validSeq(1) << std::endl;
 
         net.clearLag(0);
         if (!BEAST_EXPECT(net.runUntil(
                 [&]() {
-                    return net.validatedAgree(all, *aheadTarget) && net.validatedForkFree() &&
-                        net.jobDiagnostics().find("laggedPending") == std::string::npos;
+                    return net.validatedAgree(all, *aheadTarget) &&
+                        net.validatedForkFree() &&
+                        net.jobDiagnostics().find("laggedPending") ==
+                        std::string::npos;
                 },
                 SteppingNetwork::RunBudget{/*heartbeats=*/80})))
         {
@@ -834,7 +912,8 @@ class SteppingTrust_test : public beast::unit_test::suite
         if (!net.expectConverged(*aheadTarget))
             return std::nullopt;
 
-        log << "  accept lag fingerprint 0x" << std::hex << net.traceFingerprint() << std::dec
+        log << "  accept lag fingerprint 0x" << std::hex
+            << net.traceFingerprint() << std::dec
             << ", traceCount=" << net.traceCount() << std::endl;
         std::vector<uint256> payload;
         for (std::uint32_t seq = 2; seq <= *aheadTarget; ++seq)
@@ -863,9 +942,10 @@ class SteppingTrust_test : public beast::unit_test::suite
         testcase(
             "fork envelope: N=10, overlap above bound remains validated "
             "fork-free");
-        expectReplays(*this, "fork-safe overlap 6", [this](SteppingNetwork& net) {
-            return runForkSafe(net);
-        });
+        expectReplays(
+            *this, "fork-safe overlap 6", [this](SteppingNetwork& net) {
+                return runForkSafe(net);
+            });
     }
 
     void
@@ -874,9 +954,10 @@ class SteppingTrust_test : public beast::unit_test::suite
         testcase(
             "fork envelope: N=10, overlap below bound validates divergent "
             "cliques");
-        expectReplays(*this, "fork-envelope overlap 0", [this](SteppingNetwork& net) {
-            return runForkEnvelope(net);
-        });
+        expectReplays(
+            *this, "fork-envelope overlap 0", [this](SteppingNetwork& net) {
+                return runForkEnvelope(net);
+            });
     }
 
     void
@@ -885,8 +966,9 @@ class SteppingTrust_test : public beast::unit_test::suite
         testcase(
             "wrong LCL: minority closes a wrong ledger, abandons it, and "
             "recovers without a validated fork");
-        expectReplays(
-            *this, "wrong LCL", [this](SteppingNetwork& net) { return runWrongLcl(net); });
+        expectReplays(*this, "wrong LCL", [this](SteppingNetwork& net) {
+            return runWrongLcl(net);
+        });
     }
 
     void
@@ -896,10 +978,11 @@ class SteppingTrust_test : public beast::unit_test::suite
             "K-profiled fork envelope: overlap x pressure margin stays "
             "classified without vacuous cells");
 
-        // Upstream 981c256933 changed close-time feedback and vote tie-breaking.
-        // The historical pair restores the old overlap=4/K=1 sample exactly;
-        // this row follows current policy without changing the outcome checks.
-        std::array<KProfiledForkCell, 6> const kExpected = {{
+        // Upstream 981c256933 changed close-time feedback and vote
+        // tie-breaking. The historical pair restores the old overlap=4/K=1
+        // sample exactly; this row follows current policy without changing the
+        // outcome checks.
+        std::array<KProfiledForkCell, 9> const kExpected = {{
             {0,     0,     0xc37088e4d4e3963bull,
              3439,  0,     2020,
              0,     8,     8,
@@ -911,14 +994,25 @@ class SteppingTrust_test : public beast::unit_test::suite
              0,     true,  true,
              false, true,  false,
              false, false},
-            {0,     1,     0x27a3e267e7162684ull,
-             3597,  4877,  2178,
-             24,    8,     8,
+            {0,     1,     0xe24a6cdd8143ee3bull,
+             3435,  4492,  2016,
+             12,    8,     8,
+             7,     8,     5,
+             0,     5,     5,
+             0,     4492,  4492,
+             787,   54345, 120,
+             1312,  582,   0,
+             0,     true,  true,
+             false, true,  false,
+             false, false},
+            {0,     5,     0x6b8e98d604c1dc3ull,
+             3811,  5339,  2392,
+             26,    8,     8,
              7,     8,     6,
              0,     6,     6,
-             23,    24385, 24165,
-             2000,  66175, 230,
-             1141,  753,   52,
+             25,    26695, 26455,
+             2000,  68465, 250,
+             1281,  807,   52,
              2,     true,  true,
              false, true,  false,
              false, true},
@@ -933,14 +1027,25 @@ class SteppingTrust_test : public beast::unit_test::suite
              0,     true,  true,
              true,  false, true,
              false, false},
-            {4,     1,      0x2ec96fe1131fb1cbull,
-             14860, 32501,  12934,
+            {4,     1,     0xd6b2b12cd133b749ull,
+             6204,  9633,  4278,
+             14,    8,     8,
+             7,     8,     0,
+             5,     5,     0,
+             4,     9633,  9626,
+             1640,  56548, 140,
+             2895,  1219,  22,
+             3,     true,  true,
+             true,  false, true,
+             false, true},
+            {4,     5,      0xa86e8c666502b3e1ull,
+             14863, 32496,  12937,
              160,   5,      5,
              4,     8,      0,
              0,     0,      0,
-             160,   162505, 161000,
+             160,   162480, 161000,
              2000,  203010, 1510,
-             2825,  8145,   452,
+             2838,  8134,   453,
              3,     true,   true,
              true,  false,  false,
              true,  true},
@@ -955,17 +1060,28 @@ class SteppingTrust_test : public beast::unit_test::suite
              0,     true,  true,
              true,  false, true,
              false, false},
-            {6,     1,     0x57f3ba8b65a7fe41ull,
-             6400,  9913,  4370,
-             49,    8,     8,
+            {6,     1,     0xfc8fb2511a1f834aull,
+             6208,  9304,  4178,
+             13,    8,     8,
              7,     8,     0,
-             6,     6,     0,
-             48,    49565, 49205,
-             2000,  91215, 470,
-             2129,  1645,  124,
-             2,     true,  true,
+             5,     5,     0,
+             7,     9304,  9289,
+             1632,  55612, 130,
+             2950,  1080,  16,
+             3,     true,  true,
              true,  false, true,
              false, true},
+            {6,     5,      0x503867b2788354e5ull,
+             15243, 32498,  13213,
+             160,   5,      11,
+             10,    8,      0,
+             0,     6,      0,
+             160,   162490, 161000,
+             2000,  203010, 1515,
+             3641,  7589,   466,
+             2,     true,   true,
+             true,  false,  false,
+             true,  true},
         }};
 
         bool sawForkUnderPressureControl = false;
@@ -974,7 +1090,8 @@ class SteppingTrust_test : public beast::unit_test::suite
         bool sawPressureStallNoFork = false;
         for (auto const& expected : kExpected)
         {
-            auto const cell = runKProfiledForkCell(expected.overlap, expected.k);
+            auto const cell =
+                runKProfiledForkCell(expected.overlap, expected.k);
             BEAST_EXPECT(cell == expected);
             BEAST_EXPECT(cell.submittedA);
             BEAST_EXPECT(cell.submittedB);
@@ -993,8 +1110,8 @@ class SteppingTrust_test : public beast::unit_test::suite
             {
                 BEAST_EXPECT(cell.divergentSeq != 0);
                 BEAST_EXPECT(!cell.forkFree);
-                sawForkUnderPressureControl =
-                    sawForkUnderPressureControl || (cell.overlap == 0 && cell.k != 0);
+                sawForkUnderPressureControl = sawForkUnderPressureControl ||
+                    (cell.overlap == 0 && cell.k != 0);
             }
             else if (cell.safeResolved)
             {
@@ -1033,8 +1150,8 @@ class SteppingTrust_test : public beast::unit_test::suite
         BEAST_EXPECT(ring(0, 3) == milliseconds{10});
         BEAST_EXPECT(ring(0, 2) == milliseconds{30});
 
-        auto const clustered =
-            latency::clusters({{0, 1}, {2, 3}}, milliseconds{5}, milliseconds{40});
+        auto const clustered = latency::clusters(
+            {{0, 1}, {2, 3}}, milliseconds{5}, milliseconds{40});
         BEAST_EXPECT(clustered(0, 1) == milliseconds{5});
         BEAST_EXPECT(clustered(0, 2) == milliseconds{40});
         BEAST_EXPECT(clustered(0, 9) == std::nullopt);
@@ -1043,13 +1160,15 @@ class SteppingTrust_test : public beast::unit_test::suite
         guardNet.validators(2).mesh();
         BEAST_EXPECT(except<std::logic_error>([&]() {
             guardNet.linkDelays([](std::uint32_t, std::uint32_t) {
-                return std::optional<std::chrono::steady_clock::duration>{milliseconds{-1}};
+                return std::optional<std::chrono::steady_clock::duration>{
+                    milliseconds{-1}};
             });
         }));
 
-        expectReplays(*this, "latency replacement", [this](SteppingNetwork& net) {
-            return runLatencyReplacement(net);
-        });
+        expectReplays(
+            *this, "latency replacement", [this](SteppingNetwork& net) {
+                return runLatencyReplacement(net);
+            });
     }
 
     void
@@ -1058,8 +1177,9 @@ class SteppingTrust_test : public beast::unit_test::suite
         testcase(
             "virtual accept lag: lagged accept work is pending while a 4-of-5 "
             "quorum advances, then the network converges after lag clears");
-        expectReplays(
-            *this, "accept lag", [this](SteppingNetwork& net) { return runAcceptLag(net); });
+        expectReplays(*this, "accept lag", [this](SteppingNetwork& net) {
+            return runAcceptLag(net);
+        });
     }
 
 public:
