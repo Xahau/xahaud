@@ -657,17 +657,18 @@ public:
                 return {Action::enqueue, Tier::process};
             case JtAdvance:
                 // JtAdvance serves several call sites; classify by NAME:
-                //   "AdvanceLedger" — the modeled validated-ledger advance;
-                //   "GetConsL1"/"GetConsL2" — the ledger-ACQUIRE kickoffs
+                //   "advanceLedger" — the modeled validated-ledger advance;
+                //   "getConsensusLedger1"/"getConsensusLedger2" — the ledger-ACQUIRE kickoffs
                 //     (RCLConsensus::acquireLedger / RCLValidations) — modeled
                 //     since the 5.6b late-joiner increment: the job body calls
                 //     InboundLedgers::acquireAsync, whose request/response flow
                 //     is real peer traffic through the scheduler;
-                //   "TryFill" — LedgerMaster history backfill after catch-up.
+                //   "tryFill" — LedgerMaster history backfill after catch-up.
                 // Anything else surfaces as unmodeled (fail).
-                if (name == "AdvanceLedger")
+                if (name == "advanceLedger")
                     return {Action::enqueue, Tier::advance};
-                if (name == "GetConsL1" || name == "GetConsL2" || name == "TryFill")
+                if (name == "getConsensusLedger1" ||
+                    name == "getConsensusLedger2" || name == "tryFill")
                     return {Action::enqueue, Tier::process};
                 return {Action::fail};
             case JtLedgerReq:
@@ -690,24 +691,24 @@ public:
                 // positions diverge at a close boundary and the receiver
                 // acquires the disputed set for real). Classify by NAME —
                 // three distinct call sites share the type:
-                //   "RcvPeerData"  — apply a received liTS_CANDIDATE
+                //   "recvPeerData"  — apply a received liTS_CANDIDATE
                 //     TMLedgerData fragment (PeerImp →
                 //     InboundTransactions::gotData): data, arrival order;
-                //   "ComplAcquire" — acquire completion
+                //   "completeAcquire" — acquire completion
                 //     (TransactionAcquire::done → giveSet feeds consensus):
                 //     data, arrival order;
-                //   "TxAcq"        — the TransactionAcquire TimeoutCounter
+                //   "TransactionAcquire"        — the TransactionAcquire TimeoutCounter
                 //     RETRY (virtual Tier::timer expiry via the injected
                 //     timer factory; wall asio in production): a timer,
                 //     like "InboundLedger".
-                if (name == "RcvPeerData" || name == "ComplAcquire")
+                if (name == "recvPeerData" || name == "completeAcquire")
                     return {Action::enqueue, Tier::process};
-                if (name == "TxAcq")
+                if (name == "TransactionAcquire")
                     return {Action::enqueue, Tier::timer};
                 return {Action::fail};
             case JtPubledger:
             case JtPuboldledger:
-                // "Pub<seq>" (dynamic name — the hygiene-#6 prefix rule):
+                // "<seq>" (dynamic name — the hygiene-#6 prefix rule):
                 // pendSaveValidated's ASYNC save of a validated ledger into
                 // the relational DB. The happy path saves synchronously
                 // (checkAccept passes isSynchronous=true) — which is why
@@ -716,7 +717,9 @@ public:
                 // read the tables it writes. Reachable only since the
                 // backfill subsystem lit up (earliest_seq + the doAdvance
                 // progress fix — see issues/open/).
-                if (name.size() > 3 && name.compare(0, 3, "Pub") == 0)
+                // xahaud names the save job with the decimal sequence alone.
+                if (!name.empty() && name.find_first_not_of("0123456789") ==
+                        std::string::npos)
                     return {Action::enqueue, Tier::process};
                 return {Action::fail};
             case JtPack:
