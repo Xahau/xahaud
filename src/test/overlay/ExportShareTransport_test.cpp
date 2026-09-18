@@ -30,8 +30,12 @@
 #include <boost/asio/buffer.hpp>
 #include <boost/beast/core/multi_buffer.hpp>
 
+#include <algorithm>
+#include <atomic>
+#include <condition_variable>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -186,6 +190,62 @@ class ExportShareTransport_test : public beast::unit_test::suite
     }
 
     void
+    testReceiveConcurrency()
+    {
+        testcase("ExportShare workers limit concurrency and drain queued work");
+        auto const type = detail::exportShareJobType;
+        if (!BEAST_EXPECT(JobTypes::instance().get(type).limit() == 2))
+            return;
+
+        auto config = jtx::envconfig();
+        config->FORCE_MULTI_THREAD = true;
+        config->WORKERS = 4;
+        jtx::Env env{*this, std::move(config)};
+        auto& queue = env.app().getJobQueue();
+        struct State
+        {
+            std::mutex mutex;
+            std::condition_variable changed;
+            int started = 0;
+            int active = 0;
+            int peak = 0;
+            int finished = 0;
+            bool release = false;
+        };
+        auto state = std::make_shared<State>();
+        for (int i = 0; i < 3; ++i)
+        {
+            BEAST_EXPECT(detail::postExportShareJob(queue, [state] {
+                std::unique_lock lock(state->mutex);
+                ++state->started;
+                state->peak = std::max(state->peak, ++state->active);
+                state->changed.notify_all();
+                state->changed.wait(lock, [&] { return state->release; });
+                --state->active;
+                ++state->finished;
+                state->changed.notify_all();
+            }));
+        }
+        using namespace std::chrono_literals;
+        {
+            std::unique_lock lock(state->mutex);
+            BEAST_EXPECT(state->changed.wait_for(
+                lock, 5s, [&] { return state->started >= 2; }));
+            BEAST_EXPECT(state->started == 2);
+            BEAST_EXPECT(queue.getJobCountTotal(type) == 3);
+            BEAST_EXPECT(queue.getJobCount(type) == 1);
+            // Release workers even if an expectation above failed.
+            state->release = true;
+            state->changed.notify_all();
+            BEAST_EXPECT(state->changed.wait_for(
+                lock, 5s, [&] { return state->finished == 3; }));
+            BEAST_EXPECT(state->peak == 2);
+        }
+        queue.rendezvous();
+        BEAST_EXPECT(queue.getJobCountTotal(type) == 0);
+    }
+
+    void
     testDispatchAndTraffic()
     {
         testcase("ExportShare protocol dispatch and traffic category");
@@ -224,6 +284,7 @@ public:
         testBatchBounds();
         testDispatchAndTraffic();
         testReceiveJobDispatch();
+        testReceiveConcurrency();
     }
 };
 

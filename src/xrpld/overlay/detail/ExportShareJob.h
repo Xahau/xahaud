@@ -8,7 +8,7 @@
 namespace ripple::detail {
 
 // Keep the production posting boundary shared with its JobQueue regression.
-inline constexpr JobType exportShareJobType = jtPEER;
+inline constexpr JobType exportShareJobType = jtEXPORT_SHARES;
 
 template <class Handler>
 bool

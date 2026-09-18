@@ -21,6 +21,9 @@
 #include <xrpld/core/JobQueue.h>
 #include <xrpl/beast/unit_test.h>
 
+#include <atomic>
+#include <memory>
+
 namespace ripple {
 namespace test {
 
@@ -61,6 +64,27 @@ class JobQueue_test : public beast::unit_test::suite
                     unprotected = false;
                 }) == false);
         }
+    }
+
+    void
+    testRejectMeasurementJobs()
+    {
+        testcase("measurement-only jobs are rejected without retaining work");
+        jtx::Env env{*this};
+        auto& queue = env.app().getJobQueue();
+        auto ran = std::make_shared<std::atomic<bool>>(false);
+        for (auto const type : {jtPEER, jtGENERIC})
+        {
+            BEAST_EXPECT(JobTypes::instance().get(type).special());
+            BEAST_EXPECT(!queue.addJob(
+                type, "RejectMeasurementJob", [ran] { *ran = true; }));
+            BEAST_EXPECT(queue.getJobCountTotal(type) == 0);
+            auto measurement = queue.makeLoadEvent(type, "MeasurementOnly");
+            BEAST_EXPECT(measurement != nullptr);
+        }
+        queue.rendezvous();
+        queue.stop();
+        BEAST_EXPECT(!*ran);
     }
 
     void
@@ -154,6 +178,7 @@ public:
     run() override
     {
         testAddJob();
+        testRejectMeasurementJobs();
         testPostCoro();
     }
 };
