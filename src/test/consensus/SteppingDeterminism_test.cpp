@@ -135,9 +135,10 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         BEAST_EXPECT(net.traceCount() == kCanaryEvents);
     }
 
-    // Pinned 2026-07-03 (post environment-DI / nodestore isolation).
-    static constexpr std::uint64_t kCanaryFingerprint = 0x2bd2a43a056fb341ull;
-    static constexpr std::uint64_t kCanaryEvents = 330;
+    // Includes the deferred validated-ledger callbacks that run before the
+    // N=3 target-4 stopping boundary; queued work beyond it is not counted.
+    static constexpr std::uint64_t kCanaryFingerprint = 0xae0ffc783db25050ull;
+    static constexpr std::uint64_t kCanaryEvents = 332;
 
     struct KProfiledSample
     {
@@ -523,7 +524,7 @@ class SteppingDeterminism_test : public beast::unit_test::suite
             {0,
              kCanaryFingerprint,
              kCanaryEvents,
-             330,
+             kCanaryEvents,
              0,
              4,
              4,
