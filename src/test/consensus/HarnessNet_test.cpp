@@ -618,6 +618,6 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(HarnessNet, consensus, xrpl);
+BEAST_DEFINE_TESTSUITE(HarnessNet, consensus, ripple);
 
 }  // namespace ripple::test

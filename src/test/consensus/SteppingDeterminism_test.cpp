@@ -704,6 +704,6 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(SteppingDeterminism, consensus, xrpl);
+BEAST_DEFINE_TESTSUITE(SteppingDeterminism, consensus, ripple);
 
 }  // namespace ripple::test
