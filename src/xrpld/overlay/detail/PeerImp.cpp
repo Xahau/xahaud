@@ -44,6 +44,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <vector>
 #include <mutex>
 #include <numeric>
 #include <sstream>
@@ -3018,20 +3019,27 @@ PeerImp::checkValidation(
 static std::shared_ptr<PeerImp>
 getPeerWithTree(OverlayImpl& ov, uint256 const& rootHash, PeerImp const* skip)
 {
-    std::shared_ptr<PeerImp> ret;
-    int retScore = 0;
-
+    std::vector<std::shared_ptr<PeerImp>> candidates;
     ov.for_each([&](std::shared_ptr<PeerImp>&& p) {
         if (p->hasTxSet(rootHash) && p.get() != skip)
-        {
-            auto score = p->getScore(true);
-            if (!ret || (score > retScore))
-            {
-                ret = std::move(p);
-                retScore = score;
-            }
-        }
+            candidates.push_back(std::move(p));
     });
+    std::sort(
+        candidates.begin(),
+        candidates.end(),
+        [](auto const& lhs, auto const& rhs) { return lhs->id() < rhs->id(); });
+
+    std::shared_ptr<PeerImp> ret;
+    int retScore = 0;
+    for (auto& p : candidates)
+    {
+        auto score = p->getScore(true);
+        if (!ret || (score > retScore))
+        {
+            ret = std::move(p);
+            retScore = score;
+        }
+    }
 
     return ret;
 }
@@ -3046,20 +3054,27 @@ getPeerWithLedger(
     LedgerIndex ledger,
     PeerImp const* skip)
 {
-    std::shared_ptr<PeerImp> ret;
-    int retScore = 0;
-
+    std::vector<std::shared_ptr<PeerImp>> candidates;
     ov.for_each([&](std::shared_ptr<PeerImp>&& p) {
         if (p->hasLedger(ledgerHash, ledger) && p.get() != skip)
-        {
-            auto score = p->getScore(true);
-            if (!ret || (score > retScore))
-            {
-                ret = std::move(p);
-                retScore = score;
-            }
-        }
+            candidates.push_back(std::move(p));
     });
+    std::sort(
+        candidates.begin(),
+        candidates.end(),
+        [](auto const& lhs, auto const& rhs) { return lhs->id() < rhs->id(); });
+
+    std::shared_ptr<PeerImp> ret;
+    int retScore = 0;
+    for (auto& p : candidates)
+    {
+        auto score = p->getScore(true);
+        if (!ret || (score > retScore))
+        {
+            ret = std::move(p);
+            retScore = score;
+        }
+    }
 
     return ret;
 }
@@ -3433,7 +3448,7 @@ PeerImp::getScore(bool haveItem) const
     // Penalty for unknown latency; should be roughly spRandomMax
     static const int spNoLatency = 8000;
 
-    int score = rand_int(spRandomMax);
+    int score = rand_int(app_.getPrng(), spRandomMax);
 
     if (haveItem)
         score += spHaveItem;
