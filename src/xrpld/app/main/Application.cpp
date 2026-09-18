@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/consensus/RCLValidations.h>
+#include <xrpld/app/ledger/detail/TimeoutCounter.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/LedgerCleaner.h>
@@ -59,6 +60,7 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/shamap/NodeFamily.h>
 #include <xrpl/basics/ByteUtilities.h>
+#include <xrpl/basics/contract.h>
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/ResolverAsio.h>
 #include <xrpl/basics/random.h>
@@ -167,6 +169,9 @@ public:
     std::unique_ptr<Config> config_;
     std::unique_ptr<Logs> logs_;
     std::unique_ptr<TimeKeeper> timeKeeper_;
+    OverlayFactory overlayFactory_;
+    TimeoutCounterTimerFactory peerTimerFactory_;
+    TimeoutCounterTimerFactory timeoutCounterTimerFactory_;
 
     std::unique_ptr<DatagramMonitor> datagram_monitor_;
 
@@ -275,11 +280,36 @@ public:
     ApplicationImp(
         std::unique_ptr<Config> config,
         std::unique_ptr<Logs> logs,
-        std::unique_ptr<TimeKeeper> timeKeeper)
+        std::unique_ptr<TimeKeeper> timeKeeper,
+        OverlayFactory overlayFactory,
+        [[maybe_unused]] beast::abstract_clock<std::chrono::steady_clock>*
+            injectedClock,
+        [[maybe_unused]] beast::xor_shift_engine* injectedPrng,
+        TimeoutCounterTimerFactory timeoutCounterTimerFactory,
+        TimeoutCounterTimerFactory peerTimerFactory)
         : BasicApp(numberOfThreads(*config))
         , config_(std::move(config))
         , logs_(std::move(logs))
         , timeKeeper_(std::move(timeKeeper))
+        , overlayFactory_(std::move(overlayFactory))
+        , peerTimerFactory_([&]() -> TimeoutCounterTimerFactory {
+              if (config_->steppingMode && !peerTimerFactory)
+                  Throw<std::logic_error>(
+                      "steppingMode requires a peer heartbeat timer factory "
+                      "at make_Application()");
+              return std::move(peerTimerFactory);
+          }())
+        , timeoutCounterTimerFactory_([&]() -> TimeoutCounterTimerFactory {
+              if (timeoutCounterTimerFactory)
+                  return std::move(timeoutCounterTimerFactory);
+              if (config_->steppingMode)
+                  Throw<std::logic_error>(
+                      "steppingMode requires a TimeoutCounterTimerFactory "
+                      "at make_Application()");
+              return [this]() {
+                  return makeAsioTimeoutCounterTimer(getIOService());
+              };
+          }())
         , instanceCookie_(
               1 +
               rand_int(
@@ -610,6 +640,20 @@ public:
     getIOService() override
     {
         return get_io_service();
+    }
+
+    std::unique_ptr<TimeoutCounterTimer>
+    makeTimeoutCounterTimer() override
+    {
+        return timeoutCounterTimerFactory_();
+    }
+
+    std::unique_ptr<TimeoutCounterTimer>
+    makePeerTimer() override
+    {
+        if (!peerTimerFactory_)
+            return nullptr;
+        return peerTimerFactory_();
     }
 
     std::chrono::milliseconds
@@ -1419,15 +1463,17 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
     //             move the instantiation inside a conditional:
     //
     //             if (!config_.standalone())
-    overlay_ = make_Overlay(
-        *this,
-        setup_Overlay(*config_),
-        *serverHandler_,
-        *m_resourceManager,
-        *m_resolver,
-        get_io_service(),
-        *config_,
-        m_collectorManager->collector());
+    overlay_ = overlayFactory_
+        ? overlayFactory_(*this)
+        : make_Overlay(
+              *this,
+              setup_Overlay(*config_),
+              *serverHandler_,
+              *m_resourceManager,
+              *m_resolver,
+              get_io_service(),
+              *config_,
+              m_collectorManager->collector());
     add(*overlay_);  // add to PropertyStream
 
     // start first consensus round
@@ -2445,10 +2491,22 @@ std::unique_ptr<Application>
 make_Application(
     std::unique_ptr<Config> config,
     std::unique_ptr<Logs> logs,
-    std::unique_ptr<TimeKeeper> timeKeeper)
+    std::unique_ptr<TimeKeeper> timeKeeper,
+    OverlayFactory overlayFactory,
+    beast::abstract_clock<std::chrono::steady_clock>* injectedClock,
+    beast::xor_shift_engine* injectedPrng,
+    TimeoutCounterTimerFactory timeoutCounterTimerFactory,
+    TimeoutCounterTimerFactory peerTimerFactory)
 {
     return std::make_unique<ApplicationImp>(
-        std::move(config), std::move(logs), std::move(timeKeeper));
+        std::move(config),
+        std::move(logs),
+        std::move(timeKeeper),
+        std::move(overlayFactory),
+        injectedClock,
+        injectedPrng,
+        std::move(timeoutCounterTimerFactory),
+        std::move(peerTimerFactory));
 }
 
 void
