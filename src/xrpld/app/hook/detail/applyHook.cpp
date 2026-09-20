@@ -2156,10 +2156,16 @@ DEFINE_HOOK_FUNCTION(
             case keylet_code::SIGNERS:
             case keylet_code::ACCOUNT:
             case keylet_code::HOOK:
-            case keylet_code::DID: {
+            case keylet_code::DID:
+            case keylet_code::APP_LOADER: {
                 if (keylet_type == keylet_code::DID)
                 {
                     if (!applyCtx.view().rules().enabled(featureDID))
+                        return INVALID_ARGUMENT;
+                }
+                if (keylet_type == keylet_code::APP_LOADER)
+                {
+                    if (!applyCtx.view().rules().enabled(featurePWALoader))
                         return INVALID_ARGUMENT;
                 }
                 if (a == 0 || b == 0)
@@ -2184,9 +2190,39 @@ DEFINE_HOOK_FUNCTION(
                     ? ripple::keylet::signers(id)
                     : keylet_type == keylet_code::OWNER_DIR
                     ? ripple::keylet::ownerDir(id)
-                    : keylet_type == keylet_code::DID
-                    ? ripple::keylet::did(id)
+                    : keylet_type == keylet_code::DID ? ripple::keylet::did(id)
+                    : keylet_type == keylet_code::APP_LOADER
+                    ? ripple::keylet::appLoader(id)
                     : ripple::keylet::account(id);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take a validator public key
+            case keylet_code::MANIFEST: {
+                if (!applyCtx.view().rules().enabled(featureOnChainManifests))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+
+                if (c != 0 || d != 0 || e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                ripple::Slice const pkSlice{memory + read_ptr, read_len};
+
+                // Reject anything that is not a well-formed public key before
+                // constructing one: the PublicKey ctor throws on bad input.
+                if (!publicKeyType(pkSlice))
+                    return INVALID_ARGUMENT;
+
+                ripple::Keylet kl =
+                    ripple::keylet::manifest(ripple::PublicKey(pkSlice));
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }

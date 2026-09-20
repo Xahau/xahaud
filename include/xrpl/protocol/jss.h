@@ -136,6 +136,7 @@ JSS(URI);                      // field.
 JSS(VoteSlots);                // out: AMM Vote
 JSS(aborted);                            // out: InboundLedger
 JSS(accepted);               // out: LedgerToJson, OwnerInfo, SubmitTransaction
+JSS(AppLoader);              // out: ledger entry type
 JSS(accountState);           // out: LedgerToJson
 JSS(accountTreeHash);        // out: ledger/Ledger.cpp
 JSS(account_data);           // out: AccountInfo
