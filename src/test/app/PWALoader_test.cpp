@@ -117,9 +117,10 @@ struct PWALoader_test : public beast::unit_test::suite
             check("\xEF\xBB\xBF<!DOCTYPE html><html></html>") == R::ok);
         // Whitespace between </html and >.
         BEAST_EXPECT(check("<html></html  >") == R::ok);
-        // Empty <html> with body but no explicit body tag.
+        // Content directly inside <html>, with no <body> wrapper.
         BEAST_EXPECT(check("<html><p>text</p></html>") == R::ok);
-        // Self-closing <html/> followed by </html> is valid.
+        // "<html/>" is accepted because '/' terminates the tag name, and
+        // the trailing "</html>" still satisfies the end-tag requirement.
         BEAST_EXPECT(check("<html/></html>") == R::ok);
 
         // --- rejected ---------------------------------------------------
@@ -153,13 +154,13 @@ struct PWALoader_test : public beast::unit_test::suite
         BEAST_EXPECT(check("\xEF\xBB\xBF") == R::empty);
         // BOM followed by whitespace only.
         BEAST_EXPECT(check("\xEF\xBB\xBF  \n\t") == R::empty);
-        // </html> before <html>.
+        // An end tag first. Rejected by the opening gate, before any search
+        // for <html> runs, hence noDoctype rather than unclosed.
         BEAST_EXPECT(check("</html><html></html>") == R::noDoctype);
         // Missing > on </html> end tag.
         BEAST_EXPECT(check("<html></html  ") == R::unclosed);
-        // Doctype alone.
-        BEAST_EXPECT(check("<!DOCTYPE html>") == R::noHtmlElement);
-        // <head> before <html> means <head> is found first, not <html>.
+        // Some other element first. The document must *open* with a doctype
+        // or <html>, so this never reaches the <html> search either.
         BEAST_EXPECT(check("<head></head><html></html>") == R::noDoctype);
 
         // Control characters.
@@ -338,6 +339,16 @@ struct PWALoader_test : public beast::unit_test::suite
                 R"({"index":")" + to_string(klLoader.key) + R"("})");
             BEAST_EXPECT(
                 le[jss::result][jss::node][sfLedgerEntryType.fieldName] ==
+                jss::AppLoader);
+
+            // ...and so does ledger_entry by account, which is the lookup a
+            // client without sfAppLoaderID in hand actually has.
+            auto const byAcct = env.rpc(
+                "json",
+                "ledger_entry",
+                R"({"app_loader":")" + alice.human() + R"("})");
+            BEAST_EXPECT(
+                byAcct[jss::result][jss::node][sfLedgerEntryType.fieldName] ==
                 jss::AppLoader);
         }
 

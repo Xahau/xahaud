@@ -239,7 +239,7 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
 
     \sa keylet::appLoader
  */
-LEDGER_ENTRY(ltAPP_LOADER, 'L', AppLoader, app_loader, ({
+LEDGER_ENTRY_DUPLICATE(ltAPP_LOADER, 'L', AppLoader, app_loader, ({
     {sfOwner,                soeREQUIRED},
     {sfAppLoader,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},

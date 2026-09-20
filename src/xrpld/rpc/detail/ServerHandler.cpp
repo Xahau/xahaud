@@ -337,6 +337,18 @@ ServerHandler::processPWARequest(
     auto const j = app_.journal("PWA");
     auto out = makeOutput(*session);
 
+    // Metered like every other request on this port. The handler posts a job
+    // and reads the ledger, so leaving this path unmetered would hand out a
+    // cheap amplifier to anyone who can reach the http port.
+    auto usage = m_resourceManager.newInboundEndpoint(
+        session->remoteAddress().at_port(0));
+    if (usage.disconnect(m_journal))
+    {
+        HTTPReply(503, "Server is overloaded", out, j);
+        session->close(true);
+        return;
+    }
+
     // Serving third-party HTML from the same origin as the JSON-RPC endpoint
     // is dangerous: script in the document could POST commands back to the
     // node. Two things guard against that.
@@ -410,6 +422,7 @@ ServerHandler::processPWARequest(
         "text/html; charset=utf-8",
         securityHeaders);
 
+    usage.charge(Resource::feeMediumBurdenRPC);
     session->close(true);
 }
 
