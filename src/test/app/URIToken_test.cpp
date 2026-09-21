@@ -2379,8 +2379,8 @@ struct URIToken_test : public beast::unit_test::suite
                 // BOUNDRY - END
                 // ----------------------------------------------------------------
 
-                // case: 3 bytes max (U-0000FFFF) - but this is U+FFFF noncharacter,
-                // handled below in the amendment-gated section
+                // case: 3 bytes max (U-0000FFFF) - but this is U+FFFF
+                // noncharacter, handled below in the amendment-gated section
 
                 // case: 4 bytes max (U-001FFFFF) - beyond valid BMP
                 uri = "\xF7\xBF\xBF\xBF";
@@ -2422,15 +2422,19 @@ struct URIToken_test : public beast::unit_test::suite
 
                 // Sequence of all 64 possible continuation bytes (0x80-0xbf)
                 uri =
-                    "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D\x8E"
-                    "\x8F\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9A\x9B\x9C\x9D"
-                    "\x9E\x9F\xA0\xA1\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xAB\xAC"
-                    "\xAD\xAE\xAF\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xBB"
+                    "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D"
+                    "\x8E"
+                    "\x8F\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9A\x9B\x9C"
+                    "\x9D"
+                    "\x9E\x9F\xA0\xA1\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xAB"
+                    "\xAC"
+                    "\xAD\xAE\xAF\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA"
+                    "\xBB"
                     "\xBC\xBD\xBE\xBF";
                 env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-                // All 16 first bytes of 3-byte sequences (0xe0-0xef), each followed
-                // by a space character
+                // All 16 first bytes of 3-byte sequences (0xe0-0xef), each
+                // followed by a space character
                 uri =
                     "\xE0\x80\x80 \xE0\x80\x81 \xE0\x80\x82 \xE0\x80\x83 "
                     "\xE0\x80\x84 \xE0\x80\x85 \xE0\x80\x86 \xE0\x80\x87 "
@@ -2439,23 +2443,23 @@ struct URIToken_test : public beast::unit_test::suite
                     "\xE0\x80\x90";
                 env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-                // All 8 first bytes of 4-byte sequences (0xf0-0xf7), each followed
-                // by a space character
+                // All 8 first bytes of 4-byte sequences (0xf0-0xf7), each
+                // followed by a space character
                 uri =
                     "\xF0\x90\x80\x80 \xF0\x90\x80\x81 \xF0\x90\x80\x82 "
                     "\xF0\x90\x80\x83 \xF0\x90\x80\x84 \xF0\x90\x80\x85 "
                     "\xF0\x90\x80\x86 \xF0\x90\x80\x87";
                 env(uritoken::mint(alice, uri));
 
-                // All 4 first bytes of 5-byte sequences (0xf8-0xfb), each followed
-                // by a space character
+                // All 4 first bytes of 5-byte sequences (0xf8-0xfb), each
+                // followed by a space character
                 uri =
                     "\xF8\x88\x80\x80\x80 \xF8\x88\x80\x80\x81 "
                     "\xF8\x88\x80\x80\x82 \xF8\x88\x80\x80\x83";
                 env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-                // All 2 first bytes of 6-byte sequences (0xfc-0xfd), each followed
-                // by a space character
+                // All 2 first bytes of 6-byte sequences (0xfc-0xfd), each
+                // followed by a space character
                 uri = "\xFC\x84\x80\x80\x80\x80 \xFC\x84\x80\x80\x80\x81";
                 env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
@@ -2604,8 +2608,8 @@ struct URIToken_test : public beast::unit_test::suite
                 // BOUNDRY - START (valid minimums)
                 // ----------------------------------------------------------------
 
-                // case: 1 byte  (U-00000000) - but NUL is amendment-gated, see above
-                // case: 2 bytes (U-00000080)
+                // case: 1 byte  (U-00000000) - but NUL is amendment-gated, see
+                // above case: 2 bytes (U-00000080)
                 uri = "\xC2\x80";
                 env(uritoken::mint(alice, uri));
                 // case: 3 bytes (U-00000800)
@@ -2624,8 +2628,9 @@ struct URIToken_test : public beast::unit_test::suite
                 // case: 2 bytes (U-000007FF)
                 uri = "\xDF\xBF";
                 env(uritoken::mint(alice, uri));
-                // case: 3 bytes (U-0000FFFF) - but U+FFFF is noncharacter, amendment-gated
-                // case: 4 bytes (U-001FFFFF) - beyond BMP, always rejected
+                // case: 3 bytes (U-0000FFFF) - but U+FFFF is noncharacter,
+                // amendment-gated case: 4 bytes (U-001FFFFF) - beyond BMP,
+                // always rejected
 
                 // BOUNDRY - OTHER
                 // ----------------------------------------------------------------
