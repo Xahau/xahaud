@@ -106,6 +106,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
         bool newGenerationRan = false;
         std::optional<uint256> captureOrigin;
         std::optional<ExportShare> honestShare;
+        std::map<uint256, ExportShare> capturedFrames;
+        std::vector<std::string> craftedFrames;
+        std::uint32_t craftedReceived = 0;
         std::string badShareBytes;
         Buffer badSignature;
         std::uint32_t badFramesReceived = 0;
@@ -307,6 +310,16 @@ class SteppingExtensions_test : public beast::unit_test::suite
                                 if (share &&
                                     share->originTxn == *stats->captureOrigin)
                                     stats->honestShare = share;
+                            }
+                            if (id == obs)
+                            {
+                                if (auto const share =
+                                        ExportShare::parse(makeSlice(blob)))
+                                    stats->capturedFrames.emplace(
+                                        share->originTxn, *share);
+                                for (auto const& crafted : stats->craftedFrames)
+                                    if (blob == crafted)
+                                        ++stats->craftedReceived;
                             }
                             if (id == obs &&
                                 !stats->badShareBytes.empty() &&
@@ -3906,6 +3919,363 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+    std::optional<std::vector<uint256>>
+    misattributedFrames(SteppingNetwork& net)
+    {
+        using namespace std::chrono_literals;
+        World world(net, false, true);
+        if (!ready(world))
+            return std::nullopt;
+
+        test::StreamSink sink{beast::severities::kTrace};
+        auto& observerCE = net.node(observer).app().getConsensusExtensions();
+        auto const previousJournal = observerCE.j_;
+        observerCE.j_ = beast::Journal{sink};
+        scope_exit restoreJournal{[&] { observerCE.j_ = previousJournal; }};
+
+        auto const funding = world.submit(
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto const stats = world.observed;
+        auto const open = net.node(observer).app().openLedger().current()->seq();
+        auto const last = open + ExportLimits::maxAdmissionWindowLedgers;
+        auto const txA = world.submit(
+            observer, world.intent(world.owner, 1, last), world.owner);
+        auto const txB = world.submit(
+            observer, world.intent(world.owner, 2, last), world.owner);
+        if (!BEAST_EXPECT(
+                txA && txB && txA->getResult() == tesSUCCESS &&
+                txB->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const originA = txA->getID();
+        auto const originB = txB->getID();
+
+        auto admitted = [&](ExportShare const& share) {
+            auto const snap =
+                observerCE.postValidationExportSigCollector().fullUnionSnapshot();
+            auto const it = snap.find(share.originTxn);
+            if (it == snap.end())
+                return false;
+            for (auto const& contrib : it->second)
+                if (contrib.signingKey == share.signingKey &&
+                    contrib.position == share.committeePosition)
+                    return true;
+            return false;
+        };
+        auto latchLive = [&](ExportShare const& share) {
+            if (net.validSeq(observer) < share.originLedgerSeq)
+                return false;
+            if (net.ledgerHash(observer, share.originLedgerSeq) !=
+                share.originLedgerHash)
+                return false;
+            auto const ledger = net.ledger(observer, net.validSeq(observer));
+            if (!ledger)
+                return false;
+            auto const latch = ledger->read(
+                keylet::exportLatch(share.owner, share.originTxn));
+            return latch && latch->getType() == ltEXPORT_LATCH &&
+                !latch->isFieldPresent(sfExportSignatureHash) &&
+                latch->getFieldH256(sfTransactionHash) == share.originTxn &&
+                ledger->seq() <= latch->getFieldU32(sfLastLedgerSequence);
+        };
+
+        auto const stranger = generateKeyPair(
+            KeyType::secp256k1, generateSeed("dsf-b7-non-member"));
+        auto const strangerPayload = std::string{"dsf-b7-nonmember"};
+        struct Craft
+        {
+            char const* name;
+            char const* reason;
+            ExportShare share;
+            uint256 wire{};
+        };
+        std::vector<Craft> crafted;
+        std::size_t sent = 0;
+        bool injected = false;
+        std::size_t captureMark = 0;
+
+        net.controller().observeJobs([&](std::uint32_t,
+                                         JobType,
+                                         std::string const&) {
+            if (injected)
+                return;
+            auto const haveA = stats->capturedFrames.find(originA);
+            auto const haveB = stats->capturedFrames.find(originB);
+            if (haveA == stats->capturedFrames.end() ||
+                haveB == stats->capturedFrames.end())
+                return;
+            if (!admitted(haveA->second) || !admitted(haveB->second) ||
+                !latchLive(haveA->second) || !latchLive(haveB->second))
+                return;
+
+            auto nonMember = haveA->second;
+            nonMember.signingKey = stranger.first;
+            nonMember.signature = sign(
+                stranger.first, stranger.second, makeSlice(strangerPayload));
+            auto wrongPos = haveA->second;
+            wrongPos.committeePosition = static_cast<std::uint16_t>(
+                (haveA->second.committeePosition + 1) % 3);
+            auto wrongOrigin = haveA->second;
+            wrongOrigin.originTxn = originB;
+            wrongOrigin.originLedgerHash = originB;
+            if (!nonMember.validShape() || !wrongPos.validShape() ||
+                !wrongOrigin.validShape())
+                return;
+
+            crafted = {
+                {"non-member", "signer-attribution-unknown", nonMember, {}},
+                {"wrong-position", "signer-attribution-mismatch", wrongPos, {}},
+                {"wrong-origin", "origin-ancestry-mismatch", wrongOrigin, {}},
+            };
+            auto const targetPub =
+                net.node(observer).app().nodeIdentity().first;
+            captureMark = sink.messages().str().size();
+            for (auto& item : crafted)
+            {
+                item.wire = item.share.wireHash();
+                auto const framed = item.share.serialize();
+                stats->craftedFrames.emplace_back(
+                    reinterpret_cast<char const*>(framed.data()), framed.size());
+                protocol::TMExportShares batch;
+                batch.add_shares(framed.data(), framed.size());
+                auto const msg = std::make_shared<Message>(
+                    batch, protocol::mtEXPORT_SHARES);
+                for (auto const& peer :
+                     net.node(0).app().overlay().getActivePeers())
+                {
+                    if (peer->getNodePublic() != targetPub)
+                        continue;
+                    peer->send(msg);
+                    ++sent;
+                    break;
+                }
+            }
+            injected = sent == crafted.size();
+        });
+        scope_exit clearObserve{[&] { net.controller().observeJobs({}); }};
+
+        net.runTo(warmLedger + 10, SteppingNetwork::RunBudget{1600, 1'200'000});
+        if (!BEAST_EXPECT(injected && sent == 3 && stats->craftedReceived == 3))
+        {
+            log << "  crafted frames were not received"
+                << " injected=" << injected << " sent=" << sent
+                << " received=" << stats->craftedReceived
+                << " captured=" << stats->capturedFrames.size() << std::endl;
+            return std::nullopt;
+        }
+
+        auto const captured = sink.messages().str().substr(captureMark);
+        struct Trace
+        {
+            std::string reason;
+            int resolutions = 0;
+            int commits = 0;
+            bool accepted = false;
+        };
+        auto const acceptedResult = std::to_string(static_cast<unsigned>(
+            ExportSigCollector::AdmitResult::accepted));
+        auto readTrace = [&](uint256 const& wire) {
+            Trace trace;
+            auto const wireText = "wire=" + to_string(wire);
+            std::istringstream in{captured};
+            for (std::string line; std::getline(in, line);)
+            {
+                if (line.find(wireText) == std::string::npos)
+                    continue;
+                if (line.find("ExportShare: resolution") != std::string::npos)
+                {
+                    ++trace.resolutions;
+                    auto const at = line.find("reason=");
+                    if (at != std::string::npos)
+                    {
+                        auto rest = line.substr(at + 7);
+                        auto const end = rest.find(' ');
+                        if (end != std::string::npos)
+                            rest.resize(end);
+                        trace.reason = std::move(rest);
+                    }
+                    if (trace.reason == "resolved")
+                        trace.accepted = true;
+                }
+                if (line.find("ExportShare: collector commit") !=
+                    std::string::npos)
+                {
+                    ++trace.commits;
+                    if (line.find("result=" + acceptedResult) !=
+                        std::string::npos)
+                        trace.accepted = true;
+                }
+            }
+            return trace;
+        };
+
+        auto const honest = stats->capturedFrames.at(originA);
+        auto const otherPos = static_cast<std::uint16_t>(
+            (honest.committeePosition + 1) % 3);
+        auto statusOf = [&](uint256 const& origin, std::uint16_t pos) {
+            return observerCE.postValidationExportSigCollector().positionStatus(
+                origin, pos);
+        };
+        auto hasKeyAt =
+            [&](uint256 const& origin, std::uint16_t pos, PublicKey const& key) {
+                auto const snap = observerCE.postValidationExportSigCollector()
+                                      .fullUnionSnapshot();
+                auto const it = snap.find(origin);
+                if (it == snap.end())
+                    return false;
+                for (auto const& contrib : it->second)
+                    if (contrib.position == pos && contrib.signingKey == key)
+                        return true;
+                return false;
+            };
+        auto containsSig = [&](uint256 const& origin, Buffer const& sig) {
+            auto const snap = observerCE.postValidationExportSigCollector()
+                                  .fullUnionSnapshot();
+            auto const it = snap.find(origin);
+            if (it == snap.end())
+                return false;
+            for (auto const& contrib : it->second)
+                if (contrib.signature.size() == sig.size() &&
+                    std::equal(
+                        contrib.signature.data(),
+                        contrib.signature.data() + contrib.signature.size(),
+                        sig.data()))
+                    return true;
+            return false;
+        };
+        using Status = ExportSigCollector::PositionStatus;
+        if (!BEAST_EXPECT(
+                statusOf(originA, honest.committeePosition) == Status::unique &&
+                statusOf(originA, otherPos) != Status::conflicted &&
+                statusOf(originB, honest.committeePosition) !=
+                    Status::conflicted &&
+                hasKeyAt(
+                    originA, honest.committeePosition, honest.signingKey) &&
+                !hasKeyAt(originA, otherPos, honest.signingKey) &&
+                !hasKeyAt(originA, honest.committeePosition, stranger.first) &&
+                !containsSig(originB, honest.signature)))
+        {
+            log << "  crafted frames changed honest collector state"
+                << " honest="
+                << static_cast<int>(
+                       statusOf(originA, honest.committeePosition))
+                << " other=" << static_cast<int>(statusOf(originA, otherPos))
+                << std::endl;
+            return std::nullopt;
+        }
+
+        std::vector<uint256> outcome;
+        for (auto const& item : crafted)
+        {
+            auto const trace = readTrace(item.wire);
+            if (!BEAST_EXPECT(
+                    trace.resolutions == 1 && trace.reason == item.reason &&
+                    trace.commits == 0 && !trace.accepted))
+            {
+                log << "  " << item.name << " reason=" << trace.reason
+                    << " resolutions=" << trace.resolutions
+                    << " commits=" << trace.commits
+                    << " expected=" << item.reason << std::endl;
+                auto const wireText = "wire=" + to_string(item.wire);
+                std::istringstream in{captured};
+                for (std::string line; std::getline(in, line);)
+                    if (line.find(wireText) != std::string::npos)
+                        log << "    " << line << std::endl;
+                return std::nullopt;
+            }
+            log << "  bad-material " << item.name << ": reason=" << trace.reason
+                << " commits=" << trace.commits << std::endl;
+            auto const reasonText = trace.reason;
+            outcome.push_back(item.wire);
+            outcome.push_back(sha512Half(makeSlice(reasonText)));
+        }
+
+        auto const target = std::max(net.validSeq(0), warmLedger + 8);
+        net.runTo(target, SteppingNetwork::RunBudget{1600, 1'200'000});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
+            return std::nullopt;
+        BEAST_EXPECT(net.ledgersAgree(target));
+        BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(net.offThreadJobs() == 0);
+        BEAST_EXPECT(net.failedJobs() == 0);
+        BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
+        BEAST_EXPECT(stats->secrets[observer] == 0);
+        BEAST_EXPECT(stats->ownReleases[observer] == 0);
+        // Node 0's send hook counts the reframed-origin injection, whose
+        // anchor does not match that origin. The other validators stay at 0.
+        BEAST_EXPECT(stats->unauthorizedReleases[0] == 1);
+        BEAST_EXPECT(stats->unauthorizedReleases[1] == 0);
+        BEAST_EXPECT(stats->unauthorizedReleases[2] == 0);
+
+        std::map<uint256, std::uint32_t> hits;
+        for (auto const origin : {originA, originB})
+        {
+            auto const seqW = witnessAt(net, origin, warmLedger);
+            if (!BEAST_EXPECT(seqW != 0 && seqW <= target))
+            {
+                log << "  origin did not witness " << to_string(origin)
+                    << std::endl;
+                return std::nullopt;
+            }
+            BEAST_EXPECT(stats->builds[observer].contains(
+                {seqW, net.ledgerHash(0, seqW - 1), net.ledgerHash(0, seqW)}));
+            for (auto seq = warmLedger; seq <= target; ++seq)
+            {
+                auto const canonical = net.ledger(0, seq);
+                if (!BEAST_EXPECT(canonical != nullptr))
+                    return std::nullopt;
+                for (std::uint32_t i = 1; i <= observer; ++i)
+                    BEAST_EXPECT(
+                        net.ledger(i, seq) &&
+                        net.ledger(i, seq)->info().hash ==
+                            canonical->info().hash);
+                for (auto const& [wtx, meta] : canonical->txs)
+                {
+                    if (wtx->getTxnType() != ttEXPORT_SIGNATURES ||
+                        wtx->getFieldH256(sfTransactionHash) != origin)
+                        continue;
+                    if (!BEAST_EXPECT(meta != nullptr))
+                        return std::nullopt;
+                    ++hits[origin];
+                    auto const txBytes = wtx->getSerializer().getData();
+                    auto const metaBytes = meta->getSerializer().getData();
+                    for (std::uint32_t i = 0; i <= observer; ++i)
+                    {
+                        bool found = false;
+                        for (auto const& [peerTx, peerMeta] :
+                             net.ledger(i, seq)->txs)
+                        {
+                            if (peerTx->getTxnType() != ttEXPORT_SIGNATURES ||
+                                peerTx->getFieldH256(sfTransactionHash) !=
+                                    origin)
+                                continue;
+                            found = true;
+                            BEAST_EXPECT(
+                                peerTx->getSerializer().getData() == txBytes);
+                            BEAST_EXPECT(
+                                peerMeta &&
+                                peerMeta->getSerializer().getData() ==
+                                    metaBytes);
+                        }
+                        BEAST_EXPECT(found);
+                    }
+                }
+            }
+            outcome.push_back(origin);
+            outcome.push_back(sha512Half(seqW));
+        }
+        BEAST_EXPECT(hits[originA] == 1);
+        BEAST_EXPECT(hits[originB] == 1);
+        return outcome;
+    }
+
 public:
     void
     run() override
@@ -4135,6 +4505,17 @@ public:
                 *this,
                 "surviving quorum validates Export without one validator",
                 [this](SteppingNetwork& net) { return survivingQuorum(net); });
+        }
+        if (matches("misattributed Export frames do not change honest witnesses"))
+        {
+            testcase(
+                "misattributed Export frames do not change honest witnesses");
+            expectReplays(
+                *this,
+                "misattributed Export frames do not change honest witnesses",
+                [this](SteppingNetwork& net) {
+                    return misattributedFrames(net);
+                });
         }
         BEAST_EXPECT(selected != 0);
     }
