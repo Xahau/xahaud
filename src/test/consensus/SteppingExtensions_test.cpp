@@ -109,6 +109,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::map<uint256, ExportShare> capturedFrames;
         std::vector<std::string> craftedFrames;
         std::uint32_t craftedReceived = 0;
+        std::array<std::size_t, kNodeSlots> craftedUnauthorized{};
         std::string badShareBytes;
         Buffer badSignature;
         std::uint32_t badFramesReceived = 0;
@@ -389,7 +390,17 @@ class SteppingExtensions_test : public beast::unit_test::suite
                                     ++stats->originOwnReleases[share->originTxn]
                                                               [id];
                                     if (!authorizedAtEmission(app, *share))
+                                    {
                                         ++stats->unauthorizedReleases[id];
+                                        for (auto const& frame :
+                                             stats->craftedFrames)
+                                        {
+                                            if (frame != bytes)
+                                                continue;
+                                            ++stats->craftedUnauthorized[id];
+                                            break;
+                                        }
+                                    }
                                 }
                             };
                             auto const& bytes =
@@ -4208,11 +4219,12 @@ class SteppingExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
         BEAST_EXPECT(stats->secrets[observer] == 0);
         BEAST_EXPECT(stats->ownReleases[observer] == 0);
-        // Node 0's send hook counts the reframed-origin injection, whose
-        // anchor does not match that origin. The other validators stay at 0.
-        BEAST_EXPECT(stats->unauthorizedReleases[0] == 1);
-        BEAST_EXPECT(stats->unauthorizedReleases[1] == 0);
-        BEAST_EXPECT(stats->unauthorizedReleases[2] == 0);
+        // Real unauthorized emissions are zero. Any count the hook recorded
+        // is a crafted frame this case injected.
+        for (std::uint32_t n = 0; n <= observer; ++n)
+            BEAST_EXPECT(
+                stats->unauthorizedReleases[n] ==
+                stats->craftedUnauthorized[n]);
 
         std::map<uint256, std::uint32_t> hits;
         for (auto const origin : {originA, originB})
@@ -4273,6 +4285,334 @@ class SteppingExtensions_test : public beast::unit_test::suite
         }
         BEAST_EXPECT(hits[originA] == 1);
         BEAST_EXPECT(hits[originB] == 1);
+        log << "  bad-material accounting: unauthorized="
+            << stats->unauthorizedReleases[0]
+            << " crafted=" << stats->craftedUnauthorized[0] << std::endl;
+        return outcome;
+    }
+
+    std::optional<std::vector<uint256>>
+    lateValidatingKeyed(SteppingNetwork& net)
+    {
+        using namespace std::chrono_literals;
+        World world(net, true, true);
+        if (!ready(world))
+            return std::nullopt;
+        auto const stats = world.observed;
+        constexpr std::uint32_t late = 2;
+
+        test::StreamSink observerSink{beast::severities::kTrace};
+        test::StreamSink senderSink{beast::severities::kTrace};
+        auto& observerCE = net.node(observer).app().getConsensusExtensions();
+        auto& senderCE = net.node(late).app().getConsensusExtensions();
+        auto const previousObserver = observerCE.j_;
+        auto const previousSender = senderCE.j_;
+        observerCE.j_ = beast::Journal{observerSink};
+        senderCE.j_ = beast::Journal{senderSink};
+        scope_exit restoreJournals{[&] {
+            observerCE.j_ = previousObserver;
+            senderCE.j_ = previousSender;
+        }};
+
+        auto const funding = world.submit(
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto const validationDelay =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                8s);
+        bool hold = true;
+        std::uint32_t delayedVals = 0;
+        for (std::uint32_t from = 0; from <= observer; ++from)
+        {
+            if (from == late)
+                continue;
+            net.faultFrames(
+                from,
+                late,
+                [&](std::uint16_t type, SimPipe::Frame) {
+                    SimFault fault;
+                    if (hold && type == protocol::mtVALIDATION)
+                    {
+                        fault.delay = validationDelay;
+                        ++delayedVals;
+                    }
+                    return fault;
+                });
+        }
+
+        auto const tx = world.submit(observer, world.intent(), world.owner);
+        if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const origin = tx->getID();
+        auto releases = [&] {
+            auto const it = stats->originOwnReleases.find(origin);
+            if (it == stats->originOwnReleases.end())
+                return std::size_t{0};
+            return it->second[late];
+        };
+
+        std::uint32_t originSeq = 0;
+        std::uint32_t widest = 0;
+        std::uint32_t gapClosed = 0;
+        std::uint32_t gapValid = 0;
+        std::uint32_t atClosed = 0;
+        std::uint32_t atValid = 0;
+        bool premature = false;
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    if (originSeq == 0)
+                    {
+                        for (auto seq = warmLedger; seq <= net.validSeq(0);
+                             ++seq)
+                            if (ledgerHasTx(net.ledger(0, seq), origin))
+                                originSeq = seq;
+                        if (originSeq != 0)
+                        {
+                            atClosed = net.closedSeq(late);
+                            atValid = net.validSeq(late);
+                        }
+                    }
+                    if (originSeq == 0)
+                        return false;
+                    auto const closed = net.closedSeq(late);
+                    auto const valid = net.validSeq(late);
+                    // Closed the origin (or moved past it) before validating it.
+                    if (closed >= originSeq && valid < originSeq)
+                    {
+                        auto const gap = closed - valid;
+                        if (gap >= widest)
+                        {
+                            widest = gap;
+                            gapClosed = closed;
+                            gapValid = valid;
+                        }
+                        if (releases() != 0)
+                            premature = true;
+                        return delayedVals > 0;
+                    }
+                    return false;
+                },
+                SteppingNetwork::RunBudget{80, 1'200'000})))
+        {
+            log << "  validator 2 did not close past an unvalidated origin"
+                << " originSeq=" << originSeq
+                << " atClosed=" << atClosed << " atValid=" << atValid
+                << " closed=" << net.closedSeq(late)
+                << " valid=" << net.validSeq(late)
+                << " delayed=" << delayedVals << std::endl;
+            return std::nullopt;
+        }
+        if (!BEAST_EXPECT(!premature && releases() == 0 && widest > 0))
+        {
+            log << "  validator 2 released before validating the origin"
+                << " releases=" << releases() << " widest=" << widest
+                << std::endl;
+            return std::nullopt;
+        }
+
+        hold = false;
+        for (std::uint32_t from = 0; from <= observer; ++from)
+            if (from != late)
+                net.faultFrames(from, late, {});
+        auto const originText = "origin=" + to_string(origin);
+        auto localReleases = [&] {
+            int count = 0;
+            std::istringstream in{senderSink.messages().str()};
+            for (std::string line; std::getline(in, line);)
+                if (line.find("ExportShare: local release frame") !=
+                        std::string::npos &&
+                    line.find(originText) != std::string::npos)
+                    ++count;
+            return count;
+        };
+        auto const windowEnd = originSeq + ExportLimits::maxPublicationLedgers;
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    return net.validSeq(late) >= originSeq &&
+                        localReleases() == 1 && releases() > 0;
+                },
+                SteppingNetwork::RunBudget{40, 1'200'000})))
+        {
+            log << "  validator 2 did not release after validation"
+                << " valid=" << net.validSeq(late)
+                << " wire=" << releases()
+                << " local=" << localReleases() << std::endl;
+            return std::nullopt;
+        }
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    return witnessAt(net, origin, warmLedger) != 0 ||
+                        net.minValidatedSeq() >= windowEnd;
+                },
+                SteppingNetwork::RunBudget{40, 1'200'000})))
+            return std::nullopt;
+
+        std::string positionText;
+        {
+            std::istringstream in{senderSink.messages().str()};
+            for (std::string line; std::getline(in, line);)
+            {
+                if (line.find("ExportShare: local release frame") ==
+                        std::string::npos ||
+                    line.find(originText) == std::string::npos)
+                    continue;
+                auto const at = line.find("position=");
+                if (at == std::string::npos)
+                    continue;
+                auto const end = line.find(' ', at);
+                positionText = line.substr(
+                    at,
+                    end == std::string::npos ? std::string::npos : end - at);
+                break;
+            }
+        }
+        auto const accepted = std::to_string(static_cast<unsigned>(
+            ExportSigCollector::AdmitResult::accepted));
+        bool sawAccepted = false;
+        {
+            std::istringstream in{observerSink.messages().str()};
+            for (std::string line; std::getline(in, line);)
+            {
+                if (line.find("ExportShare: collector commit") ==
+                        std::string::npos ||
+                    line.find(originText) == std::string::npos ||
+                    line.find(positionText) == std::string::npos ||
+                    line.find("signatureVerified=true") == std::string::npos ||
+                    line.find("result=" + accepted) == std::string::npos)
+                    continue;
+                sawAccepted = true;
+                break;
+            }
+        }
+        auto bitCount = [](Blob const& bits) {
+            std::size_t n = 0;
+            for (unsigned char byte : bits)
+                for (; byte;
+                     byte = static_cast<unsigned char>(byte & (byte - 1)))
+                    ++n;
+            return n;
+        };
+        auto const seqW = witnessAt(net, origin, warmLedger);
+        std::size_t contributors = 0;
+        if (seqW != 0)
+        {
+            auto const ledger = net.ledger(0, seqW);
+            if (ledger)
+                for (auto const& [wtx, meta] : ledger->txs)
+                    if (wtx->getTxnType() == ttEXPORT_SIGNATURES &&
+                        wtx->getFieldH256(sfTransactionHash) == origin)
+                        contributors =
+                            bitCount(wtx->getFieldVL(sfExportContributors));
+        }
+        auto const releaseSeq = net.validSeq(late);
+        if (!BEAST_EXPECT(
+                sawAccepted && !positionText.empty() && seqW != 0 &&
+                seqW > originSeq && seqW <= windowEnd && contributors > 0 &&
+                localReleases() == 1 && releases() > 0))
+        {
+            log << "  late validation did not admit one release"
+                << " accepted=" << sawAccepted << " position=" << positionText
+                << " witness=" << seqW << " contributors=" << contributors
+                << " releases=" << releases() << std::endl;
+            return std::nullopt;
+        }
+
+        auto const agreed = net.minValidatedSeq();
+        BEAST_EXPECT(net.ledgersAgree(agreed));
+        BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(net.offThreadJobs() == 0);
+        BEAST_EXPECT(net.failedJobs() == 0);
+        BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
+        BEAST_EXPECT(stats->secrets[observer] == 0);
+        BEAST_EXPECT(stats->ownReleases[observer] == 0);
+        for (std::uint32_t n = 0; n <= observer; ++n)
+            BEAST_EXPECT(stats->unauthorizedReleases[n] == 0);
+        std::uint32_t obsMismatch = 0;
+        for (auto const& built : stats->builds[observer])
+        {
+            auto const seq = std::get<0>(built);
+            auto const hash = std::get<2>(built);
+            if (seq >= originSeq && seq <= agreed &&
+                hash != net.ledgerHash(0, seq))
+                ++obsMismatch;
+        }
+        if (seqW != 0)
+            BEAST_EXPECT(stats->builds[observer].contains(
+                {seqW,
+                 net.ledgerHash(0, seqW - 1),
+                 net.ledgerHash(0, seqW)}));
+
+        std::uint32_t hits = 0;
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= agreed; ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (std::uint32_t i = 1; i <= observer; ++i)
+            {
+                auto const ledger = net.ledger(i, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            outcome.push_back(canonical->info().hash);
+            for (auto const& [wtx, meta] : canonical->txs)
+            {
+                if (wtx->getTxnType() != ttEXPORT_SIGNATURES ||
+                    wtx->getFieldH256(sfTransactionHash) != origin)
+                    continue;
+                if (!BEAST_EXPECT(meta != nullptr))
+                    return std::nullopt;
+                ++hits;
+                auto const txBytes = wtx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                for (std::uint32_t i = 0; i <= observer; ++i)
+                {
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : net.ledger(i, seq)->txs)
+                    {
+                        if (peerTx->getTxnType() != ttEXPORT_SIGNATURES ||
+                            peerTx->getFieldH256(sfTransactionHash) != origin)
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes);
+                        BEAST_EXPECT(
+                            peerMeta &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+        }
+        BEAST_EXPECT(hits == 1);
+        log << "  late-validating: delayMs="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   validationDelay)
+                   .count()
+            << " delayed=" << delayedVals << " gapClosed=" << gapClosed
+            << " gapValid=" << gapValid << " widest=" << widest
+            << " releaseSeq=" << releaseSeq << " witness=" << seqW
+            << " contributors=" << contributors
+            << " obsMismatch=" << obsMismatch << std::endl;
+        outcome.push_back(origin);
+        outcome.push_back(sha512Half(
+            delayedVals,
+            widest,
+            gapClosed,
+            gapValid,
+            releaseSeq,
+            seqW,
+            static_cast<std::uint32_t>(contributors),
+            obsMismatch));
         return outcome;
     }
 
@@ -4515,6 +4855,16 @@ public:
                 "misattributed Export frames do not change honest witnesses",
                 [this](SteppingNetwork& net) {
                     return misattributedFrames(net);
+                });
+        }
+        if (matches("keyed validator releases only after it validates"))
+        {
+            testcase("keyed validator releases only after it validates");
+            expectReplays(
+                *this,
+                "keyed validator releases only after it validates",
+                [this](SteppingNetwork& net) {
+                    return lateValidatingKeyed(net);
                 });
         }
         BEAST_EXPECT(selected != 0);
