@@ -4616,6 +4616,505 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+    std::optional<std::vector<uint256>>
+    seededMix(SteppingNetwork& net, std::uint64_t seed)
+    {
+        using namespace std::chrono_literals;
+        net.seedPrng(seed);
+        World world(net, true, true);
+        if (!ready(world))
+            return std::nullopt;
+        auto const stats = world.observed;
+
+        // Distinct targets, sequential windows. The seed only picks which
+        // proven recipe list to run.
+        struct Item
+        {
+            int kind;
+            std::uint32_t node;
+        };
+        // 0 direct frames dropped toward the observer
+        // 1 one validator's export frames held
+        // 2 one validator's proposals delayed
+        // 3 validations delayed toward one validator
+        // 4 duplicate and reordered direct frames toward the observer
+        // 5 a two-second accept lag on one validator
+        Item const packs[][4] = {
+            {{5, 0}, {3, 1}, {2, 2}, {0, observer}},
+            {{1, 2}, {3, 0}, {4, observer}, {-1, 0}},
+            {{5, 1}, {2, 0}, {0, observer}, {-1, 0}},
+        };
+        auto const pack = static_cast<std::size_t>(seed % 3);
+        std::string schedule = "seed=" + std::to_string(seed) + " pack=" +
+            std::to_string(pack);
+        auto const fail = [&](char const* why)
+            -> std::optional<std::vector<uint256>> {
+            log << "  seeded-mix red " << schedule << " " << why << std::endl;
+            return std::nullopt;
+        };
+
+        auto const funding = world.submit(
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return fail("funding");
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return fail("warmup");
+        auto const preSeq = net.minValidatedSeq();
+        auto const preHash = net.ledgerHash(0, preSeq);
+
+        auto clearFrom = [&](std::uint32_t from) {
+            for (std::uint32_t to = 0; to <= observer; ++to)
+                if (to != from)
+                    net.faultFrames(from, to, {});
+        };
+        auto clearToward = [&](std::uint32_t to) {
+            for (std::uint32_t from = 0; from <= observer; ++from)
+                if (from != to)
+                    net.faultFrames(from, to, {});
+        };
+
+        struct Counters
+        {
+            bool on = false;
+            std::uint32_t drops = 0;
+            std::uint32_t held = 0;
+            std::uint32_t delayedProps = 0;
+            std::uint32_t delayedVals = 0;
+            std::uint32_t dups = 0;
+            std::uint32_t reorders = 0;
+            bool gateTimeout = false;
+            std::chrono::steady_clock::time_point started{};
+        } live;
+
+        auto install = [&](Item item) {
+            live = {};
+            live.on = true;
+            live.started = net.controller().now();
+            char const* name = "?";
+            if (item.kind == 0)
+            {
+                name = "directDrop";
+                for (std::uint32_t from = 0; from < observer; ++from)
+                    net.faultFrames(
+                        from,
+                        observer,
+                        [&](std::uint16_t type, SimPipe::Frame) {
+                            SimFault fault;
+                            if (live.on && type == protocol::mtEXPORT_SHARES)
+                            {
+                                fault.drop = true;
+                                ++live.drops;
+                            }
+                            return fault;
+                        });
+            }
+            else if (item.kind == 1)
+            {
+                name = "exportHold";
+                for (std::uint32_t to = 0; to <= observer; ++to)
+                {
+                    if (to == item.node)
+                        continue;
+                    net.faultFrames(
+                        item.node,
+                        to,
+                        [&](std::uint16_t type, SimPipe::Frame bytes) {
+                            SimFault fault;
+                            if (!live.on)
+                                return fault;
+                            if (type == protocol::mtEXPORT_SHARES)
+                            {
+                                fault.drop = true;
+                                ++live.held;
+                            }
+                            else if (type == protocol::mtPROPOSE_LEDGER)
+                            {
+                                auto const proposal =
+                                    decodeFrame<protocol::TMProposeSet>(bytes);
+                                if (proposal &&
+                                    proposal->exportsignatures_size() > 0)
+                                {
+                                    fault.drop = true;
+                                    ++live.held;
+                                }
+                            }
+                            return fault;
+                        });
+                }
+            }
+            else if (item.kind == 2)
+            {
+                name = "proposalDelay";
+                for (std::uint32_t to = 0; to <= observer; ++to)
+                {
+                    if (to == item.node)
+                        continue;
+                    net.faultFrames(
+                        item.node,
+                        to,
+                        [&](std::uint16_t type, SimPipe::Frame) {
+                            SimFault fault;
+                            if (live.on && type == protocol::mtPROPOSE_LEDGER)
+                            {
+                                fault.delay = std::chrono::seconds{7};
+                                ++live.delayedProps;
+                            }
+                            return fault;
+                        });
+                }
+            }
+            else if (item.kind == 3)
+            {
+                name = "validationDelay";
+                for (std::uint32_t from = 0; from <= observer; ++from)
+                {
+                    if (from == item.node)
+                        continue;
+                    net.faultFrames(
+                        from,
+                        item.node,
+                        [&](std::uint16_t type, SimPipe::Frame) {
+                            SimFault fault;
+                            if (live.on && type == protocol::mtVALIDATION)
+                            {
+                                fault.delay = std::chrono::seconds{6};
+                                ++live.delayedVals;
+                            }
+                            return fault;
+                        });
+                }
+            }
+            else if (item.kind == 4)
+            {
+                name = "dupReorder";
+                for (std::uint32_t from = 0; from < observer; ++from)
+                    net.faultFrames(
+                        from,
+                        observer,
+                        [&, from](std::uint16_t type, SimPipe::Frame) {
+                            SimFault fault;
+                            if (!live.on)
+                                return fault;
+                            if (type == protocol::mtEXPORT_SHARES ||
+                                type == protocol::mtPROPOSE_LEDGER ||
+                                type == protocol::mtVALIDATION)
+                            {
+                                fault.duplicates = 1;
+                                ++live.dups;
+                            }
+                            if (type == protocol::mtEXPORT_SHARES)
+                            {
+                                fault.delay = from == 0 ? 800ms : 50ms;
+                                ++live.reorders;
+                            }
+                            return fault;
+                        });
+            }
+            else
+            {
+                name = "acceptLag";
+                net.lagAccept(item.node, 2s);
+            }
+            schedule += " ";
+            schedule += name;
+            schedule += "@";
+            schedule += std::to_string(item.node);
+            return name;
+        };
+        // The round-timeout flag is cleared when the round ends, so latch it
+        // from the job boundary while the hold is still on.
+        net.controller().observeJobs(
+            [&](std::uint32_t id, JobType, std::string const&) {
+                if (id >= observer || !live.on || live.held == 0)
+                    return;
+                auto const& ce = net.node(id).app().getConsensusExtensions();
+                if (!ce.exportSigGateStarted_ ||
+                    ce.exportSigGateStart_ < live.started)
+                    return;
+                auto const deadline = ripple::detail::sidecarConvergenceTimeout(
+                    ConsensusParms{});
+                if (ce.exportSigConvergenceFailed() ||
+                    net.controller().now() - ce.exportSigGateStart_ >= deadline)
+                    live.gateTimeout = true;
+            });
+        scope_exit clearGateWatch{
+            [&] { net.controller().observeJobs({}); }};
+        auto engaged = [&](Item item) {
+            if (item.kind == 0)
+                return live.drops > 0;
+            if (item.kind == 1)
+                return live.held > 0 && live.gateTimeout;
+            if (item.kind == 2)
+                return live.delayedProps > 0;
+            if (item.kind == 3)
+                return live.delayedVals > 0;
+            if (item.kind == 4)
+                return live.dups > 0 && live.reorders > 0;
+            return net.jobDiagnostics().find("queued:lagged JtAccept") !=
+                std::string::npos;
+        };
+        auto finish = [&](Item item, char const* name) {
+            live.on = false;
+            if (item.kind == 5)
+                net.clearLag(item.node);
+            else if (item.kind == 0 || item.kind == 4)
+                clearToward(observer);
+            else if (item.kind == 3)
+                clearToward(item.node);
+            else
+                clearFrom(item.node);
+            if (!engaged(item))
+            {
+                log << "  seeded-mix red " << schedule
+                    << " counter=0 kind=" << name
+                    << " drops=" << live.drops << " held=" << live.held
+                    << " props=" << live.delayedProps
+                    << " vals=" << live.delayedVals
+                    << " dups=" << live.dups
+                    << " reorders=" << live.reorders << std::endl;
+                return false;
+            }
+            schedule += ":healed";
+            return true;
+        };
+
+        auto const first = world.submit(observer, world.intent(), world.owner);
+        if (!BEAST_EXPECT(first && first->getResult() == tesSUCCESS))
+            return fail("first intent");
+        auto const originA = first->getID();
+        std::optional<uint256> originB;
+        std::uint32_t secondMark = 0;
+        int realItems = 0;
+        for (auto const& item : packs[pack])
+            if (item.kind >= 0)
+                ++realItems;
+        int heals = 0;
+        for (auto const& item : packs[pack])
+        {
+            if (item.kind < 0)
+                continue;
+            // Direct frames go out once, at release. Hold each fault only
+            // until its counter fires, then let a ledger close before the
+            // next one. A fixed 10s hold pauses consensus and the later
+            // intent never validates. The observer does not propose, so the
+            // second intent is submitted on the validator furthest ahead.
+            if (heals + 1 == realItems)
+            {
+                std::uint32_t where = 0;
+                for (std::uint32_t n = 1; n < observer; ++n)
+                    if (net.validSeq(n) > net.validSeq(where))
+                        where = n;
+                secondMark =
+                    net.node(where).app().openLedger().current()->seq();
+                auto const second = world.submit(
+                    where,
+                    world.intent(
+                        world.owner,
+                        2,
+                        secondMark + ExportLimits::maxAdmissionWindowLedgers),
+                    world.owner);
+                if (!second || second->getResult() != tesSUCCESS)
+                {
+                    log << "  seeded-mix red " << schedule
+                        << " second intent result="
+                        << (second ? transHuman(second->getResult())
+                                   : "null")
+                        << " where=" << where << " open=" << secondMark
+                        << std::endl;
+                    return std::nullopt;
+                }
+                originB = second->getID();
+                schedule += " second@";
+                schedule += std::to_string(where);
+            }
+            auto const name = install(item);
+            if (!net.runUntil(
+                    [&] { return engaged(item); },
+                    SteppingNetwork::RunBudget{40, 1'200'000}))
+            {
+                log << "  seeded-mix red " << schedule
+                    << " counter=0 kind=" << name
+                    << " drops=" << live.drops << " held=" << live.held
+                    << " gate=" << live.gateTimeout
+                    << " props=" << live.delayedProps
+                    << " vals=" << live.delayedVals << " dups=" << live.dups
+                    << " reorders=" << live.reorders
+                    << " valid=" << net.minValidatedSeq()
+                    << " closed=" << net.closedSeq(0) << std::endl;
+                return std::nullopt;
+            }
+            if (!finish(item, name))
+                return std::nullopt;
+            // Delayed frames stay in flight after the fault is cleared.
+            // Drain them, then require one new validated ledger so the next
+            // window does not start on a paused network.
+            std::chrono::steady_clock::duration drain = 0s;
+            if (item.kind == 2)
+                drain = 7s;
+            else if (item.kind == 3)
+                drain = 6s;
+            else if (item.kind == 5)
+                drain = 2s;
+            auto const seq = net.minValidatedSeq();
+            auto const drainedAt = net.controller().now() + drain;
+            if (!net.runUntil(
+                    [&] {
+                        return net.controller().now() >= drainedAt &&
+                            net.minValidatedSeq() > seq;
+                    },
+                    SteppingNetwork::RunBudget{48, 1'200'000}))
+            {
+                log << "  seeded-mix red " << schedule
+                    << " no ledger after heal"
+                    << " valid=" << net.validSeq(0) << "," << net.validSeq(1)
+                    << "," << net.validSeq(2) << "," << net.validSeq(observer)
+                    << " closed=" << net.closedSeq(0) << ","
+                    << net.closedSeq(1) << "," << net.closedSeq(2) << ","
+                    << net.closedSeq(observer) << std::endl;
+                return std::nullopt;
+            }
+            ++heals;
+        }
+        if (!originB)
+            return fail("second intent was not submitted");
+        auto const target =
+            secondMark + ExportLimits::maxPublicationLedgers + 4;
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] { return net.minValidatedSeq() >= target; },
+                SteppingNetwork::RunBudget{80, 1'200'000})))
+            return fail("did not pass the publication window");
+
+        auto classify = [&](uint256 const& origin, char const* tag) -> bool {
+            auto const seqW = witnessAt(net, origin, warmLedger);
+            if (seqW != 0)
+            {
+                std::uint32_t hits = 0;
+                for (auto seq = warmLedger; seq <= net.minValidatedSeq(); ++seq)
+                {
+                    auto const canonical = net.ledger(0, seq);
+                    if (!canonical)
+                    {
+                        log << "  seeded-mix red " << schedule
+                            << " missing ledger " << seq << std::endl;
+                        return false;
+                    }
+                    for (auto const& [wtx, meta] : canonical->txs)
+                    {
+                        if (wtx->getTxnType() != ttEXPORT_SIGNATURES ||
+                            wtx->getFieldH256(sfTransactionHash) != origin)
+                            continue;
+                        if (!meta)
+                            return false;
+                        ++hits;
+                        auto const txBytes = wtx->getSerializer().getData();
+                        auto const metaBytes = meta->getSerializer().getData();
+                        for (std::uint32_t n = 0; n <= observer; ++n)
+                        {
+                            auto const ledger = net.ledger(n, seq);
+                            if (!ledger)
+                            {
+                                log << "  seeded-mix red " << schedule
+                                    << " missing ledger node=" << n
+                                    << " seq=" << seq << std::endl;
+                                return false;
+                            }
+                            bool found = false;
+                            for (auto const& [peerTx, peerMeta] : ledger->txs)
+                            {
+                                if (peerTx->getTxnType() !=
+                                        ttEXPORT_SIGNATURES ||
+                                    peerTx->getFieldH256(sfTransactionHash) !=
+                                        origin)
+                                    continue;
+                                found = true;
+                                if (peerTx->getSerializer().getData() !=
+                                        txBytes ||
+                                    !peerMeta ||
+                                    peerMeta->getSerializer().getData() !=
+                                        metaBytes)
+                                {
+                                    log << "  seeded-mix red " << schedule
+                                        << " bytes differ " << tag
+                                        << std::endl;
+                                    return false;
+                                }
+                            }
+                            if (!found)
+                                return false;
+                        }
+                    }
+                }
+                if (hits != 1)
+                {
+                    log << "  seeded-mix red " << schedule << " " << tag
+                        << " witnesses=" << hits << std::endl;
+                    return false;
+                }
+                log << "  seeded-mix " << schedule << " " << tag
+                    << "=witnessed:" << seqW << std::endl;
+                return true;
+            }
+            for (std::uint32_t n = 0; n <= observer; ++n)
+                if (witnessAt(net, origin, warmLedger, n) != 0)
+                {
+                    log << "  seeded-mix red " << schedule
+                        << " witness only on node " << n << std::endl;
+                    return false;
+                }
+            auto const ledger = net.ledger(0, net.validSeq(0));
+            if (!ledger)
+                return false;
+            auto const latch =
+                ledger->read(keylet::exportLatch(world.owner.id(), origin));
+            if (!latch || !latch->isFieldPresent(sfExportNode) ||
+                latch->isFieldPresent(sfExportSignatureHash) ||
+                !pendingDirContains(*ledger, latch->key()))
+            {
+                log << "  seeded-mix red " << schedule << " " << tag
+                    << " neither witnessed nor retained" << std::endl;
+                return false;
+            }
+            log << "  seeded-mix " << schedule << " " << tag
+                << "=expired" << std::endl;
+            return true;
+        };
+
+        if (!classify(originA, "originA") || !classify(*originB, "originB"))
+            return std::nullopt;
+        auto const agreed = net.minValidatedSeq();
+        if (!BEAST_EXPECT(net.ledgersAgree(agreed) && net.validatedForkFree()))
+            return fail("fork or disagreement");
+        for (std::uint32_t n = 0; n <= observer; ++n)
+        {
+            if (net.ledgerHash(n, preSeq) != preHash)
+                return fail("pre-fault hash changed");
+            if (stats->unauthorizedReleases[n] != 0)
+                return fail("unauthorized emission");
+        }
+        if (stats->secrets[observer] != 0 || stats->ownReleases[observer] != 0)
+            return fail("observer authored");
+        if (net.offThreadJobs() != 0 || net.failedJobs() != 0)
+            return fail("job failure");
+        BEAST_EXPECT(heals >= 3);
+        log << "  seeded-mix " << schedule << " heals=" << heals << std::endl;
+
+        std::vector<uint256> outcome;
+        outcome.push_back(sha512Half(seed));
+        outcome.push_back(originA);
+        outcome.push_back(*originB);
+        for (auto seq = warmLedger; seq <= agreed; ++seq)
+        {
+            auto const ledger = net.ledger(0, seq);
+            if (!ledger)
+                return fail("missing final ledger");
+            outcome.push_back(ledger->info().hash);
+        }
+        return outcome;
+    }
+
 public:
     void
     run() override
@@ -4865,6 +5364,20 @@ public:
                 "keyed validator releases only after it validates",
                 [this](SteppingNetwork& net) {
                     return lateValidatingKeyed(net);
+                });
+        }
+        for (std::uint64_t seed : {std::uint64_t{1}, std::uint64_t{2}, std::uint64_t{3}})
+        {
+            auto const label =
+                "seeded mix of known impairments seed " + std::to_string(seed);
+            if (!matches(label))
+                continue;
+            testcase(label);
+            expectReplays(
+                *this,
+                label.c_str(),
+                [this, seed](SteppingNetwork& net) {
+                    return seededMix(net, seed);
                 });
         }
         BEAST_EXPECT(selected != 0);
