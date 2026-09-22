@@ -2697,12 +2697,27 @@ class SteppingExtensions_test : public beast::unit_test::suite
         bool sawTimeoutAccept = false;
         std::uint32_t timeoutSeq = 0;
         std::uint32_t held = 0;
-        std::uint32_t postDirectTo0 = 0;
-        std::uint32_t postDirectToObserver = 0;
-        std::uint32_t postProposalsTo0 = 0;
-        std::uint32_t postProposalsToObserver = 0;
-        std::uint32_t postExportProposalsTo0 = 0;
-        std::uint32_t postExportProposalsToObserver = 0;
+        std::array<std::uint32_t, 4> postTotal{};
+        std::array<std::uint32_t, 4> postVal{};
+        std::array<std::uint32_t, 4> postProp{};
+        std::array<std::uint32_t, 4> postDirect{};
+        std::uint32_t postTotal0to2 = 0;
+        std::uint32_t postVal0to2 = 0;
+        std::uint32_t postProp0to2 = 0;
+        std::uint32_t postDirect0to2 = 0;
+        auto countWire = [](std::uint16_t type,
+                            std::uint32_t& total,
+                            std::uint32_t& validations,
+                            std::uint32_t& proposals,
+                            std::uint32_t& directs) {
+            ++total;
+            if (type == protocol::mtVALIDATION)
+                ++validations;
+            else if (type == protocol::mtPROPOSE_LEDGER)
+                ++proposals;
+            else if (type == protocol::mtEXPORT_SHARES)
+                ++directs;
+        };
         for (std::uint32_t to = 0; to <= observer; ++to)
         {
             if (to == 2)
@@ -2714,33 +2729,13 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     SimFault fault;
                     if (!hold)
                     {
-                        if (to == 0 || to == observer)
-                        {
-                            if (type == protocol::mtEXPORT_SHARES)
-                            {
-                                if (to == 0)
-                                    ++postDirectTo0;
-                                else
-                                    ++postDirectToObserver;
-                            }
-                            else if (type == protocol::mtPROPOSE_LEDGER)
-                            {
-                                if (to == 0)
-                                    ++postProposalsTo0;
-                                else
-                                    ++postProposalsToObserver;
-                                auto const proposal =
-                                    decodeFrame<protocol::TMProposeSet>(bytes);
-                                if (proposal &&
-                                    proposal->exportsignatures_size() != 0)
-                                {
-                                    if (to == 0)
-                                        ++postExportProposalsTo0;
-                                    else
-                                        ++postExportProposalsToObserver;
-                                }
-                            }
-                        }
+                        countWire(
+                            type,
+                            postTotal[to],
+                            postVal[to],
+                            postProp[to],
+                            postDirect[to]);
+                        (void)bytes;
                         return fault;
                     }
                     if (type == protocol::mtEXPORT_SHARES)
@@ -2761,15 +2756,86 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     return fault;
                 });
         }
+        net.faultFrames(
+            0,
+            2,
+            [&](std::uint16_t type, SimPipe::Frame) {
+                SimFault fault;
+                if (!hold)
+                    countWire(
+                        type,
+                        postTotal0to2,
+                        postVal0to2,
+                        postProp0to2,
+                        postDirect0to2);
+                return fault;
+            });
+        test::StreamSink senderSink{beast::severities::kTrace};
+        auto& senderCE = net.node(2).app().getConsensusExtensions();
+        auto const previousSender = senderCE.j_;
+        senderCE.j_ = beast::Journal{senderSink};
+        scope_exit restoreSender{[&]() { senderCE.j_ = previousSender; }};
+        std::size_t releaseMark = 0;
+        int modeMin = 1000;
+        int modeMax = -1;
+        bool sawLive = false;
+        bool sawDead = false;
+        std::set<std::uint32_t> sampledRounds;
+        std::string rounds;
+        auto summarize = [](Json::Value const& info) {
+            std::ostringstream out;
+            out << "proposing="
+                << (info.isMember("proposing") && info["proposing"].asBool())
+                << " validating="
+                << (info.isMember("validating") && info["validating"].asBool())
+                << " proposers="
+                << (info.isMember("proposers") ? info["proposers"].asInt()
+                                               : -1)
+                << " peer_positions="
+                << (info.isMember("peer_positions")
+                        ? static_cast<int>(info["peer_positions"].size())
+                        : 0);
+            return out.str();
+        };
         net.controller().observeJobs(
             [&](std::uint32_t id, JobType type, std::string const&) {
-                if (sawTimeoutAccept || id != 0 || type != jtACCEPT || !hold)
+                if (id != 0 || type != jtACCEPT)
                     return;
-                auto const& ce = net.node(0).app().getConsensusExtensions();
-                if (!ce.exportSigConvergenceFailed())
+                if (!sawTimeoutAccept)
+                {
+                    if (!hold)
+                        return;
+                    auto const& ce =
+                        net.node(0).app().getConsensusExtensions();
+                    if (!ce.exportSigConvergenceFailed())
+                        return;
+                    sawTimeoutAccept = true;
+                    timeoutSeq = net.closedSeq(0) + 1;
+                    // Lift before the rest of this beat so 518+ is measured
+                    // while validator 2 is allowed to send.
+                    hold = false;
+                    releaseMark = senderSink.messages().str().size();
                     return;
-                sawTimeoutAccept = true;
-                timeoutSeq = net.closedSeq(0) + 1;
+                }
+                auto const building = net.closedSeq(0) + 1;
+                if (building <= timeoutSeq ||
+                    building > timeoutSeq + ExportLimits::maxPublicationLedgers ||
+                    !sampledRounds.insert(building).second)
+                    return;
+                auto const mode = static_cast<int>(net.mode(2));
+                modeMin = std::min(modeMin, mode);
+                modeMax = std::max(modeMax, mode);
+                if (net.isLive(2))
+                    sawLive = true;
+                else
+                    sawDead = true;
+                rounds += " seq=" + std::to_string(building) + " n2{" +
+                    summarize(
+                        net.node(2).app().getOPs().getConsensusInfo()) +
+                    "} n0{" +
+                    summarize(
+                        net.node(0).app().getOPs().getConsensusInfo()) +
+                    "}";
             });
 
         auto const open = net.node(0).app().openLedger().current()->seq();
@@ -2785,8 +2851,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(net.runUntil(
                 [&] {
                     return sawTimeoutAccept && timeoutSeq != 0 &&
-                        net.validSeq(0) >= timeoutSeq &&
-                        witnessAt(net, origin, warmLedger) == 0;
+                        net.validSeq(0) >= timeoutSeq;
                 },
                 SteppingNetwork::RunBudget{80, 1'200'000})))
         {
@@ -2804,6 +2869,18 @@ class SteppingExtensions_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(admitSeq != 0))
             return std::nullopt;
         auto const decidedSeq = timeoutSeq;
+        log << "  post-release wires: val/prop/direct/total"
+            << " 2to0=" << postVal[0] << "/" << postProp[0] << "/"
+            << postDirect[0] << "/" << postTotal[0]
+            << " 2to1=" << postVal[1] << "/" << postProp[1] << "/"
+            << postDirect[1] << "/" << postTotal[1]
+            << " 2toObs=" << postVal[observer] << "/" << postProp[observer]
+            << "/" << postDirect[observer] << "/" << postTotal[observer]
+            << " 0to2=" << postVal0to2 << "/" << postProp0to2 << "/"
+            << postDirect0to2 << "/" << postTotal0to2
+            << " mode2=" << modeMin << ".." << modeMax
+            << " live=" << sawLive << "/" << sawDead
+            << " validNow=" << net.validSeq(0) << rounds << std::endl;
         if (!BEAST_EXPECT(
                 decidedSeq <= admitSeq + ExportLimits::maxPublicationLedgers))
         {
@@ -2827,15 +2904,35 @@ class SteppingExtensions_test : public beast::unit_test::suite
 
         auto const observerMark = observerSink.messages().str().size();
         auto const validatorMark = validatorSink.messages().str().size();
-        test::StreamSink senderSink{beast::severities::kTrace};
-        auto& senderCE = net.node(2).app().getConsensusExtensions();
-        auto const previousSender = senderCE.j_;
-        senderCE.j_ = beast::Journal{senderSink};
-        scope_exit restoreSender{[&]() { senderCE.j_ = previousSender; }};
         hold = false;
         auto const windowEnd = admitSeq + ExportLimits::maxPublicationLedgers;
         if (!BEAST_EXPECT(net.runUntil(
-                [&] { return net.minValidatedSeq() >= windowEnd; },
+                [&] {
+                    auto const mode = static_cast<int>(net.mode(2));
+                    modeMin = std::min(modeMin, mode);
+                    modeMax = std::max(modeMax, mode);
+                    if (net.isLive(2))
+                        sawLive = true;
+                    else
+                        sawDead = true;
+                    auto const seq = net.validSeq(0);
+                    if (seq > decidedSeq && seq <= windowEnd &&
+                        sampledRounds.insert(seq).second)
+                    {
+                        rounds += " seq=" + std::to_string(seq) + " n2{" +
+                            summarize(net.node(2)
+                                          .app()
+                                          .getOPs()
+                                          .getConsensusInfo()) +
+                            "} n0{" +
+                            summarize(net.node(0)
+                                          .app()
+                                          .getOPs()
+                                          .getConsensusInfo()) +
+                            "}";
+                    }
+                    return net.minValidatedSeq() >= windowEnd;
+                },
                 SteppingNetwork::RunBudget{40, 1'200'000})))
             return std::nullopt;
 
@@ -2868,7 +2965,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         {
             std::uint32_t localRelease = 0;
             {
-                std::istringstream in{senderSink.messages().str()};
+                std::istringstream in{senderSink.messages().str().substr(releaseMark)};
                 for (std::string line; std::getline(in, line);)
                     if (line.find("ExportShare: local release frame") !=
                             std::string::npos &&
@@ -2876,17 +2973,38 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         ++localRelease;
             }
             log << "  late material after the deadline did not witness"
+                << " see .ai-docs/reviews/2026-09-22-dsf-b2c-red-claude-review.md"
                 << " decided=" << decidedSeq << " admit=" << admitSeq
                 << " windowEnd=" << windowEnd << " witness=" << seqW
                 << " accepted=" << sawAccepted
-                << " postDirect0=" << postDirectTo0
-                << " postDirectObs=" << postDirectToObserver
-                << " postProp0=" << postProposalsTo0
-                << " postPropObs=" << postProposalsToObserver
-                << " postExportProp0=" << postExportProposalsTo0
-                << " postExportPropObs=" << postExportProposalsToObserver
+                << " postDirect0=" << postDirect[0]
+                << " postDirect1=" << postDirect[1]
+                << " postDirectObs=" << postDirect[observer]
+                << " postProp0=" << postProp[0] << " postProp1=" << postProp[1]
+                << " postPropObs=" << postProp[observer]
+                << " postVal0=" << postVal[0] << " postVal1=" << postVal[1]
+                << " postValObs=" << postVal[observer]
+                << " postTotal0=" << postTotal[0]
+                << " postTotal1=" << postTotal[1]
+                << " postTotalObs=" << postTotal[observer]
+                << " from0 val=" << postVal0to2 << " prop=" << postProp0to2
+                << " direct=" << postDirect0to2 << " total=" << postTotal0to2
                 << " localRelease=" << localRelease
-                << " precheckRejects=unhooked" << std::endl;
+                << " mode2=" << modeMin << ".." << modeMax
+                << " live2=" << sawLive << "/" << sawDead << rounds
+                << std::endl;
+            auto const [quorum, trusted] =
+                net.node(0).app().validators().getQuorumKeys();
+            log << "  quorum=" << quorum << " trusted=" << trusted.size()
+                << std::endl;
+            for (auto const& link : net.linkHistory())
+            {
+                if (!link.touches(2))
+                    continue;
+                log << "  link " << link.a << "-" << link.b
+                    << " severed=" << (link.wire && link.wire->severed())
+                    << std::endl;
+            }
             auto dump = [&](char const* who, std::string const& text) {
                 std::istringstream in{text};
                 for (std::string line; std::getline(in, line);)
@@ -3164,16 +3282,9 @@ public:
                     return candidateChangeInsideDeadline(net);
                 });
         }
-        // DISABLED(B2C:late-after-deadline):
-        // .ai-docs/reviews/2026-09-22-dsf-b2c-red-claude-review.md
-        // Selectable with case=post-deadline, case=B2C, or
-        // case=late-after-deadline. Omitted from the default run.
-        if (!filter.empty() &&
-            (filter.find("post-deadline") != std::string::npos ||
-             filter.find("B2C") != std::string::npos ||
-             filter.find("late-after-deadline") != std::string::npos))
+        // Known red: .ai-docs/reviews/2026-09-22-dsf-b2c-red-claude-review.md
+        if (matches("post-deadline minority material still witnesses once"))
         {
-            ++selected;
             testcase("post-deadline minority material still witnesses once");
             expectReplays(
                 *this,
