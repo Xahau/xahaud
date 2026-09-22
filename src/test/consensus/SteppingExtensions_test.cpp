@@ -27,9 +27,11 @@
 #include <chrono>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
+#include <streambuf>
 #include <string>
 #include <tuple>
 #include <vector>
@@ -3107,6 +3109,490 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+    std::optional<std::vector<uint256>>
+    staleProposalsStillCarryExport(SteppingNetwork& net)
+    {
+        using namespace std::chrono_literals;
+        World world(net, true, true);
+        if (!ready(world))
+            return std::nullopt;
+        auto const stats = world.observed;
+        auto const funding = world.submit(
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto const roundStart = net.controller().now();
+        auto const seqBefore = net.validSeq(0);
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] { return net.validSeq(0) >= seqBefore + 1; },
+                SteppingNetwork::RunBudget{20, 1'200'000})))
+            return std::nullopt;
+        auto const roundTime = net.controller().now() - roundStart;
+        auto const proposalDelay = std::max(
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                roundTime * 2),
+            std::chrono::steady_clock::duration{4s});
+
+        test::StreamSink senderSink{beast::severities::kTrace};
+        test::StreamSink observerSink{beast::severities::kTrace};
+        auto& senderCE = net.node(2).app().getConsensusExtensions();
+        auto& observerCE = net.node(observer).app().getConsensusExtensions();
+        auto const previousSender = senderCE.j_;
+        auto const previousObserver = observerCE.j_;
+        senderCE.j_ = beast::Journal{senderSink};
+        observerCE.j_ = beast::Journal{observerSink};
+        scope_exit restoreJournals{[&]() {
+            senderCE.j_ = previousSender;
+            observerCE.j_ = previousObserver;
+        }};
+
+        auto const open = net.node(0).app().openLedger().current()->seq();
+        auto const tx = world.submit(
+            0,
+            world.intent(
+                world.owner, 1, open + ExportLimits::maxAdmissionWindowLedgers),
+            world.owner);
+        if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const origin = tx->getID();
+        auto const originText = "origin=" + to_string(origin);
+        auto const senderPeer =
+            "peer=" + to_string(net.node(2).app().getValidatorKeys().nodeID) +
+            " ";
+        // One beat is 1s. Keep the observer's copy strictly after node 0 has
+        // logged the rejection, so the admission cannot precede that line.
+        auto const observerLag =
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                3s);
+
+        std::uint32_t pendingArrivals = 0;
+        // HashRouter suppresses a repeated proposal before peerProposal, so
+        // only the first copy of each identity can produce a rejection line.
+        std::set<std::tuple<uint256, std::uint32_t, std::uint32_t>>
+            seenProposals;
+        std::uint32_t delayedProposals = 0;
+        std::uint32_t droppedDirect = 0;
+        std::uint32_t staleArrivals = 0;
+        bool delaying = false;
+        // Direct frames from validator 2 are dropped, so a proposal is the
+        // only way this origin's evidence can reach another node. Validations
+        // and ledger data are not faulted.
+        for (std::uint32_t to = 0; to <= observer; ++to)
+        {
+            if (to == 2)
+                continue;
+            net.faultFrames(
+                2,
+                to,
+                [&, to](std::uint16_t type, SimPipe::Frame bytes) {
+                    SimFault fault;
+                    if (type == protocol::mtEXPORT_SHARES)
+                    {
+                        fault.drop = true;
+                        ++droppedDirect;
+                        return fault;
+                    }
+                    if (!delaying || type != protocol::mtPROPOSE_LEDGER)
+                        return fault;
+                    auto const proposal =
+                        decodeFrame<protocol::TMProposeSet>(bytes);
+                    if (!proposal)
+                        return fault;
+                    ++delayedProposals;
+                    auto const lag =
+                        to == observer ? proposalDelay + observerLag
+                                       : proposalDelay;
+                    fault.delay = lag;
+                    if (to == 0 &&
+                        proposal->previousledger().size() == uint256::size())
+                    {
+                        uint256 prev;
+                        std::memcpy(
+                            prev.data(),
+                            proposal->previousledger().data(),
+                            uint256::size());
+                        // Fire at the delay, before link delivery. The rejection
+                        // compares against the round parent, and it is not
+                        // logged while phase is accepted.
+                        auto const proposeSeq = proposal->proposeseq();
+                        auto const closeTime = static_cast<std::uint32_t>(
+                            proposal->closetime());
+                        ++pendingArrivals;
+                        net.in(lag, 0, [&, prev, proposeSeq, closeTime] {
+                            if (pendingArrivals > 0)
+                                --pendingArrivals;
+                            if (!seenProposals
+                                     .insert({prev, proposeSeq, closeTime})
+                                     .second)
+                                return;
+                            auto const info =
+                                net.node(0).app().getOPs().getConsensusInfo();
+                            auto const phase = info.isMember("phase")
+                                ? info["phase"].asString()
+                                : std::string{};
+                            uint256 parent =
+                                net.ledgerHash(0, net.closedSeq(0));
+                            if (info.isMember("our_position") &&
+                                info["our_position"].isMember(
+                                    "previous_ledger"))
+                            {
+                                uint256 parsed;
+                                if (parsed.parseHex(info["our_position"]
+                                                        ["previous_ledger"]
+                                                            .asString()))
+                                    parent = parsed;
+                            }
+                            if ((phase == "open" || phase == "establish") &&
+                                prev != parent)
+                                ++staleArrivals;
+                        });
+                    }
+                    return fault;
+                });
+        }
+        net.controller().observeJobs(
+            [&](std::uint32_t, JobType, std::string const&) {
+                if (delaying)
+                    return;
+                auto const text = senderSink.messages().str();
+                if (text.find("ExportShare: local release frame") !=
+                        std::string::npos &&
+                    text.find(originText) != std::string::npos)
+                    delaying = true;
+            });
+        scope_exit clearObserve{
+            [&] { net.controller().observeJobs({}); }};
+
+        // RCLConsensus keeps a const journal, so the rejection line cannot be
+        // retargeted. Lower the existing sink and copy the suite log.
+        net.node(0).app().logs().get("LedgerConsensus").threshold(
+            beast::severities::kInfo);
+        class RejectionTap : public std::streambuf
+        {
+            std::streambuf* forward_;
+            test::StreamSink* observer_;
+            std::string peer_;
+            mutable std::mutex mu_;
+            std::string out_;
+            std::size_t checked_ = 0;
+            std::optional<std::size_t> mark_;
+
+        public:
+            RejectionTap(
+                std::streambuf* forward,
+                test::StreamSink* observerSink,
+                std::string peer)
+                : forward_(forward)
+                , observer_(observerSink)
+                , peer_(std::move(peer))
+            {
+            }
+
+            std::optional<std::size_t>
+            mark() const
+            {
+                std::lock_guard lock(mu_);
+                return mark_;
+            }
+
+            std::string
+            text() const
+            {
+                std::lock_guard lock(mu_);
+                return out_;
+            }
+
+        protected:
+            int_type
+            overflow(int_type ch) override
+            {
+                if (traits_type::eq_int_type(ch, traits_type::eof()))
+                    return traits_type::not_eof(ch);
+                auto const c = traits_type::to_char_type(ch);
+                {
+                    std::lock_guard lock(mu_);
+                    out_.push_back(c);
+                }
+                return forward_->sputc(c);
+            }
+
+            std::streamsize
+            xsputn(char const* s, std::streamsize n) override
+            {
+                {
+                    std::lock_guard lock(mu_);
+                    out_.append(s, static_cast<std::size_t>(n));
+                }
+                return forward_->sputn(s, n);
+            }
+
+            int
+            sync() override
+            {
+                std::string added;
+                {
+                    std::lock_guard lock(mu_);
+                    if (out_.size() > checked_)
+                    {
+                        added = out_.substr(checked_);
+                        checked_ = out_.size();
+                        if (!mark_ &&
+                            added.find("reason=prevLedger-mismatch") !=
+                                std::string::npos &&
+                            added.find(peer_) != std::string::npos)
+                            mark_ = observer_->messages().str().size();
+                    }
+                }
+                return forward_->pubsync();
+            }
+        };
+        auto* const previousLog = log.rdbuf();
+        RejectionTap tap{previousLog, &observerSink, senderPeer};
+        log.rdbuf(&tap);
+        scope_exit restoreLog{[&] { log.rdbuf(previousLog); }};
+
+        std::uint32_t admitSeq = 0;
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    auto const text = senderSink.messages().str();
+                    auto const released =
+                        text.find("ExportShare: local release frame") !=
+                            std::string::npos &&
+                        text.find(originText) != std::string::npos;
+                    if (released)
+                        delaying = true;
+                    for (auto seq = warmLedger; seq <= net.validSeq(0); ++seq)
+                        if (ledgerHasTx(net.ledger(0, seq), origin))
+                            admitSeq = seq;
+                    return released && admitSeq != 0;
+                },
+                SteppingNetwork::RunBudget{40, 1'200'000})))
+        {
+            log << "  validator 2 did not release before the proposal delay"
+                << " admit=" << admitSeq << std::endl;
+            return std::nullopt;
+        }
+
+        auto const accepted = std::to_string(static_cast<unsigned>(
+            ExportSigCollector::AdmitResult::accepted));
+        std::string positionText;
+        {
+            std::istringstream in{senderSink.messages().str()};
+            for (std::string line; std::getline(in, line);)
+            {
+                if (line.find("ExportShare: local release frame") ==
+                    std::string::npos)
+                    continue;
+                if (line.find(originText) == std::string::npos)
+                    continue;
+                auto const at = line.find("position=");
+                if (at == std::string::npos)
+                    continue;
+                auto const end = line.find(' ', at);
+                positionText = line.substr(
+                    at, end == std::string::npos ? std::string::npos : end - at);
+                break;
+            }
+        }
+        auto commitAfter = [&](std::size_t mark) {
+            auto const rest = observerSink.messages().str().substr(mark);
+            std::istringstream in{rest};
+            for (std::string line; std::getline(in, line);)
+            {
+                if (line.find("ExportShare: collector commit") ==
+                    std::string::npos)
+                    continue;
+                if (line.find(originText) == std::string::npos)
+                    continue;
+                if (!positionText.empty() &&
+                    line.find(positionText) == std::string::npos)
+                    continue;
+                if (line.find("signatureVerified=true") == std::string::npos)
+                    continue;
+                if (line.find("result=" + accepted) == std::string::npos)
+                    continue;
+                return true;
+            }
+            return false;
+        };
+        auto const delayStartSeq = net.validSeq(0);
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    auto const mark = tap.mark();
+                    return staleArrivals > 0 && mark && commitAfter(*mark);
+                },
+                SteppingNetwork::RunBudget{160, 1'200'000})))
+        {
+            log << "  no stale proposal from validator 2"
+                << " delayed=" << delayedProposals
+                << " stale=" << staleArrivals
+                << " droppedDirect=" << droppedDirect
+                << " valid=" << net.validSeq(0)
+                << " start=" << delayStartSeq
+                << " mark=" << tap.mark().has_value()
+                << " delayMs="
+                << std::chrono::duration_cast<std::chrono::milliseconds>(
+                       proposalDelay)
+                       .count()
+                << std::endl;
+            return std::nullopt;
+        }
+        delaying = false;
+        net.controller().observeJobs({});
+        for (std::uint32_t to = 0; to <= observer; ++to)
+            if (to != 2)
+                net.faultFrames(2, to, {});
+
+        auto const windowEnd = admitSeq + ExportLimits::maxPublicationLedgers;
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    return net.minValidatedSeq() >= windowEnd &&
+                        pendingArrivals == 0;
+                },
+                SteppingNetwork::RunBudget{1600, 1'200'000})))
+        {
+            log << "  publication window did not close after the delay"
+                << " valid=" << net.minValidatedSeq()
+                << " windowEnd=" << windowEnd
+                << " pending=" << pendingArrivals << std::endl;
+            return std::nullopt;
+        }
+        std::uint32_t mismatches = 0;
+        {
+            std::istringstream in{tap.text()};
+            for (std::string line; std::getline(in, line);)
+            {
+                if (line.find("reason=prevLedger-mismatch") ==
+                    std::string::npos)
+                    continue;
+                if (line.find(senderPeer) == std::string::npos)
+                    continue;
+                ++mismatches;
+            }
+        }
+        auto const mark = tap.mark();
+        auto const sawAccepted = mark && commitAfter(*mark);
+        auto const seqW = witnessAt(net, origin, warmLedger);
+        // peerProposal does not emit prevLedger-mismatch for every stale
+        // first copy: the check is skipped in phase accepted, and HashRouter
+        // drops a repeated proposal before that function. Both counts have
+        // to be positive; the log is not a superset of the arrival count.
+        if (!BEAST_EXPECT(
+                staleArrivals > 0 && delayedProposals > 0 &&
+                droppedDirect > 0 && !positionText.empty() &&
+                mismatches > 0 && sawAccepted && seqW != 0 &&
+                seqW > admitSeq && seqW <= windowEnd))
+        {
+            log << "  stale proposal did not both reject and admit"
+                << " stale=" << staleArrivals
+                << " delayed=" << delayedProposals
+                << " droppedDirect=" << droppedDirect
+                << " mismatches=" << mismatches
+                << " accepted=" << sawAccepted << " witness=" << seqW
+                << std::endl;
+            return std::nullopt;
+        }
+
+        for (auto const& [seq, parent, hash] : stats->builds[observer])
+            if (seq >= admitSeq && seq <= windowEnd)
+                BEAST_EXPECT(hash == net.ledgerHash(0, seq));
+        BEAST_EXPECT(net.ledgersAgree(windowEnd));
+        BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
+        BEAST_EXPECT(stats->secrets[observer] == 0);
+        BEAST_EXPECT(stats->ownReleases[observer] == 0);
+        for (std::uint32_t n = 0; n < observer; ++n)
+            BEAST_EXPECT(stats->unauthorizedReleases[n] == 0);
+
+        std::map<uint256, std::uint32_t> hits;
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= net.minValidatedSeq(); ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (std::uint32_t i = 1; i <= observer; ++i)
+            {
+                auto const ledger = net.ledger(i, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            outcome.push_back(canonical->info().hash);
+            // Entropy txs store a digest, tier, count and contributor bitmap,
+            // not the commit or reveal validator 2 put on a proposal.
+            for (auto const& [wtx, meta] : canonical->txs)
+            {
+                if (wtx->getTxnType() != ttEXPORT_SIGNATURES &&
+                    wtx->getTxnType() != ttCONSENSUS_ENTROPY)
+                    continue;
+                if (!BEAST_EXPECT(meta != nullptr))
+                    return std::nullopt;
+                if (wtx->getTxnType() == ttEXPORT_SIGNATURES)
+                {
+                    auto const id = wtx->getFieldH256(sfTransactionHash);
+                    if (id == origin)
+                        ++hits[id];
+                }
+                auto const txBytes = wtx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                for (std::uint32_t i = 0; i <= observer; ++i)
+                {
+                    auto const ledger = net.ledger(i, seq);
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : ledger->txs)
+                    {
+                        if (peerTx->getTransactionID() !=
+                            wtx->getTransactionID())
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes);
+                        BEAST_EXPECT(
+                            peerMeta != nullptr &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+        }
+        BEAST_EXPECT(hits[origin] == 1);
+        log << "  stale-proposal: delayMs="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   proposalDelay)
+                   .count()
+            << " roundMs="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(roundTime)
+                   .count()
+            << " observerLagMs="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   observerLag)
+                   .count()
+            << " delayed=" << delayedProposals << " stale=" << staleArrivals
+            << " mismatches=" << mismatches
+            << " droppedDirect=" << droppedDirect << " admit=" << admitSeq
+            << " witness=" << seqW << std::endl;
+        outcome.push_back(origin);
+        outcome.push_back(sha512Half(
+            static_cast<std::uint32_t>(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    proposalDelay)
+                    .count()),
+            delayedProposals,
+            staleArrivals,
+            mismatches,
+            droppedDirect,
+            admitSeq,
+            seqW));
+        return outcome;
+    }
+
 public:
     void
     run() override
@@ -3315,6 +3801,16 @@ public:
                 "post-deadline minority material still witnesses once",
                 [this](SteppingNetwork& net) {
                     return lateMaterialAfterDeadline(net);
+                });
+        }
+        if (matches("stale proposals still deliver Export evidence"))
+        {
+            testcase("stale proposals still deliver Export evidence");
+            expectReplays(
+                *this,
+                "stale proposals still deliver Export evidence",
+                [this](SteppingNetwork& net) {
+                    return staleProposalsStillCarryExport(net);
                 });
         }
         BEAST_EXPECT(selected != 0);
