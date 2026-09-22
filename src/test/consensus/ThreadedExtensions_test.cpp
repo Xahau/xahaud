@@ -399,10 +399,6 @@ class ThreadedExtensions_test : public beast::unit_test::suite
         // The report is already in the validated chain, so load that ledger
         // back with the hook in place before any intent is submitted.
         auto const hookedAt = net.minValidated();
-        // A restarted node builds a new NetClock at the epoch. The loaded
-        // ledger's close time is the clock we have already advanced, so put
-        // that time back or the next close waits out the whole gap.
-        auto const syncedClock = net[0].clock().now();
         for (std::uint32_t id = 0; id < nNodes; ++id)
         {
             bool saved = false;
@@ -427,7 +423,6 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             net.setPeerSendHook(id, makeHook(id));
             if (!net.restartNode(id).isUp())
                 return fail("hook restart");
-            net[id].clock().set(syncedClock);
         }
         for (std::uint32_t i = 0; i < nNodes; ++i)
             for (std::uint32_t j = i + 1; j < nNodes; ++j)
@@ -640,7 +635,6 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             return fail("validators did not advance while the observer was down");
         if (!net.restartNode(observer).isUp())
             return fail("observer did not restart");
-        net[observer].clock().set(net[0].clock().now());
         if (!relink(observer))
             return fail("observer link");
         for (int i = 0; i < 20 && !net.waitForPeers(nNodes - 1, 50ms); ++i)
@@ -687,7 +681,6 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             return fail("validator was still live");
         if (!net.restartNode(2).isUp())
             return fail("validator did not restart");
-        net[2].clock().set(net[0].clock().now());
         if (!relink(2))
             return fail("validator link");
         for (int i = 0; i < 20 && !net.waitForPeers(nNodes - 1, 50ms); ++i)

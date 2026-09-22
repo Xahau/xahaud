@@ -237,6 +237,9 @@ struct NodeSpec
     // the LAST gated timer, virtualized). Empty -> production nullptr:
     // PeerImp keeps its raw asio member untouched.
     TimeoutCounterTimerFactory peerTimerFactory;
+    // NetClock at stop. Applied to the new keeper before the app runs so a
+    // loaded ledger does not sit ahead of a keeper that starts at the epoch.
+    std::optional<NetClock::time_point> restoredNetClock;
 };
 
 // The stepping implementation of the acquire-retry timer seam (issue 005 /
@@ -448,6 +451,8 @@ public:
         }
 
         tk_->set(app_->getLedgerMaster().getClosedLedger()->info().closeTime);
+        if (spec.restoredNetClock)
+            tk_->set(*spec.restoredNetClock);
         // Don't start timers explicitly; the consensus heartbeat is armed by
         // setStateTimer in setup() (Application.cpp:1422) for non-standalone.
         app_->start(false);
@@ -583,6 +588,8 @@ class MultiNode
         // (Handshake.cpp handshake-clock-tolerance) — stay inside it, or
         // connect first and skew after.
         std::chrono::seconds clockOffset{0};
+        // NetClock sampled in stopNode and restored by restartNodeImpl.
+        std::optional<NetClock::time_point> savedNetClock;
     };
     // Stable node slots. The slot outlives the live NodeBundle so a stopped node
     // can restart from the same database path and identity.
@@ -772,7 +779,8 @@ public:
                     LedgerStart::Fresh,
                     /*injectedPrng=*/slots_[id]->prng.get(),
                     std::move(timerFactory),
-                    std::move(peerTimerFactory)}));
+                    std::move(peerTimerFactory),
+                    /*restoredNetClock=*/std::nullopt}));
 
         // Capture the genesis NetClock base from the first node for syncClocks().
         // Gate on isUp(): a setup failure resets app_ (destroying the app-owned
@@ -831,6 +839,8 @@ public:
             throw std::logic_error("MultiNode::stopNode: node index out of range");
         if (!nodes_[i])
             return;
+        if (nodes_[i]->isUp())
+            slots_[i]->savedNetClock = nodes_[i]->clock().now();
         if (stepper_)
         {
             stepper_->deactivateNode(static_cast<std::uint32_t>(i));
@@ -901,7 +911,8 @@ private:
                 ledgerStart,
                 /*injectedPrng=*/slots_[i]->prng.get(),
                 std::move(timerFactory),
-                std::move(peerTimerFactory)});
+                std::move(peerTimerFactory),
+                slots_[i]->savedNetClock});
         if (stepper_ && nodes_[i]->isUp())
             syncClocks(stepper_->now());
         return *nodes_[i];
