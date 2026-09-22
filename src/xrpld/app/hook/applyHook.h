@@ -86,8 +86,8 @@ canHook(ripple::TxType txType, ripple::uint256 hookOn);
 
 // True iff the (emitted) txn carries no signature material: no
 // sfTxnSignature, no sfSigners, and an sfSigningPubKey that is either
-// empty or 33 zero bytes. Shared by HookAPI::emit (rules 2/2.a/4) and the
-// tapATOMIC_EMIT defensive checks in Transactor so they cannot drift.
+// empty or 33 zero bytes. Mirrors HookAPI::emit rules 2/2.a/4; used by
+// Transactor::checkSign for tapATOMIC_EMIT inners. Keep in sync.
 bool
 hasNoSignatureMaterial(ripple::STTx const& tx);
 
@@ -154,7 +154,7 @@ struct HookResult
 
     std::queue<std::shared_ptr<ripple::Transaction>>
         emittedTxn{};  // etx stored here until accept/rollback
-    std::queue<std::shared_ptr<ripple::Transaction>>
+    std::vector<std::shared_ptr<ripple::Transaction>>
         emittedAtomicTxn{};  // emit_atomic txns, applied by the Transactor
                              // inside the parent's application
     HookStateMap& stateMap;

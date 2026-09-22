@@ -514,7 +514,7 @@ HookAPI::emit(Slice const& txBlob, bool atomic) const
     if (hookCtx.expected_etxn_count < 0)
         return Unexpected(PREREQUISITE_NOT_MET);
 
-    // emit and emit_atomic share the etxn_reserve() budget (A5); the atomic
+    // emit and emit_atomic share the etxn_reserve() budget; the atomic
     // queue is always empty unless featureAtomicEmit is enabled.
     if (hookCtx.result.emittedTxn.size() +
             hookCtx.result.emittedAtomicTxn.size() >=
@@ -523,7 +523,7 @@ HookAPI::emit(Slice const& txBlob, bool atomic) const
 
     if (atomic)
     {
-        // A1: only a strong execution can roll the parent back, so only a
+        // Only a strong execution can roll the parent back, so only a
         // strong execution may make the parent depend on the inner txn.
         // (weak TSH, hook_again re-execution and cbak all run isStrong=false)
         if (!hookCtx.result.isStrong || hookCtx.result.isCallback)
@@ -534,7 +534,7 @@ HookAPI::emit(Slice const& txBlob, bool atomic) const
             return Unexpected(EMISSION_FAILURE);
         }
 
-        // A2: no nesting. Every hook that runs while an atomic inner txn is
+        // No nesting. Every hook that runs while an atomic inner txn is
         // being applied sees tapATOMIC_EMIT through the inner's ApplyContext.
         if (applyCtx.flags() & tapATOMIC_EMIT)
         {
@@ -544,8 +544,8 @@ HookAPI::emit(Slice const& txBlob, bool atomic) const
             return Unexpected(EMISSION_FAILURE);
         }
 
-        // A4: per outer transaction cap, shared across every hook execution
-        if (applyCtx.atomicEmitCount() >= hook_api::max_atomic_emit)
+        // Per outer transaction cap, shared across every hook execution
+        if (applyCtx.atomicEmitCount >= hook_api::max_atomic_emit)
         {
             JLOG(j.trace()) << "HookEmit[" << HC_ACC()
                             << "]: too many emit_atomic txns for this "
@@ -743,7 +743,7 @@ HookAPI::emit(Slice const& txBlob, bool atomic) const
         return Unexpected(EMISSION_FAILURE);
     }
 
-    // R2: a nonce spent by a successful emission cannot be reused when
+    // A nonce spent by a successful emission cannot be reused when
     // emit_atomic is involved on either side. (Two identical blobs would
     // share a txid: two atomic copies would collide inside the sandbox, and
     // an atomic + a normal copy would land in two ledgers.) Plain emit()
@@ -910,7 +910,7 @@ HookAPI::recordEmission(
     // once a nonce has been spent atomically it stays marked atomic
     hookCtx.nonce_consumed[nonce] |= atomic;
     if (atomic)
-        ++hookCtx.applyCtx.atomicEmitCount();
+        ++hookCtx.applyCtx.atomicEmitCount;
 }
 
 Expected<uint64_t, HookReturnCode>
@@ -942,7 +942,7 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         std::unique_ptr<STTx const> stpTrans =
             std::make_unique<STTx const>(std::ref(sitTrans));
 
-        // R1 (featureAtomicEmit): the minimum fee decides whether emit()
+        // featureAtomicEmit: the minimum fee decides whether emit()
         // accepts the txn, which is consensus-visible. Compute it against
         // the view being applied, not the node-local open ledger (whose
         // hook definitions / stakeholders can differ between nodes).

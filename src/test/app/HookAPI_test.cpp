@@ -268,12 +268,12 @@ public:
             if (result)
             {
                 hookCtx.api().recordEmission(*result, /*atomic=*/true);
-                BEAST_EXPECT(applyCtx.atomicEmitCount() == 1);
+                BEAST_EXPECT(applyCtx.atomicEmitCount == 1);
                 BEAST_EXPECT(
                     hookCtx.nonce_consumed.count(uint256(0)) == 1 &&
                     hookCtx.nonce_consumed[uint256(0)] == true);
             }
-            applyCtx.atomicEmitCount() = 0;
+            applyCtx.atomicEmitCount = 0;
         }
         {
             // A1: a callback execution may not
@@ -306,7 +306,7 @@ public:
         }
         {
             // A4: per transaction cap
-            applyCtx.atomicEmitCount() = hook_api::max_atomic_emit;
+            applyCtx.atomicEmitCount = hook_api::max_atomic_emit;
             auto hookCtx = makeStubHookContext(
                 applyCtx,
                 alice.id(),
@@ -319,10 +319,10 @@ public:
                 EMISSION_FAILURE);
             // the cap does not apply to plain emit()
             BEAST_EXPECT(hookCtx.api().emit(blob).has_value());
-            applyCtx.atomicEmitCount() = hook_api::max_atomic_emit - 1;
+            applyCtx.atomicEmitCount = hook_api::max_atomic_emit - 1;
             BEAST_EXPECT(
                 hookCtx.api().emit(atomicBlob, /*atomic=*/true).has_value());
-            applyCtx.atomicEmitCount() = 0;
+            applyCtx.atomicEmitCount = 0;
         }
         {
             // A5: the etxn_reserve budget is shared between the two queues
@@ -333,6 +333,7 @@ public:
                 env.app());
             std::queue<std::shared_ptr<ripple::Transaction>> q;
             q.push(tx);
+            std::vector<std::shared_ptr<ripple::Transaction>> qv{tx};
             {
                 auto hookCtx = makeStubHookContext(
                     applyCtx,
@@ -352,7 +353,7 @@ public:
                     alice.id(),
                     {.expected_etxn_count = 1,
                      .nonce_used = {{uint256(0), true}},
-                     .result = {.emittedAtomicTxn = q, .isStrong = true}});
+                     .result = {.emittedAtomicTxn = qv, .isStrong = true}});
                 BEAST_EXPECT(
                     hookCtx.api().emit(blob).error() == TOO_MANY_EMITTED_TXN);
             }

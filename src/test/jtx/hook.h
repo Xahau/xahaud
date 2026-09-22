@@ -55,7 +55,7 @@ struct StubHookResult
     ripple::uint256 const hookNamespace = ripple::uint256();
 
     std::queue<std::shared_ptr<ripple::Transaction>> emittedTxn{};
-    std::queue<std::shared_ptr<ripple::Transaction>> emittedAtomicTxn{};
+    std::vector<std::shared_ptr<ripple::Transaction>> emittedAtomicTxn{};
     std::optional<hook::HookStateMap> stateMap = std::nullopt;
     uint16_t changedStateCount = 0;
     std::map<

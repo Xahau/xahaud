@@ -1547,20 +1547,15 @@ hook::finalizeHookResult(
         // emit_atomic txns are NOT written to the emitted directory: the
         // Transactor applies them inside this transaction (see
         // Transactor::applyAtomicEmissions). Only record them in the
-        // metadata here. The queue is left intact for the Transactor to
-        // drain (drainAtomicEmissions).
+        // metadata here; the vector is left intact for the Transactor.
+        for (auto const& tpTrans : hookResult.emittedAtomicTxn)
         {
-            auto copy = hookResult.emittedAtomicTxn;
-            for (; !copy.empty(); copy.pop())
-            {
-                auto const& stx = *copy.front()->getSTransaction();
-                auto const& emitDetails = const_cast<ripple::STTx&>(stx)
-                                              .getField(sfEmitDetails)
-                                              .downcast<STObject>();
-                emission_txnid.emplace_back(
-                    stx.getTransactionID(),
-                    emitDetails.getFieldH256(sfEmitNonce));
-            }
+            auto const& stx = *tpTrans->getSTransaction();
+            auto const& emitDetails = const_cast<ripple::STTx&>(stx)
+                                          .getField(sfEmitDetails)
+                                          .downcast<STObject>();
+            emission_txnid.emplace_back(
+                stx.getTransactionID(), emitDetails.getFieldH256(sfEmitNonce));
         }
     }
 
@@ -2687,19 +2682,25 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-/* Emit a transaction from this hook. Transaction must be in STObject form,
- * fully formed and valid. XRPLD does not modify transactions it only checks
- * them for validity. */
-DEFINE_HOOK_FUNCTION(
-    int64_t,
-    emit,
+// Shared body of emit()/emit_atomic(): the two host functions differ only in
+// the amendment gate, the `atomic` argument and which queue the emitted txn
+// lands in. `memoryCtx` is needed (not just `memory`/`memory_length`)
+// because WRITE_WASM_MEMORY_AND_RETURN writes through it directly.
+inline std::variant<uint64_t, hook_api::hook_return_code>
+emit_txn(
+    hook::HookContext& hookCtx,
+    WasmEdge_MemoryInstanceContext* memoryCtx,
+    unsigned char* memory,
+    uint64_t memory_length,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t read_ptr,
-    uint32_t read_len)
+    uint32_t read_len,
+    bool atomic)
 {
-    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
+    using enum hook_api::hook_return_code;
+    auto j = hookCtx.applyCtx.app.journal("View");
+    auto& api = hookCtx.api();
 
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
@@ -2710,11 +2711,10 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < 32)
         return TOO_SMALL;
 
-    // Delegate to decoupled HookAPI for emit logic
     ripple::Slice txBlob{
         reinterpret_cast<const void*>(memory + read_ptr), read_len};
 
-    auto const res = api.emit(txBlob);
+    auto const res = api.emit(txBlob, atomic);
 
     if (!res)
         return res.error();
@@ -2746,11 +2746,40 @@ DEFINE_HOOK_FUNCTION(
     auto const value = std::get<uint64_t>(result);
     if (value == 32)
     {
-        hookCtx.result.emittedTxn.push(tpTrans);
-        api.recordEmission(tpTrans, /*atomic=*/false);
+        if (atomic)
+            hookCtx.result.emittedAtomicTxn.push_back(tpTrans);
+        else
+            hookCtx.result.emittedTxn.push(tpTrans);
+        api.recordEmission(tpTrans, atomic);
     }
 
     return value;
+}
+
+/* Emit a transaction from this hook. Transaction must be in STObject form,
+ * fully formed and valid. XRPLD does not modify transactions it only checks
+ * them for validity. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    emit,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    return emit_txn(
+        hookCtx,
+        memoryCtx,
+        memory,
+        memory_length,
+        write_ptr,
+        write_len,
+        read_ptr,
+        read_len,
+        /*atomic=*/false);
 
     HOOK_TEARDOWN();
 }
@@ -2777,55 +2806,16 @@ DEFINE_HOOK_FUNCTION(
     if (!applyCtx.view().rules().enabled(featureAtomicEmit))
         return NOT_IMPLEMENTED;  // LCOV_EXCL_LINE
 
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (write_len < 32)
-        return TOO_SMALL;
-
-    ripple::Slice txBlob{
-        reinterpret_cast<const void*>(memory + read_ptr), read_len};
-
-    auto const res = api.emit(txBlob, /*atomic=*/true);
-
-    if (!res)
-        return res.error();
-
-    auto const& tpTrans = *res;
-    auto const& txID = tpTrans->getID();
-
-    if (txID.size() > write_len)
-        return TOO_SMALL;
-
-    if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
-        return OUT_OF_BOUNDS;
-
-    auto const write_txid =
-        [&]() -> std::variant<uint64_t, hook_api::hook_return_code> {
-        WRITE_WASM_MEMORY_AND_RETURN(
-            write_ptr,
-            txID.size(),
-            txID.data(),
-            txID.size(),
-            memory,
-            memory_length);
-    };
-
-    auto result = write_txid();
-    if (std::holds_alternative<hook_api::hook_return_code>(result))
-        return std::get<hook_api::hook_return_code>(result);
-
-    auto const value = std::get<uint64_t>(result);
-    if (value == 32)
-    {
-        hookCtx.result.emittedAtomicTxn.push(tpTrans);
-        api.recordEmission(tpTrans, /*atomic=*/true);
-    }
-
-    return value;
+    return emit_txn(
+        hookCtx,
+        memoryCtx,
+        memory,
+        memory_length,
+        write_ptr,
+        write_len,
+        read_ptr,
+        read_len,
+        /*atomic=*/true);
 
     HOOK_TEARDOWN();
 }

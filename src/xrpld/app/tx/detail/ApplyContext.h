@@ -50,6 +50,12 @@ public:
     XRPAmount const baseFee;
     beast::Journal const journal;
 
+    /** Number of emit_atomic emissions accepted so far for this
+        transaction, across every hook execution. Lives here (not on the
+        ApplyViewImpl) so it survives discard()/reset(); it is never
+        decremented, even when a hook later rolls back. */
+    std::uint32_t atomicEmitCount = 0;
+
     ApplyView&
     view()
     {
@@ -96,22 +102,10 @@ public:
     /** Apply the transaction result to the base. */
     std::optional<TxMeta> apply(TER);
 
-    /** Apply the transaction result to an arbitrary view (emit_atomic
-        sandbox). `isDryRun` is passed explicitly because the sandbox is
-        discarded on a dry run anyway, so the caller applies for real to
-        get both the metadata and the state the inner txns must see. */
+    /** Apply to an arbitrary view (emit_atomic sandbox); applied for real
+        even on a dry run so the inners see the parent's state. */
     std::optional<TxMeta>
-    apply(TER, OpenView& to, bool isDryRun);
-
-    /** Number of emit_atomic emissions accepted so far for this
-        transaction, across every hook execution. Lives here (not on the
-        ApplyViewImpl) so it survives discard()/reset(); it is never
-        decremented, even when a hook later rolls back. */
-    std::uint32_t&
-    atomicEmitCount()
-    {
-        return atomicEmitCount_;
-    }
+    apply(TER, OpenView& to);
 
     /** Get the number of unapplied changes. */
     std::size_t
@@ -172,7 +166,6 @@ private:
     OpenView& base_;
     ApplyFlags flags_;
     std::optional<ApplyViewImpl> view_;
-    std::uint32_t atomicEmitCount_ = 0;
 };
 
 }  // namespace ripple

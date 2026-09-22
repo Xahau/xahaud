@@ -238,11 +238,6 @@ protected:
     // successful one.
     std::vector<std::shared_ptr<Transaction>> failedAtomicEmissions_;
 
-    // Move a hook result's emit_atomic queue into atomicEmissions_ (strong
-    // executions only; ok == false discards the queue).
-    void
-    drainAtomicEmissions(hook::HookResult& hookResult, bool ok);
-
     // Apply every atomic emission into the sandbox, in order. Stops at the
     // first non-tes result and returns it together with the failing txid.
     std::pair<TER, uint256>
@@ -260,16 +255,15 @@ protected:
     applyFailedAtomicEmissions();
 
     // Undo the first pass of the post-apply pipeline so the existing tec
-    // path can run: restore the strong-phase hook metadata, drop the weak
+    // path can run: restore the strong-phase hook metadata (patching the
+    // failing inner's HookEmittedTransactionResult onto it), drop the weak
     // TSH accumulated from the discarded pass and drop the atomic queue.
     void
     rewindAtomicEmissions(
-        std::vector<STObject> const& strongExecMeta,
-        std::vector<STObject> const& strongEmitMeta);
-
-    // Record the failing inner's result on its HookEmission metadata entry.
-    void
-    annotateFailedEmission(uint256 const& emittedTxnId, TER innerResult);
+        std::vector<STObject> execMeta,
+        std::vector<STObject> emitMeta,
+        uint256 const& failedId,
+        TER innerResult);
 
     ///////////////////////////////////////////////////
 

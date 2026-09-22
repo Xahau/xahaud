@@ -60,9 +60,9 @@ ApplyContext::apply(TER ter)
 }
 
 std::optional<TxMeta>
-ApplyContext::apply(TER ter, OpenView& to, bool isDryRun)
+ApplyContext::apply(TER ter, OpenView& to)
 {
-    return view_->apply(to, tx, ter, isDryRun, journal);
+    return view_->apply(to, tx, ter, /*isDryRun=*/false, journal);
 }
 
 std::size_t

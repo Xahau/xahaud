@@ -352,7 +352,7 @@ public:
     prepare(Slice const& txBlob, bool atomic = false) const;
 
     // atomic == true applies the emit_atomic rules (strong only, no
-    // nesting, per-transaction cap, disabled types) on top of the emit rules.
+    // nesting, per-transaction cap) on top of the emit rules.
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
     emit(Slice const& txBlob, bool atomic = false) const;
 

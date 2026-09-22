@@ -94,14 +94,10 @@ preflight0(PreflightContext const& ctx)
 NotTEC
 preflight1(PreflightContext const& ctx)
 {
-    // emit_atomic inner txn (tapATOMIC_EMIT): the signature checks below are
-    // bypassed for it, so refuse anything carrying the flag that is not an
-    // emitted txn or that carries signature material. HookAPI::emit already
-    // enforces the same rules on the blob; this duplicate is deliberate
-    // (Batch V1 had only an assert here and had to be re-issued) so that a
-    // future caller passing the flag by mistake cannot silently disable
-    // signature verification. Placed outside the featureHooks branch so it
-    // also fires for a non-emitted txn.
+    // emit_atomic inner txn (tapATOMIC_EMIT): the flag bypasses the signature
+    // checks below and in checkSign, so refuse anything carrying it that is
+    // not an emitted txn or that carries signature material (same gate as
+    // checkSign, mirroring the SF_EMITTED/tapPREFLIGHT_EMIT pair).
     if ((ctx.flags & tapATOMIC_EMIT) &&
         (!hook::isEmittedTxn(ctx.tx) || !hook::hasNoSignatureMaterial(ctx.tx)))
     {
@@ -910,8 +906,8 @@ Transactor::apply()
 NotTEC
 Transactor::checkSign(PreclaimContext const& ctx)
 {
-    // emit_atomic inner txn: this is the point that actually skips signature
-    // verification, so repeat the defensive check from preflight1 here.
+    // emit_atomic inner txn: signature verification is bypassed here, so
+    // repeat the preflight1 gate.
     if (ctx.flags & tapATOMIC_EMIT)
     {
         if (!hook::isEmittedTxn(ctx.tx) ||
@@ -1545,7 +1541,7 @@ Transactor::doHookCallback(
     // emit_atomic inner txns never run their callback (the field is still
     // present because etxn_details() adds it for any hook with a cbak): the
     // provisional state a cbak would observe here can still be rolled back
-    // by a later inner failing. See design A3.
+    // by a later inner failing.
     if (ctx_.flags() & tapATOMIC_EMIT)
     {
         JLOG(j_.trace()) << "HookInfo: callback skipped for emit_atomic txn";
@@ -1660,7 +1656,6 @@ Transactor::doHookCallback(
             // write the final result
             ripple::TER result =
                 finalizeHookResult(callbackResult, ctx_, success);
-            drainAtomicEmissions(callbackResult, false);  // never non-empty
 
             JLOG(j_.trace()) << "HookInfo[" << callbackAccountID << "-"
                              << ctx_.tx.getAccountID(sfAccount)
@@ -2034,7 +2029,8 @@ Transactor::operator()()
     // one costs. The real cause is recorded on the parent's HookEmission
     // (HookEmittedTransactionResult); the parent is reachable through
     // EmitDetails.EmitParentTxnID.
-    bool const feeOnlyAtomicInner = (ctx_.flags() & tapATOMIC_EMIT_FAILED) != 0;
+    bool const feeOnlyAtomicInner = (ctx_.flags() & tapATOMIC_EMIT) &&
+        (ctx_.flags() & tapATOMIC_EMIT_FAILED);
     if (feeOnlyAtomicInner && isTesSuccess(result))
         result = tecHOOK_EMIT_FAILED;
 
@@ -2098,7 +2094,11 @@ Transactor::operator()()
         for (auto& hookResult : hookResults)
         {
             hook::finalizeHookResult(hookResult, ctx_, isTesSuccess(result));
-            drainAtomicEmissions(hookResult, isTesSuccess(result));
+            if (isTesSuccess(result))
+                atomicEmissions_.insert(
+                    atomicEmissions_.end(),
+                    hookResult.emittedAtomicTxn.begin(),
+                    hookResult.emittedAtomicTxn.end());
             if (hookResult.executeAgainAsWeak)
             {
                 if (aawMap.find(hookResult.account) == aawMap.end())
@@ -2125,13 +2125,17 @@ Transactor::operator()()
     if (ctx_.size() > oversizeMetaDataCap)
         result = tecOVERSIZE;
 
-    // emit_atomic: if any inner txn fails, the parent must end as
-    // tecHOOK_EMIT_FAILED. Rather than writing a second failure path, the
-    // pipeline below is re-entered at `reapply` with the tec result, so the
-    // existing tec handling (reset, invariants, balance rewards, weak hooks,
-    // removeEmissionEntry) runs exactly as for any other tec. The hook
-    // metadata is restored to the strong-phase snapshot so the discarded
-    // first pass of the weak hooks leaves no trace.
+    // Parent failed on its own: its atomic emissions never apply, like
+    // legacy emits lost with the discarded view.
+    if (!isTesSuccess(result))
+        atomicEmissions_.clear();
+
+    // emit_atomic has two rules: (1) an inner failure turns the parent into
+    // tecHOOK_EMIT_FAILED by re-entering the pipeline at `reapply` with the
+    // strong-phase hook metadata restored, so the existing tec handling
+    // (reset, invariants, weak hooks) runs unchanged; (2) a parent failure
+    // (on its own, or from an invariant/oversize check below) drops its
+    // atomic emissions and commits like any other tec.
     std::vector<STObject> strongExecMeta;
     std::vector<STObject> strongEmitMeta;
     if (!atomicEmissions_.empty())
@@ -2491,25 +2495,17 @@ reapply:
         for (auto& weakResult : weakResults)
         {
             hook::finalizeHookResult(weakResult, ctx_, isTesSuccess(result));
-            drainAtomicEmissions(weakResult, false);  // never non-empty
         }
 
         if (ctx_.size() > oversizeMetaDataCap)
             result = tecOVERSIZE;
     }
 
-    // emit_atomic invariant: while atomic emissions are pending, the parent's
-    // state is never committed with a non-tes result. The only existing path
-    // that would do so is the late oversize check above (applied stays true,
-    // no reset); route it through the tec pipeline instead.
-    if (!atomicEmissions_.empty() && applied && !isTesSuccess(result))
-    {
-        JLOG(j_.warn()) << "HookEmit[" << ctx_.tx.getTransactionID()
-                        << "]: parent failed with " << transToken(result)
-                        << " after atomic emission, rolling the group back";
-        rewindAtomicEmissions(strongExecMeta, strongEmitMeta);
-        goto reapply;
-    }
+    // Parent failed after the strong phase (invariants, or the weak-phase
+    // oversize check above): its atomic emissions are dropped, same as any
+    // other tec.
+    if (!isTesSuccess(result))
+        atomicEmissions_.clear();
 
     std::optional<TxMeta> metadata;
     if (applied)
@@ -2533,14 +2529,14 @@ reapply:
 
         if (!atomicEmissions_.empty())
         {
-            // result is tesSUCCESS here (see the invariant check above).
+            // result is tesSUCCESS here.
             // Commit the parent into a sandbox that is always a closed view,
             // apply the inner txns on top of it, then propagate everything
             // or nothing. The sandbox is applied for real even on a dry run
             // (it is discarded anyway, and the inners must see the parent's
             // state); the metadata it yields is the parent's metadata.
             OpenView sandbox(batch_view, ctx_.base());
-            metadata = ctx_.apply(result, sandbox, /*isDryRun=*/false);
+            metadata = ctx_.apply(result, sandbox);
 
             auto const [innerTer, failedId] = applyAtomicEmissions(sandbox);
             if (isTesSuccess(innerTer))
@@ -2555,8 +2551,11 @@ reapply:
                                 << " failed: " << transToken(innerTer)
                                 << ", parent fails with tecHOOK_EMIT_FAILED";
                 result = tecHOOK_EMIT_FAILED;
-                rewindAtomicEmissions(strongExecMeta, strongEmitMeta);
-                annotateFailedEmission(failedId, innerTer);
+                rewindAtomicEmissions(
+                    std::move(strongExecMeta),
+                    std::move(strongEmitMeta),
+                    failedId,
+                    innerTer);
                 goto reapply;
             }
         }
@@ -2583,35 +2582,6 @@ reapply:
     return {result, applied, metadata};
 }
 
-void
-Transactor::drainAtomicEmissions(hook::HookResult& hookResult, bool ok)
-{
-    auto& queue = hookResult.emittedAtomicTxn;
-    if (!hookResult.isStrong || hookResult.isCallback)
-    {
-        // HookAPI::emit(atomic) rejects non-strong executions (A1); a
-        // non-empty queue here means that rule regressed.
-        if (!queue.empty())
-        {
-            UNREACHABLE(
-                "ripple::Transactor::drainAtomicEmissions : atomic emission "
-                "from a non-strong hook execution");
-            std::queue<std::shared_ptr<Transaction>>().swap(queue);
-        }
-        return;
-    }
-
-    if (!ok)
-    {
-        // the strong chain failed: nothing emitted by it survives
-        std::queue<std::shared_ptr<Transaction>>().swap(queue);
-        return;
-    }
-
-    for (; !queue.empty(); queue.pop())
-        atomicEmissions_.push_back(queue.front());
-}
-
 std::pair<TER, uint256>
 Transactor::applyAtomicEmissions(OpenView& sandbox)
 {
@@ -2619,25 +2589,15 @@ Transactor::applyAtomicEmissions(OpenView& sandbox)
     {
         auto const& stx = *tpTrans->getSTransaction();
         auto const id = stx.getTransactionID();
-        try
-        {
-            // tapATOMIC_EMIT only: no tapDRY_RUN (the inners must really
-            // apply into the sandbox), no tapRETRY/tapFAIL_HARD (a tec
-            // inner is final here), no tapUNLIMITED.
-            auto const r =
-                ripple::apply(ctx_.app, sandbox, stx, tapATOMIC_EMIT, j_);
-            // judge by the result, not by `applied`: a tec inner is applied
-            if (!isTesSuccess(r.ter))
-                return {r.ter, id};
-        }
-        catch (std::exception const& e)
-        {
-            // ripple::apply has no try/catch of its own
-            JLOG(j_.warn())
-                << "HookEmit[" << ctx_.tx.getTransactionID()
-                << "]: atomically emitted txn " << id << " threw: " << e.what();
-            return {tecINTERNAL, id};
-        }
+        // tapATOMIC_EMIT only: no tapDRY_RUN (the inners must really apply
+        // into the sandbox), no tapRETRY/tapFAIL_HARD (a tec inner is final
+        // here), no tapUNLIMITED. ripple::apply maps exceptions to
+        // tefEXCEPTION itself.
+        auto const r =
+            ripple::apply(ctx_.app, sandbox, stx, tapATOMIC_EMIT, j_);
+        // judge by the result, not by `applied`: a tec inner is applied
+        if (!isTesSuccess(r.ter))
+            return {r.ter, id};
     }
     return {tesSUCCESS, uint256{}};
 }
@@ -2679,25 +2639,14 @@ Transactor::applyFailedAtomicEmissions()
     for (auto const& tpTrans : failedAtomicEmissions_)
     {
         auto const& stx = *tpTrans->getSTransaction();
-        try
-        {
-            auto const r = ripple::apply(
-                ctx_.app,
-                sandbox,
-                stx,
-                tapATOMIC_EMIT | tapATOMIC_EMIT_FAILED,
-                j_);
-            if (!r.applied)
-                JLOG(j_.warn()) << "HookEmit[" << ctx_.tx.getTransactionID()
-                                << "]: fee-only application of atomic txn "
-                                << stx.getTransactionID()
-                                << " was not applied: " << transToken(r.ter);
-        }
-        catch (std::exception const& e)
+        auto const r = ripple::apply(
+            ctx_.app, sandbox, stx, tapATOMIC_EMIT | tapATOMIC_EMIT_FAILED, j_);
+        if (!r.applied)
         {
             JLOG(j_.warn()) << "HookEmit[" << ctx_.tx.getTransactionID()
                             << "]: fee-only application of atomic txn "
-                            << stx.getTransactionID() << " threw: " << e.what();
+                            << stx.getTransactionID()
+                            << " was not applied: " << transToken(r.ter);
         }
     }
     failedAtomicEmissions_.clear();
@@ -2706,14 +2655,30 @@ Transactor::applyFailedAtomicEmissions()
 
 void
 Transactor::rewindAtomicEmissions(
-    std::vector<STObject> const& strongExecMeta,
-    std::vector<STObject> const& strongEmitMeta)
+    std::vector<STObject> execMeta,
+    std::vector<STObject> emitMeta,
+    uint256 const& failedId,
+    TER innerResult)
 {
+    // sfHookEmissions is only written under featureHooksUpdate1; without it
+    // the cause is log-only
+    for (auto& emission : emitMeta)
+    {
+        if (emission.getFieldH256(sfEmittedTxnID) != failedId)
+            continue;
+        // UINT8 field: a non-tec inner code (ter/tef) is recorded as
+        // tecHOOK_EMIT_FAILED; the exact code is in the warn log.
+        emission.setFieldU8(
+            sfHookEmittedTransactionResult,
+            TERtoInt(
+                isTecClaim(innerResult) ? innerResult
+                                        : TER{tecHOOK_EMIT_FAILED}));
+        break;
+    }
+
     // re-acquire: never cache an ApplyViewImpl& across ctx_.discard()
     dynamic_cast<ApplyViewImpl&>(ctx_.view())
-        .setHookMetaData(
-            std::vector<STObject>(strongExecMeta),
-            std::vector<STObject>(strongEmitMeta));
+        .setHookMetaData(std::move(execMeta), std::move(emitMeta));
     // weak TSH accumulated by addWeakTSHFromBalanceChanges() during the
     // discarded pass; nothing else ever clears this set
     additionalWeakTSH_.clear();
@@ -2721,24 +2686,6 @@ Transactor::rewindAtomicEmissions(
     // has been committed (applyFailedAtomicEmissions)
     failedAtomicEmissions_ = std::move(atomicEmissions_);
     atomicEmissions_.clear();
-}
-
-void
-Transactor::annotateFailedEmission(uint256 const& emittedTxnId, TER innerResult)
-{
-    auto& avi = dynamic_cast<ApplyViewImpl&>(ctx_.view());
-    std::vector<STObject> executions;
-    std::vector<STObject> emissions;
-    avi.copyHookMetaData(executions, emissions);
-    for (auto& emission : emissions)
-    {
-        if (emission.getFieldH256(sfEmittedTxnID) != emittedTxnId)
-            continue;
-        emission.setFieldU8(
-            sfHookEmittedTransactionResult, TERtoInt(innerResult));
-        break;
-    }
-    avi.setHookMetaData(std::move(executions), std::move(emissions));
 }
 
 }  // namespace ripple

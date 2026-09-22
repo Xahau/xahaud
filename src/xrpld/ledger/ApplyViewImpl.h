@@ -52,12 +52,11 @@ public:
 
     /** Apply the transaction.
 
-        After a call to `apply`, the state table must not be applied
-        again (metadata generation threads the SLEs in place). The
-        emit_atomic rewind path in Transactor::operator() still reads
-        and rewrites the hook metadata vectors after `apply` into its
-        sandbox; that is fine because the table itself is then
-        discarded by ApplyContext::discard().
+        After a call to `apply`, the only valid
+        operation on this object is to call the
+        destructor. The emit_atomic rewind path in Transactor::operator()
+        still reads and rewrites the hook metadata vectors afterwards,
+        which is safe because the table is then discarded.
     */
     std::optional<TxMeta>
     apply(

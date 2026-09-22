@@ -48,15 +48,12 @@ enum ApplyFlags : std::uint32_t {
     // Signatures shouldn't be checked
     tapDRY_RUN = 0x1000,
 
-    // Transaction is an atomically emitted (emit_atomic) inner txn being
-    // applied inside its parent transaction's application. Only ever set by
-    // Transactor::applyAtomicEmissions.
+    // emit_atomic inner txn applied inside its parent's application. Only
+    // ever set by Transactor::applyAtomicEmissions.
     tapATOMIC_EMIT = 0x2000,
 
-    // Together with tapATOMIC_EMIT: the atomic group this inner txn belongs
-    // to failed, so the txn is applied fee-only (no hooks, no doApply) and
-    // recorded as tecHOOK_EMIT_FAILED, exactly like a tec transaction. Only
-    // ever set by Transactor::applyFailedAtomicEmissions.
+    // With tapATOMIC_EMIT: the group failed, applied fee-only as
+    // tecHOOK_EMIT_FAILED. Only ever set by applyFailedAtomicEmissions.
     tapATOMIC_EMIT_FAILED = 0x4000,
 };
 
