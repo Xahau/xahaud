@@ -32,14 +32,11 @@ namespace ripple {
 class ClaimReward : public Transactor
 {
 public:
-    static constexpr ConsequencesFactoryType ConsequencesFactory{Custom};
+    static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
 
     explicit ClaimReward(ApplyContext& ctx) : Transactor(ctx)
     {
     }
-
-    static TxConsequences
-    makeTxConsequences(PreflightContext const& ctx);
 
     static NotTEC
     preflight(PreflightContext const& ctx);
