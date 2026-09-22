@@ -2701,6 +2701,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::array<std::uint32_t, 4> postVal{};
         std::array<std::uint32_t, 4> postProp{};
         std::array<std::uint32_t, 4> postDirect{};
+        std::array<std::uint32_t, 4> postExportProp{};
         std::uint32_t postTotal0to2 = 0;
         std::uint32_t postVal0to2 = 0;
         std::uint32_t postProp0to2 = 0;
@@ -2735,7 +2736,14 @@ class SteppingExtensions_test : public beast::unit_test::suite
                             postVal[to],
                             postProp[to],
                             postDirect[to]);
-                        (void)bytes;
+                        if (type == protocol::mtPROPOSE_LEDGER)
+                        {
+                            auto const proposal =
+                                decodeFrame<protocol::TMProposeSet>(bytes);
+                            if (proposal &&
+                                proposal->exportsignatures_size() != 0)
+                                ++postExportProp[to];
+                        }
                         return fault;
                     }
                     if (type == protocol::mtEXPORT_SHARES)
@@ -2776,6 +2784,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
         senderCE.j_ = beast::Journal{senderSink};
         scope_exit restoreSender{[&]() { senderCE.j_ = previousSender; }};
         std::size_t releaseMark = 0;
+        std::size_t observerMark = 0;
+        std::size_t validatorMark = 0;
+        bool decidedClear = false;
+        std::uint32_t n2QuietSeq = 0;
+        uint256 origin{};
         int modeMin = 1000;
         int modeMax = -1;
         bool sawLive = false;
@@ -2811,10 +2824,13 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         return;
                     sawTimeoutAccept = true;
                     timeoutSeq = net.closedSeq(0) + 1;
-                    // Lift before the rest of this beat so 518+ is measured
-                    // while validator 2 is allowed to send.
-                    hold = false;
+                    // Mark the journals before the lift. The decided round
+                    // has no witness yet; later rounds may repair it.
+                    observerMark = observerSink.messages().str().size();
+                    validatorMark = validatorSink.messages().str().size();
                     releaseMark = senderSink.messages().str().size();
+                    decidedClear = witnessAt(net, origin, warmLedger) == 0;
+                    hold = false;
                     return;
                 }
                 auto const building = net.closedSeq(0) + 1;
@@ -2829,10 +2845,13 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     sawLive = true;
                 else
                     sawDead = true;
+                auto const n2 =
+                    net.node(2).app().getOPs().getConsensusInfo();
+                if (n2QuietSeq == 0 &&
+                    !(n2.isMember("proposing") && n2["proposing"].asBool()))
+                    n2QuietSeq = building;
                 rounds += " seq=" + std::to_string(building) + " n2{" +
-                    summarize(
-                        net.node(2).app().getOPs().getConsensusInfo()) +
-                    "} n0{" +
+                    summarize(n2) + "} n0{" +
                     summarize(
                         net.node(0).app().getOPs().getConsensusInfo()) +
                     "}";
@@ -2846,7 +2865,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             world.owner);
         if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
             return std::nullopt;
-        auto const origin = tx->getID();
+        origin = tx->getID();
 
         if (!BEAST_EXPECT(net.runUntil(
                 [&] {
@@ -2889,8 +2908,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 << " decided=" << decidedSeq << " held=" << held << std::endl;
             return std::nullopt;
         }
+        BEAST_EXPECT(decidedClear);
         BEAST_EXPECT(net.ledgersAgree(decidedSeq));
-        BEAST_EXPECT(witnessAt(net, origin, warmLedger) == 0);
         for (std::uint32_t n = 0; n <= observer; ++n)
         {
             auto const ledger = net.ledger(n, decidedSeq);
@@ -2902,8 +2921,6 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         wtx->getFieldH256(sfTransactionHash) != origin);
         }
 
-        auto const observerMark = observerSink.messages().str().size();
-        auto const validatorMark = validatorSink.messages().str().size();
         hold = false;
         auto const windowEnd = admitSeq + ExportLimits::maxPublicationLedgers;
         if (!BEAST_EXPECT(net.runUntil(
@@ -2959,19 +2976,22 @@ class SteppingExtensions_test : public beast::unit_test::suite
             }
         }
         auto const seqW = witnessAt(net, origin, warmLedger);
+        std::uint32_t localRelease = 0;
+        {
+            std::istringstream in{
+                senderSink.messages().str().substr(releaseMark)};
+            for (std::string line; std::getline(in, line);)
+                if (line.find("ExportShare: local release frame") !=
+                        std::string::npos &&
+                    line.find(originText) != std::string::npos)
+                    ++localRelease;
+        }
         if (!BEAST_EXPECT(
                 sawAccepted && seqW != 0 && seqW > decidedSeq &&
-                seqW <= windowEnd))
+                seqW <= windowEnd && postDirect[0] == 0 &&
+                postDirect[1] == 0 && postDirect[observer] == 0 &&
+                postExportProp[0] > 0 && localRelease == 0))
         {
-            std::uint32_t localRelease = 0;
-            {
-                std::istringstream in{senderSink.messages().str().substr(releaseMark)};
-                for (std::string line; std::getline(in, line);)
-                    if (line.find("ExportShare: local release frame") !=
-                            std::string::npos &&
-                        line.find(originText) != std::string::npos)
-                        ++localRelease;
-            }
             log << "  late material after the deadline did not witness"
                 << " see .ai-docs/reviews/2026-09-22-dsf-b2c-red-claude-review.md"
                 << " decided=" << decidedSeq << " admit=" << admitSeq
@@ -3019,6 +3039,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
             return std::nullopt;
         }
 
+        log << "  late-after-deadline: gateSeq=" << decidedSeq
+            << " witness=" << seqW << " n2Proposing0=" << n2QuietSeq
+            << " postExportProp0=" << postExportProp[0]
+            << " postDirect=0 localRelease=0" << std::endl;
         BEAST_EXPECT(net.ledgersAgree(net.minValidatedSeq()));
         BEAST_EXPECT(net.validatedForkFree());
         BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
