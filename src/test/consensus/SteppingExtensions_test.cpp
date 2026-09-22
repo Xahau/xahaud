@@ -12,6 +12,7 @@
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/scope.h>
 #include <xrpl/basics/strHex.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/ExportShare.h>
@@ -67,14 +68,17 @@ class SteppingExtensions_test : public beast::unit_test::suite
         // Seq, parent hash, built hash, captured before acquisition can replace
         // the node's by-sequence ledger lookup. A set deduplicates peer sends.
         using Build = std::tuple<std::uint32_t, uint256, uint256>;
-        std::array<std::set<Build>, 4> builds;
-        std::array<std::set<uint256>, 4> acquiredHashes;
-        std::array<std::size_t, 4> secrets{};
-        std::array<std::size_t, 4> directFrames{};
-        std::array<std::size_t, 4> proposalFrames{};
-        std::array<std::size_t, 4> exportRootFrames{};
-        std::array<std::size_t, 4> ownReleases{};
-        std::array<std::size_t, 4> unauthorizedReleases{};
+        // Slots for five validators plus the keyless observer. Cases that
+        // build three validators only touch 0..3.
+        static constexpr std::size_t kNodeSlots = 6;
+        std::array<std::set<Build>, kNodeSlots> builds;
+        std::array<std::set<uint256>, kNodeSlots> acquiredHashes;
+        std::array<std::size_t, kNodeSlots> secrets{};
+        std::array<std::size_t, kNodeSlots> directFrames{};
+        std::array<std::size_t, kNodeSlots> proposalFrames{};
+        std::array<std::size_t, kNodeSlots> exportRootFrames{};
+        std::array<std::size_t, kNodeSlots> ownReleases{};
+        std::array<std::size_t, kNodeSlots> unauthorizedReleases{};
         std::uint32_t droppedDirect = 0;
         std::uint32_t droppedProposals = 0;
         std::uint32_t duplicatedFrames = 0;
@@ -106,7 +110,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         Buffer badSignature;
         std::uint32_t badFramesReceived = 0;
         bool sawBadWhilePending = false;
-        std::map<uint256, std::array<std::size_t, 4>> originOwnReleases;
+        std::map<uint256, std::array<std::size_t, kNodeSlots>> originOwnReleases;
     };
 
     template <class T>
@@ -241,11 +245,27 @@ class SteppingExtensions_test : public beast::unit_test::suite
             std::make_shared<Observations>();
         jtx::Account owner{"dsf-export-owner"};
         jtx::Account destination{"dsf-export-destination"};
+        // Default is the historical three-validator fixture. The observer is
+        // the next node id, so three validators keep observer 3.
+        std::uint32_t validatorCount = 3;
+        std::uint32_t observerId = 3;
 
-        World(SteppingNetwork& network, bool rngOn, bool exportOn)
-            : net(network), rng(rngOn), exportEnabled(exportOn)
+        World(
+            SteppingNetwork& network,
+            bool rngOn,
+            bool exportOn,
+            std::uint32_t validators = 3)
+            : net(network)
+            , rng(rngOn)
+            , exportEnabled(exportOn)
+            , validatorCount(validators)
+            , observerId(validators)
         {
-            net.configureNodes([stats = observed, rngOn, exportOn](
+            if (validatorCount < 1 ||
+                validatorCount >= Observations::kNodeSlots)
+                throw std::logic_error("fixture validator count");
+            auto const obs = observerId;
+            net.configureNodes([stats = observed, rngOn, exportOn, obs](
                                    std::uint32_t id, Config& cfg) {
                 cfg.NETWORK_ID = networkID;
                 // Let the real flag-ledger vote produce the common active view.
@@ -262,7 +282,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     return sha512Half(
                         std::string{"DSF entropy fixture"}, id, parent, seq);
                 };
-                cfg.harnessPeerMessage = [stats, id](
+                cfg.harnessPeerMessage = [stats, id, obs](
                                              std::uint16_t type,
                                              std::string const&,
                                              std::uint32_t,
@@ -274,12 +294,12 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         ++stats->directFrames.at(id);
                         auto const& batch =
                             static_cast<protocol::TMExportShares const&>(msg);
-                        if (id == observer)
+                        if (id == obs)
                             stats->shareRecvOrder.push_back(
                                 directBatchId(batch));
                         for (auto const& blob : batch.shares())
                         {
-                            if (id == observer && stats->captureOrigin &&
+                            if (id == obs && stats->captureOrigin &&
                                 !stats->honestShare)
                             {
                                 auto const share =
@@ -288,7 +308,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                                     share->originTxn == *stats->captureOrigin)
                                     stats->honestShare = share;
                             }
-                            if (id == observer &&
+                            if (id == obs &&
                                 !stats->badShareBytes.empty() &&
                                 blob == stats->badShareBytes)
                                 ++stats->badFramesReceived;
@@ -322,10 +342,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     }
                 };
             });
-            net.validators(3);
-            net.observer();
+            net.validators(validatorCount);
+            if (net.observer() != obs)
+                throw std::logic_error("fixture observer id");
             net.mesh();
-            for (std::uint32_t id = 0; id <= observer; ++id)
+            for (std::uint32_t id = 0; id <= obs; ++id)
             {
                 auto const prior = net.node(id).app().config().harnessPeerSend;
                 net.raw().setPeerSendHook(
@@ -466,7 +487,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             return intent(
                 owner,
                 ticket,
-                net.node(observer).app().openLedger().current()->seq() +
+                net.node(observerId).app().openLedger().current()->seq() +
                     ExportLimits::maxAdmissionWindowLedgers);
         }
     };
@@ -485,7 +506,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             log << net.jobDiagnostics() << std::endl;
             return false;
         }
-        for (std::uint32_t i = 0; i <= observer; ++i)
+        for (std::uint32_t i = 0; i <= world.observerId; ++i)
         {
             auto const ledger = net.ledger(i, warmLedger);
             if (!BEAST_EXPECT(ledger != nullptr))
@@ -498,7 +519,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             if (!BEAST_EXPECT(
                     report &&
                     report->getFieldArray(sfActiveValidators).size() ==
-                        observer))
+                        world.validatorCount))
             {
                 log << "active-view warmup: node=" << i << " seq=" << warmLedger
                     << " report=" << static_cast<bool>(report) << " members="
@@ -510,8 +531,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
             }
         }
         BEAST_EXPECT(net.ledgersAgree(warmLedger));
-        BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
-        BEAST_EXPECT(world.observed->secrets[observer] == 0);
+        BEAST_EXPECT(!net.node(world.observerId).app().getValidatorKeys().keys);
+        BEAST_EXPECT(world.observed->secrets[world.observerId] == 0);
         return true;
     }
 
@@ -3562,6 +3583,18 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 }
             }
         }
+        std::uint32_t v2Builds = 0;
+        std::uint32_t v2Mismatch = 0;
+        for (auto const& built : stats->builds[2])
+        {
+            auto const seq = std::get<0>(built);
+            auto const hash = std::get<2>(built);
+            if (seq < admitSeq || seq > windowEnd)
+                continue;
+            ++v2Builds;
+            if (hash != net.ledgerHash(0, seq))
+                ++v2Mismatch;
+        }
         BEAST_EXPECT(hits[origin] == 1);
         log << "  stale-proposal: delayMs="
             << std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -3577,7 +3610,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
             << " delayed=" << delayedProposals << " stale=" << staleArrivals
             << " mismatches=" << mismatches
             << " droppedDirect=" << droppedDirect << " admit=" << admitSeq
-            << " witness=" << seqW << std::endl;
+            << " witness=" << seqW << " v2Builds=" << v2Builds
+            << " v2Mismatch=" << v2Mismatch << std::endl;
         outcome.push_back(origin);
         outcome.push_back(sha512Half(
             static_cast<std::uint32_t>(
@@ -3589,7 +3623,286 @@ class SteppingExtensions_test : public beast::unit_test::suite
             mismatches,
             droppedDirect,
             admitSeq,
-            seqW));
+            seqW,
+            v2Builds,
+            v2Mismatch));
+        return outcome;
+    }
+
+    std::optional<std::vector<uint256>>
+    survivingQuorum(SteppingNetwork& net)
+    {
+        using namespace std::chrono_literals;
+        constexpr std::uint32_t nVal = 5;
+        constexpr std::uint32_t isolated = 4;
+        World world(net, true, true, nVal);
+        if (!ready(world))
+            return std::nullopt;
+        auto const obs = world.observerId;
+        auto const stats = world.observed;
+        auto const [quorum, trusted] =
+            net.node(0).app().validators().getQuorumKeys();
+        auto const survivors = nVal - 1;
+        if (!BEAST_EXPECT(
+                quorum < nVal && quorum > survivors - 1 &&
+                ExportLimits::committeeQuorumThreshold(nVal) == 4 &&
+                trusted.size() == nVal))
+        {
+            log << "  five-validator quorum is not a surviving majority"
+                << " quorum=" << quorum << " trusted=" << trusted.size()
+                << std::endl;
+            return std::nullopt;
+        }
+        auto const funding = world.submit(
+            obs,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto originReleases = [&](uint256 const& origin, std::uint32_t node) {
+            auto const it = stats->originOwnReleases.find(origin);
+            if (it == stats->originOwnReleases.end())
+                return std::size_t{0};
+            return it->second[node];
+        };
+        auto connected = [&](std::uint32_t node) { return node != isolated; };
+
+        auto const preSeq = net.minValidatedSeq();
+        auto const preHash = net.ledgerHash(0, preSeq);
+        net.isolateNodeAndFlush(isolated);
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    bool moved = net.validSeq(isolated) <= preSeq;
+                    for (std::uint32_t n = 0; n <= obs; ++n)
+                        if (connected(n))
+                            moved = moved && net.validSeq(n) > preSeq;
+                    return moved;
+                },
+                SteppingNetwork::RunBudget{40, 1'200'000})))
+        {
+            log << "  survivors did not validate past the isolated node"
+                << " survivor=" << net.validSeq(0)
+                << " isolated=" << net.validSeq(isolated) << " pre=" << preSeq
+                << std::endl;
+            return std::nullopt;
+        }
+        BEAST_EXPECT(net.mode(isolated) == OperatingMode::DISCONNECTED);
+
+        auto const open = net.node(0).app().openLedger().current()->seq();
+        auto const tx = world.submit(
+            0,
+            world.intent(
+                world.owner,
+                1,
+                open + ExportLimits::maxAdmissionWindowLedgers,
+                {0, 1, 2, 3, 4}),
+            world.owner);
+        if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const origin = tx->getID();
+        std::uint32_t admitSeq = 0;
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    for (auto seq = preSeq; seq <= net.validSeq(0); ++seq)
+                        if (ledgerHasTx(net.ledger(0, seq), origin))
+                            admitSeq = seq;
+                    return admitSeq != 0 && net.validSeq(isolated) <= preSeq;
+                },
+                SteppingNetwork::RunBudget{80, 1'200'000})))
+        {
+            log << "  origin did not validate on the surviving quorum"
+                << " admit=" << admitSeq << " valid=" << net.validSeq(0)
+                << " isolated=" << net.validSeq(isolated) << std::endl;
+            return std::nullopt;
+        }
+        auto const windowEnd = admitSeq + ExportLimits::maxPublicationLedgers;
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    bool reached = net.validSeq(isolated) <= preSeq;
+                    for (std::uint32_t n = 0; n <= obs; ++n)
+                        if (connected(n))
+                            reached = reached && net.validSeq(n) >= windowEnd;
+                    return reached;
+                },
+                SteppingNetwork::RunBudget{160, 1'200'000})))
+        {
+            log << "  survivors did not finish the publication window"
+                << " valid=" << net.validSeq(0) << " windowEnd=" << windowEnd
+                << " isolated=" << net.validSeq(isolated) << std::endl;
+            return std::nullopt;
+        }
+        auto const entropyEnd = windowEnd;
+        for (std::uint32_t n = 0; n < nVal; ++n)
+        {
+            auto const released = originReleases(origin, n);
+            if (n == isolated)
+                BEAST_EXPECT(released == 0);
+            else
+                BEAST_EXPECT(released > 0);
+        }
+        BEAST_EXPECT(originReleases(origin, obs) == 0);
+        for (auto seq = preSeq + 1; seq <= entropyEnd; ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (auto const& [wtx, meta] : canonical->txs)
+            {
+                if (wtx->getTxnType() != ttCONSENSUS_ENTROPY)
+                    continue;
+                if (!BEAST_EXPECT(meta != nullptr))
+                    return std::nullopt;
+                auto const count = wtx->getFieldU16(sfEntropyCount);
+                auto const tier = wtx->getFieldU8(sfEntropyTier);
+                BEAST_EXPECT(
+                    count == 4 || tier == entropyTierConsensusFallback);
+                BEAST_EXPECT(count < nVal);
+                auto const txBytes = wtx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                for (std::uint32_t n = 1; n <= obs; ++n)
+                {
+                    if (!connected(n))
+                        continue;
+                    auto const peer = net.ledger(n, seq);
+                    if (!BEAST_EXPECT(peer != nullptr))
+                        return std::nullopt;
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : peer->txs)
+                    {
+                        if (peerTx->getTransactionID() !=
+                            wtx->getTransactionID())
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes);
+                        BEAST_EXPECT(
+                            peerMeta != nullptr &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+        }
+        for (auto const& built : stats->builds[obs])
+        {
+            auto const seq = std::get<0>(built);
+            auto const hash = std::get<2>(built);
+            if (seq >= admitSeq && seq <= windowEnd)
+                BEAST_EXPECT(hash == net.ledgerHash(0, seq));
+        }
+
+        auto const survivorAtHeal = net.validSeq(0);
+        auto const isolatedAtHeal = net.validSeq(isolated);
+        // Catch-up accepts a ledger at or after the witness, so the latch is
+        // no longer pending and validator 4 does not author a fifth frame.
+        net.reconnectNode(isolated);
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    return net.minValidatedSeq() >= survivorAtHeal &&
+                        net.validSeq(isolated) >= survivorAtHeal &&
+                        net.mode(isolated) == OperatingMode::FULL &&
+                        originReleases(origin, isolated) == 0;
+                },
+                SteppingNetwork::RunBudget{400, 1'200'000})))
+        {
+            log << "  isolated validator did not rejoin without a fifth frame"
+                << " min=" << net.minValidatedSeq()
+                << " target=" << survivorAtHeal
+                << " isolatedValid=" << net.validSeq(isolated)
+                << " mode=" << static_cast<int>(net.mode(isolated))
+                << " lateRelease=" << originReleases(origin, isolated)
+                << std::endl;
+            return std::nullopt;
+        }
+
+        auto bitCount = [](Blob const& bits) {
+            std::size_t n = 0;
+            for (unsigned char byte : bits)
+                for (; byte;
+                     byte = static_cast<unsigned char>(byte & (byte - 1)))
+                    ++n;
+            return n;
+        };
+        auto const seqW = witnessAt(net, origin, warmLedger, 0);
+        std::size_t contributors = 0;
+        if (seqW != 0)
+        {
+            auto const ledger = net.ledger(0, seqW);
+            if (!BEAST_EXPECT(ledger != nullptr))
+                return std::nullopt;
+            for (auto const& [wtx, meta] : ledger->txs)
+            {
+                if (wtx->getTxnType() != ttEXPORT_SIGNATURES ||
+                    wtx->getFieldH256(sfTransactionHash) != origin || !meta)
+                    continue;
+                contributors = bitCount(wtx->getFieldVL(sfExportContributors));
+            }
+        }
+
+        std::uint32_t hits = 0;
+        for (auto seq = warmLedger; seq <= net.minValidatedSeq(); ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (std::uint32_t n = 1; n <= obs; ++n)
+            {
+                auto const ledger = net.ledger(n, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            for (auto const& [wtx, meta] : canonical->txs)
+                if (wtx->getTxnType() == ttEXPORT_SIGNATURES &&
+                    wtx->getFieldH256(sfTransactionHash) == origin)
+                    ++hits;
+        }
+        for (std::uint32_t n = 0; n <= obs; ++n)
+            BEAST_EXPECT(net.ledgerHash(n, preSeq) == preHash);
+        BEAST_EXPECT(net.ledgersAgree(net.minValidatedSeq()));
+        BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(net.mode(isolated) == OperatingMode::FULL);
+        BEAST_EXPECT(net.offThreadJobs() == 0);
+        BEAST_EXPECT(net.failedJobs() == 0);
+        BEAST_EXPECT(!net.node(obs).app().getValidatorKeys().keys);
+        BEAST_EXPECT(stats->secrets[obs] == 0);
+        BEAST_EXPECT(stats->ownReleases[obs] == 0);
+        for (std::uint32_t n = 0; n < nVal; ++n)
+            BEAST_EXPECT(stats->unauthorizedReleases[n] == 0);
+        if (!BEAST_EXPECT(
+                seqW != 0 && seqW > admitSeq && seqW <= windowEnd &&
+                contributors == 4 && hits == 1 && survivorAtHeal > preSeq &&
+                isolatedAtHeal <= preSeq))
+        {
+            log << "  surviving quorum witness was not four contributors once"
+                << " witness=" << seqW << " contributors=" << contributors
+                << " hits=" << hits << " survivor=" << survivorAtHeal
+                << " isolated=" << isolatedAtHeal << std::endl;
+            return std::nullopt;
+        }
+        log << "  surviving-quorum: quorum=" << quorum
+            << " validators=" << nVal << " pre=" << preSeq
+            << " survivor=" << survivorAtHeal
+            << " isolated=" << isolatedAtHeal << " witness=" << seqW
+            << " contributors=" << contributors
+            << " lateRelease=" << originReleases(origin, isolated)
+            << std::endl;
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= net.minValidatedSeq(); ++seq)
+            outcome.push_back(net.ledgerHash(0, seq));
+        outcome.push_back(origin);
+        outcome.push_back(sha512Half(
+            static_cast<std::uint32_t>(quorum),
+            preSeq,
+            survivorAtHeal,
+            isolatedAtHeal,
+            seqW,
+            static_cast<std::uint32_t>(contributors),
+            static_cast<std::uint32_t>(originReleases(origin, isolated))));
         return outcome;
     }
 
@@ -3812,6 +4125,16 @@ public:
                 [this](SteppingNetwork& net) {
                     return staleProposalsStillCarryExport(net);
                 });
+        }
+        if (matches(
+                "surviving quorum validates Export without one validator"))
+        {
+            testcase(
+                "surviving quorum validates Export without one validator");
+            expectReplays(
+                *this,
+                "surviving quorum validates Export without one validator",
+                [this](SteppingNetwork& net) { return survivingQuorum(net); });
         }
         BEAST_EXPECT(selected != 0);
     }
