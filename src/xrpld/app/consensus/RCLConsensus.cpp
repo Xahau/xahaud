@@ -1182,8 +1182,7 @@ RCLConsensus::Adaptor::preStartRound(
         prevLgr.ledger_->rules().enabled(featureExport));
     //@@end pre-start-round-extension-latches
 
-    JLOG(j_.trace()) << "RNGGATE: preStartRound"
-                     << " prevSeq=" << prevLgr.seq()
+    JLOG(j_.trace()) << "RNGGATE: preStartRound" << " prevSeq=" << prevLgr.seq()
                      << " buildSeq=" << (prevLgr.seq() + 1)
                      << " rngEnabled=" << (ce().rngEnabled() ? "yes" : "no")
                      << " exportEnabled="
@@ -1233,13 +1232,6 @@ RCLConsensus::Adaptor::preStartRound(
 
     bool const proposing = validating_ && synced;
 
-    JLOG(j_.info()) << "STARTDIAG: preStartRound"
-                    << " mode=" << app_.getOPs().strOperatingMode()
-                    << " synced=" << (synced ? "yes" : "no")
-                    << " validating=" << (validating_ ? "yes" : "no")
-                    << " proposing=" << (proposing ? "yes" : "no")
-                    << " seq=" << (prevLgr.seq() + 1);
-
     // propose only if we're in sync with the network (and validating)
     return proposing;
 }
@@ -1282,10 +1274,6 @@ RCLConsensus::Adaptor::updateOperatingMode(std::size_t const positions) const
 {
     if (!positions && app_.getOPs().isFull())
     {
-        JLOG(j_.warn()) << "STARTDIAG: updateOperatingMode demoting"
-                        << " from=FULL"
-                        << " to=CONNECTED"
-                        << " positions=" << positions;
         app_.getOPs().setMode(OperatingMode::CONNECTED);
     }
 }

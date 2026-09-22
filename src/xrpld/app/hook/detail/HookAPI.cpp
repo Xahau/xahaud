@@ -682,8 +682,8 @@ HookAPI::emit(Slice const& txBlob) const
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
                         << "]: sfEmitGeneration provided in EmitDetails "
-                        << "not correct (" << gen << ") "
-                        << "should be " << gen_proper;
+                        << "not correct (" << gen << ") " << "should be "
+                        << gen_proper;
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -692,8 +692,8 @@ HookAPI::emit(Slice const& txBlob) const
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
                         << "]: sfEmitBurden provided in EmitDetails "
-                        << "was not correct (" << bur << ") "
-                        << "should be " << bur_proper;
+                        << "was not correct (" << bur << ") " << "should be "
+                        << bur_proper;
         return Unexpected(EMISSION_FAILURE);
     }
 

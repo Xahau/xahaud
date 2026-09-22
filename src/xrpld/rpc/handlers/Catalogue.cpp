@@ -688,9 +688,9 @@ doCatalogueCreate(RPC::JsonContext& context)
 
             predictor.addLedger(info.seq, byteCounter.getBytesWritten());
 
-            JLOG(context.j.info()) << "Ledger " << info.seq << ": Wrote "
-                                   << stateNodesWritten << " state nodes, "
-                                   << "and " << txNodesWritten << " tx nodes";
+            JLOG(context.j.info())
+                << "Ledger " << info.seq << ": Wrote " << stateNodesWritten
+                << " state nodes, " << "and " << txNodesWritten << " tx nodes";
 
             return true;
         }

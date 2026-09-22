@@ -692,9 +692,9 @@ trustAdjustLockedBalance(
 
     if (finalLockedBalance > balance)
     {
-        JLOG(j.trace()) << "trustAdjustLockedBalance: "
-                        << "lockedBalance(" << finalLockedBalance
-                        << ") > balance(" << balance << ") = true\n";
+        JLOG(j.trace()) << "trustAdjustLockedBalance: " << "lockedBalance("
+                        << finalLockedBalance << ") > balance(" << balance
+                        << ") = true\n";
         return tecINSUFFICIENT_FUNDS;
     }
 
@@ -902,9 +902,8 @@ trustTransferAllowed(
                 JLOG(j.trace()) << "trustTransferAllowed: "
                                 // << "parties=[" << parties << "], "
                                 << "issuer: " << issue.account << " "
-                                << "requires TL auth which "
-                                << "party: " << p << " "
-                                << "does not possess.";
+                                << "requires TL auth which " << "party: " << p
+                                << " " << "does not possess.";
                 return tecNO_AUTH;
             }
         }

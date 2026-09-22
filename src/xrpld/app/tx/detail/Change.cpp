@@ -685,9 +685,8 @@ normalizeXahauGenesis(
             }
 
             amounts.emplace_back(idStr, x);
-            JLOG(j.warn()) << "featureXahauGenesis: "
-                           << "initial validator: " << rn
-                           << " =>accid: " << idStr;
+            JLOG(j.warn()) << "featureXahauGenesis: " << "initial validator: "
+                           << rn << " =>accid: " << idStr;
 
             // initial member enumeration
             params.emplace_back(

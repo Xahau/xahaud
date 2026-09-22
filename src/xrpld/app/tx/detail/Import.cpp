@@ -1464,9 +1464,9 @@ Import::doSignerList(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
     // validate signer list
     //
 
-    JLOG(ctx_.journal.warn()) << "Import: actioning SignerListSet "
-                              << "quorum: " << quorum << " "
-                              << "size: " << signers.size();
+    JLOG(ctx_.journal.warn())
+        << "Import: actioning SignerListSet " << "quorum: " << quorum << " "
+        << "size: " << signers.size();
 
     if (SetSignerList::validateQuorumAndSignerEntries(
             quorum, signers, id, ctx_.journal, ctx_.view().rules()) !=
@@ -1523,8 +1523,8 @@ Import::doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
     if (!stpTrans.isFieldPresent(sfRegularKey))
     {
         // delete op
-        JLOG(ctx_.journal.trace()) << "Import: clearing SetRegularKey "
-                                   << " acc: " << id;
+        JLOG(ctx_.journal.trace())
+            << "Import: clearing SetRegularKey " << " acc: " << id;
         if (sle->isFieldPresent(sfRegularKey))
             sle->makeFieldAbsent(sfRegularKey);
         return;

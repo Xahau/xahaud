@@ -459,8 +459,7 @@ ConsensusExtensions::deferExportShare(
                 DeferredExportShare{
                     share, std::move(deferredCharge), serializedBytes});
             JLOG(j_.trace())
-                << "ExportShare: defer queued"
-                << " origin=" << share.originTxn
+                << "ExportShare: defer queued" << " origin=" << share.originTxn
                 << " position=" << unsigned(share.committeePosition)
                 << " wire=" << wireHash
                 << " originSeq=" << share.originLedgerSeq
@@ -939,18 +938,17 @@ ConsensusExtensions::onValidatedLedger(
         for (std::size_t first = 0; first < shares.size();
              first += ExportLimits::maxExportSharesPerRelay)
         {
-            JLOG(j_.trace()) << "ExportShare: local release batch"
-                             << " eventSeq=" << seq
-                             << " validatedSeq=" << validated->info().seq
-                             << " total=" << shares.size();
+            JLOG(j_.trace())
+                << "ExportShare: local release batch" << " eventSeq=" << seq
+                << " validatedSeq=" << validated->info().seq
+                << " total=" << shares.size();
             protocol::TMExportShares message;
             auto const last = std::min(
                 shares.size(), first + ExportLimits::maxExportSharesPerRelay);
             for (auto i = first; i < last; ++i)
             {
                 JLOG(j_.trace())
-                    << "ExportShare: local release frame"
-                    << " eventSeq=" << seq
+                    << "ExportShare: local release frame" << " eventSeq=" << seq
                     << " validatedSeq=" << validated->info().seq
                     << " origin=" << shares[i].originTxn
                     << " position=" << unsigned(shares[i].committeePosition)
@@ -1086,9 +1084,9 @@ admitSidecarLeaf(
         if (malformed)
             *malformed = true;
         JLOG(j.warn()) << owner << ": rejecting sidecar entry"
-                       << " reason=entry-too-large"
-                       << " kind=" << kind << " source=" << source
-                       << " setHash=" << setHash << " itemKey=" << itemKey
+                       << " reason=entry-too-large" << " kind=" << kind
+                       << " source=" << source << " setHash=" << setHash
+                       << " itemKey=" << itemKey
                        << " entryBytes=" << entry.size()
                        << " maxEntryBytes=" << *maxEntryBytes;
         return std::nullopt;
@@ -1106,9 +1104,9 @@ admitSidecarLeaf(
         if (malformed)
             *malformed = true;
         JLOG(j.warn()) << owner << ": rejecting sidecar entry"
-                       << " reason=item-key-mismatch"
-                       << " kind=" << kind << " source=" << source
-                       << " setHash=" << setHash << " itemKey=" << itemKey
+                       << " reason=item-key-mismatch" << " kind=" << kind
+                       << " source=" << source << " setHash=" << setHash
+                       << " itemKey=" << itemKey
                        << " sidecarHash=" << sidecarHash;
         return std::nullopt;
     }
@@ -1436,9 +1434,8 @@ ConsensusExtensions::ingestRngContribution(
     if (!trustedMaster || calcNodeID(*trustedMaster) != nodeId)
     {
         JLOG(j_.warn()) << "RNG: rejecting contribution"
-                        << " reason=node-key-mismatch"
-                        << " kind=" << kindName << " source=" << sourceTag
-                        << " node=" << nodeId;
+                        << " reason=node-key-mismatch" << " kind=" << kindName
+                        << " source=" << sourceTag << " node=" << nodeId;
         return false;
     }
     //@@end rng-contribution-identity-gate
@@ -1528,15 +1525,14 @@ ConsensusExtensions::ingestRngContribution(
             {
                 JLOG(j_.debug())
                     << "RNG: commit proof not cached"
-                    << " reason=nonzero-propose-seq"
-                    << " source=" << sourceTag << " node=" << nodeId
-                    << " proposeSeq=" << proof->proposeSeq << " seq="
+                    << " reason=nonzero-propose-seq" << " source=" << sourceTag
+                    << " node=" << nodeId << " proposeSeq=" << proof->proposeSeq
+                    << " seq="
                     << (seq ? std::to_string(*seq) : std::string{"unknown"});
             }
         }
 
-        JLOG(j_.trace()) << "RNG: admitted contribution"
-                         << " kind=commit"
+        JLOG(j_.trace()) << "RNG: admitted contribution" << " kind=commit"
                          << " source=" << sourceTag << " node=" << nodeId
                          << " proofed="
                          << (commitProofs_.count(nodeId) ? "yes" : "no");
@@ -1546,8 +1542,7 @@ ConsensusExtensions::ingestRngContribution(
     if (!seq)
     {
         JLOG(j_.warn()) << "RNG: rejecting contribution"
-                        << " reason=unknown-sequence"
-                        << " kind=reveal"
+                        << " reason=unknown-sequence" << " kind=reveal"
                         << " source=" << sourceTag << " node=" << nodeId;
         return false;
     }
@@ -1558,18 +1553,16 @@ ConsensusExtensions::ingestRngContribution(
     {
         JLOG(j_.debug()) << "RNG: rejecting contribution"
                          << " reason=reveal-without-commitment"
-                         << " kind=reveal"
-                         << " source=" << sourceTag << " node=" << nodeId
-                         << " seq=" << *seq;
+                         << " kind=reveal" << " source=" << sourceTag
+                         << " node=" << nodeId << " seq=" << *seq;
         return false;
     }
     if (!hasProofedCommit(nodeId))
     {
         JLOG(j_.debug()) << "RNG: rejecting contribution"
                          << " reason=reveal-without-proofed-commit"
-                         << " kind=reveal"
-                         << " source=" << sourceTag << " node=" << nodeId
-                         << " seq=" << *seq;
+                         << " kind=reveal" << " source=" << sourceTag
+                         << " node=" << nodeId << " seq=" << *seq;
         return false;
     }
 
@@ -1578,9 +1571,9 @@ ConsensusExtensions::ingestRngContribution(
     {
         JLOG(j_.warn()) << "RNG: rejecting contribution"
                         << " reason=reveal-commitment-mismatch"
-                        << " kind=reveal"
-                        << " source=" << sourceTag << " node=" << nodeId
-                        << " seq=" << *seq << " expected=" << commitIt->second
+                        << " kind=reveal" << " source=" << sourceTag
+                        << " node=" << nodeId << " seq=" << *seq
+                        << " expected=" << commitIt->second
                         << " calculated=" << expectedCommit;
         return false;
     }
@@ -1595,8 +1588,7 @@ ConsensusExtensions::ingestRngContribution(
         it->second = digest;
     }
     nodeIdToKey_.insert_or_assign(nodeId, publicKey);
-    JLOG(j_.trace()) << "RNG: admitted contribution"
-                     << " kind=reveal"
+    JLOG(j_.trace()) << "RNG: admitted contribution" << " kind=reveal"
                      << " source=" << sourceTag << " node=" << nodeId
                      << " seq=" << *seq;
     return true;
@@ -1641,8 +1633,8 @@ ConsensusExtensions::hasMinimumReveals() const
     auto const revealCount = proofedRevealCount();
     auto const activeValidators = activeValidatorView()->size();
     bool result = revealCount >= expected;
-    JLOG(j_.trace()) << "RNG: reveal quorum check"
-                     << " reveals=" << revealCount << " expected=" << expected
+    JLOG(j_.trace()) << "RNG: reveal quorum check" << " reveals=" << revealCount
+                     << " expected=" << expected
                      << " result=" << (result ? "yes" : "no")
                      << " pendingReveals=" << pendingReveals_.size()
                      << " pendingCommits=" << pendingCommits_.size()
@@ -1746,8 +1738,7 @@ ConsensusExtensions::selectEntropy(
                 "active view source matches round parent");
         }
         JLOG(j_.warn()) << "RNG: using consensus fallback entropy"
-                        << " reason=no-unl-report"
-                        << " seq=" << seq
+                        << " reason=no-unl-report" << " seq=" << seq
                         << " activeValidators=" << validatorView->size()
                         << " originalView=" << validatorView->originalViewSize
                         << " sourceLedgerHash="
@@ -2007,9 +1998,8 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
     // materialization caches, not peer-fetchable transaction-set candidates.
     app_.getInboundTransactions().giveSet(hash, map, false);
 
-    JLOG(j_.debug()) << "RNG: built commitSet SHAMap"
-                     << " hash=" << hash << " seq=" << seq
-                     << " entries=" << entryCount
+    JLOG(j_.debug()) << "RNG: built commitSet SHAMap" << " hash=" << hash
+                     << " seq=" << seq << " entries=" << entryCount
                      << " pendingCommits=" << pendingCommits_.size()
                      << " activeValidators=" << validatorView->size();
     return hash;
@@ -2073,9 +2063,8 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
     // materialization caches, not peer-fetchable transaction-set candidates.
     app_.getInboundTransactions().giveSet(hash, map, false);
 
-    JLOG(j_.debug()) << "RNG: built entropySet SHAMap"
-                     << " hash=" << hash << " seq=" << seq
-                     << " entries=" << entryCount
+    JLOG(j_.debug()) << "RNG: built entropySet SHAMap" << " hash=" << hash
+                     << " seq=" << seq << " entries=" << entryCount
                      << " pendingReveals=" << pendingReveals_.size()
                      << " activeValidators=" << validatorView->size();
     return hash;
@@ -2146,9 +2135,8 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 
     // The moving validated cursor is diagnostic only at this boundary.
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
-    JLOG(j_.debug()) << "Export: built exportSigSet SHAMap"
-                     << " hash=" << hash << " seq=" << seq
-                     << " entries=" << entryCount
+    JLOG(j_.debug()) << "Export: built exportSigSet SHAMap" << " hash=" << hash
+                     << " seq=" << seq << " entries=" << entryCount
                      << " liveOrigins=" << live.size() << " validatedSeq="
                      << (validated ? validated->info().seq : 0)
                      << " validatedHash="
@@ -2690,8 +2678,7 @@ ConsensusExtensions::onPreBuild(
 
     if (rngEnabled())
     {
-        JLOG(j_.info()) << "RNG: injectEntropy"
-                        << " seq=" << seq
+        JLOG(j_.info()) << "RNG: injectEntropy" << " seq=" << seq
                         << " commits=" << pendingCommits_.size()
                         << " reveals=" << pendingReveals_.size()
                         << " entropyFailed=" << (entropyFailed_ ? "yes" : "no")
@@ -2714,8 +2701,7 @@ ConsensusExtensions::onPreBuild(
         Blob const& entropyContributors = selection.contributors;
         //@@end rng-inject-entropy-selection
 
-        JLOG(j_.info()) << "RNG: entropy selected"
-                        << " seq=" << seq
+        JLOG(j_.info()) << "RNG: entropy selected" << " seq=" << seq
                         << " tier=" << static_cast<int>(entropyTier)
                         << " count=" << entropyCount
                         << " denominator=" << entropyDenominator
@@ -2804,8 +2790,8 @@ ConsensusExtensions::onPreBuild(
         }
 
         JLOG(j_.debug())
-            << "Export: preBuild witness context"
-            << " buildSeq=" << seq << " roundParent=" << roundPrevLedgerHash_
+            << "Export: preBuild witness context" << " buildSeq=" << seq
+            << " roundParent=" << roundPrevLedgerHash_
             << " parentSeq=" << (parent ? parent->info().seq : 0)
             << " validatedSeq=" << (validated ? validated->info().seq : 0)
             << " validatedHash="
@@ -2957,15 +2943,14 @@ ConsensusExtensions::onPreBuild(
                 }
             }
             JLOG(j_.debug())
-                << "Export: preBuild witness summary"
-                << " buildSeq=" << seq << " candidates=" << pending.size()
+                << "Export: preBuild witness summary" << " buildSeq=" << seq
+                << " candidates=" << pending.size()
                 << " materialized=" << materialized;
         }
         else
         {
             JLOG(j_.debug())
-                << "Export: preBuild witnesses skipped"
-                << " buildSeq=" << seq
+                << "Export: preBuild witnesses skipped" << " buildSeq=" << seq
                 << " reason=parent-unavailable-or-incompatible-with-validation";
         }
         //@@end export-later-ledger-witness-materialization
@@ -2977,8 +2962,7 @@ ConsensusExtensions::onPreBuild(
         // guard so a future report-expiry or clearing rule cannot silently
         // turn node-local configured trust into ledger-defining authority.
         JLOG(j_.warn()) << "Export: skipping witness materialization"
-                        << " reason=no-unl-report"
-                        << " buildSeq=" << seq;
+                        << " reason=no-unl-report" << " buildSeq=" << seq;
     }
 
     //@@start accept-time-cleanup-success
@@ -2998,8 +2982,7 @@ ConsensusExtensions::harvestRngData(
     uint256 const& prevLedger,
     Slice const& signature)
 {
-    JLOG(j_.trace()) << "RNG: harvestRngData"
-                     << " node=" << nodeId
+    JLOG(j_.trace()) << "RNG: harvestRngData" << " node=" << nodeId
                      << " commit=" << (position.myCommitment ? "yes" : "no")
                      << " reveal=" << (position.myReveal ? "yes" : "no")
                      << " proposeSeq=" << proposeSeq
@@ -3019,8 +3002,7 @@ ConsensusExtensions::harvestRngData(
                     *cfg->rngClaimDropPctX100)
                 {
                     JLOG(j_.warn())
-                        << "RNG: TESTING dropping claim"
-                        << " node=" << nodeId
+                        << "RNG: TESTING dropping claim" << " node=" << nodeId
                         << " dropPctX100=" << *cfg->rngClaimDropPctX100
                         << " proposeSeq=" << proposeSeq;
                     return;
@@ -3060,8 +3042,8 @@ ConsensusExtensions::harvestRngData(
                 RngProofCachePolicy::keepExisting))
         {
             JLOG(j_.trace())
-                << "RNG: harvested commitment"
-                << " node=" << nodeId << " proposeSeq=" << proposeSeq
+                << "RNG: harvested commitment" << " node=" << nodeId
+                << " proposeSeq=" << proposeSeq
                 << " commitment=" << *position.myCommitment;
         }
     }
@@ -3099,9 +3081,8 @@ ConsensusExtensions::harvestRngData(
         {
             JLOG(j_.warn())
                 << "RNG: cannot verify reveal"
-                << " reason=prev-ledger-unavailable"
-                << " node=" << nodeId << " proposeSeq=" << proposeSeq
-                << " prevLedger=" << prevLedger;
+                << " reason=prev-ledger-unavailable" << " node=" << nodeId
+                << " proposeSeq=" << proposeSeq << " prevLedger=" << prevLedger;
             return;
         }
 
@@ -3117,10 +3098,9 @@ ConsensusExtensions::harvestRngData(
                 "proposal",
                 RngProofCachePolicy::keepExisting))
         {
-            JLOG(j_.trace())
-                << "RNG: harvested reveal"
-                << " node=" << nodeId << " proposeSeq=" << proposeSeq
-                << " seq=" << seq << " reveal=" << *position.myReveal;
+            JLOG(j_.trace()) << "RNG: harvested reveal" << " node=" << nodeId
+                             << " proposeSeq=" << proposeSeq << " seq=" << seq
+                             << " reveal=" << *position.myReveal;
         }
     }
     //@@end rng-harvest-reveal-verification
@@ -3350,8 +3330,7 @@ ConsensusExtensions::logPosition(
     if (!j.active(level))
         return;
 
-    j.stream(level) << "STALLDIAG: position-sidecar"
-                    << " commitSetHash="
+    j.stream(level) << "STALLDIAG: position-sidecar" << " commitSetHash="
                     << (pos.commitSetHash ? to_string(*pos.commitSetHash)
                                           : std::string{"none"})
                     << " entropySetHash="
@@ -3379,8 +3358,8 @@ ConsensusExtensions::harvestExportSignatures(
     std::vector<std::string> const& exportSignatures,
     char const* source)
 {
-    JLOG(j_.trace()) << "ExportShare: proposal batch"
-                     << " source=" << source << " parent=" << proposalParent
+    JLOG(j_.trace()) << "ExportShare: proposal batch" << " source=" << source
+                     << " parent=" << proposalParent
                      << " entries=" << exportSignatures.size()
                      << " enabled=" << exportEnabled();
     if (!exportEnabled() || exportSignatures.empty() ||

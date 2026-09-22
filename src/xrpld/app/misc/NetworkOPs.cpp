@@ -2599,12 +2599,12 @@ NetworkOPsImp::pubExportSignature(
         }
     }
 
-    JLOG(m_journal.trace()) << "ExportShare: subscriber dispatch"
-                            << " origin=" << share.originTxn
-                            << " position=" << unsigned(share.committeePosition)
-                            << " wire=" << share.wireHash()
-                            << " validatedSeq=" << validatedLedgerSeq
-                            << " subscribers=" << subscribers.size();
+    JLOG(m_journal.trace())
+        << "ExportShare: subscriber dispatch" << " origin=" << share.originTxn
+        << " position=" << unsigned(share.committeePosition)
+        << " wire=" << share.wireHash()
+        << " validatedSeq=" << validatedLedgerSeq
+        << " subscribers=" << subscribers.size();
     if (subscribers.empty())
         return;
 

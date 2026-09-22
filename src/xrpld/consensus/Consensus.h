@@ -827,13 +827,6 @@ Consensus<Adaptor>::peerProposalInternal(
 
     if (newPeerProp.prevLedger() != prevLedgerID_)
     {
-        JLOG(j_.info()) << "STARTDIAG: peerProposal rejected"
-                        << " reason=prevLedger-mismatch"
-                        << " peer=" << newPeerProp.nodeID()
-                        << " theirPrev=" << newPeerProp.prevLedger()
-                        << " ourPrev=" << prevLedgerID_
-                        << " phase=" << to_string(phase_)
-                        << " seq=" << newPeerProp.proposeSeq();
         return false;
     }
 
@@ -880,11 +873,6 @@ Consensus<Adaptor>::peerProposalInternal(
         else
         {
             currPeerPositions_.emplace(peerID, newPeerPos);
-            JLOG(j_.info()) << "STARTDIAG: peerProposal accepted"
-                            << " peer=" << peerID
-                            << " peerPositions=" << currPeerPositions_.size()
-                            << " seq=" << newPeerProp.proposeSeq()
-                            << " phase=" << to_string(phase_);
         }
     }
 
@@ -1330,8 +1318,7 @@ Consensus<Adaptor>::phaseOpen(std::unique_ptr<std::stringstream> const& clog)
         idleInterval = adaptor_.parms().bootstrapRoundTimeSeed;
     }
     CLOG(clog) << "idle interval set to " << idleInterval.count()
-               << "ms based on "
-               << "ledgerIDLE_INTERVAL: "
+               << "ms based on " << "ledgerIDLE_INTERVAL: "
                << adaptor_.parms().ledgerIDLE_INTERVAL.count()
                << ", previous ledger close time resolution: "
                << previousLedger_.closeTimeResolution().count() << "ms"
@@ -1398,8 +1385,7 @@ Consensus<Adaptor>::shouldPause(
          << "roundTime: " << result_->roundTime.read().count() << ", "
          << "max consensus time: " << parms.ledgerMAX_CONSENSUS.count() << ", "
          << "validators: " << totalValidators << ", "
-         << "laggards: " << laggards << ", "
-         << "offline: " << offline << ", "
+         << "laggards: " << laggards << ", " << "offline: " << offline << ", "
          << "quorum: " << quorum << ")";
 
     if (!ahead || !laggards || !totalValidators || !adaptor_.validator() ||
@@ -1530,13 +1516,6 @@ Consensus<Adaptor>::phaseEstablish(
     {
         CLOG(clog) << "ledgerMIN_CONSENSUS not reached: "
                    << parms.ledgerMIN_CONSENSUS.count() << "ms. ";
-        JLOG(j_.trace()) << "STALLDIAG: establish wait ledgerMIN_CONSENSUS"
-                         << " roundMs=" << result_->roundTime.read().count()
-                         << " minMs=" << parms.ledgerMIN_CONSENSUS.count()
-                         << " peerPositions=" << currPeerPositions_.size()
-                         << " prevProposers=" << prevProposers_
-                         << " phase=" << to_string(phase_)
-                         << " mode=" << to_string(mode_.get());
         return;
     }
 
@@ -1548,26 +1527,12 @@ Consensus<Adaptor>::phaseEstablish(
     // Nothing to do if too many laggards or we don't have consensus.
     if (paused || !txConsensus)
     {
-        JLOG(j_.info()) << "STALLDIAG: establish gate blocked"
-                        << " reason=" << (paused ? "pause" : "no-tx-consensus")
-                        << " roundMs=" << result_->roundTime.read().count()
-                        << " peerPositions=" << currPeerPositions_.size()
-                        << " prevProposers=" << prevProposers_
-                        << " phase=" << to_string(phase_)
-                        << " mode=" << to_string(mode_.get());
         return;
     }
 
     if (!haveCloseTimeConsensus_)
     {
         JLOG(j_.info()) << "We have TX consensus but not CT consensus";
-        JLOG(j_.info()) << "STALLDIAG: establish gate blocked"
-                        << " reason=no-close-time-consensus"
-                        << " roundMs=" << result_->roundTime.read().count()
-                        << " peerPositions=" << currPeerPositions_.size()
-                        << " prevProposers=" << prevProposers_
-                        << " phase=" << to_string(phase_)
-                        << " mode=" << to_string(mode_.get());
         CLOG(clog) << "We have TX consensus but not CT consensus. ";
         return;
     }
@@ -1619,10 +1584,6 @@ Consensus<Adaptor>::phaseEstablish(
             return;
     }
 
-    JLOG(j_.info()) << "STARTDIAG: converge cutoff"
-                    << " peerPositions=" << currPeerPositions_.size()
-                    << " roundMs=" << result_->roundTime.read().count()
-                    << " mode=" << to_string(mode_.get());
     JLOG(j_.info()) << "Converge cutoff (" << currPeerPositions_.size()
                     << " participants)";
     CLOG(clog) << "Converge cutoff (" << currPeerPositions_.size()
@@ -1904,8 +1865,8 @@ Consensus<Adaptor>::updateOurPositions(
         if (!haveCloseTimeConsensus_)
         {
             JLOG(j_.debug())
-                << "No CT consensus:"
-                << " Proposers:" << currPeerPositions_.size()
+                << "No CT consensus:" << " Proposers:"
+                << currPeerPositions_.size()
                 << " Mode:" << to_string(mode_.get())
                 << " Thresh:" << threshConsensus
                 << " Pos:" << consensusCloseTime.time_since_epoch().count();
@@ -2005,19 +1966,6 @@ Consensus<Adaptor>::haveConsensus(
     auto currentFinished =
         adaptor_.proposersFinished(previousLedger_, prevLedgerID_);
 
-    JLOG(j_.info()) << "STARTDIAG: haveConsensus"
-                    << " agree=" << agree << " disagree=" << disagree
-                    << " total=" << (agree + disagree)
-                    << " peerPositions=" << currPeerPositions_.size()
-                    << " prevProposers=" << prevProposers_
-                    << " roundMs=" << result_->roundTime.read().count()
-                    << " mode=" << to_string(mode_.get());
-    JLOG(j_.trace()) << "STALLDIAG: haveConsensus-self"
-                     << " position=" << ourPosition << " closeTime="
-                     << result_->position.closeTime().time_since_epoch().count()
-                     << " haveCloseTimeConsensus="
-                     << (haveCloseTimeConsensus_ ? "yes" : "no")
-                     << " phase=" << to_string(phase_);
     if constexpr (requires(Adaptor& a) { a.ce(); })
         adaptor_.ce().logPosition(ourPosition, j_);
 
@@ -2083,15 +2031,6 @@ Consensus<Adaptor>::haveConsensus(
 
     if (result_->state == ConsensusState::No)
     {
-        JLOG(j_.debug()) << "STALLDIAG: haveConsensus-result"
-                         << " state=No"
-                         << " agree=" << agree << " disagree=" << disagree
-                         << " total=" << (agree + disagree)
-                         << " finished=" << currentFinished
-                         << " peerPositions=" << currPeerPositions_.size()
-                         << " prevProposers=" << prevProposers_
-                         << " roundMs=" << result_->roundTime.read().count()
-                         << " mode=" << to_string(mode_.get());
         CLOG(clog) << "No consensus. ";
         return false;
     }
@@ -2127,15 +2066,6 @@ Consensus<Adaptor>::haveConsensus(
     // without us.
     if (result_->state == ConsensusState::MovedOn)
     {
-        JLOG(j_.warn()) << "STALLDIAG: haveConsensus-result"
-                        << " state=MovedOn"
-                        << " agree=" << agree << " disagree=" << disagree
-                        << " total=" << (agree + disagree)
-                        << " finished=" << currentFinished
-                        << " peerPositions=" << currPeerPositions_.size()
-                        << " prevProposers=" << prevProposers_
-                        << " roundMs=" << result_->roundTime.read().count()
-                        << " mode=" << to_string(mode_.get());
         JLOG(j_.error()) << "Unable to reach consensus";
         JLOG(j_.error()) << Json::Compact{getJson(true)};
         CLOG(clog) << "Unable to reach consensus "

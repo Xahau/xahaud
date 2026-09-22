@@ -200,8 +200,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                 << " txSet=" << ourPos;
 
             JLOG(ext.j_.debug())
-                << "STALLDIAG: sidecar"
-                << " commitSetHash="
+                << "STALLDIAG: sidecar" << " commitSetHash="
                 << (ourPos.commitSetHash ? to_string(*ourPos.commitSetHash)
                                          : std::string{"none"})
                 << " entropySetHash="
@@ -223,8 +222,8 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
             auto const likelyParticipants = ext.expectedProposerCount();
 
             JLOG(ext.j_.debug())
-                << "STALLDIAG: rng-counters"
-                << " commits=" << commits << " quorum=" << quorum
+                << "STALLDIAG: rng-counters" << " commits=" << commits
+                << " quorum=" << quorum
                 << " commitQuorum=" << (commitQuorum ? "yes" : "no")
                 << " reveals=" << std::to_string(reveals)
                 << " minReveals=" << (minReveals ? "yes" : "no")
@@ -298,15 +297,14 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                 requestProposal();
 
             JLOG(ext.j_.debug())
-                << "RNG: published entropySet"
-                << " buildSeq=" << buildSeq << " hash=" << entropySetHash
-                << " proposing="
+                << "RNG: published entropySet" << " buildSeq=" << buildSeq
+                << " hash=" << entropySetHash << " proposing="
                 << (ctx.mode == ConsensusMode::proposing ? "yes" : "no");
         };
 
         JLOG(ext.j_.trace())
-            << "RNG: phaseEstablish"
-            << " buildSeq=" << buildSeq << " estState=" << estStateName()
+            << "RNG: phaseEstablish" << " buildSeq=" << buildSeq
+            << " estState=" << estStateName()
             << " roundMs=" << ctx.roundTime.count()
             << " mode=" << to_string(ctx.mode);
 
@@ -589,8 +587,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                 {
                     ext.setEntropyFailed();
                     JLOG(ext.j_.warn())
-                        << "RNG: entropy failed"
-                        << " reason=no-reveals"
+                        << "RNG: entropy failed" << " reason=no-reveals"
                         << " buildSeq=" << buildSeq
                         << " elapsedMs=" << toMs(elapsed)
                         << " deadlineMs=" << toMs(ctx.parms.rngREVEAL_TIMEOUT);
@@ -850,8 +847,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                     //@@end rng-entropy-positive-alignment-gate
 
                     JLOG(ext.j_.debug())
-                        << "RNG: entropy gate"
-                        << " buildSeq=" << buildSeq
+                        << "RNG: entropy gate" << " buildSeq=" << buildSeq
                         << " aligned=" << entropyState.aligned
                         << " alignedParticipants="
                         << entropyState.alignedParticipants()
@@ -870,8 +866,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
     else
     {
         JLOG(ext.j_.debug())
-            << "RNGGATE: skipping RNG substates"
-            << " buildSeq=" << ctx.buildSeq
+            << "RNGGATE: skipping RNG substates" << " buildSeq=" << ctx.buildSeq
             << " prevSeq=" << (static_cast<std::uint32_t>(ctx.buildSeq) - 1)
             << " mode=" << to_string(ctx.mode);
     }
@@ -912,9 +907,9 @@ exportTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
         if (!ext.exportFinalizationViewAnchored())
         {
             ext.clearAcceptedExportSigSet();
-            JLOG(ext.j_.warn()) << "Export: skipping signature-set alignment"
-                                << " reason=no-unl-report"
-                                << " buildSeq=" << ctx.buildSeq;
+            JLOG(ext.j_.warn())
+                << "Export: skipping signature-set alignment"
+                << " reason=no-unl-report" << " buildSeq=" << ctx.buildSeq;
             return {.readyForAccept = true};
         }
 
@@ -1203,8 +1198,7 @@ exportTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                     JLOG(ext.j_.warn())
                         << "Export: exportSigSet quorum alignment timeout"
                         << " buildSeq=" << buildSeqExport
-                        << " action=wait-or-expire"
-                        << " alignedParticipants="
+                        << " action=wait-or-expire" << " alignedParticipants="
                         << exportState.alignedParticipants()
                         << " quorum=" << exportQuorum
                         << " peersSeen=" << exportState.peersSeen

@@ -175,8 +175,8 @@ ammLPHolds(
 
         amount.setIssuer(ammAccount);
 
-        JLOG(j.trace()) << "ammLPHolds:"
-                        << " lpAccount=" << to_string(lpAccount)
+        JLOG(j.trace()) << "ammLPHolds:" << " lpAccount="
+                        << to_string(lpAccount)
                         << " amount=" << amount.getFullText();
     }
 

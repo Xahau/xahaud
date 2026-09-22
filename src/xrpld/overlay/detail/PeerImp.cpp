@@ -1181,8 +1181,8 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
         bool const freshForState =
             app_.getHashRouter().addSuppressionPeer(admissionKey, id_);
         JLOG(journal_.trace())
-            << "ExportShare: wire received"
-            << " peer=" << id_ << " origin=" << (*shares)[i].originTxn
+            << "ExportShare: wire received" << " peer=" << id_
+            << " origin=" << (*shares)[i].originTxn
             << " position=" << unsigned((*shares)[i].committeePosition)
             << " wire=" << (*shares)[i].wireHash()
             << " suppressionSeq=" << validatedSeq << " fresh=" << freshForState;

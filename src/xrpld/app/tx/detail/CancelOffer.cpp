@@ -67,8 +67,8 @@ CancelOffer::preclaim(PreclaimContext const& ctx)
 
     if (offerSequence && (*sle)[sfSequence] <= *offerSequence)
     {
-        JLOG(ctx.j.trace()) << "Malformed transaction: "
-                            << "Sequence " << *offerSequence << " is invalid.";
+        JLOG(ctx.j.trace()) << "Malformed transaction: " << "Sequence "
+                            << *offerSequence << " is invalid.";
         return temBAD_SEQUENCE;
     }
 
