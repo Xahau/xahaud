@@ -498,6 +498,37 @@ public:
         app_->signalStop("MultiNode");
         if (runThread_.joinable())
             runThread_.join();
+
+        // Overlay::stop returns once the child list is empty. That list can
+        // already be empty, so stopChildren may still be queued on the io
+        // service. One handler per io thread, posted after run() returns, runs
+        // only after that queued work. Then stop the service so those threads
+        // leave run() before the overlay object is destroyed.
+        auto const ioThreads = [](Config const& config) -> std::size_t {
+            if (config.steppingMode)
+                return 0;
+#if RIPPLE_SINGLE_IO_SERVICE_THREAD
+            return 1;
+#else
+            if (config.IO_WORKERS > 0)
+                return static_cast<std::size_t>(config.IO_WORKERS);
+            auto const cores = std::thread::hardware_concurrency();
+            if (cores == 1 || (config.NODE_SIZE == 0 && cores == 2))
+                return 1;
+            return 2;
+#endif
+        };
+        auto const n = ioThreads(app_->config());
+        if (n > 0)
+        {
+            auto& io = app_->getIOService();
+            std::atomic<int> ran{0};
+            for (std::size_t i = 0; i < n; ++i)
+                io.post([&ran] { ran.fetch_add(1, std::memory_order_release); });
+            while (ran.load(std::memory_order_acquire) < static_cast<int>(n))
+                std::this_thread::yield();
+            io.stop();
+        }
     }
 
     NodeBundle(NodeBundle const&) = delete;
