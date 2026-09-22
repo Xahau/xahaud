@@ -17,6 +17,10 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
+#include <xrpl/beast/utility/temp_dir.h>
+
+#include <deque>
 #include <test/jtx/WSClient.h>
 #include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
@@ -286,9 +290,32 @@ makeRCLTxSet(Application& app, std::vector<std::shared_ptr<STTx const>> txns)
     return RCLTxSet{map->snapShot(false)};
 }
 
+std::unique_ptr<Config>
+networkEnv(std::unique_ptr<Config> cfg)
+{
+    // Non-standalone before the app thread starts. Mutating Config after
+    // Env::run races the stall-detector read. A non-standalone app also
+    // refuses an empty database path, so each call gets its own directory
+    // that outlives every Env in this process.
+    static std::deque<beast::temp_dir> dirs;
+    dirs.emplace_back();
+    auto const path = dirs.back().path();
+    cfg->setupControl(true, true, false);
+    cfg->NODE_SIZE = 0;
+    cfg->armStallDetector = false;
+    cfg->installSignalHandlers = false;
+    cfg->CONFIG_DIR = path;
+    cfg->legacy("database_path", path);
+    return cfg;
+}
+
 void
 forceNonStandalone(Application& app)
 {
+    // ledger_accept captured standalone at startup, so these tests have to
+    // start standalone and close ledgers first. The extension logic then
+    // reads the live flag. Drain workers before the write.
+    app.getJobQueue().rendezvous();
     const_cast<Config&>(app.config()).setupControl(true, true, false);
 }
 
@@ -1516,10 +1543,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy,
             nullptr};
-        forceNonStandalone(env.app());
         BEAST_EXPECT(!env.app().config().standalone());
 
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
@@ -1570,10 +1596,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy,
             nullptr};
-        forceNonStandalone(env.app());
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
         auto const seq = ledger->seq() + 1;
         auto const txSetHash = makeHash("txn-order-base-set");
@@ -1608,10 +1633,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy,
             nullptr};
-        forceNonStandalone(env.app());
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
         auto const& valKeys = env.app().getValidatorKeys();
         BEAST_EXPECT(valKeys.keys);
@@ -1674,10 +1698,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy,
             nullptr};
-        forceNonStandalone(env.app());
 
         std::array<std::uint8_t, 32> firstSecretBytes{};
         std::array<std::uint8_t, 32> secondSecretBytes{};
@@ -1776,10 +1799,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy,
             nullptr};
-        forceNonStandalone(env.app());
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
         auto const& valKeys = env.app().getValidatorKeys();
         BEAST_EXPECT(valKeys.keys);
@@ -1845,10 +1867,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy,
             nullptr};
-        forceNonStandalone(env.app());
 
         auto const first = randomKeyPair(KeyType::secp256k1);
         auto const second = randomKeyPair(KeyType::secp256k1);
@@ -1919,10 +1940,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy,
             nullptr};
-        forceNonStandalone(env.app());
 
         // A 6-validator UNLReport opens the tier-2 band:
         //   tier2Threshold  = 4 (smallest cohort whose overlap exceeds f=1)
@@ -2052,11 +2072,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy |
                 featureNegativeUNL,
             nullptr};
-        forceNonStandalone(env.app());
 
         // Ten active validators with two disabled via NegativeUNL: the
         // original-UNL denominator is 10 (Byzantine bound f = floor(10/5) = 2)
@@ -2117,11 +2136,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy |
                 featureNegativeUNL,
             nullptr};
-        forceNonStandalone(env.app());
 
         // 20 original active validators, 1 disabled by nUNL:
         //   originalViewSize = 20 -> tier2Threshold = 13
@@ -2772,8 +2790,11 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         Account const alice{"alice"};
         env.fund(XRP(1000), alice);
         env.close();
-
-        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        // The advance job may still call setFullLedger on the closed ledger.
+        // Copy only after that ledger is validated and full, and after the
+        // job queue has drained.
+        env.app().getJobQueue().rendezvous();
+        auto const parent = env.app().getLedgerMaster().getValidatedLedger();
         BEAST_EXPECT(parent);
         if (!parent)
             return;
@@ -2801,6 +2822,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             validated->info().closeTime,
             validated->info().closeTimeResolution,
             true);
+        // Successor copy before the app publishes this ledger. setFullLedger
+        // writes the map's full flag from the advance job.
+        auto nextParent = std::make_shared<Ledger>(
+            *validated, env.app().timeKeeper().closeTime());
         env.app().getLedgerMaster().setFullLedger(validated, false, false);
         auto const currentValidated =
             env.app().getLedgerMaster().getValidatedLedger();
@@ -2844,8 +2869,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.hasPendingExportSigs());
         BEAST_EXPECT(leafCount(ce.buildExportSigSet(deadline)) == 1);
 
-        auto nextParent = std::make_shared<Ledger>(
-            *validated, env.app().timeKeeper().closeTime());
         nextParent->updateSkipList();
         nextParent->setAccepted(
             nextParent->info().closeTime,
@@ -2963,6 +2986,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         Account const bob{"cursor-bob"};
         env.fund(XRP(1000), alice, bob);
         env.close();
+        forceNonStandalone(env.app());
         // A real keyless observer. The test holds the remote validator's key
         // only to construct its independently signed report/share fixtures.
         if (!BEAST_EXPECT(!env.app().getValidatorKeys().keys))
@@ -2989,7 +3013,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 env.now() + std::chrono::seconds{5},
                 std::chrono::milliseconds{0})))
             return;
-        forceNonStandalone(env.app());
         auto& master = env.app().getLedgerMaster();
         auto const beforeOrigin = master.getClosedLedger();
         if (!BEAST_EXPECT(
@@ -3580,7 +3603,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         using namespace jtx;
         Env env{
             *this,
-            envconfig(validator, ""),
+            networkEnv(envconfig(validator, "")),
             supported_amendments() | featureConsensusEntropy,
             nullptr};
         auto const seq = env.closed()->seq() + 1;
@@ -3641,7 +3664,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(alternateAgreed.id() != agreed.id());
         BEAST_EXPECT(alternateBuild.txns.id() == build.txns.id());
 
-        forceNonStandalone(env.app());
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
         ConsensusExtensions derivation{env.app(), activeNoopJournal()};
         ConsensusExtensions alternateDerivation{env.app(), activeNoopJournal()};
@@ -4888,6 +4910,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         Account const carol{"carol"};
         env.fund(XRP(1000), alice, carol);
         env.close();
+        forceNonStandalone(env.app());
 
         auto const& valKeys = env.app().getValidatorKeys();
         if (!BEAST_EXPECT(valKeys.keys))
@@ -4913,7 +4936,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
                 env.now() + std::chrono::seconds{5},
                 std::chrono::milliseconds{0})))
             return;
-        forceNonStandalone(env.app());
 
         auto& ledgerMaster = env.app().getLedgerMaster();
         auto const universe = ledgerMaster.getClosedLedger();
