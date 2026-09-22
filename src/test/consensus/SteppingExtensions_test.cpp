@@ -6,6 +6,8 @@
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
+#include <xrpld/consensus/ConsensusExtensionsTick.h>
+#include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/scope.h>
@@ -2326,14 +2328,19 @@ class SteppingExtensions_test : public beast::unit_test::suite
             if (ledgerHasTx(net.ledger(0, seq), reusedId))
                 dupSeq = seq;
         auto const prunedLedger = net.ledger(0, dupSeq);
-        auto const pruned = prunedLedger ? prunedLedger->read(latchKey) : nullptr;
+        auto const pruned =
+            prunedLedger ? prunedLedger->read(latchKey) : nullptr;
         auto const ownerNow = prunedLedger
             ? prunedLedger->read(keylet::account(ownerId))
                   ->getFieldU32(sfOwnerCount)
             : 0;
         // tecDUPLICATE is claim-hard: Transactor resets the view, so the
-        // prune inside that failed intent does not stick. The reserve stays.
-        if (!BEAST_EXPECT(pruned && ownerNow == ownerAtRelease))
+        // prune inside that failed intent does not stick. The reserve stays
+        // and the pending link is still there.
+        if (!BEAST_EXPECT(
+                pruned && pruned->isFieldPresent(sfExportNode) &&
+                pendingDirContains(*prunedLedger, latchKey.key) &&
+                ownerNow == ownerAtRelease))
             return std::nullopt;
 
         auto const freshOpen = net.node(0).app().openLedger().current()->seq();
@@ -2463,7 +2470,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
         bool hold = true;
         std::uint32_t held = 0;
         bool waitedPastDeadline = false;
-        constexpr auto roundDeadline = 3s;
+        auto const roundDeadline =
+            ripple::detail::sidecarConvergenceTimeout(ConsensusParms{});
+        auto const releaseAfter = roundDeadline - 1s;
         auto const holdMinority = [&](std::uint16_t type,
                                       SimPipe::Frame bytes) {
             SimFault fault;
@@ -2528,7 +2537,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         return false;
                     auto const elapsed =
                         net.controller().now() - ce.exportSigGateStart_;
-                    return elapsed >= 2s && elapsed <= roundDeadline;
+                    return elapsed >= releaseAfter && elapsed <= roundDeadline;
                 },
                 SteppingNetwork::RunBudget{80, 1'200'000})))
         {
@@ -2542,6 +2551,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
 
         auto const elapsedAtRelease =
             net.controller().now() - validatorCE.exportSigGateStart_;
+        auto const gateSeq = net.closedSeq(0) + 1;
         hold = false;
         for (std::uint32_t to = 0; to <= observer; ++to)
             if (to != 2)
@@ -2636,8 +2646,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
             << std::chrono::duration_cast<std::chrono::milliseconds>(
                    elapsedAtRelease)
                    .count()
-            << " publishedAfter=" << publishedAfter << " witness=" << seqW
-            << std::endl;
+            << " gateSeq=" << gateSeq << " publishedAfter=" << publishedAfter
+            << " witness=" << seqW << std::endl;
         outcome.push_back(origin);
         outcome.push_back(sha512Half(
             held,
@@ -2645,8 +2655,255 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 std::chrono::duration_cast<std::chrono::milliseconds>(
                     elapsedAtRelease)
                     .count()),
+            gateSeq,
             publishedAfter,
             seqW));
+        return outcome;
+    }
+
+    std::optional<std::vector<uint256>>
+    lateMaterialAfterDeadline(SteppingNetwork& net)
+    {
+        using namespace std::chrono_literals;
+        World world(net, true, true);
+        if (!ready(world))
+            return std::nullopt;
+
+        test::StreamSink observerSink{beast::severities::kTrace};
+        test::StreamSink validatorSink{beast::severities::kTrace};
+        auto& observerCE = net.node(observer).app().getConsensusExtensions();
+        auto& validatorCE = net.node(0).app().getConsensusExtensions();
+        auto const previousObserver = observerCE.j_;
+        auto const previousValidator = validatorCE.j_;
+        observerCE.j_ = beast::Journal{observerSink};
+        validatorCE.j_ = beast::Journal{validatorSink};
+        scope_exit restoreJournal{[&]() {
+            observerCE.j_ = previousObserver;
+            validatorCE.j_ = previousValidator;
+        }};
+
+        auto const stats = world.observed;
+        auto const funding = world.submit(
+            observer,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        bool hold = true;
+        bool sawTimeoutAccept = false;
+        std::uint32_t timeoutSeq = 0;
+        std::uint32_t held = 0;
+        auto const holdMinority = [&](std::uint16_t type,
+                                      SimPipe::Frame bytes) {
+            SimFault fault;
+            if (!hold)
+                return fault;
+            if (type == protocol::mtEXPORT_SHARES)
+            {
+                ++held;
+                fault.drop = true;
+            }
+            else if (type == protocol::mtPROPOSE_LEDGER)
+            {
+                auto const proposal =
+                    decodeFrame<protocol::TMProposeSet>(bytes);
+                if (proposal && proposal->exportsignatures_size() != 0)
+                {
+                    ++held;
+                    fault.drop = true;
+                }
+            }
+            return fault;
+        };
+        for (std::uint32_t to = 0; to <= observer; ++to)
+            if (to != 2)
+                net.faultFrames(2, to, holdMinority);
+        net.controller().observeJobs(
+            [&](std::uint32_t id, JobType type, std::string const&) {
+                if (sawTimeoutAccept || id != 0 || type != jtACCEPT || !hold)
+                    return;
+                auto const& ce = net.node(0).app().getConsensusExtensions();
+                if (!ce.exportSigConvergenceFailed())
+                    return;
+                sawTimeoutAccept = true;
+                timeoutSeq = net.closedSeq(0) + 1;
+            });
+
+        auto const open = net.node(0).app().openLedger().current()->seq();
+        auto const tx = world.submit(
+            0,
+            world.intent(
+                world.owner, 1, open + ExportLimits::maxAdmissionWindowLedgers),
+            world.owner);
+        if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const origin = tx->getID();
+
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] {
+                    return sawTimeoutAccept && timeoutSeq != 0 &&
+                        net.validSeq(0) >= timeoutSeq &&
+                        witnessAt(net, origin, warmLedger) == 0;
+                },
+                SteppingNetwork::RunBudget{80, 1'200'000})))
+        {
+            log << "  gate did not time out before the minority release"
+                << " held=" << held << " timeoutAccept=" << sawTimeoutAccept
+                << " timeoutSeq=" << timeoutSeq
+                << " valid=" << net.validSeq(0) << std::endl;
+            return std::nullopt;
+        }
+
+        std::uint32_t admitSeq = 0;
+        for (auto seq = warmLedger; seq <= net.validSeq(0); ++seq)
+            if (ledgerHasTx(net.ledger(0, seq), origin))
+                admitSeq = seq;
+        if (!BEAST_EXPECT(admitSeq != 0))
+            return std::nullopt;
+        auto const decidedSeq = timeoutSeq;
+        if (!BEAST_EXPECT(
+                decidedSeq <= admitSeq + ExportLimits::maxPublicationLedgers))
+        {
+            log << "  timed-out round is already outside the publication window"
+                << " admit=" << admitSeq << " timeoutSeq=" << timeoutSeq
+                << " decided=" << decidedSeq << " held=" << held << std::endl;
+            return std::nullopt;
+        }
+        BEAST_EXPECT(net.ledgersAgree(decidedSeq));
+        BEAST_EXPECT(witnessAt(net, origin, warmLedger) == 0);
+        for (std::uint32_t n = 0; n <= observer; ++n)
+        {
+            auto const ledger = net.ledger(n, decidedSeq);
+            if (!BEAST_EXPECT(ledger != nullptr))
+                return std::nullopt;
+            for (auto const& [wtx, meta] : ledger->txs)
+                if (wtx->getTxnType() == ttEXPORT_SIGNATURES)
+                    BEAST_EXPECT(
+                        wtx->getFieldH256(sfTransactionHash) != origin);
+        }
+
+        auto const observerMark = observerSink.messages().str().size();
+        auto const validatorMark = validatorSink.messages().str().size();
+        hold = false;
+        for (std::uint32_t to = 0; to <= observer; ++to)
+            if (to != 2)
+                net.faultFrames(2, to, {});
+        auto const windowEnd = admitSeq + ExportLimits::maxPublicationLedgers;
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] { return net.minValidatedSeq() >= windowEnd; },
+                SteppingNetwork::RunBudget{40, 1'200'000})))
+            return std::nullopt;
+
+        auto const accepted = std::to_string(
+            static_cast<unsigned>(ExportSigCollector::AdmitResult::accepted));
+        auto const originText = "origin=" + to_string(origin);
+        bool sawAccepted = false;
+        {
+            std::istringstream in{
+                observerSink.messages().str().substr(observerMark)};
+            for (std::string line; std::getline(in, line);)
+            {
+                if (line.find("ExportShare: collector commit") ==
+                    std::string::npos)
+                    continue;
+                if (line.find(originText) == std::string::npos)
+                    continue;
+                if (line.find("signatureVerified=true") == std::string::npos)
+                    continue;
+                if (line.find("result=" + accepted) == std::string::npos)
+                    continue;
+                sawAccepted = true;
+                break;
+            }
+        }
+        auto const seqW = witnessAt(net, origin, warmLedger);
+        if (!BEAST_EXPECT(
+                sawAccepted && seqW != 0 && seqW > decidedSeq &&
+                seqW <= windowEnd))
+        {
+            log << "  late material after the deadline did not witness"
+                << " decided=" << decidedSeq << " admit=" << admitSeq
+                << " windowEnd=" << windowEnd << " witness=" << seqW
+                << " accepted=" << sawAccepted << std::endl;
+            auto dump = [&](char const* who, std::string const& text) {
+                std::istringstream in{text};
+                for (std::string line; std::getline(in, line);)
+                    if (line.find(originText) != std::string::npos &&
+                        line.find("ExportShare:") != std::string::npos)
+                        log << "    " << who << " " << line << std::endl;
+            };
+            dump("observer", observerSink.messages().str().substr(observerMark));
+            dump(
+                "validator",
+                validatorSink.messages().str().substr(validatorMark));
+            return std::nullopt;
+        }
+
+        BEAST_EXPECT(net.ledgersAgree(net.minValidatedSeq()));
+        BEAST_EXPECT(net.validatedForkFree());
+        BEAST_EXPECT(!net.node(observer).app().getValidatorKeys().keys);
+        for (std::uint32_t n = 0; n < observer; ++n)
+            BEAST_EXPECT(stats->unauthorizedReleases[n] == 0);
+        BEAST_EXPECT(stats->builds[observer].contains(
+            {seqW, net.ledgerHash(0, seqW - 1), net.ledgerHash(0, seqW)}));
+
+        std::map<uint256, std::uint32_t> hits;
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= net.minValidatedSeq(); ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (std::uint32_t i = 1; i <= observer; ++i)
+            {
+                auto const ledger = net.ledger(i, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            outcome.push_back(canonical->info().hash);
+            for (auto const& [wtx, meta] : canonical->txs)
+            {
+                if (wtx->getTxnType() != ttEXPORT_SIGNATURES)
+                    continue;
+                if (!BEAST_EXPECT(meta != nullptr))
+                    return std::nullopt;
+                auto const id = wtx->getFieldH256(sfTransactionHash);
+                ++hits[id];
+                auto const txBytes = wtx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                outcome.push_back(
+                    sha512Half(makeSlice(txBytes), makeSlice(metaBytes)));
+                for (std::uint32_t i = 0; i <= observer; ++i)
+                {
+                    auto const ledger = net.ledger(i, seq);
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : ledger->txs)
+                    {
+                        if (peerTx->getTxnType() != ttEXPORT_SIGNATURES ||
+                            peerTx->getFieldH256(sfTransactionHash) != id)
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes);
+                        BEAST_EXPECT(
+                            peerMeta != nullptr &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+        }
+        BEAST_EXPECT(hits[origin] == 1);
+        log << "  late-after-deadline: held=" << held << " admit=" << admitSeq
+            << " decided=" << decidedSeq << " windowEnd=" << windowEnd
+            << " witness=" << seqW << " accepted=" << sawAccepted << std::endl;
+        outcome.push_back(origin);
+        outcome.push_back(sha512Half(held, admitSeq, decidedSeq, seqW));
         return outcome;
     }
 
@@ -2847,6 +3104,17 @@ public:
                 "once",
                 [this](SteppingNetwork& net) {
                     return candidateChangeInsideDeadline(net);
+                });
+        }
+        if (matches(
+                "post-deadline minority material still witnesses once"))
+        {
+            testcase("post-deadline minority material still witnesses once");
+            expectReplays(
+                *this,
+                "post-deadline minority material still witnesses once",
+                [this](SteppingNetwork& net) {
+                    return lateMaterialAfterDeadline(net);
                 });
         }
         BEAST_EXPECT(selected != 0);
