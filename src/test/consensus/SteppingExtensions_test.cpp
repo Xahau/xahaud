@@ -1387,6 +1387,193 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+    // The agreeing cohort accepts one sidecar root. Origin A is at its
+    // threshold in that root and is witnessed. Origin B is present and short
+    // of its threshold, so the same root emits no B witness.
+    std::optional<std::vector<uint256>>
+    acceptedPartialFiltersWitness(SteppingNetwork& net)
+    {
+        constexpr std::uint32_t validators = 5;
+        constexpr std::uint32_t isolated = 2;
+        World world(net, false, true, validators);
+        if (!ready(world))
+            return std::nullopt;
+        auto const fund = world.submit(
+            world.observerId,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(fund && fund->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        net.isolateNodeAndFlush(isolated);
+        auto const open =
+            net.node(0).app().openLedger().current()->seq();
+        auto const window = open + ExportLimits::maxAdmissionWindowLedgers;
+        auto const txA = world.submit(
+            0, world.intent(world.owner, 1, window, {0, 1}), world.owner);
+        auto const txB = world.submit(
+            0, world.intent(world.owner, 2, window, {0, 1, 2}), world.owner);
+        if (!BEAST_EXPECT(
+                txA && txA->getResult() == tesSUCCESS && txB &&
+                txB->getResult() == tesSUCCESS))
+            return std::nullopt;
+        auto const originA = txA->getID();
+        auto const originB = txB->getID();
+        auto const qA = ExportLimits::committeeQuorumThreshold(2);
+        auto const qB = ExportLimits::committeeQuorumThreshold(3);
+
+        struct Seen
+        {
+            bool partial = false;
+            std::size_t leavesA = 0;
+            std::size_t leavesB = 0;
+            uint256 root;
+        } seen;
+        net.controller().observeJobs([&net, &seen, originA, originB](
+                                         std::uint32_t id,
+                                         JobType,
+                                         std::string const&) {
+            if (id != 0 || seen.partial || !net.isLive(id))
+                return;
+            auto& ce = net.node(id).app().getConsensusExtensions();
+            if (!ce.acceptedExportSigSetHash_ || !ce.exportSigSetMap_)
+                return;
+            if (ce.exportSigSetMap_->getHash().as_uint256() !=
+                *ce.acceptedExportSigSetHash_)
+                return;
+            auto const leavesA =
+                originSidecarLeaves(*ce.exportSigSetMap_, originA);
+            auto const leavesB =
+                originSidecarLeaves(*ce.exportSigSetMap_, originB);
+            if (!leavesA || !leavesB)
+                return;
+            if (*leavesA == qA && *leavesB > 0 && *leavesB < qB)
+            {
+                seen.partial = true;
+                seen.leavesA = *leavesA;
+                seen.leavesB = *leavesB;
+                seen.root = *ce.acceptedExportSigSetHash_;
+            }
+        });
+
+        std::array<std::uint32_t, 5> const cohort{
+            {0, 1, 3, 4, world.observerId}};
+        auto const cohortMin = [&] {
+            std::uint32_t low = std::numeric_limits<std::uint32_t>::max();
+            for (auto const node : cohort)
+                low = std::min(low, net.validSeq(node));
+            return low;
+        };
+        auto const target = warmLedger + 10;
+        // The isolated node stays at the cut, so the network-wide minimum
+        // never reaches the target. Wait on the agreeing cohort only.
+        auto const cohortReached = net.runUntil(
+            [&] { return cohortMin() >= target; },
+            SteppingNetwork::RunBudget{2'000, 1'200'000});
+        net.controller().observeJobs({});
+        if (!BEAST_EXPECT(cohortReached && cohortMin() >= target))
+        {
+            log << "  accepted-partial: survivors did not reach " << target
+                << " cohort=" << cohortMin()
+                << " isolated=" << net.validSeq(isolated) << std::endl;
+            return std::nullopt;
+        }
+        if (!BEAST_EXPECT(seen.partial))
+        {
+            log << "  accepted-partial: no accepted root held A at threshold"
+                << " and B short of threshold" << std::endl;
+            return std::nullopt;
+        }
+
+        auto const seqA = witnessAt(net, originA, warmLedger, 0);
+        auto const seqB = witnessAt(net, originB, warmLedger, 0);
+        if (!BEAST_EXPECT(seqA != 0 && seqB == 0))
+        {
+            log << "  accepted-partial: witnessA=" << seqA
+                << " witnessB=" << seqB << " A=" << seen.leavesA << "/" << qA
+                << " B=" << seen.leavesB << "/" << qB << std::endl;
+            return std::nullopt;
+        }
+        std::vector<uint256> outcome;
+        for (auto seq = warmLedger; seq <= target; ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            for (auto const node : cohort)
+            {
+                if (node == 0)
+                    continue;
+                auto const ledger = net.ledger(node, seq);
+                if (!BEAST_EXPECT(ledger != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(ledger->info().hash == canonical->info().hash);
+            }
+            outcome.push_back(canonical->info().hash);
+            std::uint32_t hitsA = 0;
+            std::uint32_t hitsB = 0;
+            for (auto const& [tx, meta] : canonical->txs)
+            {
+                if (tx->getTxnType() != ttEXPORT_SIGNATURES || !meta)
+                    continue;
+                auto const origin = tx->getFieldH256(sfTransactionHash);
+                if (origin == originA)
+                    ++hitsA;
+                else if (origin == originB)
+                    ++hitsB;
+                else
+                    BEAST_EXPECT(false);
+                auto const txBytes = tx->getSerializer().getData();
+                auto const metaBytes = meta->getSerializer().getData();
+                for (auto const node : cohort)
+                {
+                    auto const ledger = net.ledger(node, seq);
+                    bool found = false;
+                    for (auto const& [peerTx, peerMeta] : ledger->txs)
+                    {
+                        if (peerTx->getTxnType() != ttEXPORT_SIGNATURES ||
+                            peerTx->getFieldH256(sfTransactionHash) != origin)
+                            continue;
+                        found = true;
+                        BEAST_EXPECT(
+                            peerTx->getSerializer().getData() == txBytes &&
+                            peerMeta &&
+                            peerMeta->getSerializer().getData() == metaBytes);
+                    }
+                    BEAST_EXPECT(found);
+                }
+            }
+            BEAST_EXPECT(hitsB == 0);
+            if (seq == seqA)
+                BEAST_EXPECT(hitsA == 1);
+            else
+                BEAST_EXPECT(hitsA == 0);
+        }
+
+        net.reconnectNode(isolated);
+        auto const healed = target + 4;
+        if (!BEAST_EXPECT(net.runUntil(
+                [&] { return net.validSeq(0) >= healed; },
+                SteppingNetwork::RunBudget{1'200, 1'200'000})))
+            return std::nullopt;
+        BEAST_EXPECT(witnessAt(net, originA, warmLedger, 0) == seqA);
+
+        log << "  accepted-partial: A=" << seen.leavesA << "/" << qA
+            << " B=" << seen.leavesB << "/" << qB
+            << " witnessA=" << seqA << " witnessB=0" << std::endl;
+        outcome.push_back(originA);
+        outcome.push_back(originB);
+        outcome.push_back(seen.root);
+        outcome.push_back(sha512Half(
+            static_cast<std::uint32_t>(seen.leavesA),
+            static_cast<std::uint32_t>(seen.leavesB),
+            seqA));
+        return outcome;
+    }
+
     std::optional<std::vector<uint256>>
     observerRestartAcrossExport(SteppingNetwork& net)
     {
@@ -5250,6 +5437,16 @@ public:
                 "incomplete origin in global candidate",
                 [this](SteppingNetwork& net) {
                     return incompleteOriginInCandidate(net);
+                });
+        }
+        if (matches("accepted partial map filters the witness"))
+        {
+            testcase("accepted partial map filters the witness");
+            expectReplays(
+                *this,
+                "accepted partial map filters the witness",
+                [this](SteppingNetwork& net) {
+                    return acceptedPartialFiltersWitness(net);
                 });
         }
         if (matches("observer restarts across Export-bearing history"))
