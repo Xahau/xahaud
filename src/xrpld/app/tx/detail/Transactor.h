@@ -265,6 +265,20 @@ protected:
         uint256 const& failedId,
         TER innerResult);
 
+    // The post-apply pipeline: tec handling (reset), invariants, balance
+    // rewards, weak hooks and commit. operator() runs it once, or twice for
+    // an emit_atomic group whose inner failed: the first run reports the
+    // failure through `atomicFailure` instead of committing, operator()
+    // rewinds, and the second run commits the txn as tecHOOK_EMIT_FAILED.
+    ApplyResult
+    finishApply(
+        TER result,
+        bool hooksEnabled,
+        bool feeOnlyAtomicInner,
+        std::map<AccountID, std::set<uint256>>& aawMap,
+        std::vector<std::pair<AccountID, bool>>& tsh,
+        std::optional<std::pair<uint256, TER>>& atomicFailure);
+
     ///////////////////////////////////////////////////
 
     TER

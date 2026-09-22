@@ -23,7 +23,7 @@
 namespace ripple {
 
 open_ledger_t const open_ledger{};
-batch_view_t const batch_view{};
+closed_view_t const closed_view{};
 
 class OpenView::txs_iter_impl : public txs_type::iter_base
 {
@@ -123,7 +123,7 @@ OpenView::OpenView(ReadView const* base, std::shared_ptr<void const> hold)
 {
 }
 
-OpenView::OpenView(batch_view_t, OpenView const& base) : OpenView(&base)
+OpenView::OpenView(closed_view_t, OpenView const& base) : OpenView(&base)
 {
     // Always a closed view: inner (atomically emitted) transactions must
     // see the same rules as during consensus ledger construction even when
@@ -228,7 +228,7 @@ OpenView::txExists(key_type const& key) const
 {
     if (txs_.find(key) != txs_.end())
         return true;
-    // batch_view: a duplicate of a transaction already in the base view
+    // closed_view: a duplicate of a transaction already in the base view
     // must be detected here (tefALREADY) rather than in rawTxInsert
     // (LogicError) when the sandbox is committed.
     return baseTxs_ != nullptr && baseTxs_->txExists(key);

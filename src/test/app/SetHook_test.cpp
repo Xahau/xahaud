@@ -16939,7 +16939,7 @@ public:
 
         // ------------------------------------------------------------------
         // (open/closed parity of the inner txn is guaranteed by the sandbox
-        //  always being a closed view; see View_test "Batch view". A native
+        //  always being a closed view; see View_test "Closed nested view". A native
         //  partial payment cannot be used to observe it from a hook because
         //  Payment::preflight rejects it with temBAD_SEND_XRP_PARTIAL.)
         setHook(alice, {hso(atomic_pay_wasm, overrideFlag)});

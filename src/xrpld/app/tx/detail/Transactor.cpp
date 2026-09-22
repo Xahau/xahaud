@@ -2131,25 +2131,56 @@ Transactor::operator()()
         atomicEmissions_.clear();
 
     // emit_atomic has two rules: (1) an inner failure turns the parent into
-    // tecHOOK_EMIT_FAILED by re-entering the pipeline at `reapply` with the
-    // strong-phase hook metadata restored, so the existing tec handling
-    // (reset, invariants, weak hooks) runs unchanged; (2) a parent failure
-    // (on its own, or from an invariant/oversize check below) drops its
-    // atomic emissions and commits like any other tec.
+    // tecHOOK_EMIT_FAILED by running the post-apply pipeline (finishApply) a
+    // second time with the strong-phase hook metadata restored, so the
+    // existing tec handling (reset, invariants, weak hooks) runs unchanged;
+    // (2) a parent failure (on its own, or from an invariant/oversize check
+    // below) drops its atomic emissions and commits like any other tec.
     std::vector<STObject> strongExecMeta;
     std::vector<STObject> strongEmitMeta;
     if (!atomicEmissions_.empty())
         dynamic_cast<ApplyViewImpl&>(ctx_.view())
             .copyHookMetaData(strongExecMeta, strongEmitMeta);
 
-    bool applied = false;
-    XRPAmount fee{0};
+    std::optional<std::pair<uint256, TER>> atomicFailure;
+    auto res = finishApply(
+        result, hooksEnabled, feeOnlyAtomicInner, aawMap, tsh, atomicFailure);
+    if (atomicFailure)
+    {
+        auto const& [failedId, innerTer] = *atomicFailure;
+        JLOG(j_.warn()) << "HookEmit[" << ctx_.tx.getTransactionID()
+                        << "]: atomically emitted txn " << failedId
+                        << " failed: " << transToken(innerTer)
+                        << ", parent fails with tecHOOK_EMIT_FAILED";
+        // undo the discarded first run and commit the txn as a tec through
+        // the ordinary tec path (reset, invariants, rewards, weak hooks)
+        rewindAtomicEmissions(
+            std::move(strongExecMeta),
+            std::move(strongEmitMeta),
+            failedId,
+            innerTer);
+        res = finishApply(
+            tecHOOK_EMIT_FAILED,
+            hooksEnabled,
+            feeOnlyAtomicInner,
+            aawMap,
+            tsh,
+            atomicFailure);
+    }
+    return res;
+}
 
-reapply:
-    applied = isTesSuccess(result);
-
-    // re-read on every pass: a reset() on the first pass may have shrunk it
-    fee = ctx_.tx.getFieldAmount(sfFee).xrp();
+ApplyResult
+Transactor::finishApply(
+    TER result,
+    bool hooksEnabled,
+    bool feeOnlyAtomicInner,
+    std::map<AccountID, std::set<uint256>>& aawMap,
+    std::vector<std::pair<AccountID, bool>>& tsh,
+    std::optional<std::pair<uint256, TER>>& atomicFailure)
+{
+    bool applied = isTesSuccess(result);
+    auto fee = ctx_.tx.getFieldAmount(sfFee).xrp();
 
     if (isTecClaim(result) && (view().flags() & tapFAIL_HARD))
     {
@@ -2535,7 +2566,7 @@ reapply:
             // or nothing. The sandbox is applied for real even on a dry run
             // (it is discarded anyway, and the inners must see the parent's
             // state); the metadata it yields is the parent's metadata.
-            OpenView sandbox(batch_view, ctx_.base());
+            OpenView sandbox(closed_view, ctx_.base());
             metadata = ctx_.apply(result, sandbox);
 
             auto const [innerTer, failedId] = applyAtomicEmissions(sandbox);
@@ -2546,17 +2577,10 @@ reapply:
             }
             else
             {
-                JLOG(j_.warn()) << "HookEmit[" << ctx_.tx.getTransactionID()
-                                << "]: atomically emitted txn " << failedId
-                                << " failed: " << transToken(innerTer)
-                                << ", parent fails with tecHOOK_EMIT_FAILED";
-                result = tecHOOK_EMIT_FAILED;
-                rewindAtomicEmissions(
-                    std::move(strongExecMeta),
-                    std::move(strongEmitMeta),
-                    failedId,
-                    innerTer);
-                goto reapply;
+                // operator() rewinds and runs this pipeline again with
+                // tecHOOK_EMIT_FAILED
+                atomicFailure.emplace(failedId, innerTer);
+                return {tecHOOK_EMIT_FAILED, false};
             }
         }
         else
@@ -2635,7 +2659,7 @@ Transactor::applyFailedAtomicEmissions()
     // follow the parent's. Each inner is independent here (no all-or-nothing
     // between them any more), so one failing preclaim (e.g. the hook account
     // no longer covers its fee) only drops that inner.
-    OpenView sandbox(batch_view, ctx_.base());
+    OpenView sandbox(closed_view, ctx_.base());
     for (auto const& tpTrans : failedAtomicEmissions_)
     {
         auto const& stx = *tpTrans->getSTransaction();

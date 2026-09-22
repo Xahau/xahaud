@@ -46,7 +46,7 @@ struct open_ledger_t
 
 extern open_ledger_t const open_ledger;
 
-/** Batch (sandbox) view construction tag.
+/** Closed nested view construction tag.
 
     A view constructed with this tag sits on top of another OpenView
     and is always treated as a closed ledger, regardless of the base.
@@ -54,12 +54,12 @@ extern open_ledger_t const open_ledger;
     (emit_atomic) together with its parent, so that the whole group can
     be committed or discarded as a unit. See Transactor::operator().
 */
-struct batch_view_t
+struct closed_view_t
 {
-    explicit batch_view_t() = default;
+    explicit closed_view_t() = default;
 };
 
-extern batch_view_t const batch_view;
+extern closed_view_t const closed_view;
 
 //------------------------------------------------------------------------------
 
@@ -113,7 +113,7 @@ private:
     std::shared_ptr<void const> hold_;
     bool open_ = true;
 
-    // batch_view only: number of transactions already in the base chain
+    // closed_view only: number of transactions already in the base chain
     // (so TransactionIndex continues from the base) and the base OpenView
     // for txExists() delegation. Zero / nullptr for every other view.
     std::size_t baseTxCount_ = 0;
@@ -206,7 +206,7 @@ public:
             TransactionIndex values stay contiguous, and txExists()
             also consults the base.
     */
-    OpenView(batch_view_t, OpenView const& base);
+    OpenView(closed_view_t, OpenView const& base);
 
     /** Returns true if this reflects an open ledger. */
     bool
@@ -231,7 +231,7 @@ public:
 
         Also forwards the XRP destroyed in this view
         (RawStateTable::apply calls to.rawDestroyXRP).
-        Used when committing a batch_view into an open ledger,
+        Used when committing a closed_view into an open ledger,
         whose transaction list must not receive the inner
         transactions.
     */

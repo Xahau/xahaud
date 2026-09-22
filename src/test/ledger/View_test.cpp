@@ -329,11 +329,11 @@ class View_test : public beast::unit_test::suite
         BEAST_EXPECT(!v0.exists(k(4)));
     }
 
-    // OpenView batch_view constructor (emit_atomic sandbox)
+    // OpenView closed_view constructor (emit_atomic sandbox)
     void
-    testBatchView()
+    testClosedView()
     {
-        testcase("Batch view");
+        testcase("Closed nested view");
 
         using namespace jtx;
         Env env(*this);
@@ -358,9 +358,9 @@ class View_test : public beast::unit_test::suite
             BEAST_EXPECT(copy.txCount() == 1);
         }
 
-        // batch view: always closed, same sequence, contiguous txCount,
+        // closed view: always closed, same sequence, contiguous txCount,
         // txExists delegated to the base (one level)
-        OpenView sandbox(batch_view, base);
+        OpenView sandbox(closed_view, base);
         BEAST_EXPECT(!sandbox.open());
         BEAST_EXPECT(sandbox.seq() == base.seq());
         BEAST_EXPECT(sandbox.info().parentHash == base.info().parentHash);
@@ -386,7 +386,7 @@ class View_test : public beast::unit_test::suite
         BEAST_EXPECT(base.txCount() == 1);
 
         // apply propagates both
-        OpenView sandbox2(batch_view, base);
+        OpenView sandbox2(closed_view, base);
         sandbox2.rawTxInsert(uint256(3), txn, txn);
         sandbox2.rawInsert(sle(8, 8));
         sandbox2.apply(base);
@@ -1164,7 +1164,7 @@ class View_test : public beast::unit_test::suite
         testMeta();
         testMetaSucc();
         testStacked();
-        testBatchView();
+        testClosedView();
         testContext();
         testSles();
         testUpperAndLowerBound();
