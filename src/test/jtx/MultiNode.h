@@ -1377,18 +1377,24 @@ public:
         // stretches a healthy drain; only this cap, or a stall with no
         // ledger and no job-token progress, fails it.
         std::chrono::milliseconds safetyTimeout;
+        // Non-quiet polls with a transport that is not moving. Past this, the
+        // drain ends so virtual time can advance even if a job keeps the
+        // queue occupied.
+        std::size_t nonQuietLimit;
 
         ThreadedTickOptions(
             std::size_t quietPolls_ = 3,
             std::chrono::milliseconds pollInterval_ = std::chrono::milliseconds{1},
             std::chrono::milliseconds stallTimeout_ = std::chrono::seconds{30},
             std::chrono::milliseconds totalTimeout_ = std::chrono::seconds{30},
-            std::chrono::milliseconds safetyTimeout_ = std::chrono::minutes{10})
+            std::chrono::milliseconds safetyTimeout_ = std::chrono::minutes{10},
+            std::size_t nonQuietLimit_ = 4)
             : quietPolls(quietPolls_)
             , pollInterval(pollInterval_)
             , stallTimeout(stallTimeout_)
             , totalTimeout(totalTimeout_)
             , safetyTimeout(safetyTimeout_)
+            , nonQuietLimit(nonQuietLimit_)
         {
         }
     };
@@ -1410,6 +1416,7 @@ public:
         SimTransportActivitySnapshot transportEnd;
         std::uint64_t lastJobsStart = 0;
         std::uint64_t completedJobsStart = 0;
+        std::size_t idleBusyPolls = 0;
     };
 
     [[nodiscard]] ThreadedTickStats
@@ -1422,7 +1429,8 @@ public:
                 "stepping=false");
         if (!simActivity_)
             throw std::logic_error("MultiNode::threadedTick: no SimTransport activity tracker");
-        if (options.quietPolls == 0 || options.pollInterval <= milliseconds{0} ||
+        if (options.quietPolls == 0 || options.nonQuietLimit == 0 ||
+            options.pollInterval <= milliseconds{0} ||
             options.stallTimeout <= milliseconds{0} || options.totalTimeout <= milliseconds{0} ||
             options.safetyTimeout <= milliseconds{0})
             throw std::logic_error("MultiNode::threadedTick: invalid budget options");
@@ -1494,6 +1502,8 @@ public:
                << " stallMs=" << options.stallTimeout.count()
                << " totalMs=" << options.totalTimeout.count()
                << " safetyMs=" << options.safetyTimeout.count()
+               << " idleBusy=" << stats.idleBusyPolls
+               << " nonQuietLimit=" << options.nonQuietLimit
                << " valid=" << minValidated() << " pipeBytes=" << s.bufferedBytes
                << " maxPipeBytes=" << stats.maxBufferedBytes
                << " posts=" << s.activity.inFlightPosts << " epoch=" << s.activity.epoch
@@ -1542,6 +1552,14 @@ public:
         auto previousToken = sample().token;
         auto previousValidated = minValidated();
         auto lastProgress = drainStart;
+        bool haveTransport = false;
+        std::size_t previousBytes = 0;
+        std::uint64_t previousReadStarted = 0;
+        std::uint64_t previousReadFinished = 0;
+        std::uint64_t previousWriteStarted = 0;
+        std::uint64_t previousWriteFinished = 0;
+        std::uint64_t previousShutdownStarted = 0;
+        std::uint64_t previousShutdownFinished = 0;
         Signal last;
         for (;;)
         {
@@ -1550,9 +1568,35 @@ public:
             note(last);
             auto const now = steady_clock::now();
             auto const validated = minValidated();
+            auto const& posts = last.activity;
 
-            bool const quiet = last.bufferedBytes == 0 && last.activity.inFlightPosts == 0 &&
+            bool const quiet = last.bufferedBytes == 0 && posts.inFlightPosts == 0 &&
                 last.busyJobQueues == 0;
+            bool const countersStill = haveTransport && last.bufferedBytes == previousBytes &&
+                posts.readStarted == previousReadStarted &&
+                posts.readFinished == previousReadFinished &&
+                posts.writeStarted == previousWriteStarted &&
+                posts.writeFinished == previousWriteFinished &&
+                posts.shutdownStarted == previousShutdownStarted &&
+                posts.shutdownFinished == previousShutdownFinished;
+            // Idle when the pipe and the post counters are unchanged. That
+            // includes finished == started, and a frozen remainder: a busy
+            // queue never looks quiet, so waiting on equality never advances
+            // virtual time and those posts never complete.
+            bool const transportIdle = countersStill;
+            if (!quiet && transportIdle)
+                ++stats.idleBusyPolls;
+            else
+                stats.idleBusyPolls = 0;
+            previousBytes = last.bufferedBytes;
+            previousReadStarted = posts.readStarted;
+            previousReadFinished = posts.readFinished;
+            previousWriteStarted = posts.writeStarted;
+            previousWriteFinished = posts.writeFinished;
+            previousShutdownStarted = posts.shutdownStarted;
+            previousShutdownFinished = posts.shutdownFinished;
+            haveTransport = true;
+
             bool const tokenStable = last.token == previousToken;
             bool const ledgerAdvanced = validated != previousValidated;
             if (!tokenStable || ledgerAdvanced)
@@ -1570,6 +1614,8 @@ public:
             auto const stallElapsed = duration_cast<milliseconds>(now - lastProgress);
 
             if (stats.quietPolls >= options.quietPolls)
+                break;
+            if (stats.idleBusyPolls >= options.nonQuietLimit)
                 break;
             // No new validated ledger and no job-token change. Wall time here
             // is how long that absence lasted, not a budget for a slow drain.
