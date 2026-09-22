@@ -157,6 +157,8 @@ private:
     std::map<std::pair<std::uint32_t, int>, duration> jobLags_;
     std::map<std::tuple<std::uint32_t, JobType, std::string>, duration> namedJobLags_;
     std::function<void(std::uint32_t, JobType, std::string const&)> beforeJob_;
+    // Survives observeJobs replacement. Scenario-wide invariants use this.
+    std::function<void(std::uint32_t, JobType, std::string const&)> alwaysBeforeJob_;
 
     [[nodiscard]] static char const*
     jobTypeName(JobType t)
@@ -532,6 +534,15 @@ public:
     {
         requireSteppingThread("observeJobs");
         beforeJob_ = std::move(observer);
+    }
+
+    // Survives observeJobs replacement. Scenario-wide invariants use this.
+    void
+    setAlwaysBeforeJob(
+        std::function<void(std::uint32_t, JobType, std::string const&)> observer)
+    {
+        requireSteppingThread("setAlwaysBeforeJob");
+        alwaysBeforeJob_ = std::move(observer);
     }
 
     void
@@ -924,6 +935,8 @@ public:
                                 if (lag != duration::zero())
                                     clearLaggedPending(nodeId, tier, t, name, lag);
                                 recordJob(nodeId, t, name, "run");
+                                if (alwaysBeforeJob_)
+                                    alwaysBeforeJob_(nodeId, t, name);
                                 if (beforeJob_)
                                     beforeJob_(nodeId, t, name);
                                 f();

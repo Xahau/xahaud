@@ -46,6 +46,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
     // The first flag vote has fewer than 256 ancestors and only establishes
     // validation retention. The second can score a complete history window.
     static constexpr std::uint32_t warmLedger = 2 * FLAG_LEDGER_INTERVAL + 1;
+    std::uint64_t busyInvariantChecks_{0};
 
     enum class Fault {
         none,
@@ -5306,6 +5307,16 @@ public:
     void
     run() override
     {
+        busyInvariantChecks_ = 0;
+        steppingBusyProbe() = [this](SteppingNetwork& net, std::uint32_t id) {
+            if (!net.isLive(id))
+                return;
+            auto& ce = net.node(id).app().getConsensusExtensions();
+            ++busyInvariantChecks_;
+            BEAST_EXPECT(
+                ce.busyPublished_.load(std::memory_order_relaxed) ==
+                ce.computeBusy());
+        };
         // Optional focused iteration, e.g. --unittest-arg=case=validator.
         // Keep replays=N available to the existing replay combinator.
         std::string filter;
@@ -5578,6 +5589,8 @@ public:
                 });
         }
         BEAST_EXPECT(selected != 0);
+        log << "  busy invariant checks=" << busyInvariantChecks_ << std::endl;
+        steppingBusyProbe() = {};
     }
 };
 

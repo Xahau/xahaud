@@ -1155,6 +1155,25 @@ struct Peer
         }
 
         // --- Sub-state accessors ---
+        // The production tick calls this after a phase change. This sim still
+        // computes the predicate directly, so the call does not store a flag.
+        void
+        publishBusy()
+        {
+        }
+
+        void
+        publishEstState(EstablishState state)
+        {
+            estState_ = state;
+        }
+
+        void
+        publishExportSigGateStarted()
+        {
+            exportSigGateStarted_ = true;
+        }
+
         bool
         extensionsBusy() const
         {

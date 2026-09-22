@@ -459,6 +459,24 @@ struct FakeExtensions
         return exportOn;
     }
 
+    // The production tick calls this. The fake has no published flag.
+    void
+    publishBusy()
+    {
+    }
+
+    void
+    publishEstState(EstablishState state)
+    {
+        estState_ = state;
+    }
+
+    void
+    publishExportSigGateStarted()
+    {
+        exportSigGateStarted_ = true;
+    }
+
     bool
     exportFinalizationViewAnchored() const
     {
@@ -3182,6 +3200,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         aligning.setMode(ConsensusMode::observing);
         aligning.startExportShareService();
         BEAST_EXPECT(aligning.onExportShare(share, {}).isAccepted());
+        BEAST_EXPECT(
+            aligning.busyPublished_.load(std::memory_order_relaxed) ==
+            aligning.computeBusy());
+        BEAST_EXPECT(aligning.extensionsBusy());
         BEAST_EXPECT(!aligning.localIsActiveValidator());
         ExtensionTickHarness observation;
         observation.mode = ConsensusMode::observing;
@@ -3242,6 +3264,10 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(!aligning.acceptedExportSigSetHash_);
         BEAST_EXPECT(!aligning.hasEligiblePendingExports());
         BEAST_EXPECT(!aligning.hasPendingExportSigs());
+        BEAST_EXPECT(
+            aligning.busyPublished_.load(std::memory_order_relaxed) ==
+            aligning.computeBusy());
+        BEAST_EXPECT(!aligning.extensionsBusy());
 
         // A local root is still not permission without peer alignment. The
         // old round's already-admitted share survives, but cannot self-count.
@@ -5541,10 +5567,169 @@ class ConsensusExtensions_test : public beast::unit_test::suite
             env.app().getInboundTransactions().getSet(entropyHash, false));
     }
 
+    void
+    testBusyFlagTransitions()
+    {
+        testcase("busy flag follows every contributing input");
+        using namespace jtx;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureExport,
+            nullptr};
+        Account const alice{"alice"};
+        env.fund(XRP(1000), alice);
+        env.close();
+        env.app().getJobQueue().rendezvous();
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        auto const check = [&](char const* step, bool busy) {
+            BEAST_EXPECT(
+                ce.busyPublished_.load(std::memory_order_relaxed) ==
+                ce.computeBusy());
+            BEAST_EXPECT(ce.extensionsBusy() == busy);
+            if (ce.extensionsBusy() != busy)
+                log << "  busy step " << step
+                    << " published=" << ce.extensionsBusy() << std::endl;
+        };
+        check("initial", false);
+        ce.setExportEnabledThisRound(false);
+        check("export disabled", false);
+        ce.setExportEnabledThisRound(true);
+        check("export enabled idle", false);
+        ce.estState_ = EstablishState::ConvergingCommit;
+        ce.publishBusy();
+        check("commit phase", true);
+        ce.estState_ = EstablishState::ConvergingReveal;
+        ce.publishBusy();
+        check("reveal phase", true);
+        ce.estState_ = EstablishState::ConvergingTx;
+        ce.publishBusy();
+        check("tx phase", false);
+        ce.resetSubState();
+        check("reset substate", false);
+
+        ce.setExportEnabledThisRound(true);
+        ce.exportSigGateStarted_ = true;
+        ce.publishBusy();
+        check("gate started", true);
+        ce.setExportEnabledThisRound(false);
+        check("export disabled suppresses gate", false);
+        ce.setExportEnabledThisRound(true);
+        check("export enabled restores gate", true);
+        // Replay while Export is enabled keeps the gate. The disabled
+        // doAccept path is the one that clears it.
+        ce.onReplayBuild();
+        check("replay keeps gate while export enabled", true);
+        ce.clearRngState();
+        check("clear while export enabled", false);
+        ce.setExportEnabledThisRound(false);
+        ce.onReplayBuild();
+        check("replay while export disabled", false);
+
+        auto const parent = env.app().getLedgerMaster().getValidatedLedger();
+        if (!BEAST_EXPECT(parent != nullptr))
+            return;
+        auto validated = std::make_shared<Ledger>(
+            *parent, env.app().timeKeeper().closeTime());
+        auto const deadline = validated->info().seq + 1;
+        auto const origin = makeHash("busy-flag-origin");
+        auto latch =
+            std::make_shared<SLE>(keylet::exportLatch(alice.id(), origin));
+        latch->setAccountID(sfAccount, alice.id());
+        latch->setFieldU32(sfTicketSequence, 1);
+        latch->setFieldH256(sfTransactionHash, origin);
+        latch->setFieldH256(sfDigest, makeHash("busy-flag-intent"));
+        latch->setFieldU32(sfLedgerSequence, validated->info().seq);
+        latch->setFieldH256(
+            sfExportCommitteeHash, validated->info().parentHash);
+        latch->setFieldU32(sfLastLedgerSequence, deadline);
+        Sandbox sandbox{validated.get(), tapNONE};
+        BEAST_EXPECT(isTesSuccess(ExportLedgerOps::insertPendingExportLatch(
+            sandbox, sandbox, latch, env.journal)));
+        sandbox.apply(*validated);
+        validated->updateSkipList();
+        validated->setAccepted(
+            validated->info().closeTime,
+            validated->info().closeTimeResolution,
+            true);
+        auto nextParent = std::make_shared<Ledger>(
+            *validated, env.app().timeKeeper().closeTime());
+        env.app().getLedgerMaster().setFullLedger(validated, false, false);
+
+        ce.onRoundStart(RCLCxLedger{validated}, {});
+        BEAST_EXPECT(ce.exportEnabled());
+        check("round start before admission", false);
+
+        auto& collector = ce.postValidationExportSigCollector();
+        auto const signer = randomKeyPair(KeyType::secp256k1).first;
+        std::uint8_t const signatureBytes[] = {1, 2, 3};
+        Buffer const signature{signatureBytes, sizeof(signatureBytes)};
+        BEAST_EXPECT(collector.registerOrigin(origin, deadline));
+        auto admission = collector.beginAttributedAdmission(
+            origin,
+            ExportSigCollector::Contribution{0, signer, signature},
+            deadline);
+        BEAST_EXPECT(admission.ticket);
+        if (!admission.ticket)
+            return;
+        BEAST_EXPECT(
+            collector
+                .admitContribution(std::move(*admission.ticket), true, deadline)
+                .result == ExportSigCollector::AdmitResult::accepted);
+        BEAST_EXPECT(ce.hasPendingExportSigs());
+        // The collector write above is the same mutation admitExportShare
+        // publishes after. Publish here so this case checks the predicate.
+        // The witness-rebuild case drives admitExportShare itself.
+        ce.publishBusy();
+        check("pending signature admitted", true);
+        ce.setExportEnabledThisRound(false);
+        check("export disabled suppresses pending", false);
+        ce.setExportEnabledThisRound(true);
+        check("export enabled restores pending", true);
+        ce.setExportEnabledThisRound(false);
+        ce.clearRngState();
+        ce.setExportEnabledThisRound(true);
+        BEAST_EXPECT(!ce.hasPendingExportSigs());
+        check("clear while export disabled drops pending", false);
+
+        // clearRngState drops the round parent as well as the collector.
+        // Restore the same parent before checking admission again.
+        ce.onRoundStart(RCLCxLedger{validated}, {});
+        BEAST_EXPECT(ce.exportEnabled());
+        check("round restored before readmit", false);
+
+        BEAST_EXPECT(collector.registerOrigin(origin, deadline));
+        auto again = collector.beginAttributedAdmission(
+            origin,
+            ExportSigCollector::Contribution{0, signer, signature},
+            deadline);
+        BEAST_EXPECT(again.ticket);
+        if (!again.ticket)
+            return;
+        BEAST_EXPECT(
+            collector
+                .admitContribution(std::move(*again.ticket), true, deadline)
+                .result == ExportSigCollector::AdmitResult::accepted);
+        ce.publishBusy();
+        check("pending signature readmitted", true);
+
+        nextParent->updateSkipList();
+        nextParent->setAccepted(
+            nextParent->info().closeTime,
+            nextParent->info().closeTimeResolution,
+            true);
+        ce.onRoundStart(RCLCxLedger{nextParent}, {});
+        BEAST_EXPECT(ce.exportEnabled());
+        BEAST_EXPECT(!ce.hasPendingExportSigs());
+        check("round parent moved past candidate", false);
+    }
+
 public:
     void
     run() override
     {
+        testBusyFlagTransitions();
         testSidecarPeerAlignmentHelper();
         testHarnessEntropyRequiresStepping();
         testSidecarSplitBrainEquivocationThreshold();
