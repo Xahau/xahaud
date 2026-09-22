@@ -5,6 +5,7 @@
 #define sfTransactionResult ((16U << 16U) + 3U)
 #define sfScale ((16U << 16U) + 4U)
 #define sfAssetScale ((16U << 16U) + 5U)
+#define sfHookEmittedTransactionResult ((16U << 16U) + 6U)
 #define sfTickSize ((16U << 16U) + 16U)
 #define sfUNLModifyDisabling ((16U << 16U) + 17U)
 #define sfHookResult ((16U << 16U) + 18U)
