@@ -17,6 +17,7 @@
 #define featureHooksUpdate2 "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
+#define featureAtomicEmit "1"
 namespace hook_api {
 struct Rules
 {
