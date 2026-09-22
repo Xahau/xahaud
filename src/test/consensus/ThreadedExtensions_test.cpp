@@ -803,12 +803,29 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                 return fail("missing tip");
             auto const latch =
                 ledger->read(keylet::exportLatch(owner.id(), origin));
-            if (!latch || !latch->isFieldPresent(sfExportNode) ||
-                latch->isFieldPresent(sfExportSignatureHash) ||
-                !pendingDirContains(*ledger, latch->key()))
-                return fail("neither witnessed nor retained");
+            // An expired latch stays, but a later successful intent prunes
+            // it: sfExportNode is cleared and the pending directory drops
+            // the key. The latch and its reserve remain, with no signature.
+            auto const hasNode = latch && latch->isFieldPresent(sfExportNode);
+            auto const hasSig =
+                latch && latch->isFieldPresent(sfExportSignatureHash);
+            auto const inDir =
+                latch && pendingDirContains(*ledger, latch->key());
+            char const* const shape = !latch ? "missing"
+                : hasSig                 ? "signed"
+                : hasNode && inDir       ? "pending"
+                : !hasNode && !inDir     ? "pruned"
+                                         : "inconsistent";
             log << "  threaded " << schedule << " origin=" << to_string(origin)
-                << " expired" << std::endl;
+                << " expired shape=" << shape << std::endl;
+            if (!latch)
+                return fail("latch missing");
+            if (hasSig)
+                return fail("expired latch has a signature hash");
+            if (hasNode != inDir)
+                return fail(
+                    hasNode ? "pending link missing from directory"
+                            : "directory holds an unlinked latch");
         }
 
         log << "  threaded " << schedule
