@@ -1370,17 +1370,25 @@ public:
         std::size_t quietPolls;
         std::chrono::milliseconds pollInterval;
         std::chrono::milliseconds stallTimeout;
+        // Callers still record drains against this budget. It does not fail
+        // the tick: a slow drain that is still advancing is not a failure.
         std::chrono::milliseconds totalTimeout;
+        // Wall-clock backstop for a drain that never goes quiet. Contention
+        // stretches a healthy drain; only this cap, or a stall with no
+        // ledger and no job-token progress, fails it.
+        std::chrono::milliseconds safetyTimeout;
 
         ThreadedTickOptions(
             std::size_t quietPolls_ = 3,
             std::chrono::milliseconds pollInterval_ = std::chrono::milliseconds{1},
             std::chrono::milliseconds stallTimeout_ = std::chrono::seconds{30},
-            std::chrono::milliseconds totalTimeout_ = std::chrono::seconds{30})
+            std::chrono::milliseconds totalTimeout_ = std::chrono::seconds{30},
+            std::chrono::milliseconds safetyTimeout_ = std::chrono::minutes{10})
             : quietPolls(quietPolls_)
             , pollInterval(pollInterval_)
             , stallTimeout(stallTimeout_)
             , totalTimeout(totalTimeout_)
+            , safetyTimeout(safetyTimeout_)
         {
         }
     };
@@ -1415,7 +1423,8 @@ public:
         if (!simActivity_)
             throw std::logic_error("MultiNode::threadedTick: no SimTransport activity tracker");
         if (options.quietPolls == 0 || options.pollInterval <= milliseconds{0} ||
-            options.stallTimeout <= milliseconds{0} || options.totalTimeout <= milliseconds{0})
+            options.stallTimeout <= milliseconds{0} || options.totalTimeout <= milliseconds{0} ||
+            options.safetyTimeout <= milliseconds{0})
             throw std::logic_error("MultiNode::threadedTick: invalid budget options");
 
         ThreadedTickStats stats;
@@ -1483,7 +1492,9 @@ public:
                << " wallMs=" << stats.wallElapsed.count()
                << " stallElapsedMs=" << stallElapsed.count()
                << " stallMs=" << options.stallTimeout.count()
-               << " totalMs=" << options.totalTimeout.count() << " pipeBytes=" << s.bufferedBytes
+               << " totalMs=" << options.totalTimeout.count()
+               << " safetyMs=" << options.safetyTimeout.count()
+               << " valid=" << minValidated() << " pipeBytes=" << s.bufferedBytes
                << " maxPipeBytes=" << stats.maxBufferedBytes
                << " posts=" << s.activity.inFlightPosts << " epoch=" << s.activity.epoch
                << " token=" << s.token << " tokenComponents={transport:" << s.activity.epoch
@@ -1529,6 +1540,7 @@ public:
         // to be zero and the progress token to remain unchanged for M polls.
         auto const drainStart = steady_clock::now();
         auto previousToken = sample().token;
+        auto previousValidated = minValidated();
         auto lastProgress = drainStart;
         Signal last;
         for (;;)
@@ -1537,13 +1549,16 @@ public:
             ++stats.polls;
             note(last);
             auto const now = steady_clock::now();
+            auto const validated = minValidated();
 
             bool const quiet = last.bufferedBytes == 0 && last.activity.inFlightPosts == 0 &&
                 last.busyJobQueues == 0;
             bool const tokenStable = last.token == previousToken;
-            if (!tokenStable)
+            bool const ledgerAdvanced = validated != previousValidated;
+            if (!tokenStable || ledgerAdvanced)
             {
                 previousToken = last.token;
+                previousValidated = validated;
                 lastProgress = now;
             }
             if (quiet && tokenStable)
@@ -1556,14 +1571,16 @@ public:
 
             if (stats.quietPolls >= options.quietPolls)
                 break;
+            // No new validated ledger and no job-token change. Wall time here
+            // is how long that absence lasted, not a budget for a slow drain.
             if (stallElapsed > options.stallTimeout)
                 throw std::runtime_error(
                     "MultiNode::threadedTick: stall bound expired: " +
                     diagnostics(last, "stall", stallElapsed));
-            if (stats.wallElapsed > options.totalTimeout)
+            if (stats.wallElapsed > options.safetyTimeout)
                 throw std::runtime_error(
-                    "MultiNode::threadedTick: total bound expired: " +
-                    diagnostics(last, "total", stallElapsed));
+                    "MultiNode::threadedTick: safety cap expired: " +
+                    diagnostics(last, "safety", stallElapsed));
             std::this_thread::sleep_for(options.pollInterval);
         }
 
