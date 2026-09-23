@@ -1300,12 +1300,14 @@ InboundLedger::runData()
     // Select a random sample of the peers that gives us the most nodes that are
     // useful
     dataCounts.prune();
+    // dev has no Application::getPrng. Peer selection is outside the
+    // harness schedule, so draw from the per-thread default engine.
     dataCounts.sampleN(
         maxUsefulPeers,
         [&](std::shared_ptr<Peer> const& peer) {
             trigger(peer, TriggerReason::reply);
         },
-        app_.getPrng());
+        default_prng());
 }
 
 Json::Value
