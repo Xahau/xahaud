@@ -69,6 +69,7 @@ class RCLConsensus
     class Adaptor
     {
         Application& app_;
+        std::recursive_mutex& consensusMutex_;
         std::unique_ptr<FeeVote> feeVote_;
         LedgerMaster& ledgerMaster_;
         LocalTxs& localTxs_;
@@ -114,6 +115,7 @@ class RCLConsensus
 
         Adaptor(
             Application& app,
+            std::recursive_mutex& consensusMutex,
             std::unique_ptr<FeeVote>&& feeVote,
             LedgerMaster& ledgerMaster,
             LocalTxs& localTxs,
@@ -210,10 +212,10 @@ class RCLConsensus
         // Consensus<Adaptor> methods and since RCLConsensus::consensus_ should
         // only be accessed under lock, these will only be called under lock.
         //
-        // In general, the idea is that there is only ONE thread that is running
-        // consensus code at anytime. The only special case is the dispatched
-        // onAccept call, which does not take a lock and relies on Consensus not
-        // changing state until a future call to startRound.
+        // Normally only one thread runs consensus code at a time. The
+        // dispatched accept job builds the ledger outside the lock, but
+        // reacquires it for extension preparation. The accepted result must
+        // still remain unchanged until a future call to startRound.
         friend class Consensus<Adaptor>;
 
         /** Attempt to acquire a specific ledger.
@@ -552,9 +554,11 @@ public:
     }
 
 private:
-    // Since Consensus does not provide intrinsic thread-safety, this mutex
-    // guards all calls to consensus_. adaptor_ uses atomics internally
-    // to allow concurrent access of its data members that have getters.
+    // Guards mutable consensus state and accept-job round-state access.
+    // Atomic-only status polls and the extension's independently synchronized
+    // cross-thread APIs are exempt. Constructed before adaptor_.
+    // Lock order: C before LedgerMaster, never the reverse; C before busyMu_
+    // before the collector.
     mutable std::recursive_mutex mutex_;
 
     Adaptor adaptor_;
