@@ -1182,7 +1182,8 @@ RCLConsensus::Adaptor::preStartRound(
         prevLgr.ledger_->rules().enabled(featureExport));
     //@@end pre-start-round-extension-latches
 
-    JLOG(j_.trace()) << "RNGGATE: preStartRound" << " prevSeq=" << prevLgr.seq()
+    JLOG(j_.trace()) << "RNGGATE: preStartRound"
+                     << " prevSeq=" << prevLgr.seq()
                      << " buildSeq=" << (prevLgr.seq() + 1)
                      << " rngEnabled=" << (ce().rngEnabled() ? "yes" : "no")
                      << " exportEnabled="
