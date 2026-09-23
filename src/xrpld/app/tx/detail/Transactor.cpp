@@ -2690,8 +2690,9 @@ Transactor::rewindAtomicEmissions(
     {
         if (emission.getFieldH256(sfEmittedTxnID) != failedId)
             continue;
-        // UINT8 field: a non-tec inner code (ter/tef) is recorded as
-        // tecHOOK_EMIT_FAILED; the exact code is in the warn log.
+        // UINT8 field: a non-tec inner code (tem/tef/tel/ter) is recorded
+        // as tecHOOK_EMIT_FAILED (the exact code is in the warn log); such
+        // an inner is not recorded in the ledger at all, see below.
         emission.setFieldU8(
             sfHookEmittedTransactionResult,
             TERtoInt(
@@ -2707,9 +2708,16 @@ Transactor::rewindAtomicEmissions(
     // discarded pass; nothing else ever clears this set
     additionalWeakTSH_.clear();
     // keep the inners: they are re-applied fee-only once the parent's tec
-    // has been committed (applyFailedAtomicEmissions)
+    // has been committed (applyFailedAtomicEmissions). The failing inner is
+    // kept only if it failed with a tec: a tem/tef/tel/ter txn never enters
+    // a ledger, so recording it as tecHOOK_EMIT_FAILED would charge a fee
+    // the network would otherwise never collect.
     failedAtomicEmissions_ = std::move(atomicEmissions_);
     atomicEmissions_.clear();
+    if (!isTecClaim(innerResult))
+        std::erase_if(failedAtomicEmissions_, [&](auto const& tpTrans) {
+            return tpTrans->getID() == failedId;
+        });
 }
 
 }  // namespace ripple

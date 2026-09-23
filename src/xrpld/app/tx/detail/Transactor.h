@@ -235,7 +235,8 @@ protected:
     // The atomic emissions of a group that failed. They are re-applied
     // fee-only (tapATOMIC_EMIT_FAILED) after the parent's tec is committed,
     // so that a failed group costs the hook account the same fees as a
-    // successful one.
+    // successful one. The failing inner itself is included only if it
+    // failed with a tec (a tem/tef/tel/ter txn never enters a ledger).
     std::vector<std::shared_ptr<Transaction>> failedAtomicEmissions_;
 
     // Apply every atomic emission into the sandbox, in order. Stops at the

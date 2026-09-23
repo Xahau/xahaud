@@ -15227,6 +15227,133 @@ public:
         }
     )[test.hook]"];
 
+    // strong originator hook: emit_atomic a SetTrust(tfSetfAuth) from the
+    // hook account to the "dst" otxn HookParameter, with a zero USD
+    // LimitAmount. The hook account never has lsfRequireAuth set in these
+    // tests, so SetTrust::preclaim always returns tefNO_AUTH_REQUIRED for
+    // this inner: a non-tec preclaim failure, used to check that such an
+    // inner is dropped rather than recorded fee-only (see "15." below).
+    // Template hand-built following the Transaction Builder conventions
+    // (.claude/hook-docs/tools/tx-builder.md) for { "TransactionType":
+    // "TrustSet", "Flags": 0, "LimitAmount": {"currency":"USD","issuer":"...",
+    // "value":"0"} }.
+    TestHook atomic_trustset_wasm = wasm[R"[test.hook](
+        #include <stdint.h>
+        extern int32_t _g(uint32_t, uint32_t);
+        extern int64_t accept (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+        extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+        extern int64_t emit_atomic (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+        extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
+        extern int64_t etxn_reserve(uint32_t);
+        extern int64_t etxn_fee_base (uint32_t read_ptr, uint32_t read_len);
+        extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
+        extern int64_t ledger_seq (void);
+        extern int64_t otxn_param(uint32_t, uint32_t, uint32_t, uint32_t);
+
+        #define SBUF(x) (uint32_t)x,sizeof(x)
+        #define ASSERT(x) if (!(x)) rollback((uint32_t)#x, sizeof(#x), __LINE__)
+
+        // clang-format off
+        uint8_t txn[256] =
+        {
+        /* size, upto, field name               */
+        /*    3,    0, tt = TrustSet            */   0x12U, 0x00U, 0x14U,
+        /*    5,    3, flags                    */   0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
+        /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+        /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+        /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+        /*   49,   25, limitamount              */   0x63U,
+            0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        /*    9,   74, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+        /*   35,   83, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        /*   22,  118, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        /*  116,  140, emit details             */
+        /*    0,  256,                          */
+        };
+        // clang-format on
+
+        // TX BUILDER
+        #define FLAGS_OUT (txn + 4U)
+        #define FLS_OUT (txn + 15U)
+        #define LLS_OUT (txn + 21U)
+        #define LIMIT_OUT (txn + 26U)
+        #define FEE_OUT (txn + 75U)
+        #define ACCOUNT_OUT (txn + 120U)
+        #define EMIT_OUT (txn + 140U)
+
+        #define COPY_20(ptr_to, ptr_from)                                              \
+          do {                                                                         \
+            unsigned char *buf_to = (unsigned char *)ptr_to;                           \
+            unsigned char *buf_from = (unsigned char *)ptr_from;                       \
+            *(uint64_t *)(buf_to + 0) = *(uint64_t *)(buf_from + 0);                   \
+            *(uint64_t *)(buf_to + 8) = *(uint64_t *)(buf_from + 8);                   \
+            *(uint32_t *)(buf_to + 16) = *(uint32_t *)(buf_from + 16);                 \
+          } while (0)
+
+        #define SET_ACCOUNT(ptr, accid) COPY_20(ptr, accid)
+
+        #define FLIP_ENDIAN_32(value)                                                  \
+          (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                     ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+
+        #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+
+        #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+          do {                                                                         \
+            uint8_t *b = (ptr);                                                        \
+            *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+            *b++ = (amount >> 48) & 0xFFU;                                             \
+            *b++ = (amount >> 40) & 0xFFU;                                             \
+            *b++ = (amount >> 32) & 0xFFU;                                             \
+            *b++ = (amount >> 24) & 0xFFU;                                             \
+            *b++ = (amount >> 16) & 0xFFU;                                             \
+            *b++ = (amount >> 8) & 0xFFU;                                              \
+            *b++ = (amount >> 0) & 0xFFU;                                              \
+          } while (0)
+
+        // a zero IOU Amount/LimitAmount: 8-byte "not native" marker (the
+        // special-case encoding for value == 0, see STAmount::add), a
+        // "USD" ISO currency code (bytes 12..14 of the 20-byte currency),
+        // and the 20-byte issuer AccountID
+        #define SET_ZERO_IOU(ptr, issuer_ptr)                                          \
+          do {                                                                         \
+            uint8_t *b = (ptr);                                                        \
+            for (int i = 0; i < 48; ++i) b[i] = 0;                                     \
+            b[0] = 0x80U;                                                              \
+            b[20] = 'U'; b[21] = 'S'; b[22] = 'D';                                     \
+            COPY_20(b + 28, issuer_ptr);                                               \
+          } while (0)
+
+        // emit_atomic() window: exactly the ledger being built
+        #define PREPARE_TXN_ATOMIC()                                                   \
+          do {                                                                         \
+            etxn_reserve(1);                                                           \
+            uint32_t cls = (uint32_t)ledger_seq();                                     \
+            SET_UINT32(FLS_OUT, cls);                                                  \
+            SET_UINT32(LLS_OUT, cls);                                                  \
+            hook_account(ACCOUNT_OUT, 20);                                             \
+            etxn_details(EMIT_OUT, 116U);                                            \
+            int64_t fee = etxn_fee_base(SBUF(txn));                                    \
+            SET_NATIVE_AMOUNT(FEE_OUT, fee);                                           \
+          } while (0)
+
+        int64_t hook(uint32_t r)
+        {
+            _g(1,1);
+            uint8_t dst[20];
+            ASSERT(otxn_param(SBUF(dst), (uint32_t)"dst", 3) == 20);
+            SET_ZERO_IOU(LIMIT_OUT, dst);
+            // tfFullyCanonicalSig | tfSetfAuth
+            SET_UINT32(FLAGS_OUT, 0x80010000UL);
+            PREPARE_TXN_ATOMIC();
+            uint8_t hash[32];
+            ASSERT(emit_atomic(SBUF(hash), SBUF(txn)) == 32);
+            return accept(0,0,0);
+        }
+    )[test.hook]"];
+
     // always rollback
     TestHook reject_wasm = wasm[R"[test.hook](
         #include <stdint.h>
@@ -17031,6 +17158,58 @@ public:
                     BEAST_EXPECT(
                         !e.isFieldPresent(sfHookEmittedTransactionResult));
         }
+
+        // ------------------------------------------------------------------
+        // 15. the atomic inner fails with a non-tec preclaim result
+        //    (tefNO_AUTH_REQUIRED, from SetTrust::preclaim: the hook account
+        //    never has lsfRequireAuth set). The parent still ends as
+        //    tecHOOK_EMIT_FAILED and its HookEmissions entry is clamped to
+        //    tecHOOK_EMIT_FAILED (UINT8 field), but the failing inner itself
+        //    must never enter the ledger or be charged a fee: a tem/tef/tel/
+        //    ter result never reaches doApply (Transactor::likelyToClaimFee
+        //    is false for it), on the first application and on any fee-only
+        //    reapplication alike, so this does not distinguish old from new
+        //    code by ledger content alone -- it pins that the fee-only pass
+        //    no longer even attempts it (previously it was kept in
+        //    failedAtomicEmissions_ regardless of tec-ness).
+        {
+            setHook(alice, {hso(atomic_trustset_wasm, overrideFlag)});
+
+            auto const aliceBefore = env.balance(alice).value().xrp().drops();
+            env(invoke(alice, {dstP(carol)}),
+                M("non-tec inner"),
+                fee(XRP(1)),
+                ter(tecHOOK_EMIT_FAILED));
+            auto const outerId = env.tx()->getTransactionID();
+            env.close();
+            auto const ledger = env.closed();
+            BEAST_EXPECT(countTxs(ledger) == 1);  // parent only, no inner
+            auto const outerMeta = txMeta(ledger, outerId);
+            BEAST_REQUIRE(outerMeta);
+            BEAST_EXPECT(
+                outerMeta->getFieldU8(sfTransactionResult) ==
+                tecHOOK_EMIT_FAILED);
+            BEAST_REQUIRE(outerMeta->isFieldPresent(sfHookEmissions));
+            auto const& emissions = outerMeta->getFieldArray(sfHookEmissions);
+            BEAST_REQUIRE(emissions.size() == 1);
+            BEAST_EXPECT(
+                emissions[0].getFieldU8(sfHookEmittedTransactionResult) ==
+                tecHOOK_EMIT_FAILED);
+            auto const innerId = emissions[0].getFieldH256(sfEmittedTxnID);
+            // the inner never entered the ledger: no fee-only application
+            BEAST_EXPECT(std::get<0>(ledger->txRead(innerId)) == nullptr);
+            BEAST_EXPECT(env.le(keylet::emittedTxn(innerId)) == nullptr);
+            BEAST_EXPECT(
+                env.balance(alice).value().xrp().drops() ==
+                aliceBefore - XRP(1).value().xrp().drops());
+
+            for (int i = 0; i < 6; ++i)
+            {
+                env.close();
+                BEAST_EXPECT(countTxs(env.closed()) == 0);
+            }
+        }
+        deleteHooks(alice, 1);
     }
 
     void
