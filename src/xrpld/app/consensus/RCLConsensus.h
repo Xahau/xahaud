@@ -40,6 +40,7 @@
 #include <xrpl/protocol/STValidation.h>
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -204,6 +205,23 @@ class RCLConsensus
         ConsensusExtensions const&
         ce() const;
 
+        // Test seam. Empty unless a suite is showing that the accept job's
+        // extension block waits while consensus holds this mutex.
+        void
+        setAcceptExtensionProbe(
+            std::function<void()> beforeLock,
+            std::function<void()> insideLock)
+        {
+            beforeAcceptExtension_ = std::move(beforeLock);
+            insideAcceptExtension_ = std::move(insideLock);
+        }
+
+        std::uint64_t
+        maxAcceptLockHoldNs() const
+        {
+            return maxAcceptLockNs_.load(std::memory_order_relaxed);
+        }
+
     private:
         //---------------------------------------------------------------------
         // The following members implement the generic Consensus requirements
@@ -217,6 +235,13 @@ class RCLConsensus
         // reacquires it for extension preparation. The accepted result must
         // still remain unchanged until a future call to startRound.
         friend class Consensus<Adaptor>;
+
+        std::function<void()> beforeAcceptExtension_;
+        std::function<void()> insideAcceptExtension_;
+        std::atomic<std::uint64_t> maxAcceptLockNs_{0};
+
+        void
+        noteAcceptLock(std::chrono::steady_clock::time_point start);
 
         /** Attempt to acquire a specific ledger.
 
@@ -505,6 +530,28 @@ public:
     bool
     extensionsBusy() const;
 
+    // Test seams for the accept-path lock. Production leaves them empty.
+    void
+    setWhileConsensusLocked(std::function<void()> hook)
+    {
+        whileConsensusLocked_ = std::move(hook);
+    }
+
+    void
+    setAcceptExtensionProbe(
+        std::function<void()> beforeLock,
+        std::function<void()> insideLock)
+    {
+        adaptor_.setAcceptExtensionProbe(
+            std::move(beforeLock), std::move(insideLock));
+    }
+
+    std::uint64_t
+    maxAcceptLockHoldNs() const
+    {
+        return adaptor_.maxAcceptLockHoldNs();
+    }
+
     //! @see Consensus::getJson
     Json::Value
     getJson(bool full) const;
@@ -560,6 +607,8 @@ private:
     // Lock order: C before LedgerMaster, never the reverse; C before busyMu_
     // before the collector.
     mutable std::recursive_mutex mutex_;
+
+    std::function<void()> whileConsensusLocked_;
 
     Adaptor adaptor_;
     std::unique_ptr<Consensus<Adaptor>> consensus_;

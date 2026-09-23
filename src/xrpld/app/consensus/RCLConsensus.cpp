@@ -91,6 +91,23 @@ RCLConsensus::RCLConsensus(
 
 RCLConsensus::~RCLConsensus() = default;
 
+void
+RCLConsensus::Adaptor::noteAcceptLock(
+    std::chrono::steady_clock::time_point start)
+{
+    auto const ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                        std::chrono::steady_clock::now() - start)
+                        .count();
+    if (ns <= 0)
+        return;
+    auto cur = maxAcceptLockNs_.load(std::memory_order_relaxed);
+    while (static_cast<std::uint64_t>(ns) > cur &&
+           !maxAcceptLockNs_.compare_exchange_weak(
+               cur, static_cast<std::uint64_t>(ns), std::memory_order_relaxed))
+    {
+    }
+}
+
 RCLConsensus::Adaptor::Adaptor(
     Application& app,
     std::recursive_mutex& consensusMutex,
@@ -588,11 +605,17 @@ RCLConsensus::Adaptor::doAccept(
     // influence fallback entropy, transaction ordering, or ledger state.
     auto replayData = ledgerMaster_.releaseReplay();
     auto const consensusTxSetHash = result.txns.id();
+    if (beforeAcceptExtension_)
+        beforeAcceptExtension_();
     auto const liveBuild = [&] {
         std::lock_guard lock{consensusMutex_};
-        return replayData ? std::optional<ConsensusExtensions::LiveBuildTxSet>{}
-                          : std::optional<ConsensusExtensions::LiveBuildTxSet>{
-                                ce().makeLiveBuildTxSet(result.txns)};
+        auto const holdStart = std::chrono::steady_clock::now();
+        auto built = replayData
+            ? std::optional<ConsensusExtensions::LiveBuildTxSet>{}
+            : std::optional<ConsensusExtensions::LiveBuildTxSet>{
+                  ce().makeLiveBuildTxSet(result.txns)};
+        noteAcceptLock(holdStart);
+        return built;
     }();
     auto const& buildTxs = liveBuild ? liveBuild->txns : result.txns;
     auto const buildTxSetHash = buildTxs.id();
@@ -620,7 +643,10 @@ RCLConsensus::Adaptor::doAccept(
     auto const buildSeq = prevLedger.seq() + 1;
     auto const orderingSalt = [&] {
         std::lock_guard lock{consensusMutex_};
-        return ce().txnOrderingSalt(buildTxSetHash, buildSeq);
+        auto const holdStart = std::chrono::steady_clock::now();
+        auto salt = ce().txnOrderingSalt(buildTxSetHash, buildSeq);
+        noteAcceptLock(holdStart);
+        return salt;
     }();
     CanonicalTXSet retriableTxs{orderingSalt};
 
@@ -652,6 +678,9 @@ RCLConsensus::Adaptor::doAccept(
         // Match consensus-side readers/writers. Never extend this scope across
         // buildLCL, the open-ledger locks, or endConsensus.
         std::lock_guard lock{consensusMutex_};
+        auto const holdStart = std::chrono::steady_clock::now();
+        if (insideAcceptExtension_)
+            insideAcceptExtension_();
         if (replayData)
         {
             ce().onReplayBuild();
@@ -664,6 +693,7 @@ RCLConsensus::Adaptor::doAccept(
         {
             ce().clearRngState();
         }
+        noteAcceptLock(holdStart);
     }
     //@@end accept-time-cleanup-disabled
 
@@ -1132,6 +1162,8 @@ RCLConsensus::timerEntry(
     {
         std::lock_guard _{mutex_};
         consensus_->timerEntry(now, clog);
+        if (whileConsensusLocked_)
+            whileConsensusLocked_();
     }
     catch (SHAMapMissingNode const& mn)
     {
