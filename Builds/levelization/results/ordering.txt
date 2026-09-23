@@ -34,6 +34,7 @@ test.basics > xrpld.perflog
 test.basics > xrpld.rpc
 test.basics > xrpl.json
 test.basics > xrpl.protocol
+test.beast > test.unit_test
 test.beast > xrpl.basics
 test.conditions > xrpl.basics
 test.conditions > xrpld.conditions
@@ -46,6 +47,7 @@ test.consensus > xrpld.app
 test.consensus > xrpld.consensus
 test.consensus > xrpld.core
 test.consensus > xrpld.ledger
+test.consensus > xrpld.net
 test.consensus > xrpld.overlay
 test.consensus > xrpld.shamap
 test.consensus > xrpl.json
@@ -70,6 +72,8 @@ test.jtx > xrpld.consensus
 test.jtx > xrpld.core
 test.jtx > xrpld.ledger
 test.jtx > xrpld.net
+test.jtx > xrpld.overlay
+test.jtx > xrpld.peerfinder
 test.jtx > xrpld.rpc
 test.jtx > xrpl.hook
 test.jtx > xrpl.json
@@ -184,6 +188,7 @@ xrpld.ledger > xrpld.core
 xrpld.ledger > xrpl.json
 xrpld.ledger > xrpl.protocol
 xrpld.net > xrpl.basics
+xrpld.net > xrpld.core
 xrpld.net > xrpl.json
 xrpld.net > xrpl.protocol
 xrpld.net > xrpl.resource
