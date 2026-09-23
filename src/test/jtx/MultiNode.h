@@ -1825,6 +1825,17 @@ public:
         std::vector<SteppingController::duration> nodeLag;
         std::vector<std::vector<SteppingController::duration>> nodeLagPerBeat;
 
+        // Why runSteppingProfiled's beat loop stopped. none means the
+        // unpaced runStepping path, which does not record a reason.
+        enum class Stop : std::uint8_t {
+            none,
+            heartbeatBudget,
+            stepLimit,
+            targetReached,
+            predicate
+        };
+        Stop stop = Stop::none;
+
         [[nodiscard]] bool
         saturated() const
         {
@@ -1932,9 +1943,10 @@ public:
         auto const stop = [this, target]() { return minValidated() >= target; };
         KProfiledRunStats runStats;
         SteppingController::ProfiledStepStats stepStats;
+        bool stoppedByPredicate = false;
         for (std::size_t k = 1;
              k <= maxHeartbeats && runStats.steps < maxSteps && !stop() &&
-             !(stopAfterBeat && stopAfterBeat());
+             !(stopAfterBeat && (stoppedByPredicate = stopAfterBeat()));
              ++k)
         {
             auto const beforeConsumed = stepStats.consumedAdvance;
@@ -1957,6 +1969,17 @@ public:
             if (afterBeat)
                 afterBeat();
         }
+
+        if (stop())
+            runStats.stop = KProfiledRunStats::Stop::targetReached;
+        else if (runStats.steps >= maxSteps)
+            runStats.stop = KProfiledRunStats::Stop::stepLimit;
+        // Record the decision already made at the boundary. A predicate may
+        // consume a one-shot event; evaluating it again changes its meaning.
+        else if (stoppedByPredicate)
+            runStats.stop = KProfiledRunStats::Stop::predicate;
+        else
+            runStats.stop = KProfiledRunStats::Stop::heartbeatBudget;
 
         runStats.minValidated = minValidated();
         runStats.clampHits = stepStats.clampHits;
