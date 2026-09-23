@@ -2,6 +2,7 @@
 #include <test/jtx/pay.h>
 
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/consensus/RCLConsensus.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
@@ -24,8 +25,10 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <string>
@@ -88,7 +91,9 @@ class ThreadedExtensions_test : public beast::unit_test::suite
     {
         bool found = false;
         forEachItem(
-            ledger, keylet::pendingExports(), [&](std::shared_ptr<SLE const> const& sle) {
+            ledger,
+            keylet::pendingExports(),
+            [&](std::shared_ptr<SLE const> const& sle) {
                 if (sle && sle->key() == key)
                     found = true;
             });
@@ -224,7 +229,8 @@ class ThreadedExtensions_test : public beast::unit_test::suite
 
         std::vector<ValidatorKey> keys;
         std::vector<std::string> unl;
-        for (auto const* name : {"thread-val-0", "thread-val-1", "thread-val-2"})
+        for (auto const* name :
+             {"thread-val-0", "thread-val-1", "thread-val-2"})
         {
             keys.push_back(ValidatorKey::fromPassphrase(name));
             unl.push_back(keys.back().pubKey);
@@ -323,11 +329,12 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                 << " delay=" << counts.delayCalls.load() << std::endl;
             BEAST_EXPECT(false);
         };
-        auto const submitOk = [&](std::size_t node, Json::Value tx, jtx::Account const& signer) {
-            tx[jss::NetworkID] = networkID;
-            auto const txn = net.submit(node, std::move(tx), signer);
-            return txn && txn->getResult() == tesSUCCESS;
-        };
+        auto const submitOk =
+            [&](std::size_t node, Json::Value tx, jtx::Account const& signer) {
+                tx[jss::NetworkID] = networkID;
+                auto const txn = net.submit(node, std::move(tx), signer);
+                return txn && txn->getResult() == tesSUCCESS;
+            };
         if (!submitOk(
                 0,
                 jtx::pay(jtx::Account::master, owner, jtx::XRP(20'000)),
@@ -387,8 +394,7 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                       parent)
                 : nullptr;
             log << "  threaded view diag fromReport="
-                << (view && view->fromUNLReport ? 1 : 0)
-                << " masters="
+                << (view && view->fromUNLReport ? 1 : 0) << " masters="
                 << (view ? view->orderedOriginalMasterKeys.size() : 0)
                 << std::endl;
             return fail("validator view");
@@ -472,10 +478,11 @@ class ThreadedExtensions_test : public beast::unit_test::suite
         };
         std::vector<uint256> origins;
         auto const historyFrom = net.minValidated();
-        auto const sendIntent = [&](std::uint32_t ticket) -> std::optional<uint256> {
+        auto const sendIntent =
+            [&](std::uint32_t ticket) -> std::optional<uint256> {
             auto const open = net[0].app().openLedger().current()->seq();
-            Json::Value tx = intent(
-                ticket, open + ExportLimits::maxAdmissionWindowLedgers);
+            Json::Value tx =
+                intent(ticket, open + ExportLimits::maxAdmissionWindowLedgers);
             tx[jss::NetworkID] = networkID;
             auto const txn = net.submit(0, std::move(tx), owner);
             if (!txn || txn->getResult() != tesSUCCESS)
@@ -544,8 +551,8 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             PeerFaultConfig cfg;
             cfg.sendDropPctX100 = 10000;
             if (category >= 0)
-                cfg.messageCategories = std::set<std::size_t>{
-                    static_cast<std::size_t>(category)};
+                cfg.messageCategories =
+                    std::set<std::size_t>{static_cast<std::size_t>(category)};
             net[2].app().getRuntimeConfig().setPeerDefaults(cfg);
         }
         {
@@ -632,7 +639,8 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             if (!beat())
                 return;
         if (validatorsAdvanced() < downSeq + 2)
-            return fail("validators did not advance while the observer was down");
+            return fail(
+                "validators did not advance while the observer was down");
         if (!net.restartNode(observer).isUp())
             return fail("observer did not restart");
         if (!relink(observer))
@@ -784,8 +792,9 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                             tx->getFieldH256(sfTransactionHash) == origin)
                             return fail("witnessed more than once");
                 }
-                log << "  threaded " << schedule << " origin=" << to_string(origin)
-                    << " witnessed:" << seqW << std::endl;
+                log << "  threaded " << schedule
+                    << " origin=" << to_string(origin) << " witnessed:" << seqW
+                    << std::endl;
                 continue;
             }
             for (std::uint32_t n = 0; n < nNodes; ++n)
@@ -805,10 +814,10 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             auto const inDir =
                 latch && pendingDirContains(*ledger, latch->key());
             char const* const shape = !latch ? "missing"
-                : hasSig                 ? "signed"
-                : hasNode && inDir       ? "pending"
-                : !hasNode && !inDir     ? "pruned"
-                                         : "inconsistent";
+                : hasSig                     ? "signed"
+                : hasNode && inDir           ? "pending"
+                : !hasNode && !inDir         ? "pruned"
+                                             : "inconsistent";
             log << "  threaded " << schedule << " origin=" << to_string(origin)
                 << " expired shape=" << shape << std::endl;
             if (!latch)
@@ -821,21 +830,148 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                             : "directory holds an unlinked latch");
         }
 
-        log << "  threaded " << schedule
-            << " origins=" << origins.size()
+        log << "  threaded " << schedule << " origins=" << origins.size()
             << " directDropped=" << droppedCalls - droppedQueued
-            << " delayed=" << delayed
-            << " observerDownFrom=" << downSeq
+            << " delayed=" << delayed << " observerDownFrom=" << downSeq
             << " pre=" << preSeq << " end=" << agreed << std::endl;
         BEAST_EXPECT(origins.size() == 8);
         BEAST_EXPECT(droppedCalls > droppedQueued);
         BEAST_EXPECT(delayed > 0);
+        log << "  accept lock hold ns="
+            << net[0].app().getOPs().getConsensus().maxAcceptLockHoldNs()
+            << std::endl;
+    }
+
+    void
+    testSimulateReenters()
+    {
+        testcase("simulate force-accept reenters the consensus lock");
+        using namespace jtx;
+        Env env{*this, envconfig()};
+        auto& consensus = env.app().getOPs().getConsensus();
+        consensus.simulate(
+            env.app().timeKeeper().closeTime(), std::chrono::milliseconds{1});
+        BEAST_EXPECT(consensus.maxAcceptLockHoldNs() > 0);
+    }
+
+    void
+    testAcceptLockWaits()
+    {
+        testcase("accept extension block waits while consensus holds the lock");
+        using namespace std::chrono_literals;
+
+        std::mutex mu;
+        std::condition_variable cv;
+        std::function<void()> pending;
+        bool havePending = false;
+        std::atomic<bool> capture{false};
+        bool reaching = false;
+        std::atomic<bool> entered{false};
+        std::atomic<bool> sawWait{false};
+        std::mutex threadMu;
+        std::thread acceptThread;
+
+        JobQueue::DispatchHook hook = [&](JobType type,
+                                          std::string const&,
+                                          JobQueue::JobFunction const& func) {
+            if (capture.load(std::memory_order_acquire) && type == jtACCEPT)
+            {
+                std::lock_guard lock(mu);
+                pending = func;
+                havePending = true;
+                return JobQueue::JobDisposition::claimedQueued;
+            }
+            return JobQueue::JobDisposition::pass;
+        };
+
+        MultiNode net(*this, /*virtualClock=*/true, /*stepping=*/false);
+        std::vector<ValidatorKey> keys;
+        std::vector<std::string> unl;
+        for (std::size_t i = 0; i < 3; ++i)
+        {
+            keys.push_back(ValidatorKey::fromPassphrase(
+                "accept-lock-" + std::to_string(i)));
+            unl.push_back(keys.back().pubKey);
+        }
+        auto const factory = [](Application& app) {
+            return std::unique_ptr<Overlay>(std::make_unique<SimOverlay>(app));
+        };
+        auto const configHook = [](Config& cfg) {
+            cfg.NETWORK_ID = networkID;
+            cfg.features.insert(featureConsensusEntropy);
+            cfg.features.insert(featureExport);
+        };
+        for (std::size_t i = 0; i < keys.size(); ++i)
+        {
+            net.add(
+                TrustConfig{keys[i].seed, unl},
+                factory,
+                i == 0 ? hook : JobQueue::DispatchHook{},
+                /*bindServerListeners=*/false,
+                configHook);
+        }
+        if (!BEAST_EXPECT(net.allUp()))
+            return;
+        for (std::size_t i = 0; i < 3; ++i)
+            for (std::size_t j = i + 1; j < 3; ++j)
+                if (!BEAST_EXPECT(net.simConnect(i, j) != nullptr))
+                    return;
+        if (!BEAST_EXPECT(net.waitForPeers(2, 20s)))
+            return;
+
+        auto& consensus = net[0].app().getOPs().getConsensus();
+        consensus.setAcceptExtensionProbe(
+            [&] {
+                std::lock_guard lock(mu);
+                reaching = true;
+                cv.notify_all();
+            },
+            [&] { entered.store(true, std::memory_order_release); });
+        consensus.setWhileConsensusLocked([&] {
+            if (sawWait.load(std::memory_order_acquire))
+                return;
+            std::function<void()> job;
+            {
+                std::lock_guard lock(mu);
+                if (!havePending)
+                    return;
+                job = std::move(pending);
+                havePending = false;
+                reaching = false;
+            }
+            std::thread worker(std::move(job));
+            {
+                std::unique_lock lock(mu);
+                cv.wait(lock, [&] { return reaching; });
+            }
+            sawWait.store(
+                !entered.load(std::memory_order_acquire),
+                std::memory_order_release);
+            std::lock_guard lock(threadMu);
+            acceptThread = std::move(worker);
+        });
+
+        capture.store(true, std::memory_order_release);
+        for (int i = 0; i < 40 && !sawWait.load(std::memory_order_acquire); ++i)
+            (void)net.threadedTick(1s);
+        capture.store(false, std::memory_order_release);
+        {
+            std::lock_guard lock(threadMu);
+            if (acceptThread.joinable())
+                acceptThread.join();
+        }
+        BEAST_EXPECT(sawWait.load(std::memory_order_acquire));
+        BEAST_EXPECT(entered.load(std::memory_order_acquire));
+        log << "  accept lock hold ns=" << consensus.maxAcceptLockHoldNs()
+            << std::endl;
     }
 
 public:
     void
     run() override
     {
+        testSimulateReenters();
+        testAcceptLockWaits();
         realThreads();
     }
 };
