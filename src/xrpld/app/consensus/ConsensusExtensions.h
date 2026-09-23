@@ -59,6 +59,12 @@ class ConsensusExtensions
 
     Application& app_;
     ExportSigCollector postValidationExportSigCollector_;
+    // Test observation after collector commit and before publication policy.
+    // Stepping tests install/remove it only while their sole executor is
+    // paused.
+    std::function<
+        void(ExportShare const&, bool, ExportSigCollector::AdmitResult)>
+        exportShareAdmissionProbe_;
     std::mutex exportStreamMutex_;
     LedgerIndex exportStreamEmissionSeq_{0};
     std::set<std::pair<uint256, ExportSigCollector::Position>>

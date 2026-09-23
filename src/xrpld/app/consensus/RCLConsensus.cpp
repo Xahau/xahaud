@@ -1218,7 +1218,15 @@ RCLConsensus::peerProposal(
     RCLCxPeerPos const& newProposal)
 {
     std::lock_guard _{mutex_};
-    return consensus_->peerProposal(now, newProposal);
+    if (!peerProposalProbe_)
+        return consensus_->peerProposal(now, newProposal);
+
+    auto const before = consensus_->getJson(true);
+    auto const parent = consensus_->prevLedgerID();
+    auto const accepted = consensus_->peerProposal(now, newProposal);
+    peerProposalProbe_(
+        newProposal, parent, accepted, before, consensus_->getJson(true));
+    return accepted;
 }
 
 //@@start pre-start-round

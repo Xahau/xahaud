@@ -556,6 +556,22 @@ public:
         return adaptor_.maxAcceptLockHoldNs();
     }
 
+    // Test-only observation of a processed proposal. Both snapshots and the
+    // callback run under C; production leaves the probe empty.
+    using PeerProposalProbe = std::function<void(
+        RCLCxPeerPos const&,
+        uint256 const&,
+        bool,
+        Json::Value const&,
+        Json::Value const&)>;
+
+    void
+    setPeerProposalProbe(PeerProposalProbe probe)
+    {
+        std::lock_guard lock{mutex_};
+        peerProposalProbe_ = std::move(probe);
+    }
+
     //! @see Consensus::getJson
     Json::Value
     getJson(bool full) const;
@@ -613,6 +629,7 @@ private:
     mutable std::recursive_mutex mutex_;
 
     std::function<void()> whileConsensusLocked_;
+    PeerProposalProbe peerProposalProbe_;
 
     Adaptor adaptor_;
     std::unique_ptr<Consensus<Adaptor>> consensus_;

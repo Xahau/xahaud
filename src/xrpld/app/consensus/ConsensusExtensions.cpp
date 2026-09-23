@@ -660,6 +660,8 @@ ConsensusExtensions::admitExportShare(
         Slice{share.signature.data(), share.signature.size()});
     auto outcome = postValidationExportSigCollector_.admitContribution(
         std::move(*admission.ticket), signatureVerified, validated->info().seq);
+    if (exportShareAdmissionProbe_)
+        exportShareAdmissionProbe_(share, signatureVerified, outcome.result);
     publishBusy();
     JLOG(j_.trace()) << "ExportShare: collector commit"
                      << " origin=" << share.originTxn

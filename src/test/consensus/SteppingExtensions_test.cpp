@@ -5,6 +5,7 @@
 #include <test/unit_test/SuiteJournal.h>
 
 #include <xrpld/app/consensus/ConsensusExtensions.h>
+#include <xrpld/app/consensus/RCLConsensus.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/RuntimeFaultRandom.h>
@@ -3379,18 +3380,13 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 roundTime * 2),
             std::chrono::steady_clock::duration{4s});
 
-        test::StreamSink senderSink{beast::severities::kTrace};
-        test::StreamSink observerSink{beast::severities::kTrace};
-        auto& senderCE = net.node(2).app().getConsensusExtensions();
+        // Prove the oracle without observer trace logs, with or without the
+        // build's optional file/line suffix. Admission is a typed observation.
+        test::StreamSink observerSink{beast::severities::kFatal};
         auto& observerCE = net.node(observer).app().getConsensusExtensions();
-        auto const previousSender = senderCE.j_;
         auto const previousObserver = observerCE.j_;
-        senderCE.j_ = beast::Journal{senderSink};
         observerCE.j_ = beast::Journal{observerSink};
-        scope_exit restoreJournals{[&]() {
-            senderCE.j_ = previousSender;
-            observerCE.j_ = previousObserver;
-        }};
+        scope_exit restoreJournals{[&]() { observerCE.j_ = previousObserver; }};
 
         auto const open = net.node(0).app().openLedger().current()->seq();
         auto const tx = world.submit(
@@ -3401,7 +3397,6 @@ class SteppingExtensions_test : public beast::unit_test::suite
         if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
             return std::nullopt;
         auto const origin = tx->getID();
-        auto const originText = "origin=" + to_string(origin);
         auto const senderId =
             to_string(net.node(2).app().getValidatorKeys().nodeID);
         auto const hasSender = [&](Json::Value const& info) {
@@ -3409,23 +3404,129 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 info["peer_positions"].isObject() &&
                 info["peer_positions"].isMember(senderId);
         };
-        // One beat is 1s. Keep the observer's copy strictly after node 0 has
-        // seen the stale proposal, so the admission cannot precede that.
+        // Delay the observer's copy three seconds beyond the validator copy.
         auto const observerLag =
             std::chrono::duration_cast<std::chrono::steady_clock::duration>(3s);
 
-        std::uint32_t pendingArrivals = 0;
-        // HashRouter suppresses a repeated proposal before peerProposal, so
-        // only the first copy of each identity can produce a rejection line.
-        std::set<std::tuple<uint256, std::uint32_t, std::uint32_t>>
-            seenProposals;
         std::uint32_t delayedProposals = 0;
         std::uint32_t droppedDirect = 0;
         std::uint32_t staleArrivals = 0;
-        std::uint32_t absentWhileStale = 0;
-        std::optional<std::size_t> rejectionMark;
+        std::uint32_t staleRejected = 0;
+        std::uint32_t staleHarvested = 0;
         bool presentAfterHeal = false;
         bool delaying = false;
+        bool observerProposalJob = false;
+        std::set<uint256> freshProposalWires;
+        if (!BEAST_EXPECT(net.node(observer).app().config().steppingMode))
+            return std::nullopt;
+        auto previousAdmissionProbe = observerCE.exportShareAdmissionProbe_;
+        observerCE.exportShareAdmissionProbe_ =
+            [&](ExportShare const& share,
+                bool verified,
+                ExportSigCollector::AdmitResult result) {
+                if (observerProposalJob &&
+                    result == ExportSigCollector::AdmitResult::accepted)
+                {
+                    BEAST_EXPECT(verified);
+                    if (verified)
+                        freshProposalWires.insert(share.wireHash());
+                }
+            };
+        scope_exit restoreAdmissionProbe{[&] {
+            observerCE.exportShareAdmissionProbe_ =
+                std::move(previousAdmissionProbe);
+        }};
+        auto released = [&] {
+            auto const it = stats->originOwnReleases.find(origin);
+            return it != stats->originOwnReleases.end() && it->second[2] > 0;
+        };
+
+        // Observe the actual authenticated proposal dispatch, not a timer
+        // scheduled before its delayed link delivery. The same C-locked call
+        // supplies the decision and both current-position snapshots.
+        auto& receiverConsensus = net.node(0).app().getOPs().getConsensus();
+        auto& observerConsensus =
+            net.node(observer).app().getOPs().getConsensus();
+        auto probe = [&](std::uint32_t receiver,
+                         RCLCxPeerPos const& peer,
+                         uint256 const& parent,
+                         bool acceptedPosition,
+                         Json::Value const& before,
+                         Json::Value const& after) {
+            auto const& proposal = peer.proposal();
+            if (to_string(proposal.nodeID()) != senderId)
+                return;
+            auto const phase = before["phase"].asString();
+            if (phase != "open" && phase != "establish")
+                return;
+            // Open phase has no our_position yet. Use the actual parent
+            // captured under C, which the consensus guard also uses.
+            if (proposal.prevLedger() == parent)
+                return;
+
+            ++staleArrivals;
+            auto const unchanged =
+                before["peer_positions"] == after["peer_positions"];
+            BEAST_EXPECT(!acceptedPosition);
+            BEAST_EXPECT(unchanged);
+            if (!acceptedPosition && unchanged)
+                ++staleRejected;
+            if (receiver != observer || acceptedPosition || !unchanged)
+                return;
+
+            // PeerImp harvests signed Export bytes before consensus rejects
+            // the stale position. Require a fresh verified collector commit
+            // in this same authenticated proposal job, for an exact carried
+            // wire. A previous admission or later duplicate cannot satisfy it.
+            for (auto const& bytes : peer.exportSignatures())
+            {
+                auto const share = ExportShare::parse(makeSlice(bytes));
+                if (!share || share->originTxn != origin)
+                    continue;
+                auto const snapshot =
+                    observerCE.postValidationExportSigCollector()
+                        .fullUnionSnapshot();
+                auto const material = snapshot.find(origin);
+                ExportSigCollector::Contribution const expected{
+                    share->committeePosition,
+                    share->signingKey,
+                    share->signature};
+                if (material == snapshot.end() ||
+                    std::find(
+                        material->second.begin(),
+                        material->second.end(),
+                        expected) == material->second.end())
+                    continue;
+                if (observerProposalJob &&
+                    freshProposalWires.contains(share->wireHash()))
+                {
+                    ++staleHarvested;
+                    log << "  stale proposal processed receiver=" << receiver
+                        << " id=" << peer.suppressionID() << " phase=" << phase
+                        << " parent=" << proposal.prevLedger()
+                        << " current=" << parent
+                        << " wire=" << share->wireHash() << std::endl;
+                }
+            }
+        };
+        receiverConsensus.setPeerProposalProbe([&](auto const& peer,
+                                                   auto const& parent,
+                                                   bool accepted,
+                                                   auto const& before,
+                                                   auto const& after) {
+            probe(0, peer, parent, accepted, before, after);
+        });
+        observerConsensus.setPeerProposalProbe([&](auto const& peer,
+                                                   auto const& parent,
+                                                   bool accepted,
+                                                   auto const& before,
+                                                   auto const& after) {
+            probe(observer, peer, parent, accepted, before, after);
+        });
+        scope_exit clearProbes{[&] {
+            receiverConsensus.setPeerProposalProbe({});
+            observerConsensus.setPeerProposalProbe({});
+        }};
         // Direct frames from validator 2 are dropped, so a proposal is the
         // only way this origin's evidence can reach another node. Validations
         // and ledger data are not faulted.
@@ -3453,68 +3554,19 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         ? proposalDelay + observerLag
                         : proposalDelay;
                     fault.delay = lag;
-                    if (to == 0 &&
-                        proposal->previousledger().size() == uint256::size())
-                    {
-                        uint256 prev;
-                        std::memcpy(
-                            prev.data(),
-                            proposal->previousledger().data(),
-                            uint256::size());
-                        // Fire at the delay, before link delivery. The
-                        // rejection compares against the round parent, and it
-                        // is not logged while phase is accepted.
-                        auto const proposeSeq = proposal->proposeseq();
-                        auto const closeTime =
-                            static_cast<std::uint32_t>(proposal->closetime());
-                        ++pendingArrivals;
-                        net.in(lag, 0, [&, prev, proposeSeq, closeTime] {
-                            if (pendingArrivals > 0)
-                                --pendingArrivals;
-                            if (!seenProposals
-                                     .insert({prev, proposeSeq, closeTime})
-                                     .second)
-                                return;
-                            auto const info =
-                                net.node(0).app().getOPs().getConsensusInfo();
-                            auto const phase = info.isMember("phase")
-                                ? info["phase"].asString()
-                                : std::string{};
-                            uint256 parent =
-                                net.ledgerHash(0, net.closedSeq(0));
-                            if (info.isMember("our_position") &&
-                                info["our_position"].isMember(
-                                    "previous_ledger"))
-                            {
-                                uint256 parsed;
-                                if (parsed.parseHex(
-                                        info["our_position"]["previous_ledger"]
-                                            .asString()))
-                                    parent = parsed;
-                            }
-                            if ((phase == "open" || phase == "establish") &&
-                                prev != parent)
-                            {
-                                ++staleArrivals;
-                                if (!hasSender(info))
-                                    ++absentWhileStale;
-                                if (!rejectionMark)
-                                    rejectionMark =
-                                        observerSink.messages().str().size();
-                            }
-                        });
-                    }
                     return fault;
                 });
         }
         net.controller().observeJobs(
-            [&](std::uint32_t, JobType, std::string const&) {
+            [&](std::uint32_t node, JobType type, std::string const& name) {
+                // observeJobs runs immediately before the real closure. No
+                // worker or io thread can interleave in stepping mode.
+                freshProposalWires.clear();
+                observerProposalJob = node == observer &&
+                    type == jtPROPOSAL_t && name == "recvPropose->checkPropose";
                 if (delaying)
                     return;
-                auto const text = senderSink.messages().str();
-                if (text.find("ExportShare: local release frame") !=
-                        std::string::npos &&
-                    text.find(originText) != std::string::npos)
+                if (released())
                     delaying = true;
             });
         scope_exit clearObserve{[&] { net.controller().observeJobs({}); }};
@@ -3522,17 +3574,12 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::uint32_t admitSeq = 0;
         if (!BEAST_EXPECT(net.runUntil(
                 [&] {
-                    auto const text = senderSink.messages().str();
-                    auto const released =
-                        text.find("ExportShare: local release frame") !=
-                            std::string::npos &&
-                        text.find(originText) != std::string::npos;
-                    if (released)
+                    if (released())
                         delaying = true;
                     for (auto seq = warmLedger; seq <= net.validSeq(0); ++seq)
                         if (ledgerHasTx(net.ledger(0, seq), origin))
                             admitSeq = seq;
-                    return released && admitSeq != 0;
+                    return released() && admitSeq != 0;
                 },
                 SteppingNetwork::RunBudget{40, 1'200'000})))
         {
@@ -3541,62 +3588,17 @@ class SteppingExtensions_test : public beast::unit_test::suite
             return std::nullopt;
         }
 
-        auto const accepted = std::to_string(
-            static_cast<unsigned>(ExportSigCollector::AdmitResult::accepted));
-        std::string positionText;
-        {
-            std::istringstream in{senderSink.messages().str()};
-            for (std::string line; std::getline(in, line);)
-            {
-                if (line.find("ExportShare: local release frame") ==
-                    std::string::npos)
-                    continue;
-                if (line.find(originText) == std::string::npos)
-                    continue;
-                auto const at = line.find("position=");
-                if (at == std::string::npos)
-                    continue;
-                auto const end = line.find(' ', at);
-                positionText = line.substr(
-                    at,
-                    end == std::string::npos ? std::string::npos : end - at);
-                break;
-            }
-        }
-        auto commitAfter = [&](std::size_t mark) {
-            auto const rest = observerSink.messages().str().substr(mark);
-            std::istringstream in{rest};
-            for (std::string line; std::getline(in, line);)
-            {
-                if (line.find("ExportShare: collector commit") ==
-                    std::string::npos)
-                    continue;
-                if (line.find(originText) == std::string::npos)
-                    continue;
-                if (!positionText.empty() &&
-                    line.find(positionText) == std::string::npos)
-                    continue;
-                if (line.find("signatureVerified=true") == std::string::npos)
-                    continue;
-                if (line.find("result=" + accepted) == std::string::npos)
-                    continue;
-                return true;
-            }
-            return false;
-        };
         auto const delayStartSeq = net.validSeq(0);
         if (!BEAST_EXPECT(net.runUntil(
-                [&] {
-                    return staleArrivals > 0 && absentWhileStale > 0 &&
-                        rejectionMark && commitAfter(*rejectionMark);
-                },
+                [&] { return staleRejected > 0 && staleHarvested > 0; },
                 SteppingNetwork::RunBudget{160, 1'200'000})))
         {
-            log << "  no stale proposal from validator 2"
+            log << "  stale proposal rejection/admission expectations unmet"
                 << " delayed=" << delayedProposals << " stale=" << staleArrivals
                 << " droppedDirect=" << droppedDirect
                 << " valid=" << net.validSeq(0) << " start=" << delayStartSeq
-                << " absent=" << absentWhileStale << " delayMs="
+                << " rejected=" << staleRejected
+                << " harvested=" << staleHarvested << " delayMs="
                 << std::chrono::duration_cast<std::chrono::milliseconds>(
                        proposalDelay)
                        .count()
@@ -3605,6 +3607,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
         }
         delaying = false;
         net.controller().observeJobs({});
+        observerProposalJob = false;
+        freshProposalWires.clear();
         for (std::uint32_t to = 0; to <= observer; ++to)
             if (to != 2)
                 net.faultFrames(2, to, {});
@@ -3616,34 +3620,32 @@ class SteppingExtensions_test : public beast::unit_test::suite
                             net.node(0).app().getOPs().getConsensusInfo()))
                         presentAfterHeal = true;
                     return net.minValidatedSeq() >= windowEnd &&
-                        pendingArrivals == 0 && presentAfterHeal;
+                        presentAfterHeal;
                 },
                 SteppingNetwork::RunBudget{1600, 1'200'000})))
         {
             log << "  publication window did not close after the delay"
                 << " valid=" << net.minValidatedSeq()
-                << " windowEnd=" << windowEnd << " pending=" << pendingArrivals
-                << std::endl;
+                << " windowEnd=" << windowEnd << std::endl;
             return std::nullopt;
         }
-        auto const sawAccepted = rejectionMark && commitAfter(*rejectionMark);
         auto const seqW = witnessAt(net, origin, warmLedger);
-        // A stale proposal is not stored, so validator 2 is missing from
-        // node 0's peer positions while those proposals arrive, and present
-        // again after the delay is lifted. The wire count and the later
-        // collector commit both have to be positive.
+        BEAST_EXPECT(observerSink.messages().str().empty());
+        // Real stale proposal dispatches must leave current positions
+        // unchanged, while a carried Export wire is freshly admitted. After
+        // healing, a current validator-2 position must be usable again.
         if (!BEAST_EXPECT(
                 staleArrivals > 0 && delayedProposals > 0 &&
-                droppedDirect > 0 && !positionText.empty() &&
-                absentWhileStale > 0 && presentAfterHeal && sawAccepted &&
-                seqW != 0 && seqW > admitSeq && seqW <= windowEnd))
+                droppedDirect > 0 && staleRejected == staleArrivals &&
+                presentAfterHeal && staleHarvested > 0 && seqW != 0 &&
+                seqW > admitSeq && seqW <= windowEnd))
         {
             log << "  stale proposal did not both reject and admit"
                 << " stale=" << staleArrivals << " delayed=" << delayedProposals
                 << " droppedDirect=" << droppedDirect
-                << " absent=" << absentWhileStale
+                << " rejected=" << staleRejected
                 << " present=" << presentAfterHeal
-                << " accepted=" << sawAccepted << " witness=" << seqW
+                << " harvested=" << staleHarvested << " witness=" << seqW
                 << std::endl;
             return std::nullopt;
         }
@@ -3736,7 +3738,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
                    observerLag)
                    .count()
             << " delayed=" << delayedProposals << " stale=" << staleArrivals
-            << " absent=" << absentWhileStale << " present=" << presentAfterHeal
+            << " rejected=" << staleRejected << " harvested=" << staleHarvested
+            << " present=" << presentAfterHeal
             << " droppedDirect=" << droppedDirect << " admit=" << admitSeq
             << " witness=" << seqW << " v2Builds=" << v2Builds
             << " v2Mismatch=" << v2Mismatch << std::endl;
@@ -3748,7 +3751,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     .count()),
             delayedProposals,
             staleArrivals,
-            absentWhileStale,
+            staleRejected,
+            staleHarvested,
             static_cast<std::uint32_t>(presentAfterHeal),
             droppedDirect,
             admitSeq,
