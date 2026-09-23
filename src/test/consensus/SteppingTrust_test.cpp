@@ -1,6 +1,7 @@
 //------------------------------------------------------------------------------
 // SteppingTrust -- per-node UNL shapes in the real stepping harness.
 //------------------------------------------------------------------------------
+#include <test/consensus/goldens/dsf.h>
 #include <test/jtx/SteppingNetwork.h>
 #include <test/jtx/SteppingReplay.h>
 #include <test/jtx/amount.h>
@@ -23,67 +24,7 @@ class SteppingTrust_test : public beast::unit_test::suite
 {
     static constexpr std::uint32_t kForkPeers = 10;
 
-    struct KProfiledForkCell
-    {
-        std::uint32_t overlap = 0;
-        std::uint32_t k = 0;
-        std::uint64_t fingerprint = 0;
-        std::uint64_t events = 0;
-        std::uint64_t weightedEvents = 0;
-        std::size_t steps = 0;
-        std::size_t beats = 0;
-        std::uint32_t minValidated = 0;
-        std::uint32_t maxValidated = 0;
-        std::uint32_t forkCheckedSeqs = 0;
-        std::uint32_t target = 0;
-        std::uint32_t divergentSeq = 0;
-        std::uint32_t agreedSeq = 0;
-        std::uint32_t txASeq = 0;
-        std::uint32_t txBSeq = 0;
-        std::uint64_t clampHits = 0;
-        std::int64_t requestedMs = 0;
-        std::int64_t consumedMs = 0;
-        std::int64_t maxConsumedBeatMs = 0;
-        std::int64_t schedulerMs = 0;
-        std::uint64_t heartbeatEvents = 0;
-        std::uint64_t deliverEvents = 0;
-        std::uint64_t jobEvents = 0;
-        std::uint64_t timerEvents = 0;
-        std::uint32_t firstClampWeight = 0;
-        bool submittedA = false;
-        bool submittedB = false;
-        bool forkFree = false;
-        bool forked = false;
-        bool safeResolved = false;
-        bool unresolved = false;
-        bool saturated = false;
-        std::int64_t unitCostMs = 5;
-
-        [[nodiscard]] bool
-        operator==(KProfiledForkCell const& o) const
-        {
-            return overlap == o.overlap && k == o.k &&
-                fingerprint == o.fingerprint && events == o.events &&
-                weightedEvents == o.weightedEvents && steps == o.steps &&
-                beats == o.beats && minValidated == o.minValidated &&
-                maxValidated == o.maxValidated &&
-                forkCheckedSeqs == o.forkCheckedSeqs && target == o.target &&
-                divergentSeq == o.divergentSeq && agreedSeq == o.agreedSeq &&
-                txASeq == o.txASeq && txBSeq == o.txBSeq &&
-                clampHits == o.clampHits && requestedMs == o.requestedMs &&
-                consumedMs == o.consumedMs &&
-                maxConsumedBeatMs == o.maxConsumedBeatMs &&
-                schedulerMs == o.schedulerMs &&
-                heartbeatEvents == o.heartbeatEvents &&
-                deliverEvents == o.deliverEvents && jobEvents == o.jobEvents &&
-                timerEvents == o.timerEvents &&
-                firstClampWeight == o.firstClampWeight &&
-                submittedA == o.submittedA && submittedB == o.submittedB &&
-                forkFree == o.forkFree && forked == o.forked &&
-                safeResolved == o.safeResolved && unresolved == o.unresolved &&
-                saturated == o.saturated && unitCostMs == o.unitCostMs;
-        }
-    };
+    using KProfiledForkCell = goldens::dsf::KProfiledForkCell;
 
     struct ForkShape
     {
@@ -983,107 +924,7 @@ class SteppingTrust_test : public beast::unit_test::suite
         // Retain the donor's K axis with its 5ms unit. Extra explicitly
         // labelled 1ms cells also exercise progress under lighter pressure.
         // A sample is identified by overlap, K AND unitCostMs.
-        std::array<KProfiledForkCell, 9> const kExpected = {{
-            {0,     0,     0x56ce6480b4972d74ull,
-             3488,  0,     2060,
-             0,     8,     8,
-             7,     8,     5,
-             0,     5,     5,
-             0,     0,     0,
-             0,     54020, 0,
-             0,     0,     0,
-             0,     true,  true,
-             false, true,  false,
-             false, false, 5},
-            {0,     1,     0x5bcaa0a57392b44bull,
-             3475,  4585,  2047,
-             12,    8,     8,
-             7,     8,     5,
-             0,     5,     5,
-             0,     4585,  4585,
-             790,   54345, 120,
-             1312,  613,   0,
-             0,     true,  true,
-             false, true,  false,
-             false, false, 1},
-            {0,     1,     0x66349c6e0ba11e57ull,
-             3776,  5322,  2348,
-             26,    8,     8,
-             7,     8,     6,
-             0,     6,     6,
-             25,    26610, 26385,
-             2000,  68395, 250,
-             1161,  878,   57,
-             2,     true,  true,
-             false, true,  false,
-             false, true,  5},
-            {4,     0,     0xdc05a22afd9269d0ull,
-             6153,  0,     4218,
-             0,     8,     8,
-             7,     8,     0,
-             5,     5,     0,
-             0,     0,     0,
-             0,     55020, 0,
-             0,     0,     0,
-             0,     true,  true,
-             true,  false, true,
-             false, false, 5},
-            {4,     1,     0x7872f20cdb7ec1c9ull,
-             6231,  9698,  4296,
-             14,    8,     8,
-             7,     8,     0,
-             5,     5,     0,
-             6,     9698,  9687,
-             1643,  56548, 140,
-             2884,  1248,  22,
-             3,     true,  true,
-             true,  false, true,
-             false, true,  1},
-            {4,     1,      0x7797f687638895d9ull,
-             14855, 32488,  12920,
-             160,   5,      5,
-             4,     8,      0,
-             0,     0,      0,
-             160,   162440, 161000,
-             2000,  203010, 1490,
-             2839,  8140,   449,
-             2,     true,   true,
-             true,  false,  false,
-             true,  true,   5},
-            {6,     0,     0xc54816e93aff2fd2ull,
-             6147,  0,     4108,
-             0,     8,     8,
-             7,     8,     0,
-             5,     5,     0,
-             0,     0,     0,
-             0,     54020, 0,
-             0,     0,     0,
-             0,     true,  true,
-             true,  false, true,
-             false, false, 5},
-            {6,     1,     0x63e402b833368e31ull,
-             6292,  9487,  4253,
-             15,    8,     8,
-             7,     8,     0,
-             5,     5,     0,
-             7,     9487,  9472,
-             1635,  57612, 150,
-             2952,  1133,  16,
-             3,     true,  true,
-             true,  false, true,
-             false, true,  1},
-            {6,     1,     0xf49350dbcf9e3c9cull,
-             6477,  10070, 4438,
-             49,    8,     8,
-             7,     8,     0,
-             6,     6,     0,
-             48,    50350, 49935,
-             2000,  91945, 480,
-             2156,  1676,  124,
-             2,     true,  true,
-             true,  false, true,
-             false, true,  5},
-        }};
+        auto const& kExpected = goldens::dsf::kProfiledFork;
 
         bool sawForkUnderPressureControl = false;
         bool sawSafeBaseline = false;
@@ -1095,6 +936,8 @@ class SteppingTrust_test : public beast::unit_test::suite
                 expected.overlap,
                 expected.k,
                 std::chrono::milliseconds{expected.unitCostMs});
+            if (goldens::dsf::goldensPrint(*this))
+                goldens::dsf::printFork(*this, cell);
             BEAST_EXPECT(cell == expected);
             BEAST_EXPECT(cell.submittedA);
             BEAST_EXPECT(cell.submittedB);

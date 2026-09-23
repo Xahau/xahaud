@@ -6,6 +6,7 @@
 // XRP payments through the local submission path, and replay the whole
 // tx-bearing timeline bit-for-bit.
 //------------------------------------------------------------------------------
+#include <test/consensus/goldens/dsf.h>
 #include <test/jtx/SteppingReplay.h>
 #include <test/jtx/Traffic.h>
 #include <test/jtx/amount.h>
@@ -28,13 +29,12 @@ class SteppingTraffic_test : public beast::unit_test::suite
 {
     using Payload = std::optional<std::vector<uint256>>;
 
-    static constexpr std::uint64_t kTrafficSeed = 0x5452414646494331ull;
-    static constexpr std::uint64_t kTrafficFingerprint = 0xc0dad1d188726d9dull;
-    static constexpr std::uint64_t kTrafficEvents = 1448;
-    static constexpr std::uint64_t kTrafficPayloadFingerprint =
-        // Payload includes xahaud ledger/transaction hashes. Keep the donor
-        // event-order pin above and the independent semantic/replay checks.
-        0xd77bfa4d445420e3ull;
+    static constexpr auto kTrafficSeed = goldens::dsf::kTrafficSeed;
+    static constexpr auto kTrafficFingerprint =
+        goldens::dsf::kTrafficFingerprint;
+    static constexpr auto kTrafficEvents = goldens::dsf::kTrafficEvents;
+    static constexpr auto kTrafficPayloadFingerprint =
+        goldens::dsf::kTrafficPayloadFingerprint;
 
     static std::uint64_t
     payloadFingerprint(std::vector<uint256> const& payload)
@@ -190,6 +190,15 @@ class SteppingTraffic_test : public beast::unit_test::suite
         auto const content = payloadFingerprint(*payload);
         log << "  traffic content observed: fingerprint 0x" << std::hex
             << content << std::dec << std::endl;
+        if (goldens::dsf::goldensPrint(*this))
+        {
+            goldens::dsf::printScalar(
+                *this, "kTrafficFingerprint", net.traceFingerprint());
+            goldens::dsf::printScalar(
+                *this, "kTrafficEvents", net.traceCount());
+            goldens::dsf::printScalar(
+                *this, "kTrafficPayloadFingerprint", content);
+        }
         BEAST_EXPECT(net.traceFingerprint() == kTrafficFingerprint);
         BEAST_EXPECT(net.traceCount() == kTrafficEvents);
         BEAST_EXPECT(content == kTrafficPayloadFingerprint);

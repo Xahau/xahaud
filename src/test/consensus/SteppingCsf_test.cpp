@@ -4,6 +4,7 @@
 // cases keep the same scenario intent but run real Application/LedgerMaster/
 // PeerImp/JobQueue code through SteppingNetwork.
 //------------------------------------------------------------------------------
+#include <test/consensus/goldens/dsf.h>
 #include <test/jtx/SteppingNetwork.h>
 #include <test/jtx/SteppingReplay.h>
 #include <test/jtx/amount.h>
@@ -26,84 +27,14 @@ class SteppingCsf_test : public beast::unit_test::suite
 {
     // Xahaud's acquisition timeline; semantic lag/fork and replay checks below
     // are retained alongside this target-specific snapshot.
-    static constexpr std::uint64_t kSlowMinorityFingerprint =
-        0x25ec64d383356379ull;
-    static constexpr std::uint64_t kHubNetworkFingerprint =
-        0x182601635f5b0308ull;
-    static constexpr std::uint64_t kDisputeFingerprint = 0x297cf7d89bfd08f7ull;
+    static constexpr auto kSlowMinorityFingerprint =
+        goldens::dsf::kSlowMinorityFingerprint;
+    static constexpr auto kHubNetworkFingerprint =
+        goldens::dsf::kHubNetworkFingerprint;
+    static constexpr auto kDisputeFingerprint =
+        goldens::dsf::kDisputeFingerprint;
 
-    struct KProfiledDisputeSample
-    {
-        std::uint32_t k = 0;
-        std::uint64_t fingerprint = 0;
-        std::uint64_t events = 0;
-        std::uint64_t weightedEvents = 0;
-        std::size_t steps = 0;
-        std::size_t beats = 0;
-        std::uint32_t minValidated = 0;
-        std::uint32_t maxValidated = 0;
-        std::uint32_t forkCheckedSeqs = 0;
-        std::uint32_t target = 0;
-        std::uint32_t acceptedSeq = 0;
-        std::uint32_t txASeq = 0;
-        std::uint32_t txBSeq = 0;
-        std::uint64_t clampHits = 0;
-        std::int64_t requestedMs = 0;
-        std::int64_t consumedMs = 0;
-        // Highest virtual time one beat consumed. A pinned 2000 is that
-        // observed maximum, not a fixed per-beat budget.
-        std::int64_t maxConsumedBeatMs = 0;
-        std::int64_t schedulerMs = 0;
-        std::uint64_t heartbeatEvents = 0;
-        std::uint64_t deliverEvents = 0;
-        std::uint64_t jobEvents = 0;
-        std::uint64_t timerEvents = 0;
-        std::uint32_t firstClampWeight = 0;
-        bool submittedA = false;
-        bool submittedB = false;
-        bool forkFree = false;
-        bool converged = false;
-        bool exactlyOneAccepted = false;
-        bool acceptedSetVerified = false;
-        // Availability before any verification-only backfill. False when
-        // no transaction was accepted, or its historical ledger is missing.
-        bool historyReadyAtSnapshot = false;
-        // Beats of K=0 continuation that reached the target. 0 when recovery
-        // was not needed, or when it ran and still missed the target.
-        std::uint32_t recoveryBeats = 0;
-        // PRNG base passed to seedPrng before the nodes exist.
-        static constexpr std::uint64_t kDefaultSeed = 0xFAB1E5EED0000000ull;
-        std::uint64_t seed = kDefaultSeed;
-        // Not part of operator==. True only when the profiled loop stopped
-        // because the heartbeat ceiling was reached.
-        bool heartbeatBudgetStop = false;
-
-        [[nodiscard]] bool
-        operator==(KProfiledDisputeSample const& o) const
-        {
-            return k == o.k && fingerprint == o.fingerprint &&
-                events == o.events && weightedEvents == o.weightedEvents &&
-                steps == o.steps && beats == o.beats &&
-                minValidated == o.minValidated &&
-                maxValidated == o.maxValidated &&
-                forkCheckedSeqs == o.forkCheckedSeqs && target == o.target &&
-                acceptedSeq == o.acceptedSeq && txASeq == o.txASeq &&
-                txBSeq == o.txBSeq && clampHits == o.clampHits &&
-                requestedMs == o.requestedMs && consumedMs == o.consumedMs &&
-                maxConsumedBeatMs == o.maxConsumedBeatMs &&
-                schedulerMs == o.schedulerMs &&
-                heartbeatEvents == o.heartbeatEvents &&
-                deliverEvents == o.deliverEvents && jobEvents == o.jobEvents &&
-                timerEvents == o.timerEvents &&
-                firstClampWeight == o.firstClampWeight &&
-                submittedA == o.submittedA && submittedB == o.submittedB &&
-                forkFree == o.forkFree && converged == o.converged &&
-                exactlyOneAccepted == o.exactlyOneAccepted &&
-                acceptedSetVerified == o.acceptedSetVerified &&
-                historyReadyAtSnapshot == o.historyReadyAtSnapshot &&
-                recoveryBeats == o.recoveryBeats && seed == o.seed;
-        }
-    };
+    using KProfiledDisputeSample = goldens::dsf::KProfiledDisputeSample;
 
     struct SubmittedTx
     {
@@ -265,6 +196,9 @@ class SteppingCsf_test : public beast::unit_test::suite
         auto const fingerprint = net.traceFingerprint();
         log << "  slow-minority fingerprint 0x" << std::hex << fingerprint
             << std::dec << ", traceCount=" << net.traceCount() << std::endl;
+        if (goldens::dsf::goldensPrint(*this))
+            goldens::dsf::printScalar(
+                *this, "kSlowMinorityFingerprint", fingerprint);
         BEAST_EXPECT(fingerprint == kSlowMinorityFingerprint);
 
         std::vector<uint256> payload;
@@ -357,6 +291,9 @@ class SteppingCsf_test : public beast::unit_test::suite
         auto const fingerprint = net.traceFingerprint();
         log << "  hub-network fingerprint 0x" << std::hex << fingerprint
             << std::dec << ", traceCount=" << net.traceCount() << std::endl;
+        if (goldens::dsf::goldensPrint(*this))
+            goldens::dsf::printScalar(
+                *this, "kHubNetworkFingerprint", fingerprint);
         BEAST_EXPECT(fingerprint == kHubNetworkFingerprint);
 
         std::vector<uint256> payload;
@@ -498,6 +435,9 @@ class SteppingCsf_test : public beast::unit_test::suite
         log << "  dispute fingerprint 0x" << std::hex << fingerprint << std::dec
             << ", traceCount=" << net.traceCount()
             << ", acceptedSeq=" << acceptedSeq << std::endl;
+        if (goldens::dsf::goldensPrint(*this))
+            goldens::dsf::printScalar(
+                *this, "kDisputeFingerprint", fingerprint);
         BEAST_EXPECT(fingerprint == kDisputeFingerprint);
 
         std::vector<uint256> payload;
@@ -814,106 +754,15 @@ class SteppingCsf_test : public beast::unit_test::suite
         // K=3, and recovers in 6 beats with pacing off. It is not converged
         // and it is not a liveness proof. No consensus policy is changed to
         // fit a snapshot.
-        std::array<KProfiledDisputeSample, 6> const kExpected = {{
-            {0,    0xa61437b6610a4709ull,
-             2645, 0,
-             1152, 0,
-             11,   11,
-             10,   11,
-             8,    8,
-             0,    0,
-             0,    0,
-             0,    63030,
-             0,    0,
-             0,    0,
-             0,    true,
-             true, true,
-             true, true,
-             true, true},
-            {1,     0xf550e0ee4830bfbbull,
-             2656,  2597,
-             1163,  15,
-             11,    11,
-             10,    11,
-             8,     8,
-             0,     10,
-             12985, 12900,
-             1880,  66820,
-             75,    708,
-             348,   30,
-             2,     true,
-             true,  true,
-             true,  true,
-             true,  true},
-            {2,     0x7ebab2bea882f6c9ull,
-             2792,  2995,
-             1299,  29,
-             11,    11,
-             10,    11,
-             9,     9,
-             0,     28,
-             29950, 29410,
-             2000,  80430,
-             140,   576,
-             539,   42,
-             2,     true,
-             true,  true,
-             true,  true,
-             true,  true},
-            {3,      0xcd1f86fa48e0a973ull,
-             6001,   10918,
-             4508,   160,
-             10,     10,
-             9,      11,
-             10,     0,
-             10,     160,
-             163770, 161000,
-             2000,   212020,
-             770,    910,
-             2674,   152,
-             3,      true,
-             true,   true,
-             false,  true,
-             true,   true,
-             6},
-            {3,     0x555c80e47cc1cc21ull,
-             3130,  3706,
-             1637,  54,
-             11,    11,
-             10,    11,
-             10,    0,
-             10,    53,
-             55590, 54615,
-             2000,  105635,
-             265,   630,
-             699,   41,
-             3,     true,
-             true,  true,
-             true,  true,
-             true,  true,
-             0,     0x1000000000000001ull},
-            {4,      0x4e11c349617aca71ull,
-             5012,   8345,
-             3519,   160,
-             8,      8,
-             7,      11,
-             0,      0,
-             0,      160,
-             166900, 161000,
-             2000,   212020,
-             735,    605,
-             2044,   133,
-             2,      true,
-             true,   true,
-             false,  false,
-             false,  false},
-        }};
+        auto const& kExpected = goldens::dsf::kProfiledDispute;
 
         bool sawResolvedUnderPressure = false;
         bool sawSaturatedUnresolved = false;
         for (auto const& expected : kExpected)
         {
             auto const first = runProfiledDispute(expected.k, expected.seed);
+            if (goldens::dsf::goldensPrint(*this))
+                goldens::dsf::printDispute(*this, first);
             BEAST_EXPECT(first == expected);
             BEAST_EXPECT(first.submittedA);
             BEAST_EXPECT(first.submittedB);
