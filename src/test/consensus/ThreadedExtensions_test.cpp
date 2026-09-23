@@ -378,9 +378,17 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             return net.minValidated() >= parent->seq();
         };
         // First reporting flag ledger is 256; the common active view is the
-        // second window, 2*256+1. ~6 virtual ticks per ledger, so this is
-        // tens of seconds, not a wall-clock wait.
-        for (std::size_t i = 0; i < 4500 && !viewReady(); ++i)
+        // second window, 2*256+1. Beats per ledger vary with build speed
+        // (about 6 on Release, above 12 on coverage), so the cap scales with
+        // the ledgers still to close rather than fixing a beat count.
+        constexpr std::uint32_t viewSeq = 2 * 256 + 2;
+        constexpr std::size_t beatsPerLedger = 40;
+        auto const remaining = viewSeq > net.minValidated()
+            ? static_cast<std::size_t>(viewSeq - net.minValidated())
+            : std::size_t{0};
+        auto const viewBeats =
+            std::max<std::size_t>(4500, remaining * beatsPerLedger);
+        for (std::size_t i = 0; i < viewBeats && !viewReady(); ++i)
         {
             if (!beat())
                 return;
