@@ -217,7 +217,7 @@ SetHook::inferOperation(SetHookCtx& ctx, STObject const& hookSetObj)
     bool hasCode = hookSetObj.isFieldPresent(sfCreateCode);
 
     bool invalidHookOn = ctx.rules.enabled(fixHookOnV2InstallUpdate) &&
-        hookSetObj.isFieldPresent(sfHookOnOutgoing) ^
+        hookSetObj.isFieldPresent(sfHookOnOutgoing) !=
             hookSetObj.isFieldPresent(sfHookOnIncoming);
 
     if ((hasHash && hasCode) || invalidHookOn)  // Both HookHash and CreateCode
