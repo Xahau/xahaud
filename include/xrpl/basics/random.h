@@ -51,6 +51,11 @@ namespace detail {
 template <class Engine, class Result = typename Engine::result_type>
 using is_engine = std::is_invocable_r<Result, Engine>;
 
+// TODO: Revisit a version-pinned Boost.Random replacement for randomU64 and
+// rand_int. Boost 1.86 can omit the lower bound when expanding a narrow engine
+// over an exact-power range. Verify bounds and cross-platform output/draw-count
+// parity, then deliberately review replay goldens when the mapping changes.
+//
 // 64 bits from the engine. Width comes from max()-min(), not from the
 // storage type: a 32-bit engine may use a 64-bit result_type.
 template <class Engine>
