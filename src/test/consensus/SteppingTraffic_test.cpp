@@ -29,8 +29,8 @@ class SteppingTraffic_test : public beast::unit_test::suite
     using Payload = std::optional<std::vector<uint256>>;
 
     static constexpr std::uint64_t kTrafficSeed = 0x5452414646494331ull;
-    static constexpr std::uint64_t kTrafficFingerprint = 0x4b1c6cb7b9297b94ull;
-    static constexpr std::uint64_t kTrafficEvents = 1413;
+    static constexpr std::uint64_t kTrafficFingerprint = 0xc0dad1d188726d9dull;
+    static constexpr std::uint64_t kTrafficEvents = 1448;
     static constexpr std::uint64_t kTrafficPayloadFingerprint =
         // Payload includes xahaud ledger/transaction hashes. Keep the donor
         // event-order pin above and the independent semantic/replay checks.
