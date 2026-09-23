@@ -210,10 +210,12 @@ class RCLConsensus
         void
         setAcceptExtensionProbe(
             std::function<void()> beforeLock,
-            std::function<void()> insideLock)
+            std::function<void()> insideLock,
+            std::function<void()> contended = {})
         {
             beforeAcceptExtension_ = std::move(beforeLock);
             insideAcceptExtension_ = std::move(insideLock);
+            contendedAcceptExtension_ = std::move(contended);
         }
 
         std::uint64_t
@@ -238,6 +240,7 @@ class RCLConsensus
 
         std::function<void()> beforeAcceptExtension_;
         std::function<void()> insideAcceptExtension_;
+        std::function<void()> contendedAcceptExtension_;
         std::atomic<std::uint64_t> maxAcceptLockNs_{0};
 
         void
@@ -540,10 +543,11 @@ public:
     void
     setAcceptExtensionProbe(
         std::function<void()> beforeLock,
-        std::function<void()> insideLock)
+        std::function<void()> insideLock,
+        std::function<void()> contended = {})
     {
         adaptor_.setAcceptExtensionProbe(
-            std::move(beforeLock), std::move(insideLock));
+            std::move(beforeLock), std::move(insideLock), std::move(contended));
     }
 
     std::uint64_t

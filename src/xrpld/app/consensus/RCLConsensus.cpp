@@ -605,8 +605,6 @@ RCLConsensus::Adaptor::doAccept(
     // influence fallback entropy, transaction ordering, or ledger state.
     auto replayData = ledgerMaster_.releaseReplay();
     auto const consensusTxSetHash = result.txns.id();
-    if (beforeAcceptExtension_)
-        beforeAcceptExtension_();
     // The sanitizer is pure over the immutable accepted set: it reads no
     // extension state. Scan it outside C; only state-dependent preparation
     // below needs the consensus mutex (and contributes to its hold metric).
@@ -671,10 +669,24 @@ RCLConsensus::Adaptor::doAccept(
     // Export witness injection are independently gated inside onPreBuild;
     // export-only rounds still need this hook even when RNG is off.
     //@@start accept-time-cleanup-disabled
+    if (beforeAcceptExtension_)
+        beforeAcceptExtension_();
     {
         // Match consensus-side readers/writers. Never extend this scope across
         // buildLCL, the open-ledger locks, or endConsensus.
-        std::lock_guard lock{consensusMutex_};
+        std::unique_lock lock{consensusMutex_, std::defer_lock};
+        if (contendedAcceptExtension_)
+        {
+            // A failed acquisition is a deterministic observation of this
+            // particular lock, not a timing sample from an earlier lock.
+            if (!lock.try_lock())
+            {
+                contendedAcceptExtension_();
+                lock.lock();
+            }
+        }
+        else
+            lock.lock();
         auto const holdStart = std::chrono::steady_clock::now();
         if (insideAcceptExtension_)
             insideAcceptExtension_();

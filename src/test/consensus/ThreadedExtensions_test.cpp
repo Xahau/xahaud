@@ -13,6 +13,7 @@
 #include <xrpld/overlay/Message.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
 
+#include <xrpl/basics/scope.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/ExportLimits.h>
@@ -28,6 +29,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <cstdlib>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -870,15 +872,18 @@ class ThreadedExtensions_test : public beast::unit_test::suite
         bool havePending = false;
         std::atomic<bool> capture{false};
         bool reaching = false;
+        bool proceed = false;
+        bool contended = false;
+        bool completed = false;
+        std::atomic<bool> rendezvousTimedOut{false};
         std::atomic<bool> entered{false};
         std::atomic<bool> sawWait{false};
-        std::mutex threadMu;
         std::thread acceptThread;
 
         JobQueue::DispatchHook hook = [&](JobType type,
                                           std::string const&,
                                           JobQueue::JobFunction const& func) {
-            if (capture.load(std::memory_order_acquire) && type == jtACCEPT)
+            if (type == jtACCEPT && capture.exchange(false))
             {
                 std::lock_guard lock(mu);
                 pending = func;
@@ -889,6 +894,13 @@ class ThreadedExtensions_test : public beast::unit_test::suite
         };
 
         MultiNode net(*this, /*virtualClock=*/true, /*stepping=*/false);
+        // The captured job owns a JobCounter token. Release it before net's
+        // destructor on every early return, or shutdown waits for this scope.
+        scope_exit releasePending{[&] {
+            capture.store(false);
+            std::lock_guard lock(mu);
+            pending = {};
+        }};
         std::vector<ValidatorKey> keys;
         std::vector<std::string> unl;
         for (std::size_t i = 0; i < 3; ++i)
@@ -924,46 +936,81 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             return;
 
         auto& consensus = net[0].app().getOPs().getConsensus();
+        scope_exit clearProbes{[&] {
+            consensus.setWhileConsensusLocked({});
+            consensus.setAcceptExtensionProbe({}, {});
+        }};
         consensus.setAcceptExtensionProbe(
             [&] {
-                std::lock_guard lock(mu);
+                std::unique_lock lock(mu);
                 reaching = true;
                 cv.notify_all();
+                if (!cv.wait_for(lock, 5s, [&] { return proceed; }))
+                    rendezvousTimedOut.store(true);
             },
-            [&] { entered.store(true, std::memory_order_release); });
-        consensus.setWhileConsensusLocked([&] {
-            if (sawWait.load(std::memory_order_acquire))
-                return;
-            std::function<void()> job;
-            {
+            [&] { entered.store(true, std::memory_order_release); },
+            [&] {
                 std::lock_guard lock(mu);
-                if (!havePending)
-                    return;
-                job = std::move(pending);
-                havePending = false;
-                reaching = false;
-            }
-            std::thread worker(std::move(job));
-            {
-                std::unique_lock lock(mu);
-                cv.wait(lock, [&] { return reaching; });
-            }
-            sawWait.store(
-                !entered.load(std::memory_order_acquire),
-                std::memory_order_release);
-            std::lock_guard lock(threadMu);
-            acceptThread = std::move(worker);
-        });
+                contended = true;
+                cv.notify_all();
+            });
 
         capture.store(true, std::memory_order_release);
-        for (int i = 0; i < 40 && !sawWait.load(std::memory_order_acquire); ++i)
-            (void)net.threadedTick(1s);
-        capture.store(false, std::memory_order_release);
+        for (int i = 0; i < 40; ++i)
         {
-            std::lock_guard lock(threadMu);
-            if (acceptThread.joinable())
-                acceptThread.join();
+            (void)net.threadedTick(1s);
+            std::lock_guard lock(mu);
+            if (havePending)
+                break;
         }
+        capture.store(false, std::memory_order_release);
+        std::function<void()> job;
+        {
+            std::lock_guard lock(mu);
+            if (!BEAST_EXPECT(havePending))
+                return;
+            job = std::move(pending);
+            havePending = false;
+        }
+        // Let the first two accept-time acquisitions finish before holding C.
+        // The worker rendezvous is immediately before the onPreBuild lock.
+        acceptThread = std::thread([&, job = std::move(job)] {
+            job();
+            std::lock_guard lock(mu);
+            completed = true;
+            cv.notify_all();
+        });
+        {
+            std::unique_lock lock(mu);
+            if (!cv.wait_for(lock, 5s, [&] { return reaching; }))
+                rendezvousTimedOut.store(true);
+        }
+        consensus.setWhileConsensusLocked([&] {
+            std::unique_lock lock(mu);
+            proceed = true;
+            cv.notify_all();
+            auto const blocked =
+                cv.wait_for(lock, 5s, [&] { return contended; });
+            if (!blocked)
+                rendezvousTimedOut.store(true);
+            sawWait.store(blocked && !entered.load(std::memory_order_acquire));
+        });
+        consensus.timerEntry(net[0].app().timeKeeper().closeTime(), {});
+        consensus.setWhileConsensusLocked({});
+        // C has been released. A broken rendezvous must fail, not strand the
+        // accept thread or its JobCounter token during Application teardown.
+        {
+            std::unique_lock lock(mu);
+            if (!cv.wait_for(lock, 30s, [&] { return completed; }))
+            {
+                BEAST_EXPECT(false);
+                log << "accept job did not finish after C was released"
+                    << std::endl;
+                std::abort();
+            }
+        }
+        acceptThread.join();
+        BEAST_EXPECT(!rendezvousTimedOut.load());
         BEAST_EXPECT(sawWait.load(std::memory_order_acquire));
         BEAST_EXPECT(entered.load(std::memory_order_acquire));
         log << "  accept lock hold ns=" << consensus.maxAcceptLockHoldNs()
