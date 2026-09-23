@@ -27,10 +27,10 @@ class SteppingCsf_test : public beast::unit_test::suite
     // Xahaud's acquisition timeline; semantic lag/fork and replay checks below
     // are retained alongside this target-specific snapshot.
     static constexpr std::uint64_t kSlowMinorityFingerprint =
-        0xc06a2e5b66b4fe7eull;
+        0x4aea2f46ca499175ull;
     static constexpr std::uint64_t kHubNetworkFingerprint =
         0x75653559986b05c9ull;
-    static constexpr std::uint64_t kDisputeFingerprint = 0x1316f49d1fdf96e4ull;
+    static constexpr std::uint64_t kDisputeFingerprint = 0x03773da2e07e273cull;
 
     struct KProfiledDisputeSample
     {
@@ -750,11 +750,11 @@ class SteppingCsf_test : public beast::unit_test::suite
         // Resolved rows prove the conflict stayed safe through an accepted
         // sequence. Saturated unresolved rows are retained only as pressure
         // coverage; they must not be mistaken for dispute-resolution evidence.
-        // These snapshots calibrate the xahaud implementation. K=0/1 retain
-        // the donor samples; K=3 resolves here, so K=4 preserves the saturated
-        // unresolved control. No consensus policy is changed to fit a snapshot.
+        // These snapshots calibrate the xahaud implementation. K=3 resolves
+        // here, so K=4 preserves the saturated unresolved control. No
+        // consensus policy is changed to fit a snapshot.
         std::array<KProfiledDisputeSample, 5> const kExpected = {{
-            {0,    0x8318bb96cded5612ull,
+            {0,    0xc7b9f47f247a148aull,
              2606, 0,
              1132, 0,
              11,   11,
@@ -769,62 +769,62 @@ class SteppingCsf_test : public beast::unit_test::suite
              true, true,
              true, true,
              true, true},
-            {1,     0xcd0c3925c08f8867ull,
-             2631,  2570,
-             1157,  15,
+            {1,     0x8a2443e7d07ed17bull,
+             2630,  2567,
+             1156,  15,
              11,    11,
              10,    11,
              8,     8,
              0,     9,
-             12850, 12770,
+             12835, 12760,
              1865,  66820,
              75,    717,
-             333,   30,
+             332,   30,
              2,     true,
              true,  true,
              true,  true,
              true,  true},
-            {2,     0xb41f328428a05fadull,
-             3129,  3863,
-             1655,  38,
-             11,    12,
+            {2,     0x182d5979de1d171full,
+             2708,  2844,
+             1234,  27,
              11,    11,
+             10,    11,
              9,     9,
-             0,     37,
-             38630, 38070,
-             2000,  89090,
-             185,   678,
-             740,   50,
+             0,     26,
+             28440, 27960,
+             2000,  78980,
+             135,   542,
+             513,   42,
              2,     true,
              true,  true,
              true,  true,
              true,  true},
-            {3,      0xfe5e1b925376f76cull,
-             4516,   7273,
-             3042,   107,
-             11,     13,
-             12,     11,
+            {3,      0xcfc0f9405b29cef7ull,
+             4661,   7645,
+             3187,   112,
+             11,     12,
+             11,     11,
              10,     0,
-             10,     106,
-             109095, 107315,
-             2000,   158335,
-             520,    712,
-             1711,   97,
+             10,     111,
+             114675, 112885,
+             2000,   163905,
+             545,    722,
+             1818,   100,
              3,      true,
              true,   true,
              true,   true,
              true,   false},
-            {4,      0x2da6d32dc5defa09ull,
-             4986,   8340,
-             3512,   160,
+            {4,      0x668228fd72846e90ull,
+             4980,   8331,
+             3506,   160,
              8,      8,
              7,      11,
              0,      0,
              0,      160,
-             166800, 161000,
+             166620, 161000,
              2000,   212020,
-             730,    602,
-             2048,   130,
+             725,    603,
+             2046,   130,
              2,      true,
              true,   true,
              false,  false,

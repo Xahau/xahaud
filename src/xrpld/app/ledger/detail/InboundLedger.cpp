@@ -28,6 +28,7 @@
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/random.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/Fees.h>
@@ -35,7 +36,6 @@
 #include <boost/iterator/function_output_iterator.hpp>
 
 #include <algorithm>
-#include <random>
 
 namespace ripple {
 
@@ -1233,12 +1233,23 @@ struct PeerDataCounts
             });
         std::vector<std::pair<std::shared_ptr<Peer>, int>> s;
         s.reserve(n);
-        std::sample(
-            population.begin(),
-            population.end(),
-            std::back_inserter(s),
-            n,
-            rng);
+        // Knuth's Algorithm S. std::sample's selection differs between
+        // libstdc++ and libc++. When every remaining peer must be kept,
+        // take it without rand_int: that call rejects a zero-width range.
+        auto need = std::min(n, population.size());
+        auto remaining = population.size();
+        for (auto& item : population)
+        {
+            if (need == 0)
+                break;
+            if (need == remaining ||
+                rand_int(rng, std::size_t{0}, remaining - 1) < need)
+            {
+                s.push_back(std::move(item));
+                --need;
+            }
+            --remaining;
+        }
         for (auto& v : s)
             f(v.first);
     }

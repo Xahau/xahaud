@@ -49,6 +49,32 @@ namespace detail {
 // Determines if a type can be called like an Engine
 template <class Engine, class Result = typename Engine::result_type>
 using is_engine = std::is_invocable_r<Result, Engine>;
+
+// 64 bits from the engine, independent of how the standard library maps
+// engine output onto an integer range.
+template <class Engine>
+std::uint64_t
+randomU64(Engine& engine)
+{
+    using Result = typename Engine::result_type;
+    constexpr int digits = std::numeric_limits<Result>::digits;
+    auto const draw = [&engine]() -> std::uint64_t {
+        return static_cast<std::uint64_t>(engine() - Engine::min());
+    };
+    if constexpr (digits >= 64)
+        return draw();
+
+    std::uint64_t value = 0;
+    int filled = 0;
+    while (filled < 64)
+    {
+        auto const take = digits < (64 - filled) ? digits : (64 - filled);
+        auto const mask = (std::uint64_t{1} << take) - 1;
+        value |= (draw() & mask) << filled;
+        filled += take;
+    }
+    return value;
+}
 }  // namespace detail
 
 /** Return the default random engine.
@@ -116,10 +142,24 @@ rand_int(Engine& engine, Integral min, Integral max)
 {
     XRPL_ASSERT(max > min, "ripple::rand_int : max over min inputs");
 
-    // This should have no state and constructing it should
-    // be very cheap. If that turns out not to be the case
-    // it could be hand-optimized.
-    return std::uniform_int_distribution<Integral>(min, max)(engine);
+    // Closed interval. Rejection sampling keeps the result uniform and the
+    // same on libc++ and libstdc++ for a given engine sequence.
+    using U = std::make_unsigned_t<Integral>;
+    auto const span = static_cast<U>(static_cast<U>(max) - static_cast<U>(min));
+    auto const count = static_cast<std::uint64_t>(span) + 1u;
+    if (count == 0)
+        return static_cast<Integral>(detail::randomU64(engine));
+
+    // Values below this threshold are the leftover that would bias x % count.
+    auto const slack = static_cast<std::uint64_t>(-count) % count;
+    std::uint64_t draw;
+    do
+    {
+        draw = detail::randomU64(engine);
+    } while (draw < slack);
+
+    auto const offset = static_cast<U>(draw % count);
+    return static_cast<Integral>(static_cast<U>(static_cast<U>(min) + offset));
 }
 
 template <class Integral>
