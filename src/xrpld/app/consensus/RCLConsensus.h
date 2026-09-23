@@ -40,6 +40,7 @@
 #include <xrpl/protocol/STValidation.h>
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -69,6 +70,7 @@ class RCLConsensus
     class Adaptor
     {
         Application& app_;
+        std::recursive_mutex& consensusMutex_;
         std::unique_ptr<FeeVote> feeVote_;
         LedgerMaster& ledgerMaster_;
         LocalTxs& localTxs_;
@@ -114,6 +116,7 @@ class RCLConsensus
 
         Adaptor(
             Application& app,
+            std::recursive_mutex& consensusMutex,
             std::unique_ptr<FeeVote>&& feeVote,
             LedgerMaster& ledgerMaster,
             LocalTxs& localTxs,
@@ -202,6 +205,23 @@ class RCLConsensus
         ConsensusExtensions const&
         ce() const;
 
+        // Test seam. Empty unless a suite is showing that the accept job's
+        // extension block waits while consensus holds this mutex.
+        void
+        setAcceptExtensionProbe(
+            std::function<void()> beforeLock,
+            std::function<void()> insideLock)
+        {
+            beforeAcceptExtension_ = std::move(beforeLock);
+            insideAcceptExtension_ = std::move(insideLock);
+        }
+
+        std::uint64_t
+        maxAcceptLockHoldNs() const
+        {
+            return maxAcceptLockNs_.load(std::memory_order_relaxed);
+        }
+
     private:
         //---------------------------------------------------------------------
         // The following members implement the generic Consensus requirements
@@ -210,11 +230,18 @@ class RCLConsensus
         // Consensus<Adaptor> methods and since RCLConsensus::consensus_ should
         // only be accessed under lock, these will only be called under lock.
         //
-        // In general, the idea is that there is only ONE thread that is running
-        // consensus code at anytime. The only special case is the dispatched
-        // onAccept call, which does not take a lock and relies on Consensus not
-        // changing state until a future call to startRound.
+        // Normally only one thread runs consensus code at a time. The
+        // dispatched accept job builds the ledger outside the lock, but
+        // reacquires it for extension preparation. The accepted result must
+        // still remain unchanged until a future call to startRound.
         friend class Consensus<Adaptor>;
+
+        std::function<void()> beforeAcceptExtension_;
+        std::function<void()> insideAcceptExtension_;
+        std::atomic<std::uint64_t> maxAcceptLockNs_{0};
+
+        void
+        noteAcceptLock(std::chrono::steady_clock::time_point start);
 
         /** Attempt to acquire a specific ledger.
 
@@ -503,6 +530,28 @@ public:
     bool
     extensionsBusy() const;
 
+    // Test seams for the accept-path lock. Production leaves them empty.
+    void
+    setWhileConsensusLocked(std::function<void()> hook)
+    {
+        whileConsensusLocked_ = std::move(hook);
+    }
+
+    void
+    setAcceptExtensionProbe(
+        std::function<void()> beforeLock,
+        std::function<void()> insideLock)
+    {
+        adaptor_.setAcceptExtensionProbe(
+            std::move(beforeLock), std::move(insideLock));
+    }
+
+    std::uint64_t
+    maxAcceptLockHoldNs() const
+    {
+        return adaptor_.maxAcceptLockHoldNs();
+    }
+
     //! @see Consensus::getJson
     Json::Value
     getJson(bool full) const;
@@ -552,10 +601,14 @@ public:
     }
 
 private:
-    // Since Consensus does not provide intrinsic thread-safety, this mutex
-    // guards all calls to consensus_. adaptor_ uses atomics internally
-    // to allow concurrent access of its data members that have getters.
+    // Guards mutable consensus state and accept-job round-state access.
+    // Atomic-only status polls and the extension's independently synchronized
+    // cross-thread APIs are exempt. Constructed before adaptor_.
+    // Lock order: C before LedgerMaster, never the reverse; C before busyMu_
+    // before the collector.
     mutable std::recursive_mutex mutex_;
+
+    std::function<void()> whileConsensusLocked_;
 
     Adaptor adaptor_;
     std::unique_ptr<Consensus<Adaptor>> consensus_;
