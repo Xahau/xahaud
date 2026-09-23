@@ -1155,6 +1155,12 @@ struct Peer
         }
 
         // --- Sub-state accessors ---
+        void
+        publishExportSigGateStarted()
+        {
+            exportSigGateStarted_ = true;
+        }
+
         bool
         extensionsBusy() const
         {

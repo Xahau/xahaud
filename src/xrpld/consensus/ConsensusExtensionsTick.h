@@ -942,10 +942,7 @@ exportTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
         auto startExportSigGate = [&]() -> bool {
             if (ext.exportSigGateStarted_)
                 return false;
-            if constexpr (requires { ext.publishExportSigGateStarted(); })
-                ext.publishExportSigGateStarted();
-            else
-                ext.exportSigGateStarted_ = true;
+            ext.publishExportSigGateStarted();
             ext.exportSigGateStart_ = ctx.nowSteady;
             return true;
         };

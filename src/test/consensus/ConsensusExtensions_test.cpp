@@ -420,6 +420,12 @@ struct FakeExtensions
     int participantDiagnostics = 0;
     int selfSeeds = 0;
 
+    void
+    publishExportSigGateStarted()
+    {
+        exportSigGateStarted_ = true;
+    }
+
     bool
     rngEnabled() const
     {
