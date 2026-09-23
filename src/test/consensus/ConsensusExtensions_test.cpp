@@ -421,6 +421,12 @@ struct FakeExtensions
     int selfSeeds = 0;
 
     void
+    publishEstState(EstablishState state)
+    {
+        estState_ = state;
+    }
+
+    void
     publishExportSigGateStarted()
     {
         exportSigGateStarted_ = true;

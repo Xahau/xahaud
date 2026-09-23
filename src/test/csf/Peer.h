@@ -1156,6 +1156,12 @@ struct Peer
 
         // --- Sub-state accessors ---
         void
+        publishEstState(EstablishState state)
+        {
+            estState_ = state;
+        }
+
+        void
         publishExportSigGateStarted()
         {
             exportSigGateStarted_ = true;
