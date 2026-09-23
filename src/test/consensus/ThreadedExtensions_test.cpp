@@ -822,6 +822,10 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                 << " expired shape=" << shape << std::endl;
             if (!latch)
                 return fail("latch missing");
+            if (!latch->isFieldPresent(sfLastLedgerSequence) ||
+                ledger->seq() <= latch->getFieldU32(sfLastLedgerSequence))
+                return fail(
+                    "unwitnessed origin has not passed its publication window");
             if (hasSig)
                 return fail("expired latch has a signature hash");
             if (hasNode != inDir)

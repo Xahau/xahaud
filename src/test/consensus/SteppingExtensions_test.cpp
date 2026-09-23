@@ -5134,7 +5134,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
                         << " witness only on node " << n << std::endl;
                     return false;
                 }
-            auto const ledger = net.ledger(0, net.validSeq(0));
+            // Classify against history accepted by every node, not a faster
+            // node's tip or the intent submission time. Admission can be late.
+            auto const ledger = net.ledger(0, net.minValidatedSeq());
             if (!ledger)
                 return false;
             auto const latch =
@@ -5145,6 +5147,15 @@ class SteppingExtensions_test : public beast::unit_test::suite
             {
                 log << "  seeded-mix red " << schedule << " " << tag
                     << " neither witnessed nor retained" << std::endl;
+                return false;
+            }
+            if (!latch->isFieldPresent(sfLastLedgerSequence) ||
+                ledger->seq() <= latch->getFieldU32(sfLastLedgerSequence))
+            {
+                log << "  seeded-mix red " << schedule << " " << tag
+                    << " unwitnessed origin has not passed its publication "
+                       "window"
+                    << std::endl;
                 return false;
             }
             log << "  seeded-mix " << schedule << " " << tag << "=expired"
