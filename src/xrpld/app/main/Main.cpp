@@ -302,6 +302,9 @@ runUnitTests(
             args.emplace_back("--unittest-child");
         }
 
+        // Children inherit XRPLD_UNIT_TEST_SHARED_MEM and
+        // XRPLD_UNIT_TEST_MESSAGE_QUEUE, published by multi_runner_parent.
+        // Do not pass an environment that drops those variables.
         for (std::size_t i = 0; i < num_jobs; ++i)
             children.emplace_back(
                 boost::process::exe = exe_name, boost::process::args = args);
