@@ -954,6 +954,52 @@ class SteppingCsf_test : public beast::unit_test::suite
         BEAST_EXPECT(sawSaturatedUnresolved);
     }
 
+    void
+    testProfiledStopReason()
+    {
+        testcase(
+            "profiled stop reason does not re-evaluate a consuming predicate");
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        using Stop = SteppingNetwork::KProfiledRunStats::Stop;
+        SteppingNetwork net(*this);
+        net.validators(1).mesh();
+        if (!BEAST_EXPECT(net.allUp() && net.meshReady()))
+            return;
+
+        SteppingNetwork::KProfiledOptions const options{3, 5ms, {}};
+        std::uint32_t calls = 0;
+        auto const consumed = net.runProfiledUntil(
+            [&] { return ++calls == 1; }, options, {4, 1000});
+        BEAST_EXPECT(consumed.stop == Stop::predicate);
+        BEAST_EXPECT(consumed.beats == 0);
+        BEAST_EXPECT(calls == 1);
+
+        // A budget stop must not call a predicate which the loop never tested.
+        calls = 0;
+        auto const exhausted = net.runProfiledUntil(
+            [&] {
+                ++calls;
+                return true;
+            },
+            options,
+            {0, 1000});
+        BEAST_EXPECT(exhausted.stop == Stop::heartbeatBudget);
+        BEAST_EXPECT(exhausted.beats == 0);
+        BEAST_EXPECT(calls == 0);
+
+        calls = 0;
+        auto const steps = net.runProfiledUntil(
+            [&] {
+                ++calls;
+                return true;
+            },
+            options,
+            {4, 0});
+        BEAST_EXPECT(steps.stop == Stop::stepLimit);
+        BEAST_EXPECT(calls == 0);
+    }
+
 public:
     void
     run() override
@@ -962,6 +1008,7 @@ public:
         testHubNetwork();
         testDispute();
         testProfiledDisputeForkHunt();
+        testProfiledStopReason();
     }
 };
 

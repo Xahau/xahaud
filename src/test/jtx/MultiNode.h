@@ -2049,9 +2049,10 @@ public:
         auto const stop = [this, target]() { return minValidated() >= target; };
         KProfiledRunStats runStats;
         SteppingController::ProfiledStepStats stepStats;
+        bool stoppedByPredicate = false;
         for (std::size_t k = 1;
              k <= maxHeartbeats && runStats.steps < maxSteps && !stop() &&
-             !(stopAfterBeat && stopAfterBeat());
+             !(stopAfterBeat && (stoppedByPredicate = stopAfterBeat()));
              ++k)
         {
             auto const beforeConsumed = stepStats.consumedAdvance;
@@ -2079,7 +2080,9 @@ public:
             runStats.stop = KProfiledRunStats::Stop::targetReached;
         else if (runStats.steps >= maxSteps)
             runStats.stop = KProfiledRunStats::Stop::stepLimit;
-        else if (stopAfterBeat && stopAfterBeat())
+        // Record the decision already made at the boundary. A predicate may
+        // consume a one-shot event; evaluating it again changes its meaning.
+        else if (stoppedByPredicate)
             runStats.stop = KProfiledRunStats::Stop::predicate;
         else
             runStats.stop = KProfiledRunStats::Stop::heartbeatBudget;
