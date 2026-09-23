@@ -607,16 +607,13 @@ RCLConsensus::Adaptor::doAccept(
     auto const consensusTxSetHash = result.txns.id();
     if (beforeAcceptExtension_)
         beforeAcceptExtension_();
-    auto const liveBuild = [&] {
-        std::lock_guard lock{consensusMutex_};
-        auto const holdStart = std::chrono::steady_clock::now();
-        auto built = replayData
-            ? std::optional<ConsensusExtensions::LiveBuildTxSet>{}
-            : std::optional<ConsensusExtensions::LiveBuildTxSet>{
-                  ce().makeLiveBuildTxSet(result.txns)};
-        noteAcceptLock(holdStart);
-        return built;
-    }();
+    // The sanitizer is pure over the immutable accepted set: it reads no
+    // extension state. Scan it outside C; only state-dependent preparation
+    // below needs the consensus mutex (and contributes to its hold metric).
+    auto const liveBuild = replayData
+        ? std::optional<ConsensusExtensions::LiveBuildTxSet>{}
+        : std::optional<ConsensusExtensions::LiveBuildTxSet>{
+              ce().makeLiveBuildTxSet(result.txns)};
     auto const& buildTxs = liveBuild ? liveBuild->txns : result.txns;
     auto const buildTxSetHash = buildTxs.id();
 
