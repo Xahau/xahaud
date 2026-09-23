@@ -335,7 +335,13 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                 if (ctx.mode == ConsensusMode::proposing)
                     requestProposal();
 
-                ext.estState_ = EstablishState::ConvergingCommit;
+                if constexpr (requires {
+                                  ext.publishEstState(
+                                      EstablishState::ConvergingCommit);
+                              })
+                    ext.publishEstState(EstablishState::ConvergingCommit);
+                else
+                    ext.estState_ = EstablishState::ConvergingCommit;
                 ext.commitHashConflictStart_ = {};
                 JLOG(ext.j_.debug()) << "RNG: transitioned to ConvergingCommit"
                                      << " buildSeq=" << buildSeq
@@ -385,7 +391,13 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                 ctx.updatePosition(newPos);
                 if (ctx.mode == ConsensusMode::proposing)
                     requestProposal();
-                ext.estState_ = EstablishState::ConvergingCommit;
+                if constexpr (requires {
+                                  ext.publishEstState(
+                                      EstablishState::ConvergingCommit);
+                              })
+                    ext.publishEstState(EstablishState::ConvergingCommit);
+                else
+                    ext.estState_ = EstablishState::ConvergingCommit;
                 ext.commitHashConflictStart_ = {};
                 JLOG(ext.j_.debug())
                     << "RNG: transitioned to ConvergingCommit"
@@ -537,7 +549,13 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
             if (ctx.mode == ConsensusMode::proposing)
                 requestProposal();
 
-            ext.estState_ = EstablishState::ConvergingReveal;
+            if constexpr (requires {
+                              ext.publishEstState(
+                                  EstablishState::ConvergingReveal);
+                          })
+                ext.publishEstState(EstablishState::ConvergingReveal);
+            else
+                ext.estState_ = EstablishState::ConvergingReveal;
             //@@end rng-reveal-transition
             ext.revealPhaseStart_ = ctx.nowSteady;
             JLOG(ext.j_.debug()) << "RNG: transitioned to ConvergingReveal"
@@ -924,7 +942,10 @@ exportTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
         auto startExportSigGate = [&]() -> bool {
             if (ext.exportSigGateStarted_)
                 return false;
-            ext.exportSigGateStarted_ = true;
+            if constexpr (requires { ext.publishExportSigGateStarted(); })
+                ext.publishExportSigGateStarted();
+            else
+                ext.exportSigGateStarted_ = true;
             ext.exportSigGateStart_ = ctx.nowSteady;
             return true;
         };

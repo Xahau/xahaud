@@ -660,6 +660,7 @@ ConsensusExtensions::admitExportShare(
         Slice{share.signature.data(), share.signature.size()});
     auto outcome = postValidationExportSigCollector_.admitContribution(
         std::move(*admission.ticket), signatureVerified, validated->info().seq);
+    publishBusy();
     JLOG(j_.trace()) << "ExportShare: collector commit"
                      << " origin=" << share.originTxn
                      << " position=" << unsigned(share.committeePosition)
@@ -759,6 +760,7 @@ ConsensusExtensions::onValidatedLedger(
         }
 
         postValidationExportSigCollector_.cleanupStale(validated->info().seq);
+        publishBusy();
 
         // Replay the retained share view once at each validated cursor. Shares
         // admitted concurrently are serialized by exportStreamMutex_: they
@@ -1954,7 +1956,10 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
     // Track the active RNG round explicitly. Nodes in observing/switching
     // mode can have a closed ledger index behind the consensus round while
     // still building that round's local RNG snapshots.
-    buildingLedgerSeq_ = seq;
+    {
+        std::lock_guard lock(busyMu_);
+        buildingLedgerSeq_ = seq;
+    }
 
     auto map =
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
@@ -2012,13 +2017,17 @@ ConsensusExtensions::buildCommitSet(LedgerIndex seq)
                      << " entries=" << entryCount
                      << " pendingCommits=" << pendingCommits_.size()
                      << " activeValidators=" << validatorView->size();
+    publishBusy();
     return hash;
 }
 
 uint256
 ConsensusExtensions::buildEntropySet(LedgerIndex seq)
 {
-    buildingLedgerSeq_ = seq;
+    {
+        std::lock_guard lock(busyMu_);
+        buildingLedgerSeq_ = seq;
+    }
 
     auto map =
         std::make_shared<SHAMap>(SHAMapType::SIDECAR, app_.getNodeFamily());
@@ -2078,6 +2087,7 @@ ConsensusExtensions::buildEntropySet(LedgerIndex seq)
                      << " entries=" << entryCount
                      << " pendingReveals=" << pendingReveals_.size()
                      << " activeValidators=" << validatorView->size();
+    publishBusy();
     return hash;
 }
 
@@ -2087,10 +2097,15 @@ ConsensusExtensions::pendingRoundExports(LedgerIndex candidateSeq) const
     // This is reconstruction eligibility, not permission to admit or release
     // a share. A newer validated ledger may already have witnessed an origin
     // that is still pending in the parent of our in-flight round.
-    if (!roundParentLedger_ || candidateSeq == 0 ||
-        roundParentLedger_->info().seq != candidateSeq - 1)
-        return {};
-    return pendingExportLatches(*roundParentLedger_, candidateSeq);
+    std::shared_ptr<Ledger const> parent;
+    {
+        std::lock_guard lock(busyMu_);
+        if (!roundParentLedger_ || candidateSeq == 0 ||
+            roundParentLedger_->info().seq != candidateSeq - 1)
+            return {};
+        parent = roundParentLedger_;
+    }
+    return pendingExportLatches(*parent, candidateSeq);
 }
 
 uint256
@@ -2161,7 +2176,12 @@ ConsensusExtensions::buildExportSigSet(LedgerIndex seq)
 bool
 ConsensusExtensions::hasPendingExportSigs() const
 {
-    auto const live = pendingRoundExports(buildingLedgerSeq_.value_or(0));
+    LedgerIndex seq;
+    {
+        std::lock_guard lock(busyMu_);
+        seq = buildingLedgerSeq_.value_or(0);
+    }
+    auto const live = pendingRoundExports(seq);
     auto const allSigs = postValidationExportSigCollector_.fullUnionSnapshot();
     return std::any_of(allSigs.begin(), allSigs.end(), [&](auto const& entry) {
         return live.find(entry.first) != live.end();
@@ -2171,7 +2191,12 @@ ConsensusExtensions::hasPendingExportSigs() const
 bool
 ConsensusExtensions::hasEligiblePendingExports() const
 {
-    return !pendingRoundExports(buildingLedgerSeq_.value_or(0)).empty();
+    LedgerIndex seq;
+    {
+        std::lock_guard lock(busyMu_);
+        seq = buildingLedgerSeq_.value_or(0);
+    }
+    return !pendingRoundExports(seq).empty();
 }
 
 void
@@ -2399,14 +2424,20 @@ ConsensusExtensions::clearRngStatePreservingExport()
     commitSetMap_.reset();
     entropySetMap_.reset();
     acceptedEntropySetHash_.reset();
-    buildingLedgerSeq_.reset();
-    roundPrevLedgerHash_ = uint256{};
-    roundParentLedger_.reset();
     observedParticipantsHash_.reset();
     observedParticipantsCount_ = 0;
     observedParticipantsBitmapBin_.clear();
     likelyParticipants_.clear();
     commitProofs_.clear();
+    {
+        // These three are what the published predicate reads. Keep the
+        // critical section to the stores so accept does not stall the tick.
+        std::lock_guard lock(busyMu_);
+        buildingLedgerSeq_.reset();
+        roundPrevLedgerHash_ = uint256{};
+        roundParentLedger_.reset();
+        busyPublished_.store(computeBusyUnlocked(), std::memory_order_relaxed);
+    }
     //@@end round-stop-rng-reset
     // Keep the round-level enable latches intact here. onRoundStart() refreshes
     // them from the consensus parent before clearing so boundary cleanup, such
@@ -2426,9 +2457,12 @@ ConsensusExtensions::clearRngState()
     exportSigSetMap_.reset();
     acceptedExportSigSetHash_.reset();
     proposalPublishedExportShares_.clear();
-    exportSigGateStarted_ = false;
-    exportSigGateStart_ = {};
-    exportSigConvergenceFailed_ = false;
+    {
+        std::lock_guard lock(busyMu_);
+        exportSigGateStarted_ = false;
+        exportSigGateStart_ = {};
+        exportSigConvergenceFailed_ = false;
+    }
     //@@end round-stop-export-reset
 
     clearRngStatePreservingExport();
@@ -2770,7 +2804,11 @@ ConsensusExtensions::onPreBuild(
         if (app_.config().standalone() && hasPendingExportSigs())
             buildExportSigSet(seq);
 
-        auto const parent = roundParentLedger_;
+        std::shared_ptr<Ledger const> parent;
+        {
+            std::lock_guard lock(busyMu_);
+            parent = roundParentLedger_;
+        }
         auto const validated = app_.getLedgerMaster().getValidatedLedger();
         // Rebuild only from this round's exact parent and accepted evidence.
         // Local validation can lag that parent or already have passed it.
@@ -2981,11 +3019,8 @@ ConsensusExtensions::onPreBuild(
                         << " buildSeq=" << seq;
     }
 
-    //@@start accept-time-cleanup-success
-    // Export's ledger-defining signature witnesses are now self-contained
-    // transactions in the stream; no later apply step reads sidecar memory.
-    clearRngStatePreservingExport();
-    //@@end accept-time-cleanup-success
+    // onRoundStart already cleared this round's extension state and then
+    // reassigned the round fields. A second clear here races the heartbeat.
 }
 
 void
@@ -3237,20 +3272,27 @@ ConsensusExtensions::onRoundStart(
     //@@end round-extension-feature-latches
     clearRngState();
 
-    roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
-    roundParentLedger_ = prevLedger.ledger_;
-    buildingLedgerSeq_ = prevLedger.ledger_->info().seq + 1;
+    uint256 roundHash;
+    {
+        std::lock_guard lock(busyMu_);
+        roundPrevLedgerHash_ = prevLedger.ledger_->info().hash;
+        roundParentLedger_ = prevLedger.ledger_;
+        buildingLedgerSeq_ = prevLedger.ledger_->info().seq + 1;
+        roundHash = roundPrevLedgerHash_;
+        busyPublished_.store(computeBusyUnlocked(), std::memory_order_relaxed);
+    }
     cacheUNLReport(prevLedger.ledger_);
     auto const validatorView = activeValidatorView();
     if (validatorView->sourceLedgerHash)
     {
         XRPL_ASSERT(
-            *validatorView->sourceLedgerHash == roundPrevLedgerHash_,
+            *validatorView->sourceLedgerHash == roundHash,
             "ripple::ConsensusExtensions::onRoundStart : "
             "active view source matches round parent");
     }
     setExpectedProposers(std::move(lastProposers));
     resetSubState();
+    publishBusy();
 }
 
 void
@@ -3531,12 +3573,20 @@ ConsensusExtensions::attachExportSignatures(
 
     auto const& keys = app_.getValidatorKeys();
     auto const validated = app_.getLedgerMaster().getValidatedLedger();
+    std::optional<LedgerIndex> buildSeq;
+    uint256 roundParentHash;
+    {
+        std::lock_guard lock(busyMu_);
+        if (buildingLedgerSeq_)
+            buildSeq = *buildingLedgerSeq_;
+        roundParentHash = roundPrevLedgerHash_;
+    }
     if (!keys.keys || keys.nodeID == beast::zero || !validated ||
-        !validated->rules().enabled(featureExport) || !buildingLedgerSeq_ ||
-        proposal.prevLedger() != roundPrevLedgerHash_)
+        !validated->rules().enabled(featureExport) || !buildSeq ||
+        proposal.prevLedger() != roundParentHash)
         return;
 
-    auto const live = pendingExportLatches(*validated, *buildingLedgerSeq_);
+    auto const live = pendingExportLatches(*validated, *buildSeq);
     auto const snapshot = postValidationExportSigCollector_.fullUnionSnapshot();
     std::size_t attached = 0;
     for (auto const& [origin, contributions] : snapshot)

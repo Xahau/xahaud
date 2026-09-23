@@ -1098,10 +1098,9 @@ RCLConsensus::phase() const
 bool
 RCLConsensus::extensionsBusy() const
 {
-    // ConsensusExtensions state is mutated by timer, peer-proposal and
-    // local sidecar snapshot paths under this mutex. Busy polling observes
-    // the same state, so it must share the same synchronization boundary.
-    std::lock_guard _{mutex_};
+    // The heartbeat reads only the published atomic. It does not take
+    // mutex_: the accept job and the share jobs do not hold that lock,
+    // and the atomic is the synchronization boundary for this poll.
     return consensus_->extensionsBusy();
 }
 
