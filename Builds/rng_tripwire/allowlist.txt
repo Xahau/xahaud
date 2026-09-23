@@ -1,0 +1,13 @@
+# path-prefix justification
+# A hit under src/ or include/ is accepted only when its path starts with one
+# of these prefixes. The justification is for reviewers; the script ignores it.
+
+src/test/ Tests are not on the consensus schedule.
+include/xrpl/basics/random.h Seeding overloads only. rand_int does not call these distributions.
+include/xrpl/basics/hardened_hash.h One-time hash salt drawn from OS entropy.
+include/xrpl/crypto/csprng.h CSPRNG declaration. OS entropy, not a consensus draw.
+src/libxrpl/crypto/csprng.cpp OS entropy for the CSPRNG.
+src/xrpld/peerfinder/ default_prng shuffles. Not the harness engine.
+src/xrpld/overlay/detail/PeerImp.cpp Fault-injection seeds. RuntimeConfig only, not the harness engine.
+src/xrpld/app/consensus/ConsensusExtensions.cpp Fault-injection seeds. RuntimeConfig only, not the harness engine.
+src/xrpld/overlay/detail/OverlayImpl.cpp std::shuffle of relay peers. Runs only when TX_REDUCE_RELAY_ENABLE is on, and that flag is off. Uses app_.getPrng when it does run.
