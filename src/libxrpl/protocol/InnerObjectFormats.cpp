@@ -147,6 +147,7 @@ InnerObjectFormats::InnerObjectFormats()
         sfAmountEntry.getCode(),
         {
             {sfAmount, soeREQUIRED},
+            {sfLimitAmount, soeOPTIONAL},
         });
 
     add(sfMintURIToken.jsonName,

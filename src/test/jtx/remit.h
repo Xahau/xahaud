@@ -51,6 +51,23 @@ public:
     operator()(Env&, JTx& jtx) const;
 };
 
+/** Sets the optional "LimitAmount" on an entry of the JTx's Amounts array. */
+class limit_amount
+{
+private:
+    std::size_t index_;
+    STAmount limit_;
+
+public:
+    limit_amount(std::size_t index, STAmount const& limit)
+        : index_(index), limit_(limit)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
 /** Set the optional "Blob" on a JTx */
 class blob
 {
