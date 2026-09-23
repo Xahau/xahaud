@@ -861,6 +861,84 @@ class ThreadedExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testRestartClock()
+    {
+        testcase("threaded restart catches up 25 seconds before relinking");
+        using namespace std::chrono_literals;
+        MultiNode net(*this, /*virtualClock=*/true, /*stepping=*/false);
+        auto const a = ValidatorKey::fromPassphrase("restart-clock-a");
+        auto const b = ValidatorKey::fromPassphrase("restart-clock-b");
+        std::vector<std::string> const unl{a.pubKey, b.pubKey};
+        auto const factory = [](Application& app) {
+            return std::unique_ptr<Overlay>(std::make_unique<SimOverlay>(app));
+        };
+        auto const configure = [](Config& cfg) { cfg.NETWORK_ID = networkID; };
+        for (auto const& seed : {a.seed, b.seed, std::string{}})
+            net.add(TrustConfig{seed, unl}, factory, {}, false, configure);
+        if (!BEAST_EXPECT(net.allUp()))
+            return;
+        for (std::size_t i = 0; i < 3; ++i)
+            for (std::size_t j = i + 1; j < 3; ++j)
+                if (!BEAST_EXPECT(net.simConnect(i, j) != nullptr))
+                    return;
+        if (!BEAST_EXPECT(net.waitForPeers(2, 5s)))
+            return;
+        for (int i = 0; i < 120 && net.minValidated() < 3; ++i)
+            (void)net.threadedTick(1s);
+        if (!BEAST_EXPECT(net.minValidated() >= 3))
+            return;
+
+        constexpr std::size_t returning = 2;
+        bool saved = false;
+        for (int i = 0; i < 60; ++i)
+        {
+            auto const row =
+                net[returning].app().getRelationalDatabase().getMaxLedgerSeq();
+            if (row && *row >= 3)
+            {
+                saved = true;
+                break;
+            }
+            (void)net.threadedTick(1s);
+        }
+        if (!BEAST_EXPECT(saved))
+            return;
+
+        auto const stoppedAt = net[returning].clock().now();
+        net.stopNode(returning);
+        for (int i = 0; i < 25; ++i)
+            (void)net.threadedTick(1s);
+        auto const expected = net[0].clock().now();
+        BEAST_EXPECT(expected == stoppedAt + 25s);
+        if (!BEAST_EXPECT(net.restartNode(returning).isUp()))
+            return;
+        log << "  restart clock: stopped="
+            << stoppedAt.time_since_epoch().count()
+            << " current=" << expected.time_since_epoch().count()
+            << " restored="
+            << net[returning].clock().now().time_since_epoch().count()
+            << std::endl;
+        BEAST_EXPECT(net[returning].clock().now() == expected);
+
+        // Do not tick between restart and relink. Production handshake
+        // verification must already see the current clock, not the saved one.
+        bool linked = true;
+        try
+        {
+            for (std::size_t i = 0; i < returning; ++i)
+                linked = net.simConnect(i, returning) != nullptr && linked;
+        }
+        catch (std::exception const& ex)
+        {
+            log << "  restart clock relink: " << ex.what() << std::endl;
+            linked = false;
+        }
+        if (!BEAST_EXPECT(linked))
+            return;
+        BEAST_EXPECT(net.waitForPeers(2, 5s));
+    }
+
+    void
     testAcceptLockWaits()
     {
         testcase("accept extension block waits while consensus holds the lock");
@@ -1021,8 +1099,14 @@ public:
     void
     run() override
     {
+        if (arg() == "restart-clock-only")
+        {
+            testRestartClock();
+            return;
+        }
         testSimulateReenters();
         testAcceptLockWaits();
+        testRestartClock();
         realThreads();
     }
 };

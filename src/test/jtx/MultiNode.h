@@ -245,8 +245,8 @@ struct NodeSpec
     // the LAST gated timer, virtualized). Empty -> production nullptr:
     // PeerImp keeps its raw asio member untouched.
     TimeoutCounterTimerFactory peerTimerFactory;
-    // NetClock at stop. Applied to the new keeper before the app runs so a
-    // loaded ledger does not sit ahead of a keeper that starts at the epoch.
+    // Startup NetClock override, applied before the app runs. Threaded virtual
+    // nodes use the runner's current time, including time spent stopped.
     std::optional<NetClock::time_point> restoredNetClock;
 };
 
@@ -608,6 +608,10 @@ class MultiNode
     // callback maps scheduler virtual time onto each node's NetClock from this
     // base.
     NetClock::time_point netBase_{};
+    // Current network time in non-stepping virtual mode, owned by the test
+    // thread. Unlike live node clocks, it advances while every node is stopped.
+    // Keep the same per-tick whole-second conversion as the existing driver.
+    std::optional<NetClock::time_point> threadedNetTime_;
     struct NodeSlot
     {
         TempDir dbDir;
@@ -841,7 +845,11 @@ public:
                 /*injectedPrng=*/slots_[id]->prng.get(),
                 std::move(timerFactory),
                 std::move(peerTimerFactory),
-                /*restoredNetClock=*/std::nullopt}));
+                /*restoredNetClock=*/threadedNetTime_}));
+
+        if (steadyClock_ && !stepper_ && !threadedNetTime_ &&
+            nodes_.back()->isUp())
+            threadedNetTime_ = nodes_.back()->clock().now();
 
         // Capture the genesis NetClock base from the first node for
         // syncClocks(). Gate on isUp(): a setup failure resets app_ (destroying
@@ -853,7 +861,8 @@ public:
         // at genesis close time while the network's virtual clocks are far
         // ahead — the real handshake rejects that skew ("Peer clock is too
         // far off"). Sync every clock to scheduler time, exactly as
-        // restartNode does; a no-op for the normal t=0 bring-up.
+        // restartNode does; a no-op for the normal t=0 bring-up. Threaded
+        // virtual nodes receive threadedNetTime_ before app startup above.
         if (stepper_ && nodes_.back()->isUp())
             syncClocks(stepper_->now());
         return *nodes_.back();
@@ -980,7 +989,8 @@ private:
                 /*injectedPrng=*/slots_[i]->prng.get(),
                 std::move(timerFactory),
                 std::move(peerTimerFactory),
-                slots_[i]->savedNetClock});
+                threadedNetTime_ ? threadedNetTime_
+                                 : slots_[i]->savedNetClock});
         if (stepper_ && nodes_[i]->isUp())
             syncClocks(stepper_->now());
         return *nodes_[i];
@@ -1547,13 +1557,9 @@ public:
         stats.beat = ++threadedBeat_;
         stats.transportStart = simActivitySnapshot();
 
-        // 1) steady clock (elapsed-time source for openTime / round duration).
-        steadyClock_->advance(dt);
-        // 2) NetClock in lockstep (truncates to whole seconds; pass dt >= 1s).
-        auto const netDt = duration_cast<NetClock::duration>(dt);
-        for (auto& n : nodes_)
-            if (n)
-                n->clock().set(n->clock().now() + netDt);
+        // Advance both domains once, including the runner's current NetClock
+        // used when a stopped node returns before the next heartbeat.
+        advanceInjectedClocks(dt);
 
         struct Signal
         {
@@ -2195,6 +2201,8 @@ private:
 
         steadyClock_->advance(dt);
         auto const netDt = std::chrono::duration_cast<NetClock::duration>(dt);
+        if (threadedNetTime_)
+            *threadedNetTime_ += netDt;
         for (auto& n : nodes_)
             if (n)
                 n->clock().set(n->clock().now() + netDt);
