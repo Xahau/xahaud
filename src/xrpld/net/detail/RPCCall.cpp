@@ -1443,6 +1443,7 @@ public:
             {"fetch_info", &RPCParser::parseFetchInfo, 0, 1},
             {"gateway_balances", &RPCParser::parseGatewayBalances, 1, -1},
             {"get_counts", &RPCParser::parseGetCounts, 0, 1},
+            {"hook_query", &RPCParser::parseAsIs, 2, 3},
             {"json", &RPCParser::parseJson, 2, 2},
             {"json2", &RPCParser::parseJson2, 1, 1},
             {"ledger", &RPCParser::parseLedger, 0, 2},

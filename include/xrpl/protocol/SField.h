@@ -53,6 +53,8 @@ class STNumber;
 class STXChainBridge;
 class STVector256;
 class STCurrency;
+class STData;
+class STDataType;
 class Definitions;
 
 #pragma push_macro("XMACRO")
@@ -90,6 +92,8 @@ class Definitions;
     STYPE(STI_ISSUE, 24)                          \
     STYPE(STI_XCHAIN_BRIDGE, 25)                  \
     STYPE(STI_CURRENCY, 26)                       \
+    STYPE(STI_DATA, 27)                           \
+    STYPE(STI_DATATYPE, 28)                       \
                                                   \
     /* high-level types */                        \
     /* cannot be serialized inside other types */ \
@@ -357,6 +361,8 @@ using SF_NUMBER = TypedField<STNumber>;
 using SF_VL = TypedField<STBlob>;
 using SF_VECTOR256 = TypedField<STVector256>;
 using SF_XCHAIN_BRIDGE = TypedField<STXChainBridge>;
+using SF_DATA = TypedField<STData>;
+using SF_DATATYPE = TypedField<STDataType>;
 
 //------------------------------------------------------------------------------
 

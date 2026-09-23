@@ -29,6 +29,8 @@ cat $RIPPLED_ROOT/protocol/detail/sfields.macro | grep -E '^(TYPED_SFIELD|UNTYPE
     sed 's/ISSUE,/24,/g' |
     sed 's/XCHAIN_BRIDGE,/25,/g' |
     sed 's/CURRENCY,/26,/g' |
+    sed 's/DATA,/27,/g' |
+    sed 's/DATATYPE,/28,/g' |
     grep -Eo '\(([^,]+), *([0-9]+), *([0-9]+)' |
     sed s/\(sf//g | sed 's/ *//g' | sed 's/,/ /g' |
     awk '{print ("#define sf"$1" (("$2"U << 16U) + "$3"U)")}'

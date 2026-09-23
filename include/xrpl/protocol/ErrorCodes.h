@@ -73,7 +73,7 @@ enum error_code_i {
     rpcLGR_NOT_FOUND = 21,
     rpcLGR_NOT_VALIDATED = 22,
     rpcMASTER_DISABLED = 23,
-    // unused                  24,
+    rpcHOOK_NOT_FOUND = 24,
     // unused                  25,
     // unused                  26,
     // unused                  27,

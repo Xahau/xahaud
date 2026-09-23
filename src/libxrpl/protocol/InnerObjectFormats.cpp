@@ -94,6 +94,7 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookGrants, soeOPTIONAL},
          {sfHookNamespace, soeOPTIONAL},
          {sfHookParameters, soeOPTIONAL},
+         {sfHookFunctions, soeOPTIONAL},
          {sfHookOn, soeOPTIONAL},
          {sfHookOnIncoming, soeOPTIONAL},
          {sfHookOnOutgoing, soeOPTIONAL},
@@ -271,6 +272,23 @@ InnerObjectFormats::InnerObjectFormats()
             {sfRewardLgrLast, soeREQUIRED},
             {sfRewardTime, soeREQUIRED},
             {sfTrustLineRewardAccumulator, soeREQUIRED},
+        });
+
+    add(sfHookFunction.jsonName,
+        sfHookFunction.getCode(),
+        {
+            {sfFunctionName, soeREQUIRED},
+            {sfFunctionParameters, soeOPTIONAL},
+            {sfFlags, soeOPTIONAL},
+            {sfFee, soeOPTIONAL},
+        });
+
+    add(sfFunctionParameter.jsonName,
+        sfFunctionParameter.getCode(),
+        {
+            {sfFunctionParameterName, soeOPTIONAL},
+            {sfFunctionParameterValue, soeOPTIONAL},
+            {sfFunctionParameterType, soeOPTIONAL},
         });
 }
 

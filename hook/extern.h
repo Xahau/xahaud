@@ -339,6 +339,21 @@ prepare(
     uint32_t read_ptr,
     uint32_t read_len);
 
+extern int64_t
+otxn_func_param(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t index,
+    uint32_t serialized_type_id);
+
+extern int64_t
+query_result_set(
+    uint32_t kread_ptr,
+    uint32_t kread_len,
+    uint32_t dread_ptr,
+    uint32_t dread_len,
+    uint32_t serialized_type_id);
+
 #ifdef __cplusplus
 }
 #endif
