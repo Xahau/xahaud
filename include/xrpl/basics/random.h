@@ -58,11 +58,14 @@ std::uint64_t
 randomU64(Engine& engine)
 {
     static_assert(std::is_unsigned_v<typename Engine::result_type>);
+    static_assert(
+        std::numeric_limits<typename Engine::result_type>::digits <= 64);
+    static_assert(Engine::min() < Engine::max());
     auto const draw = [&engine]() -> std::uint64_t {
         return static_cast<std::uint64_t>(engine() - Engine::min());
     };
 
-    // 0 means the span is 2^64. That is one full-range draw.
+    // A wrapped cardinality of 0 means 2^64 values: one full-range draw.
     constexpr auto span =
         static_cast<std::uint64_t>(Engine::max() - Engine::min());
     constexpr std::uint64_t range = span + 1u;
@@ -101,7 +104,9 @@ randomU64(Engine& engine)
         constexpr auto y0 = (std::uint64_t{1} << w0) * (range >> w0);
         constexpr auto y1 =
             (std::uint64_t{1} << (w0 + 1)) * (range >> (w0 + 1));
-        static_assert(w0 > 0 && w0 < 63);
+        // R == 3 gives n == 65 and w0 == 0. The first group still
+        // consumes its draw even though it contributes no output bits.
+        static_assert(w0 >= 0 && w0 < 63);
 
         std::uint64_t word = 0;
         for (int k = 0; k != n0; ++k)
