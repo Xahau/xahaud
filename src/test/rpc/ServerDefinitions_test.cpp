@@ -24,6 +24,8 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
 
+#include <set>
+
 namespace ripple {
 
 namespace test {
@@ -182,6 +184,14 @@ public:
         std::map<std::string, VoteBehavior> const& votes =
             ripple::detail::supportedAmendments();
 
+        // The jtx fixture does not force every supported amendment through
+        // config (this lineage keeps ConsensusEntropy out of the default set),
+        // so "enabled" is expected exactly for what the Env's config forces.
+        std::set<std::string> forced;
+        for (auto const& h : env.app().config().features)
+            if (auto const fname = featureToName(h); !fname.empty())
+                forced.insert(fname);
+
         auto jrr = env.rpc("server_definitions")[jss::result];
         if (!BEAST_EXPECT(jrr.isMember(jss::features)))
             return;
@@ -195,9 +205,11 @@ public:
             bool expectObsolete =
                 (votes.at(feature[jss::name].asString()) ==
                  VoteBehavior::Obsolete);
+            bool const expectForced =
+                forced.count(feature[jss::name].asString()) != 0;
             BEAST_EXPECTS(
                 feature.isMember(jss::enabled) &&
-                    feature[jss::enabled].asBool(),
+                    feature[jss::enabled].asBool() == expectForced,
                 feature[jss::name].asString() + " enabled");
             BEAST_EXPECTS(
                 feature.isMember(jss::ledger_enabled) &&
