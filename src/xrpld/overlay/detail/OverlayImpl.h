@@ -21,6 +21,7 @@
 #define RIPPLE_OVERLAY_OVERLAYIMPL_H_INCLUDED
 
 #include <xrpld/app/main/Application.h>
+#include <xrpld/core/Config.h>
 #include <xrpld/core/Job.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/overlay/Overlay.h>
@@ -41,6 +42,7 @@
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/container/flat_map.hpp>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -49,6 +51,8 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace ripple {
 
@@ -342,21 +346,31 @@ public:
     void
     for_each(UnaryFunc&& f) const
     {
-        std::vector<std::weak_ptr<PeerImp>> wp;
+        std::vector<std::pair<Peer::id_t, std::weak_ptr<PeerImp>>> peers;
         {
             std::lock_guard lock(mutex_);
 
             // Iterate over a copy of the peer list because peer
             // destruction can invalidate iterators.
-            wp.reserve(ids_.size());
+            peers.reserve(ids_.size());
 
-            for (auto& x : ids_)
-                wp.push_back(x.second);
+            for (auto const& [id, peer] : ids_)
+                peers.emplace_back(id, peer);
         }
 
-        for (auto& w : wp)
+        // Stepping consumes per-node randomness inside send callbacks. Keep
+        // the recipient order stable when earlier worlds have shifted the
+        // absolute peer IDs and therefore the unordered map's bucket order.
+        // Non-stepping dispatch retains its existing iteration order.
+        if (app_.config().steppingMode)
+            std::sort(
+                peers.begin(), peers.end(), [](auto const& a, auto const& b) {
+                    return a.first < b.first;
+                });
+
+        for (auto const& [id, peer] : peers)
         {
-            if (auto p = w.lock())
+            if (auto p = peer.lock())
                 f(std::move(p));
         }
     }

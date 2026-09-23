@@ -5259,6 +5259,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto const priorJournal = ce.j_;
         ce.j_ = beast::Journal{sink};
         auto& sender = net.node(2).app();
+        log << "  runtime fault sender peer IDs:";
+        for (auto const& peer : sender.overlay().getActivePeers())
+            log << " " << peer->id();
+        log << std::endl;
         auto const priorSend = sender.config().harnessPeerSend;
         std::uint32_t called = 0;
         std::uint32_t queued = 0;
@@ -5365,10 +5369,19 @@ public:
         {
             testcase(
                 "RuntimeConfig random faults replay from injected engines");
+            std::size_t replay = 0;
             expectReplays(
                 *this,
                 "RuntimeConfig random faults replay from injected engines",
-                [this](SteppingNetwork& net) {
+                [this, &replay](SteppingNetwork& net) {
+                    if (++replay == 2)
+                    {
+                        // Perturb only the process-wide peer-ID base, not this
+                        // world's topology, seed, ports, clocks or app state.
+                        // Hash-bucket iteration must not assign its random
+                        // drop decisions to different recipient nodes.
+                        reserveSimPeerIds(2);
+                    }
                     return runtimeFaultReplay(net);
                 });
         }
