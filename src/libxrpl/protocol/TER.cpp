@@ -124,6 +124,8 @@ transResults()
         MAKE_ERROR(tecARRAY_TOO_LARGE,               "Array is too large."),
         MAKE_ERROR(tecLOCKED,                        "Fund is locked."),
         MAKE_ERROR(tecBAD_CREDENTIALS,               "Bad credentials."),
+        MAKE_ERROR(tecHOOK_INSUFFICIENT_GAS,         "Insufficient hook gas to complete the transaction."),
+        MAKE_ERROR(tecHOOK_INVALID,                  "Invalid hook."),
 
         MAKE_ERROR(tefALREADY,                     "The exact transaction was already in this ledger."),
         MAKE_ERROR(tefBAD_ADD_AUTH,                "Not authorized to add account."),

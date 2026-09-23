@@ -1,7 +1,7 @@
 //------------------------------------------------------------------------------
 /*
     This file is part of rippled: https://github.com/ripple/rippled
-    Copyright (c) 2023 Ripple Labs Inc.
+    Copyright (c) 2025 XRPL Labs
 
     Permission to use, copy, modify, and/or distribute this software for any
     purpose  with  or without fee is hereby granted, provided that the above
@@ -17,43 +17,64 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_PROTOCOL_FEES_H_INCLUDED
-#define RIPPLE_PROTOCOL_FEES_H_INCLUDED
+#ifndef RIPPLE_TEST_JTX_HOOKGAS_H_INCLUDED
+#define RIPPLE_TEST_JTX_HOOKGAS_H_INCLUDED
 
-#include <xrpl/protocol/XRPAmount.h>
+#include <test/jtx/Env.h>
+#include <test/jtx/tags.h>
+#include <xrpl/basics/contract.h>
 
 namespace ripple {
+namespace test {
+namespace jtx {
 
-/** Reflects the fee settings for a particular ledger.
-
-    The fees are always the same for any transactions applied
-    to a ledger. Changes to fees occur in between ledgers.
-*/
-struct Fees
+/** Set the HookGas on a JTx. */
+class hookgas
 {
-    XRPAmount base{0};       // Reference tx cost (drops)
-    XRPAmount reserve{0};    // Reserve base (drops)
-    XRPAmount increment{0};  // Reserve increment (drops)
-    std::uint64_t hookGasPrice{
-        0};  // Gas price for gas-type hooks (micro-drops per gas unit)
+private:
+    std::uint32_t gas_;
 
-    explicit Fees() = default;
-    Fees(Fees const&) = default;
-    Fees&
-    operator=(Fees const&) = default;
-
-    /** Returns the account reserve given the owner count, in drops.
-
-        The reserve is calculated as the reserve base plus
-        the reserve increment times the number of increments.
-    */
-    XRPAmount
-    accountReserve(std::size_t ownerCount) const
+public:
+    hookgas(std::uint32_t gas) : gas_{gas}
     {
-        return reserve + ownerCount * increment;
     }
+
+    void
+    operator()(Env&, JTx& jt) const;
 };
 
+/** Set the HookCallbackGas on a JTx. */
+class cbakgas
+{
+private:
+    std::uint32_t gas_;
+
+public:
+    cbakgas(std::uint32_t gas) : gas_{gas}
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jt) const;
+};
+
+/** Set the HookWeakGas on a JTx. */
+class weakgas
+{
+private:
+    std::uint32_t gas_;
+
+public:
+    weakgas(std::uint32_t gas) : gas_{gas}
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jt) const;
+};
+
+}  // namespace jtx
+}  // namespace test
 }  // namespace ripple
 
 #endif

@@ -29,10 +29,10 @@ namespace ripple {
 
 namespace detail {
 
+template <typename value_type>
 class VotableValue
 {
 private:
-    using value_type = XRPAmount;
     value_type const current_;  // The current setting
     value_type const target_;   // The setting we want
     std::map<value_type, int> voteMap_;
@@ -67,8 +67,9 @@ public:
     getVotes() const;
 };
 
-auto
-VotableValue::getVotes() const -> std::pair<value_type, bool>
+template <typename value_type>
+std::pair<value_type, bool>
+VotableValue<value_type>::getVotes() const
 {
     value_type ourVote = current_;
     int weight = 0;
@@ -191,6 +192,18 @@ FeeVoteImpl::doValidation(
             "reserve increment",
             sfReserveIncrement);
     }
+
+    // GasPrice voting (always uses UINT64, independent of featureXRPFees)
+    if (rules.enabled(featureHookGas))
+    {
+        if (lastFees.hookGasPrice != target_.hook_gas_price)
+        {
+            JLOG(journal_.info())
+                << "Voting for hook gas price of " << target_.hook_gas_price;
+            if (auto const f = target_.hook_gas_price)
+                v[sfHookGasPrice] = f;
+        }
+    }
 }
 
 void
@@ -213,11 +226,14 @@ FeeVoteImpl::doVoting(
     detail::VotableValue incReserveVote(
         lastClosedLedger->fees().increment, target_.owner_reserve);
 
+    detail::VotableValue hookGasPriceVote(
+        lastClosedLedger->fees().hookGasPrice, target_.hook_gas_price);
+
     auto const& rules = lastClosedLedger->rules();
     if (rules.enabled(featureXRPFees))
     {
         auto doVote = [](std::shared_ptr<STValidation> const& val,
-                         detail::VotableValue& value,
+                         detail::VotableValue<XRPAmount>& value,
                          SF_AMOUNT const& xrpField) {
             if (auto const field = ~val->at(~xrpField);
                 field && field->native())
@@ -246,7 +262,7 @@ FeeVoteImpl::doVoting(
     else
     {
         auto doVote = [](std::shared_ptr<STValidation> const& val,
-                         detail::VotableValue& value,
+                         detail::VotableValue<XRPAmount>& value,
                          auto const& valueField) {
             if (auto const field = val->at(~valueField))
             {
@@ -278,6 +294,33 @@ FeeVoteImpl::doVoting(
         }
     }
 
+    // GasPrice voting (UINT64 field, independent of featureXRPFees)
+    if (rules.enabled(featureHookGas))
+    {
+        auto doVote = [](std::shared_ptr<STValidation> const& val,
+                         detail::VotableValue<std::uint64_t>& value,
+                         SF_UINT64 const& xrpField) {
+            if (auto const field = val->at(~xrpField))
+            {
+                auto const vote = *field;
+                if (vote <= std::numeric_limits<std::uint64_t>::max())
+                    value.addVote(vote);
+                else
+                    value.noVote();
+            }
+            else
+            {
+                value.noVote();
+            }
+        };
+        for (auto const& val : set)
+        {
+            if (!val->isTrusted())
+                continue;
+            doVote(val, hookGasPriceVote, sfHookGasPrice);
+        }
+    }
+
     // choose our positions
     // TODO: Use structured binding once LLVM 16 is the minimum supported
     // version. See also: https://github.com/llvm/llvm-project/issues/48582
@@ -285,11 +328,13 @@ FeeVoteImpl::doVoting(
     auto const baseFee = baseFeeVote.getVotes();
     auto const baseReserve = baseReserveVote.getVotes();
     auto const incReserve = incReserveVote.getVotes();
+    auto const hookGasPrice = hookGasPriceVote.getVotes();
 
     auto const seq = lastClosedLedger->info().seq + 1;
 
     // add transactions to our position
-    if (baseFee.second || baseReserve.second || incReserve.second)
+    if (baseFee.second || baseReserve.second || incReserve.second ||
+        (rules.enabled(featureHookGas) && hookGasPrice.second))
     {
         JLOG(journal_.warn())
             << "We are voting for a fee change: " << baseFee.first << "/"
@@ -316,6 +361,10 @@ FeeVoteImpl::doVoting(
                     incReserve.first.dropsAs<std::uint32_t>(
                         incReserveVote.current());
                 obj[sfReferenceFeeUnits] = Config::FEE_UNITS_DEPRECATED;
+            }
+            if (rules.enabled(featureHookGas))
+            {
+                obj[sfHookGasPrice] = hookGasPrice.first;
             }
         });
 

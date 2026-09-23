@@ -1013,7 +1013,9 @@ hook::apply(
     bool isStrong,
     uint32_t wasmParam,
     uint8_t hookChainPosition,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint16_t hookApiVersion,
+    uint32_t hookGas)
 {
     HookContext hookCtx = {
         .applyCtx = applyCtx,
@@ -1044,7 +1046,9 @@ hook::apply(
              .wasmParam = wasmParam,
              .hookChainPosition = hookChainPosition,
              .foreignStateSetDisabled = false,
-             .provisionalMeta = provisionalMeta},
+             .provisionalMeta = provisionalMeta,
+             .hookApiVersion = hookApiVersion,
+             .hookGas = hookGas},
         .emitFailure = isCallback && wasmParam & 1
             ? std::optional<ripple::STObject>(
                   (*(applyCtx.view().peek(keylet::emittedTxn(
@@ -1059,10 +1063,14 @@ hook::apply(
     executor.executeWasm(
         wasm.data(), (size_t)wasm.size(), isCallback, wasmParam, j);
 
-    JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: "
-                    << (hookCtx.result.exitType == hook_api::ExitType::ROLLBACK
-                            ? "ROLLBACK"
-                            : "ACCEPT")
+    auto const& exitType = hookCtx.result.exitType;
+    auto const& exitTypeStr = exitType == ExitType::ROLLBACK ? "ROLLBACK"
+        : exitType == ExitType::ACCEPT                       ? "ACCEPT"
+        : exitType == ExitType::GAS_INSUFFICIENT ? "GAS_INSUFFICIENT"
+        : exitType == ExitType::WASM_ERROR       ? "WASM_ERROR"
+                                                 : "UNSET";
+
+    JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: " << exitTypeStr
                     << " RS: '" << hookCtx.result.exitReason.c_str()
                     << "' RC: " << hookCtx.result.exitCode;
 
@@ -1549,6 +1557,9 @@ hook::finalizeHookResult(
             ripple::Slice{
                 hookResult.exitReason.data(), hookResult.exitReason.size()});
         meta.setFieldU64(sfHookInstructionCount, hookResult.instructionCount);
+        if (hookResult.hookApiVersion == 1)
+            meta.setFieldU32(sfHookInstructionCost, hookResult.instructionCost);
+
         meta.setFieldU16(
             sfHookEmitCount,
             emission_txnid.size());  // this will never wrap, hard limit

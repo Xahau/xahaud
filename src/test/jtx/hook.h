@@ -45,6 +45,9 @@ Json::Value
 hso(std::string const& wasmHex, void (*f)(Json::Value& jv) = 0);
 
 Json::Value
+hso(uint256 const& hookHash, void (*f)(Json::Value& jv) = 0);
+
+Json::Value
 hso_delete(void (*f)(Json::Value& jv) = 0);
 
 struct StubHookResult

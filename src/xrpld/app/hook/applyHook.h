@@ -64,18 +64,23 @@ namespace hook_api {
     fprintf
 
 #pragma push_macro("HOOK_API_DEFINITION")
+#pragma push_macro("HOOK_API_COST")
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
 #define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
     DECLARE_HOOK_FUNCTION(                                                 \
         RETURN_TYPE, FUNCTION_NAME, HOOK_WRAP_PARAMS PARAMS_TUPLE);
+#define HOOK_API_COST(FUNCTION_NAME, cost, amendment)
 
 #include <xrpl/hook/hook_api.macro>
 
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 #undef HOOK_WRAP_PARAMS
 #pragma pop_macro("HOOK_API_DEFINITION")
+#pragma pop_macro("HOOK_API_COST")
 
 } /* end namespace hook_api */
 
@@ -125,7 +130,9 @@ apply(
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     // result of apply() if this is weak exec
-    std::shared_ptr<STObject const> const& provisionalMeta);
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    uint16_t hookApiVersion,
+    uint32_t hookGas);
 
 struct HookContext;
 
@@ -163,6 +170,7 @@ struct HookResult
     std::string exitReason{""};
     int64_t exitCode{-1};
     uint64_t instructionCount{0};
+    uint64_t instructionCost{0};
     bool hasCallback = false;  // true iff this hook wasm has a cbak function
     bool isCallback =
         false;  // true iff this hook execution is a callback in action
@@ -175,6 +183,8 @@ struct HookResult
         false;  // hook_again allows strong pre-apply to nominate
                 // additional weak post-apply execution
     std::shared_ptr<STObject const> provisionalMeta;
+    uint16_t hookApiVersion = 0;  // 0 = Guard-type, 1 = Gas-type
+    uint32_t hookGas;             // Gas limit for Gas-type hooks
     std::set<std::pair<AccountID, uint256 /* namespace */>>
         foreignStateGrantCache;  // add found grants here to avoid rechecking
 };
@@ -273,14 +283,14 @@ gatherHookParameters(
     beast::Journal const& j_);
 
 // RH TODO: call destruct for these on rippled shutdown
-#define ADD_HOOK_FUNCTION(F, ctx)                          \
+#define ADD_HOOK_FUNCTION(F, ctx, cost)                    \
     {                                                      \
         WasmEdge_FunctionInstanceContext* hf =             \
             WasmEdge_FunctionInstanceCreate(               \
                 hook_api::WasmFunctionType##F,             \
                 hook_api::WasmFunction##F,                 \
                 (void*)(&ctx),                             \
-                0);                                        \
+                cost);                                     \
         WasmEdge_ModuleInstanceAddFunction(                \
             importObj, hook_api::WasmFunctionName##F, hf); \
     }
@@ -328,12 +338,18 @@ public:
         WasmEdge_ConfigureContext* conf = NULL;
         WasmEdge_VMContext* ctx = NULL;
 
-        WasmEdgeVM()
+        WasmEdgeVM(uint16_t hookApiVersion)
         {
             conf = WasmEdge_ConfigureCreate();
             if (!conf)
                 return;
             WasmEdge_ConfigureStatisticsSetInstructionCounting(conf, true);
+            if (hookApiVersion == 1)
+            {
+                WasmEdge_ConfigureStatisticsSetCostMeasuring(conf, true);
+                WasmEdge_ConfigureSetMaxMemoryPage(
+                    conf, hook_api::max_memory_pages);
+            }
             ctx = WasmEdge_VMCreate(conf, NULL);
         }
 
@@ -368,9 +384,9 @@ public:
      * Validate that a web assembly blob can be loaded by wasmedge
      */
     static std::optional<std::string>
-    validateWasm(const void* wasm, size_t len)
+    validateWasm(const void* wasm, size_t len, uint16_t hookApiVersion)
     {
-        WasmEdgeVM vm;
+        WasmEdgeVM vm{hookApiVersion};
 
         if (!vm.sane())
             return "Could not create WASMEDGE instance";
@@ -415,7 +431,7 @@ public:
 
         WasmEdge_LogOff();
 
-        WasmEdgeVM vm;
+        WasmEdgeVM vm{hookCtx.result.hookApiVersion};
 
         if (!vm.sane())
         {
@@ -436,6 +452,22 @@ public:
             return;
         }
 
+        // Set Gas limit for Gas-type hooks (HookApiVersion == 1)
+        if (hookCtx.result.hookApiVersion == 1)
+        {
+            auto* statsCtx = WasmEdge_VMGetStatisticsContext(vm.ctx);
+            if (statsCtx)
+            {
+                // Convert HookGas to cost limit count (1 Gas = 1 cost)
+                uint32_t gasLimit = hookCtx.result.hookGas;
+                WasmEdge_StatisticsSetCostLimit(statsCtx, gasLimit);
+
+                JLOG(j.trace())
+                    << "HookInfo[" << HC_ACC() << "]: Set Gas limit to "
+                    << gasLimit << " cost limit for Gas-type Hook";
+            }
+        }
+
         WasmEdge_Value params[1] = {WasmEdge_ValueGenI32((int64_t)wasmParam)};
         WasmEdge_Value returns[1];
 
@@ -449,16 +481,31 @@ public:
             returns,
             1);
 
-        if (auto err = getWasmError("WASM VM error", res); err)
-        {
-            JLOG(j.warn()) << "HookError[" << HC_ACC() << "]: " << *err;
-            hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
-            return;
-        }
-
         auto* statsCtx = WasmEdge_VMGetStatisticsContext(vm.ctx);
         hookCtx.result.instructionCount =
             WasmEdge_StatisticsGetInstrCount(statsCtx);
+        hookCtx.result.instructionCost =
+            WasmEdge_StatisticsGetTotalCost(statsCtx);
+
+        if (auto err = getWasmError("WASM VM error", res); err)
+        {
+            JLOG(j.trace()) << "HookError[" << HC_ACC() << "]: " << *err;
+
+            // Check if error is due to Gas limit exceeded for Gas-type hooks
+            if (hookCtx.result.hookApiVersion == 1 &&
+                err->find("cost limit exceeded") != std::string::npos)
+            {
+                JLOG(j.trace()) << "HookError[" << HC_ACC()
+                                << "]: Gas limit exceeded. Limit was "
+                                << hookCtx.result.hookGas;
+                hookCtx.result.exitType = hook_api::ExitType::GAS_INSUFFICIENT;
+            }
+            else
+            {
+                hookCtx.result.exitType = hook_api::ExitType::WASM_ERROR;
+            }
+            return;
+        }
 
         // RH NOTE: stack unwind will clean up WasmEdgeVM
     }
@@ -471,17 +518,40 @@ public:
         WasmEdge_LogSetDebugLevel();
 
 #pragma push_macro("HOOK_API_DEFINITION")
+#pragma push_macro("HOOK_API_COST")
+
+        // Access rules for amendment-based cost switching
+        auto const& rules_ = ctx.applyCtx.view().rules();
+
+        // Phase 1: Declare per-function cost variables, initialized to 0
 #undef HOOK_API_DEFINITION
-
+#undef HOOK_API_COST
 #define HOOK_WRAP_PARAMS(...) __VA_ARGS__
-#define HOOK_API_DEFINITION(RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, ...) \
-    ADD_HOOK_FUNCTION(FUNCTION_NAME, ctx);
+#define HOOK_API_DEFINITION(RT, FN, ...) uint64_t cost_##FN = 0;
+#define HOOK_API_COST(...)
+#include <xrpl/hook/hook_api.macro>
 
+        // Phase 2: Set costs; amendment-gated entries override base costs
+#undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
+#define HOOK_API_DEFINITION(...)
+#define HOOK_API_COST(FN, cost, AM)              \
+    if ((AM) == uint256{} || rules_.enabled(AM)) \
+        cost_##FN = (cost);
+#include <xrpl/hook/hook_api.macro>
+
+        // Phase 3: Register functions with WasmEdge using computed costs
+#undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
+#define HOOK_API_DEFINITION(RT, FN, ...) ADD_HOOK_FUNCTION(FN, ctx, cost_##FN);
+#define HOOK_API_COST(...)
 #include <xrpl/hook/hook_api.macro>
 
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 #undef HOOK_WRAP_PARAMS
 #pragma pop_macro("HOOK_API_DEFINITION")
+#pragma pop_macro("HOOK_API_COST")
 
         WasmEdge_TableInstanceContext* hostTable =
             WasmEdge_TableInstanceCreate(tableType);

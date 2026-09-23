@@ -20,9 +20,11 @@
 #include <test/app/SetHook_wasm.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <test/jtx/hookgas.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpl/hook/Enum.h>
+#include <xrpl/hook/GasValidator.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -91,7 +93,11 @@ private:
     // helper
     void static overrideFlag(Json::Value& jv)
     {
-        jv[jss::Flags] = hsfOVERRIDE;
+        jv[jss::Flags] = jv[jss::Flags].asUInt() | hsfOVERRIDE;
+    }
+    void static collectFlag(Json::Value& jv)
+    {
+        jv[jss::Flags] = jv[jss::Flags].asUInt() | hsfCOLLECT;
     }
 
 public:
@@ -688,6 +694,7 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasHookGas = env.current()->rules().enabled(featureHookGas);
         bool const hasNamedHooks =
             env.current()->rules().enabled(featureNamedHooks);
 
@@ -726,8 +733,8 @@ public:
         }
 
         // grants, parameters, hookon, hookonincoming, hookonoutgoing,
-        // hookcanemit, hookapiversion, hooknamespace, hookname keys must be
-        // absent
+        // hookcanemit, hookapiversion, hooknamespace, hookname, callbackgas,
+        // weakgas keys must be absent
         for (auto const& [key, value] : JSSMap{
                  {jss::HookGrants, Json::arrayValue},
                  {jss::HookParameters, Json::arrayValue},
@@ -746,12 +753,18 @@ public:
                  {jss::HookApiVersion, "0"},
                  {jss::HookNamespace, to_string(uint256{beast::zero})},
                  {jss::HookName, strHex(std::string{"DEADBEEF"})},
+                 {jss::HookCallbackGas, 1000000},
+                 {jss::HookWeakGas, 1000000},
              })
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
                 continue;
 
             if (!hasNamedHooks && key == jss::HookName)
+                continue;
+
+            if (!hasHookGas &&
+                (key == jss::HookCallbackGas || key == jss::HookWeakGas))
                 continue;
 
             Json::Value iv;
@@ -761,7 +774,7 @@ public:
             env(jv,
                 M("Hook DELETE operation cannot include: grants, params, "
                   "hookon, HookOnIncoming, HookOnOutgoing, hookcanemit, "
-                  "apiversion, namespace, hookname"),
+                  "apiversion, namespace, hookname, callbackgas, weakgas"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -900,6 +913,7 @@ public:
         bool const fixNS = env.current()->rules().enabled(fixNSDelete);
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasHookGas = env.current()->rules().enabled(featureHookGas);
         bool const hasNamedHooks =
             env.current()->rules().enabled(featureNamedHooks);
 
@@ -935,12 +949,18 @@ public:
                   "0000"},
                  {jss::HookApiVersion, "0"},
                  {jss::HookName, strHex(std::string{"DEADBEEF"})},
+                 {jss::HookCallbackGas, 1000000},
+                 {jss::HookWeakGas, 1000000},
              })
         {
             if (!hasHookCanEmit && key == jss::HookCanEmit)
                 continue;
 
             if (!hasNamedHooks && key == jss::HookName)
+                continue;
+
+            if (!hasHookGas &&
+                (key == jss::HookCallbackGas || key == jss::HookWeakGas))
                 continue;
 
             Json::Value iv;
@@ -951,7 +971,7 @@ public:
             env(jv,
                 M("Hook NSDELETE operation cannot include: grants, params, "
                   "hookon, hookonincoming, hookonoutgoing, hookcanemit, "
-                  "apiversion, hookname"),
+                  "apiversion, hookname, callbackgas, weakgas"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -2087,6 +2107,7 @@ public:
 
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
+        bool const hasHookGas = env.current()->rules().enabled(featureHookGas);
         bool const hasNamedHooks =
             env.current()->rules().enabled(featureNamedHooks);
 
@@ -2178,7 +2199,7 @@ public:
             Json::Value iv;
             iv[jss::CreateCode] = strHex(accept_wasm);
             iv[jss::HookNamespace] = to_string(uint256{beast::zero});
-            iv[jss::HookApiVersion] = 1U;
+            iv[jss::HookApiVersion] = hasHookGas ? 2U : 1U;
             iv[jss::HookOn] =
                 "00000000000000000000000000000000000000000000000000000000000000"
                 "00";
@@ -2192,7 +2213,7 @@ public:
             jv[jss::Hooks][0U][jss::Hook] = iv;
 
             env(jv,
-                M("HSO Create operation must contain valid api version"),
+                M("HSO Create operation must contain valid api version or > 1"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -15053,6 +15074,1984 @@ public:
     }
 
     void
+    testGasTypeHookHostFunctionValidation(FeatureBitset features)
+    {
+        testcase("Direct test of validateWasmHostFunctionsForGas");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // Test 1: Valid gas hook (no _g) should return nullopt
+        {
+            // Gas Type Hook Host Function Validation Tests - WASM Definitions
+
+            // Test 1: Valid Gas hook - no _g function (should succeed)
+            TestHook gas_valid_no_g_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "trace_num" (func (;1;) (type 0)))
+                    (func (;2;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 15
+                        i64.const 1
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_valid_no_g);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_valid_no_g_wasm, rules, j);
+            BEAST_EXPECT(result.has_value());  // No error
+        }
+
+        // Test 2: Invalid gas hook (has _g) should return error
+        {
+            // Test 2: Invalid Gas hook - contains _g function (should fail)
+            TestHook gas_invalid_with_g_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32) (result i32)))
+                    (type (;1;) (func (param i32 i32 i64) (result i64)))
+                    (type (;2;) (func (param i32) (result i64)))
+                    (import "env" "_g" (func (;0;) (type 0)))
+                    (import "env" "accept" (func (;1;) (type 1)))
+                    (func (;2;) (type 2) (param i32) (result i64)
+                        i32.const 1
+                        i32.const 1
+                        call 0
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 1)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_invalid_with_g);
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_invalid_with_g_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());  // Has error
+            if (!result.has_value())
+            {
+                BEAST_EXPECT(
+                    result.error().find(
+                        "Gas-type hooks cannot import _g (guard) function") !=
+                    std::string::npos);
+            }
+        }
+
+        // Test 3: Valid gas hook with multiple allowed host functions should
+        // return nullopt
+        {
+            // Test 3: Valid Gas hook - multiple allowed host functions
+            TestHook gas_valid_multi_hostfn_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (result i64)))
+                    (type (;2;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "trace_num" (func (;1;) (type 0)))
+                    (import "env" "ledger_seq" (func (;2;) (type 1)))
+                    (import "env" "fee_base" (func (;3;) (type 1)))
+                    (func (;4;) (type 2) (param i32) (result i64)
+                        (local i64 i64)
+                        call 2
+                        local.set 1
+                        call 3
+                        local.set 2
+                        i32.const 0
+                        i32.const 10
+                        local.get 1
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 8
+                        local.get 2
+                        call 1
+                        drop
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (memory (;0;) 2)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 4)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_valid_multi_hostfn);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_valid_multi_hostfn_wasm, rules, j);
+            BEAST_EXPECT(result.has_value());  // No error
+            BEAST_EXPECT(*result == false);    // cbak function is not present
+        }
+        static std::array<FeatureBitset, 6> const feats{
+            all,
+            all - fixNSDelete,
+            all - fixNSDelete - fixPageCap,
+            all - fixNSDelete - fixPageCap - featureHookCanEmit,
+            all - fixNSDelete - fixPageCap - featureExtendedHookState,
+            all - featureNamedHooks,
+        };
+
+        // Test4: cbak function is present
+        {
+            TestHook gas_accept_with_cbak_wasm = wasm[
+                R"[test.hook.gas](
+                (module
+                (type (;0;) (func (param i32 i32 i64) (result i64)))
+                (type (;1;) (func (param i32) (result i64)))
+                (import "env" "accept" (func (;0;) (type 0)))
+                (func (;1;) (type 1) (param i32) (result i64)
+                    i32.const 0
+                    i32.const 0
+                    i64.const 0
+                    call 0)
+                (memory (;0;) 2)
+                (export "memory" (memory 0))
+                (export "hook" (func 1))
+                (export "cbak" (func 1)))
+            )[test.hook.gas]"];
+
+            HASH_WASM(gas_accept_with_cbak);
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_accept_with_cbak_wasm, rules, j);
+            BEAST_EXPECT(result.has_value());  // No error
+            BEAST_EXPECT(*result == true);     // cbak function is present
+        }
+        // Note: Export and Import error tests are in separate functions
+    }
+
+    void
+    testGasTypeHookExportErrors(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook export section validation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // Test: No exports at all
+        TestHook test_gas_validation_no_exports_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_no_exports);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_no_exports_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find(
+                        "WASM must export at least hook API functions") !=
+                    std::string::npos);
+        }
+
+        // Test 5: Export Section Error - Export function named
+        // "unauthorized_fn"
+        TestHook test_gas_validation_unauthorized_export_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1))
+              (export "unauthorized_fn" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_unauthorized_export);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_unauthorized_export_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("Unauthorized export function") !=
+                    std::string::npos);
+        }
+
+        // Test 6: Export Section Error - Only export cbak, not hook
+        TestHook test_gas_validation_missing_hook_export_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "cbak" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_missing_hook_export);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_missing_hook_export_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("Required function 'hook' not found") !=
+                    std::string::npos);
+        }
+
+        // Test 7: Export Section Error - hook() with signature () -> i64
+        TestHook test_gas_validation_hook_no_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_no_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_no_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must have exactly 1 parameter") !=
+                    std::string::npos);
+        }
+
+        // Test 8: Export Section Error - hook() with signature (i32, i32) ->
+        // i64
+        TestHook test_gas_validation_hook_too_many_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32 i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32 i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_too_many_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_too_many_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must have exactly 1 parameter") !=
+                    std::string::npos);
+        }
+
+        // Test 9: Export Section Error - hook() with signature (i64) -> i64
+        TestHook test_gas_validation_hook_wrong_param_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i64) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i64) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_wrong_param_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_wrong_param_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("parameter must be uint32_t") !=
+                    std::string::npos);
+        }
+
+        // Test 10: Export Section Error - hook() with signature (i32) (no
+        // return)
+        TestHook test_gas_validation_hook_no_return_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0
+                drop)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_no_return);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_no_return_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must return exactly 1 value") !=
+                    std::string::npos);
+        }
+
+        // Test 11: Export Section Error - hook() with signature (i32) -> i32
+        TestHook test_gas_validation_hook_wrong_return_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i32)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i32)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0
+                drop
+                i32.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_hook_wrong_return_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_hook_wrong_return_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("return type must be uint64_t") !=
+                    std::string::npos);
+        }
+
+        // Test 12: Export Section Error - cbak() with signature () -> i64
+        TestHook test_gas_validation_cbak_wrong_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (type (;2;) (func (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (func (;2;) (type 2) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1))
+              (export "cbak" (func 2)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_cbak_wrong_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_cbak_wrong_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must have exactly 1 parameter") !=
+                    std::string::npos);
+        }
+
+        // Test 13: Export Section Error - cbak() with signature (i64) -> i64
+        TestHook test_gas_validation_cbak_wrong_param_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (type (;2;) (func (param i64) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (func (;2;) (type 2) (param i64) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1))
+              (export "cbak" (func 2)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_cbak_wrong_param_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_cbak_wrong_param_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("parameter must be uint32_t") !=
+                    std::string::npos);
+        }
+
+        // Test 14: Export Section Error - cbak() with signature (i32) -> i32
+        TestHook test_gas_validation_cbak_wrong_return_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (type (;2;) (func (param i32) (result i32)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (func (;2;) (type 2) (param i32) (result i32)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0
+                drop
+                i32.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1))
+              (export "cbak" (func 2)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_cbak_wrong_return_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_cbak_wrong_return_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("return type must be uint64_t") !=
+                    std::string::npos);
+        }
+    }
+
+    void
+    testGasTypeHookImportErrors(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook import section validation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // Test: No imports (should fail)
+        TestHook test_gas_validation_no_imports_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32) (result i64)))
+              (func (;0;) (type 0) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 0)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_no_imports);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_no_imports_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find(
+                        "WASM must import at least hook API functions") !=
+                    std::string::npos);
+        }
+
+        // Test: Import from wrong module (should fail)
+        TestHook test_gas_validation_wrong_import_module_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "wasi_snapshot_preview1" "fd_write" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_wrong_import_module);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_wrong_import_module_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("Import module must be 'env'") !=
+                    std::string::npos);
+        }
+
+        // Test: Import not in whitelist (should fail)
+        TestHook test_gas_validation_import_not_whitelisted_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32) (result i32)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "malloc" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_not_whitelisted);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_not_whitelisted_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("Import not in whitelist") !=
+                    std::string::npos);
+        }
+
+        // Test: Import with no return value (should fail)
+        TestHook test_gas_validation_import_no_return_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_no_return);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_no_return_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("must return exactly 1 value") !=
+                    std::string::npos);
+        }
+
+        // Test: Import with wrong return type (should fail)
+        TestHook test_gas_validation_import_wrong_return_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i32)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_wrong_return_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_wrong_return_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("has incorrect return type") !=
+                    std::string::npos);
+        }
+
+        // Test: Import with too few parameters (should fail)
+        TestHook test_gas_validation_import_too_few_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                call 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_too_few_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_too_few_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("has incorrect parameter count") !=
+                    std::string::npos);
+        }
+
+        // Test: Import with too many parameters (should fail)
+        TestHook test_gas_validation_import_too_many_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64 i32) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_too_many_params);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_too_many_params_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("has incorrect parameter count") !=
+                    std::string::npos);
+        }
+
+        // Test: Import with wrong parameter type (should fail)
+        TestHook test_gas_validation_import_wrong_param_type_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i64 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_wrong_param_type);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_wrong_param_type_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("has incorrect parameter types") !=
+                    std::string::npos);
+        }
+
+        // Test: Import with multiple wrong parameter types (should fail)
+        TestHook test_gas_validation_import_multiple_wrong_params_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i64 i64 i64 i64 i64 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "util_verify" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i64.const 0)
+              (memory (;0;) 2)
+              (export "memory" (memory 0))
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_validation_import_multiple_wrong_params);
+
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_validation_import_multiple_wrong_params_wasm,
+                rules,
+                j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("has incorrect parameter types") !=
+                    std::string::npos);
+        }
+    }
+
+    void
+    testGasTypeHookDisabled(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook disabled");
+        using namespace jtx;
+        Env env{*this, features - featureHookGas};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Install a Gas-type hook with Version 1
+        Json::Value jvh = hso(gas_accept_wasm, overrideFlag);
+        jvh[jss::HookApiVersion] = 0;
+
+        env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+            M("test gas type hook disabled"),
+            HSFEE,
+            ter(temMALFORMED));
+
+        // Install a Gas-type hook with Version 1
+        jvh[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+            M("test gas type hook disabled"),
+            HSFEE,
+            ter(temMALFORMED));
+
+        // HookGas field
+        env(invoke::invoke(alice),
+            hookgas(1000000),
+            M("test gas type hook disabled"),
+            fee(XRP(1)),
+            ter(temMALFORMED));
+        env.close();
+
+        for (auto fieldName :
+             {sfHookCallbackGas.jsonName, sfHookWeakGas.jsonName})
+        {
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 1;
+            jvh[fieldName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook disabled"),
+                HSFEE,
+                ter(temDISABLED));
+        }
+    }
+
+    void
+    testGasTypeHookCreation(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook creation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        {
+            // Invalid installation
+            // sfHookCallbackGas is present but api version is not 1
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 0;
+            jvh[sfHookCallbackGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookCallbackGas is present but value is 0
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 2;
+            jvh[sfHookCallbackGas.jsonName] = 0;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookWeakGas is present but api version is not 1
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, collectFlag);
+            jvh[jss::HookApiVersion] = 0;
+            jvh[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookWeakGas is present but value is 0
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, collectFlag);
+            jvh[jss::HookApiVersion] = 2;
+            jvh[sfHookWeakGas.jsonName] = 0;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookCallbackGas is present but cbak is not in the hook
+            Json::Value jvh = hso(gas_accept_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 1;
+            jvh[sfHookCallbackGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookCallbackGas is not present but cbak is in the hook
+            Json::Value jvh = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 1;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookWeakGas is present but collect flag is not set
+            Json::Value jvh = hso(gas_accept_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 1;
+            jvh[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+        {
+            // Invalid installation
+            // sfHookWeakGas is not present but collect flag is set
+            Json::Value jvh = hso(gas_accept_wasm, collectFlag);
+            jvh[jss::HookApiVersion] = 1;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook creation"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+
+        // Install a Gas-type hook using gas_accept_wasm
+        Json::Value jvh = hso(gas_accept_wasm, overrideFlag);
+        jvh[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+            M("test gas type hook creation"),
+            HSFEE);
+        env.close();
+
+        // no HookGas field for Gas-type hook
+        env(invoke::invoke(alice),
+            M("test gas type hook invocation"),
+            fee(XRP(1)),
+            ter(tecHOOK_INSUFFICIENT_GAS));
+        env.close();
+
+        // insufficient fee for gas type hook
+        // baseFee + HookGas fee + gas type Hook call fee (baseFee*100)
+        auto const expectedGas = 1'000'000;
+        auto const baseFee = env.current()->fees().base;
+        auto const expectedFee =
+            baseFee + drops(expectedGas) + drops(baseFee * 100);
+        env(invoke::invoke(alice),
+            hookgas(expectedGas),
+            fee(expectedFee - drops(1)),
+            ter(telINSUF_FEE_P));
+        env.close();
+
+        // HookGas field for Gas-type hook
+        env(invoke::invoke(alice), hookgas(expectedGas), fee(expectedFee));
+        env.close();
+    }
+
+    void
+    testGasTypeHookInstallation(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook installation");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        auto const carol = Account{"carol"};
+        auto const dave = Account{"dave"};
+
+        {
+            // Invalid installation for version=0 hook
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            // create a guard hook
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(accept_wasm, overrideFlag)}}, 0),
+                M("test gas type hook installation: version=0 hook"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas or sfHookCallbackGas is present
+            for (auto const fieldJsonName :
+                 {sfHookWeakGas.jsonName, sfHookCallbackGas.jsonName})
+            {
+                auto jvh = hso(accept_hash, overrideFlag);
+                jvh[fieldJsonName] = 1000000;
+                env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                    M("test gas type hook installation: version=0 hook, " +
+                      std::string(fieldJsonName.c_str())),
+                    HSFEE,
+                    ter(tecHOOK_INVALID));
+                env.close();
+            }
+        }
+
+        {
+            // Invalid installation for version=1 hook (non-cbak, non-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            // create a non-cbak, non-weak hook
+            auto jvh0 = hso(gas_accept_wasm, overrideFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "non-weak)"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas or sfHookCallbackGas is present
+            for (auto const fieldJsonName :
+                 {sfHookWeakGas.jsonName, sfHookCallbackGas.jsonName})
+            {
+                auto jvh = hso(gas_accept_hash, overrideFlag);
+                jvh[fieldJsonName] = 1000000;
+                env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                    M("test gas type hook installation: version=1 "
+                      "hook(non-cbak, non-weak), " +
+                      std::string(fieldJsonName.c_str())),
+                    HSFEE,
+                    ter(tecHOOK_INVALID));
+                env.close();
+            }
+
+            // with collect flag but no weak gas
+            auto jvh = hso(gas_accept_hash, collectFlag);
+            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "non-weak), with collect flag but no weak gas"),
+                HSFEE,
+                ter(tecHOOK_INVALID));
+            env.close();
+
+            // Valid Installation
+            // with collect flag and weak gas
+            auto jvh2 = hso(gas_accept_hash, collectFlag);
+            jvh2[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(bob, {{jvh2}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "non-weak), with collect flag and weak gas"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        {
+            // Invalid installation for version=1 hook (with-cbak, non-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+
+            // create a with-cbak, non-weak hook
+            auto jvh0 = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            jvh0[sfHookCallbackGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook installation: version=1 hook(with-cbak, "
+                  "non-weak)"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas is present
+            auto jvh = hso(gas_accept_with_cbak_hash, overrideFlag);
+            jvh[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                M("test gas type hook installation: version=1 hook(with-cbak, "
+                  "non-weak), sfHookWeakGas is present"),
+                HSFEE,
+                ter(tecHOOK_INVALID));
+            env.close();
+
+            // sfHookCallbackGas override (definition has it, user overrides)
+            auto jvh2 = hso(gas_accept_with_cbak_hash, overrideFlag);
+            jvh2[sfHookCallbackGas.jsonName] = 1000001;
+            env(ripple::test::jtx::hook(bob, {{jvh2}}, 0),
+                M("test gas type hook installation: version=1 hook(with-cbak, "
+                  "non-weak), sfHookCallbackGas override"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // Valid Installation
+            // sfHookCallbackGas is not present
+            auto jvh3 = hso(gas_accept_with_cbak_hash, overrideFlag);
+            env(ripple::test::jtx::hook(carol, {{jvh3}}, 0),
+                M("test gas type hook installation: version=1 hook(with-cbak, "
+                  "non-weak), sfHookCallbackGas is not present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        {
+            // Invalid installation for version=1 hook (non-cbak, with-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, carol, dave);
+            env.close();
+
+            // create a non-cbak, with-weak hook
+            auto jvh0 = hso(gas_accept_wasm, collectFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            jvh0[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "with-weak)"),
+                HSFEE);
+            env.close();
+
+            // Valid Installation
+            // without collect flag
+            auto jvh = hso(gas_accept_hash, overrideFlag);
+            env(ripple::test::jtx::hook(bob, {{jvh}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "with-weak), without collect flag"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // sfHookWeakGas is not present
+            auto jvh2 = hso(gas_accept_hash, collectFlag);
+            env(ripple::test::jtx::hook(carol, {{jvh2}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "with-weak), sfHookWeakGas is not present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // sfHookWeakGas is present
+            auto jvh3 = hso(gas_accept_hash, collectFlag);
+            jvh3[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(dave, {{jvh3}}, 0),
+                M("test gas type hook installation: version=1 hook(non-cbak, "
+                  "with-weak), sfHookWeakGas is present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+    }
+
+    void
+    testGasTypeHookUpdate(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook update");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        auto const carol = Account{"carol"};
+
+        {
+            // Invalid update for version=0 hook
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // create a guard hook
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(accept_wasm, overrideFlag)}}, 0),
+                M("test gas type hook update: version=0 hook"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas or sfHookCallbackGas is present
+            for (auto const fieldJsonName :
+                 {sfHookWeakGas.jsonName, sfHookCallbackGas.jsonName})
+            {
+                auto jvh = Json::Value(Json::objectValue);
+                jvh[fieldJsonName] = 1000000;
+                env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                    M("test gas type hook update: version=0 hook, " +
+                      std::string(fieldJsonName.c_str())),
+                    HSFEE,
+                    ter(tecHOOK_INVALID));
+                env.close();
+            }
+        }
+
+        {
+            // Invalid update for version=1 hook (non-cbak, non-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // create a non-cbak, non-weak hook
+            auto jvh0 = hso(gas_accept_wasm, overrideFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "non-weak)"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas or sfHookCallbackGas is present
+            for (auto const fieldJsonName :
+                 {sfHookWeakGas.jsonName, sfHookCallbackGas.jsonName})
+            {
+                auto jvh = Json::Value(Json::objectValue);
+                jvh[fieldJsonName] = 1000000;
+                env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                    M("test gas type hook update: version=1 "
+                      "hook(non-cbak, non-weak), " +
+                      std::string(fieldJsonName.c_str())),
+                    HSFEE,
+                    ter(tecHOOK_INVALID));
+                env.close();
+            }
+
+            // with collect flag but no weak gas
+            auto jvh = Json::Value(Json::objectValue);
+            jvh[jss::Flags] = hsfCOLLECT;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "non-weak), with collect flag but no weak gas"),
+                HSFEE,
+                ter(tecHOOK_INVALID));
+            env.close();
+
+            // Valid update
+            // with collect flag and weak gas
+            auto jvh2 = Json::Value(Json::objectValue);
+            jvh2[jss::Flags] = hsfCOLLECT;
+            jvh2[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh2}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "non-weak), with collect flag and weak gas"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        {
+            // Invalid update for version=1 hook (with-cbak, non-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // create a with-cbak, non-weak hook
+            auto jvh0 = hso(gas_accept_with_cbak_wasm, overrideFlag);
+            jvh0[jss::HookApiVersion] = 1;
+            jvh0[sfHookCallbackGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh0}}, 0),
+                M("test gas type hook update: version=1 hook(with-cbak, "
+                  "non-weak)"),
+                HSFEE);
+            env.close();
+
+            // sfHookWeakGas is present
+            auto jvh = Json::Value(Json::objectValue);
+            jvh[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook update: version=1 hook(with-cbak, "
+                  "non-weak), sfHookWeakGas is present"),
+                HSFEE,
+                ter(tecHOOK_INVALID));
+            env.close();
+
+            // Valid update
+            // sfHookCallbackGas is present
+            auto jvh2 = Json::Value(Json::objectValue);
+            jvh2[sfHookCallbackGas.jsonName] = 1000001;
+            env(ripple::test::jtx::hook(alice, {{jvh2}}, 0),
+                M("test gas type hook update: version=1 hook(with-cbak, "
+                  "non-weak), sfHookCallbackGas is present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // Valid update
+            // sfHookCallbackGas is not present
+            auto jvh3 = Json::Value(Json::objectValue);
+            env(ripple::test::jtx::hook(alice, {{jvh3}}, 0),
+                M("test gas type hook update: version=1 hook(with-cbak, "
+                  "non-weak), sfHookCallbackGas is not present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        {
+            // Invalid update for version=1 hook (non-cbak, with-weak)
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+
+            // create a non-cbak, with-weak hook
+            for (Account const& acc : {alice, bob, carol})
+            {
+                auto jvh0 = hso(gas_accept_wasm, collectFlag);
+                jvh0[jss::HookApiVersion] = 1;
+                jvh0[sfHookWeakGas.jsonName] = 1000000;
+                env(ripple::test::jtx::hook(acc, {{jvh0}}, 0),
+                    M("test gas type hook update: version=1 "
+                      "hook(non-cbak, "
+                      "with-weak)"),
+                    HSFEE);
+                env.close();
+            }
+
+            // Valid update
+            // without collect flag
+            auto jvh = Json::Value(Json::objectValue);
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "with-weak), without collect flag"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // sfHookWeakGas is not present
+            auto jvh2 = Json::Value(Json::objectValue);
+            jvh[jss::Flags] = jvh[jss::Flags].asUInt() | hsfOVERRIDE;
+            env(ripple::test::jtx::hook(bob, {{jvh2}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "with-weak), sfHookWeakGas is not present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // sfHookWeakGas is present
+            auto jvh3 = Json::Value(Json::objectValue);
+            jvh3[jss::Flags] = hsfCOLLECT;
+            jvh3[sfHookWeakGas.jsonName] = 1000000;
+            env(ripple::test::jtx::hook(carol, {{jvh3}}, 0),
+                M("test gas type hook update: version=1 hook(non-cbak, "
+                  "with-weak), sfHookWeakGas is present"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+        }
+    }
+
+    void
+    testGasTypeHookRejects_gFunction(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook rejects _g function");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Attempt to install Gas-type hook with _g function (should fail)
+        Json::Value jv = hso(gas_with_g_wasm, overrideFlag);
+        jv[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{jv}}, 0),
+            M("test gas type hook rejects _g function"),
+            HSFEE,
+            ter(temMALFORMED));  // Should fail because Gas-type
+                                 // hooks cannot use _g
+        env.close();
+    }
+
+    void
+    testGasTypeHookWeakGas(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook weak gas");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const gw = Account{"gw"};
+        auto const USD = gw["USD"];
+
+        for (auto const success : {true, false})
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, gw);
+            env.close();
+
+            env(fset(gw, asfTshCollect));
+            env.close();
+
+            auto const weakGas = success ? 1000000 : 1;
+
+            Json::Value jv = hso(gas_accept_wasm, collectFlag);
+            jv[jss::HookApiVersion] = 1;
+            jv[sfHookWeakGas.jsonName] = weakGas;
+
+            env(ripple::test::jtx::hook(gw, {{jv}}, 0),
+                M("test gas type hook weak gas installation"),
+                HSFEE);
+            env.close();
+
+            auto const balanceBefore = env.balance(gw);
+
+            env(trust(alice, USD(1000000)));
+            env.close();
+
+            auto const balanceAfter = env.balance(gw);
+            BEAST_EXPECT(balanceBefore - balanceAfter == drops(weakGas));
+
+            auto const meta = env.meta();
+
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+            BEAST_REQUIRE(meta->getFieldArray(sfHookExecutions).size() == 1);
+
+            auto const& execution = meta->getFieldArray(sfHookExecutions)[0];
+            BEAST_REQUIRE(execution.isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                execution.getFieldU8(sfHookResult) ==
+                static_cast<unsigned char>(
+                    success ? hook_api::ExitType::ACCEPT
+                            : hook_api::ExitType::GAS_INSUFFICIENT));
+            BEAST_REQUIRE(execution.isFieldPresent(sfHookInstructionCost));
+            BEAST_REQUIRE(
+                execution.getFieldU32(sfHookInstructionCost) ==
+                (success ? 14 : 1));
+        }
+    }
+
+    void
+    testGasTypeHookCbakGas(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook cbak gas");
+        using namespace jtx;
+        auto const alice = Account{"alice"};
+
+        TestHook hook_wasm = wasm[
+            R"[test.hook.gas](
+            #include <stdint.h>
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t emit     (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+            extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
+            extern int64_t etxn_reserve(uint32_t);
+            extern int64_t etxn_fee_base (uint32_t read_ptr, uint32_t read_len);
+            extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t ledger_seq (void);
+
+            #define SBUF(x) (uint32_t)x,sizeof(x)
+
+            // clang-format off
+            uint8_t txn[229] =
+            {
+            /* size, upto, field name               */
+            /*    3,    0, tt = AccountSet          */   0x12U, 0x00U, 0x03U,
+            /*    5,    3, flags                    */   0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+            /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+            /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+            /*  138,   91, emit details             */ 
+            /*    0,  229,                          */ 
+            };
+            // clang-format on
+
+            // TX BUILDER
+            #define FLAGS_OUT (txn + 4U)
+            #define FLS_OUT (txn + 15U)
+            #define LLS_OUT (txn + 21U)
+            #define FEE_OUT (txn + 26U)
+            #define ACCOUNT_OUT (txn + 71U)
+            #define EMIT_OUT (txn + 91U)
+
+            #define FLIP_ENDIAN_32(value)                                                  \
+            (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                        ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+
+            #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+
+            #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+            do {                                                                           \
+                uint8_t *b = (ptr);                                                        \
+                *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+                *b++ = (amount >> 48) & 0xFFU;                                             \
+                *b++ = (amount >> 40) & 0xFFU;                                             \
+                *b++ = (amount >> 32) & 0xFFU;                                             \
+                *b++ = (amount >> 24) & 0xFFU;                                             \
+                *b++ = (amount >> 16) & 0xFFU;                                             \
+                *b++ = (amount >> 8) & 0xFFU;                                              \
+                *b++ = (amount >> 0) & 0xFFU;                                              \
+            } while (0)
+
+            #define PREPARE_TXN()                                                          \
+            do {                                                                           \
+                etxn_reserve(1);                                                           \
+                uint32_t fls = (uint32_t)ledger_seq() + 1;                                 \
+                SET_UINT32(FLS_OUT, fls);                                                  \
+                SET_UINT32(LLS_OUT, fls + 4);                                              \
+                hook_account(ACCOUNT_OUT, 20);                                             \
+                etxn_details(EMIT_OUT, 138U);                                              \
+                int64_t fee = etxn_fee_base(SBUF(txn));                                    \
+                SET_NATIVE_AMOUNT(FEE_OUT, fee);                                           \
+            } while (0)
+
+            int64_t cbak(uint32_t reserved )
+            {
+                for(int i = 0; i < 1000; i++)
+                    ledger_seq();
+                return accept(0,0,0);
+            }
+            int64_t hook(uint32_t reserved )
+            {
+                PREPARE_TXN(); 
+                uint8_t emithash[32]; 
+                int64_t emit_result = emit(SBUF(emithash), SBUF(txn)); 
+                if (emit_result > 0)
+                    return accept(0,0,0);
+                else
+                    return rollback(0,0,0);
+            }
+        )[test.hook.gas]"];
+
+        HASH_WASM(hook);
+
+        for (auto const success : {true, false})
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            auto const expectedGas = success ? 100000 : 1;
+
+            Json::Value jv = hso(hook_wasm, overrideFlag);
+            jv[jss::HookApiVersion] = 1;
+            jv[sfHookCallbackGas.jsonName] = expectedGas;
+
+            env(ripple::test::jtx::hook(alice, {{jv}}, 0),
+                M("test gas type hook cbak gas installation"),
+                HSFEE);
+            env.close();
+
+            env(invoke::invoke(alice),
+                hookgas(10000),
+                M("test gas type hook cbak gas invocation"),
+                fee(XRP(1)));
+
+            auto meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto const& hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+
+            auto const& hookExecution = hookExecutions[0];
+            BEAST_REQUIRE(hookExecution.isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                hookExecution.getFieldU8(sfHookResult) ==
+                static_cast<unsigned char>(hook_api::ExitType::ACCEPT));
+
+            BEAST_REQUIRE(hookExecution.isFieldPresent(sfHookInstructionCost));
+            BEAST_REQUIRE(
+                hookExecution.getFieldU32(sfHookInstructionCost) == 140);
+
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookEmissions));
+            BEAST_REQUIRE(meta->getFieldArray(sfHookEmissions).size() == 1);
+            auto const& hookEmission = meta->getFieldArray(sfHookEmissions)[0];
+            auto const& emittedTxnID =
+                hookEmission.getFieldH256(sfEmittedTxnID);
+
+            // proceed ledger
+            env.close();
+
+            auto const& txPair = env.closed()->txRead(emittedTxnID);
+            auto const& tx = txPair.first;
+            meta = txPair.second;
+            BEAST_REQUIRE(
+                tx->getFieldAmount(sfFee).xrp() ==
+                env.current()->fees().base + drops(expectedGas));
+
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+            BEAST_REQUIRE(meta->getFieldArray(sfHookExecutions).size() == 1);
+            auto const& execution = meta->getFieldArray(sfHookExecutions)[0];
+            BEAST_REQUIRE(execution.isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                execution.getFieldU8(sfHookResult) ==
+                static_cast<unsigned char>(
+                    success ? hook_api::ExitType::ACCEPT
+                            : hook_api::ExitType::GAS_INSUFFICIENT));
+        }
+    }
+
+    void
+    testGasExecutionSufficient(FeatureBitset features)
+    {
+        testcase("Test Gas execution with sufficient gas");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(100000), alice, bob);
+        env.close();
+
+        // Install Gas-type hook with sufficient gas
+        Json::Value jvh = hso(gas_long_wasm, overrideFlag);
+        jvh[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{jvh}}, 0), HSFEE, ter(tesSUCCESS));
+        env.close();
+
+        // Trigger the hook with a payment
+        env(pay(bob, alice, XRP(1)),
+            // insufficient gas for long execution
+            hookgas(100),
+            fee(XRP(10000)),
+            ter(tecHOOK_INSUFFICIENT_GAS));
+        env.close();
+
+        // check exit type
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+
+        // validate HookInstructionCost
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookInstructionCost));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU32(sfHookInstructionCost) == 100);
+        // check exit type
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookResult));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU8(sfHookResult) ==
+            static_cast<unsigned char>(hook_api::ExitType::GAS_INSUFFICIENT));
+
+        // Trigger the hook with a payment
+        env(pay(bob, alice, XRP(1)),
+            // Sufficient gas for long execution
+            hookgas(10000000),
+            fee(XRP(10000)),
+            ter(tesSUCCESS));
+        env.close();
+
+        meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+
+        // validate HookInstructionCost
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookInstructionCost));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU32(sfHookInstructionCost) == 2014);
+        // check exit type
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookResult));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU8(sfHookResult) ==
+            static_cast<unsigned char>(hook_api::ExitType::ACCEPT));
+    }
+
+    void
+    testGasTypeHookMemoryValidation(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook memory.grow validation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(100000), alice, bob);
+        env.close();
+
+        // Test 1: Install hook that grows memory to 8 pages (should succeed)
+        {
+            TestHook gas_memory_grow_to_8_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "rollback" (func (;1;) (type 0)))
+                    (func (;2;) (type 1) (param i32) (result i64)
+                        ;; Grow memory from 1 page to 8 pages (7 page increase)
+                        i32.const 7
+                        memory.grow
+                        i32.const -1
+                        i32.eq
+                        if (result i64)
+                        ;; Should not happen
+                        i32.const 0
+                        i32.const 0
+                        i64.const 1
+                        call 1  ;; rollback
+                        else
+                        ;; Success
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0  ;; accept
+                        end)
+                    (memory (;0;) 1)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_memory_grow_to_8);
+
+            Json::Value jvh = hso(gas_memory_grow_to_8_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 1;
+
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("install hook with memory.grow to 8 pages"),
+                HSFEE);
+            env.close();
+
+            // Trigger the hook with sufficient gas
+            env(pay(bob, alice, XRP(1)),
+                hookgas(1000000),
+                fee(XRP(10000)),
+                ter(tesSUCCESS));
+            env.close();
+
+            // Verify hook executed successfully
+            auto meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+
+            // Check that hook accepted (memory.grow succeeded)
+            BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                hookExecutions[0].getFieldU8(sfHookResult) ==
+                static_cast<unsigned char>(hook_api::ExitType::ACCEPT));
+        }
+
+        // Test 2: Install hook that tries to grow memory to 9 pages (should
+        // rollback)
+        {
+            TestHook gas_memory_grow_to_9_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (import "env" "rollback" (func (;1;) (type 0)))
+                    (func (;2;) (type 1) (param i32) (result i64)
+                        ;; Try to grow memory from 1 page to 9 pages (8 page increase)
+                        ;; This should fail because maxMemoryPage=8
+                        i32.const 8
+                        memory.grow
+                        i32.const -1
+                        i32.eq
+                        if (result i64)
+                        ;; Expected failure
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 1  ;; rollback
+                        else
+                        ;; Should not happen
+                        i32.const 0
+                        i32.const 0
+                        i64.const 1
+                        call 0  ;; accept
+                        end)
+                    (memory (;0;) 1)
+                    (export "memory" (memory 0))
+                    (export "hook" (func 2)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_memory_grow_to_9);
+
+            Json::Value jvh = hso(gas_memory_grow_to_9_wasm, overrideFlag);
+            jvh[jss::HookApiVersion] = 1;
+
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("install hook with memory.grow to 9 pages"),
+                HSFEE,
+                ter(tesSUCCESS));
+            env.close();
+
+            // Trigger the hook - should rollback due to memory.grow failure
+            env(pay(bob, alice, XRP(1)),
+                hookgas(1000000),
+                fee(XRP(10000)),
+                ter(tecHOOK_REJECTED));
+            env.close();
+
+            // Verify hook rolled back (memory.grow to 9 pages failed)
+            auto meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+            auto hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+
+            // Check that hook rolled back (memory limit exceeded)
+            BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookResult));
+            BEAST_REQUIRE(
+                hookExecutions[0].getFieldU8(sfHookResult) ==
+                static_cast<unsigned char>(hook_api::ExitType::ROLLBACK));
+        }
+    }
+
+    void
+    testGasTypeHookExportedMemoryPageLimit(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook exported memory page limit validation");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // Test 1: Valid exported memory (min=2, max=8) should succeed
+        {
+            TestHook gas_exported_memory_valid_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (memory (;0;) 2 8)
+                    (export "memory" (memory 0))
+                    (func (;1;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (export "hook" (func 1)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_exported_memory_valid);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_exported_memory_valid_wasm, rules, j);
+            BEAST_EXPECT(result.has_value());  // No error
+        }
+
+        // Test 2: Invalid exported memory (min=1, max=9) should fail
+        {
+            TestHook gas_exported_memory_max9_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (memory (;0;) 1 9)
+                    (export "memory" (memory 0))
+                    (func (;1;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (export "hook" (func 1)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_exported_memory_max9);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_exported_memory_max9_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());  // Has error
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("maximum pages exceed limit") !=
+                    std::string::npos);
+        }
+
+        // Test 3: Exported memory (min=9) should fail
+        {
+            TestHook gas_exported_memory_min9_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (memory (;0;) 9)
+                    (export "memory" (memory 0))
+                    (func (;1;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (export "hook" (func 1)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_exported_memory_min9);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_exported_memory_min9_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());  // Has error
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("minimum pages exceed limit") !=
+                    std::string::npos);
+        }
+
+        // Test 4: Exported memory (min=9, no max) should succeed
+        {
+            TestHook gas_exported_memory_no_max_wasm = wasm[
+                R"[test.hook.gas](
+                    (module
+                    (type (;0;) (func (param i32 i32 i64) (result i64)))
+                    (type (;1;) (func (param i32) (result i64)))
+                    (import "env" "accept" (func (;0;) (type 0)))
+                    (memory (;0;) 8)
+                    (export "memory" (memory 0))
+                    (func (;1;) (type 1) (param i32) (result i64)
+                        i32.const 0
+                        i32.const 0
+                        i64.const 0
+                        call 0)
+                    (export "hook" (func 1)))
+                )[test.hook.gas]"];
+
+            HASH_WASM(gas_exported_memory_no_max);
+
+            auto result = hook::validateWasmHostFunctionsForGas(
+                gas_exported_memory_no_max_wasm, rules, j);
+            BEAST_EXPECT(
+                result.has_value());  // No error - runtime enforces max
+        }
+    }
+
+    void
+    testMultipleGasHooksSharedPool(FeatureBitset features)
+    {
+        testcase("Test multiple Gas-type hooks share gas pool");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        env.fund(XRP(100000), alice, bob);
+        env.close();
+
+        // Install multiple Gas-type hooks
+        // First hook
+        Json::Value hook1 = hso(gas_accept_wasm, overrideFlag);
+        hook1[jss::HookApiVersion] = 1;
+
+        // Second hook
+        Json::Value hook2 = hso(gas_long_wasm, overrideFlag);
+        hook2[jss::HookApiVersion] = 1;
+
+        env(ripple::test::jtx::hook(alice, {{hook1, hook2}}, 0),
+            M("test multiple gas hooks shared pool"),
+            HSFEE,
+            ter(tesSUCCESS));
+        env.close();
+
+        // Trigger hooks with a payment
+        Json::Value jv = pay(bob, alice, XRP(1));
+        env(jv, hookgas(10000000), fee(XRP(10000)), ter(tesSUCCESS));
+        env.close();
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 2);
+
+        // validate HookInstructionCost
+        BEAST_REQUIRE(hookExecutions[0].isFieldPresent(sfHookInstructionCost));
+        BEAST_REQUIRE(hookExecutions[1].isFieldPresent(sfHookInstructionCost));
+        BEAST_REQUIRE(
+            hookExecutions[0].getFieldU32(sfHookInstructionCost) == 14);
+        BEAST_REQUIRE(
+            hookExecutions[1].getFieldU32(sfHookInstructionCost) == 2014);
+    }
+
+    void
+    testGasTypeHookNonFunctionImportRejection(FeatureBitset features)
+    {
+        testcase("Test Gas-type Hook rejects non-function imports");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const& rules = env.current()->rules();
+        auto const& j = env.journal;
+
+        // WAT with memory import (non-function import)
+        TestHook test_gas_memory_import_wasm = wasm[
+            R"[test.hook.gas](
+            (module
+              (type (;0;) (func (param i32 i32 i64) (result i64)))
+              (type (;1;) (func (param i32) (result i64)))
+              (import "env" "memory" (memory 1))
+              (import "env" "accept" (func (;0;) (type 0)))
+              (func (;1;) (type 1) (param i32) (result i64)
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call 0)
+              (export "hook" (func 1)))
+        )[test.hook.gas]"];
+
+        HASH_WASM(test_gas_memory_import);
+        {
+            auto result = hook::validateWasmHostFunctionsForGas(
+                test_gas_memory_import_wasm, rules, j);
+            BEAST_EXPECT(!result.has_value());
+            if (!result.has_value())
+                BEAST_EXPECT(
+                    result.error().find("non-function imports") !=
+                    std::string::npos);
+        }
+    }
+
+    void
     testWithFeatures(FeatureBitset features)
     {
         testHooksOwnerDir(features);
@@ -15171,6 +17170,26 @@ public:
         test_util_raddr(features);    //
         test_util_sha512h(features);  //
         test_util_verify(features);   //
+
+        // Gas-type Hook tests
+        testGasTypeHookDisabled(features);
+        if ((features & featureHookGas).count() > 0)
+        {
+            testGasTypeHookCreation(features);
+            testGasTypeHookInstallation(features);
+            testGasTypeHookUpdate(features);
+            testGasTypeHookWeakGas(features);
+            testGasTypeHookCbakGas(features);
+            testGasTypeHookRejects_gFunction(features);
+            testGasExecutionSufficient(features);
+            testMultipleGasHooksSharedPool(features);
+            testGasTypeHookHostFunctionValidation(features);
+            testGasTypeHookExportErrors(features);
+            testGasTypeHookImportErrors(features);
+            testGasTypeHookMemoryValidation(features);
+            testGasTypeHookExportedMemoryPageLimit(features);
+            testGasTypeHookNonFunctionImportRejection(features);
+        }
     }
 
 public:
@@ -15180,12 +17199,17 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 6> const feats{
+        static std::array<FeatureBitset, 9> const feats{
             all,
-            all - fixNSDelete,
-            all - fixNSDelete - fixPageCap,
-            all - fixNSDelete - fixPageCap - featureHookCanEmit,
-            all - fixNSDelete - fixPageCap - featureExtendedHookState,
+            all - featureHookGas,
+            all - fixXahauV2,
+            all - fixXahauV1 - fixXahauV2,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
+                featureHookCanEmit,
+            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
+                featureExtendedHookState,
             all - featureNamedHooks,
         };
 
@@ -15430,6 +17454,69 @@ private:
         )[test.hook]"];
 
     HASH_WASM(emit_invoke);
+    TestHook gas_accept_wasm =  // WASM: 7
+        wasm[
+            R"[test.hook.gas](
+            #include <stdint.h>
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t hook(uint32_t reserved )
+            {
+                return accept(0,0,0);
+            }
+        )[test.hook.gas]"];
+
+    HASH_WASM(gas_accept);
+
+    TestHook gas_accept_with_cbak_wasm =  // WASM: 8
+        wasm[
+            R"[test.hook.gas](
+            #include <stdint.h>
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t cbak(uint32_t reserved )
+            {
+                return accept(0,0,0);
+            }
+            int64_t hook(uint32_t reserved )
+            {
+                return accept(0,0,0);
+            }
+        )[test.hook.gas]"];
+
+    HASH_WASM(gas_accept_with_cbak);
+
+    TestHook gas_with_g_wasm =  // WASM: 9
+        wasm[
+            R"[test.hook.gas](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+                return accept(0,0,0);
+            }
+        )[test.hook.gas]"];
+
+    HASH_WASM(gas_with_g);
+
+    TestHook gas_long_wasm =  // WASM: 10
+        wasm[
+            R"[test.hook.gas](
+            #include <stdint.h>
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t float_one();
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define M_REPEAT_10(X) X X X X X X X X X X
+            #define M_REPEAT_100(X) M_REPEAT_10(M_REPEAT_10(X))
+            #define M_REPEAT_1000(X) M_REPEAT_100(M_REPEAT_10(X))
+            int64_t hook(uint32_t reserved )
+            {
+                M_REPEAT_1000(float_one(););
+                return accept(0, 0, 0);
+            }
+        )[test.hook.gas]"];
+
+    HASH_WASM(gas_long);
 };
 
 #define SETHOOK_TEST(i, last)                      \
@@ -15446,6 +17533,10 @@ SETHOOK_TEST(1, false)
 SETHOOK_TEST(2, false)
 SETHOOK_TEST(3, false)
 SETHOOK_TEST(4, false)
+SETHOOK_TEST(5, false)
+SETHOOK_TEST(6, false)
+SETHOOK_TEST(7, false)
+SETHOOK_TEST(8, true)
 SETHOOK_TEST(5, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
@@ -15454,6 +17545,9 @@ BEAST_DEFINE_TESTSUITE_PRIO(SetHook2, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook6, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook7, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHook8, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M

@@ -49,6 +49,7 @@ TxFormats::TxFormats()
         {sfNetworkID, soeOPTIONAL},
         {sfHookParameters, soeOPTIONAL},
         {sfHookName, soeOPTIONAL},
+        {sfHookGas, soeOPTIONAL},
     };
 
 #pragma push_macro("UNWRAP")

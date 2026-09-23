@@ -152,6 +152,18 @@ Change::preclaim(PreclaimContext const& ctx)
                     ctx.tx.isFieldPresent(sfReserveIncrementDrops))
                     return temDISABLED;
             }
+            // sfHookGasPrice: required when featureHookGas is enabled,
+            // forbidden when disabled
+            if (ctx.view.rules().enabled(featureHookGas))
+            {
+                if (!ctx.tx.isFieldPresent(sfHookGasPrice))
+                    return temMALFORMED;
+            }
+            else
+            {
+                if (ctx.tx.isFieldPresent(sfHookGasPrice))
+                    return temDISABLED;
+            }
             return tesSUCCESS;
         case ttAMENDMENT:
         case ttUNL_MODIFY:
@@ -639,7 +651,7 @@ Change::activateXahauGenesis()
 
             std::optional<std::string> result2 =
                 hook::HookExecutor::validateWasm(
-                    wasmBytes.data(), (size_t)wasmBytes.size());
+                    wasmBytes.data(), (size_t)wasmBytes.size(), 0);
 
             if (result2)
             {
@@ -1022,6 +1034,8 @@ Change::applyFee()
         set(feeObject, ctx_.tx, sfBaseFeeDrops);
         set(feeObject, ctx_.tx, sfReserveBaseDrops);
         set(feeObject, ctx_.tx, sfReserveIncrementDrops);
+        if (ctx_.tx.isFieldPresent(sfHookGasPrice))
+            set(feeObject, ctx_.tx, sfHookGasPrice);
         // Ensure the old fields are removed
         feeObject->makeFieldAbsent(sfBaseFee);
         feeObject->makeFieldAbsent(sfReferenceFeeUnits);

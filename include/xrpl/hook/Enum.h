@@ -267,6 +267,8 @@ enum hook_log_code : uint16_t {
     CUSTOM_SECTION_DISALLOWED =
         86,               // the wasm contained a custom section (id=0)
     INTERNAL_ERROR = 87,  // an internal error described by the log text
+    MEMORY_PAGE_LIMIT =
+        88,  // memory import declares min or max exceeding the page limit
     // RH NOTE: only HookSet msgs got log codes, possibly all Hook log lines
     // should get a code?
 };
@@ -392,6 +394,7 @@ enum class ExitType : uint8_t {
     WASM_ERROR = 1,
     ROLLBACK = 2,
     ACCEPT = 3,
+    GAS_INSUFFICIENT = 4,
 };
 
 const uint16_t max_state_modifications = 256;
@@ -400,6 +403,8 @@ const uint8_t max_nonce = 255;
 const uint8_t max_emit = 255;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
+
+const uint8_t max_memory_pages = 8;
 
 using APIWhitelist = std::map<std::string, std::vector<uint8_t>>;
 
@@ -412,7 +417,9 @@ getImportWhitelist(Rules const& rules)
     APIWhitelist whitelist;
 
 #pragma push_macro("HOOK_API_DEFINITION")
+#pragma push_macro("HOOK_API_COST")
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 
 #define int64_t 0x7EU
 #define int32_t 0x7FU
@@ -425,15 +432,18 @@ getImportWhitelist(Rules const& rules)
     if (AMENDMENT == uint256{} || rules.enabled(AMENDMENT)) \
         whitelist[#FUNCTION_NAME] = {                       \
             RETURN_TYPE, HOOK_WRAP_PARAMS PARAMS_TUPLE};
+#define HOOK_API_COST(FUNCTION_NAME, cost, amendment)
 
 #include "hook_api.macro"
 
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 #undef HOOK_WRAP_PARAMS
 #undef int64_t
 #undef int32_t
 #undef uint32_t
 #pragma pop_macro("HOOK_API_DEFINITION")
+#pragma pop_macro("HOOK_API_COST")
 
     return whitelist;
 }

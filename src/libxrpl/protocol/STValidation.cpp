@@ -66,6 +66,8 @@ STValidation::validationFormat()
         {sfBaseFeeDrops,          soeOPTIONAL},
         {sfReserveBaseDrops,      soeOPTIONAL},
         {sfReserveIncrementDrops, soeOPTIONAL},
+        // featureHookGas
+        {sfHookGasPrice,          soeOPTIONAL},
     };
     // clang-format on
 
