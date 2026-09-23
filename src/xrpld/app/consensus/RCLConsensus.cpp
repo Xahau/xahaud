@@ -588,12 +588,13 @@ RCLConsensus::Adaptor::doAccept(
     // influence fallback entropy, transaction ordering, or ledger state.
     auto replayData = ledgerMaster_.releaseReplay();
     auto const consensusTxSetHash = result.txns.id();
-    auto const liveBuild = [&] {
-        std::lock_guard lock{consensusMutex_};
-        return replayData ? std::optional<ConsensusExtensions::LiveBuildTxSet>{}
-                          : std::optional<ConsensusExtensions::LiveBuildTxSet>{
-                                ce().makeLiveBuildTxSet(result.txns)};
-    }();
+    // The sanitizer is pure over the immutable accepted set: it reads no
+    // extension state. Scan it outside C; only state-dependent preparation
+    // below needs the consensus mutex.
+    auto const liveBuild = replayData
+        ? std::optional<ConsensusExtensions::LiveBuildTxSet>{}
+        : std::optional<ConsensusExtensions::LiveBuildTxSet>{
+              ce().makeLiveBuildTxSet(result.txns)};
     auto const& buildTxs = liveBuild ? liveBuild->txns : result.txns;
     auto const buildTxSetHash = buildTxs.id();
 
