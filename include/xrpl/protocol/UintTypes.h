@@ -24,84 +24,163 @@
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/utility/Zero.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/SystemParameters.h>
 
 namespace ripple {
-namespace detail {
 
-class CurrencyTag
-{
-public:
-    explicit CurrencyTag() = default;
-};
-
-class DirectoryTag
-{
-public:
-    explicit DirectoryTag() = default;
-};
-
-class NodeIDTag
-{
-public:
-    explicit NodeIDTag() = default;
-};
-
-}  // namespace detail
+using LedgerHash = uint256;
 
 /** Directory is an index into the directory of offer books.
     The last 64 bits of this are the quality. */
-using Directory = base_uint<256, detail::DirectoryTag>;
+using Directory = base_uint<256, struct DirectoryTag>;
 
 /** Currency is a hash representing a specific currency. */
-using Currency = base_uint<160, detail::CurrencyTag>;
+using Currency = base_uint<160, struct CurrencyTag>;
 
 /** NodeID is a 160-bit hash representing one node. */
-using NodeID = base_uint<160, detail::NodeIDTag>;
+using NodeID = base_uint<160, struct NodeIDTag>;
 
-/** MPTID is a 192-bit value representing MPT Issuance ID,
- * which is a concatenation of a 32-bit sequence (big endian)
- * and a 160-bit account */
+/** A Multi-Purpose Token Issuance ID,
+
+    The ID is the a concatenation of a 32-bit sequence number,
+    in big endian, and a 160-bit account.
+
+    @note This type is, unfortunately, untagged because the authors
+          of the original code used a deserialization APIs that did
+          not support tags. It should be fixed.
+ */
 using MPTID = base_uint<192>;
 
+namespace detail {
+
+// A table mapping which characters we are willing to allow in the ASCII
+// representation of a three-letter currency code.
+inline constexpr auto validIsoChars = []() consteval {
+    std::string_view isoCharSet =
+        "abcdefghijklmnopqrstuvwxyz"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "0123456789"
+        "<>(){}[]|?!@#$%^&*";
+
+    std::array<bool, 256> table{};
+
+    for (unsigned char c : isoCharSet)
+        table[c] = true;
+
+    return table;
+}();
+
+// Determines if the given code is composed entirely of letters valid in
+// ISO 4217 codes.
+[[nodiscard]] inline constexpr bool
+isIsoCode(std::string_view code) noexcept
+{
+    return std::all_of(code.begin(), code.end(), [](char c) {
+        return validIsoChars[static_cast<unsigned char>(c)];
+    });
+}
+
+// The location (in bytes) of the 3 digit currency inside a 160-bit value
+inline constexpr std::size_t isoCodeOffset = 12;
+
+// The length of an ISO-4217 like code
+inline constexpr std::size_t isoCodeLength = 3;
+
+inline constexpr Currency isoMaskBits = ~Currency(0xFFFFFF0000000000);
+
+// The special currency identifier for the system currency: all-zero
+inline constexpr Currency xrpCurrency{0x0000000000000000};
+
+// The special currency identifier meaning "no currency"
+inline constexpr Currency noCurrency{0x0000000000000001};
+
+// The system currency identifier in "ISO4217 format" which is reserved.
+// We derive this value dynamically from the system currency code.
+inline constexpr Currency badCurrency = []() consteval {
+    if (systemCurrencyCode.size() != isoCodeLength)
+        throw "Incorrect systemCurrencyCode size (must be 3 digits)";
+
+    std::array<std::uint8_t, Currency::bytes> bytes{};
+
+    for (std::size_t i = 0; i < isoCodeLength; ++i)
+        bytes[isoCodeOffset + i] =
+            static_cast<std::uint8_t>(systemCurrencyCode[i]);
+
+    return Currency(bytes);
+}();
+
+// We take advantage of the fact that an ASCII value in the [a-z] range
+// transforms into the equivalent character in the [A-Z] range when you
+// AND it with 0xDF, so we can compare against all possible variants of
+// "XAH" in one go:
+inline constexpr Currency badCurrencyCodeMask{0xDFDFDF0000000000};
+
+}  // namespace detail
+
 /** XRP currency. */
-Currency const&
-xrpCurrency();
+[[nodiscard]] constexpr Currency const&
+xrpCurrency() noexcept
+{
+    return detail::xrpCurrency;
+}
+
+[[nodiscard]] constexpr bool
+isXRP(Currency const& c) noexcept
+{
+    return c == detail::xrpCurrency;
+}
 
 /** A placeholder for empty currencies. */
-Currency const&
-noCurrency();
+[[nodiscard]] constexpr Currency const&
+noCurrency() noexcept
+{
+    return detail::noCurrency;
+}
 
 /** We deliberately disallow the currency that looks like "XAH" because too
     many people were using it instead of the correct XAH currency. */
-Currency const&
-badCurrency();
-
-inline bool
-isXRP(Currency const& c)
+[[nodiscard]] constexpr Currency const&
+badCurrency() noexcept
 {
-    return c == beast::zero;
+    return detail::badCurrency;
 }
 
-inline bool
-isBadCurrency(Currency const& c)
+[[nodiscard]] constexpr bool
+isBadCurrency(Currency const& c) noexcept
 {
-    static const std::set<Currency> badCurrencies{
-        Currency(0x7861680000000000),  // xah
-        Currency(0x7861480000000000),  // xaH
-        Currency(0x7841680000000000),  // xAh
-        Currency(0x7841480000000000),  // xAH
-        Currency(0x5861680000000000),  // Xah
-        Currency(0x5861480000000000),  // XaH
-        Currency(0x5841680000000000),  // XAh
-        Currency(0x5841480000000000)   // XAH
-    };
-
-    return badCurrencies.find(c) != badCurrencies.end();
+    // We take advantage of the fact that an ASCII value in the [a-z] range
+    // transforms into the equivalent character in the [A-Z] range when you
+    // AND it with 0xDF, so we can compare against all possible variants of
+    // the bad currency code in one go:
+    return (c & detail::badCurrencyCodeMask) == badCurrency();
 }
 
-/** Returns "", "XAH", or three letter ISO code. */
-std::string
-to_string(Currency const& c);
+/** Returns "", "XAH", three letter ISO code or the hex representation. */
+[[nodiscard]] inline std::string
+to_string(Currency const& currency)
+{
+    if (currency == xrpCurrency())
+        return std::string{systemCurrencyCode};
+
+    if (currency == noCurrency())
+        return "1";
+
+    if ((currency & detail::isoMaskBits) == beast::zero)
+    {
+        std::string_view const iso(
+            reinterpret_cast<char const*>(currency.data()) +
+                detail::isoCodeOffset,
+            detail::isoCodeLength);
+
+        // Specifying the system currency code using ISO-style representation
+        // is not allowed. Note that the check is case-sensitive; yet another
+        // instance of legacy code smell.
+        if (detail::isIsoCode(iso) && iso != systemCurrencyCode)
+            return std::string{iso};
+    }
+
+    return strHex(currency);
+}
 
 /** Tries to convert a string to a Currency, returns true on success.
 
@@ -110,8 +189,29 @@ to_string(Currency const& c);
           will require very careful checking everywhere and may mean having
           to rewrite some unit test code.
 */
-bool
-to_currency(Currency&, std::string const&);
+[[nodiscard]] constexpr bool
+to_currency(Currency& currency, std::string_view code) noexcept
+{
+    if (code.empty() || code == systemCurrencyCode)
+    {
+        currency = xrpCurrency();
+        return true;
+    }
+
+    // Handle ISO-4217-like 3-digit character codes.
+    if (code.size() != detail::isoCodeLength)
+        return currency.parseHex(code);
+
+    if (!detail::isIsoCode(code))
+        return false;
+
+    currency = beast::zero;
+
+    std::copy_n(
+        code.data(), code.size(), currency.begin() + detail::isoCodeOffset);
+
+    return true;
+}
 
 /** Tries to convert a string to a Currency, returns noCurrency() on failure.
 
@@ -119,8 +219,14 @@ to_currency(Currency&, std::string const&);
           unfortunate; changing this will require very careful checking
           everywhere and may mean having to rewrite some unit test code.
 */
-Currency
-to_currency(std::string const&);
+[[nodiscard]] constexpr Currency
+to_currency(std::string_view code) noexcept
+{
+    if (Currency currency; to_currency(currency, code))
+        return currency;
+
+    return noCurrency();
+}
 
 inline std::ostream&
 operator<<(std::ostream& os, Currency const& x)

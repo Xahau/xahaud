@@ -9,13 +9,13 @@
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
-#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
+#include <any>
+#include <cfenv>
 #include <memory>
 #include <optional>
 #include <string>
@@ -41,7 +41,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
     if (!otxnAcc)
         return {};
 
-    TxType const& tt = tx.getTxnType();
+    uint16_t tt = tx.getFieldU16(sfTransactionType);
 
     std::map<AccountID, std::pair<int, bool>> tshEntries;
 
@@ -69,6 +69,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         return rv.read(keylet::nftoffer(*id));
     };
+
+    bool const fixV1 = rv.rules().enabled(fixXahauV1);
+    bool const fixV2 = rv.rules().enabled(fixXahauV2);
 
     switch (tt)
     {
@@ -118,7 +121,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttIMPORT: {
             if (tx.isFieldPresent(sfIssuer))
-                ADD_TSH(tx.getAccountID(sfIssuer), tshWEAK);
+                ADD_TSH(tx.getAccountID(sfIssuer), fixV2 ? tshWEAK : tshSTRONG);
             break;
         }
 
@@ -143,13 +146,34 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
                 break;
             // pass, already a TSH
 
-            // the owner burns their token, and the issuer is a weak TSH
-            if (*otxnAcc == owner && rv.exists(keylet::account(issuer)))
-                ADD_TSH(issuer, tshWEAK);
-            // the issuer burns the owner's token, and the owner is a weak
-            // TSH
-            else if (rv.exists(keylet::account(owner)))
-                ADD_TSH(owner, tshWEAK);
+            // new logic
+            if (fixV1)
+            {
+                // the owner burns their token, and the issuer is a weak TSH
+                if (*otxnAcc == owner && rv.exists(keylet::account(issuer)))
+                    ADD_TSH(issuer, tshWEAK);
+                // the issuer burns the owner's token, and the owner is a weak
+                // TSH
+                else if (rv.exists(keylet::account(owner)))
+                    ADD_TSH(owner, tshWEAK);
+
+                break;
+            }
+
+            // old logic
+            {
+                if (*otxnAcc == owner)
+                {
+                    // the owner burns their token, and the issuer is a weak TSH
+                    ADD_TSH(issuer, tshSTRONG);
+                }
+                else
+                {
+                    // the issuer burns the owner's token, and the owner is a
+                    // weak TSH
+                    ADD_TSH(owner, tshSTRONG);
+                }
+            }
 
             break;
         }
@@ -183,12 +207,15 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttURITOKEN_MINT: {
             // destination is a strong tsh
-            if (tx.isFieldPresent(sfDestination))
+            if (fixV2 && tx.isFieldPresent(sfDestination))
                 ADD_TSH(tx.getAccountID(sfDestination), tshSTRONG);
             break;
         }
 
         case ttURITOKEN_CANCEL_SELL_OFFER: {
+            if (!fixV2)
+                break;
+
             Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
             if (!rv.exists(id))
                 return {};
@@ -274,14 +301,18 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             bool issuerCanRollback = nft::getFlags(nid) & tfStrongTSH;
             ADD_TSH(issuer, issuerCanRollback);
 
-            for (auto const& offer : {bo, so})
+            if (bo)
             {
-                if (offer)
-                {
-                    ADD_TSH(offer->getAccountID(sfOwner), tshSTRONG);
-                    if (offer->isFieldPresent(sfDestination))
-                        ADD_TSH(offer->getAccountID(sfDestination), tshSTRONG);
-                }
+                ADD_TSH(bo->getAccountID(sfOwner), tshSTRONG);
+                if (bo->isFieldPresent(sfDestination))
+                    ADD_TSH(bo->getAccountID(sfDestination), tshSTRONG);
+            }
+
+            if (so)
+            {
+                ADD_TSH(so->getAccountID(sfOwner), tshSTRONG);
+                if (so->isFieldPresent(sfDestination))
+                    ADD_TSH(so->getAccountID(sfDestination), tshSTRONG);
             }
 
             break;
@@ -359,38 +390,63 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttESCROW_CANCEL:
         case ttESCROW_FINISH: {
-            if (!tx.isFieldPresent(sfOwner))
-                return {};
+            // new logic
+            if (fixV1)
+            {
+                if (!tx.isFieldPresent(sfOwner))
+                    return {};
 
-            AccountID const owner = tx.getAccountID(sfOwner);
+                AccountID const owner = tx.getAccountID(sfOwner);
 
-            bool const hasSeq = tx.isFieldPresent(sfOfferSequence);
-            bool const hasID = tx.isFieldPresent(sfEscrowID);
-            if (!hasSeq && !hasID)
-                return {};
+                bool const hasSeq = tx.isFieldPresent(sfOfferSequence);
+                bool const hasID = tx.isFieldPresent(sfEscrowID);
+                if (!hasSeq && !hasID)
+                    return {};
 
-            Keylet kl = hasSeq
-                ? keylet::escrow(owner, tx.getFieldU32(sfOfferSequence))
-                : Keylet(ltESCROW, tx.getFieldH256(sfEscrowID));
+                Keylet kl = hasSeq
+                    ? keylet::escrow(owner, tx.getFieldU32(sfOfferSequence))
+                    : Keylet(ltESCROW, tx.getFieldH256(sfEscrowID));
 
-            auto escrow = rv.read(kl);
+                auto escrow = rv.read(kl);
 
-            if (!escrow || escrow->getFieldU16(sfLedgerEntryType) != ltESCROW)
-                return {};
+                if (!escrow ||
+                    escrow->getFieldU16(sfLedgerEntryType) != ltESCROW)
+                    return {};
 
-            // this should always be the same as owner, but defensively...
-            AccountID const src = escrow->getAccountID(sfAccount);
-            AccountID const dst = escrow->getAccountID(sfDestination);
+                // this should always be the same as owner, but defensively...
+                AccountID const src = escrow->getAccountID(sfAccount);
+                AccountID const dst = escrow->getAccountID(sfDestination);
 
-            // the source account is a strong transacitonal stakeholder for
-            // fin and can
-            ADD_TSH(src, tshSTRONG);
+                // the source account is a strong transacitonal stakeholder for
+                // fin and can
+                ADD_TSH(src, tshSTRONG);
 
-            // the dest acc is a strong tsh for fin and weak for can
-            if (src != dst)
-                ADD_TSH(dst, tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
+                // the dest acc is a strong tsh for fin and weak for can
+                if (src != dst)
+                    ADD_TSH(dst, tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
 
-            break;
+                break;
+            }
+            // old logic
+            {
+                if (!tx.isFieldPresent(sfOwner) ||
+                    !tx.isFieldPresent(sfOfferSequence))
+                    return {};
+
+                auto escrow = rv.read(
+                    keylet::escrow(
+                        tx.getAccountID(sfOwner),
+                        tx.getFieldU32(sfOfferSequence)));
+
+                if (!escrow)
+                    return {};
+
+                ADD_TSH(escrow->getAccountID(sfAccount), tshSTRONG);
+                ADD_TSH(
+                    escrow->getAccountID(sfDestination),
+                    tt == ttESCROW_FINISH ? tshSTRONG : tshWEAK);
+                break;
+            }
         }
 
         case ttPAYCHAN_FUND:
@@ -465,26 +521,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttCRON_SET: {
             break;
         }
-        case ttMANIFEST_SET: {
-            // The ephemeral key's logical account, meaning the r-address its
-            // public key hashes to, is a weak stake holder: the manifest names
-            // that key but nothing is done to the account, so it may observe
-            // but not rollback. Usually no such account exists, in which case
-            // nothing executes.
-            if (!tx.isFieldPresent(sfManifest))
-                break;
-
-            STObject const& man =
-                const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
-
-            if (!man.isFieldPresent(sfSigningPubKey))
-                break;
-
-            auto const spk = man.getFieldVL(sfSigningPubKey);
-            if (publicKeyType(makeSlice(spk)))
-                ADD_TSH(calcAccountID(PublicKey(makeSlice(spk))), tshWEAK);
-            break;
-        }
         case ttAMM_CREATE:
         case ttAMM_DEPOSIT:
         case ttAMM_WITHDRAW:
@@ -517,8 +553,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             break;
         }
         case ttLEDGER_STATE_FIX: {
-            if (tx.isFieldPresent(sfOwner))
-                ADD_TSH(tx.getAccountID(sfOwner), tshWEAK);
+            // TODO: Implement if needed
             break;
         }
         case ttMPTOKEN_ISSUANCE_CREATE:
@@ -568,8 +603,159 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
 }  // namespace hook
 
-using namespace hook::hook_float;
+namespace hook_float {
+
+using namespace hook_api;
+static int64_t const minMantissa = 1000000000000000ull;
+static int64_t const maxMantissa = 9999999999999999ull;
+static int32_t const minExponent = -96;
+static int32_t const maxExponent = 80;
+inline int32_t
+get_exponent(int64_t float1)
+{
+    if (float1 < 0)
+        return INVALID_FLOAT;
+    if (float1 == 0)
+        return 0;
+    uint64_t float_in = (uint64_t)float1;
+    float_in >>= 54U;
+    float_in &= 0xFFU;
+    return ((int32_t)float_in) - 97;
+}
+
+inline int64_t
+get_mantissa(int64_t float1)
+{
+    if (float1 < 0)
+        return INVALID_FLOAT;
+    if (float1 == 0)
+        return 0;
+    float1 -= ((((uint64_t)float1) >> 54U) << 54U);
+    return float1;
+}
+
+inline bool
+is_negative(int64_t float1)
+{
+    return ((float1 >> 62U) & 1ULL) == 0;
+}
+
+inline int64_t
+invert_sign(int64_t float1)
+{
+    int64_t r = (int64_t)(((uint64_t)float1) ^ (1ULL << 62U));
+    return r;
+}
+
+inline int64_t
+set_sign(int64_t float1, bool set_negative)
+{
+    bool neg = is_negative(float1);
+    if ((neg && set_negative) || (!neg && !set_negative))
+        return float1;
+
+    return invert_sign(float1);
+}
+
+inline int64_t
+set_mantissa(int64_t float1, uint64_t mantissa)
+{
+    if (mantissa > maxMantissa)
+        return MANTISSA_OVERSIZED;
+    if (mantissa < minMantissa)
+        return MANTISSA_UNDERSIZED;
+    return float1 - get_mantissa(float1) + mantissa;
+}
+
+inline int64_t
+set_exponent(int64_t float1, int32_t exponent)
+{
+    if (exponent > maxExponent)
+        return EXPONENT_OVERSIZED;
+    if (exponent < minExponent)
+        return EXPONENT_UNDERSIZED;
+
+    uint64_t exp = (exponent + 97);
+    exp <<= 54U;
+    float1 &= ~(0xFFLL << 54);
+    float1 += (int64_t)exp;
+    return float1;
+}
+
+inline int64_t
+make_float(ripple::IOUAmount& amt)
+{
+    int64_t man_out = amt.mantissa();
+    int64_t float_out = 0;
+    bool neg = man_out < 0;
+    if (neg)
+        man_out *= -1;
+
+    float_out = set_sign(float_out, neg);
+    float_out = set_mantissa(float_out, (uint64_t)man_out);
+    float_out = set_exponent(float_out, amt.exponent());
+    return float_out;
+}
+
+inline int64_t
+make_float(uint64_t mantissa, int32_t exponent, bool neg)
+{
+    if (mantissa == 0)
+        return 0;
+    if (mantissa > maxMantissa)
+        return MANTISSA_OVERSIZED;
+    if (mantissa < minMantissa)
+        return MANTISSA_UNDERSIZED;
+    if (exponent > maxExponent)
+        return EXPONENT_OVERSIZED;
+    if (exponent < minExponent)
+        return EXPONENT_UNDERSIZED;
+    int64_t out = 0;
+    out = set_mantissa(out, mantissa);
+    out = set_exponent(out, exponent);
+    out = set_sign(out, neg);
+    return out;
+}
+
+}  // namespace hook_float
+using namespace hook_float;
 using hook::Bytes;
+
+inline int32_t
+no_free_slots(hook::HookContext& hookCtx)
+{
+    return hook_api::max_slots - hookCtx.slot.size() <= 0;
+}
+
+inline std::optional<int32_t>
+get_free_slot(hook::HookContext& hookCtx)
+{
+    // allocate a slot
+    int32_t slot_into = 0;
+    if (hookCtx.slot_free.size() > 0)
+    {
+        slot_into = hookCtx.slot_free.front();
+        hookCtx.slot_free.pop();
+        return slot_into;
+    }
+
+    // no slots were available in the queue so increment slot counter until we
+    // find a free slot usually this will be the next available but the hook
+    // developer may have allocated any slot ahead of when the counter gets
+    // there
+    do
+    {
+        slot_into = ++hookCtx.slot_counter;
+    } while (hookCtx.slot.find(slot_into) != hookCtx.slot.end() &&
+             // this condition should always be met, if for some reason, somehow
+             // it is not then we will return the final slot every time.
+             hookCtx.slot_counter <= hook_api::max_slots);
+
+    if (hookCtx.slot_counter > hook_api::max_slots)
+        return {};
+
+    return slot_into;
+}
 
 // cu_ptr is a pointer into memory, bounds check is assumed to have already
 // happened
@@ -626,7 +812,7 @@ parseCurrency(uint8_t* cu_ptr, uint32_t cu_len)
         return {};
 }
 
-inline std::variant<uint64_t, hook_api::hook_return_code>
+inline int64_t
 serialize_keylet(
     ripple::Keylet& kl,
     uint8_t* memory,
@@ -634,7 +820,7 @@ serialize_keylet(
     uint32_t write_len)
 {
     if (write_len < 34)
-        return TOO_SMALL;
+        return hook_api::TOO_SMALL;
 
     memory[write_ptr + 0] = (kl.type >> 8) & 0xFFU;
     memory[write_ptr + 1] = (kl.type >> 0) & 0xFFU;
@@ -642,7 +828,7 @@ serialize_keylet(
     for (int i = 0; i < 32; ++i)
         memory[write_ptr + 2 + i] = kl.key.data()[i];
 
-    return 34ULL;
+    return 34;
 }
 
 std::optional<ripple::Keylet>
@@ -685,19 +871,19 @@ hook::computeCreationFee(uint64_t byteCount)
 }
 
 // many datatypes can be encoded into an int64_t
-inline std::variant<uint64_t, hook_api::hook_return_code>
+inline int64_t
 data_as_int64(void const* ptr_raw, uint32_t len)
 {
     if (len > 8)
-        return TOO_BIG;
+        return hook_api::hook_return_code::TOO_BIG;
 
     uint8_t const* ptr = reinterpret_cast<uint8_t const*>(ptr_raw);
     uint64_t output = 0;
     for (int i = 0, j = (len - 1) * 8; i < len; ++i, j -= 8)
         output += (((uint64_t)ptr[i]) << j);
     if ((1ULL << 63U) & output)
-        return TOO_BIG;
-    return output;
+        return hook_api::hook_return_code::TOO_BIG;
+    return (int64_t)output;
 }
 
 /* returns true iff every even char is ascii and every odd char is 00
@@ -775,33 +961,6 @@ hook::removeHookNamespaceEntry(ripple::SLE& sleAccount, ripple::uint256 ns)
     return false;
 }
 
-// Called by Transactor.cpp to determine if a transaction type can trigger a
-// given hook... The HookOn field in the SetHook transaction determines which
-// transaction types (tt's) trigger the hook. Every bit except ttHookSet is
-// active low, so for example ttESCROW_FINISH = 2, so if the 2nd bit (counting
-// from 0) from the right is 0 then the hook will trigger on ESCROW_FINISH. If
-// it is 1 then ESCROW_FINISH will not trigger the hook. However ttHOOK_SET = 22
-// is active high, so by default (HookOn == 0) ttHOOK_SET is not triggered by
-// transactions. If you wish to set a hook that has control over ttHOOK_SET then
-// set bit 1U<<22.
-bool
-hook::canHook(ripple::TxType txType, ripple::uint256 hookOn)
-{
-    // invert ttHOOK_SET bit
-    hookOn ^= UINT256_BIT[ttHOOK_SET];
-
-    // invert entire field
-    hookOn = ~hookOn;
-
-    return (hookOn & UINT256_BIT[txType]) != beast::zero;
-}
-
-bool
-hook::canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit)
-{
-    return hook::canHook(txType, hookCanEmit);
-}
-
 ripple::uint256
 hook::getHookCanEmit(
     ripple::STObject const& hookObj,
@@ -837,7 +996,7 @@ hook::getHookOn(
 }
 
 // Update HookState ledger objects for the hook... only called after accept()
-// assumes the specified acc has already been checked for authoriation (hook
+// assumes the specified acc has already been checked for authorization (hook
 // grants)
 TER
 hook::setHookState(
@@ -1047,8 +1206,9 @@ hook::apply(
              .provisionalMeta = provisionalMeta},
         .emitFailure = isCallback && wasmParam & 1
             ? std::optional<ripple::STObject>(
-                  (*(applyCtx.view().peek(keylet::emittedTxn(
-                       applyCtx.tx.getFieldH256(sfTransactionHash)))))
+                  (*(applyCtx.view().peek(
+                       keylet::emittedTxn(
+                           applyCtx.tx.getFieldH256(sfTransactionHash)))))
                       .downcast<STObject>())
             : std::optional<ripple::STObject>()};
 
@@ -1084,7 +1244,7 @@ DEFINE_HOOK_FUNCTION(
         return OUT_OF_BOUNDS;
 
     if (!j.trace())
-        return 0ULL;
+        return 0;
 
     if (read_len > 128)
         read_len = 128;
@@ -1102,12 +1262,12 @@ DEFINE_HOOK_FUNCTION(
                              (const char*)memory + read_ptr, read_len)
                       << ": " << number;
 
-            return 0ULL;
+            return 0;
         }
     }
 
     j.trace() << "HookTrace[" << HC_ACC() << "]: " << number;
-    return 0ULL;
+    return 0;
     HOOK_TEARDOWN();
 }
 
@@ -1127,7 +1287,7 @@ DEFINE_HOOK_FUNCTION(
         return OUT_OF_BOUNDS;
 
     if (!j.trace())
-        return 0ULL;
+        return 0;
 
     if (mread_len > 128)
         mread_len = 128;
@@ -1190,7 +1350,7 @@ DEFINE_HOOK_FUNCTION(
                   << std::string_view((const char*)output_storage, out_len);
     }
 
-    return 0ULL;
+    return 0;
     HOOK_TEARDOWN();
 }
 
@@ -1295,8 +1455,7 @@ DEFINE_HOOK_FUNCTION(
 
     auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
     if (!sleAccount && view.rules().enabled(featureExtendedHookState))
-        // should return hook_api::hook_return_code
-        return static_cast<hook_api::hook_return_code>(tefINTERNAL);
+        return tefINTERNAL;
 
     uint16_t const hookStateScale = sleAccount->isFieldPresent(sfHookStateScale)
         ? sleAccount->getFieldU16(sfHookStateScale)
@@ -1316,9 +1475,12 @@ DEFINE_HOOK_FUNCTION(
     auto const key = make_state_key(
         std::string_view{(const char*)(memory + kread_ptr), (size_t)kread_len});
 
-    if (!view.exists(hookCtx.result.accountKeylet))
-        // should return hook_api::hook_return_code
-        return static_cast<hook_api::hook_return_code>(tefINTERNAL);
+    if (view.rules().enabled(fixXahauV1))
+    {
+        auto const sleAccount = view.peek(hookCtx.result.accountKeylet);
+        if (!sleAccount)
+            return tefINTERNAL;
+    }
 
     if (!key)
         return INTERNAL_ERROR;
@@ -1528,11 +1690,11 @@ hook::finalizeHookResult(
         }
     }
 
+    bool const fixV2 = applyCtx.view().rules().enabled(fixXahauV2);
     // add a metadata entry for this hook execution result
     {
         STObject meta{sfHookExecution};
-        meta.setFieldU8(
-            sfHookResult, static_cast<uint8_t>(hookResult.exitType));
+        meta.setFieldU8(sfHookResult, hookResult.exitType);
         meta.setAccountID(sfHookAccount, hookResult.account);
 
         // RH NOTE: this is probably not necessary, a direct cast should always
@@ -1556,14 +1718,18 @@ hook::finalizeHookResult(
         meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount);
         meta.setFieldH256(sfHookHash, hookResult.hookHash);
 
-        uint32_t flags = 0;
-        if (hookResult.isStrong)
-            flags |= hefSTRONG;
-        if (hookResult.isCallback)
-            flags |= hefCALLBACK;
-        if (hookResult.executeAgainAsWeak)
-            flags |= hefDOAAW;
-        meta.setFieldU32(sfFlags, flags);
+        // add informational flags in fix2
+        if (fixV2)
+        {
+            uint32_t flags = 0;
+            if (hookResult.isStrong)
+                flags |= hefSTRONG;
+            if (hookResult.isCallback)
+                flags |= hefCALLBACK;
+            if (hookResult.executeAgainAsWeak)
+                flags |= hefDOAAW;
+            meta.setFieldU32(sfFlags, flags);
+        }
         avi.addHookExecutionMetaData(std::move(meta));
     }
 
@@ -1577,7 +1743,8 @@ hook::finalizeHookResult(
             meta.setFieldH256(sfHookHash, hookResult.hookHash);
             meta.setAccountID(sfHookAccount, hookResult.account);
             meta.setFieldH256(sfEmittedTxnID, etxnid);
-            meta.setFieldH256(sfEmitNonce, enonce);
+            if (fixV2)
+                meta.setFieldH256(sfEmitNonce, enonce);
             avi.addHookEmissionMetaData(std::move(meta));
         }
     }
@@ -2037,7 +2204,7 @@ DEFINE_HOOK_FUNCTION(int64_t, slot_type, uint32_t slot_no, uint32_t flags)
     if (flags == 0)
     {
         auto const base = std::get<0>(*result);
-        return static_cast<uint64_t>(base.getFName().fieldCode);
+        return base.getFName().fieldCode;
     }
     else
     {
@@ -2539,23 +2706,26 @@ DEFINE_HOOK_FUNCTION(
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
-            // These keylet types are not yet implemented. Their
-            // corresponding amendments are not yet supported on the
-            // network. Each case needs a full implementation (see
-            // above cases for reference) before its amendment can be
-            // enabled.
-            // featureXChainBridge
             case keylet_code::BRIDGE:
             case keylet_code::XCHAIN_OWNED_CLAIM_ID:
-            case keylet_code::XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID:
-            // featureMPTokensV1
+            case keylet_code::XCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID: {
+                if (!applyCtx.view().rules().enabled(featureXChainBridge))
+                    return INVALID_ARGUMENT;
+            }
             case keylet_code::MPTOKEN_ISSUANCE:
-            case keylet_code::MPTOKEN:
-            // featureCredentials
-            case keylet_code::CREDENTIAL:
-            // featurePermissionedDomains
-            case keylet_code::PERMISSIONED_DOMAIN:
-                return INVALID_ARGUMENT;
+            case keylet_code::MPTOKEN: {
+                if (!applyCtx.view().rules().enabled(featureMPTokensV1))
+                    return INVALID_ARGUMENT;
+            }
+            case keylet_code::CREDENTIAL: {
+                if (!applyCtx.view().rules().enabled(featureCredentials))
+                    return INVALID_ARGUMENT;
+            }
+            case keylet_code::PERMISSIONED_DOMAIN: {
+                if (!applyCtx.view().rules().enabled(
+                        featurePermissionedDomains))
+                    return INVALID_ARGUMENT;
+            }
         }
     }
     catch (std::exception& e)
@@ -2648,8 +2818,7 @@ DEFINE_HOOK_FUNCTION(
     if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
         return OUT_OF_BOUNDS;
 
-    auto const write_txid =
-        [&]() -> std::variant<uint64_t, hook_api::hook_return_code> {
+    auto const write_txid = [&]() -> int64_t {
         WRITE_WASM_MEMORY_AND_RETURN(
             write_ptr,
             txID.size(),
@@ -2659,15 +2828,12 @@ DEFINE_HOOK_FUNCTION(
             memory_length);
     };
 
-    auto result = write_txid();
-    if (std::holds_alternative<hook_api::hook_return_code>(result))
-        return std::get<hook_api::hook_return_code>(result);
+    int64_t result = write_txid();
 
-    auto const value = std::get<uint64_t>(result);
-    if (value == 32)
+    if (result == 32)
         hookCtx.result.emittedTxn.push(tpTrans);
 
-    return value;
+    return result;
 
     HOOK_TEARDOWN();
 }
@@ -3156,7 +3322,7 @@ DEFINE_HOOK_FUNCTION(
     uint32_t field_id)
 {
     // proxy only no setup or teardown
-    auto ret = sto_emplace(
+    int64_t ret = sto_emplace(
         hookCtx,
         frameCtx,
         write_ptr,
@@ -3167,12 +3333,8 @@ DEFINE_HOOK_FUNCTION(
         0,
         field_id);
 
-    if (std::holds_alternative<uint64_t>(ret))
-    {
-        auto const value = std::get<uint64_t>(ret);
-        if (value > 0 && value == read_len)
-            return DOESNT_EXIST;
-    }
+    if (ret > 0 && ret == read_len)
+        return DOESNT_EXIST;
 
     return ret;
 }
@@ -3195,7 +3357,7 @@ DEFINE_HOOK_FUNCTION(
     auto const result = api.sto_validate(data);
     if (!result)
         return result.error();
-    return result.value() ? 1ULL : 0ULL;
+    return result.value() ? 1 : 0;
 
     HOOK_TEARDOWN();
 }
@@ -3231,7 +3393,7 @@ DEFINE_HOOK_FUNCTION(
     auto const result = api.util_verify(data, sig, key);
     if (!result)
         return result.error();
-    return result.value() ? 1ULL : 0ULL;
+    return result.value() ? 1 : 0;
 
     HOOK_TEARDOWN();
 }
@@ -3326,30 +3488,26 @@ DEFINE_HOOK_FUNCTION(int32_t, _g, uint32_t id, uint32_t maxitr)
                             << "Iterations: " << hookCtx.guard_map[id];
         }
         hookCtx.result.exitType = hook_api::ExitType::ROLLBACK;
-        hookCtx.result.exitCode = (int64_t)GUARD_VIOLATION;
+        hookCtx.result.exitCode = GUARD_VIOLATION;
         return RC_ROLLBACK;
     }
-    return 1U;
+    return 1;
 
     HOOK_TEARDOWN();
 }
 
-#define RETURN_IF_INVALID_FLOAT(float1)                 \
-    {                                                   \
-        if (float1 < 0)                                 \
-            return INVALID_FLOAT;                       \
-        if (float1 != 0)                                \
-        {                                               \
-            auto const mantissa = get_mantissa(float1); \
-            auto const exponent = get_exponent(float1); \
-            if (!mantissa || !exponent)                 \
-                return INVALID_FLOAT;                   \
-            if (mantissa.value() < minMantissa ||       \
-                mantissa.value() > maxMantissa ||       \
-                exponent.value() > maxExponent ||       \
-                exponent.value() < minExponent)         \
-                return INVALID_FLOAT;                   \
-        }                                               \
+#define RETURN_IF_INVALID_FLOAT(float1)                             \
+    {                                                               \
+        if (float1 < 0)                                             \
+            return hook_api::INVALID_FLOAT;                         \
+        if (float1 != 0)                                            \
+        {                                                           \
+            uint64_t mantissa = get_mantissa(float1);               \
+            int32_t exponent = get_exponent(float1);                \
+            if (mantissa < minMantissa || mantissa > maxMantissa || \
+                exponent > maxExponent || exponent < minExponent)   \
+                return INVALID_FLOAT;                               \
+        }                                                           \
     }
 
 DEFINE_HOOK_FUNCTION(
@@ -3366,7 +3524,7 @@ DEFINE_HOOK_FUNCTION(
         return OUT_OF_BOUNDS;
 
     if (!j.trace())
-        return 0ULL;
+        return 0;
 
     if (read_len > 128)
         read_len = 128;
@@ -3376,33 +3534,38 @@ DEFINE_HOOK_FUNCTION(
         *((const char*)memory + read_ptr + read_len - 1) == '\0')
         read_len--;
 
-    auto const messageKey = (read_len == 0)
-        ? ""
-        : std::string_view((const char*)memory + read_ptr, read_len);
-
     if (float1 == 0)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
+        j.trace() << "HookTrace[" << HC_ACC() << "]: "
+                  << (read_len == 0
+                          ? ""
+                          : std::string_view(
+                                (const char*)memory + read_ptr, read_len))
                   << ": Float 0*10^(0) <ZERO>";
-        return 0ULL;
+        return 0;
     }
 
-    auto const man = get_mantissa(float1);
-    auto const exp = get_exponent(float1);
+    uint64_t man = get_mantissa(float1);
+    int32_t exp = get_exponent(float1);
     bool neg = is_negative(float1);
-    if (!man || !exp || man.value() < minMantissa ||
-        man.value() > maxMantissa || exp.value() < minExponent ||
-        exp.value() > maxExponent)
+    if (man < minMantissa || man > maxMantissa || exp < minExponent ||
+        exp > maxExponent)
     {
-        j.trace() << "HookTrace[" << HC_ACC() << "]: " << messageKey
+        j.trace() << "HookTrace[" << HC_ACC() << "]:"
+                  << (read_len == 0
+                          ? ""
+                          : std::string_view(
+                                (const char*)memory + read_ptr, read_len))
                   << ": Float <INVALID>";
-        return 0ULL;
+        return 0;
     }
 
-    j.trace() << "HookTrace[" << HC_ACC() << "]:" << messageKey << ": Float "
-              << (neg ? "-" : "") << man.value() << "*10^(" << exp.value()
-              << ")";
-    return 0ULL;
+    j.trace() << "HookTrace[" << HC_ACC() << "]:"
+              << (read_len == 0 ? ""
+                                : std::string_view(
+                                      (const char*)memory + read_ptr, read_len))
+              << ": Float " << (neg ? "-" : "") << man << "*10^(" << exp << ")";
+    return 0;
 
     HOOK_TEARDOWN();
 }
