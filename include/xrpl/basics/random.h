@@ -22,6 +22,7 @@
 
 #include <xrpl/beast/utility/instrumentation.h>
 #include <xrpl/beast/xor_shift_engine.h>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -50,30 +51,80 @@ namespace detail {
 template <class Engine, class Result = typename Engine::result_type>
 using is_engine = std::is_invocable_r<Result, Engine>;
 
-// 64 bits from the engine, independent of how the standard library maps
-// engine output onto an integer range.
+// 64 bits from the engine. Width comes from max()-min(), not from the
+// storage type: a 32-bit engine may use a 64-bit result_type.
 template <class Engine>
 std::uint64_t
 randomU64(Engine& engine)
 {
-    using Result = typename Engine::result_type;
-    constexpr int digits = std::numeric_limits<Result>::digits;
+    static_assert(std::is_unsigned_v<typename Engine::result_type>);
     auto const draw = [&engine]() -> std::uint64_t {
         return static_cast<std::uint64_t>(engine() - Engine::min());
     };
-    if constexpr (digits >= 64)
-        return draw();
 
-    std::uint64_t value = 0;
-    int filled = 0;
-    while (filled < 64)
+    // 0 means the span is 2^64. That is one full-range draw.
+    constexpr auto span =
+        static_cast<std::uint64_t>(Engine::max() - Engine::min());
+    constexpr std::uint64_t range = span + 1u;
+    constexpr bool full = range == 0;
+    constexpr bool powerOfTwo = full || (range & (range - 1u)) == 0;
+
+    if constexpr (powerOfTwo)
     {
-        auto const take = digits < (64 - filled) ? digits : (64 - filled);
-        auto const mask = (std::uint64_t{1} << take) - 1;
-        value |= (draw() & mask) << filled;
-        filled += take;
+        constexpr int width = full ? 64 : std::bit_width(range) - 1;
+        if constexpr (width >= 64)
+            return draw();
+
+        std::uint64_t value = 0;
+        int filled = 0;
+        while (filled < 64)
+        {
+            auto const take = width < (64 - filled) ? width : (64 - filled);
+            auto const mask = (std::uint64_t{1} << take) - 1;
+            value |= (draw() & mask) << filled;
+            filled += take;
+        }
+        return value;
     }
-    return value;
+    else
+    {
+        // [rand.adapt.ibits] for w = 64. R is not a power of two.
+        constexpr int m = std::bit_width(range) - 1;
+        constexpr int nCeil = (64 + m - 1) / m;
+        constexpr int w0Try = 64 / nCeil;
+        constexpr auto y0Try = (std::uint64_t{1} << w0Try) * (range >> w0Try);
+        constexpr bool bump =
+            (range - y0Try) > (y0Try / static_cast<std::uint64_t>(nCeil));
+        constexpr int n = bump ? nCeil + 1 : nCeil;
+        constexpr int w0 = 64 / n;
+        constexpr int n0 = n - (64 % n);
+        constexpr auto y0 = (std::uint64_t{1} << w0) * (range >> w0);
+        constexpr auto y1 =
+            (std::uint64_t{1} << (w0 + 1)) * (range >> (w0 + 1));
+        static_assert(w0 > 0 && w0 < 63);
+
+        std::uint64_t word = 0;
+        for (int k = 0; k != n0; ++k)
+        {
+            std::uint64_t u;
+            do
+            {
+                u = draw();
+            } while (u >= y0);
+            word = (word << w0) + (u & ((std::uint64_t{1} << w0) - 1));
+        }
+        for (int k = n0; k != n; ++k)
+        {
+            std::uint64_t u;
+            do
+            {
+                u = draw();
+            } while (u >= y1);
+            constexpr int bits = w0 + 1;
+            word = (word << bits) + (u & ((std::uint64_t{1} << bits) - 1));
+        }
+        return word;
+    }
 }
 }  // namespace detail
 
