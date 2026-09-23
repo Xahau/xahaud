@@ -53,7 +53,8 @@ using TickContext = ConsensusTick<ExtendedPosition, RCLCxPeerPos, RCLTxSet>;
 class ConsensusExtensions
 {
     friend class test::ConsensusExtensions_test;
-    // DSF observes accepted evidence at real job boundaries; it does not seed it.
+    // DSF observes accepted evidence at real job boundaries; it does not seed
+    // it.
     friend class test::SteppingExtensions_test;
 
     Application& app_;

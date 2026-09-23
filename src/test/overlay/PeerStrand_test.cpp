@@ -1,11 +1,12 @@
 //------------------------------------------------------------------------------
 // PeerStrand / InlineExecutor unit suite (Stage 3, S3.2) — proves the inline
 // strand behaves the way the stepping harness needs, in ISOLATION (a bare
-// io_context, no PeerImp), addressing the review caution: dispatch(), post() and
-// bind_executor() over the inline strand must run on the CALLER thread with NO
-// io_context servicing (no second queue), while the production strand (default,
-// inlineStrands == false) must keep deferring to the io_context exactly as before.
-// Spec: csf-peerimp-hybrid-overlay-harness.md (Stage 3, S3.2).
+// io_context, no PeerImp), addressing the review caution: dispatch(), post()
+// and bind_executor() over the inline strand must run on the CALLER thread with
+// NO io_context servicing (no second queue), while the production strand
+// (default, inlineStrands == false) must keep deferring to the io_context
+// exactly as before. Spec: csf-peerimp-hybrid-overlay-harness.md (Stage 3,
+// S3.2).
 //------------------------------------------------------------------------------
 #include <xrpld/overlay/detail/PeerStrand.h>
 #include <xrpld/overlay/detail/Transport.h>  // Transport::executor_type (the erased path)
@@ -36,7 +37,8 @@ class PeerStrand_test : public beast::unit_test::suite
     void
     testInlineRunsOnCaller()
     {
-        testcase("inlineStrands: dispatch/post/bind_executor run inline on caller");
+        testcase(
+            "inlineStrands: dispatch/post/bind_executor run inline on caller");
         boost::asio::io_context io;
         auto strand = makePeerStrand(cfg(true), io.get_executor());
         auto const me = std::this_thread::get_id();
@@ -75,7 +77,9 @@ class PeerStrand_test : public beast::unit_test::suite
     void
     testNestedStaysOnThread()
     {
-        testcase("inlineStrands: nested post from a handler stays on the thread, FIFO");
+        testcase(
+            "inlineStrands: nested post from a handler stays on the thread, "
+            "FIFO");
         boost::asio::io_context io;
         auto strand = makePeerStrand(cfg(true), io.get_executor());
         auto const me = std::this_thread::get_id();
@@ -100,13 +104,16 @@ class PeerStrand_test : public beast::unit_test::suite
     void
     testErasedTransportPathRunsInline()
     {
-        testcase("inlineStrands: post/bind_executor via erased Transport::executor_type run inline");
+        testcase(
+            "inlineStrands: post/bind_executor via erased "
+            "Transport::executor_type run inline");
         boost::asio::io_context io;
         auto strand = makePeerStrand(cfg(true), io.get_executor());
         // The EXACT erasure the transport does: PeerImp hands strand_ to
         // transport_->async_read_some/async_write as a Transport::executor_type
-        // (any_io_executor), and SimTransport/SslTransport post + bind_executor on
-        // THAT. So the inline behavior must survive strand<executor> → any_io_executor.
+        // (any_io_executor), and SimTransport/SslTransport post + bind_executor
+        // on THAT. So the inline behavior must survive strand<executor> →
+        // any_io_executor.
         Transport::executor_type erased = strand;
         auto const me = std::this_thread::get_id();
         std::vector<int> order;
@@ -117,7 +124,8 @@ class PeerStrand_test : public beast::unit_test::suite
             posted = true;
             BEAST_EXPECT(std::this_thread::get_id() == me);
         });
-        BEAST_EXPECT(posted);  // inline through the erased executor (transport path)
+        BEAST_EXPECT(
+            posted);  // inline through the erased executor (transport path)
 
         bool bound = false;
         auto h = boost::asio::bind_executor(erased, [&]() {
@@ -135,7 +143,8 @@ class PeerStrand_test : public beast::unit_test::suite
     void
     testProductionDefersToIo()
     {
-        testcase("production strand (inlineStrands off) defers to the io_context");
+        testcase(
+            "production strand (inlineStrands off) defers to the io_context");
         boost::asio::io_context io;
         auto strand = makePeerStrand(cfg(false), io.get_executor());
 

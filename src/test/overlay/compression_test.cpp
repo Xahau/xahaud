@@ -131,7 +131,6 @@ class compression_test : public beast::unit_test::suite
         }
     };
 
-
 public:
     compression_test()
     {
@@ -558,8 +557,8 @@ public:
         BEAST_EXPECT(handler.seqs[0] == 1);
         BEAST_EXPECT(!handler.unexpectedMessage);
 
-        std::array<boost::asio::const_buffer, 1> remaining{
-            boost::asio::buffer(wire.data() + first.first, wire.size() - first.first)};
+        std::array<boost::asio::const_buffer, 1> remaining{boost::asio::buffer(
+            wire.data() + first.first, wire.size() - first.first)};
 
         auto const second = invokeProtocolMessage(remaining, handler, hint);
 

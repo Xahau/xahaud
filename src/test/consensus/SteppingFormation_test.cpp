@@ -16,9 +16,9 @@
 //------------------------------------------------------------------------------
 #include <test/jtx/SteppingNetwork.h>
 
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 
 #include <chrono>
 #include <cstdint>
@@ -68,7 +68,8 @@ class SteppingFormation_test : public beast::unit_test::suite
         constexpr std::size_t kMaxBeats = 80;
         FormationOutcome out;
         std::uint32_t lastValidated = 0;
-        while (net.minValidatedSeq() < target && out.beatsToConverge < kMaxBeats)
+        while (net.minValidatedSeq() < target &&
+               out.beatsToConverge < kMaxBeats)
         {
             net.tick();
             ++out.beatsToConverge;

@@ -1,18 +1,19 @@
 //------------------------------------------------------------------------------
 // SteppingDeterminism — the standing determinism regression gate for the strict
-// stepping harness (harness-evolution-plan.md §7.2, guarding the §4.5 invariant:
-// nondeterministic inputs must never reach consensus outcomes).
+// stepping harness (harness-evolution-plan.md §7.2, guarding the §4.5
+// invariant: nondeterministic inputs must never reach consensus outcomes).
 //
 // Two proofs, kept deliberately lean (this is a gate, not a showcase):
-//   1. CONVERGENCE — N = 2..4 validators on a full SimOverlay mesh converge to a
+//   1. CONVERGENCE — N = 2..4 validators on a full SimOverlay mesh converge to
+//   a
 //      shared validated ledger under strict stepping, within a bounded budget,
 //      with the structural invariants intact: zero off-thread jobs, zero
 //      unmodeled-job failures, and bit-identical ledgers at the target seq.
 //   2. REPRODUCIBILITY — the validated-ledger hash CHAIN (not just one hash) of
 //      two INDEPENDENT runs of the same scenario is identical, run-to-run, in
 //      the same process. Empty ledgers hash only prev-hash + (empty) tx tree +
-//      state tree + closeTime; closeTime is scheduler-driven (deterministic) and
-//      the PRNG-derived validation cookies are metadata, never hashed. Any
+//      state tree + closeTime; closeTime is scheduler-driven (deterministic)
+//      and the PRNG-derived validation cookies are metadata, never hashed. Any
 //      capability that lets a nondeterministic input reach the hash breaks this
 //      suite — which is exactly its job.
 //
@@ -56,9 +57,10 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         auto const steps = net.runTo(target);
 
         log << "  N=" << n << ": " << steps
-            << " scheduler events, minValidated=" << net.minValidatedSeq() << " (target " << target
-            << "), offThreadJobs=" << net.offThreadJobs() << ", failedJobs=" << net.failedJobs()
-            << std::endl;
+            << " scheduler events, minValidated=" << net.minValidatedSeq()
+            << " (target " << target
+            << "), offThreadJobs=" << net.offThreadJobs()
+            << ", failedJobs=" << net.failedJobs() << std::endl;
 
         // Converged within the default budget (120 heartbeats / 1M steps)...
         if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
@@ -122,13 +124,16 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         net.recordForensics();
         if (!BEAST_EXPECT(!convergedChainIn(net, 3, /*target=*/4).empty()))
             return;
-        log << "  canary observed: fingerprint 0x" << std::hex << net.traceFingerprint() << std::dec
-            << ", " << net.traceCount() << " events" << std::endl;
-        if (net.traceFingerprint() != kCanaryFingerprint || net.traceCount() != kCanaryEvents)
+        log << "  canary observed: fingerprint 0x" << std::hex
+            << net.traceFingerprint() << std::dec << ", " << net.traceCount()
+            << " events" << std::endl;
+        if (net.traceFingerprint() != kCanaryFingerprint ||
+            net.traceCount() != kCanaryEvents)
         {
             for (auto const& event : net.controller().scheduler().traceLog())
-                log << "  canary event: when=" << event.when << " tier=" << event.tier
-                    << " node=" << event.nodeId << " kind=" << static_cast<int>(event.kind)
+                log << "  canary event: when=" << event.when
+                    << " tier=" << event.tier << " node=" << event.nodeId
+                    << " kind=" << static_cast<int>(event.kind)
                     << " label=" << event.label << std::endl;
         }
         BEAST_EXPECT(net.traceFingerprint() == kCanaryFingerprint);
@@ -168,16 +173,22 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         [[nodiscard]] bool
         operator==(KProfiledSample const& o) const
         {
-            return k == o.k && fingerprint == o.fingerprint && events == o.events &&
-                steps == o.steps && beats == o.beats && minValidated == o.minValidated &&
-                maxValidated == o.maxValidated && forkCheckedSeqs == o.forkCheckedSeqs &&
+            return k == o.k && fingerprint == o.fingerprint &&
+                events == o.events && steps == o.steps && beats == o.beats &&
+                minValidated == o.minValidated &&
+                maxValidated == o.maxValidated &&
+                forkCheckedSeqs == o.forkCheckedSeqs &&
                 clampHits == o.clampHits && requestedMs == o.requestedMs &&
-                consumedMs == o.consumedMs && maxConsumedBeatMs == o.maxConsumedBeatMs &&
-                schedulerMs == o.schedulerMs && closeTimeSeconds == o.closeTimeSeconds &&
+                consumedMs == o.consumedMs &&
+                maxConsumedBeatMs == o.maxConsumedBeatMs &&
+                schedulerMs == o.schedulerMs &&
+                closeTimeSeconds == o.closeTimeSeconds &&
                 forkFree == o.forkFree && converged == o.converged &&
-                weightedEvents == o.weightedEvents && heartbeatEvents == o.heartbeatEvents &&
+                weightedEvents == o.weightedEvents &&
+                heartbeatEvents == o.heartbeatEvents &&
                 deliverEvents == o.deliverEvents && jobEvents == o.jobEvents &&
-                timerEvents == o.timerEvents && firstClampWeight == o.firstClampWeight;
+                timerEvents == o.timerEvents &&
+                firstClampWeight == o.firstClampWeight;
         }
     };
 
@@ -190,7 +201,9 @@ class SteppingDeterminism_test : public beast::unit_test::suite
     [[nodiscard]] static std::int64_t
     asMs(HarnessScheduler::time_point t)
     {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(t.time_since_epoch()).count();
+        return std::chrono::duration_cast<std::chrono::milliseconds>(
+                   t.time_since_epoch())
+            .count();
     }
 
     KProfiledSample
@@ -208,10 +221,12 @@ class SteppingDeterminism_test : public beast::unit_test::suite
 
         auto const stats = net.runProfiledTo(
             target,
-            SteppingNetwork::KProfiledOptions{/*k=*/k,
-                                              /*unitCost=*/milliseconds{5},
-                                              HarnessScheduler::ProfiledPacer::NodeMultipliers{}},
-            SteppingNetwork::RunBudget{/*heartbeats=*/160, /*steps=*/1'000'000});
+            SteppingNetwork::KProfiledOptions{
+                /*k=*/k,
+                /*unitCost=*/milliseconds{5},
+                HarnessScheduler::ProfiledPacer::NodeMultipliers{}},
+            SteppingNetwork::RunBudget{
+                /*heartbeats=*/160, /*steps=*/1'000'000});
 
         out.fingerprint = net.traceFingerprint();
         out.events = net.traceCount();
@@ -226,14 +241,14 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         out.consumedMs = asMs(stats.consumedVirtualAdvance);
         out.schedulerMs = asMs(stats.schedulerNow);
         out.weightedEvents = stats.weightedEvents;
-        out.heartbeatEvents =
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::heartbeat)];
-        out.deliverEvents =
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::deliver)];
-        out.jobEvents =
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::job)];
-        out.timerEvents =
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::timer)];
+        out.heartbeatEvents = stats.eventsByKind[HarnessScheduler::kindIndex(
+            HarnessScheduler::Kind::heartbeat)];
+        out.deliverEvents = stats.eventsByKind[HarnessScheduler::kindIndex(
+            HarnessScheduler::Kind::deliver)];
+        out.jobEvents = stats.eventsByKind[HarnessScheduler::kindIndex(
+            HarnessScheduler::Kind::job)];
+        out.timerEvents = stats.eventsByKind[HarnessScheduler::kindIndex(
+            HarnessScheduler::Kind::timer)];
         out.firstClampWeight = stats.firstClampWeight;
         for (auto const d : stats.consumedPerBeat)
         {
@@ -248,23 +263,29 @@ class SteppingDeterminism_test : public beast::unit_test::suite
             if (auto const closeTime = net.ledgerCloseTime(0, closeSeq))
                 out.closeTimeSeconds = closeTime->time_since_epoch().count();
 
-        log << "  K=" << k << ": fp=0x" << std::hex << out.fingerprint << std::dec
-            << ", events=" << out.events << ", steps=" << out.steps << ", beats=" << out.beats
-            << ", minValidated=" << out.minValidated << ", maxValidated=" << out.maxValidated
-            << ", forkCheckedSeqs=" << out.forkCheckedSeqs << ", clampHits=" << out.clampHits
-            << ", requestedMs=" << out.requestedMs << ", consumedMs=" << out.consumedMs
-            << ", maxBeatMs=" << out.maxConsumedBeatMs << ", schedulerMs=" << out.schedulerMs
-            << ", closeTime=" << out.closeTimeSeconds << ", forkFree=" << out.forkFree
-            << ", converged=" << out.converged << ", weightedEvents=" << out.weightedEvents
+        log << "  K=" << k << ": fp=0x" << std::hex << out.fingerprint
+            << std::dec << ", events=" << out.events << ", steps=" << out.steps
+            << ", beats=" << out.beats << ", minValidated=" << out.minValidated
+            << ", maxValidated=" << out.maxValidated
+            << ", forkCheckedSeqs=" << out.forkCheckedSeqs
+            << ", clampHits=" << out.clampHits
+            << ", requestedMs=" << out.requestedMs
+            << ", consumedMs=" << out.consumedMs
+            << ", maxBeatMs=" << out.maxConsumedBeatMs
+            << ", schedulerMs=" << out.schedulerMs
+            << ", closeTime=" << out.closeTimeSeconds
+            << ", forkFree=" << out.forkFree << ", converged=" << out.converged
+            << ", weightedEvents=" << out.weightedEvents
             << ", kindEvents={heartbeat:" << out.heartbeatEvents
             << ", deliver:" << out.deliverEvents << ", job:" << out.jobEvents
-            << ", timer:" << out.timerEvents << "}, firstClampWeight=" << out.firstClampWeight
-            << std::endl;
+            << ", timer:" << out.timerEvents
+            << "}, firstClampWeight=" << out.firstClampWeight << std::endl;
         if (stats.saturated())
         {
             log << "    first clamp: kind="
                 << HarnessScheduler::kindName(stats.firstClampEvent.kind)
-                << ", tier=" << HarnessScheduler::tierName(stats.firstClampEvent.tier)
+                << ", tier="
+                << HarnessScheduler::tierName(stats.firstClampEvent.tier)
                 << ", node=" << stats.firstClampEvent.nodeId
                 << ", requestedMs=" << asMs(stats.firstClampRequested)
                 << ", budgetMs=" << asMs(stats.firstClampBudget)
@@ -273,7 +294,8 @@ class SteppingDeterminism_test : public beast::unit_test::suite
 
         bool globalLagZero = true;
         for (auto const lag : stats.nodeLag)
-            globalLagZero = globalLagZero && lag == HarnessScheduler::duration{};
+            globalLagZero =
+                globalLagZero && lag == HarnessScheduler::duration{};
         BEAST_EXPECT(globalLagZero);
         BEAST_EXPECT(net.offThreadJobs() == 0);
         BEAST_EXPECT(net.failedJobs() == 0);
@@ -290,22 +312,30 @@ class SteppingDeterminism_test : public beast::unit_test::suite
 
         using namespace std::chrono;
         auto const nodeMultipliers =
-            HarnessScheduler::ProfiledPacer::NodeMultipliers::single(/*nodeId=*/2, /*value=*/4);
+            HarnessScheduler::ProfiledPacer::NodeMultipliers::single(
+                /*nodeId=*/2, /*value=*/4);
         SteppingNetwork::KProfiledOptions const options{
             /*k=*/3, /*unitCost=*/milliseconds{7}, nodeMultipliers};
         auto const pacer = options.pacer();
 
-        BEAST_EXPECT(pacer.eventWeight(/*nodeId=*/0, HarnessScheduler::Kind::job) == 3);
-        BEAST_EXPECT(pacer.eventWeight(/*nodeId=*/2, HarnessScheduler::Kind::job) == 12);
         BEAST_EXPECT(
-            pacer.eventCost(/*nodeId=*/2, HarnessScheduler::Kind::job) == milliseconds{252});
+            pacer.eventWeight(/*nodeId=*/0, HarnessScheduler::Kind::job) == 3);
+        BEAST_EXPECT(
+            pacer.eventWeight(/*nodeId=*/2, HarnessScheduler::Kind::job) == 12);
+        BEAST_EXPECT(
+            pacer.eventCost(/*nodeId=*/2, HarnessScheduler::Kind::job) ==
+            milliseconds{252});
         BEAST_EXPECT(pacer.nodeMultipliers.multiplier(2) == 4);
-        BEAST_EXPECT(pacer.horizonMode == HarnessScheduler::ProfiledPacer::HorizonMode::global);
+        BEAST_EXPECT(
+            pacer.horizonMode ==
+            HarnessScheduler::ProfiledPacer::HorizonMode::global);
 
         auto perNode = options;
-        perNode.horizonMode = HarnessScheduler::ProfiledPacer::HorizonMode::perNode;
+        perNode.horizonMode =
+            HarnessScheduler::ProfiledPacer::HorizonMode::perNode;
         BEAST_EXPECT(
-            perNode.pacer().horizonMode == HarnessScheduler::ProfiledPacer::HorizonMode::perNode);
+            perNode.pacer().horizonMode ==
+            HarnessScheduler::ProfiledPacer::HorizonMode::perNode);
     }
 
     [[nodiscard]] static uint256
@@ -316,15 +346,19 @@ class SteppingDeterminism_test : public beast::unit_test::suite
     }
 
     [[nodiscard]] static std::optional<std::vector<uint256>>
-    runPerNodeHorizonScenario(beast::unit_test::suite& suite, SteppingNetwork& net)
+    runPerNodeHorizonScenario(
+        beast::unit_test::suite& suite,
+        SteppingNetwork& net)
     {
         using namespace std::chrono;
 
         net.validators(5).mesh();
-        if (!suite.expect(net.allUp() && net.meshReady(), "per-node K: mesh ready"))
+        if (!suite.expect(
+                net.allUp() && net.meshReady(), "per-node K: mesh ready"))
             return std::nullopt;
         net.runTo(3);
-        if (!suite.expect(net.minValidatedSeq() >= 3, "per-node K: reached warmup"))
+        if (!suite.expect(
+                net.minValidatedSeq() >= 3, "per-node K: reached warmup"))
             return std::nullopt;
 
         auto const target = net.minValidatedSeq() + 5;
@@ -355,13 +389,15 @@ class SteppingDeterminism_test : public beast::unit_test::suite
             /*unitCost=*/milliseconds{5},
             HarnessScheduler::ProfiledPacer::NodeMultipliers::single(
                 /*nodeId=*/0, /*value=*/20, /*fallback=*/0)};
-        options.horizonMode = HarnessScheduler::ProfiledPacer::HorizonMode::perNode;
+        options.horizonMode =
+            HarnessScheduler::ProfiledPacer::HorizonMode::perNode;
 
         auto const stats = net.runProfiledTo(
             target,
             options,
             SteppingNetwork::RunBudget{/*heartbeats=*/120, /*steps=*/1'000'000},
-            SteppingNetwork::Cadence{/*dt=*/seconds{1}, /*skew=*/milliseconds{20}},
+            SteppingNetwork::Cadence{
+                /*dt=*/seconds{1}, /*skew=*/milliseconds{20}},
             afterBeat);
 
         auto fastMin = std::numeric_limits<std::uint32_t>::max();
@@ -377,7 +413,8 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         bool otherLagZero = true;
         for (std::uint32_t i = 1; i < 5; ++i)
         {
-            auto const lag = i < stats.nodeLag.size() ? stats.nodeLag[i] : zeroLag;
+            auto const lag =
+                i < stats.nodeLag.size() ? stats.nodeLag[i] : zeroLag;
             otherLagZero = otherLagZero && lag == zeroLag;
         }
         bool lagGrew = false;
@@ -391,43 +428,60 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         }
 
         auto const slowNow = net.node(0).app().timeKeeper().now();
-        auto const slowClose =
-            net.validSeq(0) >= 2 ? net.ledgerCloseTime(0, net.validSeq(0)) : std::nullopt;
-        auto const fastClose = fastMin >= 2 ? net.ledgerCloseTime(1, fastMin) : std::nullopt;
+        auto const slowClose = net.validSeq(0) >= 2
+            ? net.ledgerCloseTime(0, net.validSeq(0))
+            : std::nullopt;
+        auto const fastClose =
+            fastMin >= 2 ? net.ledgerCloseTime(1, fastMin) : std::nullopt;
         auto const fastCloseAheadOfSlowNow = fastClose && *fastClose > slowNow;
 
-        suite.log << "  per-node K: lag0Ms=" << asMs(lag0) << ", clamps=" << stats.clampHits
-                  << ", slowValid=" << net.validSeq(0) << ", fastMin=" << fastMin
-                  << ", fastMax=" << fastMax << ", firstFastAheadBeat=" << firstFastAheadBeat
+        suite.log << "  per-node K: lag0Ms=" << asMs(lag0)
+                  << ", clamps=" << stats.clampHits
+                  << ", slowValid=" << net.validSeq(0)
+                  << ", fastMin=" << fastMin << ", fastMax=" << fastMax
+                  << ", firstFastAheadBeat=" << firstFastAheadBeat
                   << ", maxFastAhead=" << maxFastAhead
                   << ", slowNowSec=" << slowNow.time_since_epoch().count()
-                  << ", slowCloseSec=" << (slowClose ? slowClose->time_since_epoch().count() : -1)
-                  << ", fastCloseSec=" << (fastClose ? fastClose->time_since_epoch().count() : -1)
+                  << ", slowCloseSec="
+                  << (slowClose ? slowClose->time_since_epoch().count() : -1)
+                  << ", fastCloseSec="
+                  << (fastClose ? fastClose->time_since_epoch().count() : -1)
                   << ", forkFree=" << net.validatedForkFree() << std::endl;
 
         bool ok = true;
-        ok &= suite.expect(stats.clampHits != 0, "per-node K: saturated node 0");
-        ok &= suite.expect(lag0 > zeroLag, "per-node K: node 0 accumulated lag");
-        ok &= suite.expect(otherLagZero, "per-node K: fast nodes accumulated no lag");
+        ok &=
+            suite.expect(stats.clampHits != 0, "per-node K: saturated node 0");
+        ok &=
+            suite.expect(lag0 > zeroLag, "per-node K: node 0 accumulated lag");
         ok &= suite.expect(
-            slowNow == NetClock::time_point{}, "per-node K: excessive lag stops at epoch");
+            otherLagZero, "per-node K: fast nodes accumulated no lag");
+        ok &= suite.expect(
+            slowNow == NetClock::time_point{},
+            "per-node K: excessive lag stops at epoch");
         ok &= suite.expect(lagGrew, "per-node K: node 0 lag grew across beats");
-        ok &= suite.expect(fastMin >= target, "per-node K: fast quorum reached target");
+        ok &= suite.expect(
+            fastMin >= target, "per-node K: fast quorum reached target");
         // Timestamp pressure permits later catch-up. The ledger-lag witness
         // belongs to the observed history, not necessarily the final sample.
-        ok &= suite.expect(maxFastAhead != 0, "per-node K: node 0 was observed behind");
-        ok &= suite.expect(firstFastAheadBeat != 0, "per-node K: fast quorum outran node 0");
+        ok &= suite.expect(
+            maxFastAhead != 0, "per-node K: node 0 was observed behind");
+        ok &= suite.expect(
+            firstFastAheadBeat != 0, "per-node K: fast quorum outran node 0");
         ok &= suite.expect(
             net.validatedAgree({1, 2, 3, 4}, fastMin),
             "per-node K: fast quorum agreed at its advanced seq");
         ok &= suite.expect(
             sawFastCloseAheadOfSlowClose,
-            "per-node K: quorum validated beyond node 0's validated close time");
+            "per-node K: quorum validated beyond node 0's validated close "
+            "time");
         ok &= suite.expect(
             fastCloseAheadOfSlowNow,
-            "per-node K: quorum validated a ledger beyond node 0's observed clock");
-        ok &= suite.expect(net.validatedForkFree(), "per-node K: no validated fork");
-        ok &= suite.expect(net.offThreadJobs() == 0, "per-node K: no off-thread jobs");
+            "per-node K: quorum validated a ledger beyond node 0's observed "
+            "clock");
+        ok &= suite.expect(
+            net.validatedForkFree(), "per-node K: no validated fork");
+        ok &= suite.expect(
+            net.offThreadJobs() == 0, "per-node K: no off-thread jobs");
         ok &= suite.expect(net.failedJobs() == 0, "per-node K: no failed jobs");
         if (!ok)
             return std::nullopt;
@@ -451,9 +505,10 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         testcase(
             "K-profiled per-node horizon: lagged owner sees stale NetClock "
             "while quorum advances fork-free");
-        expectReplays(*this, "per-node K horizon", [this](SteppingNetwork& net) {
-            return runPerNodeHorizonScenario(*this, net);
-        });
+        expectReplays(
+            *this, "per-node K horizon", [this](SteppingNetwork& net) {
+                return runPerNodeHorizonScenario(*this, net);
+            });
     }
 
     struct KZeroHorizonSample
@@ -465,12 +520,14 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         [[nodiscard]] bool
         operator==(KZeroHorizonSample const& o) const
         {
-            return chain == o.chain && fingerprint == o.fingerprint && events == o.events;
+            return chain == o.chain && fingerprint == o.fingerprint &&
+                events == o.events;
         }
     };
 
     [[nodiscard]] KZeroHorizonSample
-    runKZeroHorizonScenario(HarnessScheduler::ProfiledPacer::HorizonMode horizonMode)
+    runKZeroHorizonScenario(
+        HarnessScheduler::ProfiledPacer::HorizonMode horizonMode)
     {
         using namespace std::chrono;
         constexpr std::uint32_t target = 4;
@@ -488,7 +545,10 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         options.horizonMode = horizonMode;
 
         auto const stats = net.runProfiledTo(
-            target, options, SteppingNetwork::RunBudget{/*heartbeats=*/160, /*steps=*/1'000'000});
+            target,
+            options,
+            SteppingNetwork::RunBudget{
+                /*heartbeats=*/160, /*steps=*/1'000'000});
 
         BEAST_EXPECT(stats.clampHits == 0);
         BEAST_EXPECT(stats.nodeLag.empty());
@@ -518,7 +578,9 @@ class SteppingDeterminism_test : public beast::unit_test::suite
     void
     testKProfiledPacerDeterminism()
     {
-        testcase("K-profiled pacer: K=0 inert, weighted K sweep pinned, stable, fork-free");
+        testcase(
+            "K-profiled pacer: K=0 inert, weighted K sweep pinned, stable, "
+            "fork-free");
 
         static constexpr KProfiledSample kExpected[] = {
             {0,
@@ -628,7 +690,9 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         // The two production globals are distinct instances: routing RTT
         // through getStopwatch() would quantize it to cached seconds,
         // which is exactly why getPreciseStopwatch() exists.
-        BEAST_EXPECT(&stopwatch() != &beast::get_abstract_clock<std::chrono::steady_clock>());
+        BEAST_EXPECT(
+            &stopwatch() !=
+            &beast::get_abstract_clock<std::chrono::steady_clock>());
 
         SteppingNetwork net(*this);
         net.validators(2).mesh();
@@ -674,17 +738,20 @@ class SteppingDeterminism_test : public beast::unit_test::suite
                 // count beats.
                 auto const allLatenciesMeasured = [&net]() {
                     for (std::uint32_t i = 0; i < 2; ++i)
-                        for (auto const& p : net.node(i).app().overlay().getActivePeers())
+                        for (auto const& p :
+                             net.node(i).app().overlay().getActivePeers())
                             if (!p->json().isMember(jss::latency))
                                 return false;
                     return true;
                 };
                 if (!BEAST_EXPECT(net.runUntil(
-                        allLatenciesMeasured, SteppingNetwork::RunBudget{/*heartbeats=*/70})))
+                        allLatenciesMeasured,
+                        SteppingNetwork::RunBudget{/*heartbeats=*/70})))
                     return Payload{};
                 std::vector<uint256> out;
                 for (std::uint32_t i = 0; i < 2; ++i)
-                    for (auto const& p : net.node(i).app().overlay().getActivePeers())
+                    for (auto const& p :
+                         net.node(i).app().overlay().getActivePeers())
                     {
                         auto const ms = p->json()[jss::latency].asUInt();
                         BEAST_EXPECT(ms == 10);  // 2 x 5ms link delay

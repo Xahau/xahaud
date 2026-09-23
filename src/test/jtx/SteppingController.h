@@ -2,18 +2,20 @@
 //------------------------------------------------------------------------------
 // SteppingController — the single-threaded executor of consensus-critical work
 // for the stepping harness (Stage 3). Both consensus JOBS (claimed via per-node
-// JobQueue dispatch hooks) and transport DELIVERIES (S3.4) are ENQUEUED onto one
-// HarnessScheduler; stepping the scheduler is the ONLY place they run — on the
-// stepping thread, clean stack, in deterministic (when, tier, nodeId, seq) order.
+// JobQueue dispatch hooks) and transport DELIVERIES (S3.4) are ENQUEUED onto
+// one HarnessScheduler; stepping the scheduler is the ONLY place they run — on
+// the stepping thread, clean stack, in deterministic (when, tier, nodeId, seq)
+// order.
 //
 // Why enqueue (never run inline at the post site): a consensus job / delivered
 // message run nested inside the caller's stack can re-enter a lock the caller
 // still holds (the same-node ricochet: A's job → deliver to B → B replies →
 // A's handler re-enters A's lock). Routing every cross-node effect and every
-// consensus job through the scheduler lets each node's stack fully unwind before
-// any reply/job re-enters it. (Cross-NODE nesting is itself lock-safe — distinct
-// ApplicationImp instances have distinct mutexes — but the same-node ricochet is
-// not, which is why delivery delay must be strictly positive; see scheduleDelivery.)
+// consensus job through the scheduler lets each node's stack fully unwind
+// before any reply/job re-enters it. (Cross-NODE nesting is itself lock-safe —
+// distinct ApplicationImp instances have distinct mutexes — but the same-node
+// ricochet is not, which is why delivery delay must be strictly positive; see
+// scheduleDelivery.)
 //
 // Clock coherence: the scheduler's now() is the master virtual time. Every
 // enqueued event first syncs the injected clocks through the callback MultiNode
@@ -24,10 +26,10 @@
 //------------------------------------------------------------------------------
 #include <test/jtx/HarnessScheduler.h>
 
-#include <xrpl/basics/contract.h>               // Throw
+#include <xrpld/core/Job.h>        // JobType
+#include <xrpld/core/JobQueue.h>   // JobQueue::DispatchHook / JobFunction
+#include <xrpl/basics/contract.h>  // Throw
 #include <xrpl/beast/core/CurrentThreadName.h>  // diagnostic: name the off-thread culprit
-#include <xrpld/core/Job.h>                      // JobType
-#include <xrpld/core/JobQueue.h>                 // JobQueue::DispatchHook / JobFunction
 
 #include <atomic>
 #include <cstdint>
@@ -116,23 +118,23 @@ private:
     HarnessScheduler scheduler_;
     JobPolicy jobPolicy_ = JobPolicy::strictKnownOnly;
     // The thread that constructs + steps the controller is the one legal place
-    // for consensus-critical work. A hooked job arriving on any other thread is a
-    // bug (it would race the single-threaded scheduler); we record it and fall
-    // through to workers rather than corrupt the queue.
+    // for consensus-critical work. A hooked job arriving on any other thread is
+    // a bug (it would race the single-threaded scheduler); we record it and
+    // fall through to workers rather than corrupt the queue.
     std::thread::id const steppingThread_{std::this_thread::get_id()};
     std::atomic<std::size_t> offThreadJobs_{0};
-    // Set at teardown (beginDraining): once true, the harness is shutting down and
-    // the scheduler has been dropped. Delivery routers consult draining() and DROP
-    // residual cross-node completions rather than scheduling them — during the
-    // poll-pumped app->run() shutdown a SimPipe::close()/EOF can fire on the io
-    // pump thread (off the stepping thread), and the message is irrelevant to a
-    // node that is going away. Avoids both the off-thread hard-fail and a pump-vs-
-    // shutdown race.
+    // Set at teardown (beginDraining): once true, the harness is shutting down
+    // and the scheduler has been dropped. Delivery routers consult draining()
+    // and DROP residual cross-node completions rather than scheduling them —
+    // during the poll-pumped app->run() shutdown a SimPipe::close()/EOF can
+    // fire on the io pump thread (off the stepping thread), and the message is
+    // irrelevant to a node that is going away. Avoids both the off-thread
+    // hard-fail and a pump-vs- shutdown race.
     std::atomic<bool> draining_{false};
-    // Nodes that are temporarily stopped during a lifecycle test. Their residual
-    // jobs/deliveries are dropped, while the rest of the stepping network keeps
-    // running. Access is mutex-protected because shutdown poll-pumps can trigger
-    // transport completions off the stepping thread.
+    // Nodes that are temporarily stopped during a lifecycle test. Their
+    // residual jobs/deliveries are dropped, while the rest of the stepping
+    // network keeps running. Access is mutex-protected because shutdown
+    // poll-pumps can trigger transport completions off the stepping thread.
     mutable std::mutex inactiveMutex_;
     std::unordered_set<std::uint32_t> inactiveNodes_;
     // Installed by MultiNode: advance injected clocks for the event about to
@@ -155,10 +157,12 @@ private:
     std::vector<std::string> failedJobs_;
     static constexpr std::size_t maxRecentJobs_ = 40;
     std::map<std::pair<std::uint32_t, int>, duration> jobLags_;
-    std::map<std::tuple<std::uint32_t, JobType, std::string>, duration> namedJobLags_;
+    std::map<std::tuple<std::uint32_t, JobType, std::string>, duration>
+        namedJobLags_;
     std::function<void(std::uint32_t, JobType, std::string const&)> beforeJob_;
     // Survives observeJobs replacement. Scenario-wide invariants use this.
-    std::function<void(std::uint32_t, JobType, std::string const&)> alwaysBeforeJob_;
+    std::function<void(std::uint32_t, JobType, std::string const&)>
+        alwaysBeforeJob_;
 
     [[nodiscard]] static char const*
     jobTypeName(JobType t)
@@ -269,12 +273,16 @@ private:
     [[nodiscard]] static std::string
     jobLabel(JobType t, std::string const& name)
     {
-        return std::string(jobTypeName(t)) + "(jt#" + std::to_string(static_cast<int>(t)) + ")/'" +
-            name + "'";
+        return std::string(jobTypeName(t)) + "(jt#" +
+            std::to_string(static_cast<int>(t)) + ")/'" + name + "'";
     }
 
     void
-    recordJobLocked(std::uint32_t nodeId, JobType t, std::string const& name, char const* action)
+    recordJobLocked(
+        std::uint32_t nodeId,
+        JobType t,
+        std::string const& name,
+        char const* action)
     {
         auto const label = std::string(action) + " " + jobLabel(t, name);
         ++jobCounts_[label];
@@ -284,19 +292,28 @@ private:
     }
 
     void
-    recordJob(std::uint32_t nodeId, JobType t, std::string const& name, char const* action)
+    recordJob(
+        std::uint32_t nodeId,
+        JobType t,
+        std::string const& name,
+        char const* action)
     {
         std::scoped_lock lock(diagnosticsMutex_);
         recordJobLocked(nodeId, t, name, action);
     }
 
     void
-    recordFailedJob(std::uint32_t nodeId, JobType t, std::string const& name, char const* reason)
+    recordFailedJob(
+        std::uint32_t nodeId,
+        JobType t,
+        std::string const& name,
+        char const* reason)
     {
         std::scoped_lock lock(diagnosticsMutex_);
         recordJobLocked(nodeId, t, name, reason);
         failedJobs_.push_back(
-            "n" + std::to_string(nodeId) + " " + reason + " " + jobLabel(t, name));
+            "n" + std::to_string(nodeId) + " " + reason + " " +
+            jobLabel(t, name));
     }
 
     void
@@ -308,9 +325,13 @@ private:
         duration lag)
     {
         std::scoped_lock lock(diagnosticsMutex_);
-        auto const label = "n" + std::to_string(nodeId) +
-            " tier=" + HarnessScheduler::tierName(static_cast<int>(tier)) + " +" +
-            std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(lag).count()) +
+        auto const label =
+            "n" + std::to_string(nodeId) +
+            " tier=" + HarnessScheduler::tierName(static_cast<int>(tier)) +
+            " +" +
+            std::to_string(
+                std::chrono::duration_cast<std::chrono::milliseconds>(lag)
+                    .count()) +
             "ms " + jobLabel(t, name);
         ++laggedPendingJobs_[label];
     }
@@ -324,9 +345,13 @@ private:
         duration lag)
     {
         std::scoped_lock lock(diagnosticsMutex_);
-        auto const label = "n" + std::to_string(nodeId) +
-            " tier=" + HarnessScheduler::tierName(static_cast<int>(tier)) + " +" +
-            std::to_string(std::chrono::duration_cast<std::chrono::milliseconds>(lag).count()) +
+        auto const label =
+            "n" + std::to_string(nodeId) +
+            " tier=" + HarnessScheduler::tierName(static_cast<int>(tier)) +
+            " +" +
+            std::to_string(
+                std::chrono::duration_cast<std::chrono::milliseconds>(lag)
+                    .count()) +
             "ms " + jobLabel(t, name);
         auto it = laggedPendingJobs_.find(label);
         if (it == laggedPendingJobs_.end())
@@ -347,7 +372,8 @@ private:
     {
         std::scoped_lock lock(diagnosticsMutex_);
         auto const prefix = "n" + std::to_string(nodeId) + " ";
-        for (auto it = laggedPendingJobs_.begin(); it != laggedPendingJobs_.end();)
+        for (auto it = laggedPendingJobs_.begin();
+             it != laggedPendingJobs_.end();)
         {
             if (it->first.compare(0, prefix.size(), prefix) == 0)
                 it = laggedPendingJobs_.erase(it);
@@ -405,9 +431,14 @@ private:
     }
 
     [[nodiscard]] duration
-    jobLag(std::uint32_t nodeId, Tier tier, JobType type, std::string const& name) const
+    jobLag(
+        std::uint32_t nodeId,
+        Tier tier,
+        JobType type,
+        std::string const& name) const
     {
-        if (auto const it = namedJobLags_.find({nodeId, type, name}); it != namedJobLags_.end())
+        if (auto const it = namedJobLags_.find({nodeId, type, name});
+            it != namedJobLags_.end())
             return it->second;
         auto const it = jobLags_.find({nodeId, static_cast<int>(tier)});
         return it == jobLags_.end() ? duration::zero() : it->second;
@@ -431,10 +462,10 @@ private:
     }
 
     // Wrap an enqueued handler so it first brings the clocks up to the event's
-    // virtual time (scheduler_.now() is already set to the event's `when` when it
-    // runs), then performs the work. Clock coherence is core to the model, so a
-    // missing setSyncClock() is a HARD failure once events run (not silently
-    // skipped) — consensus would otherwise read an inconsistent time.
+    // virtual time (scheduler_.now() is already set to the event's `when` when
+    // it runs), then performs the work. Clock coherence is core to the model,
+    // so a missing setSyncClock() is a HARD failure once events run (not
+    // silently skipped) — consensus would otherwise read an inconsistent time.
     template <class Fn>
     auto
     withClockSync(std::uint32_t nodeId, Fn&& fn)
@@ -445,8 +476,10 @@ private:
                     "SteppingController: setSyncClock() not installed before "
                     "events ran");
             auto const global = scheduler_.now();
-            auto const useProfiled = profiledClockSync_ && profiledClockSync_->nodeId == nodeId;
-            auto const observed = useProfiled ? profiledClockSync_->observed : global;
+            auto const useProfiled =
+                profiledClockSync_ && profiledClockSync_->nodeId == nodeId;
+            auto const observed =
+                useProfiled ? profiledClockSync_->observed : global;
             auto const ownerOnly = useProfiled && profiledClockSync_->ownerOnly;
             syncClock_(nodeId, global, observed, ownerOnly);
             fn();
@@ -460,7 +493,8 @@ private:
     {
         if (std::this_thread::get_id() != steppingThread_)
             Throw<std::logic_error>(
-                std::string("SteppingController: ") + what + " off the stepping thread [thread='" +
+                std::string("SteppingController: ") + what +
+                " off the stepping thread [thread='" +
                 std::string(beast::getCurrentThreadName()) + "']");
     }
 
@@ -506,7 +540,8 @@ public:
     {
         requireSteppingThread("setJobLag");
         if (lag < duration::zero())
-            Throw<std::logic_error>("SteppingController::setJobLag: lag must be non-negative");
+            Throw<std::logic_error>(
+                "SteppingController::setJobLag: lag must be non-negative");
         auto const key = std::make_pair(nodeId, static_cast<int>(tier));
         if (lag == duration::zero())
             jobLags_.erase(key);
@@ -515,11 +550,16 @@ public:
     }
 
     void
-    setJobLag(std::uint32_t nodeId, JobType type, std::string name, duration lag)
+    setJobLag(
+        std::uint32_t nodeId,
+        JobType type,
+        std::string name,
+        duration lag)
     {
         requireSteppingThread("setJobLag");
         if (lag < duration::zero())
-            Throw<std::logic_error>("SteppingController::setJobLag: lag must be non-negative");
+            Throw<std::logic_error>(
+                "SteppingController::setJobLag: lag must be non-negative");
         auto const key = std::make_tuple(nodeId, type, std::move(name));
         if (lag == duration::zero())
             namedJobLags_.erase(key);
@@ -530,7 +570,8 @@ public:
     // Passive scenario inspection after clock sync, immediately before the real
     // job body. This does not enqueue, suppress or replace that body.
     void
-    observeJobs(std::function<void(std::uint32_t, JobType, std::string const&)> observer)
+    observeJobs(std::function<void(std::uint32_t, JobType, std::string const&)>
+                    observer)
     {
         requireSteppingThread("observeJobs");
         beforeJob_ = std::move(observer);
@@ -539,7 +580,8 @@ public:
     // Survives observeJobs replacement. Scenario-wide invariants use this.
     void
     setAlwaysBeforeJob(
-        std::function<void(std::uint32_t, JobType, std::string const&)> observer)
+        std::function<void(std::uint32_t, JobType, std::string const&)>
+            observer)
     {
         requireSteppingThread("setAlwaysBeforeJob");
         alwaysBeforeJob_ = std::move(observer);
@@ -630,19 +672,24 @@ public:
     void
     setSyncClock(std::function<void(time_point)> f)
     {
-        syncClock_ = [f = std::move(f)](std::uint32_t, time_point, time_point t, bool) { f(t); };
+        syncClock_ = [f = std::move(f)](
+                         std::uint32_t, time_point, time_point t, bool) {
+            f(t);
+        };
     }
 
     void
     setSyncClock(std::function<void(std::uint32_t, time_point)> f)
     {
-        syncClock_ = [f = std::move(f)](std::uint32_t nodeId, time_point, time_point t, bool) {
+        syncClock_ = [f = std::move(f)](
+                         std::uint32_t nodeId, time_point, time_point t, bool) {
             f(nodeId, t);
         };
     }
 
     void
-    setSyncClock(std::function<void(std::uint32_t, time_point, time_point, bool)> f)
+    setSyncClock(
+        std::function<void(std::uint32_t, time_point, time_point, bool)> f)
     {
         syncClock_ = std::move(f);
     }
@@ -683,8 +730,8 @@ public:
         return inactiveNodes_.contains(nodeId);
     }
 
-    // How the closed world treats a job: enqueue it onto the scheduler in `tier`,
-    // drop it (a harness no-op), or fail (unmodeled → test failure).
+    // How the closed world treats a job: enqueue it onto the scheduler in
+    // `tier`, drop it (a harness no-op), or fail (unmodeled → test failure).
     enum class Action { fail, drop, enqueue };
     struct Classification
     {
@@ -692,9 +739,9 @@ public:
         Tier tier = Tier::process;  // meaningful only when action == enqueue
     };
 
-    // Classify a job by (type, NAME) — name matters because one JobType can serve
-    // several call sites. Enumerated from the S3.3b discovery inventory; extend as
-    // the strict run surfaces more.
+    // Classify a job by (type, NAME) — name matters because one JobType can
+    // serve several call sites. Enumerated from the S3.3b discovery inventory;
+    // extend as the strict run surfaces more.
     [[nodiscard]] static Classification
     classify(JobType t, std::string const& name)
     {
@@ -730,7 +777,8 @@ public:
             case JtAdvance:
                 // JtAdvance serves several call sites; classify by NAME:
                 //   "advanceLedger" — the modeled validated-ledger advance;
-                //   "getConsensusLedger1"/"getConsensusLedger2" — the ledger-ACQUIRE kickoffs
+                //   "getConsensusLedger1"/"getConsensusLedger2" — the
+                //   ledger-ACQUIRE kickoffs
                 //     (RCLConsensus::acquireLedger / RCLValidations) — modeled
                 //     since the 5.6b late-joiner increment: the job body calls
                 //     InboundLedgers::acquireAsync, whose request/response flow
@@ -759,8 +807,9 @@ public:
                 // TimeoutCounter RETRY (posted by a virtual Tier::timer
                 // expiry via the injected timer factory — the 005 seam;
                 // a wall asio timer in production): a timer, not data.
-                return name == "InboundLedger" ? Classification{Action::enqueue, Tier::timer}
-                                               : Classification{Action::enqueue, Tier::process};
+                return name == "InboundLedger"
+                    ? Classification{Action::enqueue, Tier::timer}
+                    : Classification{Action::enqueue, Tier::process};
             case JtTxnData:
                 // The TX-SET acquire pipeline — the tx-set sibling of
                 // JtLedgerData's closure graph (§5.1's forecast discovery,
@@ -774,7 +823,8 @@ public:
                 //   "completeAcquire" — acquire completion
                 //     (TransactionAcquire::done → giveSet feeds consensus):
                 //     data, arrival order;
-                //   "TransactionAcquire"        — the TransactionAcquire TimeoutCounter
+                //   "TransactionAcquire"        — the TransactionAcquire
+                //   TimeoutCounter
                 //     RETRY (virtual Tier::timer expiry via the injected
                 //     timer factory; wall asio in production): a timer,
                 //     like "InboundLedger".
@@ -795,8 +845,8 @@ public:
                 // backfill subsystem lit up (earliest_seq + the doAdvance
                 // progress fix — see issues/open/).
                 // xahaud names the save job with the decimal sequence alone.
-                if (!name.empty() && name.find_first_not_of("0123456789") ==
-                        std::string::npos)
+                if (!name.empty() &&
+                    name.find_first_not_of("0123456789") == std::string::npos)
                     return {Action::enqueue, Tier::process};
                 return {Action::fail};
             case JtPack:
@@ -804,7 +854,8 @@ public:
                 // history-backfill accelerant); build and reply from local
                 // state. Peer-serving read, sibling of "RcvGetLedger".
                 // Reachable only since earliest_seq=1 lit up the backfill
-                // subsystem (issues/open/003-history-backfill-dark-genesis-worlds.md).
+                // subsystem
+                // (issues/open/003-history-backfill-dark-genesis-worlds.md).
                 if (name == "MakeFetchPack")
                     return {Action::enqueue, Tier::process};
                 return {Action::fail};
@@ -815,9 +866,11 @@ public:
                 return name == "WAL"
                     ? Classification{Action::enqueue, Tier::process}
                     : Classification{Action::fail};
-            case JtClientFeeChange:  // "PubFee"  — fee-change sub notify (no subs)
-            case JtClientConsensus:  // "PubCons" — consensus-state sub notify (no subs)
-            case JtUpdatePf:         // "OB3"     — pathfinding update (none here)
+            case JtClientFeeChange:  // "PubFee"  — fee-change sub notify (no
+                                     // subs)
+            case JtClientConsensus:  // "PubCons" — consensus-state sub notify
+                                     // (no subs)
+            case JtUpdatePf:  // "OB3"     — pathfinding update (none here)
                 return {Action::drop};
             default:
                 return {Action::fail};
@@ -829,10 +882,10 @@ public:
     {
         switch (t)
         {
-            // Client/RPC/admin/background/special lanes are outside the stepping
-            // model unless a focused test explicitly promotes one. They are not
-            // part of the peer/consensus/acquire closure graph the S3.7 probe is
-            // trying to run.
+            // Client/RPC/admin/background/special lanes are outside the
+            // stepping model unless a focused test explicitly promotes one.
+            // They are not part of the peer/consensus/acquire closure graph the
+            // S3.7 probe is trying to run.
             case JtClient:
             case JtClientSubscribe:
             case JtClientAcctHist:
@@ -863,7 +916,8 @@ public:
     classifyForPolicy(JobType t, std::string const& name) const
     {
         auto const strict = classify(t, name);
-        if (jobPolicy_ == JobPolicy::strictKnownOnly || strict.action != Action::fail)
+        if (jobPolicy_ == JobPolicy::strictKnownOnly ||
+            strict.action != Action::fail)
         {
             return strict;
         }
@@ -877,9 +931,9 @@ public:
 
     // A JobQueue dispatch hook for node `nodeId` (the alternate executor for
     // stepping mode). Every job is claimed: a scheduler-owned job is ENQUEUED
-    // (never run inline, never left to workers); a known harness no-op is DROPPED
-    // (reported as not-queued, so a caller that keys a counter off the return
-    // value does not leak it); a denied/unmodeled job FAILS HARD. In
+    // (never run inline, never left to workers); a known harness no-op is
+    // DROPPED (reported as not-queued, so a caller that keys a counter off the
+    // return value does not leak it); a denied/unmodeled job FAILS HARD. In
     // strictKnownOnly, every non-enumerated job fails. In canonicalAllJobs,
     // non-denied jobs run their real closures on the scheduler. With this
     // installed + zero workers, no app-visible work runs except as a scheduler
@@ -887,14 +941,17 @@ public:
     [[nodiscard]] JobQueue::DispatchHook
     makeJobHook(std::uint32_t nodeId)
     {
-        return [this, nodeId](JobType t, std::string const& name, JobQueue::JobFunction const& f)
-                   -> JobQueue::JobDisposition {
-            // Teardown: once draining, claim+drop EVERY job. After dropPending()
-            // the scheduler is empty and the apps are shutting down; a job posted
-            // now (modeled or not, on- or off-thread) must NOT enqueue a new
-            // counted closure (would re-arm jobCounter_ and hang JobQueue::stop)
-            // and must NOT hard-fail. claimedDropped releases the JobCounter token
-            // (addJob returns false). See SteppingController::beginDraining.
+        return [this, nodeId](
+                   JobType t,
+                   std::string const& name,
+                   JobQueue::JobFunction const& f) -> JobQueue::JobDisposition {
+            // Teardown: once draining, claim+drop EVERY job. After
+            // dropPending() the scheduler is empty and the apps are shutting
+            // down; a job posted now (modeled or not, on- or off-thread) must
+            // NOT enqueue a new counted closure (would re-arm jobCounter_ and
+            // hang JobQueue::stop) and must NOT hard-fail. claimedDropped
+            // releases the JobCounter token (addJob returns false). See
+            // SteppingController::beginDraining.
             if (draining_.load(std::memory_order_relaxed))
             {
                 recordJob(nodeId, t, name, "dropped:draining");
@@ -910,7 +967,8 @@ public:
             {
                 case Action::enqueue: {
                     // A scheduler-owned job MUST arrive on the stepping thread;
-                    // off thread it would race the scheduler. Record + fail HARD.
+                    // off thread it would race the scheduler. Record + fail
+                    // HARD.
                     if (std::this_thread::get_id() != steppingThread_)
                     {
                         offThreadJobs_.fetch_add(1, std::memory_order_relaxed);
@@ -920,20 +978,32 @@ public:
                             "' arrived off the stepping thread [thread='" +
                             std::string(beast::getCurrentThreadName()) + "']");
                     }
-                    auto const lag = jobLag(nodeId, classification.tier, t, name);
+                    auto const lag =
+                        jobLag(nodeId, classification.tier, t, name);
                     recordJob(
-                        nodeId, t, name, lag == duration::zero() ? "queued" : "queued:lagged");
+                        nodeId,
+                        t,
+                        name,
+                        lag == duration::zero() ? "queued" : "queued:lagged");
                     if (lag != duration::zero())
-                        recordLaggedPending(nodeId, classification.tier, t, name, lag);
+                        recordLaggedPending(
+                            nodeId, classification.tier, t, name, lag);
                     scheduler_.at(
                         scheduler_.now() + lag,
                         classification.tier,
                         nodeId,
                         withClockSync(
                             nodeId,
-                            [this, nodeId, tier = classification.tier, t, name, lag, f]() {
+                            [this,
+                             nodeId,
+                             tier = classification.tier,
+                             t,
+                             name,
+                             lag,
+                             f]() {
                                 if (lag != duration::zero())
-                                    clearLaggedPending(nodeId, tier, t, name, lag);
+                                    clearLaggedPending(
+                                        nodeId, tier, t, name, lag);
                                 recordJob(nodeId, t, name, "run");
                                 if (alwaysBeforeJob_)
                                     alwaysBeforeJob_(nodeId, t, name);
@@ -956,8 +1026,8 @@ public:
                 default:
                     recordFailedJob(nodeId, t, name, "failed:unmodeled");
                     Throw<std::logic_error>(
-                        "SteppingController: unmodeled job '" + name + "' (jt#" +
-                        std::to_string(static_cast<int>(t)) +
+                        "SteppingController: unmodeled job '" + name +
+                        "' (jt#" + std::to_string(static_cast<int>(t)) +
                         ") in stepping mode — model it, drop it, or gate its "
                         "source. " +
                         jobDiagnostics());
@@ -965,11 +1035,12 @@ public:
         };
     }
 
-    // Schedule a transport delivery (S3.4). `delay` MUST be strictly positive so a
-    // reply can never be scheduled at the same virtual instant as the message that
-    // caused it (that would let the same-node ricochet re-enter within one tick) —
-    // a non-positive delay is a bug, not clamped. Must be called on the stepping
-    // thread (delivery is triggered from a job/onMessage running there).
+    // Schedule a transport delivery (S3.4). `delay` MUST be strictly positive
+    // so a reply can never be scheduled at the same virtual instant as the
+    // message that caused it (that would let the same-node ricochet re-enter
+    // within one tick) — a non-positive delay is a bug, not clamped. Must be
+    // called on the stepping thread (delivery is triggered from a job/onMessage
+    // running there).
     void
     scheduleDelivery(
         std::uint32_t nodeId,
@@ -1031,11 +1102,12 @@ public:
 
     // Schedule a HARNESS-DRIVEN event (e.g. a consensus heartbeat tick) at an
     // absolute virtual time, clock-synced like every other scheduler event — so
-    // when it runs the nodes' clocks are advanced to `when` before the body. This
-    // is how the stepping driver advances virtual time: a heartbeat trigger at a
-    // FUTURE `when` moves now() forward when stepped, then runs heartbeatTick()
-    // (which posts the heartbeat job the hook re-enqueues at the same instant).
-    // Stepping-thread only. Use a strictly-future `when` to advance time.
+    // when it runs the nodes' clocks are advanced to `when` before the body.
+    // This is how the stepping driver advances virtual time: a heartbeat
+    // trigger at a FUTURE `when` moves now() forward when stepped, then runs
+    // heartbeatTick() (which posts the heartbeat job the hook re-enqueues at
+    // the same instant). Stepping-thread only. Use a strictly-future `when` to
+    // advance time.
     void
     scheduleAt(
         time_point when,
@@ -1120,7 +1192,8 @@ public:
         scheduler_.setFence(horizon);
         return stepUntil(
             [this, &stop, horizon]() {
-                return (stop && stop()) || scheduler_.empty() || scheduler_.nextWhen() > horizon;
+                return (stop && stop()) || scheduler_.empty() ||
+                    scheduler_.nextWhen() > horizon;
             },
             maxSteps);
     }
@@ -1170,19 +1243,23 @@ public:
 
         std::size_t n = 0;
         auto const clampsBefore = stats.clampHits;
-        auto const setProfiledClock =
-            [this, ownerOnly = pacer.horizonMode == ProfiledPacer::HorizonMode::perNode](
-                std::uint32_t nodeId, time_point observed) {
-                profiledClockSync_ = ProfiledClockSync{nodeId, observed, ownerOnly};
-            };
+        auto const setProfiledClock = [this,
+                                       ownerOnly = pacer.horizonMode ==
+                                           ProfiledPacer::HorizonMode::perNode](
+                                          std::uint32_t nodeId,
+                                          time_point observed) {
+            profiledClockSync_ = ProfiledClockSync{nodeId, observed, ownerOnly};
+        };
         while (n < maxSteps)
         {
-            if ((stop && stop()) || scheduler_.empty() || scheduler_.nextWhen() > horizon)
+            if ((stop && stop()) || scheduler_.empty() ||
+                scheduler_.nextWhen() > horizon)
                 break;
             bool ran = false;
             try
             {
-                ran = scheduler_.stepOneProfiled(horizon, pacer, stats, setProfiledClock);
+                ran = scheduler_.stepOneProfiled(
+                    horizon, pacer, stats, setProfiledClock);
             }
             catch (...)
             {
@@ -1218,7 +1295,9 @@ public:
         } guard{scheduler_};
         scheduler_.setFence(until);
         return stepUntil(
-            [this, until]() { return scheduler_.empty() || scheduler_.nextWhen() > until; },
+            [this, until]() {
+                return scheduler_.empty() || scheduler_.nextWhen() > until;
+            },
             maxSteps);
     }
 
@@ -1232,14 +1311,17 @@ public:
     {
         requireSteppingThread("advanceTimeTo");
         if (until < now())
-            Throw<std::logic_error>("SteppingController::advanceTimeTo: boundary is in the past");
+            Throw<std::logic_error>(
+                "SteppingController::advanceTimeTo: boundary is in the past");
         if (!syncClock_)
             Throw<std::logic_error>(
-                "SteppingController::advanceTimeTo: setSyncClock() not installed");
+                "SteppingController::advanceTimeTo: setSyncClock() not "
+                "installed");
 
         stepUntilTime(until, maxSteps);
         if (!scheduler_.empty() && scheduler_.nextWhen() <= until)
-            Throw<std::logic_error>("SteppingController::advanceTimeTo: step budget exhausted");
+            Throw<std::logic_error>(
+                "SteppingController::advanceTimeTo: step budget exhausted");
 
         // No due work remains. stepUntil now advances only the scheduler clock;
         // ownerOnly=false tells the callback to synchronize every live node.
@@ -1280,11 +1362,12 @@ public:
         return n;
     }
 
-    // Drop all pending events WITHOUT running them, destroying the closures they
-    // hold. CRITICAL for teardown: a hook-claimed job's counted closure lives in
-    // its scheduler event, and JobQueue::stop() blocks on jobCounter_.join() until
-    // every such closure is destroyed — so the harness MUST dropPending() before
-    // shutting the apps down, or shutdown hangs. Stepping-thread only.
+    // Drop all pending events WITHOUT running them, destroying the closures
+    // they hold. CRITICAL for teardown: a hook-claimed job's counted closure
+    // lives in its scheduler event, and JobQueue::stop() blocks on
+    // jobCounter_.join() until every such closure is destroyed — so the harness
+    // MUST dropPending() before shutting the apps down, or shutdown hangs.
+    // Stepping-thread only.
     void
     dropPending()
     {

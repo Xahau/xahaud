@@ -20,7 +20,6 @@
 
 #include <xrpl/beast/utility/temp_dir.h>
 
-#include <deque>
 #include <test/jtx/WSClient.h>
 #include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
@@ -5388,7 +5387,9 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     void
     testHarnessEntropyRequiresStepping()
     {
-        testcase("harness entropy cannot replace production randomness outside stepping");
+        testcase(
+            "harness entropy cannot replace production randomness outside "
+            "stepping");
         using namespace jtx;
         {
             Env env{*this, envconfig(), FeatureBitset{}};
@@ -5410,7 +5411,8 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         Env env{*this, std::move(cfg), FeatureBitset{}};
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         BEAST_EXPECT(!env.app().config().steppingMode);
-        BEAST_EXPECT(except<std::logic_error>([&] { ce.generateEntropySecret(); }));
+        BEAST_EXPECT(
+            except<std::logic_error>([&] { ce.generateEntropySecret(); }));
         BEAST_EXPECT(!called);
         BEAST_EXPECT(ce.getEntropySecret().isZero());
     }

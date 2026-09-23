@@ -1,9 +1,10 @@
 #pragma once
 //------------------------------------------------------------------------------
-// SteppingNetwork — small scenario-facing wrapper for the deterministic stepping
-// harness. MultiNode remains the low-level engine; this layer packages the
-// common test ceremony: N static validators, SimOverlay nodes, scheduler-routed
-// SimWire links, full mesh, partitions, reconnects, and bounded runs.
+// SteppingNetwork — small scenario-facing wrapper for the deterministic
+// stepping harness. MultiNode remains the low-level engine; this layer packages
+// the common test ceremony: N static validators, SimOverlay nodes,
+// scheduler-routed SimWire links, full mesh, partitions, reconnects, and
+// bounded runs.
 //------------------------------------------------------------------------------
 #include <test/jtx/MultiNode.h>
 #include <test/jtx/SimOverlay.h>
@@ -16,9 +17,9 @@
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/Role.h>
 
+#include <xrpld/app/misc/HashRouter.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpld/app/misc/HashRouter.h>
 #include <xrpl/protocol/ApiVersion.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
@@ -120,10 +121,12 @@ delayJittered(
     std::chrono::milliseconds maxMs)
 {
     auto const lo = minMs.count() < 1 ? std::int64_t{1} : minMs.count();
-    auto const span = static_cast<std::uint64_t>(maxMs.count() >= lo ? maxMs.count() - lo + 1 : 1);
+    auto const span = static_cast<std::uint64_t>(
+        maxMs.count() >= lo ? maxMs.count() - lo + 1 : 1);
     return [&engine, lo, span](std::uint16_t, std::size_t) {
         SimFault f;
-        f.delay = std::chrono::milliseconds{lo + static_cast<std::int64_t>(engine() % span)};
+        f.delay = std::chrono::milliseconds{
+            lo + static_cast<std::int64_t>(engine() % span)};
         return f;
     };
 }
@@ -144,8 +147,8 @@ duplicateType(std::uint16_t type, int copies = 1)
 
 namespace latency {
 
-using Profile = std::function<
-    std::optional<std::chrono::steady_clock::duration>(std::uint32_t from, std::uint32_t to)>;
+using Profile = std::function<std::optional<
+    std::chrono::steady_clock::duration>(std::uint32_t from, std::uint32_t to)>;
 
 inline Profile
 uniform(std::chrono::steady_clock::duration delay)
@@ -177,10 +180,12 @@ clusters(
     std::chrono::steady_clock::duration intra,
     std::chrono::steady_clock::duration inter)
 {
-    return [groups = std::move(groups), intra, inter](std::uint32_t from, std::uint32_t to) {
+    return [groups = std::move(groups), intra, inter](
+               std::uint32_t from, std::uint32_t to) {
         auto const groupOf = [&groups](std::uint32_t node) {
             for (std::size_t i = 0; i < groups.size(); ++i)
-                if (std::find(groups[i].begin(), groups[i].end(), node) != groups[i].end())
+                if (std::find(groups[i].begin(), groups[i].end(), node) !=
+                    groups[i].end())
                     return std::optional<std::size_t>{i};
             return std::optional<std::size_t>{};
         };
@@ -188,7 +193,8 @@ clusters(
         auto const b = groupOf(to);
         if (!a || !b)
             return std::optional<std::chrono::steady_clock::duration>{};
-        return std::optional<std::chrono::steady_clock::duration>{*a == *b ? intra : inter};
+        return std::optional<std::chrono::steady_clock::duration>{
+            *a == *b ? intra : inter};
     };
 }
 
@@ -265,7 +271,9 @@ public:
         bool enabled = false;
         // outbound sends: (virtual when, sender, msg name, remote port —
         // run-varying; normalize by first-seen order when diffing runs)
-        std::vector<std::tuple<std::int64_t, std::uint32_t, std::string, std::uint16_t>> sendLog;
+        std::vector<
+            std::tuple<std::int64_t, std::uint32_t, std::string, std::uint16_t>>
+            sendLog;
         // validation lifecycle (harnessValidation hook), formatted lines
         std::vector<std::string> valEvents;
     };
@@ -328,7 +336,10 @@ private:
                 Message&) {
                 if (stage == "call")
                     f->sendLog.emplace_back(
-                        ctl->now().time_since_epoch().count(), i, name, remote.port());
+                        ctl->now().time_since_epoch().count(),
+                        i,
+                        name,
+                        remote.port());
             });
         net_.setValidationHook(
             i,
@@ -339,9 +350,11 @@ private:
                 uint256 const& hash,
                 std::string const& stage) {
                 f->valEvents.push_back(
-                    "when=" + std::to_string(ctl->now().time_since_epoch().count()) + " n" +
-                    std::to_string(i) + " seq=" + std::to_string(seq) + " " +
-                    to_string(hash).substr(0, 8) + (trusted ? " T " : " u ") + stage);
+                    "when=" +
+                    std::to_string(ctl->now().time_since_epoch().count()) +
+                    " n" + std::to_string(i) + " seq=" + std::to_string(seq) +
+                    " " + to_string(hash).substr(0, 8) +
+                    (trusted ? " T " : " u ") + stage);
             });
     }
 
@@ -360,7 +373,8 @@ private:
             s.closedSeq = net_.closedSeq(i);
             s.validSeq = net_.validSeq(i);
             s.closedHash = net_.closedHash(i);
-            s.validHash = s.validSeq == 0 ? uint256{} : net_.ledgerHash(i, s.validSeq);
+            s.validHash =
+                s.validSeq == 0 ? uint256{} : net_.ledgerHash(i, s.validSeq);
             s.mode = net_[i].app().getOPs().getOperatingMode();
             chainHistory_[i].push_back(s);
         }
@@ -376,7 +390,10 @@ private:
     }
 
     [[nodiscard]] bool
-    closedDescends(std::uint32_t node, ChainSample const& from, ChainSample const& to)
+    closedDescends(
+        std::uint32_t node,
+        ChainSample const& from,
+        ChainSample const& to)
     {
         if (from.closedHash == uint256{} || to.closedHash == uint256{})
             return true;
@@ -385,11 +402,13 @@ private:
         if (to.closedSeq < from.closedSeq)
             return false;
 
-        auto l = net_[node].app().getLedgerMaster().getLedgerBySeq(to.closedSeq);
+        auto l =
+            net_[node].app().getLedgerMaster().getLedgerBySeq(to.closedSeq);
         if (!l || l->info().hash != to.closedHash)
             return false;
         while (l && l->info().seq > from.closedSeq)
-            l = net_[node].app().getLedgerMaster().getLedgerByHash(l->info().parentHash);
+            l = net_[node].app().getLedgerMaster().getLedgerByHash(
+                l->info().parentHash);
         return l && l->info().hash == from.closedHash;
     }
 
@@ -406,9 +425,11 @@ private:
     {
         if (node >= net_.size())
             throw std::logic_error(
-                std::string("SteppingNetwork::") + what + ": node index out of range");
+                std::string("SteppingNetwork::") + what +
+                ": node index out of range");
         if (!net_.isLive(node))
-            throw std::logic_error(std::string("SteppingNetwork::") + what + ": node is not live");
+            throw std::logic_error(
+                std::string("SteppingNetwork::") + what + ": node is not live");
     }
 
     void
@@ -416,7 +437,8 @@ private:
     {
         if (node >= net_.size())
             throw std::logic_error(
-                std::string("SteppingNetwork::") + what + ": node index out of range");
+                std::string("SteppingNetwork::") + what +
+                ": node index out of range");
     }
 
 public:
@@ -428,7 +450,8 @@ public:
         , linkDelay_(linkDelay)
     {
         if (linkDelay_ <= HarnessScheduler::duration::zero())
-            throw std::logic_error("SteppingNetwork: linkDelay must be strictly positive");
+            throw std::logic_error(
+                "SteppingNetwork: linkDelay must be strictly positive");
     }
 
     SteppingNetwork(SteppingNetwork const&) = delete;
@@ -480,7 +503,8 @@ public:
 
     // Returns the newest retained SimWire for this pair that was not explicitly
     // severed by the harness. This is a topology handle, not a live-peer proof:
-    // PeerImp can still close for other reasons without flipping SimWire::severed_.
+    // PeerImp can still close for other reasons without flipping
+    // SimWire::severed_.
     [[nodiscard]] std::shared_ptr<SimWire>
     latestUnseveredWire(std::uint32_t a, std::uint32_t b) const
     {
@@ -503,7 +527,8 @@ public:
     }
 
     // Configure each Application before construction, including observers and
-    // later restarts. Install before spawning any node; never mutate live config.
+    // later restarts. Install before spawning any node; never mutate live
+    // config.
     SteppingNetwork&
     configureNodes(std::function<void(std::uint32_t, Config&)> configure)
     {
@@ -580,7 +605,9 @@ public:
         {
             if (!closed && sample.closedHash == hash)
                 closed = sample;
-            else if (closed && sample.closedSeq >= closed->closedSeq && sample.closedHash != hash)
+            else if (
+                closed && sample.closedSeq >= closed->closedSeq &&
+                sample.closedHash != hash)
             {
                 superseded = true;
             }
@@ -597,9 +624,13 @@ public:
         }
 
         bool ok = suite_.expect(
-            closed.has_value(), "expectAbandonedClosed: hash was never observed closed");
-        ok &= suite_.expect(!validated, "expectAbandonedClosed: hash was fully validated");
-        ok &= suite_.expect(superseded, "expectAbandonedClosed: closed hash was not superseded");
+            closed.has_value(),
+            "expectAbandonedClosed: hash was never observed closed");
+        ok &= suite_.expect(
+            !validated, "expectAbandonedClosed: hash was fully validated");
+        ok &= suite_.expect(
+            superseded,
+            "expectAbandonedClosed: closed hash was not superseded");
         return ok;
     }
 
@@ -609,10 +640,13 @@ public:
     // moments, connect() inside at()/in() closures, and the trust graph is
     // fixed from the start even for nodes that don't exist yet.
     SteppingNetwork&
-    identities(std::size_t count, std::string const& seedPrefix = "step-validator-")
+    identities(
+        std::size_t count,
+        std::string const& seedPrefix = "step-validator-")
     {
         if (net_.size() != 0)
-            throw std::logic_error("SteppingNetwork::identities: nodes already exist");
+            throw std::logic_error(
+                "SteppingNetwork::identities: nodes already exist");
         validators_.clear();
         unl_.clear();
         trustIds_.clear();
@@ -620,7 +654,8 @@ public:
         unl_.reserve(count);
         for (std::size_t i = 0; i < count; ++i)
         {
-            validators_.push_back(ValidatorKey::fromPassphrase(seedPrefix + std::to_string(i)));
+            validators_.push_back(
+                ValidatorKey::fromPassphrase(seedPrefix + std::to_string(i)));
             unl_.push_back(validators_.back().pubKey);
         }
         trustIds_.resize(count);
@@ -642,9 +677,11 @@ public:
     trust(std::uint32_t id, std::vector<std::uint32_t> ids)
     {
         if (id >= validators_.size())
-            throw std::logic_error("SteppingNetwork::trust: identity index out of range");
+            throw std::logic_error(
+                "SteppingNetwork::trust: identity index out of range");
         if (id < net_.size())
-            throw std::logic_error("SteppingNetwork::trust: identity already spawned");
+            throw std::logic_error(
+                "SteppingNetwork::trust: identity already spawned");
 
         std::vector<bool> seen(validators_.size());
         for (auto const trusted : ids)
@@ -654,7 +691,8 @@ public:
                     "SteppingNetwork::trust: trusted identity index out of "
                     "range");
             if (seen[trusted])
-                throw std::logic_error("SteppingNetwork::trust: duplicate trusted identity");
+                throw std::logic_error(
+                    "SteppingNetwork::trust: duplicate trusted identity");
             seen[trusted] = true;
         }
 
@@ -704,14 +742,18 @@ public:
     SteppingNetwork&
     spawnAll()
     {
-        for (auto id = static_cast<std::uint32_t>(net_.size()); id < validators_.size(); ++id)
+        for (auto id = static_cast<std::uint32_t>(net_.size());
+             id < validators_.size();
+             ++id)
             spawn({id});
         return *this;
     }
 
     // Sugar: identities(count) + spawn all of them.
     SteppingNetwork&
-    validators(std::size_t count, std::string const& seedPrefix = "step-validator-")
+    validators(
+        std::size_t count,
+        std::string const& seedPrefix = "step-validator-")
     {
         identities(count, seedPrefix);
         for (std::size_t i = 0; i < count; ++i)
@@ -728,7 +770,8 @@ public:
     observer()
     {
         if (unl_.empty())
-            throw std::logic_error("SteppingNetwork::observer: create validators() first");
+            throw std::logic_error(
+                "SteppingNetwork::observer: create validators() first");
         auto const id = static_cast<std::uint32_t>(net_.size());
         net_.add(
             TrustConfig{/*validationSeed=*/{}, unl_},
@@ -747,7 +790,8 @@ public:
         for (std::uint32_t i = 0; i < net_.size(); ++i)
             for (std::uint32_t j = i + 1; j < net_.size(); ++j)
                 if (!connect(i, j))
-                    throw std::logic_error("SteppingNetwork::mesh: simConnect failed");
+                    throw std::logic_error(
+                        "SteppingNetwork::mesh: simConnect failed");
         return *this;
     }
 
@@ -757,7 +801,9 @@ public:
         requireNode(a, "connect");
         requireNode(b, "connect");
         auto wire = simConnect(
-            net_[a].app(), net_[b].app(), SimSteppingLink{&net_.controller(), a, b, linkDelay_});
+            net_[a].app(),
+            net_[b].app(),
+            SimSteppingLink{&net_.controller(), a, b, linkDelay_});
         if (wire)
             links_.push_back(Link{a, b, wire});
         return wire;
@@ -769,7 +815,10 @@ public:
     // stepping boundary — single-threaded stepping makes live install
     // race-free. See simfaults:: for canned injectors.
     SteppingNetwork&
-    faultLink(std::uint32_t from, std::uint32_t to, SimPipe::WriteFault injector)
+    faultLink(
+        std::uint32_t from,
+        std::uint32_t to,
+        SimPipe::WriteFault injector)
     {
         requireSlot(from, "faultLink");
         requireSlot(to, "faultLink");
@@ -782,12 +831,16 @@ public:
                 return *this;
             }
         }
-        throw std::logic_error("SteppingNetwork::faultLink: no live wire between nodes");
+        throw std::logic_error(
+            "SteppingNetwork::faultLink: no live wire between nodes");
     }
 
     // Content-aware whole-frame faults, e.g. lose only share-bearing proposals.
     SteppingNetwork&
-    faultFrames(std::uint32_t from, std::uint32_t to, SimPipe::FrameFault injector)
+    faultFrames(
+        std::uint32_t from,
+        std::uint32_t to,
+        SimPipe::FrameFault injector)
     {
         requireSlot(from, "faultFrames");
         requireSlot(to, "faultFrames");
@@ -797,7 +850,8 @@ public:
                 it->wire->setFrameFault(it->a == from, std::move(injector));
                 return *this;
             }
-        throw std::logic_error("SteppingNetwork::faultFrames: no live wire between nodes");
+        throw std::logic_error(
+            "SteppingNetwork::faultFrames: no live wire between nodes");
     }
 
     SteppingNetwork&
@@ -874,7 +928,11 @@ public:
 
     // Lie to ONE peer (pair two calls with different hashes to equivocate).
     SteppingNetwork&
-    lieValidationTo(std::uint32_t from, std::uint32_t to, std::uint32_t seq, uint256 const& hash)
+    lieValidationTo(
+        std::uint32_t from,
+        std::uint32_t to,
+        std::uint32_t seq,
+        uint256 const& hash)
     {
         ByzantineValidation spec;
         spec.seq = seq;
@@ -915,7 +973,10 @@ public:
     // peers two stories at one seq). Delivers through the byzantine node's
     // real PeerImp send to the specific peer that carries node `to`.
     SteppingNetwork&
-    injectValidationTo(std::uint32_t from, std::uint32_t to, ByzantineValidation const& spec)
+    injectValidationTo(
+        std::uint32_t from,
+        std::uint32_t to,
+        ByzantineValidation const& spec)
     {
         requireNode(from, "injectValidationTo");
         requireNode(to, "injectValidationTo");
@@ -932,8 +993,9 @@ public:
                 return *this;
             }
         throw std::logic_error(
-            "SteppingNetwork::injectValidationTo: node " + std::to_string(from) +
-            " has no active peer to node " + std::to_string(to));
+            "SteppingNetwork::injectValidationTo: node " +
+            std::to_string(from) + " has no active peer to node " +
+            std::to_string(to));
     }
 
 private:
@@ -941,7 +1003,10 @@ private:
     // caller-chosen content; register the self-suppression exactly as
     // validate() does. Shared by the broadcast and per-peer injectors.
     [[nodiscard]] Blob
-    buildByzantineValidation(std::uint32_t from, ByzantineValidation const& spec, Application& app)
+    buildByzantineValidation(
+        std::uint32_t from,
+        ByzantineValidation const& spec,
+        Application& app)
     {
         if (from >= validators_.size())
             throw std::logic_error(
@@ -1028,11 +1093,13 @@ public:
                     "SteppingNetwork::reconnectNode: unsevered link already "
                     "retained; cut links before reconnecting");
             if (!connect(node, other))
-                throw std::logic_error("SteppingNetwork::reconnectNode: simConnect failed");
+                throw std::logic_error(
+                    "SteppingNetwork::reconnectNode: simConnect failed");
             ++connected;
         }
         if (connected == 0)
-            throw std::logic_error("SteppingNetwork::reconnectNode: no live peers to reconnect");
+            throw std::logic_error(
+                "SteppingNetwork::reconnectNode: no live peers to reconnect");
         return *this;
     }
 
@@ -1046,7 +1113,8 @@ public:
         HarnessScheduler::duration window = std::chrono::seconds{1},
         std::size_t maxSteps = 100000)
     {
-        net_.controller().stepUntilTime(net_.controller().now() + window, maxSteps);
+        net_.controller().stepUntilTime(
+            net_.controller().now() + window, maxSteps);
         return *this;
     }
 
@@ -1130,7 +1198,8 @@ public:
     }
 
     [[nodiscard]] bool
-    meshReady(std::chrono::milliseconds timeout = std::chrono::milliseconds{100})
+    meshReady(
+        std::chrono::milliseconds timeout = std::chrono::milliseconds{100})
     {
         auto const n = liveCount();
         if (n == 0)
@@ -1142,7 +1211,12 @@ public:
     runTo(std::uint32_t target, RunBudget budget = {}, Cadence cadence = {})
     {
         return net_.runStepping(
-            target, budget.heartbeats, budget.steps, cadence.dt, cadence.skew, chainHistoryHook());
+            target,
+            budget.heartbeats,
+            budget.steps,
+            cadence.dt,
+            cadence.skew,
+            chainHistoryHook());
     }
 
     KProfiledRunStats
@@ -1161,7 +1235,13 @@ public:
                 afterBeat();
         };
         return net_.runSteppingProfiled(
-            target, budget.heartbeats, budget.steps, options, cadence.dt, cadence.skew, hook);
+            target,
+            budget.heartbeats,
+            budget.steps,
+            options,
+            cadence.dt,
+            cadence.skew,
+            hook);
     }
 
     // Profile continuously until `pred` holds at a quiescent beat boundary.
@@ -1226,7 +1306,10 @@ public:
     // tick(). runTo(target) remains the ledger-target special case (and
     // stops early inside a beat); use whichever reads better.
     [[nodiscard]] bool
-    runUntil(std::function<bool()> const& pred, RunBudget budget = {}, Cadence cadence = {})
+    runUntil(
+        std::function<bool()> const& pred,
+        RunBudget budget = {},
+        Cadence cadence = {})
     {
         if (pred())
             return true;
@@ -1267,13 +1350,15 @@ public:
     std::size_t
     runOnly(std::initializer_list<std::uint32_t> nodes, RunBudget budget)
     {
-        return runOnly(nodes, std::numeric_limits<std::uint32_t>::max(), budget);
+        return runOnly(
+            nodes, std::numeric_limits<std::uint32_t>::max(), budget);
     }
 
     SteppingNetwork&
     canonicalJobs()
     {
-        net_.controller().setJobPolicy(SteppingController::JobPolicy::canonicalAllJobs);
+        net_.controller().setJobPolicy(
+            SteppingController::JobPolicy::canonicalAllJobs);
         return *this;
     }
 
@@ -1281,7 +1366,8 @@ public:
     lagAccept(std::uint32_t node, HarnessScheduler::duration lag)
     {
         requireSlot(node, "lagAccept");
-        net_.controller().setJobLag(node, SteppingController::Tier::accept, lag);
+        net_.controller().setJobLag(
+            node, SteppingController::Tier::accept, lag);
         return *this;
     }
 
@@ -1322,7 +1408,9 @@ public:
         for (auto const& account : accounts)
         {
             auto const txn = submit(
-                node, jtx::pay(jtx::Account::master, account, amount), jtx::Account::master);
+                node,
+                jtx::pay(jtx::Account::master, account, amount),
+                jtx::Account::master);
             if (txn->getResult() != tesSUCCESS)
                 throw std::logic_error(
                     "SteppingNetwork::fund: pay(" + account.name() +
@@ -1338,8 +1426,8 @@ public:
             for (auto const& account : accounts)
                 if (!l || !l->exists(keylet::account(account.id())))
                     throw std::logic_error(
-                        "SteppingNetwork::fund: " + account.name() + " not validated on node " +
-                        std::to_string(i));
+                        "SteppingNetwork::fund: " + account.name() +
+                        " not validated on node " + std::to_string(i));
         }
         return *this;
     }
@@ -1368,7 +1456,8 @@ public:
        SteppingController::Tier tier = SteppingController::Tier::process)
     {
         requireSlot(node, "at");
-        controller().scheduleAt(when, tier, node, std::move(fn), HarnessScheduler::Kind::inject);
+        controller().scheduleAt(
+            when, tier, node, std::move(fn), HarnessScheduler::Kind::inject);
         return *this;
     }
 
@@ -1402,8 +1491,9 @@ public:
         auto& app = net_[node].app();
         params[jss::command] = method;
         Resource::Charge loadType = Resource::feeReferenceRPC;
-        auto consumer = app.getResourceManager().newUnlimitedEndpoint(
-            beast::IP::Endpoint(boost::asio::ip::make_address(getEnvLocalhostAddr()), 0));
+        auto consumer =
+            app.getResourceManager().newUnlimitedEndpoint(beast::IP::Endpoint(
+                boost::asio::ip::make_address(getEnvLocalhostAddr()), 0));
         RPC::JsonContext context{
             {app.journal("SteppingRPC"),
              app,
@@ -1575,13 +1665,16 @@ public:
         bool const reached = minValidatedSeq() >= target;
         suite_.expect(
             reached,
-            "expectConverged: minValidatedSeq " + std::to_string(minValidatedSeq()) + " < target " +
+            "expectConverged: minValidatedSeq " +
+                std::to_string(minValidatedSeq()) + " < target " +
                 std::to_string(target));
         if (!reached)
             suite_.log << "  diagnostics: " << jobDiagnostics() << std::endl;
         bool ok = reached;
-        ok &= suite_.expect(ledgersAgree(target), "expectConverged: ledgers disagree");
-        ok &= suite_.expect(offThreadJobs() == 0, "expectConverged: off-thread jobs");
+        ok &= suite_.expect(
+            ledgersAgree(target), "expectConverged: ledgers disagree");
+        ok &= suite_.expect(
+            offThreadJobs() == 0, "expectConverged: off-thread jobs");
         ok &= suite_.expect(failedJobs() == 0, "expectConverged: failed jobs");
         return ok;
     }
@@ -1621,7 +1714,8 @@ public:
             if (tx.txid == second)
                 ib = tx.index;
         }
-        return suite_.expect(ia && ib && *ia < *ib, "expectAppliedBefore: order not satisfied");
+        return suite_.expect(
+            ia && ib && *ia < *ib, "expectAppliedBefore: order not satisfied");
     }
 
     [[nodiscard]] std::size_t

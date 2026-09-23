@@ -88,7 +88,9 @@ class ThreadedExtensions_test : public beast::unit_test::suite
     {
         bool found = false;
         forEachItem(
-            ledger, keylet::pendingExports(), [&](std::shared_ptr<SLE const> const& sle) {
+            ledger,
+            keylet::pendingExports(),
+            [&](std::shared_ptr<SLE const> const& sle) {
                 if (sle && sle->key() == key)
                     found = true;
             });
@@ -224,7 +226,8 @@ class ThreadedExtensions_test : public beast::unit_test::suite
 
         std::vector<ValidatorKey> keys;
         std::vector<std::string> unl;
-        for (auto const* name : {"thread-val-0", "thread-val-1", "thread-val-2"})
+        for (auto const* name :
+             {"thread-val-0", "thread-val-1", "thread-val-2"})
         {
             keys.push_back(ValidatorKey::fromPassphrase(name));
             unl.push_back(keys.back().pubKey);
@@ -323,11 +326,12 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                 << " delay=" << counts.delayCalls.load() << std::endl;
             BEAST_EXPECT(false);
         };
-        auto const submitOk = [&](std::size_t node, Json::Value tx, jtx::Account const& signer) {
-            tx[jss::NetworkID] = networkID;
-            auto const txn = net.submit(node, std::move(tx), signer);
-            return txn && txn->getResult() == tesSUCCESS;
-        };
+        auto const submitOk =
+            [&](std::size_t node, Json::Value tx, jtx::Account const& signer) {
+                tx[jss::NetworkID] = networkID;
+                auto const txn = net.submit(node, std::move(tx), signer);
+                return txn && txn->getResult() == tesSUCCESS;
+            };
         if (!submitOk(
                 0,
                 jtx::pay(jtx::Account::master, owner, jtx::XRP(20'000)),
@@ -387,8 +391,7 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                       parent)
                 : nullptr;
             log << "  threaded view diag fromReport="
-                << (view && view->fromUNLReport ? 1 : 0)
-                << " masters="
+                << (view && view->fromUNLReport ? 1 : 0) << " masters="
                 << (view ? view->orderedOriginalMasterKeys.size() : 0)
                 << std::endl;
             return fail("validator view");
@@ -472,10 +475,11 @@ class ThreadedExtensions_test : public beast::unit_test::suite
         };
         std::vector<uint256> origins;
         auto const historyFrom = net.minValidated();
-        auto const sendIntent = [&](std::uint32_t ticket) -> std::optional<uint256> {
+        auto const sendIntent =
+            [&](std::uint32_t ticket) -> std::optional<uint256> {
             auto const open = net[0].app().openLedger().current()->seq();
-            Json::Value tx = intent(
-                ticket, open + ExportLimits::maxAdmissionWindowLedgers);
+            Json::Value tx =
+                intent(ticket, open + ExportLimits::maxAdmissionWindowLedgers);
             tx[jss::NetworkID] = networkID;
             auto const txn = net.submit(0, std::move(tx), owner);
             if (!txn || txn->getResult() != tesSUCCESS)
@@ -544,8 +548,8 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             PeerFaultConfig cfg;
             cfg.sendDropPctX100 = 10000;
             if (category >= 0)
-                cfg.messageCategories = std::set<std::size_t>{
-                    static_cast<std::size_t>(category)};
+                cfg.messageCategories =
+                    std::set<std::size_t>{static_cast<std::size_t>(category)};
             net[2].app().getRuntimeConfig().setPeerDefaults(cfg);
         }
         {
@@ -632,7 +636,8 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             if (!beat())
                 return;
         if (validatorsAdvanced() < downSeq + 2)
-            return fail("validators did not advance while the observer was down");
+            return fail(
+                "validators did not advance while the observer was down");
         if (!net.restartNode(observer).isUp())
             return fail("observer did not restart");
         if (!relink(observer))
@@ -784,8 +789,9 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                             tx->getFieldH256(sfTransactionHash) == origin)
                             return fail("witnessed more than once");
                 }
-                log << "  threaded " << schedule << " origin=" << to_string(origin)
-                    << " witnessed:" << seqW << std::endl;
+                log << "  threaded " << schedule
+                    << " origin=" << to_string(origin) << " witnessed:" << seqW
+                    << std::endl;
                 continue;
             }
             for (std::uint32_t n = 0; n < nNodes; ++n)
@@ -805,10 +811,10 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             auto const inDir =
                 latch && pendingDirContains(*ledger, latch->key());
             char const* const shape = !latch ? "missing"
-                : hasSig                 ? "signed"
-                : hasNode && inDir       ? "pending"
-                : !hasNode && !inDir     ? "pruned"
-                                         : "inconsistent";
+                : hasSig                     ? "signed"
+                : hasNode && inDir           ? "pending"
+                : !hasNode && !inDir         ? "pruned"
+                                             : "inconsistent";
             log << "  threaded " << schedule << " origin=" << to_string(origin)
                 << " expired shape=" << shape << std::endl;
             if (!latch)
@@ -821,11 +827,9 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                             : "directory holds an unlinked latch");
         }
 
-        log << "  threaded " << schedule
-            << " origins=" << origins.size()
+        log << "  threaded " << schedule << " origins=" << origins.size()
             << " directDropped=" << droppedCalls - droppedQueued
-            << " delayed=" << delayed
-            << " observerDownFrom=" << downSeq
+            << " delayed=" << delayed << " observerDownFrom=" << downSeq
             << " pre=" << preSeq << " end=" << agreed << std::endl;
         BEAST_EXPECT(origins.size() == 8);
         BEAST_EXPECT(droppedCalls > droppedQueued);

@@ -18,9 +18,9 @@
 #include <test/jtx/SteppingNetwork.h>
 #include <test/jtx/SteppingReplay.h>
 
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 
 #include <ripple.pb.h>
 
@@ -85,8 +85,7 @@ class SteppingFaults_test : public beast::unit_test::suite
             "node 4 never hears node 0's validations; 3 peers + self still "
             "make quorum(5)=4, and the faulted run replays");
         assertReplays("drop validations 0->4", [](SteppingNetwork& net) {
-            net.faultLink(
-                0, 4, simfaults::dropType(protocol::mtVALIDATION));
+            net.faultLink(0, 4, simfaults::dropType(protocol::mtVALIDATION));
         });
     }
 
@@ -99,16 +98,13 @@ class SteppingFaults_test : public beast::unit_test::suite
         assertReplays("duplicate storm from 0", [](SteppingNetwork& net) {
             for (std::uint32_t to = 1; to < 5; ++to)
             {
-                net.faultLink(
-                    0,
-                    to,
-                    [](std::uint16_t t, std::size_t) {
-                        SimFault f;
-                        if (t == protocol::mtVALIDATION ||
-                            t == protocol::mtPROPOSE_LEDGER)
-                            f.duplicates = 2;
-                        return f;
-                    });
+                net.faultLink(0, to, [](std::uint16_t t, std::size_t) {
+                    SimFault f;
+                    if (t == protocol::mtVALIDATION ||
+                        t == protocol::mtPROPOSE_LEDGER)
+                        f.duplicates = 2;
+                    return f;
+                });
             }
         });
     }
@@ -136,7 +132,8 @@ class SteppingFaults_test : public beast::unit_test::suite
                 net.faultLink(
                     0,
                     to,
-                    simfaults::dropWithProbability(*engines->kept.back(), 0.10));
+                    simfaults::dropWithProbability(
+                        *engines->kept.back(), 0.10));
             }
         });
     }
@@ -150,9 +147,7 @@ class SteppingFaults_test : public beast::unit_test::suite
             "converges and replays");
         assertReplays("delay 0->4 by 50ms", [](SteppingNetwork& net) {
             net.faultLink(
-                0,
-                4,
-                simfaults::delayAll(std::chrono::milliseconds{50}));
+                0, 4, simfaults::delayAll(std::chrono::milliseconds{50}));
         });
     }
 
@@ -182,7 +177,9 @@ class SteppingFaults_test : public beast::unit_test::suite
                     0,
                     to,
                     simfaults::delayJittered(
-                        *engines->kept.back(), milliseconds{1}, milliseconds{40}));
+                        *engines->kept.back(),
+                        milliseconds{1},
+                        milliseconds{40}));
             }
         });
     }
@@ -371,17 +368,16 @@ class SteppingFaults_test : public beast::unit_test::suite
                 // (validations for ledgers it lacks -> acquire fires, its
                 // requests go OUT), but every acquire reply INTO it is
                 // dropped. The only motion available is the retry loop.
-                auto const dropAcquireReplies =
-                    [](std::uint16_t t, std::size_t) {
-                        SimFault f;
-                        f.drop = t ==
-                                static_cast<std::uint16_t>(
-                                    protocol::mtLEDGER_DATA) ||
-                            t ==
-                                static_cast<std::uint16_t>(
-                                    protocol::mtGET_OBJECTS);
-                        return f;
-                    };
+                auto const dropAcquireReplies = [](std::uint16_t t,
+                                                   std::size_t) {
+                    SimFault f;
+                    f.drop = t ==
+                            static_cast<std::uint16_t>(
+                                 protocol::mtLEDGER_DATA) ||
+                        t ==
+                            static_cast<std::uint16_t>(protocol::mtGET_OBJECTS);
+                    return f;
+                };
                 for (std::uint32_t a = 0; a < n - 1; ++a)
                 {
                     net.faultLink(a, lag, dropAcquireReplies);
@@ -430,8 +426,8 @@ class SteppingFaults_test : public beast::unit_test::suite
                         log << "  n" << i << " closed=" << net.closedSeq(i)
                             << " valid=" << net.validSeq(i) << " hash@"
                             << target << "="
-                            << to_string(net.ledgerHash(i, target)).substr(
-                                   0, 12)
+                            << to_string(net.ledgerHash(i, target))
+                                   .substr(0, 12)
                             << std::endl;
                     log << "  diagnostics: " << net.jobDiagnostics()
                         << std::endl;
@@ -463,8 +459,7 @@ class SteppingFaults_test : public beast::unit_test::suite
     {
         std::uint64_t count = 0;
         for (auto const& ev : net.controller().scheduler().traceLog())
-            if (ev.nodeId == node &&
-                ev.kind == HarnessScheduler::Kind::timer &&
+            if (ev.nodeId == node && ev.kind == HarnessScheduler::Kind::timer &&
                 ev.label == "TimeoutCounter retry")
                 ++count;
         return count;

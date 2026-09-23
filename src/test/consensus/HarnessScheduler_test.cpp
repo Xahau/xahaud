@@ -4,7 +4,8 @@
 // machinery, so it compiles + runs fast and pins the ordering guarantees the
 // stepping harness depends on:
 //   - events fire in (when, tier, nodeId, seq) order and now() tracks them;
-//   - same-instant cascades are totally + stably ordered (the csf gap we close);
+//   - same-instant cascades are totally + stably ordered (the csf gap we
+//   close);
 //   - a handler-driven cascade replays identically across independent runs;
 //   - cancel / stepUntil / stepWhile behave as specified.
 // Spec: .ai-docs/specs/csf-peerimp-hybrid-overlay-harness.md (Stage 3).
@@ -26,8 +27,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
     using ms = std::chrono::milliseconds;
 
     // A common cascade used by both reproducibility runs: each fired event may
-    // schedule follow-ups, the way a delivered message triggers a reply. Records
-    // a textual trace of the order events actually ran in.
+    // schedule follow-ups, the way a delivered message triggers a reply.
+    // Records a textual trace of the order events actually ran in.
     static void
     runCascade(HarnessScheduler& s, std::vector<std::string>& trace)
     {
@@ -35,7 +36,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
         // Two nodes "deliver" at the same instant; each delivery, when it runs,
         // schedules a "process" 5ms later on the same node, which in turn
         // schedules one more delivery to the other node 5ms after that.
-        for (std::uint32_t node : {1u, 0u})  // intentionally out of nodeId order
+        for (std::uint32_t node :
+             {1u, 0u})  // intentionally out of nodeId order
         {
             s.at(t0 + ms{10}, Tier::deliver, node, [&, node]() {
                 trace.push_back("deliver@n" + std::to_string(node));
@@ -86,13 +88,17 @@ class HarnessScheduler_test : public beast::unit_test::suite
         s.at(t, Tier::heartbeat, 0, [&]() { order.push_back("hb.n0"); });
         s.at(t, Tier::deliver, 1, [&]() { order.push_back("dl.n1"); });
         s.at(t, Tier::deliver, 0, [&]() { order.push_back("dl.n0.a"); });
-        s.at(t, Tier::deliver, 0, [&]() { order.push_back("dl.n0.b"); });  // FIFO
+        s.at(t, Tier::deliver, 0, [&]() {
+            order.push_back("dl.n0.b");
+        });  // FIFO
         s.at(t, Tier::process, 0, [&]() { order.push_back("pr.n0"); });
 
         s.step();
 
-        // tier asc (deliver<process<heartbeat), then nodeId asc, then seq (FIFO):
-        std::vector<std::string> const want{"dl.n0.a", "dl.n0.b", "dl.n1", "pr.n0", "hb.n0"};
+        // tier asc (deliver<process<heartbeat), then nodeId asc, then seq
+        // (FIFO):
+        std::vector<std::string> const want{
+            "dl.n0.a", "dl.n0.b", "dl.n1", "pr.n0", "hb.n0"};
         BEAST_EXPECT(order == want);
         BEAST_EXPECT(s.now() == t);
     }
@@ -115,12 +121,18 @@ class HarnessScheduler_test : public beast::unit_test::suite
         BEAST_EXPECT(!trace1.empty());
         BEAST_EXPECT(trace1 == trace2);
 
-        // And the order is exactly what the (tier,nodeId,seq) key dictates: both
-        // deliveries at t+10 (node 0 before node 1 by nodeId, despite node 1 being
-        // scheduled first), then their processes at t+15, then the two replies at
-        // t+20 (both deliver-tier, so again node 0 before node 1 by nodeId).
+        // And the order is exactly what the (tier,nodeId,seq) key dictates:
+        // both deliveries at t+10 (node 0 before node 1 by nodeId, despite node
+        // 1 being scheduled first), then their processes at t+15, then the two
+        // replies at t+20 (both deliver-tier, so again node 0 before node 1 by
+        // nodeId).
         std::vector<std::string> const want{
-            "deliver@n0", "deliver@n1", "process@n0", "process@n1", "reply->n0", "reply->n1"};
+            "deliver@n0",
+            "deliver@n1",
+            "process@n0",
+            "process@n1",
+            "reply->n0",
+            "reply->n1"};
         BEAST_EXPECT(trace1 == want);
     }
 
@@ -132,7 +144,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
         std::vector<int> order;
         auto const t0 = s.now();
         s.at(t0 + ms{10}, Tier::deliver, 0, [&]() { order.push_back(1); });
-        auto tok = s.at(t0 + ms{20}, Tier::deliver, 0, [&]() { order.push_back(2); });
+        auto tok =
+            s.at(t0 + ms{20}, Tier::deliver, 0, [&]() { order.push_back(2); });
         s.at(t0 + ms{30}, Tier::deliver, 0, [&]() { order.push_back(3); });
 
         s.cancel(tok);
@@ -180,7 +193,9 @@ class HarnessScheduler_test : public beast::unit_test::suite
     void
     testAtOrNowClamp()
     {
-        testcase("atOrNow clamps a stale deadline up to now() (at() requires future)");
+        testcase(
+            "atOrNow clamps a stale deadline up to now() (at() requires "
+            "future)");
         HarnessScheduler s;
         std::vector<int> order;
         auto const t0 = s.now();
@@ -189,8 +204,9 @@ class HarnessScheduler_test : public beast::unit_test::suite
         s.at(t0 + ms{50}, Tier::deliver, 0, [&]() { order.push_back(50); });
         BEAST_EXPECT(s.stepOne() && s.now() == t0 + ms{50});
 
-        // A timer whose virtual deadline (t0+10) already elapsed: atOrNow clamps it
-        // up to now() (t0+50) instead of rewinding the clock. at() would assert.
+        // A timer whose virtual deadline (t0+10) already elapsed: atOrNow
+        // clamps it up to now() (t0+50) instead of rewinding the clock. at()
+        // would assert.
         s.atOrNow(t0 + ms{10}, Tier::timer, 0, [&]() { order.push_back(10); });
         // A genuinely future event still orders strictly after the clamped one.
         s.at(s.now() + ms{5}, Tier::deliver, 0, [&]() { order.push_back(55); });
@@ -203,17 +219,18 @@ class HarnessScheduler_test : public beast::unit_test::suite
     void
     testAtRejectsPast()
     {
-        testcase("at() throws on a past deadline in EVERY build (not just debug)");
+        testcase(
+            "at() throws on a past deadline in EVERY build (not just debug)");
         HarnessScheduler s;
         auto const t0 = s.now();
         s.at(t0 + ms{50}, Tier::deliver, 0, []() {});
         BEAST_EXPECT(s.stepOne() && s.now() == t0 + ms{50});
 
         // Scheduling into the past must throw — and this must hold in Release,
-        // where XRPL_ASSERT would have been stripped (the determinism proofs run
-        // in Release), so a stripped assert would have let now_ rewind.
-        BEAST_EXPECT(
-            except<std::logic_error>([&]() { s.at(t0 + ms{10}, Tier::deliver, 0, []() {}); }));
+        // where XRPL_ASSERT would have been stripped (the determinism proofs
+        // run in Release), so a stripped assert would have let now_ rewind.
+        BEAST_EXPECT(except<std::logic_error>(
+            [&]() { s.at(t0 + ms{10}, Tier::deliver, 0, []() {}); }));
         // The rejected schedule left no event behind…
         BEAST_EXPECT(s.empty());
         // …while atOrNow() tolerates the same stale deadline (clamps to now()).
@@ -224,7 +241,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
     void
     testProfiledPacerChargeAndClamp()
     {
-        testcase("K-profiled pacer charges before handlers and clamps at horizon");
+        testcase(
+            "K-profiled pacer charges before handlers and clamps at horizon");
 
         HarnessScheduler s;
         auto const t0 = s.now();
@@ -234,8 +252,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
         for (std::uint32_t node : {0u, 1u})
         {
             s.at(t0 + ms{10}, Tier::deliver, node, [&]() {
-                observedMs.push_back(
-                    static_cast<int>(std::chrono::duration_cast<ms>(s.now() - t0).count()));
+                observedMs.push_back(static_cast<int>(
+                    std::chrono::duration_cast<ms>(s.now() - t0).count()));
             });
         }
 
@@ -261,8 +279,11 @@ class HarnessScheduler_test : public beast::unit_test::suite
         BEAST_EXPECT((observedMs == std::vector<int>{16, 20}));
         if (BEAST_EXPECT(s.traceLog().size() == 2))
         {
-            BEAST_EXPECT(s.traceLog()[0].when == (t0 + ms{16}).time_since_epoch().count());
-            BEAST_EXPECT(s.traceLog()[1].when == horizon.time_since_epoch().count());
+            BEAST_EXPECT(
+                s.traceLog()[0].when ==
+                (t0 + ms{16}).time_since_epoch().count());
+            BEAST_EXPECT(
+                s.traceLog()[1].when == horizon.time_since_epoch().count());
         }
     }
 
@@ -289,7 +310,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
             HarnessScheduler::ProfiledPacer pacer;
             pacer.k = 2;
             pacer.unitCost = ms{3};
-            pacer.weights = HarnessScheduler::ProfiledPacer::KindWeights::flat();
+            pacer.weights =
+                HarnessScheduler::ProfiledPacer::KindWeights::flat();
             HarnessScheduler::ProfiledStepStats stats;
             BEAST_EXPECT(s.stepOneProfiled(t0 + ms{20}, pacer, stats));
             BEAST_EXPECT(s.now() == t0 + ms{16});
@@ -297,8 +319,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
             // The fence constrains execution time, including overdue events.
             s.setFence(t0 + ms{15});
             BEAST_EXPECT(except<std::logic_error>([&]() { s.stepOne(); }));
-            BEAST_EXPECT(
-                except<std::logic_error>([&]() { s.stepOneProfiled(t0 + ms{20}, pacer, stats); }));
+            BEAST_EXPECT(except<std::logic_error>(
+                [&]() { s.stepOneProfiled(t0 + ms{20}, pacer, stats); }));
             BEAST_EXPECT(s.size() == 2 && order.size() == 1);
             s.clearFence();
             if (viaKZero)
@@ -315,8 +337,12 @@ class HarnessScheduler_test : public beast::unit_test::suite
             if (BEAST_EXPECT(s.traceLog().size() == 4))
             {
                 for (std::size_t i = 0; i < 3; ++i)
-                    BEAST_EXPECT(s.traceLog()[i].when == (t0 + ms{16}).time_since_epoch().count());
-                BEAST_EXPECT(s.traceLog()[3].when == (t0 + ms{17}).time_since_epoch().count());
+                    BEAST_EXPECT(
+                        s.traceLog()[i].when ==
+                        (t0 + ms{16}).time_since_epoch().count());
+                BEAST_EXPECT(
+                    s.traceLog()[3].when ==
+                    (t0 + ms{17}).time_since_epoch().count());
             }
         }
     }
@@ -324,7 +350,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
     void
     testProfiledPacerKindWeights()
     {
-        testcase("K-profiled pacer charges deterministic weights by event kind");
+        testcase(
+            "K-profiled pacer charges deterministic weights by event kind");
 
         HarnessScheduler s;
         auto const t0 = s.now();
@@ -337,7 +364,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
             [&]() {
                 observed.push_back(
                     "heartbeat@" +
-                    std::to_string(std::chrono::duration_cast<ms>(s.now() - t0).count()));
+                    std::to_string(
+                        std::chrono::duration_cast<ms>(s.now() - t0).count()));
             },
             HarnessScheduler::Kind::heartbeat);
         s.at(
@@ -347,7 +375,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
             [&]() {
                 observed.push_back(
                     "deliver@" +
-                    std::to_string(std::chrono::duration_cast<ms>(s.now() - t0).count()));
+                    std::to_string(
+                        std::chrono::duration_cast<ms>(s.now() - t0).count()));
             },
             HarnessScheduler::Kind::deliver);
         s.at(
@@ -356,7 +385,9 @@ class HarnessScheduler_test : public beast::unit_test::suite
             0,
             [&]() {
                 observed.push_back(
-                    "job@" + std::to_string(std::chrono::duration_cast<ms>(s.now() - t0).count()));
+                    "job@" +
+                    std::to_string(
+                        std::chrono::duration_cast<ms>(s.now() - t0).count()));
             },
             HarnessScheduler::Kind::job);
 
@@ -375,17 +406,20 @@ class HarnessScheduler_test : public beast::unit_test::suite
         BEAST_EXPECT(!s.stepOneProfiled(horizon, pacer, stats));
 
         BEAST_EXPECT(
-            (observed == std::vector<std::string>{"deliver@20", "job@35", "heartbeat@40"}));
+            (observed ==
+             std::vector<std::string>{"deliver@20", "job@35", "heartbeat@40"}));
         BEAST_EXPECT(stats.requestedAdvance == ms{30});
         BEAST_EXPECT(stats.consumedAdvance == ms{30});
         BEAST_EXPECT(stats.weightedEvents == 6);
         BEAST_EXPECT(
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::heartbeat)] ==
-            1);
+            stats.eventsByKind[HarnessScheduler::kindIndex(
+                HarnessScheduler::Kind::heartbeat)] == 1);
         BEAST_EXPECT(
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::deliver)] == 1);
+            stats.eventsByKind[HarnessScheduler::kindIndex(
+                HarnessScheduler::Kind::deliver)] == 1);
         BEAST_EXPECT(
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::job)] == 1);
+            stats.eventsByKind[HarnessScheduler::kindIndex(
+                HarnessScheduler::Kind::job)] == 1);
         BEAST_EXPECT(
             stats.weightedEventsByKind[HarnessScheduler::kindIndex(
                 HarnessScheduler::Kind::heartbeat)] == 1);
@@ -393,14 +427,15 @@ class HarnessScheduler_test : public beast::unit_test::suite
             stats.weightedEventsByKind[HarnessScheduler::kindIndex(
                 HarnessScheduler::Kind::deliver)] == 2);
         BEAST_EXPECT(
-            stats.weightedEventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::job)] ==
-            3);
+            stats.weightedEventsByKind[HarnessScheduler::kindIndex(
+                HarnessScheduler::Kind::job)] == 3);
     }
 
     void
     testProfiledPacerNodeMultipliers()
     {
-        testcase("K-profiled pacer can charge deterministic multipliers by node");
+        testcase(
+            "K-profiled pacer can charge deterministic multipliers by node");
 
         HarnessScheduler s;
         auto const t0 = s.now();
@@ -415,7 +450,9 @@ class HarnessScheduler_test : public beast::unit_test::suite
                 [&, node]() {
                     observed.push_back(
                         "n" + std::to_string(node) + "@" +
-                        std::to_string(std::chrono::duration_cast<ms>(s.now() - t0).count()));
+                        std::to_string(
+                            std::chrono::duration_cast<ms>(s.now() - t0)
+                                .count()));
                 },
                 HarnessScheduler::Kind::deliver);
         }
@@ -424,7 +461,8 @@ class HarnessScheduler_test : public beast::unit_test::suite
             /*k=*/1,
             /*unitCost=*/ms{5},
             HarnessScheduler::ProfiledPacer::KindWeights::flat(),
-            HarnessScheduler::ProfiledPacer::NodeMultipliers::single(/*nodeId=*/1, /*value=*/3),
+            HarnessScheduler::ProfiledPacer::NodeMultipliers::single(
+                /*nodeId=*/1, /*value=*/3),
             HarnessScheduler::ProfiledPacer::HorizonMode::global};
         HarnessScheduler::ProfiledStepStats stats;
         auto const horizon = t0 + ms{100};
@@ -434,20 +472,29 @@ class HarnessScheduler_test : public beast::unit_test::suite
         BEAST_EXPECT(s.stepOneProfiled(horizon, pacer, stats));
         BEAST_EXPECT(!s.stepOneProfiled(horizon, pacer, stats));
 
-        BEAST_EXPECT((observed == std::vector<std::string>{"n0@15", "n1@30", "n2@35"}));
+        BEAST_EXPECT(
+            (observed == std::vector<std::string>{"n0@15", "n1@30", "n2@35"}));
         BEAST_EXPECT(stats.requestedAdvance == ms{25});
         BEAST_EXPECT(stats.consumedAdvance == ms{25});
         BEAST_EXPECT(stats.weightedEvents == 5);
         BEAST_EXPECT(
-            stats.eventsByKind[HarnessScheduler::kindIndex(HarnessScheduler::Kind::deliver)] == 3);
+            stats.eventsByKind[HarnessScheduler::kindIndex(
+                HarnessScheduler::Kind::deliver)] == 3);
         BEAST_EXPECT(
             stats.weightedEventsByKind[HarnessScheduler::kindIndex(
                 HarnessScheduler::Kind::deliver)] == 5);
-        BEAST_EXPECT(pacer.eventWeight(/*nodeId=*/0, HarnessScheduler::Kind::deliver) == 1);
-        BEAST_EXPECT(pacer.eventWeight(/*nodeId=*/1, HarnessScheduler::Kind::deliver) == 3);
-        BEAST_EXPECT(pacer.eventWeight(/*nodeId=*/2, HarnessScheduler::Kind::deliver) == 1);
+        BEAST_EXPECT(
+            pacer.eventWeight(/*nodeId=*/0, HarnessScheduler::Kind::deliver) ==
+            1);
+        BEAST_EXPECT(
+            pacer.eventWeight(/*nodeId=*/1, HarnessScheduler::Kind::deliver) ==
+            3);
+        BEAST_EXPECT(
+            pacer.eventWeight(/*nodeId=*/2, HarnessScheduler::Kind::deliver) ==
+            1);
 
-        auto const uniform = HarnessScheduler::ProfiledPacer::NodeMultipliers::uniform(1);
+        auto const uniform =
+            HarnessScheduler::ProfiledPacer::NodeMultipliers::uniform(1);
         BEAST_EXPECT(uniform.multiplier(0) == 1);
         BEAST_EXPECT(uniform.multiplier(99) == 1);
     }

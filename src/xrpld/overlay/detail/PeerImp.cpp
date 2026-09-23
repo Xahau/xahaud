@@ -51,7 +51,6 @@
 
 #include <algorithm>
 #include <memory>
-#include <vector>
 #include <mutex>
 #include <numeric>
 #include <random>
@@ -275,7 +274,13 @@ PeerImp::notifySendHook(Message& message, std::string const& stage) const
     if (auto const& hook = app_.config().harnessPeerSend)
     {
         auto const type = static_cast<std::uint16_t>(message.getMessageType());
-        hook(type, protocolMessageName(type), id_, remote_address_, stage, message);
+        hook(
+            type,
+            protocolMessageName(type),
+            id_,
+            remote_address_,
+            stage,
+            message);
     }
 }
 
@@ -959,16 +964,16 @@ PeerImp::doAccept()
         strand_,
         [this, write_buffer, self = shared_from_this()](
             error_code ec, std::size_t bytes_transferred) {
-                if (!transport_->is_open())
-                    return;
-                if (ec == boost::asio::error::operation_aborted)
-                    return;
-                if (ec)
-                    return fail("onWriteResponse", ec);
-                if (write_buffer->size() == bytes_transferred)
-                    return doProtocolStart();
-                return fail("Failed to write header");
-            });
+            if (!transport_->is_open())
+                return;
+            if (ec == boost::asio::error::operation_aborted)
+                return;
+            if (ec)
+                return fail("onWriteResponse", ec);
+            if (write_buffer->size() == bytes_transferred)
+                return doProtocolStart();
+            return fail("Failed to write header");
+        });
 }
 
 std::string

@@ -183,7 +183,8 @@ public:
         return false;
     }
 
-    /** Install a dispatch hook. Call before job flow and do not mutate later. */
+    /** Install a dispatch hook. Call before job flow and do not mutate later.
+     */
     void
     setDispatchHook(DispatchHook hook)
     {

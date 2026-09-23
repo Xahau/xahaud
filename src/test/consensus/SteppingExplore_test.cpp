@@ -9,15 +9,19 @@
 //
 // MANUAL suite (excluded from --unittest, like SteppingGrind/compression):
 //
-//   xrpld --unittest=SteppingExplore                    # sweep 25 seeds from the pinned base
-//   xrpld --unittest=SteppingExplore --unittest-arg=seeds=N[,start=0x...]
-//   xrpld --unittest=SteppingExplore --unittest-arg=seed=0x...[,schema=N]
-//                                                       # repro ONE instance via
-//                                                       # expectReplays (ladder armed)
-//   ...any of the above + ",mode=edge"                  # EDGE mode: loss at/past
-//                                                       # absorption on every link;
-//                                                       # stalling is legal, forking
-//                                                       # never, heal must recover
+//   xrpld --unittest=SteppingExplore                    # sweep 25 seeds from
+//   the pinned base xrpld --unittest=SteppingExplore
+//   --unittest-arg=seeds=N[,start=0x...] xrpld --unittest=SteppingExplore
+//   --unittest-arg=seed=0x...[,schema=N]
+//                                                       # repro ONE instance
+//                                                       via # expectReplays
+//                                                       (ladder armed)
+//   ...any of the above + ",mode=edge"                  # EDGE mode: loss
+//   at/past
+//                                                       # absorption on every
+//                                                       link; # stalling is
+//                                                       legal, forking # never,
+//                                                       heal must recover
 //
 // Layering rule (explorer-api-design §1): NOTHING here touches SteppingNetwork
 // surface — the generator is a pure consumer of the existing per-axis knobs
@@ -125,7 +129,7 @@ class SteppingExplore_test : public beast::unit_test::suite
         {
             std::uint32_t node = 0;
             std::chrono::milliseconds at{0};  // after the arm boundary
-            int payer = 0;                    // distinct per submit: no seq races
+            int payer = 0;  // distinct per submit: no seq races
             int amountXrp = 0;
         };
         struct Lifecycle
@@ -214,8 +218,8 @@ class SteppingExplore_test : public beast::unit_test::suite
                 os << " shadowed=" << shadowedFaults;
             if (lifecycle.restart)
                 os << " restart(n" << lifecycle.node << ",stop@+"
-                   << lifecycle.stopAfterRounds << "r,down="
-                   << lifecycle.downRounds << "r)";
+                   << lifecycle.stopAfterRounds
+                   << "r,down=" << lifecycle.downRounds << "r)";
             if (byzantine.active)
                 os << " byzantine(n" << byzantine.node << ","
                    << byzantine.rounds << "r)";
@@ -267,8 +271,7 @@ class SteppingExplore_test : public beast::unit_test::suite
         // Survivor mapping: identity when no restart is planned — which is
         // what keeps schema-2 derivation byte-identical to schema 1 for
         // every no-restart seed.
-        auto const pool =
-            env.validators - (plan.lifecycle.restart ? 1u : 0u);
+        auto const pool = env.validators - (plan.lifecycle.restart ? 1u : 0u);
         auto const survivor = [&plan](std::uint32_t idx) {
             return plan.lifecycle.restart && idx >= plan.lifecycle.node
                 ? idx + 1
@@ -334,14 +337,15 @@ class SteppingExplore_test : public beast::unit_test::suite
                 f.to = survivor(toIdx);
                 f.kind = static_cast<ScenarioPlan::FaultKind>(e() % 3);
                 f.lossPercent = static_cast<int>(
-                    2 + e() % static_cast<std::uint64_t>(
-                                  env.maxLossPercent - 2 + 1));
+                    2 +
+                    e() %
+                        static_cast<std::uint64_t>(env.maxLossPercent - 2 + 1));
                 f.delay = milliseconds{
                     env.minDelay.count() +
                     static_cast<std::int64_t>(
-                        e() % static_cast<std::uint64_t>(
-                                  env.maxDelay.count() -
-                                  env.minDelay.count() + 1))};
+                        e() %
+                        static_cast<std::uint64_t>(
+                            env.maxDelay.count() - env.minDelay.count() + 1))};
                 f.dupType = (e() % 2) == 0
                     ? static_cast<std::uint16_t>(protocol::mtPROPOSE_LEDGER)
                     : static_cast<std::uint16_t>(protocol::mtVALIDATION);
@@ -384,17 +388,15 @@ class SteppingExplore_test : public beast::unit_test::suite
         {
             beast::xor_shift_engine e(s.sub("timing"));
             plan.cadenceSkew = milliseconds{static_cast<std::int64_t>(
-                e() % static_cast<std::uint64_t>(
-                          env.maxCadenceSkew.count() + 1))};
-            auto const n =
-                e() % static_cast<std::uint64_t>(env.maxSubmits + 1);
+                e() %
+                static_cast<std::uint64_t>(env.maxCadenceSkew.count() + 1))};
+            auto const n = e() % static_cast<std::uint64_t>(env.maxSubmits + 1);
             for (std::uint64_t i = 0; i < n; ++i)
             {
                 ScenarioPlan::Submit sub;
-                sub.node =
-                    survivor(static_cast<std::uint32_t>(e() % pool));
-                sub.at = milliseconds{
-                    500 + static_cast<std::int64_t>(e() % 2001)};
+                sub.node = survivor(static_cast<std::uint32_t>(e() % pool));
+                sub.at =
+                    milliseconds{500 + static_cast<std::int64_t>(e() % 2001)};
                 sub.payer = static_cast<int>(i);
                 sub.amountXrp = static_cast<int>(100 + e() % 900);
                 plan.submits.push_back(sub);
@@ -427,7 +429,8 @@ class SteppingExplore_test : public beast::unit_test::suite
         using namespace std::chrono;
 
         std::vector<Account> const payers{
-            Account{"explorer-a"}, Account{"explorer-b"},
+            Account{"explorer-a"},
+            Account{"explorer-b"},
             Account{"explorer-c"}};
         Account const dest{"explorer-dest"};
 
@@ -435,8 +438,7 @@ class SteppingExplore_test : public beast::unit_test::suite
         // run on the default cadence — the drawn skew shapes the
         // exploration window, not the setup.
         net.seedPrng(plan.prngBase);
-        net.validators(
-               static_cast<std::size_t>(plan.clockOffsetSecs.size()))
+        net.validators(static_cast<std::size_t>(plan.clockOffsetSecs.size()))
             .mesh();
         if (!BEAST_EXPECT(net.allUp() && net.meshReady()))
             return Payload{};
@@ -466,8 +468,8 @@ class SteppingExplore_test : public beast::unit_test::suite
                     // still routes through the fault — so engine lifetime
                     // must ride the closure, not the stack (the pattern
                     // grindSeededLoss solves with an external accumulator).
-                    auto eng = std::make_shared<beast::xor_shift_engine>(
-                        f.engineSeed);
+                    auto eng =
+                        std::make_shared<beast::xor_shift_engine>(f.engineSeed);
                     auto inner = simfaults::dropWithProbability(
                         *eng, f.lossPercent / 100.0);
                     net.faultLink(
@@ -486,8 +488,8 @@ class SteppingExplore_test : public beast::unit_test::suite
                     // delay analog of the loss fault's dropWithProbability.
                     // The per-link engine (own indexed seed) is the replay
                     // handle; same shared_ptr ownership as the loss case.
-                    auto eng = std::make_shared<beast::xor_shift_engine>(
-                        f.engineSeed);
+                    auto eng =
+                        std::make_shared<beast::xor_shift_engine>(f.engineSeed);
                     auto inner = simfaults::delayJittered(
                         *eng, std::chrono::milliseconds{1}, f.delay);
                     net.faultLink(
@@ -512,8 +514,7 @@ class SteppingExplore_test : public beast::unit_test::suite
             auto const payer = payers[static_cast<std::size_t>(sub.payer)];
             auto const amount = sub.amountXrp;
             net.in(sub.at, sub.node, [&net, sub, payer, dest, amount]() {
-                net.submit(
-                    sub.node, jtx::pay(payer, dest, XRP(amount)), payer);
+                net.submit(sub.node, jtx::pay(payer, dest, XRP(amount)), payer);
             });
         }
 
@@ -577,16 +578,15 @@ class SteppingExplore_test : public beast::unit_test::suite
         {
             auto const bz = plan.byzantine.node;
             for (int r = 0; r < plan.byzantine.rounds; ++r)
-                net.in(
-                    milliseconds{300 + r * 1000}, bz, [&net, bz]() {
-                        auto const seq = net.minValidatedSeq() + 1;
-                        uint256 fake;
-                        fake.data()[0] = 0xBA;
-                        fake.data()[1] = 0xD5;
-                        fake.data()[30] = static_cast<std::uint8_t>(bz);
-                        fake.data()[31] = static_cast<std::uint8_t>(seq);
-                        net.lieValidation(bz, seq, fake);
-                    });
+                net.in(milliseconds{300 + r * 1000}, bz, [&net, bz]() {
+                    auto const seq = net.minValidatedSeq() + 1;
+                    uint256 fake;
+                    fake.data()[0] = 0xBA;
+                    fake.data()[1] = 0xD5;
+                    fake.data()[30] = static_cast<std::uint8_t>(bz);
+                    fake.data()[31] = static_cast<std::uint8_t>(seq);
+                    net.lieValidation(bz, seq, fake);
+                });
         }
 
         // Target measured AFTER the lifecycle phase: +5 from wherever the
@@ -646,8 +646,7 @@ class SteppingExplore_test : public beast::unit_test::suite
         chain.push_back(uint256{destDrops});
         for (std::uint32_t i = 0; i < plan.clockOffsetSecs.size(); ++i)
             chain.push_back(uint256{static_cast<std::uint64_t>(
-                1000 +
-                net.node(i).app().timeKeeper().closeOffset().count())});
+                1000 + net.node(i).app().timeKeeper().closeOffset().count())});
         // Edge observability, folded LAST so the sweep can read it back as
         // payload->back(): how much validated progress survived the chaos
         // window (5000 = fully stalled). Logged and FOLDED, never asserted
@@ -655,8 +654,8 @@ class SteppingExplore_test : public beast::unit_test::suite
         // is a divergence.
         if (plan.mode == ScenarioPlan::Mode::edge)
         {
-            log << "  edge: validated progress under chaos = "
-                << chaosProgress << std::endl;
+            log << "  edge: validated progress under chaos = " << chaosProgress
+                << std::endl;
             chain.push_back(uint256{5000u + chaosProgress});
         }
         return Payload{std::move(chain)};
@@ -773,8 +772,7 @@ class SteppingExplore_test : public beast::unit_test::suite
             mode == ScenarioPlan::Mode::edge ? "explore: seed sweep (edge)"
                                              : "explore: seed sweep");
         log << "  sweep: " << count << " instances from master 0x" << std::hex
-            << base << std::dec << " (schema "
-            << ScenarioSeed::kSchemaVersion
+            << base << std::dec << " (schema " << ScenarioSeed::kSchemaVersion
             << (mode == ScenarioPlan::Mode::edge ? ", mode=edge" : "") << ")"
             << std::endl;
         ScenarioSeed const master{base};
@@ -830,12 +828,12 @@ class SteppingExplore_test : public beast::unit_test::suite
             char const* const modeArg =
                 plan.mode == ScenarioPlan::Mode::edge ? ",mode=edge" : "";
             log << "  EXPLORE-REPRO schema=" << ScenarioSeed::kSchemaVersion
-                << " seed=0x" << std::hex << instanceSeed << std::dec
-                << modeArg << std::endl;
-            log << "    repro: --unittest=SteppingExplore --unittest-arg="
-                << "seed=0x" << std::hex << instanceSeed << ",schema="
-                << std::dec << ScenarioSeed::kSchemaVersion << modeArg
+                << " seed=0x" << std::hex << instanceSeed << std::dec << modeArg
                 << std::endl;
+            log << "    repro: --unittest=SteppingExplore --unittest-arg="
+                << "seed=0x" << std::hex << instanceSeed
+                << ",schema=" << std::dec << ScenarioSeed::kSchemaVersion
+                << modeArg << std::endl;
             confirmFailure(plan);
             //@@end repro-token
         }

@@ -18,9 +18,9 @@
 //------------------------------------------------------------------------------
 #include <test/jtx/SteppingNetwork.h>
 
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/unit_test/suite.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 
 #include <cstdint>
 #include <optional>
@@ -32,9 +32,9 @@ class SteppingLateJoiner_test : public beast::unit_test::suite
 {
     struct JoinOutcome
     {
-        std::uint32_t joinedAt = 0;   // minValidated when node 4 connected
-        std::uint32_t caughtUp = 0;   // node 4's validSeq at the end
-        std::vector<uint256> chain;   // node 4's hashes [2 .. caughtUp]
+        std::uint32_t joinedAt = 0;  // minValidated when node 4 connected
+        std::uint32_t caughtUp = 0;  // node 4's validSeq at the end
+        std::vector<uint256> chain;  // node 4's hashes [2 .. caughtUp]
     };
 
     std::optional<JoinOutcome>
@@ -59,8 +59,8 @@ class SteppingLateJoiner_test : public beast::unit_test::suite
         {
             if (!BEAST_EXPECT(net.validSeq(n) >= 5))
             {
-                log << "  quorum stalled; diagnostics: "
-                    << net.jobDiagnostics() << std::endl;
+                log << "  quorum stalled; diagnostics: " << net.jobDiagnostics()
+                    << std::endl;
                 return std::nullopt;
             }
         }

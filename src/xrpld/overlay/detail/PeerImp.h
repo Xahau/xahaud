@@ -22,13 +22,13 @@
 
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/ledger/detail/LedgerReplayMsgHandler.h>
-#include <xrpld/overlay/Squelch.h>
 #include <xrpld/app/ledger/detail/TimeoutCounter.h>
+#include <xrpld/overlay/Squelch.h>
 #include <xrpld/overlay/detail/OverlayImpl.h>
 #include <xrpld/overlay/detail/PeerStrand.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
-#include <xrpld/overlay/detail/Transport.h>
 #include <xrpld/overlay/detail/ProtocolVersion.h>
+#include <xrpld/overlay/detail/Transport.h>
 #include <xrpld/peerfinder/PeerfinderManager.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/RangeSet.h>
@@ -454,9 +454,8 @@ private:
     notifySendHook(Message& message, std::string const& stage) const;
 
     void
-    notifyLifecycleHook(
-        std::string const& event,
-        std::string const& detail) const;
+    notifyLifecycleHook(std::string const& event, std::string const& detail)
+        const;
 
     void
     close();

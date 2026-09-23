@@ -1549,17 +1549,16 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
     //             move the instantiation inside a conditional:
     //
     //             if (!config_.standalone())
-    overlay_ = overlayFactory_
-        ? overlayFactory_(*this)
-        : make_Overlay(
-              *this,
-              setup_Overlay(*config_),
-              *serverHandler_,
-              *m_resourceManager,
-              *m_resolver,
-              get_io_service(),
-              *config_,
-              m_collectorManager->collector());
+    overlay_ = overlayFactory_ ? overlayFactory_(*this)
+                               : make_Overlay(
+                                     *this,
+                                     setup_Overlay(*config_),
+                                     *serverHandler_,
+                                     *m_resourceManager,
+                                     *m_resolver,
+                                     get_io_service(),
+                                     *config_,
+                                     m_collectorManager->collector());
     add(*overlay_);  // add to PropertyStream
 
     // start first consensus round

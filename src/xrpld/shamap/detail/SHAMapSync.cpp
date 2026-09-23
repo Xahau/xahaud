@@ -270,7 +270,8 @@ SHAMap::gmn_ProcessDeferredReads(MissingNodes& mn)
     // that race.
     {
         std::unique_lock<std::mutex> lock{mn.deferLock_};
-        while (mn.finishedReads_.size() != static_cast<std::size_t>(mn.deferred_))
+        while (mn.finishedReads_.size() !=
+               static_cast<std::size_t>(mn.deferred_))
             mn.deferCondVar_.wait(lock);
     }
     std::sort(

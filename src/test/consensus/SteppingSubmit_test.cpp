@@ -62,8 +62,8 @@ class SteppingSubmit_test : public beast::unit_test::suite
             return std::nullopt;
 
         Account const alice{"alice"};
-        auto const txn =
-            net.submit(0, pay(Account::master, alice, XRP(10000)), Account::master);
+        auto const txn = net.submit(
+            0, pay(Account::master, alice, XRP(10000)), Account::master);
 
         // The open-ledger apply ran INLINE during submit(); the tx must be in
         // node 0's open ledger now.
@@ -72,8 +72,9 @@ class SteppingSubmit_test : public beast::unit_test::suite
 
         auto const target = net.minValidatedSeq() + 3;
         auto const steps = net.runTo(target);
-        log << "  submit: " << steps << " scheduler events to minValidated="
-            << net.minValidatedSeq() << ", offThreadJobs=" << net.offThreadJobs()
+        log << "  submit: " << steps
+            << " scheduler events to minValidated=" << net.minValidatedSeq()
+            << ", offThreadJobs=" << net.offThreadJobs()
             << ", failedJobs=" << net.failedJobs() << std::endl;
         if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
         {
@@ -157,10 +158,10 @@ class SteppingSubmit_test : public beast::unit_test::suite
         // the first already applied — consecutive master sequences.
         Account const alice{"alice"};
         Account const bob{"bob"};
-        auto const tx1 =
-            net.submit(0, pay(Account::master, alice, XRP(10000)), Account::master);
-        auto const tx2 =
-            net.submit(0, pay(Account::master, bob, XRP(5000)), Account::master);
+        auto const tx1 = net.submit(
+            0, pay(Account::master, alice, XRP(10000)), Account::master);
+        auto const tx2 = net.submit(
+            0, pay(Account::master, bob, XRP(5000)), Account::master);
         BEAST_EXPECT(tx1->getResult() == tesSUCCESS);
         BEAST_EXPECT(tx2->getResult() == tesSUCCESS);
 
@@ -246,8 +247,7 @@ class SteppingSubmit_test : public beast::unit_test::suite
         // and real signature checking on the submission path.
         auto const txn = net.submit(2, pay(alice, bob, XRP(100)), alice);
         BEAST_EXPECT(txn->getResult() == tesSUCCESS);
-        auto const fee =
-            txn->getSTransaction()->getFieldAmount(sfFee);
+        auto const fee = txn->getSTransaction()->getFieldAmount(sfFee);
 
         auto const target = net.minValidatedSeq() + 3;
         net.runTo(target);
@@ -263,7 +263,8 @@ class SteppingSubmit_test : public beast::unit_test::suite
         // fee; bob received 100 XRP on top of his 10000 funding.
         auto const aliceExpected =
             STAmount{XRP(10000).value()} - XRP(100).value() - fee;
-        auto const bobExpected = STAmount{XRP(10000).value()} + XRP(100).value();
+        auto const bobExpected =
+            STAmount{XRP(10000).value()} + XRP(100).value();
         for (std::uint32_t n = 0; n < 3; ++n)
         {
             auto const l = net.ledger(n, target);
@@ -343,8 +344,8 @@ class SteppingSubmit_test : public beast::unit_test::suite
 
         // Role gating: an admin-only command as Role::USER is refused.
         {
-            auto const r = net.rpc(
-                0, "peers", Json::Value{Json::objectValue}, Role::USER);
+            auto const r =
+                net.rpc(0, "peers", Json::Value{Json::objectValue}, Role::USER);
             BEAST_EXPECT(r.isMember(jss::error));
         }
 
