@@ -259,7 +259,7 @@ jobs:
         run: |
           apt-get update
           apt-get install -y software-properties-common
-          add-apt-repository ppa:ubuntu-toolchain-r/test -y
+          # [drop] add-apt-repository ppa:ubuntu-toolchain-r/test -y  (noble ships the compilers; launchpad API unreachable from the runners)
           apt-get update
           apt-get install -y git python3 python-is-python3 pipx
           pipx ensurepath
