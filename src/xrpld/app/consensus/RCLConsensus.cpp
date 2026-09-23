@@ -77,6 +77,7 @@ RCLConsensus::RCLConsensus(
     beast::Journal journal)
     : adaptor_(
           app,
+          mutex_,
           std::move(feeVote),
           ledgerMaster,
           localTxs,
@@ -92,6 +93,7 @@ RCLConsensus::~RCLConsensus() = default;
 
 RCLConsensus::Adaptor::Adaptor(
     Application& app,
+    std::recursive_mutex& consensusMutex,
     std::unique_ptr<FeeVote>&& feeVote,
     LedgerMaster& ledgerMaster,
     LocalTxs& localTxs,
@@ -99,6 +101,7 @@ RCLConsensus::Adaptor::Adaptor(
     ValidatorKeys const& validatorKeys,
     beast::Journal journal)
     : app_(app)
+    , consensusMutex_(consensusMutex)
     , feeVote_(std::move(feeVote))
     , ledgerMaster_(ledgerMaster)
     , localTxs_(localTxs)
@@ -518,11 +521,9 @@ RCLConsensus::Adaptor::onAccept(
         "acceptLedger",
         [=, this, cj = std::move(consensusJson)]() mutable {
             //@@start do-accept-freeze-contract
-            // Note that no lock is held or acquired during this job.
-            // This is because generic Consensus guarantees that once a ledger
-            // is accepted, the consensus results and capture by reference state
-            // will not change until startRound is called (which happens via
-            // endConsensus).
+            // The job locks only for extension preparation, not ledger
+            // building. The accepted result must remain frozen until
+            // startRound, reached through endConsensus after doAccept returns.
             //@@end do-accept-freeze-contract
             RclConsensusLogger clog("onAccept", validating, j_);
             this->doAccept(
@@ -587,10 +588,12 @@ RCLConsensus::Adaptor::doAccept(
     // influence fallback entropy, transaction ordering, or ledger state.
     auto replayData = ledgerMaster_.releaseReplay();
     auto const consensusTxSetHash = result.txns.id();
-    auto const liveBuild = replayData
-        ? std::optional<ConsensusExtensions::LiveBuildTxSet>{}
-        : std::optional<ConsensusExtensions::LiveBuildTxSet>{
-              ce().makeLiveBuildTxSet(result.txns)};
+    auto const liveBuild = [&] {
+        std::lock_guard lock{consensusMutex_};
+        return replayData ? std::optional<ConsensusExtensions::LiveBuildTxSet>{}
+                          : std::optional<ConsensusExtensions::LiveBuildTxSet>{
+                                ce().makeLiveBuildTxSet(result.txns)};
+    }();
     auto const& buildTxs = liveBuild ? liveBuild->txns : result.txns;
     auto const buildTxSetHash = buildTxs.id();
 
@@ -615,7 +618,11 @@ RCLConsensus::Adaptor::doAccept(
     // FIXME: Use a std::vector and a custom sorter instead of CanonicalTXSet?
     //@@start txn-ordering-salt-build-inputs
     auto const buildSeq = prevLedger.seq() + 1;
-    CanonicalTXSet retriableTxs{ce().txnOrderingSalt(buildTxSetHash, buildSeq)};
+    auto const orderingSalt = [&] {
+        std::lock_guard lock{consensusMutex_};
+        return ce().txnOrderingSalt(buildTxSetHash, buildSeq);
+    }();
+    CanonicalTXSet retriableTxs{orderingSalt};
 
     JLOG(j_.debug()) << "Building canonical tx set: " << retriableTxs.key();
 
@@ -641,17 +648,22 @@ RCLConsensus::Adaptor::doAccept(
     // Export witness injection are independently gated inside onPreBuild;
     // export-only rounds still need this hook even when RNG is off.
     //@@start accept-time-cleanup-disabled
-    if (replayData)
     {
-        ce().onReplayBuild();
-    }
-    else if (ce().rngEnabled() || ce().exportEnabled())
-    {
-        ce().onPreBuild(retriableTxs, buildSeq, buildTxSetHash);
-    }
-    else
-    {
-        ce().clearRngState();
+        // Match consensus-side readers/writers. Never extend this scope across
+        // buildLCL, the open-ledger locks, or endConsensus.
+        std::lock_guard lock{consensusMutex_};
+        if (replayData)
+        {
+            ce().onReplayBuild();
+        }
+        else if (ce().rngEnabled() || ce().exportEnabled())
+        {
+            ce().onPreBuild(retriableTxs, buildSeq, buildTxSetHash);
+        }
+        else
+        {
+            ce().clearRngState();
+        }
     }
     //@@end accept-time-cleanup-disabled
 
