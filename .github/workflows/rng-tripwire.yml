@@ -1,0 +1,25 @@
+name: rng-tripwire
+
+on: [push, pull_request]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Check for vendor-defined random algorithms
+      run: python3 Builds/rng_tripwire/rng_tripwire.py
+    - name: What happened?
+      if: failure()
+      env:
+        MESSAGE: |
+          A standard-library random algorithm showed up outside the
+          allowlist. These algorithms are not the same on every standard
+          library, so a new call site can change a deterministic trace.
+
+          Either draw through ripple::rand_int, or add the path to
+          Builds/rng_tripwire/allowlist.txt with a one-line justification.
+          Comments are ignored. See Builds/rng_tripwire/allowlist.txt.
+      run: |
+        echo "${MESSAGE}"
+        exit 1
