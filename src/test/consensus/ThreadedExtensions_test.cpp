@@ -383,8 +383,9 @@ class ThreadedExtensions_test : public beast::unit_test::suite
         // the ledgers still to close rather than fixing a beat count.
         constexpr std::uint32_t viewSeq = 2 * 256 + 2;
         constexpr std::size_t beatsPerLedger = 40;
-        auto const remaining = viewSeq > net.minValidated()
-            ? static_cast<std::size_t>(viewSeq - net.minValidated())
+        auto const startValidated = net.minValidated();
+        auto const remaining = viewSeq > startValidated
+            ? static_cast<std::size_t>(viewSeq - startValidated)
             : std::size_t{0};
         auto const viewBeats =
             std::max<std::size_t>(4500, remaining * beatsPerLedger);

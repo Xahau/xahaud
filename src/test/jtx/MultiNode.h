@@ -1054,10 +1054,12 @@ public:
                             : SimTransportActivitySnapshot{};
     }
 
-    // Wait until no sim transport post is in flight and no wire holds
-    // buffered bytes. threadedTick can return while a slow post is still
-    // running on a node's io thread, so a caller that asserts quiescence
-    // after its last tick waits here first. Returns false on timeout.
+    // Wait until no tracked sim transport post is in flight and no wire
+    // holds buffered bytes. threadedTick can return while a slow post is
+    // still running on a node's io thread, so a caller that asserts
+    // quiescence after its last tick waits here first. Covers the sim
+    // transport only, not job queues or timers, and needs the transport
+    // activity tracker (simOverlayFactory). Returns false on timeout.
     [[nodiscard]] bool
     waitForSimQuiescence(std::chrono::milliseconds timeout) const
     {
