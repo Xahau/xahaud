@@ -1875,7 +1875,12 @@ public:
                     auto const& hooks = hooksObj->getFieldArray(sfHooks);
                     BEAST_EXPECT(hooks.size() == 1);
                     auto const& h = hooks[0];
-                    BEAST_EXPECT(h.isFieldPresent(sfHookOn));
+                    if (withFix)
+                        BEAST_EXPECT(h.isFieldPresent(sfHookOn));
+                    // Cause different results between gcc and clang due to
+                    // undefined behavior so we don't test it
+                    // else
+                    //     BEAST_EXPECT(!h.isFieldPresent(sfHookOn));
                     BEAST_EXPECT(!h.isFieldPresent(sfHookOnOutgoing));
                     BEAST_EXPECT(!h.isFieldPresent(sfHookOnIncoming));
                 }
@@ -1898,8 +1903,10 @@ public:
                     auto const& h = hooks[0];
                     if (withFix)
                         BEAST_EXPECT(!h.isFieldPresent(sfHookOn));
-                    else
-                        BEAST_EXPECT(h.isFieldPresent(sfHookOn));
+                    // Cause different results between gcc and clang due to
+                    // undefined behavior so we don't test it
+                    // else
+                    //     BEAST_EXPECT(h.isFieldPresent(sfHookOn));
                     BEAST_EXPECT(h.isFieldPresent(sfHookOnOutgoing));
                     BEAST_EXPECT(h.isFieldPresent(sfHookOnIncoming));
                 }
