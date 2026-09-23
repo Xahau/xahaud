@@ -24,9 +24,13 @@
 #include <boost/lexical_cast.hpp>
 
 #include <algorithm>
+#include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
+#include <string>
+#include <unistd.h>
 #include <vector>
 
 namespace ripple {
@@ -234,9 +238,40 @@ multi_runner_base<IsParent>::multi_runner_base()
     {
         if (IsParent)
         {
-            // cleanup any leftover state for any previous failed runs
-            boost::interprocess::shared_memory_object::remove(shared_mem_name_);
-            boost::interprocess::message_queue::remove(message_queue_name_);
+            // One name pair per parent process. Spawned children inherit the
+            // environment; the in-process single-job child reads it too.
+            auto const pid =
+                std::to_string(static_cast<unsigned long long>(::getpid()));
+            shared_mem_name_ = std::string(shared_mem_prefix_) + "." + pid;
+            message_queue_name_ =
+                std::string(message_queue_prefix_) + "." + pid;
+            if (::setenv(shared_mem_env_, shared_mem_name_.c_str(), 1) != 0 ||
+                ::setenv(message_queue_env_, message_queue_name_.c_str(), 1) !=
+                    0)
+            {
+                throw std::runtime_error(
+                    "failed to publish unit-test ipc names");
+            }
+
+            // Drop a leftover object for this pid. Do not touch another
+            // process's names.
+            boost::interprocess::shared_memory_object::remove(
+                shared_mem_name_.c_str());
+            boost::interprocess::message_queue::remove(
+                message_queue_name_.c_str());
+        }
+        else
+        {
+            char const* const shm = std::getenv(shared_mem_env_);
+            char const* const mq = std::getenv(message_queue_env_);
+            if (shm == nullptr || shm[0] == '\0' || mq == nullptr ||
+                mq[0] == '\0')
+            {
+                throw std::runtime_error(
+                    "unit-test child missing parent ipc names");
+            }
+            shared_mem_name_ = shm;
+            message_queue_name_ = mq;
         }
 
         shared_mem_ = boost::interprocess::shared_memory_object{
@@ -244,7 +279,7 @@ multi_runner_base<IsParent>::multi_runner_base()
                 IsParent,
                 boost::interprocess::create_only_t,
                 boost::interprocess::open_only_t>{},
-            shared_mem_name_,
+            shared_mem_name_.c_str(),
             boost::interprocess::read_write};
 
         if (IsParent)
@@ -253,7 +288,7 @@ multi_runner_base<IsParent>::multi_runner_base()
             message_queue_ =
                 std::make_unique<boost::interprocess::message_queue>(
                     boost::interprocess::create_only,
-                    message_queue_name_,
+                    message_queue_name_.c_str(),
                     /*max messages*/ 16,
                     /*max message size*/ 1 << 20);
         }
@@ -261,7 +296,8 @@ multi_runner_base<IsParent>::multi_runner_base()
         {
             message_queue_ =
                 std::make_unique<boost::interprocess::message_queue>(
-                    boost::interprocess::open_only, message_queue_name_);
+                    boost::interprocess::open_only,
+                    message_queue_name_.c_str());
         }
 
         region_ = boost::interprocess::mapped_region{
@@ -275,8 +311,12 @@ multi_runner_base<IsParent>::multi_runner_base()
     {
         if (IsParent)
         {
-            boost::interprocess::shared_memory_object::remove(shared_mem_name_);
-            boost::interprocess::message_queue::remove(message_queue_name_);
+            if (!shared_mem_name_.empty())
+                boost::interprocess::shared_memory_object::remove(
+                    shared_mem_name_.c_str());
+            if (!message_queue_name_.empty())
+                boost::interprocess::message_queue::remove(
+                    message_queue_name_.c_str());
         }
         throw;
     }
@@ -288,8 +328,9 @@ multi_runner_base<IsParent>::~multi_runner_base()
     if (IsParent)
     {
         inner_->~inner();
-        boost::interprocess::shared_memory_object::remove(shared_mem_name_);
-        boost::interprocess::message_queue::remove(message_queue_name_);
+        boost::interprocess::shared_memory_object::remove(
+            shared_mem_name_.c_str());
+        boost::interprocess::message_queue::remove(message_queue_name_.c_str());
     }
 }
 
