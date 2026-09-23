@@ -12,10 +12,12 @@ echo "Cleaning previously built binary"
 rm -f release-build/xahaud
 
 BUILD_CORES=$(echo "scale=0 ; $(nproc) / 1.337" | bc)
+OUT_DIR="/data/builds"
 
 if [[ "$GITHUB_REPOSITORY" == "" ]]; then
   #Default
   BUILD_CORES=${BUILD_CORES:-8}
+  OUT_DIR="./data/builds"
 fi
 
 # Ensure still works outside of GH Actions by setting these to /dev/null
@@ -51,7 +53,7 @@ CACHE_VOLUME_NAME="xahau-release-builder-cache"
 if false; then
   echo "Static container, execute in static container to have max. cache"
   docker start $CONTAINER_NAME
-  docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-core.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
+  docker exec -i $CONTAINER_NAME bash -c "source /opt/rh/gcc-toolset-13/enable && bash -x /io/build-core.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
   docker stop $CONTAINER_NAME
 else
   echo "No static container, build on temp container"
@@ -63,24 +65,32 @@ else
   # Create inline Dockerfile with environment setup for build-full.sh
   DOCKERFILE_CONTENT=$(
     cat <<'DOCKERFILE_EOF'
-FROM ghcr.io/phusion/holy-build-box:4.0.1-amd64
+FROM --platform=linux/amd64 almalinux:8
 
 ARG BUILD_CORES=8
 
-# Enable repositories and install dependencies
-RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
-    dnf config-manager --set-enabled powertools || dnf config-manager --set-enabled crb && \
+# AlmaLinux 8 keeps the glibc 2.28 baseline (same as holy-build-box 4).
+# The devel repo (disabled by default, like in holy-build-box) provides ncurses-static.
+# - gcc-toolset-13: compiler for xahaud itself and its Conan dependencies
+# - gcc-toolset-11: used only for the pre-built LLD/WasmEdge below (known-good);
+#   their static libs are linked into the gcc-13 build with -static-libstdc++
+RUN dnf install -y dnf-plugins-core epel-release && \
+    dnf config-manager --set-enabled powertools && \
+    printf "%s\n" "[devel]" "name=AlmaLinux 8 - Devel" \
+        "baseurl=https://repo.almalinux.org/almalinux/8/devel/\$basearch/os/" \
+        "gpgcheck=1" "gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-AlmaLinux" "enabled=0" \
+        > /etc/yum.repos.d/almalinux-devel.repo && \
     dnf install -y --enablerepo=devel \
-        wget git \
-        gcc-toolset-11-gcc-c++ gcc-toolset-11-binutils gcc-toolset-11-libatomic-devel \
+        wget git unzip xz perl hostname make \
+        gcc-toolset-11-gcc-c++ gcc-toolset-11-binutils \
+        gcc-toolset-13-gcc-c++ gcc-toolset-13-binutils gcc-toolset-13-libatomic-devel \
         lz4 lz4-devel \
         ncurses-static ncurses-devel \
         snappy snappy-devel \
         zlib zlib-devel zlib-static \
-        libasan \
-        python3 python3-pip \
+        sqlite-devel \
+        python3.11 python3.11-pip \
         ccache \
-        ninja-build \
         mold \
         patch \
         glibc-devel glibc-static \
@@ -90,16 +100,15 @@ RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
         texinfo \
         libtool \
         llvm14-static llvm14-devel && \
-    dnf clean all"
+    dnf clean all
 
 # Install Conan 2 and CMake
-RUN /hbb_exe/activate-exec pip3 install "conan>=2.0,<3.0" && \
-    /hbb_exe/activate-exec wget -q https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-linux-x86_64.tar.gz -O cmake.tar.gz && \
-    mkdir cmake && \
-    tar -xzf cmake.tar.gz --strip-components=1 -C cmake && \
+RUN python3.11 -m pip install "conan>=2.0,<3.0" "ninja>=1.13,<1.14" && \
+    wget -q https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-linux-x86_64.tar.gz -O cmake.tar.gz && \
+    tar -xzf cmake.tar.gz --strip-components=1 -C /usr/local && \
     rm cmake.tar.gz
 
-# Dual Boost configuration in HBB environment:
+# Dual Boost configuration:
 # - Manual Boost in /usr/local (minimal: for WasmEdge which is pre-built in Docker)
 # - Conan Boost (full: for the application and all dependencies via toolchain)
 #
@@ -109,7 +118,8 @@ RUN /hbb_exe/activate-exec pip3 install "conan>=2.0,<3.0" && \
 #   - link=static: Creates static Boost libraries (.a files) instead of shared (.so files)
 #   - runtime-link=shared: Links Boost libraries against shared libc (glibc)
 # WasmEdge only needs boost::filesystem and boost::system
-RUN /hbb_exe/activate-exec bash -c "echo 'Boost cache bust: v5-minimal' && \
+RUN echo 'Boost cache bust: v5-minimal' && \
+    source /opt/rh/gcc-toolset-11/enable && \
     rm -rf /usr/local/lib/libboost* /usr/local/include/boost && \
     cd /tmp && \
     wget -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz -O boost.tar.gz && \
@@ -121,7 +131,7 @@ RUN /hbb_exe/activate-exec bash -c "echo 'Boost cache bust: v5-minimal' && \
         link=static runtime-link=shared -j${BUILD_CORES} \
         --with-filesystem --with-system && \
     cd /tmp && \
-    rm -rf boost boost.tar.gz"
+    rm -rf boost boost.tar.gz
 
 ENV CMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
 
@@ -132,7 +142,7 @@ ENV CC='ccache gcc'
 ENV CXX='ccache g++'
 
 # Install LLD
-RUN /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && \
+RUN source /opt/rh/gcc-toolset-11/enable && \
     cd /tmp && \
     wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.3/lld-14.0.3.src.tar.xz && \
     wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.3/libunwind-14.0.3.src.tar.xz && \
@@ -145,11 +155,11 @@ RUN /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && \
         -DLLVM_LIBRARY_DIR=/usr/lib64/llvm14/lib/ \
         -DCMAKE_INSTALL_PREFIX=/usr/lib64/llvm14/ \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_EXE_LINKER_FLAGS=\"\$CMAKE_EXE_LINKER_FLAGS\" && \
+        -DCMAKE_EXE_LINKER_FLAGS="$CMAKE_EXE_LINKER_FLAGS" && \
     make -j${BUILD_CORES} install && \
     ln -s /usr/lib64/llvm14/lib/include/lld /usr/include/lld && \
     cp /usr/lib64/llvm14/lib/liblld*.a /usr/local/lib/ && \
-    cd /tmp && rm -rf lld-* libunwind-*"
+    cd /tmp && rm -rf lld-* libunwind-*
 
 # Build and install WasmEdge (static version)
 # Note: Conan only provides WasmEdge with shared library linking.
@@ -163,7 +173,7 @@ RUN cd /tmp && \
     cd WasmEdge-0.11.2 && \
     ( mkdir -p build; echo "" ) && \
     cd build && \
-    /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && \
+    source /opt/rh/gcc-toolset-11/enable && \
     ln -sf /opt/rh/gcc-toolset-11/root/usr/bin/ar /usr/bin/ar && \
     ln -sf /opt/rh/gcc-toolset-11/root/usr/bin/ranlib /usr/bin/ranlib && \
     echo '=== Binutils version check ===' && \
@@ -181,9 +191,9 @@ RUN cd /tmp && \
         -DWASMEDGE_BUILD_PLUGINS=OFF \
         -DWASMEDGE_LINK_TOOLS_STATIC=ON \
         -DBoost_NO_BOOST_CMAKE=ON \
-        -DCMAKE_EXE_LINKER_FLAGS=\"\$CMAKE_EXE_LINKER_FLAGS\" \
+        -DCMAKE_EXE_LINKER_FLAGS="$CMAKE_EXE_LINKER_FLAGS" \
         && \
-    make -j${BUILD_CORES} install" && \
+    make -j${BUILD_CORES} install && \
     cp -r include/api/wasmedge /usr/include/ && \
     cd /tmp && rm -rf WasmEdge* 0.11.2.zip
 
@@ -192,7 +202,7 @@ ENV PATH=/usr/local/bin:$PATH
 
 # Configure ccache and Conan 2
 # NOTE: Using echo commands instead of heredocs because heredocs in Docker RUN commands are finnicky
-RUN /hbb_exe/activate-exec bash -c "ccache -M 100G && \
+RUN ccache -M 100G && \
     ccache -o cache_dir=/cache/ccache && \
     ccache -o compiler_check=content && \
     ccache -o direct_mode=true && \
@@ -207,14 +217,23 @@ RUN /hbb_exe/activate-exec bash -c "ccache -M 100G && \
     echo 'compiler=gcc' >> ~/.conan2/profiles/default && \
     echo 'compiler.cppstd=20' >> ~/.conan2/profiles/default && \
     echo 'compiler.libcxx=libstdc++11' >> ~/.conan2/profiles/default && \
-    echo 'compiler.version=11' >> ~/.conan2/profiles/default && \
+    echo 'compiler.version=13' >> ~/.conan2/profiles/default && \
     echo 'os=Linux' >> ~/.conan2/profiles/default && \
     echo '' >> ~/.conan2/profiles/default && \
     echo '[conf]' >> ~/.conan2/profiles/default && \
     echo '# Force building from source for packages with binary compatibility issues' >> ~/.conan2/profiles/default && \
     echo '*:tools.system.package_manager:mode=build' >> ~/.conan2/profiles/default && \
-    ln -s ../../bin/ccache /usr/lib64/ccache/g++ && \
-    ln -s ../../bin/ccache /usr/lib64/ccache/c++"
+    echo '# Tag every package_id with the glibc baseline so ConanCenter binaries (built on a' >> ~/.conan2/profiles/default && \
+    echo '# newer glibc, e.g. protoc/b2) never match; everything is built locally and cached' >> ~/.conan2/profiles/default && \
+    echo 'user.xahaud:glibc=2.28' >> ~/.conan2/profiles/default && \
+    echo 'tools.info.package_id:confs=["user.xahaud:glibc"]' >> ~/.conan2/profiles/default && \
+    echo "" >> ~/.conan2/profiles/default && \
+    echo "# ninja is provided by pip (manylinux wheel); building it in Conan hits a gcc-13 LTO ICE" >> ~/.conan2/profiles/default && \
+    echo "[platform_tool_requires]" >> ~/.conan2/profiles/default && \
+    echo "ninja/1.13.2" >> ~/.conan2/profiles/default && \
+    ln -sf ../../bin/ccache /usr/lib64/ccache/gcc && \
+    ln -sf ../../bin/ccache /usr/lib64/ccache/g++ && \
+    ln -sf ../../bin/ccache /usr/lib64/ccache/c++
 
 DOCKERFILE_EOF
   )
@@ -227,15 +246,15 @@ DOCKERFILE_EOF
   if [[ "$GITHUB_REPOSITORY" == "" ]]; then
     # Non GH, local building
     echo "Non-GH runner, local building, temp container"
-    docker run -i --user 0:$(id -g) --rm -v /data/builds:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
+    docker run -i --user 0:$(id -g) --rm -v $OUT_DIR:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" bash -c "source /opt/rh/gcc-toolset-13/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
   else
     # GH Action, runner
     echo "GH Action, runner, clean & re-create create persistent container"
     docker rm -f $CONTAINER_NAME
     echo "echo 'Stopping container: $CONTAINER_NAME'" >>"$JOB_CLEANUP_SCRIPT"
     echo "docker stop --time=15 \"$CONTAINER_NAME\" || echo 'Failed to stop container or container not running'" >>"$JOB_CLEANUP_SCRIPT"
-    docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v /data/builds:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" /hbb_exe/activate-exec bash
-    docker exec -i $CONTAINER_NAME /hbb_exe/activate-exec bash -c "source /opt/rh/gcc-toolset-11/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
+    docker run -di --user 0:$(id -g) --name $CONTAINER_NAME -v $OUT_DIR:/data/builds -v $(pwd):/io -v "$CACHE_VOLUME_NAME":/cache --network host "$IMAGE_NAME" bash
+    docker exec -i $CONTAINER_NAME bash -c "source /opt/rh/gcc-toolset-13/enable && bash -x /io/build-full.sh '$GITHUB_REPOSITORY' '$GITHUB_SHA' '$BUILD_CORES' '$GITHUB_RUN_NUMBER'"
     docker stop $CONTAINER_NAME
   fi
 fi
