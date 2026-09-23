@@ -120,6 +120,13 @@ runs:
 
         # Add macOS-specific conf if needed
         if [ "${{ inputs.os }}" = "Macos" ]; then
+          # Conan's built-in settings.yml lags new Xcode releases; register the
+          # detected apple-clang version so the profile validates.
+          cat > ~/.conan2/settings_user.yml <<EOF
+        compiler:
+          apple-clang:
+            version: ["${{ inputs.compiler_version }}"]
+        EOF
           cat >> ~/.conan2/profiles/default <<EOF
 
         [conf]
