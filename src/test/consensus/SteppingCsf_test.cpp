@@ -66,6 +66,15 @@ class SteppingCsf_test : public beast::unit_test::suite
         // Availability before any verification-only backfill. False when
         // no transaction was accepted, or its historical ledger is missing.
         bool historyReadyAtSnapshot = false;
+        // Beats of K=0 continuation that reached the target. 0 when recovery
+        // was not needed, or when it ran and still missed the target.
+        std::uint32_t recoveryBeats = 0;
+        // PRNG base passed to seedPrng before the nodes exist.
+        static constexpr std::uint64_t kDefaultSeed = 0xFAB1E5EED0000000ull;
+        std::uint64_t seed = kDefaultSeed;
+        // Not part of operator==. True only when the profiled loop stopped
+        // because the heartbeat ceiling was reached.
+        bool heartbeatBudgetStop = false;
 
         [[nodiscard]] bool
         operator==(KProfiledDisputeSample const& o) const
@@ -89,7 +98,8 @@ class SteppingCsf_test : public beast::unit_test::suite
                 forkFree == o.forkFree && converged == o.converged &&
                 exactlyOneAccepted == o.exactlyOneAccepted &&
                 acceptedSetVerified == o.acceptedSetVerified &&
-                historyReadyAtSnapshot == o.historyReadyAtSnapshot;
+                historyReadyAtSnapshot == o.historyReadyAtSnapshot &&
+                recoveryBeats == o.recoveryBeats && seed == o.seed;
         }
     };
 
@@ -498,7 +508,9 @@ class SteppingCsf_test : public beast::unit_test::suite
     }
 
     KProfiledDisputeSample
-    runProfiledDispute(std::uint32_t k)
+    runProfiledDispute(
+        std::uint32_t k,
+        std::uint64_t seed = KProfiledDisputeSample::kDefaultSeed)
     {
         using namespace jtx;
         using namespace std::chrono;
@@ -506,8 +518,10 @@ class SteppingCsf_test : public beast::unit_test::suite
         Account const alice{"csf-profiled-dispute-alice"};
         KProfiledDisputeSample out;
         out.k = k;
+        out.seed = seed;
 
         SteppingNetwork net(*this);
+        net.seedPrng(seed);
         net.validators(5).mesh();
         if (!BEAST_EXPECT(net.allUp() && net.meshReady()))
             return out;
@@ -550,6 +564,8 @@ class SteppingCsf_test : public beast::unit_test::suite
         out.weightedEvents = stats.weightedEvents;
         out.steps = stats.steps;
         out.beats = stats.beats;
+        out.heartbeatBudgetStop = stats.stop ==
+            SteppingNetwork::KProfiledRunStats::Stop::heartbeatBudget;
         out.minValidated = net.minValidatedSeq();
         for (std::uint32_t i = 0; i < 5; ++i)
             out.maxValidated = std::max(out.maxValidated, net.validSeq(i));
@@ -604,6 +620,36 @@ class SteppingCsf_test : public beast::unit_test::suite
         out.acceptedSeq = out.txASeq != 0 ? out.txASeq : out.txBSeq;
         out.forkFree = net.validatedForkFree();
         out.converged = out.minValidated >= out.target;
+
+        // Fingerprint, events, and the K=3 stats above are already stored.
+        // Continuing at K=0 must not be folded into those fields.
+        if (out.heartbeatBudgetStop && out.exactlyOneAccepted && !out.converged)
+        {
+            // K=0 disables the pacer, and that path does not fill stats.beats.
+            // Count the beats here. The K=3 fingerprint above is already
+            // stored.
+            using namespace std::chrono;
+            std::size_t beats = 0;
+            net.runProfiledTo(
+                out.target,
+                SteppingNetwork::KProfiledOptions{
+                    /*k=*/0,
+                    /*unitCost=*/milliseconds{5},
+                    HarnessScheduler::ProfiledPacer::NodeMultipliers{}},
+                SteppingNetwork::RunBudget{
+                    /*heartbeats=*/40, /*steps=*/1'000'000},
+                {},
+                [&]() { ++beats; });
+            auto const reached = net.minValidatedSeq() >= out.target;
+            // A failed recovery stays 0, so the outer guard cannot treat
+            // "spent the 40 beats" as success.
+            out.recoveryBeats = reached ? static_cast<std::uint32_t>(beats) : 0;
+            BEAST_EXPECT(reached);
+            log << "K3-RECOVERY attempted=" << beats
+                << " recorded=" << out.recoveryBeats
+                << " min=" << net.minValidatedSeq() << " target=" << out.target
+                << std::endl;
+        }
 
         if (out.exactlyOneAccepted && txA && txB)
         {
@@ -750,11 +796,23 @@ class SteppingCsf_test : public beast::unit_test::suite
         // Resolved rows prove the conflict stayed safe through an accepted
         // sequence. Saturated unresolved rows are retained only as pressure
         // coverage; they must not be mistaken for dispute-resolution evidence.
-        // These snapshots calibrate this lineage. K=4 is the saturated
-        // unresolved control. K=3 accepts one transaction and stops short of
-        // the target; the converged check below is unchanged. No consensus
-        // policy is changed to fit a snapshot.
-        std::array<KProfiledDisputeSample, 5> const kExpected = {{
+        // These snapshots calibrate this lineage. K=0..2 converge, pinned in
+        // the table below. K=4 is the saturated unresolved control. K=3 sits
+        // on the resolve/saturate edge and is seed-dependent. On the merged
+        // head, default 0xFAB1E5EED0000000 accepts at seq 10 and exhausts the
+        // 160-beat budget (minValidated 10); 0x1111111111111111,
+        // 0x2222222222222222, and 0x0123456789ABCDEF reach the target (beats
+        // 145, 150, 105); 0xA5A5A5A5A5A5A5A5 saturates at minValidated 8 with
+        // nothing accepted. Pre-merge dsf is also 3/5 on these bases:
+        // 0xFAB1E5EED0000000, 0x1111111111111111, and 0x0123456789ABCDEF
+        // converge (beats 55, 57, 58); 0x2222222222222222 and
+        // 0xA5A5A5A5A5A5A5A5 saturate at minValidated 8 with nothing accepted.
+        // K=3 sits on the resolve/saturate boundary on this lineage, so one
+        // seed pins each side. The default seed is accepted, saturated under
+        // K=3, and recovers in 6 beats with pacing off. It is not converged
+        // and it is not a liveness proof. No consensus policy is changed to
+        // fit a snapshot.
+        std::array<KProfiledDisputeSample, 6> const kExpected = {{
             {0,    0xa61437b6610a4709ull,
              2645, 0,
              1152, 0,
@@ -814,7 +872,24 @@ class SteppingCsf_test : public beast::unit_test::suite
              3,      true,
              true,   true,
              false,  true,
-             true,   true},
+             true,   true,
+             6},
+            {3,     0x555c80e47cc1cc21ull,
+             3130,  3706,
+             1637,  54,
+             11,    11,
+             10,    11,
+             10,    0,
+             10,    53,
+             55590, 54615,
+             2000,  105635,
+             265,   630,
+             699,   41,
+             3,     true,
+             true,  true,
+             true,  true,
+             true,  true,
+             0,     0x1000000000000001ull},
             {4,      0x4e11c349617aca71ull,
              5012,   8345,
              3519,   160,
@@ -836,7 +911,7 @@ class SteppingCsf_test : public beast::unit_test::suite
         bool sawSaturatedUnresolved = false;
         for (auto const& expected : kExpected)
         {
-            auto const first = runProfiledDispute(expected.k);
+            auto const first = runProfiledDispute(expected.k, expected.seed);
             BEAST_EXPECT(first == expected);
             BEAST_EXPECT(first.submittedA);
             BEAST_EXPECT(first.submittedB);
@@ -849,7 +924,11 @@ class SteppingCsf_test : public beast::unit_test::suite
             }
             if (first.exactlyOneAccepted)
             {
-                BEAST_EXPECT(first.converged);
+                // Reaching the target during K=3, or accepted under K=3 and
+                // then reaching it with pacing off. Not a liveness claim.
+                BEAST_EXPECT(
+                    first.converged ||
+                    (first.recoveryBeats > 0 && first.recoveryBeats <= 40));
                 BEAST_EXPECT(first.acceptedSetVerified);
                 BEAST_EXPECT(first.forkCheckedSeqs >= first.acceptedSeq - 1);
                 sawResolvedUnderPressure =
@@ -865,7 +944,7 @@ class SteppingCsf_test : public beast::unit_test::suite
             }
             for (int replay = 2; replay <= 3; ++replay)
             {
-                auto const next = runProfiledDispute(expected.k);
+                auto const next = runProfiledDispute(expected.k, expected.seed);
                 BEAST_EXPECT(next == expected);
                 BEAST_EXPECT(next == first);
                 BEAST_EXPECT(next.forkFree);

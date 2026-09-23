@@ -1931,6 +1931,17 @@ public:
         std::vector<SteppingController::duration> nodeLag;
         std::vector<std::vector<SteppingController::duration>> nodeLagPerBeat;
 
+        // Why runSteppingProfiled's beat loop stopped. none means the
+        // unpaced runStepping path, which does not record a reason.
+        enum class Stop : std::uint8_t {
+            none,
+            heartbeatBudget,
+            stepLimit,
+            targetReached,
+            predicate
+        };
+        Stop stop = Stop::none;
+
         [[nodiscard]] bool
         saturated() const
         {
@@ -2063,6 +2074,15 @@ public:
             if (afterBeat)
                 afterBeat();
         }
+
+        if (stop())
+            runStats.stop = KProfiledRunStats::Stop::targetReached;
+        else if (runStats.steps >= maxSteps)
+            runStats.stop = KProfiledRunStats::Stop::stepLimit;
+        else if (stopAfterBeat && stopAfterBeat())
+            runStats.stop = KProfiledRunStats::Stop::predicate;
+        else
+            runStats.stop = KProfiledRunStats::Stop::heartbeatBudget;
 
         runStats.minValidated = minValidated();
         runStats.clampHits = stepStats.clampHits;
