@@ -3380,11 +3380,15 @@ class SteppingExtensions_test : public beast::unit_test::suite
             return std::nullopt;
         auto const origin = tx->getID();
         auto const originText = "origin=" + to_string(origin);
-        auto const senderPeer =
-            "peer=" + to_string(net.node(2).app().getValidatorKeys().nodeID) +
-            " ";
+        auto const senderId =
+            to_string(net.node(2).app().getValidatorKeys().nodeID);
+        auto const hasSender = [&](Json::Value const& info) {
+            return info.isMember("peer_positions") &&
+                info["peer_positions"].isObject() &&
+                info["peer_positions"].isMember(senderId);
+        };
         // One beat is 1s. Keep the observer's copy strictly after node 0 has
-        // logged the rejection, so the admission cannot precede that line.
+        // seen the stale proposal, so the admission cannot precede that.
         auto const observerLag =
             std::chrono::duration_cast<std::chrono::steady_clock::duration>(3s);
 
@@ -3396,6 +3400,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::uint32_t delayedProposals = 0;
         std::uint32_t droppedDirect = 0;
         std::uint32_t staleArrivals = 0;
+        std::uint32_t absentWhileStale = 0;
+        std::optional<std::size_t> rejectionMark;
+        bool presentAfterHeal = false;
         bool delaying = false;
         // Direct frames from validator 2 are dropped, so a proposal is the
         // only way this origin's evidence can reach another node. Validations
@@ -3465,7 +3472,14 @@ class SteppingExtensions_test : public beast::unit_test::suite
                             }
                             if ((phase == "open" || phase == "establish") &&
                                 prev != parent)
+                            {
                                 ++staleArrivals;
+                                if (!hasSender(info))
+                                    ++absentWhileStale;
+                                if (!rejectionMark)
+                                    rejectionMark =
+                                        observerSink.messages().str().size();
+                            }
                         });
                     }
                     return fault;
@@ -3482,97 +3496,6 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     delaying = true;
             });
         scope_exit clearObserve{[&] { net.controller().observeJobs({}); }};
-
-        // RCLConsensus keeps a const journal, so the rejection line cannot be
-        // retargeted. Lower the existing sink and copy the suite log.
-        net.node(0)
-            .app()
-            .logs()
-            .get("LedgerConsensus")
-            .threshold(beast::severities::kInfo);
-        class RejectionTap : public std::streambuf
-        {
-            std::streambuf* forward_;
-            test::StreamSink* observer_;
-            std::string peer_;
-            mutable std::mutex mu_;
-            std::string out_;
-            std::size_t checked_ = 0;
-            std::optional<std::size_t> mark_;
-
-        public:
-            RejectionTap(
-                std::streambuf* forward,
-                test::StreamSink* observerSink,
-                std::string peer)
-                : forward_(forward)
-                , observer_(observerSink)
-                , peer_(std::move(peer))
-            {
-            }
-
-            std::optional<std::size_t>
-            mark() const
-            {
-                std::lock_guard lock(mu_);
-                return mark_;
-            }
-
-            std::string
-            text() const
-            {
-                std::lock_guard lock(mu_);
-                return out_;
-            }
-
-        protected:
-            int_type
-            overflow(int_type ch) override
-            {
-                if (traits_type::eq_int_type(ch, traits_type::eof()))
-                    return traits_type::not_eof(ch);
-                auto const c = traits_type::to_char_type(ch);
-                {
-                    std::lock_guard lock(mu_);
-                    out_.push_back(c);
-                }
-                return forward_->sputc(c);
-            }
-
-            std::streamsize
-            xsputn(char const* s, std::streamsize n) override
-            {
-                {
-                    std::lock_guard lock(mu_);
-                    out_.append(s, static_cast<std::size_t>(n));
-                }
-                return forward_->sputn(s, n);
-            }
-
-            int
-            sync() override
-            {
-                std::string added;
-                {
-                    std::lock_guard lock(mu_);
-                    if (out_.size() > checked_)
-                    {
-                        added = out_.substr(checked_);
-                        checked_ = out_.size();
-                        if (!mark_ &&
-                            added.find("reason=prevLedger-mismatch") !=
-                                std::string::npos &&
-                            added.find(peer_) != std::string::npos)
-                            mark_ = observer_->messages().str().size();
-                    }
-                }
-                return forward_->pubsync();
-            }
-        };
-        auto* const previousLog = log.rdbuf();
-        RejectionTap tap{previousLog, &observerSink, senderPeer};
-        log.rdbuf(&tap);
-        scope_exit restoreLog{[&] { log.rdbuf(previousLog); }};
 
         std::uint32_t admitSeq = 0;
         if (!BEAST_EXPECT(net.runUntil(
@@ -3642,8 +3565,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto const delayStartSeq = net.validSeq(0);
         if (!BEAST_EXPECT(net.runUntil(
                 [&] {
-                    auto const mark = tap.mark();
-                    return staleArrivals > 0 && mark && commitAfter(*mark);
+                    return staleArrivals > 0 && absentWhileStale > 0 &&
+                        rejectionMark && commitAfter(*rejectionMark);
                 },
                 SteppingNetwork::RunBudget{160, 1'200'000})))
         {
@@ -3651,7 +3574,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 << " delayed=" << delayedProposals << " stale=" << staleArrivals
                 << " droppedDirect=" << droppedDirect
                 << " valid=" << net.validSeq(0) << " start=" << delayStartSeq
-                << " mark=" << tap.mark().has_value() << " delayMs="
+                << " absent=" << absentWhileStale << " delayMs="
                 << std::chrono::duration_cast<std::chrono::milliseconds>(
                        proposalDelay)
                        .count()
@@ -3667,8 +3590,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto const windowEnd = admitSeq + ExportLimits::maxPublicationLedgers;
         if (!BEAST_EXPECT(net.runUntil(
                 [&] {
+                    if (hasSender(
+                            net.node(0).app().getOPs().getConsensusInfo()))
+                        presentAfterHeal = true;
                     return net.minValidatedSeq() >= windowEnd &&
-                        pendingArrivals == 0;
+                        pendingArrivals == 0 && presentAfterHeal;
                 },
                 SteppingNetwork::RunBudget{1600, 1'200'000})))
         {
@@ -3678,37 +3604,25 @@ class SteppingExtensions_test : public beast::unit_test::suite
                 << std::endl;
             return std::nullopt;
         }
-        std::uint32_t mismatches = 0;
-        {
-            std::istringstream in{tap.text()};
-            for (std::string line; std::getline(in, line);)
-            {
-                if (line.find("reason=prevLedger-mismatch") ==
-                    std::string::npos)
-                    continue;
-                if (line.find(senderPeer) == std::string::npos)
-                    continue;
-                ++mismatches;
-            }
-        }
-        auto const mark = tap.mark();
-        auto const sawAccepted = mark && commitAfter(*mark);
+        auto const sawAccepted = rejectionMark && commitAfter(*rejectionMark);
         auto const seqW = witnessAt(net, origin, warmLedger);
-        // peerProposal does not emit prevLedger-mismatch for every stale
-        // first copy: the check is skipped in phase accepted, and HashRouter
-        // drops a repeated proposal before that function. Both counts have
-        // to be positive; the log is not a superset of the arrival count.
+        // A stale proposal is not stored, so validator 2 is missing from
+        // node 0's peer positions while those proposals arrive, and present
+        // again after the delay is lifted. The wire count and the later
+        // collector commit both have to be positive.
         if (!BEAST_EXPECT(
                 staleArrivals > 0 && delayedProposals > 0 &&
-                droppedDirect > 0 && !positionText.empty() && mismatches > 0 &&
-                sawAccepted && seqW != 0 && seqW > admitSeq &&
-                seqW <= windowEnd))
+                droppedDirect > 0 && !positionText.empty() &&
+                absentWhileStale > 0 && presentAfterHeal && sawAccepted &&
+                seqW != 0 && seqW > admitSeq && seqW <= windowEnd))
         {
             log << "  stale proposal did not both reject and admit"
                 << " stale=" << staleArrivals << " delayed=" << delayedProposals
                 << " droppedDirect=" << droppedDirect
-                << " mismatches=" << mismatches << " accepted=" << sawAccepted
-                << " witness=" << seqW << std::endl;
+                << " absent=" << absentWhileStale
+                << " present=" << presentAfterHeal
+                << " accepted=" << sawAccepted << " witness=" << seqW
+                << std::endl;
             return std::nullopt;
         }
 
@@ -3800,7 +3714,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                    observerLag)
                    .count()
             << " delayed=" << delayedProposals << " stale=" << staleArrivals
-            << " mismatches=" << mismatches
+            << " absent=" << absentWhileStale << " present=" << presentAfterHeal
             << " droppedDirect=" << droppedDirect << " admit=" << admitSeq
             << " witness=" << seqW << " v2Builds=" << v2Builds
             << " v2Mismatch=" << v2Mismatch << std::endl;
@@ -3812,7 +3726,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     .count()),
             delayedProposals,
             staleArrivals,
-            mismatches,
+            absentWhileStale,
+            static_cast<std::uint32_t>(presentAfterHeal),
             droppedDirect,
             admitSeq,
             seqW,
