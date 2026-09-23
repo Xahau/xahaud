@@ -152,11 +152,20 @@ class multi_runner_base
         print_results(S& s);
     };
 
-    static constexpr const char* shared_mem_name_ = "RippledUnitTestSharedMem";
-    // name of the message queue a multi_runner_child will use to communicate
-    // with multi_runner_parent
-    static constexpr const char* message_queue_name_ =
+    // Prefixes only. The parent appends ".<pid>" and publishes the full names
+    // in the environment before a child is constructed or spawned. Fixed
+    // names collided: every --unittest process, including one job, removes
+    // and recreates these objects.
+    static constexpr char const* shared_mem_prefix_ =
+        "RippledUnitTestSharedMem";
+    static constexpr char const* message_queue_prefix_ =
         "RippledUnitTestMessageQueue";
+    static constexpr char const* shared_mem_env_ = "XRPLD_UNIT_TEST_SHARED_MEM";
+    static constexpr char const* message_queue_env_ =
+        "XRPLD_UNIT_TEST_MESSAGE_QUEUE";
+
+    std::string shared_mem_name_;
+    std::string message_queue_name_;
 
     // `inner_` will be created in shared memory
     inner* inner_;
