@@ -27,6 +27,7 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
+#include <xrpld/app/misc/RuntimeFaultRandom.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
@@ -57,7 +58,6 @@
 #include <cstring>
 #include <iterator>
 #include <limits>
-#include <random>
 #include <stdexcept>
 
 namespace ripple {
@@ -3066,8 +3066,8 @@ ConsensusExtensions::harvestRngData(
         {
             if (cfg->rngClaimDropPctX100 && *cfg->rngClaimDropPctX100 > 0)
             {
-                static thread_local std::mt19937 rng{std::random_device{}()};
-                if (rand_int(rng, 0, 9999) < *cfg->rngClaimDropPctX100)
+                if (runtimeFaultDraw<RuntimeFaultDraw::rngClaimDrop>(
+                        app_, 9999) < *cfg->rngClaimDropPctX100)
                 {
                     JLOG(j_.warn())
                         << "RNG: TESTING dropping claim"
@@ -3128,9 +3128,8 @@ ConsensusExtensions::harvestRngData(
             {
                 if (cfg->rngRevealDropPctX100 && *cfg->rngRevealDropPctX100 > 0)
                 {
-                    static thread_local std::mt19937 rng{
-                        std::random_device{}()};
-                    if (rand_int(rng, 0, 9999) < *cfg->rngRevealDropPctX100)
+                    if (runtimeFaultDraw<RuntimeFaultDraw::rngRevealDrop>(
+                            app_, 9999) < *cfg->rngRevealDropPctX100)
                     {
                         JLOG(j_.warn())
                             << "RNG: TESTING dropping reveal claim"

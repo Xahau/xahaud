@@ -28,6 +28,7 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
+#include <xrpld/app/misc/RuntimeFaultRandom.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
@@ -53,7 +54,6 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
-#include <random>
 #include <sstream>
 #include <vector>
 
@@ -324,8 +324,8 @@ PeerImp::send(std::shared_ptr<Message> const& m)
             // Packet drop
             if (dropPct > 0)
             {
-                static thread_local std::mt19937 rng{std::random_device{}()};
-                if (rand_int(rng, 0, 9999) < dropPct)
+                if (runtimeFaultDraw<RuntimeFaultDraw::peerDrop>(app_, 9999) <
+                    dropPct)
                     return;  // silently dropped
             }
 
@@ -337,9 +337,8 @@ PeerImp::send(std::shared_ptr<Message> const& m)
                 // range, so the draw is only taken when the jitter is positive.
                 if (jitterMs > 0)
                 {
-                    static thread_local std::mt19937 rng{
-                        std::random_device{}()};
-                    totalMs += rand_int(rng, 0, jitterMs);
+                    totalMs += runtimeFaultDraw<RuntimeFaultDraw::peerJitter>(
+                        app_, jitterMs);
                 }
 
                 auto self = shared_from_this();

@@ -6,10 +6,13 @@
 
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/RuntimeConfig.h>
+#include <xrpld/app/misc/RuntimeFaultRandom.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/overlay/Message.h>
+#include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/scope.h>
 #include <xrpl/basics/strHex.h>
@@ -5214,6 +5217,117 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+    std::optional<std::vector<uint256>>
+    runtimeFaultReplay(SteppingNetwork& net)
+    {
+        World world(net, true, false);
+        if (!ready(world))
+            return std::nullopt;
+        auto& app = net.node(observer).app();
+        if (!BEAST_EXPECT(app.config().steppingMode))
+            return std::nullopt;
+
+        // Each specialization must draw from this node's injected stream,
+        // with the same mapping and draw consumption, not a thread-local seed.
+        // Jitter's value is covered here; its wall-timer delivery is not part
+        // of this stepping scenario.
+        auto expectedEngine = app.getPrng();
+        std::vector<uint256> outcome;
+        auto checkDraw = [&]<RuntimeFaultDraw Domain>(int upper) {
+            auto const expected = rand_int(expectedEngine, 0, upper);
+            auto const actual = runtimeFaultDraw<Domain>(app, upper);
+            BEAST_EXPECT(actual == expected);
+            BEAST_EXPECT(actual >= 0 && actual <= upper);
+            outcome.push_back(
+                sha512Half(static_cast<unsigned>(Domain), actual));
+        };
+        for (int i = 0; i < 16; ++i)
+        {
+            checkDraw.template operator()<RuntimeFaultDraw::peerDrop>(9999);
+            checkDraw.template operator()<RuntimeFaultDraw::peerJitter>(31);
+            checkDraw.template operator()<RuntimeFaultDraw::rngClaimDrop>(9999);
+            checkDraw.template operator()<RuntimeFaultDraw::rngRevealDrop>(
+                9999);
+        }
+
+        test::StreamSink sink{beast::severities::kWarning};
+        auto& ce = app.getConsensusExtensions();
+        auto const priorJournal = ce.j_;
+        ce.j_ = beast::Journal{sink};
+        auto& sender = net.node(2).app();
+        auto const priorSend = sender.config().harnessPeerSend;
+        std::uint32_t called = 0;
+        std::uint32_t queued = 0;
+        net.multiNode().setPeerSendHook(
+            2,
+            [&, priorSend](
+                std::uint16_t type,
+                std::string const& name,
+                std::uint32_t peer,
+                beast::IP::Endpoint const& remote,
+                std::string const& stage,
+                Message& message) {
+                if (priorSend)
+                    priorSend(type, name, peer, remote, stage, message);
+                if (type == protocol::mtPROPOSE_LEDGER)
+                {
+                    called += stage == "call";
+                    queued += stage == "queued";
+                }
+            });
+        scope_exit restore{[&] {
+            app.getRuntimeConfig().clearGlobalConfig();
+            sender.getRuntimeConfig().clearPeerDefaults();
+            net.multiNode().setPeerSendHook(2, priorSend);
+            ce.j_ = priorJournal;
+        }};
+
+        ConsensusTestConfig consensusFault;
+        consensusFault.rngClaimDropPctX100 = 3000;
+        consensusFault.rngRevealDropPctX100 = 5000;
+        app.getRuntimeConfig().setGlobalConfig(consensusFault);
+        PeerFaultConfig peerFault;
+        peerFault.sendDropPctX100 = 2500;
+        peerFault.messageCategories =
+            std::set<std::size_t>{TrafficCount::proposal};
+        sender.getRuntimeConfig().setPeerDefaults(peerFault);
+
+        auto const start = net.minValidatedSeq();
+        auto const preHash = net.ledgerHash(0, start);
+        net.runTo(start + 8, {160, 1'200'000});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= start + 8))
+            return std::nullopt;
+        BEAST_EXPECT(called > queued && queued > 0);
+        std::uint32_t claims = 0;
+        std::uint32_t reveals = 0;
+        std::istringstream lines{sink.messages().str()};
+        for (std::string line; std::getline(lines, line);)
+        {
+            claims +=
+                line.find("RNG: TESTING dropping claim") != std::string::npos;
+            reveals += line.find("RNG: TESTING dropping reveal claim") !=
+                std::string::npos;
+        }
+        BEAST_EXPECT(claims > 0 && reveals > 0);
+        app.getRuntimeConfig().clearGlobalConfig();
+        sender.getRuntimeConfig().clearPeerDefaults();
+        auto const target = net.minValidatedSeq() + 3;
+        net.runTo(target, {160, 1'200'000});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
+            return std::nullopt;
+        BEAST_EXPECT(net.ledgersAgree(target) && net.validatedForkFree());
+        BEAST_EXPECT(net.offThreadJobs() == 0 && net.failedJobs() == 0);
+        for (std::uint32_t n = 0; n <= observer; ++n)
+            BEAST_EXPECT(net.ledgerHash(n, start) == preHash);
+        for (auto seq = start; seq <= target; ++seq)
+            outcome.push_back(net.ledgerHash(0, seq));
+        outcome.push_back(sha512Half(called, queued, claims, reveals));
+        log << "  runtime faults: proposalCalls=" << called
+            << " queued=" << queued << " claimDrops=" << claims
+            << " revealDrops=" << reveals << std::endl;
+        return outcome;
+    }
+
 public:
     void
     run() override
@@ -5243,6 +5357,17 @@ public:
             ++selected;
             return true;
         };
+        if (matches("RuntimeConfig random faults replay from injected engines"))
+        {
+            testcase(
+                "RuntimeConfig random faults replay from injected engines");
+            expectReplays(
+                *this,
+                "RuntimeConfig random faults replay from injected engines",
+                [this](SteppingNetwork& net) {
+                    return runtimeFaultReplay(net);
+                });
+        }
         for (auto const rng : {false, true})
             for (auto const exportOn : {false, true})
             {
