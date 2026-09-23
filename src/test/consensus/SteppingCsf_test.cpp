@@ -50,6 +50,8 @@ class SteppingCsf_test : public beast::unit_test::suite
         std::uint64_t clampHits = 0;
         std::int64_t requestedMs = 0;
         std::int64_t consumedMs = 0;
+        // Highest virtual time one beat consumed. A pinned 2000 is that
+        // observed maximum, not a fixed per-beat budget.
         std::int64_t maxConsumedBeatMs = 0;
         std::int64_t schedulerMs = 0;
         std::uint64_t heartbeatEvents = 0;
@@ -569,7 +571,7 @@ class SteppingCsf_test : public beast::unit_test::suite
         out.minValidated = net.minValidatedSeq();
         for (std::uint32_t i = 0; i < 5; ++i)
             out.maxValidated = std::max(out.maxValidated, net.validSeq(i));
-        out.forkCheckedSeqs = out.maxValidated >= 2 ? out.maxValidated - 1 : 0;
+        out.forkCheckedSeqs = net.forkCheckedSeqs();
         out.clampHits = stats.clampHits;
         out.requestedMs = asMs(stats.requestedVirtualAdvance);
         out.consumedMs = asMs(stats.consumedVirtualAdvance);
