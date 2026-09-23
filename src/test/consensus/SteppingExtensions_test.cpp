@@ -1,3 +1,4 @@
+#include <test/jtx/ExportPublication.h>
 #include <test/jtx/SteppingNetwork.h>
 #include <test/jtx/SteppingReplay.h>
 #include <test/jtx/pay.h>
@@ -2521,6 +2522,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
         auto const ownerAtRelease =
             releaseLedger->read(keylet::account(ownerId))
                 ->getFieldU32(sfOwnerCount);
+        std::uint32_t expiredClassifications = 0;
         for (std::uint32_t n = 0; n <= observer; ++n)
         {
             auto const ledger = net.ledger(n, expiredAt);
@@ -2532,7 +2534,23 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     latch->getFieldU32(sfLastLedgerSequence) == expirySeq &&
                     pendingDirContains(*ledger, latchKey.key)))
                 return std::nullopt;
+            // Exercise the same classifier used by the generic unwitnessed
+            // fallback, against real accepted history on both sides of the
+            // boundary. A shape-only or >= predicate must fail here.
+            for (auto const liveSeq : {expirySeq - 1, expirySeq})
+            {
+                auto const liveLedger = net.ledger(n, liveSeq);
+                auto const liveLatch =
+                    liveLedger ? liveLedger->read(latchKey) : nullptr;
+                if (!BEAST_EXPECT(liveLatch != nullptr))
+                    return std::nullopt;
+                BEAST_EXPECT(
+                    !isExportPublicationExpired(*liveLatch, liveLedger->seq()));
+            }
+            if (isExportPublicationExpired(*latch, ledger->seq()))
+                ++expiredClassifications;
         }
+        BEAST_EXPECT(expiredClassifications == observer + 1);
 
         auto const dupOpen = net.node(0).app().openLedger().current()->seq();
         auto const reused = world.submit(
@@ -2662,6 +2680,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
             << " heldDirect=" << heldDirect
             << " heldProposals=" << heldProposals
             << " gateTimeouts=" << gateTimeouts
+            << " expiredClassifications=" << expiredClassifications
             << " freshWitness=" << freshWitness << std::endl;
         outcome.push_back(origin);
         outcome.push_back(freshOrigin);
@@ -5149,8 +5168,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     << " neither witnessed nor retained" << std::endl;
                 return false;
             }
-            if (!latch->isFieldPresent(sfLastLedgerSequence) ||
-                ledger->seq() <= latch->getFieldU32(sfLastLedgerSequence))
+            if (!isExportPublicationExpired(*latch, ledger->seq()))
             {
                 log << "  seeded-mix red " << schedule << " " << tag
                     << " unwitnessed origin has not passed its publication "

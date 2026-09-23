@@ -1,3 +1,4 @@
+#include <test/jtx/ExportPublication.h>
 #include <test/jtx/MultiNode.h>
 #include <test/jtx/pay.h>
 
@@ -822,8 +823,7 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                 << " expired shape=" << shape << std::endl;
             if (!latch)
                 return fail("latch missing");
-            if (!latch->isFieldPresent(sfLastLedgerSequence) ||
-                ledger->seq() <= latch->getFieldU32(sfLastLedgerSequence))
+            if (!isExportPublicationExpired(*latch, ledger->seq()))
                 return fail(
                     "unwitnessed origin has not passed its publication window");
             if (hasSig)
