@@ -28,14 +28,12 @@
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/random.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/Fees.h>
 
-#include <boost/iterator/function_output_iterator.hpp>
-
 #include <algorithm>
-#include <random>
 
 namespace ripple {
 
@@ -1216,32 +1214,43 @@ struct PeerDataCounts
 
     // call F with the `peer` parameter with a random sample of at most n values
     // of the counts vector.
-    template <class F>
+    template <class F, class URBG>
     void
-    sampleN(std::size_t n, F&& f)
+    sampleN(std::size_t n, F&& f, URBG&& rng)
     {
         if (counts.empty())
             return;
 
-        auto outFunc = [&f](auto&& v) { f(v.first); };
-        std::minstd_rand rng{std::random_device{}()};
-#if _MSC_VER
+        // Id order makes the walk independent of map iteration.
+        std::vector<std::pair<std::shared_ptr<Peer>, int>> population(
+            counts.begin(), counts.end());
+        std::sort(
+            population.begin(),
+            population.end(),
+            [](auto const& a, auto const& b) {
+                return a.first->id() < b.first->id();
+            });
         std::vector<std::pair<std::shared_ptr<Peer>, int>> s;
         s.reserve(n);
-        std::sample(
-            counts.begin(), counts.end(), std::back_inserter(s), n, rng);
-        for (auto& v : s)
+        // Knuth's Algorithm S. std::sample's selection differs between
+        // libstdc++ and libc++. When every remaining peer must be kept,
+        // take it without rand_int: that call rejects a zero-width range.
+        auto need = std::min(n, population.size());
+        auto remaining = population.size();
+        for (auto& item : population)
         {
-            outFunc(v);
+            if (need == 0)
+                break;
+            if (need == remaining ||
+                rand_int(rng, std::size_t{0}, remaining - 1) < need)
+            {
+                s.push_back(std::move(item));
+                --need;
+            }
+            --remaining;
         }
-#else
-        std::sample(
-            counts.begin(),
-            counts.end(),
-            boost::make_function_output_iterator(outFunc),
-            n,
-            rng);
-#endif
+        for (auto& v : s)
+            f(v.first);
     }
 };
 }  // namespace detail
@@ -1291,9 +1300,12 @@ InboundLedger::runData()
     // Select a random sample of the peers that gives us the most nodes that are
     // useful
     dataCounts.prune();
-    dataCounts.sampleN(maxUsefulPeers, [&](std::shared_ptr<Peer> const& peer) {
-        trigger(peer, TriggerReason::reply);
-    });
+    dataCounts.sampleN(
+        maxUsefulPeers,
+        [&](std::shared_ptr<Peer> const& peer) {
+            trigger(peer, TriggerReason::reply);
+        },
+        app_.getPrng());
 }
 
 Json::Value
