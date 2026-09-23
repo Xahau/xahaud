@@ -3067,8 +3067,7 @@ ConsensusExtensions::harvestRngData(
             if (cfg->rngClaimDropPctX100 && *cfg->rngClaimDropPctX100 > 0)
             {
                 static thread_local std::mt19937 rng{std::random_device{}()};
-                if (std::uniform_int_distribution<int>{0, 9999}(rng) <
-                    *cfg->rngClaimDropPctX100)
+                if (rand_int(rng, 0, 9999) < *cfg->rngClaimDropPctX100)
                 {
                     JLOG(j_.warn())
                         << "RNG: TESTING dropping claim"
@@ -3131,8 +3130,7 @@ ConsensusExtensions::harvestRngData(
                 {
                     static thread_local std::mt19937 rng{
                         std::random_device{}()};
-                    if (std::uniform_int_distribution<int>{0, 9999}(rng) <
-                        *cfg->rngRevealDropPctX100)
+                    if (rand_int(rng, 0, 9999) < *cfg->rngRevealDropPctX100)
                     {
                         JLOG(j_.warn())
                             << "RNG: TESTING dropping reveal claim"

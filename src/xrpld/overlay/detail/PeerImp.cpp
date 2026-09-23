@@ -325,7 +325,7 @@ PeerImp::send(std::shared_ptr<Message> const& m)
             if (dropPct > 0)
             {
                 static thread_local std::mt19937 rng{std::random_device{}()};
-                if (std::uniform_int_distribution<int>{0, 9999}(rng) < dropPct)
+                if (rand_int(rng, 0, 9999) < dropPct)
                     return;  // silently dropped
             }
 
@@ -333,12 +333,13 @@ PeerImp::send(std::shared_ptr<Message> const& m)
             if (delayMs > 0 || jitterMs > 0)
             {
                 int totalMs = delayMs;
+                // jitterMs == 0 adds nothing. rand_int rejects a zero-width
+                // range, so the draw is only taken when the jitter is positive.
                 if (jitterMs > 0)
                 {
                     static thread_local std::mt19937 rng{
                         std::random_device{}()};
-                    totalMs +=
-                        std::uniform_int_distribution<int>{0, jitterMs}(rng);
+                    totalMs += rand_int(rng, 0, jitterMs);
                 }
 
                 auto self = shared_from_this();
