@@ -5,7 +5,10 @@
     lineage:            dsf
     seed base:          0xFAB1E5EED0000000 (harness default)
     resolving K=3 seed: 0x1000000000000001
-    topology:           dispute and traffic are 5 validators, mesh.
+    traffic seed:       0x5452414646494331
+    topology:           slow-minority and dispute are 5 validators, mesh.
+                        The hub pin is 5 validators, each linked only to one
+                        non-validator hub. Traffic is 3 validators, mesh.
                         Trust fork cells are N=10 with the overlap in the row.
     pacing:             profiled dispute K in {0,1,2,3,3,4}, unitCost 5ms,
                         heartbeat budget 160. The second K=3 row uses the
@@ -21,10 +24,12 @@
 
     Outcome-bearing (the assertion is the whole row, not only the hash):
       kProfiledDispute, kProfiledFork.
+    Content-bearing (ledger hashes plus transaction ids and sequences,
+      not the scheduler event order):
+      kTrafficPayloadFingerprint.
     Pure event-order pins (a hash or a count, no outcome table):
       kSlowMinorityFingerprint, kHubNetworkFingerprint,
-      kDisputeFingerprint, kTrafficFingerprint, kTrafficEvents,
-      kTrafficPayloadFingerprint.
+      kDisputeFingerprint, kTrafficFingerprint, kTrafficEvents.
 
     Regeneration: --unittest-arg=goldens=print with one of
     SteppingCsf, SteppingTrust, or SteppingTraffic. Each prints GOLDEN
