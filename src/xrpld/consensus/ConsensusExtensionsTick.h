@@ -184,6 +184,9 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
             return "Unknown";
         };
         auto logRngDiag = [&](char const* reason) {
+            if (!ext.j_.debug())
+                return;
+
             auto const ourPos = ctx.getPosition();
             auto const participants = ctx.peerPositions.size() + 1;
             JLOG(ext.j_.debug())
