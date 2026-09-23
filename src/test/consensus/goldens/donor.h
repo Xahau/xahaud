@@ -14,7 +14,9 @@
                         it resolves. There is no second K=3 seed.
     RNG mapping:        c527e0a721 (engine-range randomU64 plus the zero-bit
                         group fix)
-    captured at:        c527e0a721 (constants unchanged since 470ef1c886; extracted at f5963e38d2)
+    captured at:        c527e0a721. The constants are unchanged since
+                        470ef1c886; extracted into this header at
+                        f5963e38d2.
                         The numbers are the pins already in the #814 tests
                         at c527e0a721.
     platforms:          macOS libc++ holds these literals.
