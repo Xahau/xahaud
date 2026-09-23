@@ -272,9 +272,10 @@ deserializeSHAMapFromStream(
 
             if (size > 1024 * 1024 * 1024)
             {
-                JLOG(j.error()) << "Deserialization: size of " << to_string(key)
-                                << " is suspiciously large (" << size
-                                << " bytes), " << "bailing.";
+                JLOG(j.error())
+                    << "Deserialization: size of " << to_string(key)
+                    << " is suspiciously large (" << size << " bytes), "
+                    << "bailing.";
                 return false;
             }
 

@@ -889,8 +889,9 @@ SetHook::destroyNamespace(
     uint256 ns)
 {
     JLOG(ctx.j.trace()) << "HookSet(" << hook::log::NSDELETE << ")[" << HS_ACC()
-                        << "]: DeleteState " << "Destroying Hook Namespace for "
-                        << account << " namespace " << ns;
+                        << "]: DeleteState "
+                        << "Destroying Hook Namespace for " << account
+                        << " namespace " << ns;
 
     auto sleAccount = view.peek(keylet::account(account));
     if (!sleAccount)
@@ -932,9 +933,9 @@ SetHook::destroyNamespace(
     // fall through to here means we must prune the entries from the directory
     if (!cdirFirst(view, dirKeylet.key, sleDirNode, uDirEntry, dirEntry))
     {
-        JLOG(ctx.j.fatal())
-            << "HookSet(" << hook::log::NSDELETE_DIRECTORY << ")[" << HS_ACC()
-            << "]: DeleteState " << "directory missing ";
+        JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_DIRECTORY
+                            << ")[" << HS_ACC() << "]: DeleteState "
+                            << "directory missing ";
         return tefINTERNAL;
     }
 
@@ -964,8 +965,9 @@ SetHook::destroyNamespace(
             // Directory node has an invalid index.  Bail out.
             JLOG(ctx.j.fatal())
                 << "HookSet(" << hook::log::NSDELETE_DIR_ENTRY << ")["
-                << HS_ACC() << "]: DeleteState " << "directory node in ledger "
-                << view.seq() << " " << "has index to object that is missing: "
+                << HS_ACC() << "]: DeleteState "
+                << "directory node in ledger " << view.seq() << " "
+                << "has index to object that is missing: "
                 << to_string(dirEntry);
             return tefBAD_LEDGER;
         }
@@ -976,9 +978,9 @@ SetHook::destroyNamespace(
         {
             JLOG(ctx.j.fatal())
                 << "HookSet(" << hook::log::NSDELETE_NONSTATE << ")["
-                << HS_ACC() << "]: DeleteState " << "directory node in ledger "
-                << view.seq() << " " << "has non-ltHOOK_STATE entry "
-                << to_string(dirEntry);
+                << HS_ACC() << "]: DeleteState "
+                << "directory node in ledger " << view.seq() << " "
+                << "has non-ltHOOK_STATE entry " << to_string(dirEntry);
             return tefBAD_LEDGER;
         }
 
@@ -1006,8 +1008,9 @@ SetHook::destroyNamespace(
         {
             JLOG(ctx.j.fatal())
                 << "HookSet(" << hook::log::NSDELETE_DIR << ")[" << HS_ACC()
-                << "]: DeleteState " << "directory node in ledger "
-                << view.seq() << " " << "could not be deleted.";
+                << "]: DeleteState "
+                << "directory node in ledger " << view.seq() << " "
+                << "could not be deleted.";
             return tefBAD_LEDGER;
         }
         view.erase(sleItem);
@@ -1016,18 +1019,18 @@ SetHook::destroyNamespace(
     if (view.rules().enabled(featureExtendedHookState) &&
         oldStateCount < toDelete.size())
     {
-        JLOG(ctx.j.fatal())
-            << "HookSet(" << hook::log::NSDELETE_COUNT << ")[" << HS_ACC()
-            << "]: DeleteState " << "stateCount less than zero (overflow)";
+        JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT << ")["
+                            << HS_ACC() << "]: DeleteState "
+                            << "stateCount less than zero (overflow)";
         return tefBAD_LEDGER;
     }
 
     uint32_t stateCount = oldStateCount - toDelete.size();
     if (stateCount > oldStateCount)
     {
-        JLOG(ctx.j.fatal())
-            << "HookSet(" << hook::log::NSDELETE_COUNT << ")[" << HS_ACC()
-            << "]: DeleteState " << "stateCount less than zero (overflow)";
+        JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT << ")["
+                            << HS_ACC() << "]: DeleteState "
+                            << "stateCount less than zero (overflow)";
 
         return tefBAD_LEDGER;
     }
@@ -1043,9 +1046,9 @@ SetHook::destroyNamespace(
         if (view.rules().enabled(featureExtendedHookState) &&
             ownerCount < toDelete.size() * scale)
         {
-            JLOG(ctx.j.fatal())
-                << "HookSet(" << hook::log::NSDELETE_COUNT << ")[" << HS_ACC()
-                << "]: DeleteState " << "OwnerCount less than zero (overflow)";
+            JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT
+                                << ")[" << HS_ACC() << "]: DeleteState "
+                                << "OwnerCount less than zero (overflow)";
             return tefBAD_LEDGER;
         }
         adjustOwnerCount(view, sleAccount, -toDelete.size() * scale, ctx.j);
@@ -2088,8 +2091,9 @@ SetHook::setHook()
 
         reserveDelta = newHookReserve - oldHookReserve;
 
-        JLOG(j_.trace()) << "SetHook: " << "newHookReserve: " << newHookReserve
-                         << " " << "oldHookReserve: " << oldHookReserve << " "
+        JLOG(j_.trace()) << "SetHook: "
+                         << "newHookReserve: " << newHookReserve << " "
+                         << "oldHookReserve: " << oldHookReserve << " "
                          << "reserveDelta: " << reserveDelta;
 
         int64_t newOwnerCount =

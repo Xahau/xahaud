@@ -53,7 +53,8 @@ loadXpop(std::string content)
     // If the string is empty, return an empty Json::Value
     if (content.empty())
     {
-        std::cout << "JSON string was empty" << "\n";
+        std::cout << "JSON string was empty"
+                  << "\n";
         return {};
     }
 
