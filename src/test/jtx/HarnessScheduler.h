@@ -59,6 +59,11 @@ public:
     // advances time in the same units it will later drive.
     using time_point = std::chrono::steady_clock::time_point;
     using duration = std::chrono::steady_clock::duration;
+    // Fingerprints fold duration::count() as-is. This clock is nanoseconds;
+    // a coarser period would move every pinned fingerprint.
+    static_assert(
+        std::ratio_equal_v<duration::period, std::nano>,
+        "trace fingerprints assume a nanosecond steady_clock");
 
     // Priority class among events at the SAME virtual instant (lower runs
     // first). Spaced by 10 so intermediate tiers can be slotted in without
@@ -93,8 +98,9 @@ public:
     };
 
     // PROVENANCE, not ordering: what CREATED an event. Orthogonal to Tier (its
-    // same-instant priority). Used in fence-violation diagnostics today and in
-    // beat traces later; never consulted for scheduling decisions.
+    // same-instant priority). The queue orders by (when, tier, nodeId, seq),
+    // so Kind is not a sort key. Profiled pacing does consult it: event cost
+    // scales by the kind weight.
     enum class Kind {
         other = 0,
         heartbeat,  // a driver's per-node heartbeat trigger
@@ -231,8 +237,19 @@ public:
         [[nodiscard]] duration
         eventCost(std::uint32_t nodeId, Kind kind) const
         {
-            return unitCost * static_cast<std::int64_t>(k) *
-                static_cast<std::int64_t>(eventWeight(nodeId, kind));
+            auto const scale = static_cast<std::uint64_t>(k) *
+                static_cast<std::uint64_t>(eventWeight(nodeId, kind));
+            if (unitCost.count() < 0)
+                Throw<std::overflow_error>(
+                    "HarnessScheduler::ProfiledPacer event cost overflow");
+            auto const unit = static_cast<std::uint64_t>(unitCost.count());
+            if (unit != 0 &&
+                scale > static_cast<std::uint64_t>(
+                            std::numeric_limits<duration::rep>::max()) /
+                        unit)
+                Throw<std::overflow_error>(
+                    "HarnessScheduler::ProfiledPacer event cost overflow");
+            return unitCost * static_cast<duration::rep>(scale);
         }
 
         [[nodiscard]] duration

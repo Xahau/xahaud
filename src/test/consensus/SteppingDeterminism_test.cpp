@@ -225,7 +225,7 @@ class SteppingDeterminism_test : public beast::unit_test::suite
         out.minValidated = net.minValidatedSeq();
         for (std::uint32_t i = 0; i < 3; ++i)
             out.maxValidated = std::max(out.maxValidated, net.validSeq(i));
-        out.forkCheckedSeqs = out.maxValidated >= 2 ? out.maxValidated - 1 : 0;
+        out.forkCheckedSeqs = net.forkCheckedSeqs();
         out.clampHits = stats.clampHits;
         out.requestedMs = asMs(stats.requestedVirtualAdvance);
         out.consumedMs = asMs(stats.consumedVirtualAdvance);

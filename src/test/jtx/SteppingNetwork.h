@@ -1567,6 +1567,19 @@ public:
         return true;
     }
 
+    // How many sequences validatedForkFree walks: 2 through the highest live
+    // validated sequence, inclusive. That is max-1 when max >= 2. Not a count
+    // of pairwise hash comparisons.
+    [[nodiscard]] std::uint32_t
+    forkCheckedSeqs()
+    {
+        std::uint32_t hi = 0;
+        for (std::uint32_t i = 0; i < net_.size(); ++i)
+            if (net_.isLive(i))
+                hi = std::max(hi, validSeq(i));
+        return hi >= 2 ? hi - 1 : 0;
+    }
+
     [[nodiscard]] std::shared_ptr<Ledger const>
     ledger(std::uint32_t node, std::uint32_t seq)
     {
