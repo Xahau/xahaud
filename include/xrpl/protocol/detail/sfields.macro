@@ -320,6 +320,7 @@ TYPED_SFIELD(sfAttestationRewardAccount, ACCOUNT,   21)
 TYPED_SFIELD(sfLockingChainDoor,         ACCOUNT,   22)
 TYPED_SFIELD(sfIssuingChainDoor,         ACCOUNT,   23)
 TYPED_SFIELD(sfSubject,                  ACCOUNT,   24)
+TYPED_SFIELD(sfHookAdministrator,        ACCOUNT,   98)
 TYPED_SFIELD(sfInform,                   ACCOUNT,   99)
 
 // vector of 256-bit

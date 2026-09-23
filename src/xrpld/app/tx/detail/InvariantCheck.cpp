@@ -1038,7 +1038,9 @@ ValidNewAccountRoot::finalize(
     if ((tt == ttPAYMENT || tt == ttIMPORT || tt == ttGENESIS_MINT ||
          tt == ttREMIT || tt == ttAMM_CREATE ||
          tt == ttXCHAIN_ADD_CLAIM_ATTESTATION ||
-         tt == ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION) &&
+         tt == ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION ||
+         (tt == ttHOOK_SET &&
+          view.rules().enabled(featureHookAdministrator))) &&
         isTesSuccess(result))
     {
         std::uint32_t const startingSeq{

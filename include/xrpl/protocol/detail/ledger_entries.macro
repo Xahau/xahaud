@@ -262,6 +262,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
+    {sfHookAdministrator,    soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
 }))
 

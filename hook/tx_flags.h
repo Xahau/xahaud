@@ -100,6 +100,10 @@ enum NFTokenCreateOfferFlags : uint32_t {
     tfSellNFToken = 0x00000001,
 };
 
+enum SetHookFlags : uint32_t {
+    tfNewAccount = 0x00000001,
+};
+
 enum ClaimRewardFlags : uint32_t {
     tfOptOut = 0x00000001,
 };

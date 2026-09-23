@@ -195,6 +195,7 @@ TRANSACTION(ttACCOUNT_DELETE, 21, AccountDelete, ({
 /** This transaction type installs a hook. */
 TRANSACTION(ttHOOK_SET, 22, SetHook, ({
     {sfHooks, soeREQUIRED},
+    {sfDestination, soeOPTIONAL},
 }))
 
 /** This transaction mints a new NFT. */
