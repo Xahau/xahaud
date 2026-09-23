@@ -23,6 +23,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <random>
 
 namespace ripple {
@@ -92,6 +93,33 @@ struct NonzeroMin
     operator()()
     {
         return static_cast<result_type>(min() + (n++ % 256));
+    }
+};
+
+// A valid three-value engine exercises the zero-bit first group in
+// independent_bits_engine. Cycling values make draw consumption explicit.
+template <class Result, Result Minimum = 0>
+struct ThreeValues
+{
+    using result_type = Result;
+    std::size_t calls = 0;
+
+    static constexpr result_type
+    min()
+    {
+        return Minimum;
+    }
+
+    static constexpr result_type
+    max()
+    {
+        return Minimum + 2;
+    }
+
+    result_type
+    operator()()
+    {
+        return static_cast<result_type>(Minimum + (calls++ % 3));
     }
 };
 
@@ -186,6 +214,54 @@ public:
     }
 
     void
+    testZeroBitGroup()
+    {
+        testcase("three-value engines retain the zero-bit group draw");
+        auto const check = [&](auto engine) {
+            using Engine = decltype(engine);
+            std::independent_bits_engine<Engine, 64, std::uint64_t> reference{
+                engine};
+
+            // R=3: n=65, w0=0, n0=1, y0=3, y1=2. Discard the
+            // first draw, then take 64 bits, rejecting normalized value 2.
+            // For this cycle the accepted bits are 1010...10 (97 draws).
+            auto const first = detail::randomU64(engine);
+            BEAST_EXPECT(first == 0xaaaaaaaaaaaaaaaaULL);
+            BEAST_EXPECT(engine.calls == 97);
+            BEAST_EXPECT(first == reference());
+            BEAST_EXPECT(engine.calls == reference.base().calls);
+
+            for (int i = 0; i < 16; ++i)
+            {
+                BEAST_EXPECT(detail::randomU64(engine) == reference());
+                BEAST_EXPECT(engine.calls == reference.base().calls);
+            }
+
+            // Also exercise the public closed-range mapper with the same
+            // normalized stream, including the runtime fault-hook range.
+            for (auto const count : {10u, 10'000u})
+            {
+                auto const n = static_cast<std::uint64_t>(count);
+                auto const slack = static_cast<std::uint64_t>(-n) % n;
+                std::uint64_t expected;
+                do
+                {
+                    expected = reference();
+                } while (expected < slack);
+                BEAST_EXPECT(rand_int(engine, 0u, count - 1) == expected % n);
+                BEAST_EXPECT(engine.calls == reference.base().calls);
+            }
+        };
+
+        check(ThreeValues<std::uint32_t>{});
+        check(ThreeValues<std::uint64_t>{});
+        check(ThreeValues<std::uint32_t, 5>{});
+        check(ThreeValues<
+              std::uint64_t,
+              std::numeric_limits<std::uint64_t>::max() - 2>{});
+    }
+
+    void
     testBounds()
     {
         testcase("closed bounds, including signed endpoints and 2^40");
@@ -212,6 +288,7 @@ public:
     {
         testReducedMapping();
         testEngineVectors();
+        testZeroBitGroup();
         testBounds();
     }
 };
