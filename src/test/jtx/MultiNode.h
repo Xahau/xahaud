@@ -1054,6 +1054,25 @@ public:
                             : SimTransportActivitySnapshot{};
     }
 
+    // Wait until no sim transport post is in flight and no wire holds
+    // buffered bytes. threadedTick can return while a slow post is still
+    // running on a node's io thread, so a caller that asserts quiescence
+    // after its last tick waits here first. Returns false on timeout.
+    [[nodiscard]] bool
+    waitForSimQuiescence(std::chrono::milliseconds timeout) const
+    {
+        auto const deadline = std::chrono::steady_clock::now() + timeout;
+        for (;;)
+        {
+            if (simBufferedBytes() == 0 &&
+                simActivitySnapshot().inFlightPosts == 0)
+                return true;
+            if (std::chrono::steady_clock::now() >= deadline)
+                return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
+    }
+
     // Wait until every node has at least `expected` active (post-handshake)
     // peers.
     bool
