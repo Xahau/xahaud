@@ -67,7 +67,8 @@ struct ExportLimits
     // intent. This is a provisional activation tuning value. Keeping it
     // separate from the outer LastLedgerSequence prevents queue delay from
     // consuming the publication window.
-    // TODO(2031): Calibrate against async history, signing and placement delays.
+    // TODO(2031): Calibrate against async history, signing and placement
+    // delays.
     static constexpr std::uint32_t maxPublicationLedgers = 5;
 
     // A fully-canonical secp256k1 signature is at most 72 bytes; Ed25519 is 64.
