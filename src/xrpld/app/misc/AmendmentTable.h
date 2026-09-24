@@ -27,6 +27,7 @@
 #include <xrpl/protocol/STValidation.h>
 
 #include <optional>
+#include <vector>
 
 namespace ripple {
 
@@ -48,6 +49,17 @@ public:
         std::string const name;
         uint256 const feature;
         VoteBehavior const vote;
+    };
+
+    /** An amendment seen on the network that this server has no code
+        support for. */
+    struct UnsupportedAmendment
+    {
+        uint256 id;
+
+        /** The time the amendment is expected to activate. Unset if it is
+            already active. */
+        std::optional<NetClock::time_point> expected;
     };
 
     virtual ~AmendmentTable() = default;
@@ -79,6 +91,12 @@ public:
 
     virtual std::optional<NetClock::time_point>
     firstUnsupportedExpected() const = 0;
+
+    /** Amendments this server does not support that are already enabled, or
+        that have reached majority and are expected to activate. Ordered by
+        amendment id. Intended for operator-facing diagnostics. */
+    virtual std::vector<UnsupportedAmendment>
+    unsupportedAmendments() const = 0;
 
     virtual Json::Value
     getJson(bool isAdmin) const = 0;
