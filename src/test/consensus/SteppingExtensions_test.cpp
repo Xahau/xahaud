@@ -54,6 +54,13 @@ namespace ripple::test {
 
 class SteppingExtensions_test : public beast::unit_test::suite
 {
+    // The cases are independent multi-node worlds and dominate Debug CI time.
+    // Each registered shard runs every shardCount-th case, so the unit-test
+    // runner spreads them across its jobs. A --unittest pattern of
+    // ripple.consensus.SteppingExtensions prefix-matches every shard.
+    static constexpr std::size_t shardCount = 8;
+    std::size_t const shard_;
+
     static constexpr std::uint32_t networkID = 21337;
     static constexpr std::uint32_t observer = 3;
     // The first flag vote has fewer than 256 ancestors and only establishes
@@ -5532,7 +5539,8 @@ class SteppingExtensions_test : public beast::unit_test::suite
         {
             // Ledger quorum remains available, but this Export committee needs
             // the returning validator. Restore root advertisements while its
-            // origin data remains unavailable until the selected recovery point.
+            // origin data remains unavailable until the selected recovery
+            // point.
             for (std::uint32_t id = 0; id <= validators; ++id)
                 net.node(id).app().getRuntimeConfig().clearGlobalConfig();
             freezeValidation = false;
@@ -7699,6 +7707,11 @@ class SteppingExtensions_test : public beast::unit_test::suite
         return outcome;
     }
 
+protected:
+    explicit SteppingExtensions_test(std::size_t shard) : shard_(shard)
+    {
+    }
+
 public:
     void
     run() override
@@ -7721,12 +7734,17 @@ public:
             filter = arg().substr(at + 5);
             filter = filter.substr(0, filter.find(','));
         }
-        std::size_t selected = 0;
+        // A case's shard is its position in this run(), so the assignment
+        // does not depend on the filter. Every shard sees every label, so a
+        // filter that matches nothing fails in all of them.
+        std::size_t candidates = 0;
+        std::size_t filterHits = 0;
         auto matches = [&](std::string const& label) {
+            bool const mine = candidates++ % shardCount == shard_;
             if (!filter.empty() && label.find(filter) == std::string::npos)
                 return false;
-            ++selected;
-            return true;
+            ++filterHits;
+            return mine;
         };
         for (auto const rng : {false, true})
             for (auto const validator : {false, true})
@@ -8132,12 +8150,31 @@ public:
                     return seededMix(net, seed);
                 });
         }
-        BEAST_EXPECT(selected != 0);
+        BEAST_EXPECT(filterHits != 0);
         log << "  busy invariant checks=" << busyInvariantChecks_ << std::endl;
         steppingBusyProbe() = {};
     }
 };
 
-BEAST_DEFINE_TESTSUITE(SteppingExtensions, consensus, ripple);
+#define STEPPING_EXTENSIONS_SHARD(N)                                    \
+    class SteppingExtensions##N##_test : public SteppingExtensions_test \
+    {                                                                   \
+    public:                                                             \
+        SteppingExtensions##N##_test() : SteppingExtensions_test(N)     \
+        {                                                               \
+        }                                                               \
+    };                                                                  \
+    BEAST_DEFINE_TESTSUITE(SteppingExtensions##N, consensus, ripple)
+
+STEPPING_EXTENSIONS_SHARD(0);
+STEPPING_EXTENSIONS_SHARD(1);
+STEPPING_EXTENSIONS_SHARD(2);
+STEPPING_EXTENSIONS_SHARD(3);
+STEPPING_EXTENSIONS_SHARD(4);
+STEPPING_EXTENSIONS_SHARD(5);
+STEPPING_EXTENSIONS_SHARD(6);
+STEPPING_EXTENSIONS_SHARD(7);
+
+#undef STEPPING_EXTENSIONS_SHARD
 
 }  // namespace ripple::test
