@@ -1153,6 +1153,299 @@ class SteppingExtensions_test : public beast::unit_test::suite
     }
 
     std::optional<std::vector<uint256>>
+    validatorClockStep(
+        SteppingNetwork& net,
+        bool rng,
+        bool exportOn,
+        std::chrono::seconds offset)
+    {
+        using namespace std::chrono_literals;
+        constexpr std::uint32_t actor = 4, obs = 5;
+        World world(net, rng, exportOn, 5);
+        if (!ready(world))
+            return std::nullopt;
+        auto const funding = world.submit(
+            obs,
+            jtx::pay(jtx::Account::master, world.owner, jtx::XRP(10'000)),
+            jtx::Account::master);
+        if (!BEAST_EXPECT(funding && funding->getResult() == tesSUCCESS))
+            return std::nullopt;
+        net.runTo(warmLedger + 2);
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= warmLedger + 2))
+            return std::nullopt;
+
+        auto& app = net.node(actor).app();
+        auto const signingKey = app.getValidatorKeys().keys->publicKey;
+        auto const firstSeq = app.openLedger().current()->seq();
+        auto const stats = world.observed;
+        auto const priorSend = app.config().harnessPeerSend;
+        std::map<LedgerIndex, uint256> signedHashes;
+        std::map<LedgerIndex, uint256> signedPayloads;
+        std::set<LedgerIndex> signedAfterHeal;
+        LedgerIndex largestSigned = 0, skewStart = 0, skewEnd = 0;
+        NetClock::time_point lastSignTime{};
+        bool stepped = false, restored = false, observedSkew = false;
+        std::uint32_t proposalsDuringSkew = 0, validationsDuringSkew = 0,
+                      validationsAfterHeal = 0;
+        scope_exit restore{[&] {
+            net.controller().observeJobs({});
+            net.raw().setPeerSendHook(actor, priorSend);
+            net.clockOffset(actor, 0s);
+        }};
+        net.raw().setPeerSendHook(
+            actor,
+            [&](std::uint16_t type,
+                std::string const& name,
+                std::uint32_t peer,
+                beast::IP::Endpoint const& endpoint,
+                std::string const& stage,
+                Message& message) {
+                if (priorSend)
+                    priorSend(type, name, peer, endpoint, stage, message);
+                if (stage != "call")
+                    return;
+                if (stepped && !restored && type == protocol::mtPROPOSE_LEDGER)
+                {
+                    auto const proposal = decodeFrame<protocol::TMProposeSet>(
+                        message.getBuffer(compression::Compressed::Off));
+                    if (makeSlice(proposal->nodepubkey()) == signingKey.slice())
+                        ++proposalsDuringSkew;
+                }
+                if (type != protocol::mtVALIDATION)
+                    return;
+                auto const frame = decodeFrame<protocol::TMValidation>(
+                    message.getBuffer(compression::Compressed::Off));
+                SerialIter sit{makeSlice(frame->validation())};
+                STValidation const validation{
+                    sit,
+                    [&](PublicKey const& key) {
+                        return calcNodeID(
+                            app.validatorManifests().getMasterKey(key));
+                    },
+                    true};
+                // Relay may carry another validator's validation. Inspect only
+                // this actor's own signed output, once per ledger sequence.
+                if (validation.getSignerPublic() != signingKey ||
+                    !validation.isFull())
+                    return;
+                auto const seq = validation.getFieldU32(sfLedgerSequence);
+                auto const [it, inserted] =
+                    signedHashes.emplace(seq, validation.getLedgerHash());
+                BEAST_EXPECT(it->second == validation.getLedgerHash());
+                if (!inserted)
+                {
+                    BEAST_EXPECT(
+                        signedPayloads.at(seq) == validation.getSigningHash());
+                    return;
+                }
+                signedPayloads.emplace(seq, validation.getSigningHash());
+                BEAST_EXPECT(validation.isValid());
+                BEAST_EXPECT(seq > largestSigned);
+                BEAST_EXPECT(validation.getSignTime() > lastSignTime);
+                largestSigned = seq;
+                lastSignTime = validation.getSignTime();
+                if (stepped && !restored)
+                    ++validationsDuringSkew;
+                if (restored)
+                {
+                    ++validationsAfterHeal;
+                    signedAfterHeal.insert(seq);
+                }
+            });
+        net.controller().observeJobs([&](std::uint32_t id,
+                                         JobType,
+                                         std::string const&) {
+            if (id != actor)
+                return;
+            if (!stepped && !signedHashes.empty() &&
+                net.validSeq(actor) >= firstSeq)
+            {
+                stepped = true;
+                skewStart = net.validSeq(0);
+                net.clockOffset(actor, offset);
+                net.in(6s, actor, [&] {
+                    skewEnd = net.validSeq(0);
+                    net.clockOffset(actor, 0s);
+                    restored = true;
+                });
+            }
+            else if (stepped && !restored)
+            {
+                auto const difference =
+                    static_cast<std::int64_t>(net.node(actor)
+                                                  .clock()
+                                                  .now()
+                                                  .time_since_epoch()
+                                                  .count()) -
+                    static_cast<std::int64_t>(
+                        net.node(0).clock().now().time_since_epoch().count());
+                observedSkew |= difference == offset.count();
+            }
+        });
+        auto const payment = world.submit(
+            obs,
+            jtx::pay(world.owner, world.destination, jtx::XRP(1000)),
+            world.owner);
+        if (!BEAST_EXPECT(payment && payment->getResult() == tesSUCCESS))
+            return std::nullopt;
+        std::optional<uint256> origin;
+        if (exportOn)
+        {
+            auto const tx = world.submit(
+                obs,
+                world.intent(
+                    world.owner,
+                    1,
+                    firstSeq + ExportLimits::maxAdmissionWindowLedgers,
+                    {0, 1, 2, 3, actor}),
+                world.owner);
+            if (!BEAST_EXPECT(tx && tx->getResult() == tesSUCCESS))
+                return std::nullopt;
+            origin = tx->getID();
+        }
+        auto const target = firstSeq + 7;
+        net.recordChainHistory();
+        net.runTo(target, {800, 1'600'000}, {250ms});
+        if (!restored)
+            net.settle(7s, 800'000);
+        if (!BEAST_EXPECT(stepped && restored && observedSkew))
+            return std::nullopt;
+        BEAST_EXPECT(skewEnd > skewStart);
+        // A validator that signed provisional ledgers while skewed must not
+        // bypass its sequence enforcer on recovery. Let the network pass that
+        // already-signed frontier before requiring a new full validation.
+        auto const healedTarget =
+            std::max({net.validSeq(0), net.validSeq(actor), largestSigned}) + 2;
+        net.runTo(healedTarget, {800, 1'600'000}, {250ms});
+        if (!BEAST_EXPECT(net.minValidatedSeq() >= healedTarget))
+        {
+            log << "  validator-clock: did not catch up "
+                << net.jobDiagnostics() << std::endl;
+            return std::nullopt;
+        }
+        BEAST_EXPECT(net.ledgersAgree(healedTarget) && net.validatedForkFree());
+        // With a bad clock it may safely abstain. What it does sign must obey
+        // sequence/time rules; after correction it must resume participation.
+        BEAST_EXPECT(validationsAfterHeal > 0);
+        std::size_t acceptedAfterHeal = 0;
+        for (auto const seq : signedAfterHeal)
+        {
+            auto const votes =
+                net.node(0).app().getValidations().getTrustedForLedger(
+                    signedHashes.at(seq), seq);
+            acceptedAfterHeal +=
+                std::any_of(votes.begin(), votes.end(), [&](auto const& v) {
+                    return v->getSignerPublic() == signingKey;
+                });
+        }
+        BEAST_EXPECT(acceptedAfterHeal > 0);
+
+        std::size_t minUnaffectedQuorum = 4;
+        for (auto seq = skewStart + 1; seq <= skewEnd; ++seq)
+        {
+            auto const ledger = net.ledger(0, seq);
+            if (!BEAST_EXPECT(ledger != nullptr))
+                return std::nullopt;
+            auto const votes = net.node(0).app().validators().negativeUNLFilter(
+                net.node(0).app().getValidations().getTrustedForLedger(
+                    ledger->info().hash, seq));
+            auto const unaffected =
+                std::count_if(votes.begin(), votes.end(), [&](auto const& v) {
+                    return v->getSignerPublic() != signingKey;
+                });
+            minUnaffectedQuorum = std::min(
+                minUnaffectedQuorum, static_cast<std::size_t>(unaffected));
+            BEAST_EXPECT(unaffected >= net.node(0).app().validators().quorum());
+        }
+        std::uint32_t payments = 0, witnesses = 0, provisionalMismatches = 0;
+        std::set<std::pair<std::uint8_t, std::uint16_t>> entropyProfiles;
+        std::vector<uint256> outcome;
+        for (auto seq = firstSeq; seq <= healedTarget; ++seq)
+        {
+            auto const canonical = net.ledger(0, seq);
+            if (!BEAST_EXPECT(canonical != nullptr))
+                return std::nullopt;
+            if (rng)
+                expectExtensionEffects(*canonical, world.owner.id());
+            outcome.push_back(canonical->info().hash);
+            for (std::uint32_t id = 1; id <= obs; ++id)
+                BEAST_EXPECT(net.ledgerHash(id, seq) == canonical->info().hash);
+            std::uint32_t entropy = 0;
+            for (auto const& [tx, meta] : canonical->txs)
+            {
+                bool const relevant =
+                    tx->getTransactionID() == payment->getID() ||
+                    tx->getTxnType() == ttCONSENSUS_ENTROPY ||
+                    tx->getTxnType() == ttEXPORT_SIGNATURES;
+                if (relevant)
+                    BEAST_EXPECT(
+                        meta &&
+                        isTesSuccess(TER::fromInt(
+                            meta->getFieldU8(sfTransactionResult))));
+                payments += tx->getTransactionID() == payment->getID();
+                entropy += tx->getTxnType() == ttCONSENSUS_ENTROPY;
+                if (tx->getTxnType() == ttCONSENSUS_ENTROPY)
+                    entropyProfiles.emplace(
+                        tx->getFieldU8(sfEntropyTier),
+                        tx->getFieldU16(sfEntropyCount));
+                if (tx->getTxnType() == ttEXPORT_SIGNATURES)
+                {
+                    ++witnesses;
+                    if (!BEAST_EXPECT(
+                            origin &&
+                            tx->getFieldH256(sfTransactionHash) == *origin))
+                        return std::nullopt;
+                    auto const signatures =
+                        ExportResultBuilder::signaturesFromWitness(*tx);
+                    BEAST_EXPECT(signatures && signatures->size() >= 4);
+                    auto const latch = canonical->read(
+                        keylet::exportLatch(world.owner.id(), *origin));
+                    BEAST_EXPECT(
+                        latch && latch->isFieldPresent(sfExportSignatureHash) &&
+                        latch->getFieldH256(sfExportSignatureHash) ==
+                            tx->getTransactionID() &&
+                        !latch->isFieldPresent(sfExportNode));
+                }
+            }
+            BEAST_EXPECT(entropy == (rng ? 1u : 0u));
+        }
+        for (auto const& [seq, parent, hash] : stats->builds[actor])
+            if (seq >= firstSeq && seq <= healedTarget &&
+                parent == net.ledgerHash(0, seq - 1))
+                provisionalMismatches += hash != net.ledgerHash(0, seq);
+        BEAST_EXPECT(payments == 1 && witnesses == (exportOn ? 1u : 0u));
+        BEAST_EXPECT(stats->secrets[obs] == 0 && stats->ownReleases[obs] == 0);
+        for (std::uint32_t id = 0; id < obs; ++id)
+            BEAST_EXPECT(stats->unauthorizedReleases[id] == 0);
+        BEAST_EXPECT(net.failedJobs() == 0 && net.offThreadJobs() == 0);
+        log << "  validator-clock: offset=" << offset.count() << " rng=" << rng
+            << " export=" << exportOn << " progressWhileSkewed=" << skewStart
+            << "->" << skewEnd << " unaffectedQuorum=" << minUnaffectedQuorum
+            << " proposals=" << proposalsDuringSkew
+            << " validations=" << validationsDuringSkew
+            << " postHealValidations=" << validationsAfterHeal
+            << " acceptedAfterHeal=" << acceptedAfterHeal
+            << " provisionalMismatches=" << provisionalMismatches << " witness="
+            << (origin ? witnessAt(net, *origin, firstSeq, obs) : 0)
+            << std::endl;
+        outcome.push_back(sha512Half(
+            proposalsDuringSkew,
+            validationsDuringSkew,
+            validationsAfterHeal,
+            provisionalMismatches,
+            skewStart,
+            skewEnd));
+        if (rng)
+        {
+            log << "  validator-clock entropy tier/count:";
+            for (auto const& [tier, count] : entropyProfiles)
+                log << " " << static_cast<unsigned>(tier) << "/" << count;
+            log << std::endl;
+        }
+        return outcome;
+    }
+
+    std::optional<std::vector<uint256>>
     overlappingOrigins(SteppingNetwork& net)
     {
         World world(net, false, true);
@@ -8003,6 +8296,29 @@ public:
                                 exportOn,
                                 forward ? Fault::clockForward
                                         : Fault::clockBackward);
+                        });
+                }
+        for (auto const rng : {false, true})
+            for (auto const exportOn : {false, true})
+                for (auto const seconds : {-240, -45, 45, 240})
+                {
+                    auto const label =
+                        std::string{"validator clock step rng="} +
+                        (rng ? "on" : "off") +
+                        " export=" + (exportOn ? "on" : "off") +
+                        " offset=" + std::to_string(seconds);
+                    if (!matches(label))
+                        continue;
+                    testcase(label);
+                    expectReplays(
+                        *this,
+                        label.c_str(),
+                        [this, rng, exportOn, seconds](SteppingNetwork& net) {
+                            return validatorClockStep(
+                                net,
+                                rng,
+                                exportOn,
+                                std::chrono::seconds{seconds});
                         });
                 }
         for (auto const& [label, fault, rng, exportOn] :
