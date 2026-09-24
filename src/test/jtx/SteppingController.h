@@ -156,6 +156,12 @@ private:
     std::vector<std::string> failedJobs_;
     static constexpr std::size_t maxRecentJobs_ = 40;
     std::map<std::pair<std::uint32_t, int>, duration> jobLags_;
+    std::map<std::tuple<std::uint32_t, JobType, std::string>, duration>
+        namedJobLags_;
+    std::function<void(std::uint32_t, JobType, std::string const&)> beforeJob_;
+    // Survives observeJobs replacement. Scenario-wide invariants use this.
+    std::function<void(std::uint32_t, JobType, std::string const&)>
+        alwaysBeforeJob_;
 
     [[nodiscard]] static char const*
     jobTypeName(JobType t)
@@ -422,8 +428,15 @@ private:
     }
 
     [[nodiscard]] duration
-    jobLag(std::uint32_t nodeId, Tier tier) const
+    jobLag(
+        std::uint32_t nodeId,
+        Tier tier,
+        JobType type,
+        std::string const& name) const
     {
+        if (auto const it = namedJobLags_.find({nodeId, type, name});
+            it != namedJobLags_.end())
+            return it->second;
         auto const it = jobLags_.find({nodeId, static_cast<int>(tier)});
         return it == jobLags_.end() ? duration::zero() : it->second;
     }
@@ -534,6 +547,44 @@ public:
     }
 
     void
+    setJobLag(
+        std::uint32_t nodeId,
+        JobType type,
+        std::string name,
+        duration lag)
+    {
+        requireSteppingThread("setJobLag");
+        if (lag < duration::zero())
+            Throw<std::logic_error>(
+                "SteppingController::setJobLag: lag must be non-negative");
+        auto const key = std::make_tuple(nodeId, type, std::move(name));
+        if (lag == duration::zero())
+            namedJobLags_.erase(key);
+        else
+            namedJobLags_[key] = lag;
+    }
+
+    // Passive scenario inspection after clock sync, immediately before the real
+    // job body. This does not enqueue, suppress or replace that body.
+    void
+    observeJobs(std::function<void(std::uint32_t, JobType, std::string const&)>
+                    observer)
+    {
+        requireSteppingThread("observeJobs");
+        beforeJob_ = std::move(observer);
+    }
+
+    // Survives observeJobs replacement. Scenario-wide invariants use this.
+    void
+    setAlwaysBeforeJob(
+        std::function<void(std::uint32_t, JobType, std::string const&)>
+            observer)
+    {
+        requireSteppingThread("setAlwaysBeforeJob");
+        alwaysBeforeJob_ = std::move(observer);
+    }
+
+    void
     clearJobLag(std::uint32_t nodeId)
     {
         requireSteppingThread("clearJobLag");
@@ -544,6 +595,11 @@ public:
             else
                 ++it;
         }
+        for (auto it = namedJobLags_.begin(); it != namedJobLags_.end();)
+            if (std::get<0>(it->first) == nodeId)
+                it = namedJobLags_.erase(it);
+            else
+                ++it;
     }
 
     [[nodiscard]] std::size_t
@@ -580,6 +636,27 @@ public:
     {
         std::scoped_lock lock(diagnosticsMutex_);
         return failedJobs_.size();
+    }
+
+    // Read-only view of currently delayed jobs for one node/type/name.
+    // Does not include completed historical jobCounts.
+    [[nodiscard]] std::size_t
+    laggedPendingJobCount(
+        std::uint32_t nodeId,
+        JobType type,
+        std::string const& name) const
+    {
+        std::scoped_lock lock(diagnosticsMutex_);
+        auto const prefix = "n" + std::to_string(nodeId) + " ";
+        auto const needle = jobLabel(type, name);
+        std::size_t n = 0;
+        for (auto const& [label, count] : laggedPendingJobs_)
+        {
+            if (label.compare(0, prefix.size(), prefix) == 0 &&
+                label.find(needle) != std::string::npos)
+                n += count;
+        }
+        return n;
     }
 
     [[nodiscard]] std::string
@@ -674,6 +751,10 @@ public:
             case JtValidationT:  // "ChkTrust"
             case JtValidationUt:
                 return {Action::enqueue, Tier::process};
+            case JtManifest:
+                return name == "receiveManifests"
+                    ? Classification{Action::enqueue, Tier::process}
+                    : Classification{Action::fail};
             case JtAccept:  // "AcceptLedger" — deferred ledger build
                 return {Action::enqueue, Tier::accept};
             case JtTransaction:
@@ -768,6 +849,13 @@ public:
                 if (name == "MakeFetchPack")
                     return {Action::enqueue, Tier::process};
                 return {Action::fail};
+            case JtWal:
+                // Longer histories trigger SQLite's passive WAL checkpoint.
+                // Run its real deferred closure, including the running_ reset;
+                // dropping it would change persistence/teardown behaviour.
+                return name == "WAL"
+                    ? Classification{Action::enqueue, Tier::process}
+                    : Classification{Action::fail};
             case JtClientFeeChange:  // "PubFee"  — fee-change sub notify (no
                                      // subs)
             case JtClientConsensus:  // "PubCons" — consensus-state sub notify
@@ -880,7 +968,8 @@ public:
                             "' arrived off the stepping thread [thread='" +
                             std::string(beast::getCurrentThreadName()) + "']");
                     }
-                    auto const lag = jobLag(nodeId, classification.tier);
+                    auto const lag =
+                        jobLag(nodeId, classification.tier, t, name);
                     recordJob(
                         nodeId,
                         t,
@@ -906,6 +995,10 @@ public:
                                     clearLaggedPending(
                                         nodeId, tier, t, name, lag);
                                 recordJob(nodeId, t, name, "run");
+                                if (alwaysBeforeJob_)
+                                    alwaysBeforeJob_(nodeId, t, name);
+                                if (beforeJob_)
+                                    beforeJob_(nodeId, t, name);
                                 f();
                             }),
                         HarnessScheduler::Kind::job,

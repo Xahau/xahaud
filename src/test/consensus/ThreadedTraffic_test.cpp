@@ -922,6 +922,7 @@ class ThreadedTraffic_test : public beast::unit_test::suite
                 return std::nullopt;
             }
 
+            BEAST_EXPECT(net.waitForSimQuiescence(tickOptions.stallTimeout));
             auto const activity = net.simActivitySnapshot();
             out.maxBufferedBytes = std::max<std::size_t>(
                 out.maxBufferedBytes,

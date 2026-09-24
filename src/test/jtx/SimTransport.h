@@ -33,6 +33,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -279,6 +280,10 @@ public:
     // from its (type, size); installed at a stepping boundary, empty = off.
     using WriteFault =
         std::function<SimFault(std::uint16_t type, std::size_t size)>;
+    // Optional content-aware selection of whole frames. Read-only and valid
+    // only during the callback: selectors cannot rewrite signed messages.
+    using Frame = std::span<std::uint8_t const>;
+    using FrameFault = std::function<SimFault(std::uint16_t type, Frame bytes)>;
     // Installed by simConnect in stepping mode: schedule a raw write of
     // `bytes` into THIS pipe `delay` from now (rides scheduleDelivery, so it
     // inherits the draining/inactive-node guards). Fault delays require it.
@@ -287,7 +292,7 @@ public:
 
 private:
     DeliveryRouter router_;
-    WriteFault writeFault_;
+    FrameFault writeFault_;
     DelayedWrite delayedWrite_;
     // (type, bytes remaining) of every framed message currently buffered, in
     // order — writeRaw pushes, drainInto consumes. Guarded by m_. Purely
@@ -413,6 +418,17 @@ public:
     void
     setWriteFault(WriteFault f)
     {
+        if (!f)
+            writeFault_ = {};
+        else
+            writeFault_ = [f = std::move(f)](std::uint16_t type, Frame bytes) {
+                return f(type, bytes.size());
+            };
+    }
+
+    void
+    setFrameFault(FrameFault f)
+    {
         writeFault_ = std::move(f);
     }
 
@@ -433,7 +449,7 @@ public:
         if (!writeFault_)
             return writeRaw(std::move(data));
 
-        auto const fault = writeFault_(peekMessageType(data), data.size());
+        auto const fault = writeFault_(peekMessageType(data), Frame{data});
         auto const copies = (fault.drop ? 0 : 1) + fault.duplicates;
         if (copies == 0)
         {
@@ -706,6 +722,12 @@ public:
     setFault(bool aToB, SimPipe::WriteFault f)
     {
         (aToB ? a2b_ : b2a_)->setWriteFault(std::move(f));
+    }
+
+    void
+    setFrameFault(bool aToB, SimPipe::FrameFault f)
+    {
+        (aToB ? a2b_ : b2a_)->setFrameFault(std::move(f));
     }
 
     /** Inject one already-framed protocol message from endpoint A toward B. */

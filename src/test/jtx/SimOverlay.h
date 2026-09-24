@@ -91,6 +91,16 @@ struct SimResolverHolder
 };
 }  // namespace detail
 
+// Reserve a range from the process-wide synthetic peer-ID sequence. Replay
+// tests can perturb allocation history without creating another Application
+// or resetting IDs that may still belong to live peers.
+inline Peer::id_t
+reserveSimPeerIds(Peer::id_t count = 1)
+{
+    static std::atomic<Peer::id_t> next{1};
+    return next.fetch_add(count);
+}
+
 class SimOverlay : private detail::SimResolverHolder, public OverlayImpl
 {
     Application& app_;
@@ -195,7 +205,6 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
     // Unique, never-self loopback endpoints for the two slots (the real bus is
     // the SimWire; these are only slot identities / remoteAddress_).
     static std::atomic<std::uint16_t> nextSimPort{40000};
-    static std::atomic<Peer::id_t> nextSimPeerId{1};
     auto const loopback = boost::asio::ip::make_address("127.0.0.1");
     std::uint16_t const portA = nextSimPort++;
     std::uint16_t const portB = nextSimPort++;
@@ -380,7 +389,7 @@ simConnect(Application& a, Application& b, SimSteppingLink link = {})
             usage,
             peerKey,
             ver,
-            nextSimPeerId++,
+            reserveSimPeerIds(),
             ov);
         ov.add_active(peer);
         return true;

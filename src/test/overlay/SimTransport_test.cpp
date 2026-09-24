@@ -145,6 +145,47 @@ class SimTransport_test : public beast::unit_test::suite
     }
 
     void
+    testReadOnlyFrameSelection()
+    {
+        testcase(
+            "content faults select whole frames and clearing restores exact "
+            "bytes");
+        SimPipe pipe;
+        Bytes const kept{0, 0, 0, 1, 0, 7, 'K'};
+        Bytes const lost{0, 0, 0, 1, 0, 7, 'L'};
+        unsigned inspected = 0;
+        pipe.setFrameFault([&](std::uint16_t type, SimPipe::Frame frame) {
+            ++inspected;
+            BEAST_EXPECT(type == 7);
+            BEAST_EXPECT(frame.size() == kept.size());
+            return SimFault{frame.back() == 'L'};
+        });
+        BEAST_EXPECT(pipe.write(lost));
+        BEAST_EXPECT(pipe.bufferedBytes() == 0);
+        BEAST_EXPECT(pipe.write(kept));
+        BEAST_EXPECT(pipe.bufferedBytes() == kept.size());
+        pipe.setWriteFault({});
+        BEAST_EXPECT(pipe.write(lost));
+        BEAST_EXPECT(inspected == 2);
+
+        boost::asio::io_context io;
+        Bytes actual(kept.size() + lost.size());
+        bool read = false;
+        pipe.read(
+            {boost::asio::buffer(actual)},
+            io.get_executor(),
+            [&](Transport::error_code ec, std::size_t n) {
+                BEAST_EXPECT(!ec && n == actual.size());
+                read = true;
+            });
+        io.run();
+        BEAST_EXPECT(read);
+        Bytes expected = kept;
+        expected.insert(expected.end(), lost.begin(), lost.end());
+        BEAST_EXPECT(actual == expected);
+    }
+
+    void
     testBufferedBytesDrainBeforeEof()
     {
         testcase("bytes buffered before close drain before EOF");
@@ -192,6 +233,7 @@ public:
         testDelayedWriteCannotCrossClose();
         testEndpointWriteAfterSever();
         testFaultDropIsSuccessfulWrite();
+        testReadOnlyFrameSelection();
         testBufferedBytesDrainBeforeEof();
     }
 };

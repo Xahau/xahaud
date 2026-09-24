@@ -434,7 +434,11 @@ public:
         // empty validationSeed = OBSERVER: UNL only, no signing identity.
         if (spec.trust)
         {
-            if (!spec.trust->validationSeed.empty())
+            // A config-time token supplies a rotated signing identity. Keep
+            // the static master-key UNL, without also supplying a seed (the
+            // production startup correctly rejects that combination).
+            if (!spec.trust->validationSeed.empty() &&
+                !cfg->exists(SECTION_VALIDATOR_TOKEN))
                 cfg->section(SECTION_VALIDATION_SEED)
                     .append(
                         std::vector<std::string>{spec.trust->validationSeed});
@@ -514,6 +518,38 @@ public:
         app_->signalStop("MultiNode");
         if (runThread_.joinable())
             runThread_.join();
+
+        // Overlay::stop returns once the child list is empty. That list can
+        // already be empty, so stopChildren may still be queued on the io
+        // service. One handler per io thread, posted after run() returns, runs
+        // only after that queued work. Then stop the service so those threads
+        // leave run() before the overlay object is destroyed.
+        auto const ioThreads = [](Config const& config) -> std::size_t {
+            if (config.steppingMode)
+                return 0;
+#if RIPPLE_SINGLE_IO_SERVICE_THREAD
+            return 1;
+#else
+            if (config.IO_WORKERS > 0)
+                return static_cast<std::size_t>(config.IO_WORKERS);
+            auto const cores = std::thread::hardware_concurrency();
+            if (cores == 1 || (config.NODE_SIZE == 0 && cores == 2))
+                return 1;
+            return 2;
+#endif
+        };
+        auto const n = ioThreads(app_->config());
+        if (n > 0)
+        {
+            auto& io = app_->getIOService();
+            std::atomic<int> ran{0};
+            for (std::size_t i = 0; i < n; ++i)
+                io.post(
+                    [&ran] { ran.fetch_add(1, std::memory_order_release); });
+            while (ran.load(std::memory_order_acquire) < static_cast<int>(n))
+                std::this_thread::yield();
+            io.stop();
+        }
     }
 
     NodeBundle(NodeBundle const&) = delete;
@@ -610,6 +646,8 @@ class MultiNode
         // (Handshake.cpp handshake-clock-tolerance) — stay inside it, or
         // connect first and skew after.
         std::chrono::seconds clockOffset{0};
+        // NetClock sampled in stopNode and restored by restartNodeImpl.
+        std::optional<NetClock::time_point> savedNetClock;
     };
     // Stable node slots. The slot outlives the live NodeBundle so a stopped
     // node can restart from the same database path and identity.
@@ -877,6 +915,8 @@ public:
                 "MultiNode::stopNode: node index out of range");
         if (!nodes_[i])
             return;
+        if (nodes_[i]->isUp())
+            slots_[i]->savedNetClock = nodes_[i]->clock().now();
         if (stepper_)
         {
             stepper_->deactivateNode(static_cast<std::uint32_t>(i));
@@ -953,7 +993,8 @@ private:
                 /*injectedPrng=*/slots_[i]->prng.get(),
                 std::move(timerFactory),
                 std::move(peerTimerFactory),
-                /*restoredNetClock=*/threadedNetTime_});
+                threadedNetTime_ ? threadedNetTime_
+                                 : slots_[i]->savedNetClock});
         if (stepper_ && nodes_[i]->isUp())
             syncClocks(stepper_->now());
         return *nodes_[i];
@@ -1015,6 +1056,27 @@ public:
     {
         return simActivity_ ? simActivity_->snapshot()
                             : SimTransportActivitySnapshot{};
+    }
+
+    // Wait until no tracked sim transport post is in flight and no wire
+    // holds buffered bytes. threadedTick can return while a slow post is
+    // still running on a node's io thread, so a caller that asserts
+    // quiescence after its last tick waits here first. Covers the sim
+    // transport only, not job queues or timers, and needs the transport
+    // activity tracker (simOverlayFactory). Returns false on timeout.
+    [[nodiscard]] bool
+    waitForSimQuiescence(std::chrono::milliseconds timeout) const
+    {
+        auto const deadline = std::chrono::steady_clock::now() + timeout;
+        for (;;)
+        {
+            if (simBufferedBytes() == 0 &&
+                simActivitySnapshot().inFlightPosts == 0)
+                return true;
+            if (std::chrono::steady_clock::now() >= deadline)
+                return false;
+            std::this_thread::sleep_for(std::chrono::milliseconds{1});
+        }
     }
 
     // Wait until every node has at least `expected` active (post-handshake)
@@ -1447,18 +1509,32 @@ public:
         std::size_t quietPolls;
         std::chrono::milliseconds pollInterval;
         std::chrono::milliseconds stallTimeout;
+        // Callers still record drains against this budget. It does not fail
+        // the tick: a slow drain that is still advancing is not a failure.
         std::chrono::milliseconds totalTimeout;
+        // Wall-clock backstop for a drain that never goes quiet. Contention
+        // stretches a healthy drain; only this cap, or a stall with no
+        // ledger and no job-token progress, fails it.
+        std::chrono::milliseconds safetyTimeout;
+        // Non-quiet polls with a transport that is not moving. Past this, the
+        // drain ends so virtual time can advance even if a job keeps the
+        // queue occupied.
+        std::size_t nonQuietLimit;
 
         ThreadedTickOptions(
             std::size_t quietPolls_ = 3,
             std::chrono::milliseconds pollInterval_ =
                 std::chrono::milliseconds{1},
             std::chrono::milliseconds stallTimeout_ = std::chrono::seconds{30},
-            std::chrono::milliseconds totalTimeout_ = std::chrono::seconds{30})
+            std::chrono::milliseconds totalTimeout_ = std::chrono::seconds{30},
+            std::chrono::milliseconds safetyTimeout_ = std::chrono::minutes{10},
+            std::size_t nonQuietLimit_ = 4)
             : quietPolls(quietPolls_)
             , pollInterval(pollInterval_)
             , stallTimeout(stallTimeout_)
             , totalTimeout(totalTimeout_)
+            , safetyTimeout(safetyTimeout_)
+            , nonQuietLimit(nonQuietLimit_)
         {
         }
     };
@@ -1480,6 +1556,7 @@ public:
         SimTransportActivitySnapshot transportEnd;
         std::uint64_t lastJobsStart = 0;
         std::uint64_t completedJobsStart = 0;
+        std::size_t idleBusyPolls = 0;
     };
 
     [[nodiscard]] ThreadedTickStats
@@ -1493,10 +1570,11 @@ public:
         if (!simActivity_)
             throw std::logic_error(
                 "MultiNode::threadedTick: no SimTransport activity tracker");
-        if (options.quietPolls == 0 ||
+        if (options.quietPolls == 0 || options.nonQuietLimit == 0 ||
             options.pollInterval <= milliseconds{0} ||
             options.stallTimeout <= milliseconds{0} ||
-            options.totalTimeout <= milliseconds{0})
+            options.totalTimeout <= milliseconds{0} ||
+            options.safetyTimeout <= milliseconds{0})
             throw std::logic_error(
                 "MultiNode::threadedTick: invalid budget options");
 
@@ -1570,6 +1648,10 @@ public:
                    << " stallElapsedMs=" << stallElapsed.count()
                    << " stallMs=" << options.stallTimeout.count()
                    << " totalMs=" << options.totalTimeout.count()
+                   << " safetyMs=" << options.safetyTimeout.count()
+                   << " idleBusy=" << stats.idleBusyPolls
+                   << " nonQuietLimit=" << options.nonQuietLimit
+                   << " valid=" << minValidated()
                    << " pipeBytes=" << s.bufferedBytes
                    << " maxPipeBytes=" << stats.maxBufferedBytes
                    << " posts=" << s.activity.inFlightPosts
@@ -1622,7 +1704,16 @@ public:
         // polls.
         auto const drainStart = steady_clock::now();
         auto previousToken = sample().token;
+        auto previousValidated = minValidated();
         auto lastProgress = drainStart;
+        bool haveTransport = false;
+        std::size_t previousBytes = 0;
+        std::uint64_t previousReadStarted = 0;
+        std::uint64_t previousReadFinished = 0;
+        std::uint64_t previousWriteStarted = 0;
+        std::uint64_t previousWriteFinished = 0;
+        std::uint64_t previousShutdownStarted = 0;
+        std::uint64_t previousShutdownFinished = 0;
         Signal last;
         for (;;)
         {
@@ -1630,13 +1721,43 @@ public:
             ++stats.polls;
             note(last);
             auto const now = steady_clock::now();
+            auto const validated = minValidated();
+            auto const& posts = last.activity;
 
             bool const quiet = last.bufferedBytes == 0 &&
-                last.activity.inFlightPosts == 0 && last.busyJobQueues == 0;
+                posts.inFlightPosts == 0 && last.busyJobQueues == 0;
+            bool const countersStill = haveTransport &&
+                last.bufferedBytes == previousBytes &&
+                posts.readStarted == previousReadStarted &&
+                posts.readFinished == previousReadFinished &&
+                posts.writeStarted == previousWriteStarted &&
+                posts.writeFinished == previousWriteFinished &&
+                posts.shutdownStarted == previousShutdownStarted &&
+                posts.shutdownFinished == previousShutdownFinished;
+            // Idle when the pipe and the post counters are unchanged. That
+            // includes finished == started, and a frozen remainder: a busy
+            // queue never looks quiet, so waiting on equality never advances
+            // virtual time and those posts never complete.
+            bool const transportIdle = countersStill;
+            if (!quiet && transportIdle)
+                ++stats.idleBusyPolls;
+            else
+                stats.idleBusyPolls = 0;
+            previousBytes = last.bufferedBytes;
+            previousReadStarted = posts.readStarted;
+            previousReadFinished = posts.readFinished;
+            previousWriteStarted = posts.writeStarted;
+            previousWriteFinished = posts.writeFinished;
+            previousShutdownStarted = posts.shutdownStarted;
+            previousShutdownFinished = posts.shutdownFinished;
+            haveTransport = true;
+
             bool const tokenStable = last.token == previousToken;
-            if (!tokenStable)
+            bool const ledgerAdvanced = validated != previousValidated;
+            if (!tokenStable || ledgerAdvanced)
             {
                 previousToken = last.token;
+                previousValidated = validated;
                 lastProgress = now;
             }
             if (quiet && tokenStable)
@@ -1651,14 +1772,18 @@ public:
 
             if (stats.quietPolls >= options.quietPolls)
                 break;
+            if (stats.idleBusyPolls >= options.nonQuietLimit)
+                break;
+            // No new validated ledger and no job-token change. Wall time here
+            // is how long that absence lasted, not a budget for a slow drain.
             if (stallElapsed > options.stallTimeout)
                 throw std::runtime_error(
                     "MultiNode::threadedTick: stall bound expired: " +
                     diagnostics(last, "stall", stallElapsed));
-            if (stats.wallElapsed > options.totalTimeout)
+            if (stats.wallElapsed > options.safetyTimeout)
                 throw std::runtime_error(
-                    "MultiNode::threadedTick: total bound expired: " +
-                    diagnostics(last, "total", stallElapsed));
+                    "MultiNode::threadedTick: safety cap expired: " +
+                    diagnostics(last, "safety", stallElapsed));
             std::this_thread::sleep_for(options.pollInterval);
         }
 

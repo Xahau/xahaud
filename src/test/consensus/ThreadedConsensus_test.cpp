@@ -246,6 +246,7 @@ class ThreadedConsensus_test : public beast::unit_test::suite
             return std::nullopt;
         }
 
+        BEAST_EXPECT(net.waitForSimQuiescence(options.stallTimeout));
         auto const endActivity = net.simActivitySnapshot();
         out.readStarted = endActivity.readStarted - startActivity.readStarted;
         out.writeStarted =

@@ -306,6 +306,17 @@ private:
     bool chainHistoryEnabled_ = false;
     std::uint32_t chainHistoryBeat_ = 0;
     std::vector<std::vector<ChainSample>> chainHistory_;
+    std::function<void(std::uint32_t, Config&)> configureNode_;
+
+    ConfigHook
+    configForNode(std::uint32_t id) const
+    {
+        if (!configureNode_)
+            return {};
+        return [configure = configureNode_, id](Config& config) {
+            configure(id, config);
+        };
+    }
 
     // Install the recording hooks on node i's stable slot (stepping-mode
     // live install is race-free; no traffic flows until the first beat).
@@ -515,6 +526,19 @@ public:
         return *this;
     }
 
+    // Configure each Application before construction, including observers and
+    // later restarts. Install before spawning any node; never mutate live
+    // config.
+    SteppingNetwork&
+    configureNodes(std::function<void(std::uint32_t, Config&)> configure)
+    {
+        if (net_.size() != 0)
+            throw std::logic_error(
+                "SteppingNetwork::configureNodes: nodes already exist");
+        configureNode_ = std::move(configure);
+        return *this;
+    }
+
     // §5.8: enable forensics recording — the executed-event trace plus the
     // send/validation logs the debugging ladder (design-notes §7) diffs when
     // a replay assertion fails. Call any time (typically right after
@@ -704,7 +728,11 @@ public:
             for (auto const trusted : trustIds_[id])
                 unl.push_back(validators_[trusted].pubKey);
             net_.add(
-                TrustConfig{validators_[id].seed, std::move(unl)}, factory);
+                TrustConfig{validators_[id].seed, std::move(unl)},
+                factory,
+                {},
+                true,
+                configForNode(id));
             if (forensics_->enabled && net_.isLive(id))
                 installForensics(id);
         }
@@ -745,7 +773,12 @@ public:
             throw std::logic_error(
                 "SteppingNetwork::observer: create validators() first");
         auto const id = static_cast<std::uint32_t>(net_.size());
-        net_.add(TrustConfig{/*validationSeed=*/{}, unl_}, simOverlayFactory());
+        net_.add(
+            TrustConfig{/*validationSeed=*/{}, unl_},
+            simOverlayFactory(),
+            {},
+            true,
+            configForNode(id));
         if (forensics_->enabled && net_.isLive(id))
             installForensics(id);
         return id;
@@ -800,6 +833,25 @@ public:
         }
         throw std::logic_error(
             "SteppingNetwork::faultLink: no live wire between nodes");
+    }
+
+    // Content-aware whole-frame faults, e.g. lose only share-bearing proposals.
+    SteppingNetwork&
+    faultFrames(
+        std::uint32_t from,
+        std::uint32_t to,
+        SimPipe::FrameFault injector)
+    {
+        requireSlot(from, "faultFrames");
+        requireSlot(to, "faultFrames");
+        for (auto it = links_.rbegin(); it != links_.rend(); ++it)
+            if (it->connects(from, to) && it->wire && !it->wire->severed())
+            {
+                it->wire->setFrameFault(it->a == from, std::move(injector));
+                return *this;
+            }
+        throw std::logic_error(
+            "SteppingNetwork::faultFrames: no live wire between nodes");
     }
 
     SteppingNetwork&

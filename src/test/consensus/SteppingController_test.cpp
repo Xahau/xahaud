@@ -71,6 +71,10 @@ class SteppingController_test : public beast::unit_test::suite
             cls(jtADVANCE, "getConsensusLedger2").action == A::enqueue &&
             cls(jtADVANCE, "getConsensusLedger2").tier == Tier::process);
         BEAST_EXPECT(cls(jtADVANCE, "SomethingElse").action == A::fail);
+        BEAST_EXPECT(
+            cls(jtWAL, "WAL").action == A::enqueue &&
+            cls(jtWAL, "WAL").tier == Tier::process);
+        BEAST_EXPECT(cls(jtWAL, "UnknownCheckpoint").action == A::fail);
 
         // The acquire data pipeline: peer-serving reads and received-data
         // processing run in arrival order; the TimeoutCounter retry is a timer.
@@ -84,10 +88,35 @@ class SteppingController_test : public beast::unit_test::suite
             cls(jtLEDGER_DATA, "InboundLedger").action == A::enqueue &&
             cls(jtLEDGER_DATA, "InboundLedger").tier == Tier::timer);
 
+        BEAST_EXPECT(
+            cls(jtMANIFEST, "receiveManifests").action == A::enqueue &&
+            cls(jtMANIFEST, "receiveManifests").tier == Tier::process);
+        BEAST_EXPECT(
+            cls(jtMANIFEST, "unexpectedManifestJob").action == A::fail);
+
         // Harness no-ops → drop; unmodeled → fail.
         BEAST_EXPECT(cls(jtCLIENT_CONSENSUS, "PubCons").action == A::drop);
         BEAST_EXPECT(cls(jtUPDATE_PF, "OB3").action == A::drop);
         BEAST_EXPECT(cls(jtSWEEP, "Sweep").action == A::fail);
+    }
+
+    void
+    testWalCheckpointScheduled()
+    {
+        testcase("SQLite WAL checkpoint work remains deferred");
+        using D = JobQueue::JobDisposition;
+        SteppingController c;
+        c.setSyncClock([](SteppingController::time_point) {});
+        auto hook = c.makeJobHook(0);
+
+        bool checkpointRan = false;
+        BEAST_EXPECT(hook(jtWAL, "WAL", [&]() {
+                         checkpointRan = true;
+                     }) == D::claimedQueued);
+        BEAST_EXPECT(!checkpointRan);
+        BEAST_EXPECT(c.stepOne());
+        BEAST_EXPECT(checkpointRan);
+        BEAST_EXPECT(c.empty());
     }
 
     void
@@ -136,6 +165,103 @@ class SteppingController_test : public beast::unit_test::suite
                 cFail.jobDiagnostics().find("UnknownAdvance") !=
                 std::string::npos);
         }
+    }
+
+    void
+    testNamedJobLagAndObservation()
+    {
+        testcase(
+            "named lag delays only the selected job; observations precede real "
+            "bodies");
+        SteppingController c;
+        c.setSyncClock([](SteppingController::time_point) {});
+        c.setJobLag(0, Tier::process, ms{2});
+        c.setJobLag(0, jtADVANCE, "tryFill", ms{7});
+        auto hook0 = c.makeJobHook(0);
+        auto hook1 = c.makeJobHook(1);
+        std::vector<int> order;
+        std::vector<SteppingController::time_point> times;
+        bool observed = false;
+        c.observeJobs([&](std::uint32_t, JobType, std::string const&) {
+            BEAST_EXPECT(!observed);
+            observed = true;
+        });
+        auto body = [&](int id) {
+            BEAST_EXPECT(observed);
+            observed = false;
+            order.push_back(id);
+            times.push_back(c.now());
+        };
+        using D = JobQueue::JobDisposition;
+        BEAST_EXPECT(
+            hook0(jtADVANCE, "tryFill", [&] { body(3); }) == D::claimedQueued);
+        BEAST_EXPECT(hook0(jtADVANCE, "getConsensusLedger2", [&] {
+                         body(1);
+                     }) == D::claimedQueued);
+        BEAST_EXPECT(hook0(jtPROPOSAL_t, "checkPropose", [&] {
+                         body(2);
+                     }) == D::claimedQueued);
+        BEAST_EXPECT(
+            hook1(jtADVANCE, "tryFill", [&] { body(0); }) == D::claimedQueued);
+        while (c.stepOne())
+        {
+        }
+        BEAST_EXPECT((order == std::vector<int>{0, 1, 2, 3}));
+        BEAST_EXPECT(
+            (times ==
+             std::vector<SteppingController::time_point>{
+                 {},
+                 SteppingController::time_point{ms{2}},
+                 SteppingController::time_point{ms{2}},
+                 SteppingController::time_point{ms{7}}}));
+        c.clearJobLag(0);
+        auto const now = c.now();
+        BEAST_EXPECT(
+            hook0(jtADVANCE, "tryFill", [&] { body(4); }) == D::claimedQueued);
+        BEAST_EXPECT(c.stepOne());
+        BEAST_EXPECT(times.back() == now);
+        BEAST_EXPECT(except<std::logic_error>(
+            [&] { c.setJobLag(0, jtADVANCE, "W", ms{-1}); }));
+    }
+
+    void
+    testLaggedPendingJobCount()
+    {
+        testcase("laggedPendingJobCount is current, per node and name");
+        SteppingController c;
+        c.setSyncClock([](SteppingController::time_point) {});
+        c.setJobLag(0, jtADVANCE, "tryFill", ms{7});
+        c.setJobLag(1, jtADVANCE, "tryFill", ms{7});
+        c.setJobLag(0, jtADVANCE, "getConsensusLedger2", ms{7});
+        auto hook0 = c.makeJobHook(0);
+        auto hook1 = c.makeJobHook(1);
+        using D = JobQueue::JobDisposition;
+        BEAST_EXPECT(hook0(jtADVANCE, "tryFill", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(hook0(jtADVANCE, "tryFill", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(
+            hook0(jtADVANCE, "getConsensusLedger2", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(hook1(jtADVANCE, "tryFill", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(c.laggedPendingJobCount(0, jtADVANCE, "tryFill") == 2);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(0, jtADVANCE, "getConsensusLedger2") == 1);
+        BEAST_EXPECT(c.laggedPendingJobCount(1, jtADVANCE, "tryFill") == 1);
+        BEAST_EXPECT(
+            c.laggedPendingJobCount(1, jtADVANCE, "getConsensusLedger2") == 0);
+        while (c.stepOne())
+        {
+        }
+        BEAST_EXPECT(c.laggedPendingJobCount(0, jtADVANCE, "tryFill") == 0);
+        BEAST_EXPECT(c.laggedPendingJobCount(1, jtADVANCE, "tryFill") == 0);
+
+        BEAST_EXPECT(hook0(jtADVANCE, "tryFill", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(hook1(jtADVANCE, "tryFill", [] {}) == D::claimedQueued);
+        BEAST_EXPECT(c.laggedPendingJobCount(0, jtLEDGER_DATA, "tryFill") == 0);
+        BEAST_EXPECT(c.dropPendingForNode(0) == 1);
+        BEAST_EXPECT(c.laggedPendingJobCount(0, jtADVANCE, "tryFill") == 0);
+        BEAST_EXPECT(c.laggedPendingJobCount(1, jtADVANCE, "tryFill") == 1);
+        c.dropPending();
+        BEAST_EXPECT(c.laggedPendingJobCount(1, jtADVANCE, "tryFill") == 0);
+        BEAST_EXPECT(c.scheduler().empty());
     }
 
     void
@@ -418,6 +544,9 @@ public:
     run() override
     {
         testClassify();
+        testWalCheckpointScheduled();
+        testNamedJobLagAndObservation();
+        testLaggedPendingJobCount();
         testJobHookClosedWorld();
         testCanonicalAllJobsPolicy();
         testCanonicalNestedJobNotSwallowed();

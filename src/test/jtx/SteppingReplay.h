@@ -170,6 +170,13 @@ logFirstValDivergence(
 
 }  // namespace detail
 
+inline std::function<void(SteppingNetwork&, std::uint32_t)>&
+steppingBusyProbe()
+{
+    static std::function<void(SteppingNetwork&, std::uint32_t)> probe;
+    return probe;
+}
+
 // Run `scenario` K times (K = max(minRuns, --unittest-arg replays=N)) and
 // assert every run reproduces run 1 exactly — payload and executed-order
 // fingerprint. The scenario receives a fresh SteppingNetwork with forensics
@@ -191,6 +198,13 @@ expectReplays(
     {
         SteppingNetwork net(s);
         net.recordForensics();
+        if (steppingBusyProbe())
+        {
+            net.controller().setAlwaysBeforeJob(
+                [&net](std::uint32_t id, JobType, std::string const&) {
+                    steppingBusyProbe()(net, id);
+                });
+        }
         auto const payload = scenario(net);
         if (!s.expect(
                 payload.has_value(),
