@@ -216,7 +216,7 @@ SetHook::inferOperation(SetHookCtx& ctx, STObject const& hookSetObj)
     bool hasHash = hookSetObj.isFieldPresent(sfHookHash);
     bool hasCode = hookSetObj.isFieldPresent(sfCreateCode);
 
-    bool invalidHookOn = ctx.rules.enabled(fixHookOnV2InstallUpdate) &&
+    bool invalidHookOn = ctx.rules.enabled(featureHookOnV2_1) &&
         hookSetObj.isFieldPresent(sfHookOnOutgoing) !=
             hookSetObj.isFieldPresent(sfHookOnIncoming);
 
@@ -254,12 +254,13 @@ validateHookOn(SetHookCtx& ctx, STObject const& hookSetObj)
 {
     if (!hookSetObj.isFieldPresent(sfHookOn))
     {
-        if (!ctx.rules.enabled(featureHookOnV2))
+        if (!ctx.rules.enabled(featureHookOnV2) &&
+            !ctx.rules.enabled(featureHookOnV2_1))
         {
             JLOG(ctx.j.trace())
                 << "HookSet(" << hook::log::HOOKON_MISSING << ")[" << HS_ACC()
                 << "]: Malformed transaction: SetHook must include "
-                   "sfHookOn before featureHookOnV2 is enabled.";
+                   "sfHookOn before featureHookOnV2_1 is enabled.";
             return false;
         }
 
@@ -423,7 +424,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             // hookon may be present if the user so chooses
             // flags may be present if the user so chooses
 
-            if (ctx.rules.enabled(fixHookOnV2InstallUpdate) &&
+            if (ctx.rules.enabled(featureHookOnV2_1) &&
                 (hookSetObj.isFieldPresent(sfHookOn) ||
                  hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
                  hookSetObj.isFieldPresent(sfHookOnIncoming)) &&
@@ -474,7 +475,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             // hookon may be present if the user so chooses
             // flags may be present if the user so chooses
 
-            if (ctx.rules.enabled(fixHookOnV2InstallUpdate) &&
+            if (ctx.rules.enabled(featureHookOnV2_1) &&
                 (hookSetObj.isFieldPresent(sfHookOn) ||
                  hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
                  hookSetObj.isFieldPresent(sfHookOnIncoming)) &&
@@ -1653,7 +1654,7 @@ SetHook::setHook()
                         newHook.setFieldH256(sfHookNamespace, *newNamespace);
                 }
 
-                if (ctx.rules.enabled(fixHookOnV2InstallUpdate))
+                if (ctx.rules.enabled(featureHookOnV2_1))
                 {
                     // sanity check
                     if (newHookOn && (newHookOnOutgoing || newHookOnIncoming))
@@ -1667,7 +1668,7 @@ SetHook::setHook()
                 // set the hookon field if it differs from definition
                 if (newHookOn)
                 {
-                    if ((!view().rules().enabled(fixHookOnV2InstallUpdate) ||
+                    if ((!view().rules().enabled(featureHookOnV2_1) ||
                          defHookOn.has_value()) &&
                         *defHookOn == *newHookOn)
                     {
@@ -1704,7 +1705,7 @@ SetHook::setHook()
                             sfHookOnIncoming, *newHookOnIncoming);
                 }
 
-                if (ctx.rules.enabled(fixHookOnV2InstallUpdate))
+                if (ctx.rules.enabled(featureHookOnV2_1))
                 {
                     if (newHookOn)
                     {
@@ -1898,7 +1899,8 @@ SetHook::setHook()
                     newHookDef->setFieldH256(sfHookHash, *createHookHash);
 
                     // only HookOn or (HookOnOutgoing and HookOnIncoming)
-                    if (!view().rules().enabled(featureHookOnV2) ||
+                    if ((!view().rules().enabled(featureHookOnV2) &&
+                         !view().rules().enabled(featureHookOnV2_1)) ||
                         (!newHookOnOutgoing && !newHookOnIncoming))
                         newHookDef->setFieldH256(sfHookOn, *newHookOn);
                     else

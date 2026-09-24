@@ -1355,11 +1355,16 @@ public:
         auto const baseFee = drops[jss::base_fee_no_hooks];
         BEAST_EXPECT(baseFee == to_string(feeDrops));
         auto const openLedgerFee = drops[jss::open_ledger_fee];
-        BEAST_EXPECT(openLedgerFee == expected);
+        BEAST_EXPECTS(
+            openLedgerFee == expected,
+            "openLedgerFee: " + openLedgerFee.asString() +
+                ", expected: " + expected);
 
         // verify hooks fee
         auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
-        BEAST_EXPECT(hooksFee == expected);
+        BEAST_EXPECTS(
+            hooksFee == expected,
+            "hooksFee: " + hooksFee.asString() + ", expected: " + expected);
     }
 
     void
@@ -1369,7 +1374,8 @@ public:
         using namespace jtx;
         Env env{*this, features};
 
-        bool const hookOnV2 = env.current()->rules().enabled(featureHookOnV2);
+        bool const hookOnV2 = env.current()->rules().enabled(featureHookOnV2) ||
+            env.current()->rules().enabled(featureHookOnV2_1);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -1650,17 +1656,19 @@ public:
 
         for (auto const& withFix : {false, true})
         {
-            // test fixHookOnV2InstallUpdate preflight
-            auto f = (features | featureHookOnV2) - fixHookOnV2InstallUpdate;
+            // test featureHookOnV2_1 preflight
+            auto f = features - featureHookOnV2 - featureHookOnV2_1;
             if (withFix)
-                f = f | fixHookOnV2InstallUpdate;
+                f = f | featureHookOnV2_1;
+            else
+                f = f | featureHookOnV2;
             Env env{*this, f};
 
             env.fund(XRP(10000), alice, bob);
             env.close();
 
             TER const expected =
-                env.current()->rules().enabled(fixHookOnV2InstallUpdate)
+                env.current()->rules().enabled(featureHookOnV2_1)
                 ? TER(temMALFORMED)
                 : TER(tesSUCCESS);
 
@@ -1729,10 +1737,12 @@ public:
 
         for (auto const& withFix : {false, true})
         {
-            // test fixHookOnV2InstallUpdate install/update
-            auto f = (features | featureHookOnV2) - fixHookOnV2InstallUpdate;
+            // test featureHookOnV2_1 install/update
+            auto f = features - featureHookOnV2 - featureHookOnV2_1;
             if (withFix)
-                f = f | fixHookOnV2InstallUpdate;
+                f = f | featureHookOnV2_1;
+            else
+                f = f | featureHookOnV2;
 
             {
                 // install:: HookDefinition: HookOn -> Hook:Incoming/Outgoing
@@ -3328,10 +3338,12 @@ public:
 
             for (auto fix : {true, false})
             {
-                auto feature =
-                    supported_amendments() - fixHookOnV2InstallUpdate;
+                auto feature = supported_amendments() - featureHookOnV2 -
+                    featureHookOnV2_1;
                 if (fix)
-                    feature = feature | fixHookOnV2InstallUpdate;
+                    feature = feature | featureHookOnV2_1;
+                else
+                    feature = feature | featureHookOnV2;
                 Env env{*this, feature};
                 SetHookCtx shCtx{
                     .j = env.app().journal("SetHook"),
@@ -15375,7 +15387,8 @@ public:
         testNSDeletePartial(features);
         testPageCap(features);
 
-        testHookOnV2(features);
+        testHookOnV2((features | featureHookOnV2) - featureHookOnV2_1);
+        testHookOnV2((features | featureHookOnV2_1) - featureHookOnV2);
         testHookName(features);
 
         testFillCopy(features);
