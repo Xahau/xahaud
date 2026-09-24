@@ -81,7 +81,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
         slowValidatorIdleExport,
         delayedRngReveals,
         delayedExportCallbacks,
-        reorderShares
+        reorderShares,
+        clockForward,
+        clockBackward
     };
 
     struct Observations
@@ -112,6 +114,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
         std::uint32_t rngAheadOfExport = 0;
         std::uint32_t gatedAccepts = 0;
         std::uint32_t serviceLag = 0;
+        std::uint32_t clockSteps = 0;
+        std::uint32_t clockRestores = 0;
+        std::uint32_t clockStepSeq = 0;
+        bool clockSkewObserved = false;
         std::uint32_t reorderedShares = 0;
         std::uint32_t invertedSharePairs = 0;
         std::vector<uint256> shareSendOrder;
@@ -633,10 +639,56 @@ class SteppingExtensions_test : public beast::unit_test::suite
             fault == Fault::slowValidatorIdleExport;
         bool const late = fault == Fault::lateValidations ||
             fault == Fault::veryLateValidations;
+        bool const clockStep =
+            fault == Fault::clockForward || fault == Fault::clockBackward;
         bool const createIntent =
             exportOn && fault != Fault::slowValidatorIdleExport;
         bool const gateTest = fault == Fault::delayedRngReveals ||
             fault == Fault::delayedExportCallbacks;
+        if (clockStep)
+        {
+            auto const originSeq =
+                net.node(observer).app().openLedger().current()->seq();
+            // Step only network time after the transaction-bearing parent is
+            // validated. The scheduler/elapsed clock and the three validators
+            // remain unchanged. Restore time six elapsed seconds later.
+            net.controller().observeJobs(
+                [&, originSeq](std::uint32_t id, JobType, std::string const&) {
+                    if (id != observer)
+                        return;
+                    if (stats->clockSteps)
+                    {
+                        if (!stats->clockRestores)
+                        {
+                            auto const offset = static_cast<std::int64_t>(
+                                                    net.node(observer)
+                                                        .clock()
+                                                        .now()
+                                                        .time_since_epoch()
+                                                        .count()) -
+                                static_cast<std::int64_t>(
+                                                    net.node(0)
+                                                        .clock()
+                                                        .now()
+                                                        .time_since_epoch()
+                                                        .count());
+                            stats->clockSkewObserved |= offset ==
+                                (fault == Fault::clockForward ? 45 : -45);
+                        }
+                        return;
+                    }
+                    if (net.validSeq(observer) < originSeq)
+                        return;
+                    ++stats->clockSteps;
+                    stats->clockStepSeq = net.validSeq(observer);
+                    net.clockOffset(
+                        observer, fault == Fault::clockForward ? 45s : -45s);
+                    net.in(6s, observer, [&net, stats] {
+                        net.clockOffset(observer, 0s);
+                        ++stats->clockRestores;
+                    });
+                });
+        }
         if (gateTest)
         {
             // Read the real accepted evidence; never seed roots or replace a
@@ -851,6 +903,17 @@ class SteppingExtensions_test : public beast::unit_test::suite
             SteppingNetwork::RunBudget{1200, 1'000'000},
             SteppingNetwork::Cadence{(sluggish || gateTest) ? 250ms : 1000ms});
         net.controller().observeJobs({});
+        if (clockStep)
+        {
+            if (!stats->clockRestores)
+                net.settle(7s, 800'000);
+            BEAST_EXPECT(stats->clockSteps == 1 && stats->clockRestores == 1);
+            BEAST_EXPECT(stats->clockSkewObserved);
+            auto const healedTarget = net.minValidatedSeq() + 2;
+            net.runTo(healedTarget, {400, 800'000});
+            BEAST_EXPECT(net.minValidatedSeq() >= healedTarget);
+            BEAST_EXPECT(net.ledgersAgree(healedTarget));
+        }
         if (!BEAST_EXPECT(net.minValidatedSeq() >= target))
             return std::nullopt;
         BEAST_EXPECT(net.ledgersAgree(target));
@@ -1004,7 +1067,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                      net.ledgerHash(0, witnessSeq)});
                 if (fault == Fault::noShares)
                     BEAST_EXPECT(!builtWitness);
-                else if (!late)
+                else if (!late && !clockStep)
                     BEAST_EXPECT(builtWitness);
             }
             auto const collected = net.node(observer)
@@ -1038,7 +1101,7 @@ class SteppingExtensions_test : public beast::unit_test::suite
                     BEAST_EXPECT(stats->acquiredHashes[observer].contains(
                         net.ledgerHash(0, witnessSeq)));
             }
-            else if (!late)
+            else if (!late && !clockStep)
                 BEAST_EXPECT(
                     found != collected.end() &&
                     found->second.size() == observer);
@@ -1063,7 +1126,10 @@ class SteppingExtensions_test : public beast::unit_test::suite
             << " observerJumps=" << net.closedJumps(observer).size()
             << " exportAhead=" << stats->exportAheadOfRng
             << " rngAhead=" << stats->rngAheadOfExport
-            << " serviceLag=" << stats->serviceLag << std::endl;
+            << " serviceLag=" << stats->serviceLag
+            << " clockSteps=" << stats->clockSteps
+            << " clockRestores=" << stats->clockRestores
+            << " clockStepSeq=" << stats->clockStepSeq << std::endl;
         outcome.push_back(sha512Half(
             stats->droppedDirect,
             stats->droppedProposals,
@@ -1077,6 +1143,9 @@ class SteppingExtensions_test : public beast::unit_test::suite
             stats->exportAheadOfRng,
             stats->rngAheadOfExport,
             stats->serviceLag,
+            stats->clockSteps,
+            stats->clockRestores,
+            stats->clockStepSeq,
             stats->invertedSharePairs,
             stats->shareSendOrder.size(),
             stats->shareRecvOrder.size()));
@@ -7913,6 +7982,29 @@ public:
                         return scenario(net, rng, exportOn);
                     });
             }
+        for (auto const rng : {false, true})
+            for (auto const exportOn : {false, true})
+                for (auto const forward : {false, true})
+                {
+                    auto const label = std::string{"observer clock step rng="} +
+                        (rng ? "on" : "off") +
+                        " export=" + (exportOn ? "on" : "off") +
+                        (forward ? " forward" : " backward");
+                    if (!matches(label))
+                        continue;
+                    testcase(label);
+                    expectReplays(
+                        *this,
+                        label.c_str(),
+                        [this, rng, exportOn, forward](SteppingNetwork& net) {
+                            return scenario(
+                                net,
+                                rng,
+                                exportOn,
+                                forward ? Fault::clockForward
+                                        : Fault::clockBackward);
+                        });
+                }
         for (auto const& [label, fault, rng, exportOn] :
              {std::tuple{
                   "observer gets Export material only through proposals",
