@@ -329,7 +329,12 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                 << " direct=" << counts.lifetimeDirect.load()
                 << " calls=" << counts.directCalls.load()
                 << " queued=" << counts.directQueued.load()
-                << " delay=" << counts.delayCalls.load() << std::endl;
+                << " delay=" << counts.delayCalls.load() << " nodes=";
+            for (std::uint32_t i = 0; i < nNodes; ++i)
+                log << (i ? "," : "") << "n" << i
+                    << "{closed=" << net.closedSeq(i)
+                    << ",valid=" << net.validSeq(i) << "}";
+            log << std::endl;
             BEAST_EXPECT(false);
         };
         auto const submitOk =
@@ -521,9 +526,12 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             }
             return txn->getID();
         };
+        // One more validated ledger on every node. After an impairment heals,
+        // a lagging node catches up by acquiring ledgers; on the unoptimized
+        // coverage build that has taken more than 200 beats.
         auto const advance = [&](char const* why) {
             auto const target = net.minValidated() + 1;
-            for (std::size_t i = 0; i < 200 && net.minValidated() < target; ++i)
+            for (std::size_t i = 0; i < 800 && net.minValidated() < target; ++i)
                 if (!beat())
                     return false;
             if (net.minValidated() < target)
