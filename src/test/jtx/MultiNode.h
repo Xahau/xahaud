@@ -434,7 +434,11 @@ public:
         // empty validationSeed = OBSERVER: UNL only, no signing identity.
         if (spec.trust)
         {
-            if (!spec.trust->validationSeed.empty())
+            // A config-time token supplies a rotated signing identity. Keep
+            // the static master-key UNL, without also supplying a seed (the
+            // production startup correctly rejects that combination).
+            if (!spec.trust->validationSeed.empty() &&
+                !cfg->exists(SECTION_VALIDATOR_TOKEN))
                 cfg->section(SECTION_VALIDATION_SEED)
                     .append(
                         std::vector<std::string>{spec.trust->validationSeed});

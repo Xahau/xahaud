@@ -96,6 +96,12 @@ class SteppingController_test : public beast::unit_test::suite
             cls(jtLEDGER_DATA, "InboundLedger").action == A::enqueue &&
             cls(jtLEDGER_DATA, "InboundLedger").tier == Tier::timer);
 
+        BEAST_EXPECT(
+            cls(jtMANIFEST, "receiveManifests").action == A::enqueue &&
+            cls(jtMANIFEST, "receiveManifests").tier == Tier::process);
+        BEAST_EXPECT(
+            cls(jtMANIFEST, "unexpectedManifestJob").action == A::fail);
+
         // Harness no-ops → drop; unmodeled → fail.
         BEAST_EXPECT(cls(jtCLIENT_CONSENSUS, "PubCons").action == A::drop);
         BEAST_EXPECT(cls(jtUPDATE_PF, "OB3").action == A::drop);

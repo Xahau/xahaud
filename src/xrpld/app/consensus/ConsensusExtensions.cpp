@@ -187,6 +187,9 @@ resolveExportShare(
 
     auto const originLedger =
         app.getLedgerMaster().getLedgerByHash(share.originLedgerHash);
+    // Validated ancestry can be known before the origin's bytes are available.
+    // Missing-history shares are not buffered. Direct delivery is one-shot;
+    // backfill and later proposal carriage may recover within the live window.
     if (!originLedger)
         return {
             ExportShareResolutionStatus::deferred,

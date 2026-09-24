@@ -754,6 +754,10 @@ public:
             case JtValidationT:  // "ChkTrust"
             case JtValidationUt:
                 return {Action::enqueue, Tier::process};
+            case JtManifest:
+                return name == "receiveManifests"
+                    ? Classification{Action::enqueue, Tier::process}
+                    : Classification{Action::fail};
             case JtExportShares:
                 // Received share verification/admission is deferred input work,
                 // not a measurement-only peer task or an inline callback.
