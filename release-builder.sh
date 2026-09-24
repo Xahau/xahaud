@@ -71,9 +71,7 @@ ARG BUILD_CORES=8
 
 # AlmaLinux 8 keeps the glibc 2.28 baseline (same as holy-build-box 4).
 # The devel repo (disabled by default, like in holy-build-box) provides ncurses-static.
-# - gcc-toolset-13: compiler for xahaud itself and its Conan dependencies
-# - gcc-toolset-11: used only for the pre-built LLD/WasmEdge below (known-good);
-#   their static libs are linked into the gcc-13 build with -static-libstdc++
+# gcc-toolset-13 builds everything: Boost/LLD/WasmEdge below, Conan deps and xahaud.
 RUN dnf install -y dnf-plugins-core epel-release && \
     dnf config-manager --set-enabled powertools && \
     printf "%s\n" "[devel]" "name=AlmaLinux 8 - Devel" \
@@ -82,7 +80,6 @@ RUN dnf install -y dnf-plugins-core epel-release && \
         > /etc/yum.repos.d/almalinux-devel.repo && \
     dnf install -y --enablerepo=devel \
         wget git unzip xz perl hostname make \
-        gcc-toolset-11-gcc-c++ gcc-toolset-11-binutils \
         gcc-toolset-13-gcc-c++ gcc-toolset-13-binutils gcc-toolset-13-libatomic-devel \
         lz4 lz4-devel \
         ncurses-static ncurses-devel \
@@ -119,7 +116,7 @@ RUN python3.11 -m pip install "conan>=2.0,<3.0" "ninja>=1.13,<1.14" && \
 #   - runtime-link=shared: Links Boost libraries against shared libc (glibc)
 # WasmEdge only needs boost::filesystem and boost::system
 RUN echo 'Boost cache bust: v5-minimal' && \
-    source /opt/rh/gcc-toolset-11/enable && \
+    source /opt/rh/gcc-toolset-13/enable && \
     rm -rf /usr/local/lib/libboost* /usr/local/include/boost && \
     cd /tmp && \
     wget -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz -O boost.tar.gz && \
@@ -141,8 +138,10 @@ ENV WasmEdge_LIB=/usr/local/lib64/libwasmedge.a
 ENV CC='ccache gcc'
 ENV CXX='ccache g++'
 
+# LLVM 14 headers rely on <cstdint> being included transitively, which gcc 13 no longer does
 # Install LLD
-RUN source /opt/rh/gcc-toolset-11/enable && \
+RUN source /opt/rh/gcc-toolset-13/enable && \
+    export CXXFLAGS="-include cstdint" && \
     cd /tmp && \
     wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.3/lld-14.0.3.src.tar.xz && \
     wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.3/libunwind-14.0.3.src.tar.xz && \
@@ -171,11 +170,14 @@ RUN source /opt/rh/gcc-toolset-11/enable && \
 RUN cd /tmp && \
     ( wget -nc -q https://github.com/WasmEdge/WasmEdge/archive/refs/tags/0.11.2.zip; unzip -o 0.11.2.zip; ) && \
     cd WasmEdge-0.11.2 && \
+    sed -i "/^ *-Werror$/d" cmake/Helper.cmake && \
+    sed -i "s/\[\[noreturn\]\] inline void Fault::emitFault/[[noreturn]] void Fault::emitFault/" lib/system/fault.cpp && \
     ( mkdir -p build; echo "" ) && \
     cd build && \
-    source /opt/rh/gcc-toolset-11/enable && \
-    ln -sf /opt/rh/gcc-toolset-11/root/usr/bin/ar /usr/bin/ar && \
-    ln -sf /opt/rh/gcc-toolset-11/root/usr/bin/ranlib /usr/bin/ranlib && \
+    source /opt/rh/gcc-toolset-13/enable && \
+    export CXXFLAGS="-include cstdint" && \
+    ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/ar /usr/bin/ar && \
+    ln -sf /opt/rh/gcc-toolset-13/root/usr/bin/ranlib /usr/bin/ranlib && \
     echo '=== Binutils version check ===' && \
     ar --version | head -1 && \
     ranlib --version | head -1 && \
