@@ -1990,6 +1990,7 @@ private:
 
             env.fund(XRP(10'000), alice, carol, gw);
             env.fund(XRP(10'000), bob);
+            env.close();
             env.trust(USD(1'000), alice, bob, carol);
             env.trust(BTC(1'000), alice, bob, carol);
             env.trust(EUR(1'000), alice, bob, carol);
@@ -3641,7 +3642,7 @@ private:
             USD(10'000),
             false,
             0,
-            ammCrtFee(env).drops(),
+            ammCrtFee(env).drops() + 2 * env.current()->fees().base.drops(),
             std::nullopt,
             std::nullopt,
             ms,
