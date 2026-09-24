@@ -1235,11 +1235,14 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
     auto const validatedSeq = app_.getLedgerMaster().getValidLedgerIndex();
     for (std::size_t i = 0; i < shares->size(); ++i)
     {
-        // Admission depends on the validated chain. Reconsider an identical
-        // frame after validation advances, while suppressing duplicates
-        // against the same receiver state.
+        // Admission depends on the validated chain and signing-key attribution.
+        // An unknown key may become attributable when its manifest arrives,
+        // even while validation is unchanged. Scope retries to this key's
+        // resolved identity, so unrelated manifest churn does not reopen them.
+        auto const resolvedMaster =
+            app_.validatorManifests().getMasterKey((*shares)[i].signingKey);
         auto const admissionKey =
-            sha512Half((*shares)[i].wireHash(), validatedSeq);
+            sha512Half((*shares)[i].wireHash(), validatedSeq, resolvedMaster);
         bool const freshForState =
             app_.getHashRouter().addSuppressionPeer(admissionKey, id_);
         JLOG(journal_.trace())
@@ -1247,7 +1250,9 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
             << " peer=" << id_ << " origin=" << (*shares)[i].originTxn
             << " position=" << unsigned((*shares)[i].committeePosition)
             << " wire=" << (*shares)[i].wireHash()
-            << " suppressionSeq=" << validatedSeq << " fresh=" << freshForState;
+            << " suppressionSeq=" << validatedSeq << " suppressionMaster="
+            << toBase58(TokenType::NodePublic, resolvedMaster)
+            << " fresh=" << freshForState;
         if (freshForState)
             fresh.push_back(i);
     }
