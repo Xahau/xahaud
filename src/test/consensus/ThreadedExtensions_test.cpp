@@ -526,6 +526,25 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             }
             return txn->getID();
         };
+        // A node's validated ledger is saved asynchronously, and each beat can
+        // validate another one, so wait for the ledger validated now.
+        auto const waitSaved = [&](std::uint32_t node, char const* why) {
+            auto const saveTarget = net.validSeq(node);
+            std::optional<LedgerIndex> row;
+            for (std::size_t i = 0; i < 5 * beatsPerLedger; ++i)
+            {
+                row = net[node].app().getRelationalDatabase().getMaxLedgerSeq();
+                if (row && *row >= saveTarget)
+                    return true;
+                if (!beat())
+                    return false;
+            }
+            log << "  n" << node << " save target=" << saveTarget
+                << " saved=" << (row ? *row : 0) << std::endl;
+            fail(why);
+            return false;
+        };
+
         // One more validated ledger on every node. After an impairment heals,
         // a lagging node catches up by acquiring ledgers; on the unoptimized
         // coverage build that has taken more than 200 beats.
@@ -629,25 +648,8 @@ class ThreadedExtensions_test : public beast::unit_test::suite
 
         schedule += " observer-stop";
         auto const downSeq = net.minValidated();
-        {
-            bool saved = false;
-            for (int i = 0; i < 20; ++i)
-            {
-                auto const row = net[observer]
-                                     .app()
-                                     .getRelationalDatabase()
-                                     .getMaxLedgerSeq();
-                if (row && *row >= net.validSeq(observer))
-                {
-                    saved = true;
-                    break;
-                }
-                if (!beat())
-                    return;
-            }
-            if (!saved)
-                return fail("observer ledger was not saved");
-        }
+        if (!waitSaved(observer, "observer ledger was not saved"))
+            return;
         net.stopNode(observer);
         auto const validatorsAdvanced = [&] {
             std::uint32_t low = std::numeric_limits<std::uint32_t>::max();
@@ -655,7 +657,9 @@ class ThreadedExtensions_test : public beast::unit_test::suite
                 low = std::min(low, net.validSeq(i));
             return low;
         };
-        for (int i = 0; i < 40 && validatorsAdvanced() < downSeq + 2; ++i)
+        for (std::size_t i = 0;
+             i < 2 * beatsPerLedger && validatorsAdvanced() < downSeq + 2;
+             ++i)
             if (!beat())
                 return;
         if (validatorsAdvanced() < downSeq + 2)
@@ -684,23 +688,8 @@ class ThreadedExtensions_test : public beast::unit_test::suite
         if (!origin8)
             return;
         origins.push_back(*origin8);
-        {
-            bool saved = false;
-            for (int i = 0; i < 20; ++i)
-            {
-                auto const row =
-                    net[2].app().getRelationalDatabase().getMaxLedgerSeq();
-                if (row && *row >= net.validSeq(2))
-                {
-                    saved = true;
-                    break;
-                }
-                if (!beat())
-                    return;
-            }
-            if (!saved)
-                return fail("validator ledger was not saved");
-        }
+        if (!waitSaved(2, "validator ledger was not saved"))
+            return;
         net.stopNode(2);
         for (int i = 0; i < 3; ++i)
             if (!beat())
@@ -718,16 +707,18 @@ class ThreadedExtensions_test : public beast::unit_test::suite
             return fail("peers after validator restart");
         schedule += ":healed";
 
-        auto const target =
-            net.minValidated() + ExportLimits::maxPublicationLedgers + 4;
-        for (std::size_t i = 0; i < 80 && net.minValidated() < target; ++i)
+        auto const passLedgers = ExportLimits::maxPublicationLedgers + 4;
+        auto const target = net.minValidated() + passLedgers;
+        for (std::size_t i = 0;
+             i < passLedgers * beatsPerLedger && net.minValidated() < target;
+             ++i)
             if (!beat())
                 return;
         if (net.minValidated() < target)
             return fail("did not pass the publication window");
         {
             bool caughtUp = false;
-            for (int i = 0; i < 80; ++i)
+            for (std::size_t i = 0; i < 10 * beatsPerLedger; ++i)
             {
                 caughtUp = true;
                 for (std::uint32_t seq = historyFrom; seq <= net.minValidated();
