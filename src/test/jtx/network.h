@@ -35,7 +35,8 @@ makeNetworkConfig(
     uint32_t networkID,
     std::string fee = "10",
     std::string a_res = "1000000",
-    std::string o_res = "200000");
+    std::string o_res = "200000",
+    std::string g_res = "100000");
 
 std::unique_ptr<Config>
 makeNetworkVLConfig(
@@ -43,7 +44,8 @@ makeNetworkVLConfig(
     std::vector<std::string> keys,
     std::string fee = "10",
     std::string a_res = "1000000",
-    std::string o_res = "200000");
+    std::string o_res = "200000",
+    std::string g_res = "10000");
 
 std::unique_ptr<Config>
 makeGenesisConfig(
@@ -53,6 +55,7 @@ makeGenesisConfig(
     std::string fee = "10",
     std::string a_res = "1000000",
     std::string o_res = "200000",
+    std::string g_res = "10000",
     uint32_t ledgerID = 0);
 
 }  // namespace network

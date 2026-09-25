@@ -82,6 +82,9 @@ struct FeeSetup
     /** The per-owned item reserve requirement in drops. */
     XRPAmount owner_reserve{2 * DROPS_PER_XRP};
 
+    /** The gas price for hooks in drops. */
+    std::uint32_t hook_gas_price{1'000'000};  // TODO: default value
+
     /* (Remember to update the example cfg files when changing any of these
      * values.) */
 };

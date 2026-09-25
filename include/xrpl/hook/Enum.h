@@ -17,6 +17,7 @@
 #define featureHooksUpdate2 "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
+#define featureHookFeeV3 "1"
 namespace hook_api {
 struct Rules
 {
@@ -404,11 +405,14 @@ const double fee_base_multiplier = 1.1f;
 // HookFeeV2 execution cost units: every wasm instruction costs one unit and
 // every hook api call costs api_call_cost units on top of its call
 // instruction. cost_units_per_drop units make one drop, so an instruction
-// costs 0.1 drop and an api call 10 drops.
+// costs 0.1 drop and an api call 10 drops. HookFeeV3 replaces the flat
+// api_call_cost with the per-api HOOK_API_COST table and prices the units
+// with the ledger's HookGasPrice.
 const uint32_t api_call_cost = 100;
 const uint32_t cost_units_per_drop = 10;
 
-using APIWhitelist = std::map<std::string, std::vector<uint8_t>>;
+using APIWhitelist =
+    std::map<std::string, std::pair<std::vector<uint8_t>, uint32_t>>;
 
 // RH NOTE: Find descriptions of api functions in ./impl/applyHook.cpp and
 // hookapi.h (include for hooks) this is a map of the api name to its return
@@ -419,7 +423,9 @@ getImportWhitelist(Rules const& rules)
     APIWhitelist whitelist;
 
 #pragma push_macro("HOOK_API_DEFINITION")
+#pragma push_macro("HOOK_API_COST")
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
 
 #define int64_t 0x7EU
 #define int32_t 0x7FU
@@ -431,16 +437,33 @@ getImportWhitelist(Rules const& rules)
     RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT)    \
     if (AMENDMENT == uint256{} || rules.enabled(AMENDMENT)) \
         whitelist[#FUNCTION_NAME] = {                       \
-            RETURN_TYPE, HOOK_WRAP_PARAMS PARAMS_TUPLE};
+            {RETURN_TYPE, HOOK_WRAP_PARAMS PARAMS_TUPLE}, api_call_cost};
+
+// per-api costs only apply under HookFeeV3; use find() so a cost line never
+// whitelists an api whose definition is gated off
+#define HOOK_API_COST(FUNCTION_NAME, COST, AMENDMENT)                        \
+    if (rules.enabled(featureHookFeeV3) &&                                   \
+        (AMENDMENT == uint256{} || rules.enabled(AMENDMENT)))                \
+        if (auto it = whitelist.find(#FUNCTION_NAME); it != whitelist.end()) \
+            it->second.second = COST;
 
 #include "hook_api.macro"
 
+#undef HOOK_API_COST
 #undef HOOK_API_DEFINITION
 #undef HOOK_WRAP_PARAMS
 #undef int64_t
 #undef int32_t
 #undef uint32_t
+#pragma pop_macro("HOOK_API_COST")
 #pragma pop_macro("HOOK_API_DEFINITION")
+
+    // all cost should > 0
+    for (auto& [function, pair] : whitelist)
+    {
+        if (pair.second <= 0)
+            return {};
+    }
 
     return whitelist;
 }

@@ -1,0 +1,6 @@
+!guard_checker.cpp
+
+# binary
+guard_checker
+# directory
+guard_checker*/**

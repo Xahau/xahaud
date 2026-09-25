@@ -422,6 +422,7 @@ LEDGER_ENTRY(ltFEE_SETTINGS, 0x0073, FeeSettings, fee, ({
     {sfXahauActivationLgrSeq,  soeOPTIONAL},
     {sfAccountCount,           soeOPTIONAL},
     {sfNetworkID,              soeOPTIONAL},
+    {sfHookGasPrice,           soeOPTIONAL},
     {sfPreviousTxnID,          soeOPTIONAL},
     {sfPreviousTxnLgrSeq,      soeOPTIONAL},
 }))
