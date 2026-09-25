@@ -1410,6 +1410,7 @@ public:
         testAllTxns(sa);
         testAllTxns(sa - fixHookAPI20251128);
         testAllTxns(sa - featureTouch - fixHookAPI20251128);
+        testAllTxns(sa - featureHookFeeV2);
     }
 };
 

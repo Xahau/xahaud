@@ -115,3 +115,7 @@ enum AMMClawbackFlags : uint32_t {
 enum BridgeModifyFlags : uint32_t {
     tfClearAccountCreateAmount = 0x00010000,
 };
+
+enum HookDefinitionUpdateFlags : uint32_t {
+    tfValidateGuards = 0x00000001,
+};
