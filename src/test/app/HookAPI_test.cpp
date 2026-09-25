@@ -4019,33 +4019,37 @@ public:
                      "00000"},
                 });
         }
-        bool returnError = true;
+        bool const fixEnabled = env.closed()->rules().enabled(fixHookAPISType);
         for (auto const& data : data_list)
         {
             auto source_object = _source_object;
             auto field_object = *strUnHex(data.second);
             auto field_id = data.first;
 
-            // test invalid insert
-            // all should return error after fixHookAPISType Amendment
-            auto const fo = Blob{field_object.begin(), field_object.end() - 1};
-            auto const result1 = api.sto_emplace(source_object, fo, field_id);
-            auto const so =
-                Blob{source_object.begin(), source_object.end() - 1};
-            auto const result2 = api.sto_emplace(so, field_object, field_id);
-
+            // test invalid insert: trailing byte after the field
             auto ft = field_object;
             ft.push_back(0);
             auto const result3 = api.sto_emplace(source_object, ft, field_id);
+            // legacy parser ignores trailing bytes in the field
+            if (fixEnabled)
+                BEAST_EXPECTS(!result3.has_value(), data.second);
+            else
+                BEAST_EXPECTS(result3.has_value(), data.second);
 
-            returnError = returnError && !result1.has_value() &&
-                !result2.has_value() && !result3.has_value();
+            // truncated field / source are only exercised after the fix;
+            // the legacy parser may read past the end of these buffers
+            if (!fixEnabled)
+                continue;
+
+            auto const fo = Blob{field_object.begin(), field_object.end() - 1};
+            auto const result1 = api.sto_emplace(source_object, fo, field_id);
+            BEAST_EXPECTS(!result1.has_value(), data.second);
+
+            auto const so =
+                Blob{source_object.begin(), source_object.end() - 1};
+            auto const result2 = api.sto_emplace(so, field_object, field_id);
+            BEAST_EXPECTS(!result2.has_value(), data.second);
         }
-
-        if (env.closed()->rules().enabled(fixHookAPISType))
-            BEAST_EXPECT(returnError);
-        else
-            BEAST_EXPECT(!returnError);
 
         for (auto const& data : data_list)
         {
