@@ -46,7 +46,7 @@ XRPL_FEATURE(HookAPISerializedType240,   Supported::yes, VoteBehavior::DefaultNo
 XRPL_FEATURE(PermissionedDomains,        Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FEATURE(DynamicNFT,                 Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FEATURE(Credentials,                Supported::no,  VoteBehavior::DefaultNo)
-XRPL_FEATURE(AMMClawback,                Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(AMMClawback,                Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FEATURE(MPTokensV1,                 Supported::no,  VoteBehavior::DefaultNo)
 // InvariantsV1_1 will be changes to Supported::yes when all the
 // invariants expected to be included under it are complete.
