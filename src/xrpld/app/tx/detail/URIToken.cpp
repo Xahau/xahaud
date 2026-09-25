@@ -22,12 +22,178 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/Quality.h>
+#include <xrpl/protocol/Rate.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxFlags.h>
 
 namespace ripple {
+
+namespace {
+
+// Pay the URIToken transfer fee (royalty) on a secondary sale.
+// The fee is skipped, and the sale still succeeds, when the recipient
+// cannot receive it. Both the XAH and IOU paths round down so the fee
+// never exceeds what the seller received * TransferFee / 100000.
+TER
+payTransferFee(
+    ApplyView& view,
+    SLE const& sleU,
+    AccountID const& buyer,
+    AccountID const& seller,
+    STAmount const& purchaseAmount,
+    beast::Journal j)
+{
+    if (!sleU.isFieldPresent(sfTransferFee))
+        return tesSUCCESS;
+
+    auto const issuer = sleU.getAccountID(sfIssuer);
+    AccountID const feeRecipient = sleU.isFieldPresent(sfTransferFeeRecipient)
+        ? sleU.getAccountID(sfTransferFeeRecipient)
+        : issuer;
+
+    // The issuer and the designated recipient are exempt from the fee
+    // whether they buy or sell.
+    if (buyer == issuer || seller == issuer || buyer == feeRecipient ||
+        seller == feeRecipient)
+        return tesSUCCESS;
+
+    auto const feeBips = sleU.getFieldU16(sfTransferFee);
+
+    STAmount feeAmt;
+    if (purchaseAmount.native())
+    {
+        feeAmt = STAmount{XRPAmount{static_cast<std::int64_t>(
+            (static_cast<__int128>(purchaseAmount.xrp().drops()) * feeBips) /
+            100000)}};
+    }
+    else
+    {
+        // The fee base is what the seller actually received on the sale
+        // leg (senderPaysXferFees=false): purchaseAmount / transferRate
+        // when neither party is the IOU issuer, and purchaseAmount
+        // otherwise (rippleSendIOU's direct-credit path).
+        auto const iouIssuer = purchaseAmount.getIssuer();
+        STAmount const netReceived = (buyer == iouIssuer || seller == iouIssuer)
+            ? purchaseAmount
+            : divide(purchaseAmount, transferRate(view, iouIssuer));
+        feeAmt =
+            multiplyRound(netReceived, nft::transferFeeAsRate(feeBips), false);
+    }
+
+    if (!(feeAmt > beast::zero))
+        return tesSUCCESS;
+
+    if (!view.exists(keylet::account(feeRecipient)))
+    {
+        JLOG(j.trace()) << "URIToken: skipping transfer fee - "
+                           "recipient account does not exist";
+        return tesSUCCESS;
+    }
+
+    // IOU: the recipient needs a usable trust line unless it is the
+    // IOU issuer.
+    if (!purchaseAmount.native() && feeRecipient != purchaseAmount.getIssuer())
+    {
+        auto const& issue = purchaseAmount.issue();
+        if (!view.exists(
+                keylet::line(feeRecipient, issue.account, issue.currency)))
+        {
+            JLOG(j.trace()) << "URIToken: skipping transfer fee - "
+                               "recipient has no trust line";
+            return tesSUCCESS;
+        }
+
+        if (TER const result =
+                trustTransferAllowed(view, {seller, feeRecipient}, issue, j);
+            !isTesSuccess(result))
+        {
+            JLOG(j.trace()) << "URIToken: skipping transfer fee - "
+                               "recipient trust line check failed: "
+                            << result;
+            return tesSUCCESS;
+        }
+    }
+
+    // The gateway transfer rate is deliberately waived on the fee leg:
+    // the seller already paid it once on the sale leg.
+    return accountSend(
+        view, seller, feeRecipient, feeAmt, j, WaiveTransferFee::Yes, true);
+}
+
+}  // namespace
+
+NotTEC
+URIToken::preflightTransferFee(
+    STObject const& mint,
+    AccountID const& account,
+    Rules const& rules,
+    beast::Journal j)
+{
+    auto const fee = mint[~sfTransferFee];
+    auto const recipient = mint[~sfTransferFeeRecipient];
+
+    if (!fee && !recipient)
+        return tesSUCCESS;
+
+    if (!rules.enabled(featureURITokenTransferFee))
+        return temDISABLED;
+
+    if (!fee)
+    {
+        JLOG(j.warn()) << "Malformed transaction: TransferFeeRecipient "
+                          "without TransferFee.";
+        return temMALFORMED;
+    }
+
+    if (*fee == 0 || *fee > maxTransferFee)
+    {
+        JLOG(j.warn()) << "Malformed transaction: TransferFee must be "
+                          "between 1 and "
+                       << maxTransferFee << ".";
+        return temBAD_TRANSFER_FEE;
+    }
+
+    if (recipient == account)
+    {
+        JLOG(j.warn()) << "Malformed transaction: TransferFeeRecipient is "
+                          "the same as the account.";
+        return temMALFORMED;
+    }
+
+    return tesSUCCESS;
+}
+
+TER
+URIToken::checkTransferFeeRecipient(ReadView const& view, STObject const& mint)
+{
+    auto const recipient = mint[~sfTransferFeeRecipient];
+    if (!recipient)
+        return tesSUCCESS;
+
+    auto const sle = view.read(keylet::account(*recipient));
+    if (!sle)
+        return tecNO_TARGET;
+
+    // AMMs can never receive an URIToken fee.
+    if (sle->isFieldPresent(sfAMMID))
+        return tecNO_PERMISSION;
+
+    return tesSUCCESS;
+}
+
+void
+URIToken::setTransferFee(STObject const& mint, SLE& sle)
+{
+    if (auto const fee = mint[~sfTransferFee])
+    {
+        sle[sfTransferFee] = *fee;
+        if (auto const recipient = mint[~sfTransferFeeRecipient])
+            sle[sfTransferFeeRecipient] = *recipient;
+    }
+}
 
 NotTEC
 URIToken::preflight(PreflightContext const& ctx)
@@ -111,6 +277,11 @@ URIToken::preflight(PreflightContext const& ctx)
         case ttURITOKEN_MINT: {
             if (flags & tfURITokenMintMask)
                 return temINVALID_FLAG;
+
+            if (auto const ret = preflightTransferFee(
+                    ctx.tx, ctx.tx.getAccountID(sfAccount), ctx.rules, ctx.j);
+                !isTesSuccess(ret))
+                return ret;
             break;
         }
 
@@ -125,7 +296,7 @@ URIToken::preflight(PreflightContext const& ctx)
         }
 
         default:
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
     }
 
     // specifying self as a destination is always an error
@@ -178,7 +349,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
     auto const sle =
         ctx.view.read(keylet::account(ctx.tx.getAccountID(sfAccount)));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     switch (tt)
     {
@@ -188,7 +359,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
                     keylet::uritoken(acc, ctx.tx.getFieldVL(sfURI))))
                 return tecDUPLICATE;
 
-            return tesSUCCESS;
+            return checkTransferFeeRecipient(ctx.view, ctx.tx);
         }
 
         case ttURITOKEN_BURN: {
@@ -238,12 +409,12 @@ URIToken::preclaim(PreclaimContext const& ctx)
                 STAmount const fee = ctx.tx.getFieldAmount(sfFee).xrp();
 
                 if (needed + fee < needed)
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 needed += fee;
 
                 if (needed + purchaseAmount < needed)
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 needed += purchaseAmount;
 
@@ -253,7 +424,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
             else if (purchaseAmount.native() || saleAmount->native())
             {
                 // should not be able to happen
-                return tecINTERNAL;
+                return tecINTERNAL;  // LCOV_EXCL_LINE
             }
             else
             {
@@ -292,7 +463,7 @@ URIToken::preclaim(PreclaimContext const& ctx)
         default: {
             JLOG(ctx.j.warn()) << "URIToken txid=" << ctx.tx.getTransactionID()
                                << " preclaim with tt = " << tt << "\n";
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
         }
     }
 }
@@ -306,7 +477,7 @@ URIToken::doApply()
 
     auto const sle = sb.peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     TxType const& tt = ctx_.tx.getTxnType();
 
@@ -377,7 +548,7 @@ URIToken::doApply()
             sleU->setAccountID(sfIssuer, account_);
 
             if (dest && !saleAmount)
-                return tefINTERNAL;
+                return tefINTERNAL;  // LCOV_EXCL_LINE
 
             if (dest)
                 sleU->setAccountID(sfDestination, *dest);
@@ -390,6 +561,8 @@ URIToken::doApply()
             if (ctx_.tx.isFieldPresent(sfDigest))
                 sleU->setFieldH256(sfDigest, ctx_.tx.getFieldH256(sfDigest));
 
+            setTransferFee(ctx_.tx, *sleU);
+
             if (flags & tfBurnable)
                 sleU->setFlag(tfBurnable);
 
@@ -401,7 +574,7 @@ URIToken::doApply()
                 << ": " << (page ? "success" : "failure");
 
             if (!page)
-                return tecDIR_FULL;
+                return tecDIR_FULL;  // LCOV_EXCL_LINE
 
             sleU->setFieldU64(sfOwnerNode, *page);
             sb.insert(sleU);
@@ -454,12 +627,12 @@ URIToken::doApply()
                 STAmount const fee = ctx_.tx.getFieldAmount(sfFee).xrp();
 
                 if (needed + fee < needed)
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 needed += fee;
 
                 if (needed + purchaseAmount < needed)
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 needed += purchaseAmount;
 
@@ -498,6 +671,14 @@ URIToken::doApply()
                 !isTesSuccess(result))
                 return result;
 
+            if (sb.rules().enabled(featureURITokenTransferFee))
+            {
+                if (TER result = payTransferFee(
+                        sb, *sleU, account_, *owner, purchaseAmount, j);
+                    !isTesSuccess(result))
+                    return result;
+            }
+
             // add token to new owner dir
             auto const newPage = sb.dirInsert(
                 keylet::ownerDir(account_), *kl, describeOwnerDir(account_));
@@ -507,7 +688,7 @@ URIToken::doApply()
                 << ": " << (newPage ? "success" : "failure");
 
             if (!newPage)
-                return tecDIR_FULL;
+                return tecDIR_FULL;  // LCOV_EXCL_LINE
 
             // remove from current owner directory
             if (!sb.dirRemove(
@@ -519,7 +700,7 @@ URIToken::doApply()
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";
 
-                return tefBAD_LEDGER;
+                return tefBAD_LEDGER;  // LCOV_EXCL_LINE
             }
 
             // adjust owner counts
@@ -594,7 +775,7 @@ URIToken::doApply()
             {
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";
-                return tefBAD_LEDGER;
+                return tefBAD_LEDGER;  // LCOV_EXCL_LINE
             }
 
             sb.erase(sleU);
@@ -625,7 +806,7 @@ URIToken::doApply()
         }
 
         default:
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
     }
 }
 

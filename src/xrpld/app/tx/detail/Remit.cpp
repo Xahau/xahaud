@@ -180,7 +180,8 @@ Remit::preflight(PreflightContext const& ctx)
         for (auto const& mintElement : mint)
         {
             auto const& name = mintElement.getFName();
-            if (name != sfURI && name != sfFlags && name != sfDigest)
+            if (name != sfURI && name != sfFlags && name != sfDigest &&
+                name != sfTransferFee && name != sfTransferFeeRecipient)
             {
                 JLOG(ctx.j.trace()) << "Malformed transaction: sfMintURIToken "
                                        "contains invalid field.";
@@ -213,6 +214,11 @@ Remit::preflight(PreflightContext const& ctx)
             if (mint.getFieldU32(sfFlags) & tfURITokenMintMask)
                 return temINVALID_FLAG;
         }
+
+        if (auto const ret = URIToken::preflightTransferFee(
+                mint, ctx.tx.getAccountID(sfAccount), ctx.rules, ctx.j);
+            !isTesSuccess(ret))
+            return ret;
     }
 
     // sanity check uritokenids
@@ -393,6 +399,11 @@ Remit::doApply()
         sleMint->setFieldU32(
             sfFlags,
             mint.isFieldPresent(sfFlags) ? mint.getFieldU32(sfFlags) : 0);
+
+        if (auto const ret = URIToken::checkTransferFeeRecipient(sb, mint);
+            !isTesSuccess(ret))
+            return ret;
+        URIToken::setTransferFee(mint, *sleMint);
 
         auto const page = sb.dirInsert(
             keylet::ownerDir(dstAccID), kl, describeOwnerDir(dstAccID));

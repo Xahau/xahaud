@@ -94,6 +94,21 @@ public:
 
     TER
     doApply() override;
+
+    // TransferFee / TransferFeeRecipient helpers shared with Remit's
+    // MintURIToken. `mint` is the URITokenMint tx or the MintURIToken object.
+    static NotTEC
+    preflightTransferFee(
+        STObject const& mint,
+        AccountID const& account,
+        Rules const& rules,
+        beast::Journal j);
+
+    static TER
+    checkTransferFeeRecipient(ReadView const& view, STObject const& mint);
+
+    static void
+    setTransferFee(STObject const& mint, SLE& sle);
 };
 
 using URITokenMint = URIToken;

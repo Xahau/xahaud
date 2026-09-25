@@ -219,6 +219,8 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
     {sfDigest,               soeOPTIONAL},
     {sfAmount,               soeOPTIONAL},
     {sfDestination,          soeOPTIONAL},
+    {sfTransferFee,          soeOPTIONAL},
+    {sfTransferFeeRecipient, soeOPTIONAL},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))

@@ -99,6 +99,18 @@ buy(jtx::Account const& account, std::string const& id)
     return jv;
 }
 
+void
+xfee::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfTransferFee.jsonName] = fee_;
+}
+
+void
+xfee_recipient::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfTransferFeeRecipient.jsonName] = to_string(recipient_);
+}
+
 }  // namespace uritoken
 }  // namespace jtx
 }  // namespace test
