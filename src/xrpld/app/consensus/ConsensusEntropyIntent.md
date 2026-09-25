@@ -229,6 +229,14 @@ have exactly that population over the denominator-sized view. Draws are also
 domain-separated by the hook execution role that can share a transaction and
 hook hash: strong vs weak, callback vs direct dispatch, and hook chain position.
 
+The raw digest is not part of the Hook slot interface. `slot_set` rejects the
+resolved `ConsensusEntropy` ledger object, including generic `ltANY`/`ltCHILD`
+aliases, and `ConsensusEntropy` pseudo-transactions fetched by transaction ID,
+with `NOT_AUTHORIZED`. Rejection does not allocate or overwrite a slot. Hooks
+use the caller-bound draw APIs and metadata-only status API; host ledger access,
+consensus and replay still consume the actual entropy object. This does not
+make published historical entropy secret or change open-ledger previews.
+
 The live proceed gate and the stored tier label are separate calculations. The
 pipeline may proceed once the accepted reveal set reaches
 `min(ceil(0.8 * effectiveViewSize), participantThreshold(originalViewSize))`.
@@ -348,6 +356,14 @@ into an INV violation:
   (speculative execution sees the previous ledger's entropy in the open ledger,
   the current ledger's at close). Open-ledger `entropy_cr_dice()`/`entropy_cr_random()` are previews,
   not the authority.
+- **Outcome-dependent rollback** is separate from entropy quality. Locking a
+  transaction's bytes does not make its application effects irrevocable. A
+  later untrusted strong Hook can observe a game's pending state and reject the
+  transaction. Applications must constrain accepted transaction/Hook paths or
+  commit the outcome outside that party's rollback authority; merely using an
+  emitted transaction does not remove every strong stakeholder Hook. Blocking
+  raw entropy reads prevents that direct prediction route, not all application
+  disclosure or veto paths.
 - **Bounded accept-vs-fallback timing asymmetry** remains possible at the edge of
   observation deadlines: one node may see a quorum-aligned entropy sidecar before
   its deadline while another times out to `consensus_fallback`. That is a

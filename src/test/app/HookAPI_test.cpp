@@ -19,6 +19,7 @@
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpl/basics/StringUtilities.h>
@@ -3709,6 +3710,101 @@ public:
     }
 
     void
+    test_slot_set_entropy(FeatureBitset features)
+    {
+        testcase(
+            "slot_set excludes raw consensus entropy through every keylet "
+            "alias");
+        using namespace jtx;
+        using namespace hook;
+        Env env{*this, features | featureConsensusEntropy};
+        Account const alice{"entropy-slot-alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        // Keep the ordinary transaction in the real unvalidated cache path;
+        // validated lookup otherwise depends on optional test SQL history.
+        env(pay(alice, Account::master, XRP(1)));
+        auto const ordinary = env.tx();
+        auto const entropyKey = keylet::consensusEntropy();
+        auto const entropy = env.closed()->read(entropyKey);
+        if (!BEAST_EXPECT(entropy != nullptr))
+            return;
+        BEAST_EXPECT(
+            entropy->getFieldU32(sfLedgerSequence) == env.closed()->seq());
+
+        auto bytes = [](LedgerEntryType type, uint256 const& key) {
+            auto const t = static_cast<std::uint16_t>(type);
+            Bytes out{
+                static_cast<std::uint8_t>(t >> 8),
+                static_cast<std::uint8_t>(t)};
+            out.insert(out.end(), key.begin(), key.end());
+            return out;
+        };
+        auto cache = [&](std::shared_ptr<STTx const> const& tx) {
+            std::string reason;
+            auto transaction =
+                std::make_shared<Transaction>(tx, reason, env.app());
+            env.app().getMasterTransaction().canonicalize(&transaction);
+            auto const id = tx->getTransactionID();
+            return Bytes{id.begin(), id.end()};
+        };
+        auto const ordinaryID = cache(ordinary);
+        std::optional<Bytes> entropyID;
+        for (auto const& [tx, meta] : env.closed()->txs)
+            if (tx->getTxnType() == ttCONSENSUS_ENTROPY)
+                entropyID = cache(tx);
+        if (!BEAST_EXPECT(entropyID.has_value()))
+            return;
+        BEAST_EXPECT(ordinaryID.size() == 32 && entropyID->size() == 32);
+
+        auto check = [&](ReadView const& base) {
+            OpenView ov{&base};
+            STTx invokeTx{ttINVOKE, [](STObject&) {}};
+            auto applyCtx = createApplyContext(env, ov, invokeTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            auto const accountKey = keylet::account(alice.id());
+            auto const accountBytes = bytes(accountKey.type, accountKey.key);
+            auto const initial = api.slot_set(accountBytes, 1);
+            if (!BEAST_EXPECT(initial && *initial == 1))
+                return;
+            auto const* preserved = api.slot(1).value();
+            auto denied = [&](Bytes const& key) {
+                for (auto const destination : {0u, 1u})
+                {
+                    auto const result = api.slot_set(key, destination);
+                    BEAST_EXPECT(!result && result.error() == NOT_AUTHORIZED);
+                    // Denial must neither overwrite an existing slot nor
+                    // allocate an automatic slot containing the raw object.
+                    BEAST_EXPECT(api.slot(1).value() == preserved);
+                    auto const next = api.slot_set(accountBytes, 0);
+                    BEAST_EXPECT(next && *next == 2);
+                    if (next)
+                        BEAST_EXPECT(api.slot_clear(*next).has_value());
+                }
+            };
+            for (auto const type : {ltCONSENSUS_ENTROPY, ltANY, ltCHILD})
+                denied(bytes(type, entropyKey.key));
+            // The entropy pseudo-transaction is another raw-digest carrier.
+            denied(*entropyID);
+            for (auto const type : {ltACCOUNT_ROOT, ltANY, ltCHILD})
+            {
+                auto const result =
+                    api.slot_set(bytes(type, accountKey.key), 1);
+                BEAST_EXPECT(result && *result == 1);
+            }
+            auto const transaction = api.slot_set(ordinaryID, 1);
+            BEAST_EXPECT(transaction && *transaction == 1);
+            // The host's typed ledger access is unaffected by the Hook
+            // boundary.
+            BEAST_EXPECT(applyCtx.view().read(entropyKey) != nullptr);
+        };
+        check(*env.current());
+        check(*env.closed());
+    }
+
+    void
     test_slot_size(FeatureBitset features)
     {
         testcase("Test slot_size");
@@ -5363,6 +5459,7 @@ public:
         test_slot_count(features);
         test_slot_float(features);
         test_slot_set(features);
+        test_slot_set_entropy(features);
         test_slot_size(features);
         test_slot_subarray(features);
         test_slot_subfield(features);

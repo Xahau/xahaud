@@ -2303,6 +2303,11 @@ HookAPI::slot_set(Bytes const& data, uint32_t slot_no) const
         if (!sle)
             return Unexpected(DOESNT_EXIST);
 
+        // Inspect the resolved object: ltANY/ltCHILD can address the same SLE.
+        // Exposing the shared digest bypasses the caller-bound draw APIs.
+        if (sle->getType() == ltCONSENSUS_ENTROPY)
+            return Unexpected(NOT_AUTHORIZED);
+
         slot_value = sle;
     }
     else if (data.size() == 32)
@@ -2316,7 +2321,13 @@ HookAPI::slot_set(Bytes const& data, uint32_t slot_no) const
         if (auto const* p = std::get_if<std::pair<
                 std::shared_ptr<ripple::Transaction>,
                 std::shared_ptr<ripple::TxMeta>>>(&hTx))
-            slot_value = p->first->getSTransaction();
+        {
+            auto const& tx = p->first->getSTransaction();
+            // The entropy pseudo-transaction also carries the raw digest.
+            if (tx->getTxnType() == ttCONSENSUS_ENTROPY)
+                return Unexpected(NOT_AUTHORIZED);
+            slot_value = tx;
+        }
         else
             return Unexpected(DOESNT_EXIST);
     }
