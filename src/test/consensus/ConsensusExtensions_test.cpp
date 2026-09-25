@@ -44,6 +44,7 @@
 #include <xrpld/shamap/SHAMapSidecarLeafNode.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/make_SSLContext.h>
+#include <xrpl/basics/scope.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/ExportCommittee.h>
@@ -5559,6 +5560,104 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(consistent());
     }
 
+    void
+    testExportBusyPublicationStoresUnderTheComputeLock()
+    {
+        using namespace std::chrono_literals;
+        using namespace jtx;
+
+        testcase(
+            "Export busy publication stores the value computed under "
+            "its lock");
+
+        auto config = envconfig(validator, "");
+        config->NETWORK_ID = 21337;
+        Env env{
+            *this,
+            std::move(config),
+            supported_amendments() | featureExport,
+            nullptr};
+        auto const& valKeys = env.app().getValidatorKeys();
+        if (!BEAST_EXPECT(valKeys.keys))
+            return;
+        auto const world = makeValidatedExportShareWorld(
+            env,
+            valKeys.keys->masterPublicKey,
+            valKeys.keys->publicKey,
+            valKeys.keys->secretKey);
+        if (!world)
+            return;
+
+        ConsensusExtensions ce{env.app(), activeNoopJournal()};
+        ce.onRoundStart(RCLCxLedger{world->originLedger}, {});
+        BEAST_EXPECT(ce.exportEnabled());
+        BEAST_EXPECT(!ce.computeBusy());
+        BEAST_EXPECT(!ce.extensionsBusy());
+
+        // A publisher computes "not busy" and parks before its store.
+        std::promise<void> computed;
+        auto computedFuture = computed.get_future();
+        std::promise<void> gate;
+        auto gateFuture = gate.get_future().share();
+        bool gateReleased = false;
+        auto releaseGate = [&] {
+            if (!gateReleased)
+            {
+                gateReleased = true;
+                gate.set_value();
+            }
+        };
+        std::thread publisher([&ce, &computed, gateFuture] {
+            ce.publishBusyAfter([&computed, gateFuture] {
+                computed.set_value();
+                gateFuture.wait();
+            });
+        });
+        // Always release the publisher before joining it.
+        auto const cleanup = scope_exit([&] {
+            releaseGate();
+            if (publisher.joinable())
+                publisher.join();
+        });
+
+        if (!BEAST_EXPECT(
+                computedFuture.wait_for(5s) == std::future_status::ready))
+            return;
+
+        // While the publisher holds its computed value, a tick-side writer
+        // must not get in. Probe the lock from here, with bounded retries
+        // for spurious try_lock failure.
+        std::unique_lock<std::recursive_mutex> probe{
+            ce.busyMu_, std::defer_lock};
+        for (int attempt = 0; attempt < 100 && !probe.owns_lock(); ++attempt)
+        {
+            if (!probe.try_lock())
+                std::this_thread::yield();
+        }
+        bool const probeAcquired = probe.owns_lock();
+        log << "  busy publication probe acquired=" << probeAcquired
+            << std::endl;
+        BEAST_EXPECT(!probeAcquired);
+        if (probeAcquired)
+        {
+            // A writer got in between compute and store: publish "busy"
+            // now, then let the parked store follow it.
+            ce.publishExportSigGateStarted();
+            probe.unlock();
+        }
+
+        releaseGate();
+        publisher.join();
+
+        if (!probeAcquired)
+            ce.publishExportSigGateStarted();
+
+        log << "  busy publication final published=" << ce.extensionsBusy()
+            << " computed=" << ce.computeBusy() << std::endl;
+        BEAST_EXPECT(ce.computeBusy());
+        BEAST_EXPECT(ce.extensionsBusy());
+    }
+
     // A real inbound PeerImp that neither runs nor writes to a socket. It
     // counts outbound messages so relay can be observed.
     class ExportSharePeer : public PeerImp
@@ -6085,6 +6184,7 @@ public:
         testExportStreamRetainedReplayRace();
         testExportStreamStopFence();
         testExportBusyPublicationFollowsAdmissionAcceptAndReset();
+        testExportBusyPublicationStoresUnderTheComputeLock();
         testExportShareTransportRetriesAfterSignerManifest();
         testPublicHookNoopAndFailureBranches();
         testDecorateMessageStoresSelfProofs();
