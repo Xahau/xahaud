@@ -30,12 +30,6 @@
 
 namespace ripple {
 
-TxConsequences
-SetRemarks::makeTxConsequences(PreflightContext const& ctx)
-{
-    return TxConsequences{ctx.tx, TxConsequences::normal};
-}
-
 NotTEC
 SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
 {
