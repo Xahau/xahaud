@@ -644,7 +644,8 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             }
 
             // for before featureHookOnV2_1 Amendment
-            if (!validateHookOn(ctx, hookSetObj))
+            if (!ctx.rules.enabled(featureHookOnV2_1) &&
+                !validateHookOn(ctx, hookSetObj))
                 return false;
 
             // validate sfHookCanEmit
@@ -814,7 +815,7 @@ SetHook::preflight(PreflightContext const& ctx)
 
     auto const& hookSets = ctx.tx.getFieldArray(sfHooks);
 
-    if (hookSets.size() < 1)
+    if (hookSets.empty())
     {
         JLOG(ctx.j.trace())
             << "HookSet(" << hook::log::HOOKS_ARRAY_EMPTY << ")[" << HS_ACC()
