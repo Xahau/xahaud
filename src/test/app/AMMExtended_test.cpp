@@ -150,12 +150,15 @@ private:
 
             env.fund(XRP(20'000), alice, bob, carol, gw1, gw2);
             env.fund(XRP(20'000), dan);
+            env.close();
             env.trust(USD1(20'000), alice, bob, carol, dan);
             env.trust(USD2(1'000), alice, bob, carol, dan);
+            env.close();
 
             env(pay(gw1, dan, USD1(10'050)));
             env(pay(gw1, bob, USD1(50)));
             env(pay(gw2, bob, USD2(50)));
+            env.close();
 
             AMM ammDan(env, dan, XRP(10'000), USD1(10'050));
 
