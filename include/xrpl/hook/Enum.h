@@ -382,7 +382,7 @@ enum class hook_return_code : int64_t {
     INVALID_KEY = -41,   // user supplied key was not valid
     NOT_A_STRING = -42,  // nul terminator missing from a string argument
     MEM_OVERLAP = -43,   // one or more specified buffers are the same memory
-    TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 5000 modified state
+    TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 256 modified state
                                          // entires in the combined hook chains
     TOO_MANY_NAMESPACES = -45
 };

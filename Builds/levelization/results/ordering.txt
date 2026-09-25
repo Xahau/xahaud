@@ -205,6 +205,7 @@ xrpld.rpc > xrpld.core
 xrpld.rpc > xrpld.ledger
 xrpld.rpc > xrpld.nodestore
 xrpld.rpc > xrpld.shamap
+xrpld.rpc > xrpl.hook
 xrpld.rpc > xrpl.json
 xrpld.rpc > xrpl.protocol
 xrpld.rpc > xrpl.resource
