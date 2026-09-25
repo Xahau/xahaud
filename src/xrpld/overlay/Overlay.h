@@ -26,6 +26,7 @@
 #include <xrpl/json/json_value.h>
 #include <xrpl/server/Handoff.h>
 #include <boost/asio/buffer.hpp>
+#include <xrpld/peerfinder/PeerfinderManager.h>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/ssl/stream.hpp>
@@ -236,11 +237,20 @@ public:
     virtual Json::Value
     txMetrics() const = 0;
 
-    /** Process incoming Xahau UDP Super Highway message */
+    /** Returns peer finder manager reference */
+    virtual PeerFinder::Manager&
+    peerFinder() = 0;
+
+    /** Process incoming Xahau UDP Superhighway (XUSH) message */
     virtual void
     processXUSH(
         std::string const& message,
         boost::asio::ip::tcp::endpoint const& remoteEndpoint) = 0;
+
+
+    /** Send the txn to UDP Superhighway peers */
+    virtual void
+    publishTxXUSH(Slice const& tx, uint256 const& txid) = 0;
 };
 
 }  // namespace ripple

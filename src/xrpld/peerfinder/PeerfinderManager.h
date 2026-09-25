@@ -19,6 +19,8 @@
 
 #ifndef RIPPLE_PEERFINDER_MANAGER_H_INCLUDED
 #define RIPPLE_PEERFINDER_MANAGER_H_INCLUDED
+#include <xrpl/basics/Slice.h>
+#include <xrpl/basics/base_uint.h>
 
 #include <xrpld/core/Config.h>
 #include <xrpld/peerfinder/Slot.h>
@@ -272,6 +274,14 @@ public:
     */
     virtual void
     once_per_second() = 0;
+
+    // XUSH (Xahau UDP Superhighway): register known highway peer endpoints
+    virtual void
+    add_highway_peers(std::vector<beast::IP::Endpoint> const&) {}
+
+    // XUSH (Xahau UDP Superhighway): broadcast data to all highway peers
+    virtual void
+    machine_gun_highway_peers(Slice const& data, uint256 const& txid) {}
 };
 
 }  // namespace PeerFinder
