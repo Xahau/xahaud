@@ -3078,6 +3078,7 @@ HookAPI::get_stobject_length(
         type == STI_PATHSET && rules.enabled(featureHookAPISerializedType240))
     {
         length = 0;
+        bool terminated = false;
         while (upto + length < end)
         {
             // iterate Path step
@@ -3095,7 +3096,7 @@ HookAPI::get_stobject_length(
                 if (flag & 0x20)  // issuer
                     length += 20;
 
-                if (rules.enabled(fixHookAPISType) && upto + length > end)
+                if (rules.enabled(fixHookAPISType) && upto + length >= end)
                     return Unexpected(pe_unexpected_end);
 
                 int next_flag = *(upto + length);
@@ -3109,49 +3110,68 @@ HookAPI::get_stobject_length(
             if (lastflag == 0xff)
                 continue;  // continue byte
             else if (lastflag == 0x00)
+            {
+                terminated = true;
                 break;  // end byte
+            }
             else
                 return Unexpected(pe_unexpected_end);
         }
         if (upto >= end)
             return Unexpected(pe_unexpected_end);
+        if (rules.enabled(fixHookAPISType) && !terminated)
+            return Unexpected(pe_unexpected_end);
     }
     else if (type == STI_ISSUE)
     {
+        bool const fix = rules.enabled(fixHookAPISType);
         auto zero20 = std::array<char, 20>{0};
         // if first 20 byte is all zeros return 20
         // else return 40
-        if (rules.enabled(fixHookAPISType) && end - upto < 20)
+        if (fix && end - upto < 20)
             return Unexpected(pe_unexpected_end);
         if (memcmp(upto, zero20.data(), 20) == 0)
             length = 20;
+        // MPT is not supported yet
+        // else if (
+        //     fix && end - upto >= 40 &&
+        //     memcmp(upto + 20, noAccount().data(), 20) == 0)
+        //     length = 44;  // MPT: Issuer + noAccount + Sequence
         else
             length = 40;
     }
     else if (type == STI_XCHAIN_BRIDGE)
     {
+        bool const fix = rules.enabled(fixHookAPISType);
         auto zero20 = std::array<char, 20>{0};
-        // Lock Chain
-        length = 1;    // Door Account1 prefix length
-        length += 20;  // Door Account1 length
-        // Door Issue1
-        if (rules.enabled(fixHookAPISType) && end - upto < length + 20)
-            return Unexpected(pe_unexpected_end);
-        if (memcmp(upto + length, zero20.data(), 20) == 0)
-            length += 20;  // only Currency
-        else
-            length += 40;  // Currency and Issue
+        length = 0;
+        for (int i = 0; i < 2; ++i)  // Locking Chain, Issuing Chain
+        {
+            // Door Account
+            if (!fix)
+                length += 21;
+            else if (end - upto <= length)
+                return Unexpected(pe_unexpected_end);
+            else if (upto[length] == 0)
+                length += 1;  // default (empty) account
+            else if (upto[length] == 20)
+                length += 21;
+            else
+                return Unexpected(pe_unexpected_end);
 
-        // Issuing Chain
-        length += 1;   // Door Account2 prefix length
-        length += 20;  // Door Account2 length
-        // Door Issue2
-        if (rules.enabled(fixHookAPISType) && end - upto < length + 20)
-            return Unexpected(pe_unexpected_end);
-        if (memcmp(upto + length, zero20.data(), 20) == 0)
-            length += 20;  // only Currency
-        else
-            length += 40;  // Currency and Issue
+            // Door Issue
+            if (fix && end - upto < length + 20)
+                return Unexpected(pe_unexpected_end);
+            if (memcmp(upto + length, zero20.data(), 20) == 0)
+                length += 20;  // only Currency
+            // MPT is not supported yet
+            // else if (
+            //     fix && end - upto >= length + 40 &&
+            //     memcmp(upto + length + 20, noAccount().data(), 20) == 0)
+            //     length += 44;  // MPT: Issuer + noAccount + Sequence
+            else
+                length += 40;  // Currency and Issuer
+        }
     }
 
     if (length > -1)

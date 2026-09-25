@@ -3942,7 +3942,7 @@ public:
         auto const _source_object =
             *strUnHex("81140000000000000000000000000000000000000000");
 
-        std::vector<std::pair<uint32_t, std::string>> const data_list = {
+        std::vector<std::pair<uint32_t, std::string>> data_list = {
             {// UINT16 Version
              sfVersion.getCode(),
              "10100001"},
@@ -4000,7 +4000,26 @@ public:
              sfBaseAsset.getCode(),
              "011A0000000000000000000000005553440000000000"},
         };
-        bool returnError = false;
+        if (env.closed()->rules().enabled(fixHookAPISType))
+        {
+            // encodings the legacy parser measures incorrectly
+            data_list.insert(
+                data_list.end(),
+                {
+                    // MPT is not supported yet
+                    // {// Issue ClaimCurrency MPT
+                    //  sfClaimCurrency.getCode(),
+                    //  "0518AE123A8556F3CF91154711376AFB0F894F832B3D0000000000"
+                    //  "00000000000000000000000000000100000001"},
+                    {// XChainBridge default door + IOU, Native
+                     sfXChainBridge.getCode(),
+                     "0119000000000000000000000000005553440000000000AE123A85"
+                     "56F3CF91154711376AFB0F894F832B3D14AE123A8556F3CF911547"
+                     "11376AFB0F894F832B3D00000000000000000000000000000000000"
+                     "00000"},
+                });
+        }
+        bool returnError = true;
         for (auto const& data : data_list)
         {
             auto source_object = _source_object;
@@ -4019,8 +4038,8 @@ public:
             ft.push_back(0);
             auto const result3 = api.sto_emplace(source_object, ft, field_id);
 
-            returnError = !result1.has_value() && !result2.has_value() &&
-                !result3.has_value();
+            returnError = returnError && !result1.has_value() &&
+                !result2.has_value() && !result3.has_value();
         }
 
         if (env.closed()->rules().enabled(fixHookAPISType))
