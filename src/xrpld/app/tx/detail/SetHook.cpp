@@ -488,15 +488,11 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 
         case hsoNSDELETE: {
             // namespace delete operation
-            if (hookSetObj.isFieldPresent(sfHookGrants) ||
-                hookSetObj.isFieldPresent(sfHookParameters) ||
-                hookSetObj.isFieldPresent(sfHookOn) ||
-                hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
-                hookSetObj.isFieldPresent(sfHookOnIncoming) ||
-                hookSetObj.isFieldPresent(sfHookCanEmit) ||
-                hookSetObj.isFieldPresent(sfHookApiVersion) ||
-                hookSetObj.isFieldPresent(sfHookName) ||
-                !hookSetObj.isFieldPresent(sfFlags) ||
+            auto presentCount = std::count_if(
+                hookSetObj.begin(), hookSetObj.end(), [](STBase const& b) {
+                    return b.getSType() != STI_NOTPRESENT;
+                });
+            if (presentCount != 2 || !hookSetObj.isFieldPresent(sfFlags) ||
                 !hookSetObj.isFieldPresent(sfHookNamespace))
             {
                 JLOG(ctx.j.trace()) << "HookSet(" << hook::log::NSDELETE_FIELD
@@ -521,16 +517,11 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
         }
 
         case hsoDELETE: {
-            if (hookSetObj.isFieldPresent(sfHookGrants) ||
-                hookSetObj.isFieldPresent(sfHookParameters) ||
-                hookSetObj.isFieldPresent(sfHookOn) ||
-                hookSetObj.isFieldPresent(sfHookOnOutgoing) ||
-                hookSetObj.isFieldPresent(sfHookOnIncoming) ||
-                hookSetObj.isFieldPresent(sfHookCanEmit) ||
-                hookSetObj.isFieldPresent(sfHookApiVersion) ||
-                hookSetObj.isFieldPresent(sfHookNamespace) ||
-                hookSetObj.isFieldPresent(sfHookName) ||
-                !hookSetObj.isFieldPresent(sfFlags))
+            auto presentCount = std::count_if(
+                hookSetObj.begin(), hookSetObj.end(), [](STBase const& b) {
+                    return b.getSType() != STI_NOTPRESENT;
+                });
+            if (presentCount != 1 || !hookSetObj.isFieldPresent(sfFlags))
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::DELETE_FIELD << ")[" << HS_ACC()
