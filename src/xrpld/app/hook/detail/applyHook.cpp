@@ -9,6 +9,7 @@
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/hook/Guard.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/PublicKey.h>
@@ -546,6 +547,9 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttREMARKS_SET: {
             break;
         }
+        case ttHOOK_DEFINITION_UPDATE: {
+            break;
+        }
         // pseudo transactions
         case ttAMENDMENT:
         case ttFEE:
@@ -682,6 +686,83 @@ hook::computeCreationFee(uint64_t byteCount)
         return 0x7FFFFFFFFFFFFFFFLL;
 
     return fee;
+}
+
+XRPAmount
+hook::hookCostToFee(uint64_t hookCost)
+{
+    // round up, and avoid overflow: the quotient of a uint64 by 10 always
+    // fits in an int64
+    uint64_t const drops = hookCost / hook_api::cost_units_per_drop +
+        (hookCost % hook_api::cost_units_per_drop != 0);
+    return XRPAmount{static_cast<XRPAmount::value_type>(drops)};
+}
+
+std::optional<std::pair<uint64_t, uint64_t>>
+hook::doValidateGuards(
+    STTx const& tx,
+    Blob const& wasm,
+    Rules const& rules,
+    beast::Journal const& j)
+{
+    // RH NOTE: validateGuards has a generic non-rippled specific
+    // interface so it can be used in other projects (i.e. tooling).
+    // As such the calling here is a bit convoluted.
+
+    std::optional<std::reference_wrapper<std::basic_ostream<char>>> logger;
+    std::ostringstream loggerStream;
+    std::string hsacc{""};
+    if (j.trace())
+    {
+        logger = loggerStream;
+        std::stringstream ss;
+
+#define HS_ACC() tx.getAccountID(sfAccount) << "-" << tx.getTransactionID()
+        ss << HS_ACC();
+#undef HS_ACC
+        hsacc = ss.str();
+    }
+
+    auto result = validateGuards(
+        wasm,  // wasm to verify
+        logger,
+        hsacc,
+        rules.enabled(featureHookFeeV2),
+        hook_api::getImportWhitelist(rules),
+        hook_api::getGuardRulesVersion(rules));
+
+    if (j.trace())
+    {
+        // clunky but to get the stream to accept the output
+        // correctly we will split on new line and feed each line
+        // one by one into the trace stream beast::Journal should be
+        // updated to inherit from basic_ostream<char> then this
+        // wouldn't be necessary.
+
+        // is this a needless copy or does the compiler do copy
+        // elision here?
+        std::string s = loggerStream.str();
+
+        char* data = s.data();
+        size_t len = s.size();
+
+        char* last = data;
+        size_t i = 0;
+        for (; i < len; ++i)
+        {
+            if (data[i] == '\n')
+            {
+                data[i] = '\0';
+                j.trace() << last;
+                last = data + i;
+            }
+        }
+
+        if (last < data + i)
+            j.trace() << last;
+    }
+
+    return result;
 }
 
 // many datatypes can be encoded into an int64_t
