@@ -243,8 +243,7 @@ GenesisMint::doApply()
         if (created)
         {
             // Create the account.
-            std::uint32_t const seqno{
-                view().info().parentCloseTime.time_since_epoch().count()};
+            std::uint32_t const seqno = newAccountSeqNo(view());
 
             sle = std::make_shared<SLE>(k);
             sle->setAccountID(sfAccount, id);
