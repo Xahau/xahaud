@@ -423,8 +423,9 @@ public:
         , validatorManifests_(
               std::make_unique<ManifestCache>(logs_->journal("ManifestCache")))
 
-        , publisherManifests_(
-              std::make_unique<ManifestCache>(logs_->journal("ManifestCache")))
+        , publisherManifests_(std::make_unique<ManifestCache>(
+              logs_->journal("ManifestCache"),
+              std::numeric_limits<std::size_t>::max()))
 
         , validators_(std::make_unique<ValidatorList>(
               *validatorManifests_,
@@ -1346,9 +1347,7 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         if (validatorKeys_.configInvalid())
             return false;
 
-        if (!validatorManifests_->load(
-                getWalletDB(),
-                "ValidatorManifests",
+        if (!validatorManifests_->loadConfig(
                 validatorKeys_.manifest,
                 config().section(SECTION_VALIDATOR_KEY_REVOCATION).values()))
         {
@@ -1357,6 +1356,10 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         }
 
         publisherManifests_->load(getWalletDB(), "PublisherManifests");
+
+        // Attach saved history before list membership is established. Each
+        // newly listed master restores its high water before older list gossip.
+        validatorManifests_->loadListed(getWalletDB());
 
         // It is possible to have a valid ValidatorKeys object without
         // setting the signingKey or masterKey. This occurs if the
@@ -1640,14 +1643,16 @@ ApplicationImp::run()
     validatorSites_->stop();
 
     // TODO Store manifests in manifests.sqlite instead of wallet.db
-    validatorManifests_->save(
-        getWalletDB(), "ValidatorManifests", [this](PublicKey const& pubKey) {
-            return validators().listed(pubKey);
-        });
+    validatorManifests_->saveListed();
 
+    // List updates restore wallet history while holding the list lock. Never
+    // call back into that lock from a save that already holds the wallet.
+    auto const publishers = validators().getTrustedPublisherKeys();
     publisherManifests_->save(
-        getWalletDB(), "PublisherManifests", [this](PublicKey const& pubKey) {
-            return validators().trustedPublisher(pubKey);
+        getWalletDB(),
+        "PublisherManifests",
+        [&publishers](PublicKey const& pubKey) {
+            return publishers.contains(pubKey);
         });
 
     // The order of these stop calls is delicate.

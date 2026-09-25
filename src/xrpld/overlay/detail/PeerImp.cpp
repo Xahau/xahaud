@@ -870,7 +870,7 @@ PeerImp::doProtocolStart()
             });
     }
 
-    if (auto m = overlay_.getManifestsMessage())
+    for (auto const& m : overlay_.getManifestsMessages())
         send(m);
 
     setTimer();
@@ -1057,12 +1057,49 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
         return;
     }
 
-    if (s > 100)
-        fee_.update(Resource::feeModerateBurdenPeer, "oversize");
+    if (s > maxManifestEntries || m->ByteSizeLong() > maxManifestMessageSize ||
+        std::any_of(m->list().begin(), m->list().end(), [](auto const& item) {
+            return item.stobject().size() > maxManifestSize;
+        }))
+    {
+        fee_.update(Resource::feeInvalidData, "oversized manifests");
+        return;
+    }
 
+    std::vector<Manifest> candidates;
+    int cost = 0;
+    for (auto const& item : m->list())
+    {
+        auto manifest = deserializeManifest(item.stobject());
+        if (!manifest)
+            cost += Resource::feeInvalidData.cost();
+        else if (!app_.validatorManifests().isGossipCandidate(*manifest))
+            cost += Resource::feeUselessData.cost();
+        else
+        {
+            cost += Resource::feeModerateBurdenPeer.cost();
+            candidates.push_back(std::move(*manifest));
+        }
+    }
+    // Pay for requested work before another packet can queue more. dispatch()
+    // is immediate on the receiving strand; cheap rejects never enter a job.
+    boost::asio::dispatch(strand_, [that = shared_from_this(), cost]() {
+        that->charge(Resource::Charge{cost, "manifests"}, "manifest intake");
+    });
+    if (candidates.empty() || detaching_ || gracefulClose_)
+        return;
+    if (app_.getJobQueue().getJobCountTotal(jtMANIFEST) >= maxManifestJobs)
+    {
+        fee_.update(Resource::feeHeavyBurdenPeer, "manifest backlog");
+        return;
+    }
+    auto const batch =
+        std::make_shared<std::vector<Manifest>>(std::move(candidates));
     app_.getJobQueue().addJob(
-        jtMANIFEST, "receiveManifests", [this, that = shared_from_this(), m]() {
-            overlay_.onManifests(m, that);
+        jtMANIFEST,
+        "receiveManifests",
+        [this, that = shared_from_this(), batch]() {
+            overlay_.onManifests(*batch, that);
         });
 }
 

@@ -49,10 +49,12 @@
 #include <mutex>
 #include <optional>
 #include <unordered_map>
+#include <vector>
 
 namespace ripple {
 
 class PeerImp;
+struct Manifest;
 class BasicConfig;
 
 class OverlayImpl : public Overlay, public reduce_relay::SquelchHandler
@@ -124,8 +126,8 @@ private:
     // Transaction reduce-relay metrics
     metrics::TxMetrics txMetrics_;
 
-    // A message with the list of manifests we send to peers
-    std::shared_ptr<Message> manifestMessage_;
+    // Bounded packets covering every eligible local manifest.
+    std::vector<std::shared_ptr<Message>> manifestMessages_;
     // Used to track whether we need to update the cached list of manifests
     std::optional<std::uint32_t> manifestListSeq_;
     // Protects the message and the sequence list of manifests
@@ -241,8 +243,8 @@ public:
         std::optional<std::reference_wrapper<protocol::TMTransaction>> m,
         std::set<Peer::id_t> const& skip) override;
 
-    std::shared_ptr<Message>
-    getManifestsMessage();
+    std::vector<std::shared_ptr<Message>>
+    getManifestsMessages();
 
     //--------------------------------------------------------------------------
     //
@@ -296,7 +298,7 @@ public:
     // Called when TMManifests is received from a peer
     void
     onManifests(
-        std::shared_ptr<protocol::TMManifests> const& m,
+        std::vector<Manifest> const& manifests,
         std::shared_ptr<PeerImp> const& from);
 
     static bool

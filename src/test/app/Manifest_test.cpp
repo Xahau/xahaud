@@ -238,9 +238,326 @@ public:
     Manifest
     clone(Manifest const& m)
     {
-        Manifest m2(
-            m.serialized, m.masterKey, m.signingKey, m.sequence, m.domain);
-        return m2;
+        return m.clone();
+    }
+
+    void
+    testClone()
+    {
+        testcase("explicit clone preserves independent field values");
+        auto const master = randomNode();
+        auto const signer = randomNode();
+        std::string const bytes(128, 'x');
+        for (bool const revoked : {false, true})
+        {
+            auto const signingKey =
+                revoked ? std::nullopt : std::optional{signer};
+            auto const sequence =
+                revoked ? std::numeric_limits<std::uint32_t>::max() : 7u;
+            // clone copies fields as-is; it must not parse or normalize them.
+            Manifest const original{
+                bytes, master, signingKey, sequence, "validator.example"};
+            auto copied = original.clone();
+            BEAST_EXPECT(copied == original);
+            copied.serialized.clear();
+            copied.masterKey = signer;
+            copied.signingKey = revoked ? std::optional{signer} : std::nullopt;
+            copied.sequence = 0;
+            copied.domain.clear();
+            BEAST_EXPECT(original.serialized == bytes);
+            BEAST_EXPECT(original.masterKey == master);
+            BEAST_EXPECT(original.signingKey == signingKey);
+            BEAST_EXPECT(original.sequence == sequence);
+            BEAST_EXPECT(original.domain == "validator.example");
+        }
+    }
+
+    void
+    testAdmissionLimit()
+    {
+        testcase("capacity rejects new identities without forgetting history");
+        ManifestCache cache{beast::Journal{beast::Journal::getNullSink()}, 3};
+        std::vector<Manifest> manifests;
+        std::vector<SecretKey> masters;
+        for (int i = 0; i < 6; ++i)
+        {
+            masters.push_back(randomSecretKey());
+            manifests.push_back(makeManifest(
+                masters.back(),
+                KeyType::ed25519,
+                randomSecretKey(),
+                KeyType::secp256k1,
+                1));
+        }
+        auto add = [&](int i) {
+            BEAST_EXPECT(
+                cache.applyManifest(clone(manifests[i])) ==
+                ManifestDisposition::accepted);
+        };
+        auto count = [&]() {
+            std::size_t n = 0;
+            cache.for_each_manifest([&](Manifest const&) { ++n; });
+            return n;
+        };
+        cache.pin({manifests[0].masterKey});
+        add(0);
+        add(1);
+        add(2);
+        BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(
+            cache.getMasterKey(*manifests[1].signingKey) ==
+            manifests[1].masterKey);
+        BEAST_EXPECT(
+            cache.applyManifest(clone(manifests[3])) ==
+            ManifestDisposition::full);
+        BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(cache.getRawManifest(manifests[2].masterKey));
+        BEAST_EXPECT(
+            cache.getMasterKey(*manifests[2].signingKey) ==
+            manifests[2].masterKey);
+        BEAST_EXPECT(cache.getRawManifest(manifests[1].masterKey));
+
+        // A full cache refuses unknown unlisted identities before checking
+        // their signatures; the refusal cannot displace an admitted row.
+        BEAST_EXPECT(
+            cache.applyManifest(makeManifest(
+                masters[4],
+                KeyType::ed25519,
+                randomSecretKey(),
+                KeyType::secp256k1,
+                2,
+                true)) == ManifestDisposition::full);
+        BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(!cache.getRawManifest(manifests[3].masterKey));
+
+        auto rotation = makeManifest(
+            masters[1],
+            KeyType::ed25519,
+            randomSecretKey(),
+            KeyType::secp256k1,
+            2);
+        BEAST_EXPECT(
+            cache.applyManifest(clone(rotation)) ==
+            ManifestDisposition::accepted);
+        BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(
+            cache.getMasterKey(*manifests[1].signingKey) ==
+            *manifests[1].signingKey);
+        BEAST_EXPECT(
+            cache.getMasterKey(*rotation.signingKey) == rotation.masterKey);
+
+        // Both listed and unlisted admitted identities can revoke at capacity.
+        BEAST_EXPECT(
+            cache.applyManifest(makeRevocation(masters[0], KeyType::ed25519)) ==
+            ManifestDisposition::accepted);
+        BEAST_EXPECT(
+            cache.applyManifest(makeRevocation(masters[1], KeyType::ed25519)) ==
+            ManifestDisposition::accepted);
+        for (int i = 3; i < 6; ++i)
+            BEAST_EXPECT(
+                cache.applyManifest(clone(manifests[i])) ==
+                ManifestDisposition::full);
+        BEAST_EXPECT(cache.revoked(manifests[0].masterKey));
+        BEAST_EXPECT(cache.revoked(manifests[1].masterKey));
+        BEAST_EXPECT(
+            cache.applyManifest(clone(manifests[1])) ==
+            ManifestDisposition::stale);
+        BEAST_EXPECT(
+            cache.getMasterKey(*rotation.signingKey) == *rotation.signingKey);
+        BEAST_EXPECT(
+            cache.applyManifest(clone(manifests[0])) ==
+            ManifestDisposition::stale);
+        BEAST_EXPECT(count() == 3);
+
+        // Delisting does not discard a revocation or make space for a stranger.
+        auto const seq = cache.sequence();
+        cache.pin({});
+        BEAST_EXPECT(cache.sequence() > seq);
+        BEAST_EXPECT(count() == 3);
+        BEAST_EXPECT(cache.revoked(manifests[0].masterKey));
+
+        // Filling the cache cannot block a subsequently listed/configured key.
+        cache.pin({manifests[3].masterKey});
+        add(3);
+        cache.pin({});
+        BEAST_EXPECT(cache.getRawManifest(manifests[3].masterKey));
+        BEAST_EXPECT(
+            cache.loadConfig(base64_encode(manifests[4].serialized), {}));
+        cache.pin({});
+        BEAST_EXPECT(cache.getRawManifest(manifests[4].masterKey));
+        BEAST_EXPECT(
+            cache.applyManifest(clone(manifests[5])) ==
+            ManifestDisposition::full);
+        BEAST_EXPECT(count() == 5);
+    }
+
+    void
+    testWalletCompaction()
+    {
+        testcase(
+            "selective wallet compaction preserves high waters and rolls back");
+        jtx::Env env{*this};
+        auto& wallet = env.app().getWalletDB();
+        auto const master = randomSecretKey();
+        std::vector<Manifest> versions;
+        for (int seq = 1; seq <= 4; ++seq)
+            versions.push_back(makeManifest(
+                master,
+                KeyType::ed25519,
+                randomSecretKey(),
+                KeyType::secp256k1,
+                seq,
+                seq == 4));
+        auto const unrelated = makeManifest(
+            randomSecretKey(),
+            KeyType::ed25519,
+            randomSecretKey(),
+            KeyType::secp256k1,
+            1);
+        ManifestCache cache{env.journal, 0};
+        BEAST_EXPECT(
+            cache.loadConfig(base64_encode(versions.front().serialized), {}));
+        cache.loadListed(wallet);
+        {
+            auto db = wallet.checkoutDb();
+            for (auto const& m : versions)
+                addValidatorManifest(*db, m.serialized);
+            addValidatorManifest(*db, unrelated.serialized);
+            *db << "CREATE TRIGGER reject_manifest_save BEFORE INSERT ON "
+                   "ValidatorManifests "
+                   "BEGIN SELECT RAISE(ABORT, 'test write failure'); END;";
+        }
+        auto count = [&](std::string const& sql) {
+            auto db = wallet.checkoutDb();
+            int n;
+            *db << sql, soci::into(n);
+            return n;
+        };
+        auto save = [&]() { cache.saveListed(); };
+        bool failed = false;
+        try
+        {
+            save();
+        }
+        catch (soci::soci_error const&)
+        {
+            failed = true;
+        }
+        BEAST_EXPECT(failed);
+        BEAST_EXPECT(count("SELECT COUNT(*) FROM ValidatorManifests;") == 5);
+        BEAST_EXPECT(
+            count("SELECT COUNT(*) FROM sqlite_master WHERE "
+                  "name='ValidatorManifests_Compacting';") == 0);
+        {
+            auto db = wallet.checkoutDb();
+            *db << "DROP TRIGGER reject_manifest_save;";
+        }
+        for (int i = 0; i < 2; ++i)
+        {
+            save();
+            BEAST_EXPECT(
+                count("SELECT COUNT(*) FROM ValidatorManifests;") == 2);
+            BEAST_EXPECT(
+                count("SELECT COUNT(*) FROM sqlite_master WHERE "
+                      "name='ValidatorManifests_Compacting';") == 0);
+        }
+        ManifestCache restored{env.journal, 0};
+        restored.loadListed(wallet);
+        restored.pin({versions.front().masterKey});
+        BEAST_EXPECT(
+            restored.getManifest(versions.front().masterKey) ==
+            versions[2].serialized);
+        BEAST_EXPECT(!restored.getRawManifest(unrelated.masterKey));
+        {
+            auto db = wallet.checkoutDb();
+            auto kept = getManifestsForKeys(
+                *db, "ValidatorManifests", {unrelated.masterKey}, env.journal);
+            BEAST_EXPECT(
+                kept.at(unrelated.masterKey).serialized ==
+                unrelated.serialized);
+        }
+        // The wrong save API must refuse before a callback or database write,
+        // not silently rewrite unrelated history in the attached wallet.
+        int predicateCalls = 0;
+        bool modeRejected = false;
+        try
+        {
+            cache.save(wallet, "ValidatorManifests", [&](PublicKey const&) {
+                ++predicateCalls;
+                return false;
+            });
+        }
+        catch (std::logic_error const&)
+        {
+            modeRejected = true;
+        }
+        BEAST_EXPECT(modeRejected && predicateCalls == 0);
+        BEAST_EXPECT(count("SELECT COUNT(*) FROM ValidatorManifests;") == 2);
+    }
+
+    void
+    testSaveListedRequiresWallet()
+    {
+        testcase("selective save requires an attached wallet");
+        ManifestCache cache;
+        bool rejected = false;
+        try
+        {
+            cache.saveListed();
+        }
+        catch (std::logic_error const&)
+        {
+            rejected = true;
+        }
+        BEAST_EXPECT(rejected);
+    }
+
+    void
+    testGossipMembership()
+    {
+        testcase("gossip membership is independent of cached identity");
+        ManifestCache cache;
+        auto const master = randomSecretKey();
+        auto manifest = makeManifest(
+            master, KeyType::ed25519, randomSecretKey(), KeyType::secp256k1, 1);
+        auto invalid = makeManifest(
+            master,
+            KeyType::ed25519,
+            randomSecretKey(),
+            KeyType::secp256k1,
+            2,
+            true);
+        BEAST_EXPECT(
+            cache.applyGossipManifest(clone(invalid)) ==
+            ManifestDisposition::unlisted);
+        BEAST_EXPECT(
+            cache.applyGossipManifest(clone(manifest)) ==
+            ManifestDisposition::unlisted);
+        cache.pin({manifest.masterKey});
+        BEAST_EXPECT(
+            cache.applyGossipManifest(clone(invalid)) ==
+            ManifestDisposition::invalid);
+        BEAST_EXPECT(
+            cache.applyGossipManifest(clone(manifest)) ==
+            ManifestDisposition::accepted);
+        cache.pin({});
+        BEAST_EXPECT(
+            cache.applyGossipManifest(makeRevocation(
+                master, KeyType::ed25519)) == ManifestDisposition::unlisted);
+        BEAST_EXPECT(!cache.revoked(manifest.masterKey));
+        BEAST_EXPECT(cache.loadConfig(base64_encode(manifest.serialized), {}));
+        BEAST_EXPECT(
+            cache.applyGossipManifest(makeRevocation(
+                master, KeyType::ed25519)) == ManifestDisposition::accepted);
+        BEAST_EXPECT(cache.revoked(manifest.masterKey));
+        std::size_t offered = 0;
+        cache.for_each_gossip_manifest(
+            [](std::size_t) {},
+            [&](Manifest const& m) {
+                BEAST_EXPECT(m.masterKey == manifest.masterKey && m.revoked());
+                ++offered;
+            });
+        BEAST_EXPECT(offered == 1);
     }
 
     void
@@ -279,6 +596,21 @@ public:
                 sort(getPopulatedManifests(m)));
 
             auto& app = env.app();
+
+            // Wallet restore obeys the same bound. Listed high-water marks
+            // survive even when an old database contains more unlisted rows.
+            m.save(*dbCon, "ValidatorManifests", [](PublicKey const&) {
+                return true;
+            });
+            ManifestCache bounded{env.journal, 1};
+            auto const protectedKey = inManifests.front()->masterKey;
+            bounded.pin({protectedKey});
+            bounded.loadListed(*dbCon);
+            BEAST_EXPECT(getPopulatedManifests(bounded).size() == 1);
+            BEAST_EXPECT(
+                bounded.getRawManifest(protectedKey) ==
+                m.getRawManifest(protectedKey));
+
             auto unl = std::make_unique<ValidatorList>(
                 m,
                 m,
@@ -351,11 +683,7 @@ public:
                 std::vector<std::string> const emptyRevocation;
 
                 std::string const badManifest = "bad manifest";
-                BEAST_EXPECT(!loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    badManifest,
-                    emptyRevocation));
+                BEAST_EXPECT(!loaded.loadConfig(badManifest, emptyRevocation));
 
                 auto const sk = randomSecretKey();
                 auto const pk = derivePublicKey(KeyType::ed25519, sk);
@@ -364,11 +692,7 @@ public:
                 std::string const cfgManifest =
                     makeManifestString(pk, sk, kp.first, kp.second, 0);
 
-                BEAST_EXPECT(loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    cfgManifest,
-                    emptyRevocation));
+                BEAST_EXPECT(loaded.loadConfig(cfgManifest, emptyRevocation));
             }
             {
                 // load config revocation
@@ -377,11 +701,7 @@ public:
 
                 std::vector<std::string> const badRevocation = {
                     "bad revocation"};
-                BEAST_EXPECT(!loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    emptyManifest,
-                    badRevocation));
+                BEAST_EXPECT(!loaded.loadConfig(emptyManifest, badRevocation));
 
                 auto const sk = randomSecretKey();
                 auto const keyType = KeyType::ed25519;
@@ -390,29 +710,18 @@ public:
                 std::vector<std::string> const nonRevocation = {
                     makeManifestString(pk, sk, kp.first, kp.second, 0)};
 
-                BEAST_EXPECT(!loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    emptyManifest,
-                    nonRevocation));
+                BEAST_EXPECT(!loaded.loadConfig(emptyManifest, nonRevocation));
                 BEAST_EXPECT(!loaded.revoked(pk));
 
                 std::vector<std::string> const badSigRevocation = {
                     makeRevocationString(sk, keyType, true)};
-                BEAST_EXPECT(!loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    emptyManifest,
-                    badSigRevocation));
+                BEAST_EXPECT(
+                    !loaded.loadConfig(emptyManifest, badSigRevocation));
                 BEAST_EXPECT(!loaded.revoked(pk));
 
                 std::vector<std::string> const cfgRevocation = {
                     makeRevocationString(sk, keyType)};
-                BEAST_EXPECT(loaded.load(
-                    *dbCon,
-                    "ValidatorManifests",
-                    emptyManifest,
-                    cfgRevocation));
+                BEAST_EXPECT(loaded.loadConfig(emptyManifest, cfgRevocation));
 
                 BEAST_EXPECT(loaded.revoked(pk));
             }
@@ -1073,6 +1382,11 @@ public:
                 ManifestDisposition::badMasterKey);
         }
 
+        testClone();
+        testAdmissionLimit();
+        testGossipMembership();
+        testWalletCompaction();
+        testSaveListedRequiresWallet();
         testLoadStore(cache);
         testGetSignature();
         testGetKeys();
