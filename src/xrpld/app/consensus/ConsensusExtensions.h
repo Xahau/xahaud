@@ -654,8 +654,7 @@ public:
     void
     publishBusy()
     {
-        std::lock_guard lock(busyMu_);
-        busyPublished_.store(computeBusyUnlocked(), std::memory_order_relaxed);
+        publishBusyAfter([] {});
     }
 
     // Phase changes happen in the tick, which is not a member. The store and
@@ -692,6 +691,19 @@ public:
     }
 
 private:
+    // Compute and store the busy flag under one busyMu_ critical section.
+    // afterCompute runs between the two, on the publishing thread, with
+    // busyMu_ held; tests use it to hold a computed value before its store.
+    template <class AfterCompute>
+    void
+    publishBusyAfter(AfterCompute&& afterCompute)
+    {
+        std::lock_guard lock(busyMu_);
+        auto const busy = computeBusyUnlocked();
+        afterCompute();
+        busyPublished_.store(busy, std::memory_order_relaxed);
+    }
+
     bool
     computeBusyUnlocked() const
     {
