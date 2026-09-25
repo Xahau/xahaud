@@ -5440,6 +5440,18 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         if (!world)
             return;
 
+        // Admission alone raises the flag; nothing else publishes here.
+        {
+            ConsensusExtensions admitting{env.app(), activeNoopJournal()};
+            admitting.startExportShareService();
+            admitting.onRoundStart(RCLCxLedger{world->originLedger}, {});
+            BEAST_EXPECT(!admitting.extensionsBusy());
+            BEAST_EXPECT(
+                admitting.onExportShare(world->share, {}).isAccepted());
+            BEAST_EXPECT(admitting.extensionsBusy());
+            BEAST_EXPECT(admitting.extensionsBusy() == admitting.computeBusy());
+        }
+
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         ce.startExportShareService();
         auto consistent = [&] {
