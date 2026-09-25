@@ -26,12 +26,6 @@
 
 namespace ripple {
 
-TxConsequences
-Invoke::makeTxConsequences(PreflightContext const& ctx)
-{
-    return TxConsequences{ctx.tx, TxConsequences::normal};
-}
-
 NotTEC
 Invoke::preflight(PreflightContext const& ctx)
 {
@@ -91,27 +85,6 @@ Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
     if (tx.isFieldPresent(sfBlob))
         extraFee +=
             XRPAmount{static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size())};
-
-    // old code (prior to fixXahauV1)
-    if (!view.rules().enabled(fixXahauV1))
-    {
-        if (tx.isFieldPresent(sfHookParameters))
-        {
-            uint64_t paramBytes = 0;
-            auto const& params = tx.getFieldArray(sfHookParameters);
-            for (auto const& param : params)
-            {
-                paramBytes +=
-                    (param.isFieldPresent(sfHookParameterName)
-                         ? param.getFieldVL(sfHookParameterName).size()
-                         : 0) +
-                    (param.isFieldPresent(sfHookParameterValue)
-                         ? param.getFieldVL(sfHookParameterValue).size()
-                         : 0);
-            }
-            extraFee += XRPAmount{static_cast<XRPAmount>(paramBytes)};
-        }
-    }
 
     return Transactor::calculateBaseFee(view, tx) + extraFee;
 }

@@ -27,9 +27,14 @@
 #include <xrpl/beast/utility/PropertyStream.h>
 #include <xrpl/protocol/Protocol.h>
 #include <boost/asio.hpp>
+#include <boost/filesystem/path.hpp>
 #include <boost/program_options.hpp>
+#include <boost/system/error_code.hpp>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <string>
+#include <vector>
 
 namespace ripple {
 
@@ -278,6 +283,27 @@ make_Application(
     std::unique_ptr<Config> config,
     std::unique_ptr<Logs> logs,
     std::unique_ptr<TimeKeeper> timeKeeper);
+
+/** Location of the receipt left behind when the server stops because it does
+    not support a network amendment. */
+boost::filesystem::path
+amendmentBlockedFilePath(Config const& config);
+
+/** Write the amendment-blocked receipt: a record for the operator of when the
+    server stopped and which amendments it could not support. `amendments`
+    holds one already-rendered line per unsupported amendment, and may be
+    empty. Best effort -- any error is returned rather than thrown, and the
+    caller is expected to continue shutting down either way. */
+boost::system::error_code
+writeAmendmentBlockedFile(
+    Config const& config,
+    std::vector<std::string> const& amendments);
+
+/** Remove any amendment-blocked receipt left behind by a previous run.
+    Returns true if a receipt was present and has been removed; sets `ec` if
+    removal was attempted and failed. */
+bool
+removeAmendmentBlockedFile(Config const& config, boost::system::error_code& ec);
 
 }  // namespace ripple
 

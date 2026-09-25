@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpl/basics/Log.h>
@@ -65,6 +66,29 @@ checkValidity(
                 Validity::SigBad,
                 "Emitted txn was not marked for preflight nor out of the "
                 "emission directory"};
+
+        std::string reason;
+        if (!passesLocalChecks(tx, reason))
+            return {Validity::SigGoodOnly, reason};
+
+        return {Validity::Valid, ""};
+    }
+
+    if (rules.enabled(featureOnChainManifests) &&
+        tx.getTxnType() == ttMANIFEST_SET &&
+        tx.isFieldPresent(sfTxnSignature) &&
+        tx.getFieldVL(sfTxnSignature).empty() &&
+        tx.isFieldPresent(sfSigningPubKey) &&
+        tx.getFieldVL(sfSigningPubKey).empty() && tx.isFieldPresent(sfManifest))
+    {
+        // perform alternative signature check over manifest
+        STObject const& manObj = const_cast<ripple::STTx&>(tx)
+                                     .getField(sfManifest)
+                                     .downcast<STObject>();
+
+        auto man = deserializeManifest(manObj);
+        if (!man.has_value() || !man->verify())
+            return {Validity::SigBad, "Manifest signature is bad"};
 
         std::string reason;
         if (!passesLocalChecks(tx, reason))

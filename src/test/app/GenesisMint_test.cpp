@@ -336,10 +336,7 @@ struct GenesisMint_test : public beast::unit_test::suite
             env.close();
 
             // validate emitted txn
-            auto const txResult = env.current()->rules().enabled(fixXahauV1)
-                ? "tesSUCCESS"
-                : "tecINTERNAL";
-            validateEmittedTxn(env, txResult, __LINE__);
+            validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
 
         // missing an amount
@@ -569,39 +566,25 @@ struct GenesisMint_test : public beast::unit_test::suite
             validateEmittedTxn(env, "tesSUCCESS", __LINE__);
         }
 
-        auto const amtResult = env.current()->rules().enabled(fixXahauV1)
-            ? 30000000ULL
-            : 10000000ULL;
         // try to include the same destination twice
-        {
-            auto const txResult = env.current()->rules().enabled(fixXahauV1)
-                ? ter(tesSUCCESS)
-                : ter(tecHOOK_REJECTED);
-            env(invoke::invoke(
-                    invoker,
-                    env.master,
-                    genesis::makeBlob({
-                        {greg.id(),
-                         XRP(10).value(),
-                         std::nullopt,
-                         std::nullopt},
-                        {greg.id(),
-                         XRP(10).value(),
-                         std::nullopt,
-                         std::nullopt},
-                    })),
-                fee(XRP(1)),
-                txResult);
-            env.close();
-            env.close();
-        }
+        env(invoke::invoke(
+                invoker,
+                env.master,
+                genesis::makeBlob({
+                    {greg.id(), XRP(10).value(), std::nullopt, std::nullopt},
+                    {greg.id(), XRP(10).value(), std::nullopt, std::nullopt},
+                })),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+        env.close();
 
         // check
         {
             auto const le = env.le(keylet::account(greg.id()));
             BEAST_EXPECT(
                 !!le &&
-                le->getFieldAmount(sfBalance).xrp().drops() == amtResult);
+                le->getFieldAmount(sfBalance).xrp().drops() == 30000000ULL);
         }
 
         // trip the supply cap invariant
@@ -626,7 +609,7 @@ struct GenesisMint_test : public beast::unit_test::suite
             auto const le = env.le(keylet::account(greg.id()));
             BEAST_EXPECT(
                 !!le &&
-                le->getFieldAmount(sfBalance).xrp().drops() == amtResult);
+                le->getFieldAmount(sfBalance).xrp().drops() == 30000000ULL);
 
             auto const postCoins = env.current()->info().drops;
             auto const txnFee =
@@ -698,7 +681,6 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testWithFeats(sa);
-        testWithFeats(sa - fixXahauV1);
         testWithFeats(sa - fixHookAPI20251128);
     }
 };

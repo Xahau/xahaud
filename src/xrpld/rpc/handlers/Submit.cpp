@@ -18,15 +18,20 @@
 //==============================================================================
 
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/SetManifest.h>  // makeSetManifestTx
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
+#include <xrpl/basics/strHex.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/resource/Fees.h>
 
@@ -89,9 +94,20 @@ doInject(RPC::JsonContext& context)
 Json::Value
 doSubmit(RPC::JsonContext& context)
 {
+    Json::Value jvResult;
+
     context.loadType = Resource::feeMediumBurdenRPC;
 
-    if (!context.params.isMember(jss::tx_blob))
+    bool const hasManifest = context.params.isMember(jss::manifest);
+    bool const hasTxBlob = context.params.isMember(jss::tx_blob);
+
+    if (hasManifest && hasTxBlob)
+    {
+        return RPC::make_error(
+            rpcINVALID_PARAMS,
+            "Specify exactly one of either `tx_blob` or `manifest`");
+    }
+    else if (!hasTxBlob && !hasManifest)
     {
         auto const failType = getFailHard(context);
 
@@ -117,9 +133,49 @@ doSubmit(RPC::JsonContext& context)
         return ret;
     }
 
-    Json::Value jvResult;
+    std::string txBlob =
+        hasTxBlob ? context.params[jss::tx_blob].asString() : "";
 
-    auto ret = strUnHex(context.params[jss::tx_blob].asString());
+    if (hasManifest)
+    {
+        // OnChainManifests amendment accepts a manifest submission here; turn
+        // it into the transaction that carries it and drop through to normal
+        // tx_blob processing below.
+        auto const view = context.app.openLedger().current();
+
+        // The transaction built below carries no account signature; its
+        // authority is the manifest's own master and ephemeral signatures,
+        // which checkValidity() only honours once the amendment is active.
+        // Without this the submitter is told their transaction is unsigned,
+        // which reads as their mistake. It isn't -- the feature is not live
+        // yet -- so say so before touching the manifest at all.
+        if (!view->rules().enabled(featureOnChainManifests))
+            return RPC::make_error(
+                rpcNOT_ENABLED,
+                "The OnChainManifests amendment is not enabled on this "
+                "network. Manifest submission will work once it activates; "
+                "nothing is wrong with this request.");
+
+        auto const raw = strUnHex(context.params[jss::manifest].asString());
+        if (!raw || raw->empty())
+            return rpcError(rpcINVALID_PARAMS);
+
+        auto const hex = makeSetManifestTx(
+            makeSlice(*raw),
+            context.app.config().NETWORK_ID,
+            *view,
+            context.app.journal("Submit"));
+
+        if (!hex)
+        {
+            jvResult[jss::error] = "invalidManifest";
+            return jvResult;
+        }
+
+        txBlob = *hex;
+    }
+
+    auto ret = strUnHex(txBlob);
 
     if (!ret || !ret->size())
         return rpcError(rpcINVALID_PARAMS);

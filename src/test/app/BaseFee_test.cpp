@@ -88,9 +88,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = fset(account, asfTshCollect);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -112,9 +110,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = acctdelete(account, bene);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "200000" : "200000";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "200000");
     }
 
     static uint256
@@ -142,9 +138,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = check::cancel(account, checkId);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -167,9 +161,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = check::cash(dest, checkId, XRP(100));
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -191,9 +183,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = check::create(account, dest, XRP(100));
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -214,9 +204,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = reward::claim(account);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -238,9 +226,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = deposit::auth(account, authed);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -262,9 +248,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = cancel(account, account, seq1);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -286,8 +270,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = escrow(account, dest, XRP(10));
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
+        std::string const feeResult = "16";
         testRPCCall(env, tx, feeResult);
     }
 
@@ -310,9 +293,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = finish(account, account, seq1);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -334,9 +315,7 @@ class BaseFee_test : public beast::unit_test::suite
             account, import::loadXpop(ImportTCAccountSet::w_seed));
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "106" : "100";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "106");
     }
 
     void
@@ -357,9 +336,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = invoke::invoke(account);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "16";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -381,9 +358,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = offer_cancel(account, offerSeq);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -406,9 +381,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = offer(account, USD(1000), XRP(1000));
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -430,9 +403,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = pay(account, dest, XRP(1));
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     static uint256
@@ -468,9 +439,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = paychan::claim(account, chan, reqBal, authAmt);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -494,9 +463,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = paychan::create(account, dest, XRP(10), settleDelay, pk);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -519,9 +486,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = paychan::fund(account, chan, XRP(1));
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -552,9 +517,7 @@ class BaseFee_test : public beast::unit_test::suite
         hookParams[jss::HookParameter][jss::HookParameterValue] = "DEADBEEF";
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "73022" : "73016";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "73022");
     }
 
     void
@@ -576,9 +539,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = regkey(account, dest);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "0" : "0";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "0");
     }
 
     void
@@ -601,9 +562,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = signers(account, 2, {{signer1, 1}, {signer2, 1}});
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -624,9 +583,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = ticket::create(account, 2);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -649,9 +606,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = trust(account, USD(1000));
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -675,9 +630,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = uritoken::burn(issuer, hexid);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -702,9 +655,7 @@ class BaseFee_test : public beast::unit_test::suite
         tx[jss::Amount] = "1000000";
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -728,9 +679,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = uritoken::cancel(issuer, hexid);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -757,8 +706,7 @@ class BaseFee_test : public beast::unit_test::suite
         tx[jss::Amount] = "1000000";
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
+        std::string const feeResult = "16";
         testRPCCall(env, tx, feeResult);
     }
 
@@ -781,9 +729,7 @@ class BaseFee_test : public beast::unit_test::suite
         auto tx = uritoken::mint(account, uri);
 
         // verify hooks fee
-        std::string const feeResult =
-            env.current()->rules().enabled(fixXahauV1) ? "16" : "10";
-        testRPCCall(env, tx, feeResult);
+        testRPCCall(env, tx, "16");
     }
 
     void
@@ -827,7 +773,6 @@ public:
         using namespace test::jtx;
         auto const sa = supported_amendments();
         testWithFeats(sa);
-        testWithFeats(sa - fixXahauV1);
     }
 };
 
