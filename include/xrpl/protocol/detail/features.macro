@@ -34,6 +34,7 @@
 // If you add an amendment here, then do not forget to increment `numFeatures`
 // in include/xrpl/protocol/Feature.h.
 
+XRPL_FEATURE(HookOnV2_1,                 Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(OnChainManifests,           Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (HookMap,                    Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (GuardDepth32,               Supported::yes, VoteBehavior::DefaultNo)
@@ -65,9 +66,9 @@ XRPL_FEATURE(XChainBridge,               Supported::no,  VoteBehavior::DefaultNo
 XRPL_FEATURE(AMM,                        Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (ReducedOffersV1,            Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(HooksUpdate2,               Supported::yes, VoteBehavior::DefaultNo)
-XRPL_FEATURE(HookOnV2,                   Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(Export,                     Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(ConsensusEntropy,           Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FEATURE(HookOnV2,                   Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FIX    (HookAPI20251128,            Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (CronStacking,               Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(ExtendedHookState,          Supported::yes, VoteBehavior::DefaultNo)
