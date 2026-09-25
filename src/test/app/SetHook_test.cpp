@@ -336,9 +336,7 @@ public:
         iv[jss::CreateCode] = "";
         jv[jss::Hooks][0U][jss::Hook] = iv;
 
-        bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-        auto const txResult = fixV1 ? ter(tesSUCCESS) : ter(tefBAD_LEDGER);
-        env(jv, HSFEE, txResult);
+        env(jv, HSFEE, ter(tesSUCCESS));
         env.close();
     }
 
@@ -1400,11 +1398,16 @@ public:
         auto const baseFee = drops[jss::base_fee_no_hooks];
         BEAST_EXPECT(baseFee == to_string(feeDrops));
         auto const openLedgerFee = drops[jss::open_ledger_fee];
-        BEAST_EXPECT(openLedgerFee == expected);
+        BEAST_EXPECTS(
+            openLedgerFee == expected,
+            "openLedgerFee: " + openLedgerFee.asString() +
+                ", expected: " + expected);
 
         // verify hooks fee
         auto const hooksFee = jrr[jss::result][jss::fee_hooks_feeunits];
-        BEAST_EXPECT(hooksFee == expected);
+        BEAST_EXPECTS(
+            hooksFee == expected,
+            "hooksFee: " + hooksFee.asString() + ", expected: " + expected);
     }
 
     void
@@ -1414,7 +1417,8 @@ public:
         using namespace jtx;
         Env env{*this, features - featureHookFeeV2};
 
-        bool const hookOnV2 = env.current()->rules().enabled(featureHookOnV2);
+        bool const hookOnV2 = env.current()->rules().enabled(featureHookOnV2) ||
+            env.current()->rules().enabled(featureHookOnV2_1);
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -1577,12 +1581,10 @@ public:
                 jv.removeMember(jss::HookOn);
                 jv[jss::HookOnIncoming] =
                     "0000000000000000000000000000000000000000000000000000000000"
-                    "0000"
-                    "00";
+                    "000000";
                 jv[jss::HookOnOutgoing] =
                     "0000000000000000000000000000000000000000000000000000000000"
-                    "0000"
-                    "01";
+                    "000001";
                 env(ripple::test::jtx::hook(alice, {{jv}}, 0),
                     M("Execution: Install"),
                     HSFEE);
@@ -1647,12 +1649,10 @@ public:
                 jv.removeMember(jss::HookOn);
                 jv[jss::HookOnIncoming] =
                     "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
-                    "bfff"
-                    "ff";  // Invoke high
+                    "bfffff";  // Invoke high
                 jv[jss::HookOnOutgoing] =
                     "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-                    "bfff"
-                    "fe";  // Payment high
+                    "bffffe";  // Payment high
                 env(ripple::test::jtx::hook(alice, {{jv}}, 0),
                     M("Execution: Install"),
                     HSFEE);
@@ -1663,8 +1663,7 @@ public:
             jv[jss::Flags] = hsfOVERRIDE;
             jv[jss::HookOn] =
                 "0000000000000000000000000000000000000000000000000000000000"
-                "0000"
-                "00";
+                "000000";
             env(ripple::test::jtx::hook(alice, {{jv}}, 0),
                 M("Execution: Install"),
                 HSFEE);
@@ -1698,18 +1697,285 @@ public:
             deleteHook(alice);
         }
 
+        for (auto const& withFix : {false, true})
+        {
+            // test featureHookOnV2_1 preflight
+            auto f = features - featureHookOnV2 - featureHookOnV2_1;
+            if (withFix)
+                f = f | featureHookOnV2_1;
+            else
+                f = f | featureHookOnV2;
+            Env env{*this, f};
+
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            TER const expected =
+                env.current()->rules().enabled(featureHookOnV2_1)
+                ? TER(temMALFORMED)
+                : TER(tesSUCCESS);
+
+            // 0. only one direction HookOn is not allowed
+            for (auto const& key : {jss::HookOnIncoming, jss::HookOnOutgoing})
+            {
+                auto noopJv = Json::Value{};
+                noopJv[key] =
+                    "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
+                    "bfffff";
+
+                env(ripple::test::jtx::hook(alice, {{noopJv}}, 0),
+                    M("Lone direction HookOn NOOP"),
+                    HSFEE,
+                    ter(expected));
+                env.close();
+
+                if (!withFix)
+                    BEAST_EXPECT(!env.le(keylet::hook(alice)));
+            }
+
+            // 1. Create Hook with HookOnIncoming/Outgoing to alice
+            auto jv = hso(accept_wasm);
+            jv.removeMember(jss::HookOn);
+            jv[jss::HookOnIncoming] =
+                "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
+                "bfffff";  // Invoke high
+            jv[jss::HookOnOutgoing] =
+                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                "bffffe";  // Payment high
+            env(ripple::test::jtx::hook(alice, {{jv}}, 0), HSFEE);
+            env.close();
+
+            // 2. Install Hook with HookOn, Incoming/Outgoing to bob
+            jv = Json::Value{};
+            jv[jss::HookHash] = accept_hash_str;
+            jv[jss::Flags] = hsfOVERRIDE;
+            jv[jss::HookOn] =
+                "0000000000000000000000000000000000000000000000000000000000"
+                "000000";
+            jv[jss::HookOnIncoming] =
+                "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
+                "bfffff";  // Invoke high
+            jv[jss::HookOnOutgoing] =
+                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                "bffffe";  // Payment high
+            env(ripple::test::jtx::hook(bob, {{jv}}, 0), HSFEE, ter(expected));
+            env.close();
+
+            // 3. Update Hook with HookOn, Incoming/Outgoing to alice
+            jv = Json::Value{};
+            jv[jss::HookOn] =
+                "0000000000000000000000000000000000000000000000000000000000"
+                "000000";
+            jv[jss::HookOnIncoming] =
+                "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
+                "bfffff";  // Invoke high
+            jv[jss::HookOnOutgoing] =
+                "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                "bffffe";  // Payment high
+            env(ripple::test::jtx::hook(alice, {{jv}}, 0),
+                HSFEE,
+                ter(expected));
+            env.close();
+        }
+
+        for (auto const& withFix : {false, true})
+        {
+            // test featureHookOnV2_1 install/update
+            auto f = features - featureHookOnV2 - featureHookOnV2_1;
+            if (withFix)
+                f = f | featureHookOnV2_1;
+            else
+                f = f | featureHookOnV2;
+
+            {
+                // install:: HookDefinition: HookOn -> Hook:Incoming/Outgoing
+                // update:: Hook: HookOn -> Hook:Incoming/Outgoing
+                Env env{*this, f};
+
+                env.fund(XRP(10000), alice, bob);
+                env.close();
+
+                // Create Hook with HookOn to alice
+                auto jv = hso(accept_wasm);
+                jv.removeMember(jss::HookOn);
+                jv[jss::HookOn] =
+                    "0000000000000000000000000000000000000000000000000000000000"
+                    "000000";
+                env(ripple::test::jtx::hook(alice, {{jv}}, 0), HSFEE);
+                env.close();
+
+                // Install Hook with Incoming/Outgoing to bob
+                jv = Json::Value{};
+                jv[jss::HookHash] = accept_hash_str;
+                jv[jss::Flags] = hsfOVERRIDE;
+                jv[jss::HookOnIncoming] =
+                    "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
+                    "bfffff";  // Invoke high
+                jv[jss::HookOnOutgoing] =
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                    "bffffe";  // Payment high
+                env(ripple::test::jtx::hook(bob, {{jv}}, 0), HSFEE);
+                env.close();
+                {
+                    auto const hooksObj = env.le(keylet::hook(bob));
+                    BEAST_EXPECT(hooksObj && hooksObj->isFieldPresent(sfHooks));
+                    auto const& hooks = hooksObj->getFieldArray(sfHooks);
+                    BEAST_EXPECT(hooks.size() == 1);
+                    auto const& h = hooks[0];
+                    BEAST_EXPECT(!h.isFieldPresent(sfHookOn));
+                    BEAST_EXPECT(h.isFieldPresent(sfHookOnOutgoing));
+                    BEAST_EXPECT(h.isFieldPresent(sfHookOnIncoming));
+                }
+
+                // Update Hook with HookOn, Incoming/Outgoing to alice
+                jv = Json::Value{};
+                jv[jss::HookOnIncoming] =
+                    "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
+                    "bfffff";  // Invoke high
+                jv[jss::HookOnOutgoing] =
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                    "bffffe";  // Payment high
+                env(ripple::test::jtx::hook(alice, {{jv}}, 0), HSFEE);
+                env.close();
+                {
+                    auto const hooksObj = env.le(keylet::hook(alice));
+                    BEAST_EXPECT(hooksObj && hooksObj->isFieldPresent(sfHooks));
+                    auto const& hooks = hooksObj->getFieldArray(sfHooks);
+                    BEAST_EXPECT(hooks.size() == 1);
+                    auto const& h = hooks[0];
+                    BEAST_EXPECT(!h.isFieldPresent(sfHookOn));
+                    BEAST_EXPECT(h.isFieldPresent(sfHookOnOutgoing));
+                    BEAST_EXPECT(h.isFieldPresent(sfHookOnIncoming));
+                }
+
+                // Re-update Hook with HookOn, Incoming/Outgoing to alice
+                jv = Json::Value{};
+                jv[jss::HookOn] =
+                    "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
+                    "bfffff";
+                env(ripple::test::jtx::hook(alice, {{jv}}, 0), HSFEE);
+                env.close();
+                {
+                    auto const hooksObj = env.le(keylet::hook(alice));
+                    BEAST_EXPECT(hooksObj && hooksObj->isFieldPresent(sfHooks));
+                    auto const& hooks = hooksObj->getFieldArray(sfHooks);
+                    BEAST_EXPECT(hooks.size() == 1);
+                    auto const& h = hooks[0];
+                    BEAST_EXPECT(h.isFieldPresent(sfHookOn));
+                    if (withFix)
+                    {
+                        BEAST_EXPECT(!h.isFieldPresent(sfHookOnOutgoing));
+                        BEAST_EXPECT(!h.isFieldPresent(sfHookOnIncoming));
+                    }
+                    else
+                    {
+                        BEAST_EXPECT(h.isFieldPresent(sfHookOnOutgoing));
+                        BEAST_EXPECT(h.isFieldPresent(sfHookOnIncoming));
+                    }
+                }
+            }
+
+            {
+                // install:: HookDefinition: Incoming/Outgoing -> Hook:HookOn
+                // update:: Hook: Incoming/Outgoing -> Hook:HookOn
+                Env env{*this, f};
+
+                env.fund(XRP(10000), alice, bob);
+                env.close();
+
+                // Create Hook with HookOn to alice
+                auto jv = hso(accept_wasm);
+                jv.removeMember(jss::HookOn);
+                jv[jss::HookOnIncoming] =
+                    "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
+                    "bfffff";  // Invoke high
+                jv[jss::HookOnOutgoing] =
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                    "bffffe";  // Payment high
+                env(ripple::test::jtx::hook(alice, {{jv}}, 0), HSFEE);
+                env.close();
+
+                // Install Hook with Incoming/Outgoing to bob
+                jv = Json::Value{};
+                jv[jss::HookHash] = accept_hash_str;
+                jv[jss::Flags] = hsfOVERRIDE;
+                jv[jss::HookOn] =
+                    "0000000000000000000000000000000000000000000000000000000000"
+                    "000000";
+                env(ripple::test::jtx::hook(bob, {{jv}}, 0), HSFEE);
+                env.close();
+                {
+                    auto const hooksObj = env.le(keylet::hook(bob));
+                    BEAST_EXPECT(hooksObj && hooksObj->isFieldPresent(sfHooks));
+                    auto const& hooks = hooksObj->getFieldArray(sfHooks);
+                    BEAST_EXPECT(hooks.size() == 1);
+                    auto const& h = hooks[0];
+                    BEAST_EXPECT(h.isFieldPresent(sfHookOn));
+                    BEAST_EXPECT(!h.isFieldPresent(sfHookOnOutgoing));
+                    BEAST_EXPECT(!h.isFieldPresent(sfHookOnIncoming));
+                }
+
+                // Update Hook with HookOn, Incoming/Outgoing to alice
+                jv = Json::Value{};
+                jv[jss::HookOn] =
+                    "0000000000000000000000000000000000000000000000000000000000"
+                    "000000";
+                env(ripple::test::jtx::hook(alice, {{jv}}, 0), HSFEE);
+                env.close();
+                {
+                    auto const hooksObj = env.le(keylet::hook(alice));
+                    BEAST_EXPECT(hooksObj && hooksObj->isFieldPresent(sfHooks));
+                    auto const& hooks = hooksObj->getFieldArray(sfHooks);
+                    BEAST_EXPECT(hooks.size() == 1);
+                    auto const& h = hooks[0];
+                    if (withFix)
+                        BEAST_EXPECT(h.isFieldPresent(sfHookOn));
+                    // Cause different results between gcc and clang due to
+                    // undefined behavior so we don't test it
+                    // else
+                    //     BEAST_EXPECT(!h.isFieldPresent(sfHookOn));
+                    BEAST_EXPECT(!h.isFieldPresent(sfHookOnOutgoing));
+                    BEAST_EXPECT(!h.isFieldPresent(sfHookOnIncoming));
+                }
+
+                // Re-update Hook with HookOn, Incoming/Outgoing to alice
+                jv = Json::Value{};
+                jv[jss::HookOnIncoming] =
+                    "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
+                    "bffff0";  // Invoke high
+                jv[jss::HookOnOutgoing] =
+                    "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                    "bffff1";  // Payment high
+                env(ripple::test::jtx::hook(alice, {{jv}}, 0), HSFEE);
+                env.close();
+                {
+                    auto const hooksObj = env.le(keylet::hook(alice));
+                    BEAST_EXPECT(hooksObj && hooksObj->isFieldPresent(sfHooks));
+                    auto const& hooks = hooksObj->getFieldArray(sfHooks);
+                    BEAST_EXPECT(hooks.size() == 1);
+                    auto const& h = hooks[0];
+                    if (withFix)
+                        BEAST_EXPECT(!h.isFieldPresent(sfHookOn));
+                    // Cause different results between gcc and clang due to
+                    // undefined behavior so we don't test it
+                    // else
+                    //     BEAST_EXPECT(h.isFieldPresent(sfHookOn));
+                    BEAST_EXPECT(h.isFieldPresent(sfHookOnOutgoing));
+                    BEAST_EXPECT(h.isFieldPresent(sfHookOnIncoming));
+                }
+            }
+        }
+
         // Fee RPC
         {
             auto jv = hso(accept_wasm);
             jv.removeMember(jss::HookOn);
             jv[jss::HookOnIncoming] =
                 "fffffffffffffffffffffffffffffffffffffff7ffffffffffffffffff"
-                "bfff"
-                "ff";  // Invoke high
+                "bfffff";  // Invoke high
             jv[jss::HookOnOutgoing] =
                 "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-                "bfff"
-                "fe";  // Payment high
+                "bffffe";  // Payment high
             env(ripple::test::jtx::hook(alice, {{jv}}, 0), HSFEE);
             env.close();
 
@@ -3061,25 +3327,37 @@ public:
     testInferHookSetOperation()
     {
         testcase("Test operation inference");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        Env env{*this};
+        env.fund(XRP(10000), alice);
+        env(noop(alice));
+
+        SetHookCtx shCtx{
+            .j = env.app().journal("SetHook"),
+            .tx = *(env.tx()),
+            .app = env.app(),
+            .rules = env.current()->rules()};
 
         // hsoNOOP
         {
             STObject hso{sfHook};
-            BEAST_EXPECT(SetHook::inferOperation(hso) == hsoNOOP);
+            BEAST_EXPECT(SetHook::inferOperation(shCtx, hso) == hsoNOOP);
         }
 
         // hsoCREATE
         {
             STObject hso{sfHook};
             hso.setFieldVL(sfCreateCode, {1});  // non-empty create code
-            BEAST_EXPECT(SetHook::inferOperation(hso) == hsoCREATE);
+            BEAST_EXPECT(SetHook::inferOperation(shCtx, hso) == hsoCREATE);
         }
 
         // hsoDELETE
         {
             STObject hso{sfHook};
             hso.setFieldVL(sfCreateCode, ripple::Blob{});  // empty create code
-            BEAST_EXPECT(SetHook::inferOperation(hso) == hsoDELETE);
+            BEAST_EXPECT(SetHook::inferOperation(shCtx, hso) == hsoDELETE);
         }
 
         // hsoINSTALL
@@ -3087,7 +3365,7 @@ public:
             STObject hso{sfHook};
             hso.setFieldH256(
                 sfHookHash, uint256{beast::zero});  // all zeros hook hash
-            BEAST_EXPECT(SetHook::inferOperation(hso) == hsoINSTALL);
+            BEAST_EXPECT(SetHook::inferOperation(shCtx, hso) == hsoINSTALL);
         }
 
         // hsoNSDELETE
@@ -3096,14 +3374,14 @@ public:
             hso.setFieldH256(
                 sfHookNamespace, uint256{beast::zero});  // all zeros hook hash
             hso.setFieldU32(sfFlags, hsfNSDELETE);
-            BEAST_EXPECT(SetHook::inferOperation(hso) == hsoNSDELETE);
+            BEAST_EXPECT(SetHook::inferOperation(shCtx, hso) == hsoNSDELETE);
         }
 
         // hsoUPDATE
         {
             STObject hso{sfHook};
             hso.setFieldH256(sfHookOn, UINT256_BIT[0]);
-            BEAST_EXPECT(SetHook::inferOperation(hso) == hsoUPDATE);
+            BEAST_EXPECT(SetHook::inferOperation(shCtx, hso) == hsoUPDATE);
         }
 
         // hsoINVALID
@@ -3112,7 +3390,39 @@ public:
             hso.setFieldVL(sfCreateCode, {1});  // non-empty create code
             hso.setFieldH256(
                 sfHookHash, uint256{beast::zero});  // all zeros hook hash
-            BEAST_EXPECT(SetHook::inferOperation(hso) == hsoINVALID);
+            BEAST_EXPECT(SetHook::inferOperation(shCtx, hso) == hsoINVALID);
+
+            for (auto fix : {true, false})
+            {
+                auto feature = supported_amendments() - featureHookOnV2 -
+                    featureHookOnV2_1;
+                if (fix)
+                    feature = feature | featureHookOnV2_1;
+                else
+                    feature = feature | featureHookOnV2;
+                Env env{*this, feature};
+                SetHookCtx shCtx{
+                    .j = env.app().journal("SetHook"),
+                    .tx = *env.tx(),
+                    .app = env.app(),
+                    .rules = env.current()->rules()};
+
+                STObject hso2{sfHook};
+                hso2.setFieldH256(
+                    sfHookOnOutgoing,
+                    uint256{beast::zero});  // all zeros hook on outgoing
+                BEAST_EXPECT(
+                    SetHook::inferOperation(shCtx, hso2) ==
+                    (fix ? hsoINVALID : hsoNOOP));
+
+                STObject hso3{sfHook};
+                hso3.setFieldH256(
+                    sfHookOnIncoming,
+                    uint256{beast::zero});  // all zeros hook on incoming
+                BEAST_EXPECT(
+                    SetHook::inferOperation(shCtx, hso3) ==
+                    (fix ? hsoINVALID : hsoNOOP));
+            }
         }
     }
 
@@ -3867,8 +4177,6 @@ public:
 
         env(invoke, M("test emit"), fee(XRP(1)));
 
-        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-
         std::optional<uint256> emithash;
         {
             auto meta = env.meta();  // meta can close
@@ -3878,9 +4186,7 @@ public:
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
             auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
-            BEAST_EXPECT(
-                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
-                                                                       : false);
+            BEAST_EXPECT(hookEmissions[0u].isFieldPresent(sfEmitNonce));
             BEAST_EXPECT(
                 hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
 
@@ -3975,8 +4281,7 @@ public:
                 BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
-                if (fixV2)
-                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             env.close();
             burden_expected *= 2U;
@@ -4000,8 +4305,7 @@ public:
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU64(sfHookReturnCode) ==
                     283);  // emission failure on first emit
-                if (fixV2)
-                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             BEAST_EXPECT(txcount == 256);
         }
@@ -4258,8 +4562,6 @@ public:
 
         env(invoke, M("test emit"), fee(XRP(1)));
 
-        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-
         std::optional<uint256> emithash;
         {
             auto meta = env.meta();  // meta can close
@@ -4269,9 +4571,7 @@ public:
             BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
 
             auto const hookEmissions = meta->getFieldArray(sfHookEmissions);
-            BEAST_EXPECT(
-                hookEmissions[0u].isFieldPresent(sfEmitNonce) == fixV2 ? true
-                                                                       : false);
+            BEAST_EXPECT(hookEmissions[0u].isFieldPresent(sfEmitNonce));
             BEAST_EXPECT(
                 hookEmissions[0u].getAccountID(sfHookAccount) == alice.id());
 
@@ -4366,8 +4666,7 @@ public:
                 BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU16(sfHookEmitCount) == 2);
-                if (fixV2)
-                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             env.close();
             burden_expected *= 2U;
@@ -4391,8 +4690,7 @@ public:
                 BEAST_EXPECT(
                     hookExecutions[0].getFieldU64(sfHookReturnCode) ==
                     172);  // emission failure on first emit
-                if (fixV2)
-                    BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
+                BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 2);
             }
             BEAST_EXPECT(txcount == 256);
         }
@@ -4455,7 +4753,10 @@ public:
 
                 uint8_t expected1[16] = {
                     0xEDU, 0x20U, 0x2EU, 0x00U, 0x00U, 0x00U, 0x01U, 0x3DU, 0x00U, 0x00U,
-                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 
+                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x5BU, 0xBCU, 0x09U, 0x95U,
+                    0xFDU, 0x03U, 0x0FU, 0xF1U, 0x85U, 0xF4U, 0xECU, 0xACU, 0x94U, 0xDBU,
+                    0x02U, 0x19U, 0x26U, 0xFEU, 0x58U, 0xD4U, 0x8DU, 0x48U, 0x21U, 0xCCU,
+                    0x82U, 0x2EU, 0x4AU, 0x6AU, 0xC9U, 0xC8U, 0xC6U, 0x7CU, 0x88U
                 };
                 // 0x5B
                 // EmitParentTxnID 32bytes
@@ -7230,12 +7531,8 @@ public:
         BEAST_REQUIRE(hookExecutions.size() == 2);
 
         // get the data in the return code of the execution
-        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-        if (fixV2)
-        {
-            BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 5);
-            BEAST_EXPECT(hookExecutions[1].getFieldU32(sfFlags) == 0);
-        }
+        BEAST_EXPECT(hookExecutions[0].getFieldU32(sfFlags) == 5);
+        BEAST_EXPECT(hookExecutions[1].getFieldU32(sfFlags) == 0);
 
         BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
         BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
@@ -10444,19 +10741,13 @@ public:
                 fee(XRP(1)));
         }
 
-        // fixXahauV1
-        bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-        auto const txResult = fixV1 ? ter(tecHOOK_REJECTED) : ter(tesSUCCESS);
         env(pay(bob, alice, XRP(1)),
             M("test state_foreign_set_max"),
             fee(XRP(1)),
-            ter(txResult));
+            ter(tecHOOK_REJECTED));
         env.close();
 
         // verify hook result
-        // TOO_MANY_NAMESPACES / -45
-        std::string const hookResult = fixV1 ? "800000000000002d" : "9";
-
         Json::Value params;
         params[jss::transaction] =
             env.tx()->getJson(JsonOptions::none)[jss::hash];
@@ -10464,7 +10755,9 @@ public:
         auto const meta = jrr[jss::result][jss::meta];
         auto const executions = meta[sfHookExecutions.jsonName];
         auto const execution = executions[0u][sfHookExecution.jsonName];
-        BEAST_EXPECT(execution[sfHookReturnCode.jsonName] == hookResult);
+        // TOO_MANY_NAMESPACES / -45
+        BEAST_EXPECT(
+            execution[sfHookReturnCode.jsonName] == "800000000000002d");
     }
 
     void
@@ -15616,7 +15909,8 @@ public:
         testNSDeletePartial(features);
         testPageCap(features);
 
-        testHookOnV2(features);
+        testHookOnV2((features | featureHookOnV2) - featureHookOnV2_1);
+        testHookOnV2((features | featureHookOnV2_1) - featureHookOnV2);
         testHookName(features);
 
         testFillCopy(features);
@@ -15722,17 +16016,16 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 9> const feats{
+        static std::array<FeatureBitset, 8> const feats{
             all,
             all - featureHookFeeV3,
             all - featureHookFeeV2 - featureHookFeeV3,
-            all - fixXahauV2 - featureHookFeeV2,
-            all - fixXahauV1 - fixXahauV2 - featureHookFeeV2,
-            all - fixXahauV1 - fixXahauV2 - fixNSDelete - featureHookFeeV2,
-            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
+            all - fixNSDelete - featureHookFeeV2,
+            all - fixNSDelete - fixPageCap - featureHookFeeV2,
+            all - fixNSDelete - fixPageCap - featureHookCanEmit -
                 featureHookFeeV2,
-            all - fixXahauV1 - fixXahauV2 - fixNSDelete - fixPageCap -
-                featureExtendedHookState - featureHookFeeV2,
+            all - fixNSDelete - fixPageCap - featureExtendedHookState -
+                featureHookFeeV2,
             all - featureNamedHooks - featureHookFeeV2,
         };
 
@@ -15995,8 +16288,7 @@ SETHOOK_TEST(3, false)
 SETHOOK_TEST(4, false)
 SETHOOK_TEST(5, false)
 SETHOOK_TEST(6, false)
-SETHOOK_TEST(7, false)
-SETHOOK_TEST(8, true)
+SETHOOK_TEST(7, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
@@ -16006,7 +16298,6 @@ BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook6, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook7, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHook8, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M

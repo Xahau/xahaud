@@ -821,17 +821,9 @@ Import::preflight(PreflightContext const& ctx)
                         << " validation count: " << validationCount;
 
     // check if the validation count is adequate
-    auto hasInsufficientQuorum =
-        [&ctx](uint64_t quorum, uint64_t validationCount) {
-            if (ctx.rules.enabled(fixXahauV1))
-            {
-                return quorum > validationCount;
-            }
-            else
-            {
-                return quorum >= validationCount;
-            }
-        };
+    auto hasInsufficientQuorum = [](uint64_t quorum, uint64_t validationCount) {
+        return quorum > validationCount;
+    };
     if (hasInsufficientQuorum(quorum, validationCount))
     {
         JLOG(ctx.j.warn()) << "Import: xpop did not contain an 80% quorum for "
@@ -1315,12 +1307,7 @@ Import::doApply()
     if (create)
     {
         // Create the account.
-        std::uint32_t const seqno{
-            view().rules().enabled(featureXahauGenesis)
-                ? view().info().parentCloseTime.time_since_epoch().count()
-                : view().rules().enabled(featureDeletableAccounts)
-                ? view().seq()
-                : 1};
+        std::uint32_t const seqno = newAccountSeqNo(view());
 
         sle = std::make_shared<SLE>(keylet::account(id));
         sle->setAccountID(sfAccount, id);

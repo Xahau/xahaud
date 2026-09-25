@@ -27,12 +27,6 @@
 
 namespace ripple {
 
-TxConsequences
-CronSet::makeTxConsequences(PreflightContext const& ctx)
-{
-    return TxConsequences{ctx.tx, TxConsequences::normal};
-}
-
 NotTEC
 CronSet::preflight(PreflightContext const& ctx)
 {
