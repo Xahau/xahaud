@@ -34,9 +34,11 @@ std::unique_ptr<Server>
 make_Server(
     Handler& handler,
     boost::asio::io_service& io_service,
-    beast::Journal journal)
+    beast::Journal journal,
+    Application& app)
 {
-    return std::make_unique<ServerImpl<Handler>>(handler, io_service, journal);
+    return std::make_unique<ServerImpl<Handler>>(
+        handler, io_service, journal, app);
 }
 
 }  // namespace ripple

@@ -129,3 +129,5 @@ generated
 
 # Suggested in-tree build directory
 /.build/
+xb-build/
+xb-cache/

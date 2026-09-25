@@ -93,6 +93,12 @@ struct Port
         return protocol.count("udp") > 0;
     }
 
+    bool
+    has_peer() const
+    {
+        return protocol.count("peer") > 0;
+    }
+
     // Maximum UDP packet size (default 64KB)
     std::size_t udp_packet_size = 65536;
 };
