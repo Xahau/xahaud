@@ -5512,6 +5512,22 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         BEAST_EXPECT(ce.estState_ == EstablishState::ConvergingReveal);
         BEAST_EXPECT(ce.extensionsBusy());
         BEAST_EXPECT(consistent());
+        // The round's parent, sequence and pending Export eligibility survive
+        // the build, independently of the establish phase.
+        auto const buildSeq = world->originLedger->info().seq + 1;
+        {
+            std::lock_guard lock(ce.busyMu_);
+            BEAST_EXPECT(ce.buildingLedgerSeq_ == buildSeq);
+            BEAST_EXPECT(
+                ce.roundPrevLedgerHash_ == world->originLedger->info().hash);
+            BEAST_EXPECT(
+                ce.roundParentLedger_ &&
+                ce.roundParentLedger_->info().hash ==
+                    world->originLedger->info().hash);
+        }
+        BEAST_EXPECT(ce.pendingRoundExports(buildSeq).contains(world->origin));
+        BEAST_EXPECT(ce.hasPendingExportSigs());
+        BEAST_EXPECT(hasContribution());
 
         // A new round resets the phase. The admitted share is still pending
         // for a live latch, so the flag stays raised.
