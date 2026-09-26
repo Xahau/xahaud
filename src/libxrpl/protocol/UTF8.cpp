@@ -24,9 +24,11 @@ namespace ripple {
 bool
 isValidUTF8(std::uint8_t const* data, std::size_t size) noexcept
 {
-    // Table-free decoder in the style of Markus Kuhn's utf8_check.c. Each
-    // branch establishes that the whole sequence is present before reading
-    // any continuation byte, so a truncated tail is simply invalid.
+    // Markus Kuhn's utf8_check.c
+    // (https://www.cl.cam.ac.uk/~mgk25/ucs/utf8_check.c), the decoder
+    // URIToken has always used, with one change: each branch establishes
+    // that the whole sequence is present before reading any continuation
+    // byte, so a truncated tail is invalid rather than an out-of-bounds read.
     std::size_t i = 0;
     while (i < size)
     {
@@ -63,6 +65,9 @@ isValidUTF8(std::uint8_t const* data, std::size_t size) noexcept
             if (c0 == 0xE0 && (c1 & 0xE0) == 0x80)  // overlong
                 return false;
             if (c0 == 0xED && (c1 & 0xE0) == 0xA0)  // UTF-16 surrogate
+                return false;
+            if (c0 == 0xEF && c1 == 0xBF &&
+                (data[i + 2] & 0xFE) == 0xBE)  // U+FFFE or U+FFFF
                 return false;
             i += 3;
             continue;

@@ -25,22 +25,34 @@
 
 namespace ripple {
 
-/** Check that a byte sequence is well-formed UTF-8.
+/** Check that a byte sequence is well-formed UTF-8, excluding the two
+    noncharacters U+FFFE and U+FFFF.
 
-    Rejects overlong encodings, UTF-16 surrogate halves (U+D800..U+DFFF),
-    scalar values above U+10FFFF, stray continuation bytes, 0xF8..0xFF lead
-    bytes, and truncated multi-byte sequences.
+    Rejects:
+      - overlong encodings;
+      - UTF-16 surrogate halves (U+D800..U+DFFF);
+      - scalar values above U+10FFFF, and 0xF5..0xFF lead bytes;
+      - stray continuation bytes;
+      - multi-byte sequences truncated by the end of the buffer;
+      - U+FFFE and U+FFFF (EF BF BE, EF BF BF).
 
-    Noncharacters such as U+FFFE and U+FFFF are accepted: they are
-    well-formed UTF-8 and are permitted in interchange. Callers that must
-    preserve the historical rejection of those two code points do so on top
-    of this check (see URIToken::validateUTF8).
+    U+FFFE and U+FFFF are well-formed, but have no use in a URI or a name
+    and exist to be misread: U+FFFE is a byte-swapped BOM, so a client that
+    transcodes to UTF-16/32 and sniffs the byte order can be pushed into
+    decoding the rest of the string with the wrong endianness, and both are
+    commonly used as in-band sentinels. They have always been rejected by
+    URIToken and HookName validation, and this function preserves that.
+
+    This is consensus-critical. For every input the previous decoder could
+    evaluate without reading past the end of the buffer, the result is
+    identical to it. The only difference is that truncated trailing
+    sequences, where the previous decoder read out of bounds, are now always
+    rejected. Any further change to what this accepts needs an amendment.
 
     @param data Pointer to the first byte; may be nullptr iff size is 0.
     @param size Length in bytes.
 
-    @note Total: every byte read is within [data, data + size), so a
-          sequence truncated by the end of the buffer is simply invalid.
+    @note Total: every byte read is within [data, data + size).
 */
 bool
 isValidUTF8(std::uint8_t const* data, std::size_t size) noexcept;

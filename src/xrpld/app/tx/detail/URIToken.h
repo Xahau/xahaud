@@ -31,39 +31,10 @@ namespace ripple {
 class URIToken : public Transactor
 {
 public:
-    /** Validate a byte sequence as UTF-8.
-
-        Well-formedness is checked by ripple::isValidUTF8, which never reads
-        past the end of the buffer. The one consensus-visible difference
-        across fixUTF8Noncharacters is the treatment of U+FFFE and U+FFFF:
-        before the amendment they were rejected; they are well-formed UTF-8
-        and noncharacters are permitted in interchange, so the amendment
-        accepts them.
-
-        @param permitNoncharacters Pass rules.enabled(fixUTF8Noncharacters).
-               Deliberately has no default, so that every caller is forced to
-               take the rules into account.
-    */
-    bool inline static validateUTF8(
-        std::vector<uint8_t> const& u,
-        bool permitNoncharacters)
+    /** Validate a URI or HookName as UTF-8. See ripple::isValidUTF8. */
+    bool inline static validateUTF8(std::vector<uint8_t> const& u)
     {
-        if (!isValidUTF8(u.data(), u.size()))
-            return false;
-
-        if (permitNoncharacters)
-            return true;
-
-        // Pre-amendment behaviour: reject U+FFFE and U+FFFF, which encode as
-        // EF BF BE and EF BF BF. UTF-8 is self-synchronising (0xEF is never a
-        // continuation byte), so in a sequence already known to be
-        // well-formed these bytes can only be those two code points.
-        for (std::size_t i = 0; i + 2 < u.size(); ++i)
-            if (u[i] == 0xEF && u[i + 1] == 0xBF &&
-                (u[i + 2] == 0xBE || u[i + 2] == 0xBF))
-                return false;
-
-        return true;
+        return isValidUTF8(u.data(), u.size());
     }
 
     static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
