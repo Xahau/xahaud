@@ -187,6 +187,13 @@ public:
         bool collectCallsOnly = false);
 
 protected:
+    // Conservative terminal position, fixed before any strong Hook executes.
+    // Runtime hook_skip decisions cannot grant guarded draw permission.
+    std::optional<std::pair<AccountID, uint8_t>> terminalStrongHook_;
+
+    void
+    planStrongHooks(std::vector<std::pair<AccountID, bool>> const& tsh);
+
     void
     doHookCallback(std::shared_ptr<STObject const> const& provisionalMeta);
 

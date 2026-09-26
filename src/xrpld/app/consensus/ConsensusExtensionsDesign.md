@@ -400,6 +400,20 @@ fallback-grade randomness must do so explicitly at the call site. Valid
 `INVALID_ARGUMENT`, while valid-but-unmet requirements return
 `TOO_LITTLE_ENTROPY`.
 
+The pre-activation draw signatures are `entropy_cr_dice(sides, min_tier, flags)`
+and `entropy_cr_random(write_ptr, write_len, min_tier, flags)`. `flags = 0`
+requires terminal strong execution. A later eligible strong Hook, even in the
+same account's chain, causes `LATER_STRONG_HOOK` (-49) at the API call before
+output or draw-counter mutation. The application can handle the error without
+rejecting its transaction. `ENTROPY_ALLOW_LATER_STRONG_VETO = 1U << 0` explicitly
+permits subsequent strong Hooks and their ordinary vetoes; other bits are
+invalid. Both modes enforce the same entropy quality and freshness admission.
+Terminal eligibility is planned before strong execution using the dispatch
+filters and stakeholder order; dynamic skip requests cannot grant permission.
+The guarantee excludes the drawing Hook's own aborts, shared-resource failures,
+and failures in base application. Value-bearing settlement still requires an
+earlier commitment and a fixed outcome across retries.
+
 `entropy_cr_status()` returns a packed non-negative scalar with tier in bits
 32..39, contributor count in bits 16..31, and denominator in bits 0..15.
 Negative values remain Hook API errors. This lets Hook code implement policies
@@ -409,6 +423,7 @@ participation policies in each draw call. The pre-activation Hook API remains
 under design. Status exposes no digest. Callers must classify tier before count or
 denominator arithmetic because fallback deliberately reports tier 1 and
 `0/0`.
+Status remains metadata-only, independent of the per-call composition flags.
 
 Open-ledger hook execution is provisional. During speculative open-ledger
 execution, `entropy_cr_dice()`/`entropy_cr_random()` and `entropy_cr_status()` can only use the previous

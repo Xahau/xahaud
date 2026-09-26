@@ -1020,7 +1020,8 @@ hook::apply(
     bool isStrong,
     uint32_t wasmParam,
     uint8_t hookChainPosition,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    bool isTerminalStrongHook)
 {
     HookContext hookCtx = {
         .applyCtx = applyCtx,
@@ -1048,6 +1049,7 @@ hook::apply(
              .hasCallback = hasCallback,
              .isCallback = isCallback,
              .isStrong = isStrong,
+             .isTerminalStrongHook = isTerminalStrongHook,
              .wasmParam = wasmParam,
              .hookChainPosition = hookChainPosition,
              .foreignStateSetDisabled = false,
@@ -4077,7 +4079,8 @@ fairRng(
     ApplyContext& applyCtx,
     hook::HookResult& hr,
     uint32_t byteCount,
-    uint32_t minTier)
+    uint32_t minTier,
+    uint32_t flags)
 {
     if (byteCount > 512)
         byteCount = 512;
@@ -4139,6 +4142,9 @@ fairRng(
         rndData = sha512Half(rndData);
     }
 
+    // A later permissive call cannot clear an earlier guarded admission.
+    if (hr.isStrong && flags == 0)
+        hr.hasGuardedEntropyDraw = true;
     return bytesOut;
 }
 
@@ -4146,7 +4152,8 @@ DEFINE_HOOK_FUNCTION(
     int64_t,
     entropy_cr_dice,
     uint32_t sides,
-    uint32_t min_tier)
+    uint32_t min_tier,
+    uint32_t flags)
 {
     HOOK_SETUP();
 
@@ -4156,7 +4163,14 @@ DEFINE_HOOK_FUNCTION(
     if (invalidEntropyRequirement(min_tier))
         return INVALID_ARGUMENT;
 
-    auto vec = fairRng(applyCtx, hookCtx.result, 32, min_tier);
+    if (flags & ~ENTROPY_ALLOW_LATER_STRONG_VETO)
+        return INVALID_ARGUMENT;
+
+    if (flags == 0 && hookCtx.result.isStrong &&
+        !hookCtx.result.isTerminalStrongHook)
+        return LATER_STRONG_HOOK;
+
+    auto vec = fairRng(applyCtx, hookCtx.result, 32, min_tier, flags);
 
     if (vec.empty())
         return TOO_LITTLE_ENTROPY;
@@ -4199,7 +4213,8 @@ DEFINE_HOOK_FUNCTION(
     entropy_cr_random,
     uint32_t write_ptr,
     uint32_t write_len,
-    uint32_t min_tier)
+    uint32_t min_tier,
+    uint32_t flags)
 {
     HOOK_SETUP();
 
@@ -4228,7 +4243,14 @@ DEFINE_HOOK_FUNCTION(
     if (invalidEntropyRequirement(min_tier))
         return INVALID_ARGUMENT;
 
-    auto vec = fairRng(applyCtx, hookCtx.result, required, min_tier);
+    if (flags & ~ENTROPY_ALLOW_LATER_STRONG_VETO)
+        return INVALID_ARGUMENT;
+
+    if (flags == 0 && hookCtx.result.isStrong &&
+        !hookCtx.result.isTerminalStrongHook)
+        return LATER_STRONG_HOOK;
+
+    auto vec = fairRng(applyCtx, hookCtx.result, required, min_tier, flags);
 
     if (vec.empty())
         return TOO_LITTLE_ENTROPY;

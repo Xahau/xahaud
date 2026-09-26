@@ -49,15 +49,38 @@ namespace ripple {
 namespace {
 
 bool
-hasConsensusEntropyDraw(std::vector<hook::HookResult> const& results)
+hasGuardedEntropyDraw(std::vector<hook::HookResult> const& results)
 {
     for (auto const& result : results)
     {
-        if (result.rngCallCounter != 0)
+        if (result.hasGuardedEntropyDraw)
             return true;
     }
 
     return false;
+}
+
+bool
+matchesHookTrigger(
+    STObject const& hookObj,
+    std::shared_ptr<SLE const> const& hookDef,
+    STTx const& tx,
+    bool isOutgoing)
+{
+    if (hookObj.isFieldPresent(sfHookName) &&
+        !hookObj.getFieldVL(sfHookName).empty())
+    {
+        if (!tx.isFieldPresent(sfHookName) ||
+            hookObj.getFieldVL(sfHookName) != tx.getFieldVL(sfHookName))
+            return false;
+    }
+
+    return hook::canHook(
+        tx.getTxnType(),
+        hook::getHookOn(
+            hookObj,
+            hookDef,
+            isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming));
 }
 
 }  // namespace
@@ -1354,6 +1377,50 @@ Transactor::reset(XRPAmount fee)
     return {ter, fee};
 }
 
+void
+Transactor::planStrongHooks(std::vector<std::pair<AccountID, bool>> const& tsh)
+{
+    terminalStrongHook_.reset();
+    if (!ctx_.view().rules().enabled(featureConsensusEntropy))
+        return;
+
+    auto const considerChain = [&](AccountID const& account, bool outgoing) {
+        auto const hooks = view().read(keylet::hook(account));
+        if (!hooks || !hooks->isFieldPresent(sfHooks))
+            return;
+
+        uint8_t position = 0;
+        for (auto const& hookObj : hooks->getFieldArray(sfHooks))
+        {
+            auto const currentPosition = position++;
+            if (!hookObj.isFieldPresent(sfHookHash))
+                continue;
+            auto const def = view().read(
+                keylet::hookDefinition(hookObj.getFieldH256(sfHookHash)));
+            if (def && matchesHookTrigger(hookObj, def, ctx_.tx, outgoing))
+                terminalStrongHook_ = {account, currentPosition};
+        }
+    };
+
+    if (!ctx_.isEmittedTxn())
+        considerChain(account_, true);
+
+    // Match doTSH's account order and deduplication before its role filter.
+    std::set<AccountID> processed;
+    for (auto const& [account, canRollback] : tsh)
+    {
+        if (account == account_ || !processed.emplace(account).second ||
+            !canRollback)
+            continue;
+        if (!view().read(keylet::account(account)))
+            continue;
+        if (calculateHookChainFee(
+                view(), ctx_.tx, keylet::hook(account), false) == beast::zero)
+            continue;
+        considerChain(account, false);
+    }
+}
+
 TER
 Transactor::executeHookChain(
     std::shared_ptr<ripple::STLedgerEntry const> const& hookSLE,
@@ -1381,11 +1448,11 @@ Transactor::executeHookChain(
         // lookup hook definition
         uint256 const& hookHash = hookObj.getFieldH256(sfHookHash);
 
-        bool const afterEntropyDraw = strong &&
+        bool const afterGuardedDraw = strong &&
             ctx_.view().rules().enabled(featureConsensusEntropy) &&
-            hasConsensusEntropyDraw(results);
+            hasGuardedEntropyDraw(results);
 
-        if (!afterEntropyDraw && hookSkips.find(hookHash) != hookSkips.end())
+        if (!afterGuardedDraw && hookSkips.find(hookHash) != hookSkips.end())
         {
             // LCOV_EXCL_START
             JLOG(j_.trace()) << "HookInfo: Skipping " << hookHash;
@@ -1403,36 +1470,18 @@ Transactor::executeHookChain(
             // LCOV_EXCL_STOP
         }
 
-        std::optional<Blob> requiredHookName;
-        if (hookObj.isFieldPresent(sfHookName) &&
-            hookObj.getFieldVL(sfHookName).size() > 0)
-            requiredHookName = hookObj.getFieldVL(sfHookName);
-
-        if (requiredHookName)
-        {
-            // need to specify same hook name in the transaction
-            if (!ctx_.tx.isFieldPresent(sfHookName))
-                continue;
-            if (*requiredHookName != ctx_.tx.getFieldVL(sfHookName))
-                continue;
-        }
-
-        // check if the hook can fire
-        uint256 hookOn = hook::getHookOn(
-            hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming);
-
-        if (!hook::canHook(ctx_.tx.getTxnType(), hookOn))
+        if (!matchesHookTrigger(hookObj, hookDef, ctx_.tx, isOutgoing))
             continue;  // skip if it can't
 
-        // A draw must not disable another strong Hook's veto. Reject this
-        // composition before running the later Hook or honoring hook_skip:
-        // skips can themselves depend on the preceding draw's outcome.
-        if (afterEntropyDraw)
+        // Defensive invariant: guarded admission uses the immutable terminal
+        // position, so only a planning/dispatch mismatch can reach this path.
+        // Permissive draws never disable another Hook's ordinary veto.
+        if (afterGuardedDraw)
         {
             JLOG(j_.trace())
                 << "HookInfo[" << account << "-"
                 << ctx_.tx.getAccountID(sfAccount)
-                << "]: Rejecting later strong hook after consensus entropy "
+                << "]: Rejecting later strong hook after guarded entropy "
                    "draw.";
             return tecHOOK_REJECTED;
         }
@@ -1487,7 +1536,10 @@ Transactor::executeHookChain(
                 strong,
                 (strong ? 0 : 1UL),  // 0 = strong, 1 = weak
                 hook_no - 1,
-                provisionalMeta));
+                provisionalMeta,
+                strong && terminalStrongHook_ &&
+                    terminalStrongHook_->first == account &&
+                    terminalStrongHook_->second == hook_no - 1));
 
             executedHookCount_++;
 
@@ -2042,6 +2094,8 @@ Transactor::operator()()
     // Weak TSH and callback are executed post-application.
     if (hooksEnabled && isTesSuccess(result))
     {
+        planStrongHooks(tsh);
+
         // this state map will be shared across all hooks in this execution
         // chain and any associated chains which are executed during this
         // transaction also this map can get large so

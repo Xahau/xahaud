@@ -125,7 +125,8 @@ apply(
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     // result of apply() if this is weak exec
-    std::shared_ptr<STObject const> const& provisionalMeta);
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    bool isTerminalStrongHook = false);
 
 struct HookContext;
 
@@ -167,6 +168,7 @@ struct HookResult
     bool isCallback =
         false;  // true iff this hook execution is a callback in action
     bool isStrong = false;
+    bool isTerminalStrongHook = false;
     uint32_t wasmParam = 0;
     uint32_t overrideCount = 0;
     uint8_t hookChainPosition = 0;
@@ -177,6 +179,7 @@ struct HookResult
     std::shared_ptr<STObject const> provisionalMeta;
     uint64_t rngCallCounter{
         0};  // used to ensure conseq. rng calls don't return same data
+    bool hasGuardedEntropyDraw = false;
     std::set<std::pair<AccountID, uint256 /* namespace */>>
         foreignStateGrantCache;  // add found grants here to avoid rechecking
 };

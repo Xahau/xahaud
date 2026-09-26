@@ -215,7 +215,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
 
             int64_t hook(uint32_t r)
@@ -223,7 +223,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 _g(1,1);
 
                 // A wide range makes this a useful byte-order known answer.
-                int64_t result = entropy_cr_dice(1000000, 3);
+                int64_t result = entropy_cr_dice(1000000, 3, 0);
 
                 // negative means error
                 if (result < 0)
@@ -305,7 +305,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t flags);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
 
             int64_t hook(uint32_t r)
@@ -316,7 +316,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     buf[i] = 0;
 
-                int64_t result = entropy_cr_random((uint32_t)buf, 32, 3);
+                int64_t result = entropy_cr_random((uint32_t)buf, 32, 3, 0);
 
                 // Should return 32 (bytes written)
                 if (result != 32)
@@ -382,16 +382,16 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t r1 = entropy_cr_dice(1000000, 3);
+                int64_t r1 = entropy_cr_dice(1000000, 3, 0);
                 if (r1 < 0)
                     rollback(0, 0, r1);
 
-                int64_t r2 = entropy_cr_dice(1000000, 3);
+                int64_t r2 = entropy_cr_dice(1000000, 3, 0);
                 if (r2 < 0)
                     rollback(0, 0, r2);
 
@@ -459,13 +459,13 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t result = entropy_cr_dice(0, 3);
-                // entropy_cr_dice(0) should return negative error code, pass it through
+                int64_t result = entropy_cr_dice(0, 3, 0);
+                // Zero sides should return a negative error code.
                 return accept(0, 0, result);
             }
         )[test.hook]"];
@@ -623,7 +623,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
             extern int64_t entropy_cr_status(void);
             #define ENTROPY_TIER(x) (((uint64_t)(x) >> 32U) & 0xFFU)
             #define ENTROPY_COUNT(x) (((uint64_t)(x) >> 16U) & 0xFFFFU)
@@ -640,10 +640,11 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                     ENTROPY_DENOMINATOR(status) != 0)
                     return accept(0, 0, 21);
 
-                int64_t allowed = entropy_cr_dice(6, 1);
+                int64_t allowed = entropy_cr_dice(6, 1, 0);
                 if (allowed < 0 || allowed > 5)
                     return accept(0, 0, 22);
-                if (entropy_cr_dice(6, 2) != TOO_LITTLE_ENTROPY)
+                if (entropy_cr_dice(6, 2, 0) != TOO_LITTLE_ENTROPY ||
+                    entropy_cr_dice(6, 2, 1) != TOO_LITTLE_ENTROPY)
                     return accept(0, 0, 23);
 
                 return accept(0, 0, 0);
@@ -697,8 +698,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
-            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t flags);
             extern int64_t entropy_cr_status(void);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
             #define TOO_LITTLE_ENTROPY (-48)
@@ -711,15 +712,19 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 if ((uint64_t)entropy_cr_status() != expected)
                     return accept(0, 0, 40);
 
-                int64_t dice_result = entropy_cr_dice(6, 1);
+                int64_t dice_result = entropy_cr_dice(6, 1, 0);
                 if (dice_result != TOO_LITTLE_ENTROPY)
                     return accept(0, 0, 41);
+                if (entropy_cr_dice(6, 1, 1) != TOO_LITTLE_ENTROPY)
+                    return accept(0, 0, 44);
 
                 uint8_t buf[32];
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     buf[i] = 0xA5;
-                if (entropy_cr_random((uint32_t)buf, 32, 1) != TOO_LITTLE_ENTROPY)
+                if (entropy_cr_random((uint32_t)buf, 32, 1, 0) != TOO_LITTLE_ENTROPY)
                     return accept(0, 0, 42);
+                if (entropy_cr_random((uint32_t)buf, 32, 1, 1) != TOO_LITTLE_ENTROPY)
+                    return accept(0, 0, 45);
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     if (buf[i] != 0xA5)
                         return accept(0, 0, 43);
@@ -787,7 +792,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             true,
             0,
             0,
-            {});
+            {},
+            true);
 
         BEAST_EXPECT(result.exitType == hook_api::ExitType::ACCEPT);
         BEAST_EXPECT(result.exitCode == 0);
@@ -830,12 +836,12 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                int64_t result = entropy_cr_dice(6, 4);
+                int64_t result = entropy_cr_dice(6, 4, 0);
                 return accept(0, 0, result);
             }
         )[test.hook]"];
@@ -879,12 +885,12 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
-                return accept(0, 0, entropy_cr_dice(6, 3));
+                return accept(0, 0, entropy_cr_dice(6, 3, 0));
             }
         )[test.hook]"];
 
@@ -892,13 +898,13 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t flags);
 
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
                 uint8_t buf[32];
-                return accept(0, 0, entropy_cr_random((uint32_t)buf, 32, 3));
+                return accept(0, 0, entropy_cr_random((uint32_t)buf, 32, 3, 0));
             }
         )[test.hook]"];
 
@@ -1029,7 +1035,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t flags);
             #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
             #define TOO_LITTLE_ENTROPY (-48)
 
@@ -1040,8 +1046,10 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     buf[i] = 0xA5;
 
-                if (entropy_cr_random((uint32_t)buf, 32, 4) != TOO_LITTLE_ENTROPY)
+                if (entropy_cr_random((uint32_t)buf, 32, 4, 0) != TOO_LITTLE_ENTROPY)
                     return accept(0, 0, 30);
+                if (entropy_cr_random((uint32_t)buf, 32, 4, 1) != TOO_LITTLE_ENTROPY)
+                    return accept(0, 0, 32);
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     if (buf[i] != 0xA5)
                         return accept(0, 0, 31);
@@ -1093,8 +1101,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
-            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t flags);
             #define INVALID_ARGUMENT (-7)
 
             int64_t hook(uint32_t r)
@@ -1102,25 +1110,37 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 _g(1,1);
                 uint8_t buf[32];
 
-                int64_t bad_min_tier = entropy_cr_dice(6, 0);
+                int64_t bad_min_tier = entropy_cr_dice(6, 0, 0);
                 if (bad_min_tier != INVALID_ARGUMENT)
                     return accept(0, 0, 100);
 
-                int64_t bad_high_tier = entropy_cr_dice(6, 5);
+                int64_t bad_high_tier = entropy_cr_dice(6, 5, 0);
                 if (bad_high_tier != INVALID_ARGUMENT)
                     return accept(0, 0, 101);
 
-                int64_t bad_random_low = entropy_cr_random((uint32_t)buf, 32, 0);
+                int64_t bad_random_low = entropy_cr_random((uint32_t)buf, 32, 0, 0);
                 if (bad_random_low != INVALID_ARGUMENT)
                     return accept(0, 0, 102);
 
-                int64_t bad_random_high = entropy_cr_random((uint32_t)buf, 32, 5);
+                int64_t bad_random_high = entropy_cr_random((uint32_t)buf, 32, 5, 0);
                 if (bad_random_high != INVALID_ARGUMENT)
                     return accept(0, 0, 103);
 
+                if (entropy_cr_dice(6, 3, 2) != INVALID_ARGUMENT ||
+                    entropy_cr_dice(6, 3, 0xFFFFFFFFU) != INVALID_ARGUMENT ||
+                    entropy_cr_random((uint32_t)buf, 32, 3, 2) != INVALID_ARGUMENT ||
+                    entropy_cr_random((uint32_t)buf, 32, 3, 0xFFFFFFFFU) != INVALID_ARGUMENT)
+                    return accept(0, 0, 104);
+
+                if (entropy_cr_dice(6, 0, 1) != INVALID_ARGUMENT ||
+                    entropy_cr_dice(6, 5, 1) != INVALID_ARGUMENT ||
+                    entropy_cr_random((uint32_t)buf, 32, 0, 1) != INVALID_ARGUMENT ||
+                    entropy_cr_random((uint32_t)buf, 32, 5, 1) != INVALID_ARGUMENT)
+                    return accept(0, 0, 105);
+
                 // Failed calls must not consume the shared RNG call counter.
                 // The test pins the first valid draw as a known-answer vector.
-                return accept(0, 0, entropy_cr_dice(1000000, 4));
+                return accept(0, 0, entropy_cr_dice(1000000, 4, 0));
             }
         )[test.hook]"];
 
@@ -1160,10 +1180,10 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
-    testEntropyDrawRejectsLaterStrongStakeholder()
+    testEntropyDrawPoliciesAcrossStakeholders()
     {
         testcase(
-            "Hook entropy draw rejects later strong stakeholder composition");
+            "Guarded refusal and permissive draws preserve stakeholder vetoes");
         using namespace jtx;
 
         TestHook gameHook = consensusentropy_test_wasm[R"[test.hook](
@@ -1171,7 +1191,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
+            extern int64_t otxn_field(uint32_t, uint32_t, uint32_t);
             extern int64_t state_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len);
             #define SBUF(x) (uint32_t)(x), sizeof(x)
 
@@ -1179,7 +1200,10 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             {
                 _g(1,1);
 
-                int64_t roll = entropy_cr_dice(6, 3);
+                // Test-only selector: exercise both application policies.
+                uint8_t tag[4] = {0};
+                otxn_field((uint32_t)tag, sizeof(tag), (2U << 16U) + 3U);
+                int64_t roll = entropy_cr_dice(6, 3, tag[3]);
                 if (roll < 0)
                     return rollback(0, 0, roll);
 
@@ -1423,24 +1447,11 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 hookExecutions[0].getAccountID(sfHookAccount) == game.id());
             BEAST_EXPECT(
                 hookExecutions[0].getFieldU8(sfHookResult) ==
-                static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
-
-            auto const entropy = env.le(keylet::consensusEntropy());
-            BEAST_REQUIRE(entropy);
-            auto const firstBlock = sha512Half(
-                entropy->getFieldU32(sfLedgerSequence),
-                env.tx()->getTransactionID(),
-                player.id(),
-                hookExecutions[0].getFieldH256(sfHookHash),
-                game.id(),
-                std::uint8_t{0},
-                std::string{"strong"},
-                std::string{"direct"},
-                entropy->getFieldH256(sfDigest),
-                std::uint64_t{0});
+                static_cast<std::uint8_t>(hook_api::ExitType::ROLLBACK));
             BEAST_EXPECT(
                 hookReturnCode(hookExecutions[0]) ==
-                expectedDice(firstBlock, 6));
+                static_cast<int64_t>(
+                    hook_api::hook_return_code::LATER_STRONG_HOOK));
 
             BEAST_EXPECT(
                 !env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
@@ -1448,6 +1459,25 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             auto const token = env.le(Keylet{ltURI_TOKEN, tokenID});
             BEAST_REQUIRE(token);
             BEAST_EXPECT(token->getAccountID(sfOwner) == player.id());
+
+            // Explicit opt-in lets the issuer execute and exercise its veto.
+            auto permissive = remit::remit(player, game);
+            permissive["SourceTag"] = 1;
+            env(permissive,
+                remit::token_ids({hexTokenID}),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+            auto vetoes = env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(vetoes.size() == 2);
+            BEAST_EXPECT(
+                vetoes[0].getFieldU8(sfHookResult) ==
+                static_cast<uint8_t>(hook_api::ExitType::ACCEPT));
+            BEAST_EXPECT(hookReturnCode(vetoes[1]) == 9001);
+            BEAST_EXPECT(
+                !env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
+            BEAST_EXPECT(
+                env.le(Keylet{ltURI_TOKEN, tokenID})->getAccountID(sfOwner) ==
+                player.id());
 
             // Terminal destination draw remains usable when there is no
             // subsequent strong stakeholder Hook.
@@ -1473,14 +1503,25 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             BEAST_EXPECT(env.balance(game) == gameBalance);
             BEAST_EXPECT(!env.le(
                 keylet::hookState(player.id(), markerKey, beast::zero)));
+            // Both sender and destination may opt in, preserving issuer veto.
+            env(permissive,
+                remit::token_ids({hexTokenID}),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+            auto const multiple = env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(multiple.size() == 3);
+            BEAST_EXPECT(
+                multiple[0].getAccountID(sfHookAccount) == player.id());
+            BEAST_EXPECT(multiple[1].getAccountID(sfHookAccount) == game.id());
+            BEAST_EXPECT(hookReturnCode(multiple[2]) == 9001);
         }
     }
 
     void
-    testEntropyDrawRejectsLaterStrongHookInSameChain()
+    testGuardedDrawSameChainRefusal()
     {
         testcase(
-            "Hook entropy draw rejects later strong same-chain composition");
+            "Guarded entropy draw refuses a later strong same-account Hook");
         using namespace jtx;
 
         Env env{
@@ -1500,7 +1541,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
             extern int64_t state_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len);
             #define SBUF(x) (uint32_t)(x), sizeof(x)
 
@@ -1508,7 +1549,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             {
                 _g(1,1);
 
-                int64_t roll = entropy_cr_dice(6, 3);
+                int64_t roll = entropy_cr_dice(6, 3, 0);
                 if (roll < 0)
                     return rollback(0, 0, roll);
 
@@ -1572,7 +1613,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = game.human();
         env(invoke,
-            M("same-chain composition rejected after rng"),
+            M("same-chain drawing Hook rejects guarded refusal"),
             fee(XRP(1)),
             ter(tecHOOK_REJECTED));
 
@@ -1585,23 +1626,11 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             hookExecutions[0].getAccountID(sfHookAccount) == game.id());
         BEAST_EXPECT(
             hookExecutions[0].getFieldU8(sfHookResult) ==
-            static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
-
-        auto const entropy = env.le(keylet::consensusEntropy());
-        BEAST_REQUIRE(entropy);
-        auto const firstBlock = sha512Half(
-            entropy->getFieldU32(sfLedgerSequence),
-            env.tx()->getTransactionID(),
-            game.id(),
-            hookExecutions[0].getFieldH256(sfHookHash),
-            game.id(),
-            std::uint8_t{0},
-            std::string{"strong"},
-            std::string{"direct"},
-            entropy->getFieldH256(sfDigest),
-            std::uint64_t{0});
+            static_cast<std::uint8_t>(hook_api::ExitType::ROLLBACK));
         BEAST_EXPECT(
-            hookReturnCode(hookExecutions[0]) == expectedDice(firstBlock, 6));
+            hookReturnCode(hookExecutions[0]) ==
+            static_cast<int64_t>(
+                hook_api::hook_return_code::LATER_STRONG_HOOK));
 
         BEAST_EXPECT(
             !env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
@@ -1618,14 +1647,17 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t, uint32_t, int64_t);
             extern int64_t rollback(uint32_t, uint32_t, int64_t);
-            extern int64_t entropy_cr_random(uint32_t, uint32_t, uint32_t);
-            extern int64_t entropy_cr_dice(uint32_t, uint32_t);
+            extern int64_t entropy_cr_random(uint32_t, uint32_t, uint32_t, uint32_t flags);
+            extern int64_t entropy_cr_dice(uint32_t, uint32_t, uint32_t flags);
             extern int64_t entropy_cr_status(void);
             extern int64_t otxn_field(uint32_t, uint32_t, uint32_t);
             extern int64_t hook_hash(uint32_t, uint32_t, int32_t);
             extern int64_t hook_skip(uint32_t, uint32_t, uint32_t);
             #define SBUF(x) (uint32_t)(x), sizeof(x)
             #define sfSourceTag ((2U << 16U) + 3U)
+            #define GUARD(n) _g((1U << 31U) + __LINE__, (n)+1)
+            #define LATER_STRONG_HOOK (-49)
+            #define ENTROPY_ALLOW_LATER_STRONG_VETO (1U << 0)
 
             int64_t hook(uint32_t r)
             {
@@ -1637,11 +1669,43 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 if (tag[3] == 0)
                     return accept(0, 0, entropy_cr_status());
                 if (tag[3] == 1)
-                    return accept(0, 0, entropy_cr_dice(0, 3));
+                    return accept(0, 0, entropy_cr_dice(0, 3, 0));
+
+                // Even a skip requested before the draw cannot change the
+                // conservative terminal-position permission.
+                if (tag[3] == 5)
+                {
+                    uint8_t hash[32];
+                    if (hook_hash(SBUF(hash), 1) != 32 ||
+                        hook_skip(SBUF(hash), 0) != 1)
+                        return rollback(0, 0, 104);
+                }
 
                 uint8_t bytes[32];
-                if (entropy_cr_random(SBUF(bytes), 3) != 32)
-                    return rollback(0, 0, 101);
+                for (int i = 0; GUARD(32), i < 32; ++i)
+                    bytes[i] = 0xA5U;
+                uint32_t flags = (tag[3] == 3 || tag[3] == 4 || tag[3] == 7)
+                    ? ENTROPY_ALLOW_LATER_STRONG_VETO : 0;
+                int64_t result = entropy_cr_random(SBUF(bytes), 3, flags);
+                if (result == LATER_STRONG_HOOK)
+                {
+                    for (int i = 0; GUARD(32), i < 32; ++i)
+                        if (bytes[i] != 0xA5U)
+                            return rollback(0, 0, 105);
+                }
+                else if (result != 32)
+                    return rollback(0, 0, result);
+
+                if (tag[3] == 6)
+                {
+                    if (result != LATER_STRONG_HOOK)
+                        return rollback(0, 0, 106);
+                    // The refused call must not consume draw index zero.
+                    return accept(0, 0, entropy_cr_dice(
+                        1000000, 3, ENTROPY_ALLOW_LATER_STRONG_VETO));
+                }
+                if (tag[3] == 7)
+                    return accept(0, 0, entropy_cr_dice(6, 3, 0));
 
                 if (tag[3] == 3)
                 {
@@ -1651,7 +1715,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                     if (hook_skip(SBUF(hash), 0) != 1)
                         return rollback(0, 0, 103);
                 }
-                return accept(0, 0, 42);
+                return accept(0, 0, result);
             }
         )[test.hook]"];
 
@@ -1659,9 +1723,14 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t rollback(uint32_t, uint32_t, int64_t);
+            extern int64_t entropy_cr_dice(uint32_t, uint32_t, uint32_t);
             int64_t hook(uint32_t r)
             {
                 _g(1,1);
+                int64_t result = entropy_cr_dice(1, 3, 0);
+                if (result != 0)
+                    return rollback(0, 0, result);
                 return accept(0, 0, 77);
             }
         )[test.hook]"];
@@ -1683,26 +1752,46 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         invoke[jss::TransactionType] = "Invoke";
         invoke[jss::Account] = alice.human();
 
-        // Status and rejected draw arguments do not enter the draw boundary.
-        // Successful byte draws reject even an accepting later Hook, including
-        // when the drawing Hook tries to skip it after receiving the bytes.
-        for (unsigned mode = 0; mode < 4; ++mode)
+        // Refusal is an API error, not mandatory transaction rejection.
+        // Permissive calls preserve normal skip/veto semantics and cannot
+        // grant permission to a subsequent guarded call in this same Hook.
+        for (unsigned mode = 0; mode < 8; ++mode)
         {
             invoke["SourceTag"] = mode;
-            env(invoke,
-                fee(XRP(1)),
-                mode < 2 ? ter(tesSUCCESS) : ter(tecHOOK_REJECTED));
+            env(invoke, fee(XRP(1)));
             auto const meta = env.meta();
             BEAST_REQUIRE(meta);
             auto const executions = meta->getFieldArray(sfHookExecutions);
-            BEAST_REQUIRE(executions.size() == (mode < 2 ? 2 : 1));
+            bool const skipped = mode == 3 || mode == 5;
+            BEAST_REQUIRE(executions.size() == (skipped ? 1 : 2));
             BEAST_EXPECT(
                 executions[0].getFieldU8(sfHookResult) ==
                 static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
-            if (mode < 2)
+            if (!skipped)
                 BEAST_EXPECT(hookReturnCode(executions[1]) == 77);
-            else
-                BEAST_EXPECT(hookReturnCode(executions[0]) == 42);
+            if (mode == 2 || mode == 5 || mode == 7)
+                BEAST_EXPECT(hookReturnCode(executions[0]) == -49);
+            if (mode == 3 || mode == 4)
+                BEAST_EXPECT(hookReturnCode(executions[0]) == 32);
+            if (mode == 6)
+            {
+                auto const entropy = env.le(keylet::consensusEntropy());
+                BEAST_REQUIRE(entropy);
+                auto const block = sha512Half(
+                    entropy->getFieldU32(sfLedgerSequence),
+                    env.tx()->getTransactionID(),
+                    alice.id(),
+                    executions[0].getFieldH256(sfHookHash),
+                    alice.id(),
+                    std::uint8_t{0},
+                    std::string{"strong"},
+                    std::string{"direct"},
+                    entropy->getFieldH256(sfDigest),
+                    std::uint64_t{0});
+                BEAST_EXPECT(
+                    hookReturnCode(executions[0]) ==
+                    expectedDice(block, 1000000));
+            }
         }
 
         // Only eligible later Hooks prohibit the composition. An inactive
@@ -1726,13 +1815,19 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             BEAST_REQUIRE(env.meta());
             auto const executions = env.meta()->getFieldArray(sfHookExecutions);
             BEAST_REQUIRE(executions.size() == 1);
-            BEAST_EXPECT(hookReturnCode(executions[0]) == 42);
+            BEAST_EXPECT(hookReturnCode(executions[0]) == 32);
 
             if (filter == 1)
             {
                 // Matching that name makes the later Hook eligible again.
                 invoke[jss::HookName] = "7465726D";
-                env(invoke, fee(XRP(1)), ter(tecHOOK_REJECTED));
+                env(invoke, fee(XRP(1)));
+                BEAST_REQUIRE(env.meta());
+                auto const matched =
+                    env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_REQUIRE(matched.size() == 2);
+                BEAST_EXPECT(hookReturnCode(matched[0]) == -49);
+                BEAST_EXPECT(hookReturnCode(matched[1]) == 77);
                 invoke.removeMember(jss::HookName);
             }
         }
@@ -1742,6 +1837,41 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env(invoke, fee(XRP(1)));
         BEAST_REQUIRE(env.meta());
         BEAST_EXPECT(env.meta()->getFieldArray(sfHookExecutions).size() == 1);
+
+        // An installed but inactive stakeholder chain has zero execution fee
+        // and must not disqualify the sender's guarded draw.
+        auto inactive = hso(acceptingHook, overrideFlag);
+        inactive[jss::HookOn] = to_string(UINT256_BIT[ttINVOKE]);
+        env(ripple::test::jtx::hook(bob, {{inactive}}, 0), HSFEE);
+        env.close();
+        env(invoke, fee(XRP(1)));
+        BEAST_REQUIRE(env.meta());
+        auto const inactiveExecutions =
+            env.meta()->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(inactiveExecutions.size() == 1);
+        BEAST_EXPECT(hookReturnCode(inactiveExecutions[0]) == 32);
+
+        // A Remit Inform account is weak-only. Its eligible collecting Hook
+        // may draw after the strong sender without affecting terminality.
+        Account const beneficiary{"beneficiary"};
+        env.fund(XRP(10000), beneficiary);
+        auto collector = hso(acceptingHook, overrideFlag);
+        collector[jss::Flags] = hsfOVERRIDE | hsfCOLLECT;
+        env(ripple::test::jtx::hook(bob, {{collector}}, 0), HSFEE);
+        env(fset(bob, asfTshCollect), fee(XRP(1)));
+        env.close();
+        auto weakRemit = remit::remit(alice, beneficiary);
+        weakRemit["Inform"] = bob.human();
+        weakRemit["SourceTag"] = 2;
+        env(weakRemit, fee(XRP(1)));
+        BEAST_REQUIRE(env.meta());
+        auto const weakExecutions = env.meta()->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(weakExecutions.size() == 2);
+        BEAST_EXPECT(
+            weakExecutions[0].getAccountID(sfHookAccount) == alice.id());
+        BEAST_EXPECT(hookReturnCode(weakExecutions[0]) == 32);
+        BEAST_EXPECT(weakExecutions[1].getAccountID(sfHookAccount) == bob.id());
+        BEAST_EXPECT(hookReturnCode(weakExecutions[1]) == 77);
     }
 
     void
@@ -1767,7 +1897,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
             extern int64_t hook_again(void);
 
             int64_t hook(uint32_t r)
@@ -1777,7 +1907,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 if (r > 0)
                     return accept((uint32_t)"weak", 4, 42);
 
-                int64_t roll = entropy_cr_dice(6, 3);
+                int64_t roll = entropy_cr_dice(6, 3, 0);
                 if (roll < 0)
                     return rollback(0, 0, roll);
 
@@ -1831,6 +1961,144 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testEntropyHostAdmission()
+    {
+        testcase("Entropy policy accounting and old-arity runtime failure");
+        using namespace jtx;
+        Env env{*this, supported_amendments() | featureConsensusEntropy};
+        Account const alice{"admission"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        TestHook mixed = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t rollback(uint32_t, uint32_t, int64_t);
+            extern int64_t entropy_cr_dice(uint32_t, uint32_t, uint32_t);
+            extern int64_t entropy_cr_random(uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t entropy_cr_status(void);
+            #define GUARD(n) _g((1U << 31U) + __LINE__, (n)+1)
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                int64_t status = entropy_cr_status();
+                int64_t guarded = entropy_cr_dice(1, 3, 0);
+                if (guarded != 0 && guarded != -49)
+                    return rollback(0, 0, 100);
+                if (entropy_cr_dice(1, 3, 1) != 0)
+                    return rollback(0, 0, 101);
+                uint8_t bytes[32];
+                for (int i = 0; GUARD(32), i < 32; ++i)
+                    bytes[i] = 0xA5;
+                int64_t count = entropy_cr_random((uint32_t)bytes, 32, 3, 0);
+                if (count != (guarded == 0 ? 32 : -49))
+                    return rollback(0, 0, 102);
+                if (count == -49)
+                    for (int i = 0; GUARD(32), i < 32; ++i)
+                        if (bytes[i] != 0xA5)
+                            return rollback(0, 0, 103);
+                if (entropy_cr_random((uint32_t)bytes, 32, 3, 1) != 32)
+                    return rollback(0, 0, 104);
+                if (entropy_cr_status() != status)
+                    return rollback(0, 0, 105);
+                return accept(0, 0, guarded);
+            }
+        )[test.hook]"];
+
+        // Deliberately retain the previous import arities in these fixtures.
+        TestHook oldDice = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t entropy_cr_dice(uint32_t, uint32_t);
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                return accept(0, 0, entropy_cr_dice(6, 3));
+            }
+        )[test.hook]"];
+        TestHook oldRandom = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t entropy_cr_random(uint32_t, uint32_t, uint32_t);
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                uint8_t bytes[32];
+                return accept(0, 0, entropy_cr_random((uint32_t)bytes, 32, 3));
+            }
+        )[test.hook]"];
+
+        auto const execute = [&](TestHook wasm,
+                                 bool strong,
+                                 bool terminal,
+                                 bool oldArity) {
+            OpenView view{*env.current()};
+            STTx tx{ttINVOKE, [&](STObject& obj) {
+                        obj.setAccountID(sfAccount, alice.id());
+                    }};
+            ApplyContext ctx{
+                env.app(),
+                view,
+                tx,
+                tesSUCCESS,
+                env.current()->fees().base,
+                tapNONE,
+                env.journal};
+            hook::HookStateMap stateMap;
+            std::map<std::vector<uint8_t>, std::vector<uint8_t>> params;
+            auto const result = hook::apply(
+                uint256{},
+                sha512Half(Slice{wasm.data(), wasm.size()}),
+                uint256{},
+                uint256{},
+                wasm,
+                params,
+                {},
+                stateMap,
+                ctx,
+                alice.id(),
+                false,
+                false,
+                strong,
+                0,
+                0,
+                {},
+                terminal);
+            if (oldArity)
+            {
+                // Bypass SetHook validation to model execution of Wasm
+                // already installed under the old host ABI.
+                BEAST_EXPECT(result.exitType == hook_api::ExitType::WASM_ERROR);
+                BEAST_EXPECT(result.rngCallCounter == 0);
+                BEAST_EXPECT(!result.hasGuardedEntropyDraw);
+            }
+            else
+            {
+                bool const admitted = !strong || terminal;
+                BEAST_EXPECT(result.exitType == hook_api::ExitType::ACCEPT);
+                BEAST_EXPECT(result.exitCode == (admitted ? 0 : -49));
+                BEAST_EXPECT(result.rngCallCounter == (admitted ? 4 : 2));
+                // The final permissive call must not clear guarded admission.
+                BEAST_EXPECT(
+                    result.hasGuardedEntropyDraw == (strong && terminal));
+            }
+        };
+        execute(mixed, true, false, false);
+        execute(mixed, true, true, false);
+        execute(mixed, false, false, false);
+        for (auto const* old : {&oldDice, &oldRandom})
+        {
+            env(ripple::test::jtx::hook(alice, {{hso(*old, overrideFlag)}}, 0),
+                HSFEE,
+                ter(temMALFORMED));
+            execute(*old, true, true, true);
+        }
+    }
+
+    void
     run() override
     {
         testSLECreated();
@@ -1846,9 +2114,10 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testRetiredImportNamesRejected();
         testRandomTierRequirementNotMet();
         testInvalidEntropyRequirements();
-        testEntropyDrawRejectsLaterStrongStakeholder();
-        testEntropyDrawRejectsLaterStrongHookInSameChain();
+        testEntropyDrawPoliciesAcrossStakeholders();
+        testGuardedDrawSameChainRefusal();
         testEntropyCompositionFilters();
+        testEntropyHostAdmission();
         testEntropyDrawDoesNotBlockWeakAgainAsWeak();
         testRandom();
         testDiceConsecutiveCallsDiffer();

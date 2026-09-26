@@ -217,11 +217,29 @@ re-derives them.
 
 **INV-6 — Bounded, opt-in entropy quality.**
 Hooks state `min_tier` explicitly on every draw (no hidden network default).
-Entropy is served iff it is **fresh** (current or previous ledger) **and** meets
-that class floor; otherwise the call **fails closed**
+Both draws also take a final `flags` argument: `entropy_cr_dice(sides,
+min_tier, flags)` and `entropy_cr_random(write_ptr, write_len, min_tier, flags)`.
+Zero flags require the calling strong Hook to be the last statically eligible
+strong Hook in the transaction. A nonterminal request returns
+`LATER_STRONG_HOOK` (-49) before any draw, output write, or counter increment;
+the Hook may handle this error without rejecting the transaction.
+`ENTROPY_ALLOW_LATER_STRONG_VETO` (bit 0) explicitly permits later strong Hooks
+and their ordinary vetoes. Unknown bits return `INVALID_ARGUMENT`. Policy is
+per call; one Hook cannot waive another's guarded requirement. The dispatcher
+plans terminal eligibility before strong execution, including same-account
+chain positions and other accounts' strong stakeholders. Runtime `hook_skip`
+requests do not alter that conservative plan. Weak/callback/again-as-weak
+execution has no subsequent strong phase.
+
+After argument and composition admission, entropy is served iff it is
+**fresh** (current or previous ledger) **and** meets that class floor;
+otherwise the call **fails closed**
 (`TOO_LITTLE_ENTROPY`). `entropy_cr_status()` separately exposes the stored tier,
 contributor count, and denominator so hooks can impose proportional or absolute
 policies without freezing those policies into the host ABI.
+These quality/freshness checks apply in both policy modes. Status is
+observational and exposes no global or last-call policy: the successful draw
+and its supplied flags establish the mode, with no silent downgrade.
 Fallback is tier 1 with count/denominator `0/0`, so callers must classify tier
 before arithmetic. The `validator_full` label is structurally valid only when
 `EntropyCount == EntropyDenominator`; the contributor bitmap independently must
@@ -253,8 +271,8 @@ For draw index `i`, the first 32-byte block is
 `sha512Half(viewSequence, originatingTransactionID, originatingAccount,
 hookHash, hookAccount, hookChainPosition, strong|weak, callback|direct,
 entropyDigest, i)`. The counter is local to one Hook execution role and is
-post-incremented once when a draw stream passes snapshot admission; rejected
-arguments or entropy do not consume it. Further blocks are
+post-incremented once when a draw stream passes admission; rejected arguments,
+composition, or entropy do not consume it. Further blocks are
 `sha512Half(previousBlock)`. `entropy_cr_dice` rejects zero sides and uses deterministic
 unsigned big-endian 32-bit rejection sampling rather than biased modulo
 reduction. `entropy_cr_random` accepts
@@ -352,22 +370,22 @@ into an INV violation:
 - **Fallback (tier 1) is user-influenceable** (a quiet-ledger submitter can grind
   the tx set). That is why it is a distinct labeled tier hooks must opt into, and
   never suitable for value-bearing outcomes.
-- **Strong Hook composition after a draw fails closed.** With CE enabled, once
-  a strong Hook has drawn, reaching another eligible strong Hook rejects the
-  transaction with `tecHOOK_REJECTED`. This includes later Hooks in the same
-  chain and strong stakeholders such as a Remit destination or burnable
-  URI-token issuer, even if those Hooks would accept. The engine does not
-  silently bypass their protections. `hook_skip` cannot evade this rule;
-  inactive HookOn entries, unmatched HookName entries, blank slots, and accounts
-  without Hooks do not count as eligible later execution. Status queries and
-  failed draws do not consume a draw; weak/again-as-weak execution remains
-  separate from strong veto authority.
+- **Guarded draws require terminal strong execution.** A draw Hook followed
+  by an accounting Hook in the same account is nonterminal, just as a draw
+  before a Remit destination or burnable URI-token issuer Hook is. Guarded
+  callers get `LATER_STRONG_HOOK` and may defer; permissive callers accept
+  outcome-based vetoes. Inactive HookOn entries, unmatched HookName entries,
+  blank slots, and accounts without Hooks do not count as eligible execution.
+  A defensive dispatcher check still returns `tecHOOK_REJECTED` if an eligible
+  strong Hook is reached after a successful guarded draw, indicating a
+  planning/dispatch mismatch. Permissive draws do not activate that invariant
+  and cannot clear an earlier guarded admission.
   This boundary does not prevent the drawing Hook itself from rejecting or
   exhausting shared resources, nor does it make base application infallible.
   Value-bearing applications must commit their inputs and stake in an earlier
   successful transaction before resolving through emitted or Cron work. An
   emitted transaction still executes applicable strong stakeholder Hooks and
-  is subject to this boundary. Emission alone does not freeze a draw across
+  is subject to this admission policy. Emission alone does not freeze a draw across
   retries: the application must prevent retries or rescheduling from selecting
   a different outcome, and handle failed payouts separately from settlement.
 - **Provisional open-ledger entropy** differs from the closed-ledger value
