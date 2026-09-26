@@ -2251,6 +2251,163 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testAccountOwnerHookOrdering()
+    {
+        testcase("Owner-installed Hook order and veto policy are explicit");
+        using namespace jtx;
+        TestHook draw = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t rollback(uint32_t, uint32_t, int64_t);
+            extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t entropy_cr_dice(uint32_t, uint32_t, uint32_t);
+            extern int64_t state_set(uint32_t, uint32_t, uint32_t, uint32_t);
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                // Policy is installed by the account owner, not read from
+                // untrusted transaction parameters.
+                uint8_t policy = 0;
+                if (hook_param((uint32_t)&policy, 1, (uint32_t)"P", 1) != 1)
+                    return rollback(0, 0, 1000);
+                int64_t result = entropy_cr_dice(6, 3, policy);
+                if (result < 0)
+                    return accept((uint32_t)"rng", 3, result);
+                uint8_t value = (uint8_t)result;
+                uint8_t key[32] = {'o','w','n','e','r','-','o','r','d','e','r'};
+                if (state_set((uint32_t)&value, 1, (uint32_t)key, 32) != 1)
+                    return rollback(0, 0, 1001);
+                return accept((uint32_t)"rng", 3, result);
+            }
+        )[test.hook]"];
+        TestHook accounting = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t rollback(uint32_t, uint32_t, int64_t);
+            extern int64_t hook_param(uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t state(uint32_t, uint32_t, uint32_t, uint32_t);
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                uint8_t value = 0;
+                uint8_t key[32] = {'o','w','n','e','r','-','o','r','d','e','r'};
+                int64_t count = state((uint32_t)&value, 1, (uint32_t)key, 32);
+                if (count == -5)
+                    return accept((uint32_t)"tail", 4, 77);
+                if (count != 1)
+                    return rollback(0, 0, 1002);
+                uint8_t veto = 0;
+                if (hook_param((uint32_t)&veto, 1, (uint32_t)"V", 1) != 1)
+                    return rollback(0, 0, 1003);
+                if (veto)
+                    return rollback((uint32_t)"tail", 4, 200 + value);
+                return accept((uint32_t)"tail", 4, 100 + value);
+            }
+        )[test.hook]"];
+        TestHook strictLibrary = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t rollback(uint32_t, uint32_t, int64_t);
+            extern int64_t entropy_cr_dice(uint32_t, uint32_t, uint32_t);
+            extern int64_t state_set(uint32_t, uint32_t, uint32_t, uint32_t);
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                // A reusable module fixes its own policy even when installed
+                // on an account controlled by a different party.
+                int64_t result = entropy_cr_dice(6, 3, 0);
+                if (result < 0)
+                    return accept((uint32_t)"rng", 3, result);
+                uint8_t value = (uint8_t)result;
+                uint8_t key[32] = {'o','w','n','e','r','-','o','r','d','e','r'};
+                if (state_set((uint32_t)&value, 1, (uint32_t)key, 32) != 1)
+                    return rollback(0, 0, 1001);
+                return accept((uint32_t)"rng", 3, result);
+            }
+        )[test.hook]"];
+        struct Case
+        {
+            bool drawFirst;
+            uint8_t policy;
+            bool veto;
+            bool fixedCallerPolicy = false;
+        };
+        for (auto const test :
+             {Case{false, 0, false},
+              Case{true, 0, false},
+              Case{true, 1, false},
+              Case{true, 1, true},
+              Case{true, 1, true, true}})
+        {
+            Env env{*this, supported_amendments() | featureConsensusEntropy};
+            Account const owner{
+                test.fixedCallerPolicy ? "player-library" : "configured-owner"};
+            env.fund(XRP(10000), owner);
+            env.close();
+            auto configured = [&](TestHook wasm,
+                                  std::string const& name,
+                                  uint8_t value) {
+                auto obj = hso(wasm, overrideFlag);
+                auto& param = obj[jss::HookParameters][0u][jss::HookParameter];
+                param[jss::HookParameterName] = name;
+                param[jss::HookParameterValue] = value ? "01" : "00";
+                return obj;
+            };
+            auto rng = configured(
+                test.fixedCallerPolicy ? strictLibrary : draw,
+                "50",
+                test.policy);
+            auto tail = configured(accounting, "56", test.veto);
+            env(ripple::test::jtx::hook(
+                    owner,
+                    test.drawFirst ? std::vector<Json::Value>{rng, tail}
+                                   : std::vector<Json::Value>{tail, rng},
+                    0),
+                HSFEE);
+            env.close();
+            Json::Value invoke;
+            invoke[jss::TransactionType] = "Invoke";
+            invoke[jss::Account] = owner.human();
+            bool const refused =
+                test.drawFirst && (test.fixedCallerPolicy || test.policy == 0);
+            env(invoke,
+                fee(XRP(1)),
+                (test.veto && !refused) ? ter(tecHOOK_REJECTED)
+                                        : ter(tesSUCCESS));
+            BEAST_REQUIRE(env.meta());
+            auto const executions = env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(executions.size() == 2);
+            auto const& rngResult = executions[test.drawFirst ? 0 : 1];
+            auto const& tailResult = executions[test.drawFirst ? 1 : 0];
+            BEAST_EXPECT(hookReturnString(rngResult) == "rng");
+            BEAST_EXPECT(hookReturnString(tailResult) == "tail");
+            auto const roll = hookReturnCode(rngResult);
+            if (refused)
+                BEAST_EXPECT(roll == -49);
+            else
+                BEAST_EXPECT(roll >= 0 && roll < 6);
+            BEAST_EXPECT(
+                hookReturnCode(tailResult) ==
+                ((!test.drawFirst || refused)
+                     ? 77
+                     : (test.veto ? 200 : 100) + roll));
+            std::array<uint8_t, 32> key{};
+            std::string const prefix = "owner-order";
+            std::copy(prefix.begin(), prefix.end(), key.begin());
+            auto const result = env.le(keylet::hookState(
+                owner.id(), uint256::fromVoid(key.data()), beast::zero));
+            BEAST_EXPECT(!!result == (!refused && !test.veto));
+            if (result)
+                BEAST_EXPECT(
+                    result->getFieldVL(sfHookStateData) ==
+                    Blob{static_cast<uint8_t>(roll)});
+        }
+    }
+
+    void
     run() override
     {
         testContextCreated();
@@ -2271,6 +2428,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testEntropyCompositionFilters();
         testEntropyHostAdmission();
         testViewEntropyAdmission();
+        testAccountOwnerHookOrdering();
         testEntropyDrawDoesNotBlockWeakAgainAsWeak();
         testRandom();
         testDiceConsecutiveCallsDiffer();
