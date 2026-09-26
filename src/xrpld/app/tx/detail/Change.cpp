@@ -67,6 +67,16 @@ Change::preflight(PreflightContext const& ctx)
         return temBAD_SIGNATURE;
     }
 
+    // Pseudo-transactions skip preflight1, where every other transaction
+    // type has these gated on featureJsonTx. They carry no signature for a
+    // delta to reconstruct, and a node on an older build cannot parse either
+    // field, so a validator proposing one would split the network.
+    if (ctx.tx.isFieldPresent(sfTime) || ctx.tx.isFieldPresent(sfJsonTxDelta))
+    {
+        JLOG(ctx.j.warn()) << "Change: JsonTx fields on a pseudo-transaction";
+        return temMALFORMED;
+    }
+
     if (ctx.tx.getFieldU32(sfSequence) != 0 ||
         ctx.tx.isFieldPresent(sfPreviousTxnID))
     {

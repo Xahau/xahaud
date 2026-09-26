@@ -23,6 +23,7 @@
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/JSONTxSignatures.h>
 
 namespace ripple {
 
@@ -44,6 +45,62 @@ checkValidity(
 {
     auto const id = tx.getTransactionID();
     auto const flags = router.getFlags(id);
+
+    // A delta decides which signature check applies, so it is examined before
+    // anything else - including the emitted and manifest branches below, which
+    // would otherwise accept a delta as inert ballast and give anyone who
+    // relays such a transaction a free way to mint new transaction ids for it.
+    if (tx.isFieldPresent(sfJsonTxDelta))
+    {
+        // Answered without touching the router. Every cached flag must be a
+        // function of the transaction alone, because nodes that disagree on
+        // one disagree on whether a transaction in the agreed set applies.
+        // Were this cached, a JsonTx relayed across the activation boundary -
+        // PeerImp checks against the validated ledger's rules, consensus
+        // against the open ledger's - would be SIGBAD on some nodes and
+        // SIGGOOD on others.
+        if (!rules.enabled(featureJsonTx))
+            return {Validity::SigBad, "JsonTx is not enabled."};
+
+        // A JsonTx signs a plaintext preimage, so STTx::checkSign -- a
+        // check against the binary signing hash -- can never succeed for it,
+        // and STTx::checkSign refuses any transaction carrying a delta. The
+        // delta cannot be stripped to downgrade to a binary check either:
+        // that leaves a TxnSignature over text the binary hash does not match.
+        //
+        // This proves only that the key signed the preimage. Tying that key to
+        // sfAccount is still Transactor::checkSingleSign's job, exactly as for
+        // a binary-signed transaction.
+        //
+        // jsontx_verify canonicalizes twice and then verifies ed25519, and
+        // checkValidity runs on every relay, so honour the cache. That is safe
+        // only because nothing but this branch (and forceValidity, from
+        // trusted sources) ever sets SIGGOOD or SIGBAD on an id carrying a
+        // delta: the binary path below is unreachable for one.
+        if (flags & SF_SIGBAD)
+            return {Validity::SigBad, "Transaction has bad signature."};
+
+        if (!(flags & SF_SIGGOOD))
+        {
+            try
+            {
+                (void)jsontx_verify(tx);
+            }
+            catch (std::exception const& e)
+            {
+                router.setFlags(id, SF_SIGBAD);
+                return {Validity::SigBad, e.what()};
+            }
+
+            router.setFlags(id, SF_SIGGOOD);
+        }
+
+        std::string reason;
+        if (!passesLocalChecks(tx, reason))
+            return {Validity::SigGoodOnly, reason};
+
+        return {Validity::Valid, ""};
+    }
 
     if (rules.enabled(featureHooks) && tx.isFieldPresent(sfEmitDetails))
     {

@@ -37,6 +37,7 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/JSONTxSignatures.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/UintTypes.h>
@@ -100,6 +101,22 @@ preflight1(PreflightContext const& ctx)
         !ctx.rules.enabled(featureTicketBatch))
     {
         return temMALFORMED;
+    }
+
+    // sfTime and sfJsonTxDelta are common fields, so every transaction type
+    // can carry them the moment this binary ships. A node on an older build
+    // cannot parse them, so accepting one into a ledger before the amendment
+    // activates would split consensus.
+    if (ctx.tx.isFieldPresent(sfTime) || ctx.tx.isFieldPresent(sfJsonTxDelta))
+    {
+        if (!ctx.rules.enabled(featureJsonTx))
+            return temDISABLED;
+
+        // unsanitize_jsontx refuses anything larger, so a bigger delta is
+        // only ever ledger weight that can never verify
+        if (ctx.tx.isFieldPresent(sfJsonTxDelta) &&
+            ctx.tx.getFieldVL(sfJsonTxDelta).size() > jsontx_max_diff)
+            return temMALFORMED;
     }
 
     auto const ret = preflight0(ctx);
