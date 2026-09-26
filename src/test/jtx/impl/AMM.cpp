@@ -141,7 +141,9 @@ AMM::create(
     if (fee_ != 0)
         jv[sfFee] = std::to_string(fee_);
     else
-        jv[jss::Fee] = std::to_string(env_.current()->fees().increment.drops());
+        jv[jss::Fee] = std::to_string(
+            env_.current()->fees().increment.drops() +
+            env_.current()->fees().base.drops());
     submit(jv, seq, ter);
 
     if (!ter || env_.ter() == tesSUCCESS)

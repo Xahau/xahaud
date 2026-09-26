@@ -81,8 +81,8 @@ AMMCreate::preflight(PreflightContext const& ctx)
 XRPAmount
 AMMCreate::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    // The fee required for AMMCreate is one owner reserve.
-    return view.fees().increment;
+    // The least fee required for AMMCreate is one owner reserve.
+    return Transactor::calculateBaseFee(view, tx) + view.fees().increment;
 }
 
 TER
@@ -252,12 +252,7 @@ applyCreate(
     auto sleAMMRoot = std::make_shared<SLE>(keylet::account(*ammAccount));
     sleAMMRoot->setAccountID(sfAccount, *ammAccount);
     sleAMMRoot->setFieldAmount(sfBalance, STAmount{});
-    std::uint32_t const seqno{
-        ctx_.view().rules().enabled(featureXahauGenesis)
-            ? ctx_.view().info().parentCloseTime.time_since_epoch().count()
-            : ctx_.view().rules().enabled(featureDeletableAccounts)
-            ? ctx_.view().seq()
-            : 1};
+    std::uint32_t const seqno = newAccountSeqNo(ctx_.view());
     sleAMMRoot->setFieldU32(sfSequence, seqno);
     // Ignore reserves requirement, disable the master key, allow default
     // rippling (AMM LPToken can be used in payments and offer crossing but

@@ -26,6 +26,7 @@
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/UTF8.h>
 
 namespace ripple {
 
@@ -98,7 +99,7 @@ URIToken::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (!validateUTF8(uri))
+        if (!isValidUTF8(makeSlice(uri)))
         {
             JLOG(ctx.j.warn()) << "Malformed transaction. URI must be a "
                                   "valid utf-8 string.";

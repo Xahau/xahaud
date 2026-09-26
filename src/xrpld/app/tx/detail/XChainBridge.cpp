@@ -481,11 +481,7 @@ transferHelper(
             }
 
             // Create the account.
-            std::uint32_t const seqno{
-                psb.rules().enabled(featureXahauGenesis)
-                    ? psb.info().parentCloseTime.time_since_epoch().count()
-                    : psb.rules().enabled(featureDeletableAccounts) ? psb.seq()
-                                                                    : 1};
+            std::uint32_t const seqno = newAccountSeqNo(psb);
 
             sleDst = std::make_shared<SLE>(dstK);
             sleDst->setAccountID(sfAccount, dst);
