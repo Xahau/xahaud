@@ -96,20 +96,11 @@ namespace hook_api {
 
 namespace hook {
 
-// Called by Transactor.cpp to determine if a transaction type can trigger a
-// given hook... The HookOn field in the SetHook transaction determines which
-// transaction types (tt's) trigger the hook. Every bit except ttHookSet is
-// active low, so for example ttESCROW_FINISH = 2, so if the 2nd bit (counting
-// from 0) from the right is 0 then the hook will trigger on ESCROW_FINISH. If
-// it is 1 then ESCROW_FINISH will not trigger the hook. However ttHOOK_SET = 22
-// is active high, so by default (HookOn == 0) ttHOOK_SET is not triggered by
-// transactions. If you wish to set a hook that has control over ttHOOK_SET then
-// set bit 1U<<22.
-[[nodiscard]] constexpr bool
-canHook(ripple::TxType txType, ripple::uint256 const& hookOn) noexcept
-{
-    // invert ttHOOK_SET bit
-    auto temp = (hookOn ^ UINT256_BIT[ttHOOK_SET]);
+bool
+canHook(
+    STTx const& tx,
+    ripple::uint256 hookOn,
+    std::optional<ripple::Slice> hookName);
 
     return (UINT256_BIT[txType] & ~temp) != beast::zero;
 }

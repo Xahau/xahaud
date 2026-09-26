@@ -961,6 +961,54 @@ hook::removeHookNamespaceEntry(ripple::SLE& sleAccount, ripple::uint256 ns)
     return false;
 }
 
+// Called by Transactor.cpp to determine if a transaction type can trigger a
+// given hook... The HookOn field in the SetHook transaction determines which
+// transaction types (tt's) trigger the hook. Every bit except ttHookSet is
+// active low, so for example ttESCROW_FINISH = 2, so if the 2nd bit (counting
+// from 0) from the right is 0 then the hook will trigger on ESCROW_FINISH. If
+// it is 1 then ESCROW_FINISH will not trigger the hook. However ttHOOK_SET = 22
+// is active high, so by default (HookOn == 0) ttHOOK_SET is not triggered by
+// transactions. If you wish to set a hook that has control over ttHOOK_SET then
+// set bit 1U<<22.
+bool
+canHookTT(ripple::TxType txType, ripple::uint256 hookOn)
+{
+    // invert ttHOOK_SET bit
+    hookOn ^= UINT256_BIT[ttHOOK_SET];
+
+    // invert entire field
+    hookOn = ~hookOn;
+
+    return (hookOn & UINT256_BIT[txType]) != beast::zero;
+}
+
+bool
+hook::canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit)
+{
+    return canHookTT(txType, hookCanEmit);
+}
+
+bool
+hook::canHook(
+    STTx const& tx,
+    ripple::uint256 hookOn,
+    std::optional<ripple::Slice> hookName)
+{
+    if (!canHookTT(tx.getTxnType(), hookOn))
+        return false;
+
+    if (!hookName || hookName->empty())
+        // no hook name specified to hook, so we can always hook
+        return true;
+
+    if (!tx.isFieldPresent(sfHookName))
+        // hook name specified hook, but no hook name specified in the
+        // transaction, so we can't hook without the hook name
+        return false;
+
+    return tx[sfHookName] == *hookName;
+}
+
 ripple::uint256
 hook::getHookCanEmit(
     ripple::STObject const& hookObj,
@@ -2354,6 +2402,35 @@ DEFINE_HOOK_FUNCTION(
                     : keylet_type == keylet_code::DID
                     ? ripple::keylet::did(id)
                     : ripple::keylet::account(id);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
+            // keylets that take a validator public key
+            case keylet_code::MANIFEST: {
+                if (!applyCtx.view().rules().enabled(featureOnChainManifests))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+
+                if (c != 0 || d != 0 || e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                ripple::Slice const pkSlice{memory + read_ptr, read_len};
+
+                // Reject anything that is not a well-formed public key before
+                // constructing one: the PublicKey ctor throws on bad input.
+                if (!publicKeyType(pkSlice))
+                    return INVALID_ARGUMENT;
+
+                ripple::Keylet kl =
+                    ripple::keylet::manifest(ripple::PublicKey(pkSlice));
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }

@@ -4984,8 +4984,8 @@ private:
                     alice,
                     STAmount{USD, UINT64_C(30'000'0000000003), -10}));
                 // alice XRP balance is 30,000initial - 50 ammcreate fee -
-                // 10drops fee
-                BEAST_EXPECT(accountBalance(env, alice) == "29949999990");
+                // 10drops ammcreate base fee - 10drops fee
+                BEAST_EXPECT(accountBalance(env, alice) == "29949999980");
             },
             std::nullopt,
             0,
@@ -5061,7 +5061,7 @@ private:
                     (xrpBalance + drops(5)).getText());
                 BEAST_EXPECT(
                     accountBalance(env, alice) ==
-                    std::to_string(29'950'000'000 - baseFee + 80));
+                    std::to_string(29'950'000'000 - 2 * baseFee + 80));
             },
             std::nullopt,
             0,
