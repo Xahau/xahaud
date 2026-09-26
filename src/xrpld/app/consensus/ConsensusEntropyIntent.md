@@ -223,13 +223,22 @@ Zero flags require the calling strong Hook to be the last statically eligible
 strong Hook in the transaction. A nonterminal request returns
 `LATER_STRONG_HOOK` (-49) before any draw, output write, or counter increment;
 the Hook may handle this error without rejecting the transaction.
-`ENTROPY_ALLOW_LATER_STRONG_VETO` (bit 0) explicitly permits later strong Hooks
-and their ordinary vetoes. Unknown bits return `INVALID_ARGUMENT`. Policy is
+`ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO` (bit 1) permits later strong Hooks
+only on the drawing Hook's installed account (not the transaction sender).
+Admission requires that account to be the last statically eligible strong
+account. `ENTROPY_ALLOW_ANY_STRONG_VETO` (bit 0) permits later strong Hooks
+on any account, including the same account; setting both bits also means ANY.
+Allowed Hooks retain ordinary veto and skip behavior.
+Unknown bits return `INVALID_ARGUMENT`. Policy is
 per call; one Hook cannot waive another's guarded requirement. The dispatcher
 plans terminal eligibility before strong execution, including same-account
 chain positions and other accounts' strong stakeholders. Runtime `hook_skip`
 requests do not alter that conservative plan. Weak/callback/again-as-weak
 execution has no subsequent strong phase.
+Same-account opt-in extends trust to downstream code installed on the account
+and whoever can replace it. Reusable or pinned-code Hooks trusted independently
+of their host account should remain strict. Do not let untrusted transaction
+parameters choose an application's veto policy.
 
 After argument and composition admission, entropy is served iff it is
 **fresh** (current ledger in closed execution; current or previous in open
@@ -238,7 +247,7 @@ otherwise the call **fails closed**
 (`TOO_LITTLE_ENTROPY`). `entropy_cr_status()` separately exposes the stored tier,
 contributor count, and denominator so hooks can impose proportional or absolute
 policies without freezing those policies into the host ABI.
-These quality/freshness checks apply in both policy modes. Status is
+These quality/freshness checks apply in all policy modes. Status is
 observational and exposes no global or last-call policy: the successful draw
 and its supplied flags establish the mode, with no silent downgrade.
 Fallback is tier 1 with count/denominator `0/0`, so callers must classify tier
@@ -379,16 +388,19 @@ into an INV violation:
 - **Fallback (tier 1) is user-influenceable** (a quiet-ledger submitter can grind
   the tx set). That is why it is a distinct labeled tier hooks must opt into, and
   never suitable for value-bearing outcomes.
-- **Guarded draws require terminal strong execution.** A draw Hook followed
+- **Zero-flag draws require terminal strong execution.** A draw Hook followed
   by an accounting Hook in the same account is nonterminal, just as a draw
   before a Remit destination or burnable URI-token issuer Hook is. Guarded
-  callers get `LATER_STRONG_HOOK` and may defer; permissive callers accept
-  outcome-based vetoes. Inactive HookOn entries, unmatched HookName entries,
+  callers get `LATER_STRONG_HOOK` and may defer. Same-account callers allow
+  their own account's later strong Hooks, but still refuse if a foreign strong
+  Hook follows. ANY callers accept all later strong vetoes. Either opt-in may
+  admit outcome-based vetoes within its allowed scope.
+  Inactive HookOn entries, unmatched HookName entries,
   blank slots, and accounts without Hooks do not count as eligible execution.
   A defensive dispatcher check still returns `tecHOOK_REJECTED` if an eligible
-  strong Hook is reached after a successful guarded draw, indicating a
-  planning/dispatch mismatch. Permissive draws do not activate that invariant
-  and cannot clear an earlier guarded admission.
+  strong Hook violates a successful draw's guard (any later strong Hook for
+  zero flags; a foreign-account strong Hook for same-account flags), indicating
+  a planning/dispatch mismatch. Broader calls cannot clear an earlier guard.
   This boundary does not prevent the drawing Hook itself from rejecting or
   exhausting shared resources, nor does it make base application infallible.
   Value-bearing applications must commit their inputs and stake in an earlier

@@ -49,11 +49,14 @@ namespace ripple {
 namespace {
 
 bool
-hasGuardedEntropyDraw(std::vector<hook::HookResult> const& results)
+violatesEntropyDrawGuard(
+    std::vector<hook::HookResult> const& results,
+    AccountID const& account)
 {
     for (auto const& result : results)
     {
-        if (result.hasGuardedEntropyDraw)
+        if (result.hasGuardedEntropyDraw ||
+            (result.hasAccountGuardedEntropyDraw && result.account != account))
             return true;
     }
 
@@ -1448,11 +1451,12 @@ Transactor::executeHookChain(
         // lookup hook definition
         uint256 const& hookHash = hookObj.getFieldH256(sfHookHash);
 
-        bool const afterGuardedDraw = strong &&
+        bool const violatesPriorDrawGuard = strong &&
             ctx_.view().rules().enabled(featureConsensusEntropy) &&
-            hasGuardedEntropyDraw(results);
+            violatesEntropyDrawGuard(results, account);
 
-        if (!afterGuardedDraw && hookSkips.find(hookHash) != hookSkips.end())
+        if (!violatesPriorDrawGuard &&
+            hookSkips.find(hookHash) != hookSkips.end())
         {
             // LCOV_EXCL_START
             JLOG(j_.trace()) << "HookInfo: Skipping " << hookHash;
@@ -1473,10 +1477,10 @@ Transactor::executeHookChain(
         if (!matchesHookTrigger(hookObj, hookDef, ctx_.tx, isOutgoing))
             continue;  // skip if it can't
 
-        // Defensive invariant: guarded admission uses the immutable terminal
-        // position, so only a planning/dispatch mismatch can reach this path.
-        // Permissive draws never disable another Hook's ordinary veto.
-        if (afterGuardedDraw)
+        // Defensive invariant: admission uses the immutable terminal Hook or
+        // account, so only a planning/dispatch mismatch can reach this path.
+        // Allowed later Hooks retain their ordinary veto authority.
+        if (violatesPriorDrawGuard)
         {
             JLOG(j_.trace())
                 << "HookInfo[" << account << "-"
@@ -1539,7 +1543,9 @@ Transactor::executeHookChain(
                 provisionalMeta,
                 strong && terminalStrongHook_ &&
                     terminalStrongHook_->first == account &&
-                    terminalStrongHook_->second == hook_no - 1));
+                    terminalStrongHook_->second == hook_no - 1,
+                strong && terminalStrongHook_ &&
+                    terminalStrongHook_->first == account));
 
             executedHookCount_++;
 

@@ -1108,10 +1108,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     buf[i] = 0xA5;
 
-                if (entropy_cr_random((uint32_t)buf, 32, 4, 0) != TOO_LITTLE_ENTROPY)
-                    return accept(0, 0, 30);
-                if (entropy_cr_random((uint32_t)buf, 32, 4, 1) != TOO_LITTLE_ENTROPY)
-                    return accept(0, 0, 32);
+                for (uint32_t flags = 0; GUARD(4), flags < 4; ++flags)
+                    if (entropy_cr_random((uint32_t)buf, 32, 4, flags) != TOO_LITTLE_ENTROPY)
+                        return accept(0, 0, 30 + flags);
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     if (buf[i] != 0xA5)
                         return accept(0, 0, 31);
@@ -1188,9 +1187,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 if (bad_random_high != INVALID_ARGUMENT)
                     return accept(0, 0, 103);
 
-                if (entropy_cr_dice(6, 3, 2) != INVALID_ARGUMENT ||
+                if (entropy_cr_dice(6, 3, 4) != INVALID_ARGUMENT ||
                     entropy_cr_dice(6, 3, 0xFFFFFFFFU) != INVALID_ARGUMENT ||
-                    entropy_cr_random((uint32_t)buf, 32, 3, 2) != INVALID_ARGUMENT ||
+                    entropy_cr_random((uint32_t)buf, 32, 3, 4) != INVALID_ARGUMENT ||
                     entropy_cr_random((uint32_t)buf, 32, 3, 0xFFFFFFFFU) != INVALID_ARGUMENT)
                     return accept(0, 0, 104);
 
@@ -1262,7 +1261,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             {
                 _g(1,1);
 
-                // Test-only selector: exercise both application policies.
+                // Test-only selector: exercise all application policies.
                 uint8_t tag[4] = {0};
                 otxn_field((uint32_t)tag, sizeof(tag), (2U << 16U) + 3U);
                 int64_t roll = entropy_cr_dice(6, 3, tag[3]);
@@ -1522,6 +1521,21 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             BEAST_REQUIRE(token);
             BEAST_EXPECT(token->getAccountID(sfOwner) == player.id());
 
+            // Same-account permission never grants a foreign issuer a veto.
+            auto accountOnly = remit::remit(player, game);
+            accountOnly["SourceTag"] =
+                hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO;
+            env(accountOnly,
+                remit::token_ids({hexTokenID}),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+            auto const accountRefused =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(accountRefused.size() == 1);
+            BEAST_EXPECT(hookReturnCode(accountRefused[0]) == -49);
+            BEAST_EXPECT(
+                !env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
+
             // Explicit opt-in lets the issuer execute and exercise its veto.
             auto permissive = remit::remit(player, game);
             permissive["SourceTag"] = 1;
@@ -1540,6 +1554,19 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 env.le(Keylet{ltURI_TOKEN, tokenID})->getAccountID(sfOwner) ==
                 player.id());
+
+            // ANY includes SAME_ACCOUNT, whether or not both bits are set.
+            auto combined = permissive;
+            combined["SourceTag"] = hook_api::ENTROPY_ALLOW_ANY_STRONG_VETO |
+                hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO;
+            env(combined,
+                remit::token_ids({hexTokenID}),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+            auto const combinedVeto =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(combinedVeto.size() == 2);
+            BEAST_EXPECT(hookReturnCode(combinedVeto[1]) == 9001);
 
             // Terminal destination draw remains usable when there is no
             // subsequent strong stakeholder Hook.
@@ -1565,6 +1592,15 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             BEAST_EXPECT(env.balance(game) == gameBalance);
             BEAST_EXPECT(!env.le(
                 keylet::hookState(player.id(), markerKey, beast::zero)));
+            auto accountPayment = pay(player, game, XRP(1));
+            accountPayment["SourceTag"] =
+                hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO;
+            env(accountPayment, fee(XRP(1)), ter(tecHOOK_REJECTED));
+            auto const accountSender =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(accountSender.size() == 1);
+            BEAST_EXPECT(hookReturnCode(accountSender[0]) == -49);
+            BEAST_EXPECT(env.balance(game) == gameBalance);
             // Both sender and destination may opt in, preserving issuer veto.
             env(permissive,
                 remit::token_ids({hexTokenID}),
@@ -1719,7 +1755,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             #define sfSourceTag ((2U << 16U) + 3U)
             #define GUARD(n) _g((1U << 31U) + __LINE__, (n)+1)
             #define LATER_STRONG_HOOK (-49)
-            #define ENTROPY_ALLOW_LATER_STRONG_VETO (1U << 0)
+            #define ENTROPY_ALLOW_ANY_STRONG_VETO (1U << 0)
+            #define ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO (1U << 1)
 
             int64_t hook(uint32_t r)
             {
@@ -1747,7 +1784,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 for (int i = 0; GUARD(32), i < 32; ++i)
                     bytes[i] = 0xA5U;
                 uint32_t flags = (tag[3] == 3 || tag[3] == 4 || tag[3] == 7)
-                    ? ENTROPY_ALLOW_LATER_STRONG_VETO : 0;
+                    ? ENTROPY_ALLOW_ANY_STRONG_VETO : 0;
+                if (tag[3] >= 8)
+                    flags = ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO;
                 int64_t result = entropy_cr_random(SBUF(bytes), 3, flags);
                 if (result == LATER_STRONG_HOOK)
                 {
@@ -1764,12 +1803,12 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                         return rollback(0, 0, 106);
                     // The refused call must not consume draw index zero.
                     return accept(0, 0, entropy_cr_dice(
-                        1000000, 3, ENTROPY_ALLOW_LATER_STRONG_VETO));
+                        1000000, 3, ENTROPY_ALLOW_ANY_STRONG_VETO));
                 }
-                if (tag[3] == 7)
+                if (tag[3] == 7 || tag[3] == 10)
                     return accept(0, 0, entropy_cr_dice(6, 3, 0));
 
-                if (tag[3] == 3)
+                if (tag[3] == 3 || tag[3] == 8)
                 {
                     uint8_t hash[32];
                     if (hook_hash(SBUF(hash), 1) != 32)
@@ -1817,23 +1856,23 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         // Refusal is an API error, not mandatory transaction rejection.
         // Permissive calls preserve normal skip/veto semantics and cannot
         // grant permission to a subsequent guarded call in this same Hook.
-        for (unsigned mode = 0; mode < 8; ++mode)
+        for (unsigned mode = 0; mode < 11; ++mode)
         {
             invoke["SourceTag"] = mode;
             env(invoke, fee(XRP(1)));
             auto const meta = env.meta();
             BEAST_REQUIRE(meta);
             auto const executions = meta->getFieldArray(sfHookExecutions);
-            bool const skipped = mode == 3 || mode == 5;
+            bool const skipped = mode == 3 || mode == 5 || mode == 8;
             BEAST_REQUIRE(executions.size() == (skipped ? 1 : 2));
             BEAST_EXPECT(
                 executions[0].getFieldU8(sfHookResult) ==
                 static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
             if (!skipped)
                 BEAST_EXPECT(hookReturnCode(executions[1]) == 77);
-            if (mode == 2 || mode == 5 || mode == 7)
+            if (mode == 2 || mode == 5 || mode == 7 || mode == 10)
                 BEAST_EXPECT(hookReturnCode(executions[0]) == -49);
-            if (mode == 3 || mode == 4)
+            if (mode == 3 || mode == 4 || mode == 8 || mode == 9)
                 BEAST_EXPECT(hookReturnCode(executions[0]) == 32);
             if (mode == 6)
             {
@@ -1856,6 +1895,42 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             }
         }
 
+        // A same-account guard must preserve a later helper's normal ability
+        // to skip another Hook on this account (not just the drawing Hook's
+        // own skips). The immutable plan still includes the final slot.
+        TestHook skippingHelper = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t rollback(uint32_t, uint32_t, int64_t);
+            extern int64_t hook_hash(uint32_t, uint32_t, int32_t);
+            extern int64_t hook_skip(uint32_t, uint32_t, uint32_t);
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                uint8_t hash[32];
+                if (hook_hash((uint32_t)hash, 32, 2) != 32 ||
+                    hook_skip((uint32_t)hash, 32, 0) != 1)
+                    return rollback(0, 0, 100);
+                return accept(0, 0, 88);
+            }
+        )[test.hook]"];
+        env(ripple::test::jtx::hook(
+                alice,
+                {{hso(drawingHook, overrideFlag),
+                  hso(skippingHelper, overrideFlag),
+                  hso(acceptingHook, overrideFlag)}},
+                0),
+            HSFEE);
+        env.close();
+        invoke["SourceTag"] = 9;
+        env(invoke, fee(XRP(1)));
+        BEAST_REQUIRE(env.meta());
+        auto const helperSkipped = env.meta()->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(helperSkipped.size() == 2);
+        BEAST_EXPECT(hookReturnCode(helperSkipped[0]) == 32);
+        BEAST_EXPECT(hookReturnCode(helperSkipped[1]) == 88);
+
         // Only eligible later Hooks prohibit the composition. An inactive
         // HookOn, unmatched HookName, or blank slot is not a veto authority.
         for (unsigned filter = 0; filter < 3; ++filter)
@@ -1869,7 +1944,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 tail = hso_delete();
 
             env(ripple::test::jtx::hook(
-                    alice, {{hso(drawingHook, overrideFlag), tail}}, 0),
+                    alice,
+                    {{hso(drawingHook, overrideFlag), tail, hso_delete()}},
+                    0),
                 HSFEE);
             env.close();
             invoke["SourceTag"] = 2;
@@ -2048,6 +2125,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 int64_t guarded = entropy_cr_dice(1, 3, 0);
                 if (guarded != 0 && guarded != -49)
                     return rollback(0, 0, 100);
+                int64_t accountGuarded = entropy_cr_dice(1, 3, 2);
+                if (accountGuarded != 0 && accountGuarded != -49)
+                    return rollback(0, 0, 106);
                 if (entropy_cr_dice(1, 3, 1) != 0)
                     return rollback(0, 0, 101);
                 uint8_t bytes[32];
@@ -2060,8 +2140,23 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                     for (int i = 0; GUARD(32), i < 32; ++i)
                         if (bytes[i] != 0xA5)
                             return rollback(0, 0, 103);
+                count = entropy_cr_random((uint32_t)bytes, 32, 3, 2);
+                if (count != (accountGuarded == 0 ? 32 : -49))
+                    return rollback(0, 0, 107);
+                if (count == -49)
+                    for (int i = 0; GUARD(32), i < 32; ++i)
+                        if (bytes[i] != 0xA5)
+                            return rollback(0, 0, 108);
                 if (entropy_cr_random((uint32_t)bytes, 32, 3, 1) != 32)
                     return rollback(0, 0, 104);
+                // Both bits mean ANY, not a narrower permission.
+                if (entropy_cr_dice(1, 3, 3) != 0 ||
+                    entropy_cr_random((uint32_t)bytes, 32, 3, 3) != 32)
+                    return rollback(0, 0, 109);
+                for (uint32_t flags = 4; GUARD(4), flags < 8; ++flags)
+                    if (entropy_cr_dice(1, 3, flags) != -7 ||
+                        entropy_cr_random((uint32_t)bytes, 32, 3, flags) != -7)
+                        return rollback(0, 0, 110);
                 if (entropy_cr_status() != status)
                     return rollback(0, 0, 105);
                 return accept(0, 0, guarded);
@@ -2096,6 +2191,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         auto const execute = [&](TestHook wasm,
                                  bool strong,
                                  bool terminal,
+                                 bool terminalAccount,
                                  bool oldArity) {
             OpenView view{*env.current()};
             STTx tx{ttINVOKE, [&](STObject& obj) {
@@ -2128,7 +2224,8 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 0,
                 0,
                 {},
-                terminal);
+                terminal,
+                terminalAccount);
             if (oldArity)
             {
                 // Bypass SetHook validation to model execution of Wasm
@@ -2136,27 +2233,36 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 BEAST_EXPECT(result.exitType == hook_api::ExitType::WASM_ERROR);
                 BEAST_EXPECT(result.rngCallCounter == 0);
                 BEAST_EXPECT(!result.hasGuardedEntropyDraw);
+                BEAST_EXPECT(!result.hasAccountGuardedEntropyDraw);
             }
             else
             {
                 bool const admitted = !strong || terminal;
+                bool const accountAdmitted =
+                    !strong || terminal || terminalAccount;
                 BEAST_EXPECT(result.exitType == hook_api::ExitType::ACCEPT);
                 BEAST_EXPECT(result.exitCode == (admitted ? 0 : -49));
-                BEAST_EXPECT(result.rngCallCounter == (admitted ? 4 : 2));
+                BEAST_EXPECT(
+                    result.rngCallCounter ==
+                    4 + (admitted ? 2 : 0) + (accountAdmitted ? 2 : 0));
                 // The final permissive call must not clear guarded admission.
                 BEAST_EXPECT(
                     result.hasGuardedEntropyDraw == (strong && terminal));
+                BEAST_EXPECT(
+                    result.hasAccountGuardedEntropyDraw ==
+                    (strong && (terminal || terminalAccount)));
             }
         };
-        execute(mixed, true, false, false);
-        execute(mixed, true, true, false);
-        execute(mixed, false, false, false);
+        execute(mixed, true, false, false, false);
+        execute(mixed, true, false, true, false);
+        execute(mixed, true, true, true, false);
+        execute(mixed, false, false, false, false);
         for (auto const* old : {&oldDice, &oldRandom})
         {
             env(ripple::test::jtx::hook(alice, {{hso(*old, overrideFlag)}}, 0),
                 HSFEE,
                 ter(temMALFORMED));
-            execute(*old, true, true, true);
+            execute(*old, true, true, true, true);
         }
     }
 
@@ -2193,19 +2299,22 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 int64_t status = entropy_cr_status();
                 if ((mode == 1 && status != -5) || (mode != 1 && status < 0))
                     return rollback(0, 0, 100);
-                int64_t draw = entropy_cr_dice(1, 1, 0);
-                if (draw != (mode == 0 ? 0 : -48))
-                    return rollback(0, 0, 101);
-                uint8_t bytes[32];
-                for (int i = 0; GUARD(32), i < 32; ++i)
-                    bytes[i] = 0xA5;
-                int64_t count = entropy_cr_random((uint32_t)bytes, 32, 1, 0);
-                if (count != (mode == 0 ? 32 : -48))
-                    return rollback(0, 0, 102);
-                if (mode != 0)
-                    for (int i = 0; GUARD(32), i < 32; ++i)
-                        if (bytes[i] != 0xA5)
-                            return rollback(0, 0, 103);
+                for (uint32_t flags = 0; GUARD(4), flags < 4; ++flags)
+                {
+                    int64_t draw = entropy_cr_dice(1, 1, flags);
+                    if (draw != (mode == 0 ? 0 : -48))
+                        return rollback(0, 0, 101);
+                    uint8_t bytes[32];
+                    for (int i = 0; GUARD(132), i < 32; ++i)
+                        bytes[i] = 0xA5;
+                    int64_t count = entropy_cr_random((uint32_t)bytes, 32, 1, flags);
+                    if (count != (mode == 0 ? 32 : -48))
+                        return rollback(0, 0, 102);
+                    if (mode != 0)
+                        for (int i = 0; GUARD(132), i < 32; ++i)
+                            if (bytes[i] != 0xA5)
+                                return rollback(0, 0, 103);
+                }
                 return accept(0, 0, 0);
             }
         )[test.hook]"];
@@ -2243,7 +2352,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 true);
             BEAST_EXPECT(result.exitType == hook_api::ExitType::ACCEPT);
             BEAST_EXPECT(result.exitCode == 0);
-            BEAST_EXPECT(result.rngCallCounter == (mode == 0 ? 2 : 0));
+            BEAST_EXPECT(result.rngCallCounter == (mode == 0 ? 8 : 0));
+            BEAST_EXPECT(result.hasGuardedEntropyDraw == (mode == 0));
+            BEAST_EXPECT(result.hasAccountGuardedEntropyDraw == (mode == 0));
         };
         run(preview, 0);
         run(closed, 1);
@@ -2335,76 +2446,94 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             bool veto;
             bool fixedCallerPolicy = false;
         };
-        for (auto const test :
-             {Case{false, 0, false},
-              Case{true, 0, false},
-              Case{true, 1, false},
-              Case{true, 1, true},
-              Case{true, 1, true, true}})
-        {
-            Env env{*this, supported_amendments() | featureConsensusEntropy};
-            Account const owner{
-                test.fixedCallerPolicy ? "player-library" : "configured-owner"};
-            env.fund(XRP(10000), owner);
-            env.close();
-            auto configured = [&](TestHook wasm,
-                                  std::string const& name,
-                                  uint8_t value) {
-                auto obj = hso(wasm, overrideFlag);
-                auto& param = obj[jss::HookParameters][0u][jss::HookParameter];
-                param[jss::HookParameterName] = name;
-                param[jss::HookParameterValue] = value ? "01" : "00";
-                return obj;
-            };
-            auto rng = configured(
-                test.fixedCallerPolicy ? strictLibrary : draw,
-                "50",
-                test.policy);
-            auto tail = configured(accounting, "56", test.veto);
-            env(ripple::test::jtx::hook(
-                    owner,
-                    test.drawFirst ? std::vector<Json::Value>{rng, tail}
-                                   : std::vector<Json::Value>{tail, rng},
-                    0),
-                HSFEE);
-            env.close();
-            Json::Value invoke;
-            invoke[jss::TransactionType] = "Invoke";
-            invoke[jss::Account] = owner.human();
-            bool const refused =
-                test.drawFirst && (test.fixedCallerPolicy || test.policy == 0);
-            env(invoke,
-                fee(XRP(1)),
-                (test.veto && !refused) ? ter(tecHOOK_REJECTED)
-                                        : ter(tesSUCCESS));
-            BEAST_REQUIRE(env.meta());
-            auto const executions = env.meta()->getFieldArray(sfHookExecutions);
-            BEAST_REQUIRE(executions.size() == 2);
-            auto const& rngResult = executions[test.drawFirst ? 0 : 1];
-            auto const& tailResult = executions[test.drawFirst ? 1 : 0];
-            BEAST_EXPECT(hookReturnString(rngResult) == "rng");
-            BEAST_EXPECT(hookReturnString(tailResult) == "tail");
-            auto const roll = hookReturnCode(rngResult);
-            if (refused)
-                BEAST_EXPECT(roll == -49);
-            else
-                BEAST_EXPECT(roll >= 0 && roll < 6);
-            BEAST_EXPECT(
-                hookReturnCode(tailResult) ==
-                ((!test.drawFirst || refused)
-                     ? 77
-                     : (test.veto ? 200 : 100) + roll));
-            std::array<uint8_t, 32> key{};
-            std::string const prefix = "owner-order";
-            std::copy(prefix.begin(), prefix.end(), key.begin());
-            auto const result = env.le(keylet::hookState(
-                owner.id(), uint256::fromVoid(key.data()), beast::zero));
-            BEAST_EXPECT(!!result == (!refused && !test.veto));
-            if (result)
+        constexpr uint8_t any = hook_api::ENTROPY_ALLOW_ANY_STRONG_VETO;
+        constexpr uint8_t same =
+            hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO;
+        // Exercise both origin chains and destination chains: SAME_ACCOUNT
+        // refers to the installed Hook's account, never the transaction sender.
+        for (bool const incoming : {false, true})
+            for (auto const test :
+                 {Case{false, 0, false},
+                  Case{false, same, false},
+                  Case{true, 0, false},
+                  Case{true, same, false},
+                  Case{true, same, true},
+                  Case{true, any, false},
+                  Case{true, any, true},
+                  Case{true, any | same, false},
+                  Case{true, any | same, true},
+                  Case{true, any | same, true, true}})
+            {
+                Env env{
+                    *this, supported_amendments() | featureConsensusEntropy};
+                Account const owner{
+                    test.fixedCallerPolicy ? "player-library"
+                                           : "configured-owner"};
+                Account const sender{"ordering-sender"};
+                env.fund(XRP(10000), owner, sender);
+                env.close();
+                auto configured =
+                    [&](TestHook wasm, std::string const& name, uint8_t value) {
+                        auto obj = hso(wasm, overrideFlag);
+                        auto& param =
+                            obj[jss::HookParameters][0u][jss::HookParameter];
+                        param[jss::HookParameterName] = name;
+                        param[jss::HookParameterValue] = strHex(Blob{value});
+                        return obj;
+                    };
+                auto rng = configured(
+                    test.fixedCallerPolicy ? strictLibrary : draw,
+                    "50",
+                    test.policy);
+                auto tail = configured(accounting, "56", test.veto);
+                env(ripple::test::jtx::hook(
+                        owner,
+                        test.drawFirst ? std::vector<Json::Value>{rng, tail}
+                                       : std::vector<Json::Value>{tail, rng},
+                        0),
+                    HSFEE);
+                env.close();
+                Json::Value invoke;
+                invoke[jss::TransactionType] = "Invoke";
+                invoke[jss::Account] =
+                    incoming ? sender.human() : owner.human();
+                if (incoming)
+                    invoke[jss::Destination] = owner.human();
+                bool const refused = test.drawFirst &&
+                    (test.fixedCallerPolicy || test.policy == 0);
+                env(invoke,
+                    fee(XRP(1)),
+                    (test.veto && !refused) ? ter(tecHOOK_REJECTED)
+                                            : ter(tesSUCCESS));
+                BEAST_REQUIRE(env.meta());
+                auto const executions =
+                    env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_REQUIRE(executions.size() == 2);
+                auto const& rngResult = executions[test.drawFirst ? 0 : 1];
+                auto const& tailResult = executions[test.drawFirst ? 1 : 0];
+                BEAST_EXPECT(hookReturnString(rngResult) == "rng");
+                BEAST_EXPECT(hookReturnString(tailResult) == "tail");
+                auto const roll = hookReturnCode(rngResult);
+                if (refused)
+                    BEAST_EXPECT(roll == -49);
+                else
+                    BEAST_EXPECT(roll >= 0 && roll < 6);
                 BEAST_EXPECT(
-                    result->getFieldVL(sfHookStateData) ==
-                    Blob{static_cast<uint8_t>(roll)});
-        }
+                    hookReturnCode(tailResult) ==
+                    ((!test.drawFirst || refused)
+                         ? 77
+                         : (test.veto ? 200 : 100) + roll));
+                std::array<uint8_t, 32> key{};
+                std::string const prefix = "owner-order";
+                std::copy(prefix.begin(), prefix.end(), key.begin());
+                auto const result = env.le(keylet::hookState(
+                    owner.id(), uint256::fromVoid(key.data()), beast::zero));
+                BEAST_EXPECT(!!result == (!refused && !test.veto));
+                if (result)
+                    BEAST_EXPECT(
+                        result->getFieldVL(sfHookStateData) ==
+                        Blob{static_cast<uint8_t>(roll)});
+            }
     }
 
     void

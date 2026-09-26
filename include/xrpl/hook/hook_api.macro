@@ -390,8 +390,10 @@ HOOK_API_DEFINITION(
 
 // flags=0 requires terminal strong execution; otherwise LATER_STRONG_HOOK
 // is returned before generating randomness or changing output/counter state.
-// ENTROPY_ALLOW_LATER_STRONG_VETO explicitly permits later strong Hooks and
-// their ordinary vetoes. Unknown flag bits are INVALID_ARGUMENT. Both modes
+// ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO (bit 1) permits later strong Hooks
+// only on the drawing Hook's account. ENTROPY_ALLOW_ANY_STRONG_VETO (bit 0)
+// permits them on any account, including the same account. Both bits mean ANY.
+// Allowed Hooks retain ordinary vetoes. Unknown bits are INVALID_ARGUMENT. All modes
 // enforce min_tier/freshness. The drawing Hook can still fail; fair settlement
 // requires committed inputs and must prevent retries selecting a new outcome.
 // int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);

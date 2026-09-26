@@ -1021,7 +1021,8 @@ hook::apply(
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     std::shared_ptr<STObject const> const& provisionalMeta,
-    bool isTerminalStrongHook)
+    bool isTerminalStrongHook,
+    bool isTerminalStrongAccount)
 {
     HookContext hookCtx = {
         .applyCtx = applyCtx,
@@ -1050,6 +1051,8 @@ hook::apply(
              .isCallback = isCallback,
              .isStrong = isStrong,
              .isTerminalStrongHook = isTerminalStrongHook,
+             .isTerminalStrongAccount =
+                 isTerminalStrongHook || isTerminalStrongAccount,
              .wasmParam = wasmParam,
              .hookChainPosition = hookChainPosition,
              .foreignStateSetDisabled = false,
@@ -4033,6 +4036,24 @@ invalidEntropyRequirement(uint32_t minTier)
         minTier > entropyTierValidatorFull;
 }
 
+inline bool
+invalidEntropyFlags(uint32_t flags)
+{
+    return flags &
+        ~(hook_api::ENTROPY_ALLOW_ANY_STRONG_VETO |
+          hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO);
+}
+
+inline bool
+hasDisallowedLaterStrongHook(hook::HookResult const& hr, uint32_t flags)
+{
+    if (!hr.isStrong || (flags & hook_api::ENTROPY_ALLOW_ANY_STRONG_VETO))
+        return false;
+    if (flags & hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO)
+        return !hr.isTerminalStrongAccount;
+    return !hr.isTerminalStrongHook;
+}
+
 struct EntropySnapshot
 {
     std::shared_ptr<STTx const> input;
@@ -4143,9 +4164,14 @@ fairRng(
         rndData = sha512Half(rndData);
     }
 
-    // A later permissive call cannot clear an earlier guarded admission.
-    if (hr.isStrong && flags == 0)
-        hr.hasGuardedEntropyDraw = true;
+    // A later broader call cannot clear either earlier guarded admission.
+    if (hr.isStrong && !(flags & hook_api::ENTROPY_ALLOW_ANY_STRONG_VETO))
+    {
+        if (flags & hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO)
+            hr.hasAccountGuardedEntropyDraw = true;
+        else
+            hr.hasGuardedEntropyDraw = true;
+    }
     return bytesOut;
 }
 
@@ -4164,11 +4190,10 @@ DEFINE_HOOK_FUNCTION(
     if (invalidEntropyRequirement(min_tier))
         return INVALID_ARGUMENT;
 
-    if (flags & ~ENTROPY_ALLOW_LATER_STRONG_VETO)
+    if (invalidEntropyFlags(flags))
         return INVALID_ARGUMENT;
 
-    if (flags == 0 && hookCtx.result.isStrong &&
-        !hookCtx.result.isTerminalStrongHook)
+    if (hasDisallowedLaterStrongHook(hookCtx.result, flags))
         return LATER_STRONG_HOOK;
 
     auto vec = fairRng(applyCtx, hookCtx.result, 32, min_tier, flags);
@@ -4244,11 +4269,10 @@ DEFINE_HOOK_FUNCTION(
     if (invalidEntropyRequirement(min_tier))
         return INVALID_ARGUMENT;
 
-    if (flags & ~ENTROPY_ALLOW_LATER_STRONG_VETO)
+    if (invalidEntropyFlags(flags))
         return INVALID_ARGUMENT;
 
-    if (flags == 0 && hookCtx.result.isStrong &&
-        !hookCtx.result.isTerminalStrongHook)
+    if (hasDisallowedLaterStrongHook(hookCtx.result, flags))
         return LATER_STRONG_HOOK;
 
     auto vec = fairRng(applyCtx, hookCtx.result, required, min_tier, flags);

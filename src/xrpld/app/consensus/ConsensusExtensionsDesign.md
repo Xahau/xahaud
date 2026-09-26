@@ -405,10 +405,18 @@ and `entropy_cr_random(write_ptr, write_len, min_tier, flags)`. `flags = 0`
 requires terminal strong execution. A later eligible strong Hook, even in the
 same account's chain, causes `LATER_STRONG_HOOK` (-49) at the API call before
 output or draw-counter mutation. The application can handle the error without
-rejecting its transaction. `ENTROPY_ALLOW_LATER_STRONG_VETO = 1U << 0` explicitly
-permits subsequent strong Hooks and their ordinary vetoes; other bits are
-invalid. Both modes enforce the same entropy quality and freshness admission.
-Terminal eligibility is planned before strong execution using the dispatch
+rejecting its transaction. `ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO = 1U << 1`
+permits later strong Hooks only on the drawing Hook's installed account; a
+later foreign-account strong Hook still refuses the draw.
+`ENTROPY_ALLOW_ANY_STRONG_VETO = 1U << 0` permits subsequent strong Hooks on
+any account, including the same account. Setting both bits means ANY; other
+bits are invalid. Allowed Hooks retain ordinary veto and skip behavior.
+All modes enforce the same entropy quality and freshness admission.
+Same-account permission trusts the downstream code installed on that account
+and whoever can replace it. Hooks trusted independently of their host account
+should keep zero flags. Untrusted transaction parameters must not choose the
+policy. A broader call cannot clear a prior successful draw's stricter guard.
+Terminal Hook/account eligibility is planned before strong execution using the dispatch
 filters and stakeholder order; dynamic skip requests cannot grant permission.
 The guarantee excludes the drawing Hook's own aborts, shared-resource failures,
 and failures in base application. Value-bearing settlement still requires an

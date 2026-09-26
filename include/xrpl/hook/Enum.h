@@ -393,7 +393,8 @@ enum class hook_return_code : int64_t {
     LATER_STRONG_HOOK = -49,
 };
 
-inline constexpr uint32_t ENTROPY_ALLOW_LATER_STRONG_VETO = 1U << 0;
+inline constexpr uint32_t ENTROPY_ALLOW_ANY_STRONG_VETO = 1U << 0;
+inline constexpr uint32_t ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO = 1U << 1;
 
 enum class ExitType : uint8_t {
     UNSET = 0,
