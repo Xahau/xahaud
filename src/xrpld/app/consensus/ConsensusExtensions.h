@@ -640,19 +640,45 @@ public:
     setExportEnabledThisRound(bool v)
     {
         exportEnabledThisRound_.store(v, std::memory_order_relaxed);
+        publishBusy();
     }
 
+    // Heartbeat reads only this atomic. The predicate lives in computeBusy();
+    // every writer of a contributing input calls publishBusy().
     bool
     extensionsBusy() const
     {
-        return estState_ != EstablishState::ConvergingTx ||
-            (exportEnabled() &&
-             (exportSigGateStarted_ || hasPendingExportSigs()));
+        return busyPublished_.load(std::memory_order_relaxed);
+    }
+
+    void
+    publishBusy()
+    {
+        publishBusyAfter([] {});
+    }
+
+    // Phase changes happen in the tick, which is not a member. The store and
+    // the publish share busyMu_ so a job-thread publish cannot race them.
+    void
+    publishEstState(EstablishState state)
+    {
+        std::lock_guard lock(busyMu_);
+        estState_ = state;
+        busyPublished_.store(computeBusyUnlocked(), std::memory_order_relaxed);
+    }
+
+    void
+    publishExportSigGateStarted()
+    {
+        std::lock_guard lock(busyMu_);
+        exportSigGateStarted_ = true;
+        busyPublished_.store(computeBusyUnlocked(), std::memory_order_relaxed);
     }
 
     void
     resetSubState()
     {
+        std::lock_guard lock(busyMu_);
         estState_ = EstablishState::ConvergingTx;
         revealPhaseStart_ = {};
         commitHashConflictStart_ = {};
@@ -661,7 +687,40 @@ public:
         exportSigGateStarted_ = false;
         exportSigGateStart_ = {};
         exportSigConvergenceFailed_ = false;
+        busyPublished_.store(computeBusyUnlocked(), std::memory_order_relaxed);
     }
+
+private:
+    // Compute and store the busy flag under one busyMu_ critical section.
+    // afterCompute runs between the two, on the publishing thread, with
+    // busyMu_ held; tests use it to hold a computed value before its store.
+    template <class AfterCompute>
+    void
+    publishBusyAfter(AfterCompute&& afterCompute)
+    {
+        std::lock_guard lock(busyMu_);
+        auto const busy = computeBusyUnlocked();
+        afterCompute();
+        busyPublished_.store(busy, std::memory_order_relaxed);
+    }
+
+    bool
+    computeBusyUnlocked() const
+    {
+        return estState_ != EstablishState::ConvergingTx ||
+            (exportEnabled() &&
+             (exportSigGateStarted_ || hasPendingExportSigs()));
+    }
+
+    bool
+    computeBusy() const
+    {
+        std::lock_guard lock(busyMu_);
+        return computeBusyUnlocked();
+    }
+
+    mutable std::recursive_mutex busyMu_;
+    std::atomic<bool> busyPublished_{false};
 };
 
 }  // namespace ripple
