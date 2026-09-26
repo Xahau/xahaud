@@ -198,10 +198,10 @@ struct PWALoader_test : public beast::unit_test::suite
         BEAST_EXPECT(check(wrap("\xE0\xA4\xB9")) == R::ok);      // U+0939
         BEAST_EXPECT(check(wrap("\xF0\x90\x8D\x88")) == R::ok);  // U+10348
         BEAST_EXPECT(check(wrap("\xF4\x8F\xBF\xBF")) == R::ok);  // U+10FFFF
-        // U+FFFE / U+FFFF are noncharacters but are valid UTF-8, and are
-        // permitted in interchange.
-        BEAST_EXPECT(check(wrap("\xEF\xBF\xBE")) == R::ok);
-        BEAST_EXPECT(check(wrap("\xEF\xBF\xBF")) == R::ok);
+        // U+FFFE / U+FFFF are well-formed but rejected, as everywhere else
+        // on ledger (U+FFFE is a byte-swapped BOM).
+        BEAST_EXPECT(check(wrap("\xEF\xBF\xBE")) == R::badUTF8);
+        BEAST_EXPECT(check(wrap("\xEF\xBF\xBF")) == R::badUTF8);
 
         // Overlong encodings.
         BEAST_EXPECT(check(wrap("\xC0\xAF")) == R::badUTF8);
@@ -499,51 +499,6 @@ struct PWALoader_test : public beast::unit_test::suite
     }
 
     void
-    testURITokenUTF8Gate(FeatureBitset features)
-    {
-        testcase("uritoken utf8 gate");
-        using namespace jtx;
-
-        // U+FFFF is well-formed UTF-8, but the pre-amendment URIToken check
-        // rejected it. Under featurePWALoader it is accepted. This is the
-        // observable behaviour change the amendment gate exists to cover.
-        std::string const uri = "ipfs://x\xEF\xBF\xBF";
-
-        for (bool const withLoader : {false, true})
-        {
-            auto const amend =
-                withLoader ? features : features - featurePWALoader;
-            Env env{*this, amend};
-
-            auto const alice = Account("alice");
-            env.fund(XRP(1000), alice);
-            env.close();
-
-            env(uritoken::mint(alice, uri),
-                fee(XRP(1)),
-                ter(withLoader ? TER{tesSUCCESS} : TER{temMALFORMED}));
-            env.close();
-        }
-
-        // Genuinely malformed UTF-8 is rejected either side of the amendment.
-        for (bool const withLoader : {false, true})
-        {
-            auto const amend =
-                withLoader ? features : features - featurePWALoader;
-            Env env{*this, amend};
-
-            auto const alice = Account("alice");
-            env.fund(XRP(1000), alice);
-            env.close();
-
-            env(uritoken::mint(alice, std::string("bad\xC0\xAF")),
-                fee(XRP(1)),
-                ter(temMALFORMED));
-            env.close();
-        }
-    }
-
-    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
@@ -551,7 +506,6 @@ struct PWALoader_test : public beast::unit_test::suite
         testFee(features);
         testMalformed(features);
         testAccountDelete(features);
-        testURITokenUTF8Gate(features);
     }
 
 public:

@@ -313,8 +313,8 @@ enum keylet_code : uint32_t {
     MPTOKEN = 34,
     CREDENTIAL = 35,
     PERMISSIONED_DOMAIN = 36,
-    APP_LOADER = 37,
-    MANIFEST = 38,
+    // 37 is reserved for MANIFEST (fixHookManifestKeylet)
+    APP_LOADER = 38,
 };
 }
 

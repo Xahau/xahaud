@@ -23,8 +23,6 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/basics/Log.h>
-#include <xrpl/protocol/AppLoader.h>
-#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 
 namespace ripple {

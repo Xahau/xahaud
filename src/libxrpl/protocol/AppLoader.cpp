@@ -19,6 +19,7 @@
 
 #include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Protocol.h>
+#include <xrpl/protocol/UTF8.h>
 
 #include <string_view>
 
@@ -96,76 +97,6 @@ isTagNameEnd(std::uint8_t c) noexcept
 
 }  // namespace
 
-bool
-isValidUTF8(std::uint8_t const* data, std::size_t size)
-{
-    // Table-free decoder in the style of Markus Kuhn's utf8_check.c. Each
-    // branch establishes that the whole sequence is present before reading
-    // any continuation byte, so a truncated tail is simply invalid.
-    std::size_t i = 0;
-    while (i < size)
-    {
-        std::uint8_t const c0 = data[i];
-
-        if (c0 < 0x80)
-        {
-            // 0xxxxxxx
-            ++i;
-            continue;
-        }
-
-        if ((c0 & 0xE0) == 0xC0)
-        {
-            // 110xxxxx 10xxxxxx
-            if (size - i < 2)
-                return false;
-            if ((data[i + 1] & 0xC0) != 0x80)
-                return false;
-            if ((c0 & 0xFE) == 0xC0)  // overlong
-                return false;
-            i += 2;
-            continue;
-        }
-
-        if ((c0 & 0xF0) == 0xE0)
-        {
-            // 1110xxxx 10xxxxxx 10xxxxxx
-            if (size - i < 3)
-                return false;
-            std::uint8_t const c1 = data[i + 1];
-            if ((c1 & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80)
-                return false;
-            if (c0 == 0xE0 && (c1 & 0xE0) == 0x80)  // overlong
-                return false;
-            if (c0 == 0xED && (c1 & 0xE0) == 0xA0)  // UTF-16 surrogate
-                return false;
-            i += 3;
-            continue;
-        }
-
-        if ((c0 & 0xF8) == 0xF0)
-        {
-            // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-            if (size - i < 4)
-                return false;
-            std::uint8_t const c1 = data[i + 1];
-            if ((c1 & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80 ||
-                (data[i + 3] & 0xC0) != 0x80)
-                return false;
-            if (c0 == 0xF0 && (c1 & 0xF0) == 0x80)  // overlong
-                return false;
-            if (c0 > 0xF4 || (c0 == 0xF4 && c1 > 0x8F))  // > U+10FFFF
-                return false;
-            i += 4;
-            continue;
-        }
-
-        // Stray continuation byte or 0xF8..0xFF.
-        return false;
-    }
-    return true;
-}
-
 Result
 validate(std::uint8_t const* data, std::size_t size)
 {
@@ -175,7 +106,7 @@ validate(std::uint8_t const* data, std::size_t size)
     if (size > maxAppLoaderLength)
         return Result::tooLarge;
 
-    if (!isValidUTF8(data, size))
+    if (!isValidUTF8(Slice(data, size)))
         return Result::badUTF8;
 
     for (std::size_t i = 0; i < size; ++i)

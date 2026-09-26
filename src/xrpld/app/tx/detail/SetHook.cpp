@@ -545,8 +545,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
             if (hookSetObj.isFieldPresent(sfHookName))
             {
                 auto name = hookSetObj.getFieldVL(sfHookName);
-                if (!validateHookName(
-                        name, ctx.rules.enabled(featurePWALoader), ctx.j))
+                if (!validateHookName(name, ctx.j))
                     return false;
             }
 
@@ -650,10 +649,7 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
 }
 
 bool
-SetHook::validateHookName(
-    Blob const& name,
-    bool permitNoncharacters,
-    beast::Journal const& j)
+SetHook::validateHookName(Blob const& name, beast::Journal const& j)
 {
     if (name.size() != 0 && (name.size() < 4 || 16 < name.size()))
     {

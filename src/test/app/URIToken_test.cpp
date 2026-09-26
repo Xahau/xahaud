@@ -2316,8 +2316,7 @@ struct URIToken_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob);
         env.close();
 
-            env.fund(XRP(10000), alice, bob);
-            env.close();
+        std::string uri = "";
 
         // =========================================================================
         // Cases that should succeed:
@@ -2328,34 +2327,29 @@ struct URIToken_test : public beast::unit_test::suite
             uri = "κόσμε";
             env(uritoken::mint(alice, uri));
 
-            // =========================================================================
-            // Cases that should ALWAYS succeed regardless of amendment:
-            // valid well-formed UTF-8 that is not a noncharacter
-            // =========================================================================
-            {
-                // case: kosme
-                uri = "κόσμε";
-                env(uritoken::mint(alice, uri));
+            // case: single ASCII character
+            uri = "a";
+            env(uritoken::mint(alice, uri));
 
-                // case: single ASCII character
-                uri = "a";
-                env(uritoken::mint(alice, uri));
+            // case: single non-ASCII character
+            uri = "é";
+            env(uritoken::mint(alice, uri));
 
-                // case: single non-ASCII character
-                uri = "é";
-                env(uritoken::mint(alice, uri));
+            // case: valid multi-byte UTF-8 sequence
+            uri = "€";
+            env(uritoken::mint(alice, uri));
 
-                // case: valid multi-byte UTF-8 sequence
-                uri = "€";
-                env(uritoken::mint(alice, uri));
+            // case: ipfs cid
+            uri = "QmaCtDKZFVvvfufvbdy4estZbhQH7DXh16CTpv1howmBGy";
+            env(uritoken::mint(alice, uri));
 
-                // case: ipfs cid
-                uri = "QmaCtDKZFVvvfufvbdy4estZbhQH7DXh16CTpv1howmBGy";
-                env(uritoken::mint(alice, uri));
+            // case: empty ipfs cid url
+            uri = "ipfs://";
+            env(uritoken::mint(alice, uri));
 
-                // case: empty ipfs cid url
-                uri = "ipfs://";
-                env(uritoken::mint(alice, uri));
+            // case: ipfs cid url
+            uri = "ipfs://QmaCtDKZFVvvfufvbdy4estZbhQH7DXh16CTpv1howmBGy";
+            env(uritoken::mint(alice, uri));
 
             // case: ipfs metadata url
             uri = "https://example.com/ipfs/";
@@ -2378,9 +2372,8 @@ struct URIToken_test : public beast::unit_test::suite
             uri = "\xFC\x84\x80\x80\x80\x80";
             env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-                // case: 5 bytes (U-00200000) - beyond valid UTF-8 range
-                uri = "\xF8\x88\x80\x80\x80";
-                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+            // BOUNDRY - END
+            // ----------------------------------------------------------------
 
             // case: 3 bytes max (U-0000FFFF) - but this is U+FFFF
             // noncharacter, rejected, see below

@@ -37,8 +37,9 @@ namespace ripple {
 
     A conforming blob must:
       - be non-empty and no longer than `maxAppLoaderLength` bytes;
-      - be well-formed UTF-8 (no overlongs, surrogates, or scalar values
-        above U+10FFFF);
+      - pass ripple::isValidUTF8 (well-formed UTF-8: no overlongs,
+        surrogates, truncated sequences or scalar values above U+10FFFF,
+        and no U+FFFE or U+FFFF);
       - contain no C0 control characters other than TAB, LF and CR, and no
         NUL or DEL;
       - begin (after an optional BOM and leading whitespace) with either an
@@ -82,16 +83,6 @@ validate(std::uint8_t const* data, std::size_t size);
 /** Human-readable description of a validation result, for logging. */
 char const*
 to_string(Result r);
-
-/** Check that a byte sequence is well-formed UTF-8.
-
-    Rejects overlong encodings, UTF-16 surrogate halves (U+D800..U+DFFF),
-    and scalar values above U+10FFFF. Noncharacters such as U+FFFE and
-    U+FFFF are accepted: they are well-formed UTF-8 and are permitted in
-    interchange.
-*/
-bool
-isValidUTF8(std::uint8_t const* data, std::size_t size);
 
 }  // namespace appLoader
 
