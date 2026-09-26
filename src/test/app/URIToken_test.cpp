@@ -18,13 +18,13 @@
 //==============================================================================
 
 #include <test/jtx.h>
-#include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/Dir.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/UTF8.h>
 #include <xrpl/protocol/jss.h>
 
 #include <chrono>
@@ -2642,8 +2642,7 @@ struct URIToken_test : public beast::unit_test::suite
         testcase("uri_utf8 validator");
 
         auto const check = [](std::string const& s) {
-            return URIToken::validateUTF8(
-                std::vector<uint8_t>(s.begin(), s.end()));
+            return isValidUTF8(makeSlice(s));
         };
 
         // Sequences truncated by the end of the buffer are invalid. The

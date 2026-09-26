@@ -24,19 +24,12 @@
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/UTF8.h>
 
 namespace ripple {
 
 class URIToken : public Transactor
 {
 public:
-    /** Validate a URI or HookName as UTF-8. See ripple::isValidUTF8. */
-    bool inline static validateUTF8(std::vector<uint8_t> const& u)
-    {
-        return isValidUTF8(makeSlice(u));
-    }
-
     static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};
 
     explicit URIToken(ApplyContext& ctx) : Transactor(ctx)
