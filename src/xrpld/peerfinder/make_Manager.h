@@ -35,7 +35,8 @@ make_Manager(
     beast::Journal journal,
     BasicConfig const& config,
     beast::insight::Collector::ptr const& collector,
-    bool useSqliteStore);
+    bool useSqliteStore,
+    Application& app);
 
 }  // namespace PeerFinder
 }  // namespace ripple

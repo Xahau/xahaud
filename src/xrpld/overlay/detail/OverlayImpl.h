@@ -438,6 +438,11 @@ public:
         txMetrics_.addMetrics(args...);
     }
 
+    void
+    processXUSH(
+        std::string const& message,
+        boost::asio::ip::tcp::endpoint const& remoteEndpoint) override;
+
 private:
     void
     squelch(
@@ -613,6 +618,13 @@ private:
         }
         m_stats.peerDisconnects = getPeerDisconnect();
     }
+
+    // XUSH (Xahau UDP Superhighway) packet processing
+    void processXUSH(
+        std::string const& message,
+        boost::asio::ip::tcp::endpoint const& remoteEndpoint) override;
+
+    void publishTxXUSH(Slice const& tx, uint256 const& txid) override;
 };
 
 }  // namespace ripple
