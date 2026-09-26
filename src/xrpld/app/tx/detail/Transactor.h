@@ -228,6 +228,58 @@ protected:
                              // deduced until after apply i.e. pathing
                              // participants, crossed offers
 
+    // emit_atomic (featureAtomicEmit): txns emitted by strong hooks that must
+    // be applied inside this transaction, right after it, all-or-nothing.
+    std::vector<std::shared_ptr<Transaction>> atomicEmissions_;
+
+    // The atomic emissions of a group that failed. They are re-applied
+    // fee-only (tapATOMIC_EMIT_FAILED) after the parent's tec is committed,
+    // so that a failed group costs the hook account the same fees as a
+    // successful one. The failing inner itself is included only if it
+    // failed with a tec (a tem/tef/tel/ter txn never enters a ledger).
+    std::vector<std::shared_ptr<Transaction>> failedAtomicEmissions_;
+
+    // Apply every atomic emission into the sandbox, in order. Stops at the
+    // first non-tes result and returns it together with the failing txid.
+    std::pair<TER, uint256>
+    applyAtomicEmissions(OpenView& sandbox);
+
+    // Propagate the sandbox into ctx_.base(). `includesParent` says whether
+    // the parent txn was applied into the sandbox (it must be listed in an
+    // open ledger even though the inners are not).
+    void
+    commitSandbox(OpenView& sandbox, bool includesParent);
+
+    // After the parent has been committed as tecHOOK_EMIT_FAILED: apply every
+    // inner of the failed group fee-only into ctx_.base().
+    void
+    applyFailedAtomicEmissions();
+
+    // Undo the first pass of the post-apply pipeline so the existing tec
+    // path can run: restore the strong-phase hook metadata (patching the
+    // failing inner's HookEmittedTransactionResult onto it), drop the weak
+    // TSH accumulated from the discarded pass and drop the atomic queue.
+    void
+    rewindAtomicEmissions(
+        std::vector<STObject> execMeta,
+        std::vector<STObject> emitMeta,
+        uint256 const& failedId,
+        TER innerResult);
+
+    // The post-apply pipeline: tec handling (reset), invariants, balance
+    // rewards, weak hooks and commit. operator() runs it once, or twice for
+    // an emit_atomic group whose inner failed: the first run reports the
+    // failure through `atomicFailure` instead of committing, operator()
+    // rewinds, and the second run commits the txn as tecHOOK_EMIT_FAILED.
+    ApplyResult
+    finishApply(
+        TER result,
+        bool hooksEnabled,
+        bool feeOnlyAtomicInner,
+        std::map<AccountID, std::set<uint256>>& aawMap,
+        std::vector<std::pair<AccountID, bool>>& tsh,
+        std::optional<std::pair<uint256, TER>>& atomicFailure);
+
     ///////////////////////////////////////////////////
 
     TER

@@ -345,11 +345,23 @@ public:
     // sto_erase(): same as sto_emplace with field_object = nullopt
 
     /// etxn APIs
+    // atomic == true (prepare_atomic): the ledger window is set to exactly
+    // the ledger being built (FirstLedgerSequence == LastLedgerSequence ==
+    // current seq), as emit_atomic requires; otherwise the emit() window.
     Expected<Bytes, HookReturnCode>
-    prepare(Slice const& txBlob) const;
+    prepare(Slice const& txBlob, bool atomic = false) const;
 
+    // atomic == true applies the emit_atomic rules (strong only, no
+    // nesting, per-transaction cap) on top of the emit rules.
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
-    emit(Slice const& txBlob) const;
+    emit(Slice const& txBlob, bool atomic = false) const;
+
+    // Bookkeeping after a successful emission has been queued: marks the
+    // nonce as consumed and, for atomic emissions, bumps the per-transaction
+    // counter on the ApplyContext.
+    void
+    recordEmission(std::shared_ptr<Transaction> const& tpTrans, bool atomic)
+        const;
 
     Expected<uint64_t, HookReturnCode>
     etxn_burden() const;

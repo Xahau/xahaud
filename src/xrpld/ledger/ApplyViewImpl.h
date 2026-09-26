@@ -54,7 +54,9 @@ public:
 
         After a call to `apply`, the only valid
         operation on this object is to call the
-        destructor.
+        destructor. The emit_atomic rewind path in Transactor::operator()
+        still reads and rewrites the hook metadata vectors afterwards,
+        which is safe because the table is then discarded.
     */
     std::optional<TxMeta>
     apply(
@@ -122,6 +124,11 @@ public:
             std::back_inserter(emission));
     }
 
+    // NOTE: the emit_atomic rewind in Transactor::operator() restores the
+    // hook metadata to its strong-phase snapshot via setHookMetaData and
+    // relies on this index being derived from the vector size, so that the
+    // re-executed weak hooks get contiguous indices. Do not turn this into
+    // an independent counter.
     uint16_t
     nextHookExecutionIndex()
     {

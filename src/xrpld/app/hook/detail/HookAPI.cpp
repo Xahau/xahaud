@@ -409,7 +409,7 @@ HookAPI::sto_emplace(
 
 /// etxn APIs
 Expected<Bytes, HookReturnCode>
-HookAPI::prepare(Slice const& txBlob) const
+HookAPI::prepare(Slice const& txBlob, bool atomic) const
 {
     auto& applyCtx = hookCtx.applyCtx;
     auto j = applyCtx.app.journal("View");
@@ -449,11 +449,21 @@ HookAPI::prepare(Slice const& txBlob) const
     json[jss::Account] = raddr;
 
     uint32_t seq = applyCtx.view().info().seq;
-    if (!json.isMember(jss::FirstLedgerSequence))
-        json[jss::FirstLedgerSequence] = Json::Value(seq + 1);
+    if (atomic)
+    {
+        // emit_atomic only accepts a window of exactly this ledger, so set
+        // both bounds regardless of what the caller put in the blob
+        json[jss::FirstLedgerSequence] = Json::Value(seq);
+        json[jss::LastLedgerSequence] = Json::Value(seq);
+    }
+    else
+    {
+        if (!json.isMember(jss::FirstLedgerSequence))
+            json[jss::FirstLedgerSequence] = Json::Value(seq + 1);
 
-    if (!json.isMember(jss::LastLedgerSequence))
-        json[jss::LastLedgerSequence] = Json::Value(seq + 5);
+        if (!json.isMember(jss::LastLedgerSequence))
+            json[jss::LastLedgerSequence] = Json::Value(seq + 5);
+    }
 
     uint8_t details[512];
     if (!json.isMember(jss::EmitDetails))
@@ -525,7 +535,7 @@ HookAPI::prepare(Slice const& txBlob) const
 }
 
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
-HookAPI::emit(Slice const& txBlob) const
+HookAPI::emit(Slice const& txBlob, bool atomic) const
 {
     auto& applyCtx = hookCtx.applyCtx;
     auto j = applyCtx.app.journal("View");
@@ -534,8 +544,46 @@ HookAPI::emit(Slice const& txBlob) const
     if (hookCtx.expected_etxn_count < 0)
         return Unexpected(PREREQUISITE_NOT_MET);
 
-    if (hookCtx.result.emittedTxn.size() >= hookCtx.expected_etxn_count)
+    // emit and emit_atomic share the etxn_reserve() budget; the atomic
+    // queue is always empty unless featureAtomicEmit is enabled.
+    if (hookCtx.result.emittedTxn.size() +
+            hookCtx.result.emittedAtomicTxn.size() >=
+        hookCtx.expected_etxn_count)
         return Unexpected(TOO_MANY_EMITTED_TXN);
+
+    if (atomic)
+    {
+        // Only a strong execution can roll the parent back, so only a
+        // strong execution may make the parent depend on the inner txn.
+        // (weak TSH, hook_again re-execution and cbak all run isStrong=false)
+        if (!hookCtx.result.isStrong || hookCtx.result.isCallback)
+        {
+            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                            << "]: emit_atomic is only allowed from a strong "
+                               "(pre-application) hook execution.";
+            return Unexpected(EMISSION_FAILURE);
+        }
+
+        // No nesting. Every hook that runs while an atomic inner txn is
+        // being applied sees tapATOMIC_EMIT through the inner's ApplyContext.
+        if (applyCtx.flags() & tapATOMIC_EMIT)
+        {
+            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                            << "]: emit_atomic cannot be nested inside an "
+                               "atomically emitted txn.";
+            return Unexpected(EMISSION_FAILURE);
+        }
+
+        // Per outer transaction cap, shared across every hook execution
+        if (applyCtx.atomicEmitCount >= hook_api::max_atomic_emit)
+        {
+            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                            << "]: too many emit_atomic txns for this "
+                               "transaction (max "
+                            << hook_api::max_atomic_emit << ").";
+            return Unexpected(EMISSION_FAILURE);
+        }
+    }
 
     std::shared_ptr<STTx const> stpTrans;
     try
@@ -725,6 +773,26 @@ HookAPI::emit(Slice const& txBlob) const
         return Unexpected(EMISSION_FAILURE);
     }
 
+    // A nonce spent by a successful emission cannot be reused when
+    // emit_atomic is involved on either side. (Two identical blobs would
+    // share a txid: two atomic copies would collide inside the sandbox, and
+    // an atomic + a normal copy would land in two ledgers.) Plain emit()
+    // reusing a nonce spent by plain emit() is left as-is: finalizeHookResult
+    // silently de-duplicates it, and changing that could break deployed
+    // hooks.
+    if (view.rules().enabled(featureAtomicEmit))
+    {
+        auto const consumed = hookCtx.nonce_consumed.find(nonce);
+        if (consumed != hookCtx.nonce_consumed.end() &&
+            (atomic || consumed->second))
+        {
+            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                            << "]: sfEmitNonce was already used by a previous "
+                               "emission in this execution";
+            return Unexpected(EMISSION_FAILURE);
+        }
+    }
+
     if (callback && *callback != hookCtx.result.account)
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
@@ -759,30 +827,50 @@ HookAPI::emit(Slice const& txBlob) const
 
     uint32_t tx_lls = stpTrans->getFieldU32(sfLastLedgerSequence);
     uint32_t ledgerSeq = view.info().seq;
-    if (tx_lls < ledgerSeq + 1)
+    if (atomic)
     {
-        JLOG(j.trace())
-            << "HookEmit[" << HC_ACC()
-            << "]: sfLastLedgerSequence invalid (less than next ledger)";
-        return Unexpected(EMISSION_FAILURE);
+        // An atomic inner txn only ever lands in the ledger currently being
+        // built, so its validity window is exactly that ledger:
+        // FirstLedgerSequence == LastLedgerSequence == current seq. (This is
+        // stricter than prepare()'s defaults; hooks set both fields in the
+        // blob before calling prepare(), which keeps fields already present.)
+        if (tx_lls != ledgerSeq ||
+            !stpTrans->isFieldPresent(sfFirstLedgerSequence) ||
+            stpTrans->getFieldU32(sfFirstLedgerSequence) != ledgerSeq)
+        {
+            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                            << "]: emit_atomic requires FirstLedgerSequence "
+                               "== LastLedgerSequence == current ledger seq";
+            return Unexpected(EMISSION_FAILURE);
+        }
     }
-
-    if (tx_lls > ledgerSeq + 5)
+    else
     {
-        JLOG(j.trace())
-            << "HookEmit[" << HC_ACC()
-            << "]: sfLastLedgerSequence cannot be greater than current seq + 5";
-        return Unexpected(EMISSION_FAILURE);
-    }
+        if (tx_lls < ledgerSeq + 1)
+        {
+            JLOG(j.trace())
+                << "HookEmit[" << HC_ACC()
+                << "]: sfLastLedgerSequence invalid (less than next ledger)";
+            return Unexpected(EMISSION_FAILURE);
+        }
 
-    // rule 6
-    if (!stpTrans->isFieldPresent(sfFirstLedgerSequence) ||
-        stpTrans->getFieldU32(sfFirstLedgerSequence) > tx_lls)
-    {
-        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                        << "]: sfFirstLedgerSequence must be present and <= "
-                           "LastLedgerSequence";
-        return Unexpected(EMISSION_FAILURE);
+        if (tx_lls > ledgerSeq + 5)
+        {
+            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                            << "]: sfLastLedgerSequence cannot be greater "
+                               "than current seq + 5";
+            return Unexpected(EMISSION_FAILURE);
+        }
+
+        // rule 6
+        if (!stpTrans->isFieldPresent(sfFirstLedgerSequence) ||
+            stpTrans->getFieldU32(sfFirstLedgerSequence) > tx_lls)
+        {
+            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                            << "]: sfFirstLedgerSequence must be present and "
+                               "<= LastLedgerSequence";
+            return Unexpected(EMISSION_FAILURE);
+        }
     }
 
     // rule 7 check the emitted txn pays the appropriate fee
@@ -839,6 +927,22 @@ HookAPI::emit(Slice const& txBlob) const
     return tpTrans;
 }
 
+void
+HookAPI::recordEmission(
+    std::shared_ptr<Transaction> const& tpTrans,
+    bool atomic) const
+{
+    auto const& stx = *tpTrans->getSTransaction();
+    auto const& emitDetails = const_cast<ripple::STTx&>(stx)
+                                  .getField(sfEmitDetails)
+                                  .downcast<STObject>();
+    auto const nonce = emitDetails.getFieldH256(sfEmitNonce);
+    // once a nonce has been spent atomically it stays marked atomic
+    hookCtx.nonce_consumed[nonce] |= atomic;
+    if (atomic)
+        ++hookCtx.applyCtx.atomicEmitCount;
+}
+
 Expected<uint64_t, HookReturnCode>
 HookAPI::etxn_burden() const
 {
@@ -868,14 +972,22 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         std::unique_ptr<STTx const> stpTrans =
             std::make_unique<STTx const>(std::ref(sitTrans));
 
-        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
-            return Transactor::calculateBaseFee(
-                       *(applyCtx.app.openLedger().current()), *stpTrans)
-                .drops();
+        // featureAtomicEmit: the minimum fee decides whether emit()
+        // accepts the txn, which is consensus-visible. Compute it against
+        // the view being applied, not the node-local open ledger (whose
+        // hook definitions / stakeholders can differ between nodes).
+        std::shared_ptr<ReadView const> hold;
+        ReadView const* feeView = &applyCtx.view();
+        if (!applyCtx.view().rules().enabled(featureAtomicEmit))
+        {
+            hold = applyCtx.app.openLedger().current();
+            feeView = hold.get();
+        }
 
-        return invoke_calculateBaseFee(
-                   *(applyCtx.app.openLedger().current()), *stpTrans)
-            .drops();
+        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
+            return Transactor::calculateBaseFee(*feeView, *stpTrans).drops();
+
+        return invoke_calculateBaseFee(*feeView, *stpTrans).drops();
     }
     catch (std::exception const& e)
     {

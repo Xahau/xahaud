@@ -19,6 +19,8 @@
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/tx/applySteps.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
@@ -36,7 +38,11 @@ class HookAPI_test : public beast::unit_test::suite
 {
 private:
     ApplyContext
-    createApplyContext(jtx::Env& env, OpenView& ov, STTx const& tx)
+    createApplyContext(
+        jtx::Env& env,
+        OpenView& ov,
+        STTx const& tx,
+        ApplyFlags flags = tapNONE)
     {
         ApplyContext applyCtx{
             env.app(),
@@ -44,7 +50,7 @@ private:
             tx,
             tesSUCCESS,
             env.current()->fees().base,
-            tapNONE,
+            flags,
             env.journal};
         return applyCtx;
     }
@@ -153,6 +159,305 @@ public:
             auto const result2 =
                 api.emit(Slice(result.value().data(), result.value().size()));
             BEAST_EXPECT(result2.has_value());
+        }
+
+        if (env.current()->rules().enabled(featureAtomicEmit))
+        {
+            // prepare_atomic: the ledger window is forced to the current
+            // ledger even when the blob already carries a different one, and
+            // the result is accepted by emit_atomic (but not by emit)
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                    .result = {.isStrong = true},
+                });
+            auto& api = hookCtx.api();
+            auto tx = emitInvokeTx;  // carries FLS = seq + 1, LLS = seq + 5
+            Serializer s = tx.getSerializer();
+            auto const result = api.prepare(s.slice(), /*atomic=*/true);
+            BEAST_EXPECT(result.has_value());
+
+            SerialIter sit(Slice(result.value().data(), result.value().size()));
+            STObject st(sit, sfGeneric);
+            auto const seq = applyCtx.view().info().seq;
+            BEAST_EXPECT(st.getFieldU32(sfFirstLedgerSequence) == seq);
+            BEAST_EXPECT(st.getFieldU32(sfLastLedgerSequence) == seq);
+            BEAST_EXPECT(st.getFieldAmount(sfFee) > XRPAmount(0));
+            BEAST_EXPECT(st.getFieldU32(sfSequence) == 0);
+            BEAST_EXPECT(st.isFieldPresent(sfEmitDetails));
+
+            Slice const prepared(result.value().data(), result.value().size());
+            BEAST_EXPECT(api.emit(prepared).error() == EMISSION_FAILURE);
+            BEAST_EXPECT(api.emit(prepared, /*atomic=*/true).has_value());
+        }
+    }
+
+    void
+    test_emit_atomic(FeatureBitset features)
+    {
+        testcase("Test emit (atomic rules)");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+
+        using namespace hook_api;
+        Env env{*this, features};
+
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // atomicBound == true: FirstLedgerSequence == LastLedgerSequence ==
+        // the ledger being built (required by emit_atomic); otherwise the
+        // usual emit() window
+        auto const makeEmitted = [&](TxType tt, bool atomicBound) {
+            return STTx(tt, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = 0;
+                obj[sfSigningPubKey] = Slice{};
+                obj[sfFirstLedgerSequence] =
+                    atomicBound ? ov.seq() : env.closed()->seq() + 1;
+                obj[sfLastLedgerSequence] =
+                    atomicBound ? ov.seq() : env.closed()->seq() + 5;
+                obj[sfFee] = env.closed()->fees().base;
+
+                auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
+                emitDetails[sfEmitGeneration] = 1;
+                emitDetails[sfEmitBurden] = 1;
+                emitDetails[sfEmitParentTxnID] = invokeTx.getTransactionID();
+                emitDetails[sfEmitNonce] = uint256();
+                emitDetails[sfEmitHookHash] = uint256();
+            });
+        };
+        STTx const emitInvokeTx = makeEmitted(ttINVOKE, false);
+        STTx const atomicInvokeTx = makeEmitted(ttINVOKE, true);
+        // getSerializer() returns by value: keep it alive for the slice
+        Serializer const emitInvokeSer = emitInvokeTx.getSerializer();
+        Serializer const atomicInvokeSer = atomicInvokeTx.getSerializer();
+        auto const blob = emitInvokeSer.slice();          // for emit()
+        auto const atomicBlob = atomicInvokeSer.slice();  // for emit_atomic()
+
+        bool const enabled = env.current()->rules().enabled(featureAtomicEmit);
+
+        {
+            // A1: a weak (default stub) execution may not emit atomically
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1, .nonce_used = {{uint256(0), true}}});
+            auto const result = hookCtx.api().emit(atomicBlob, /*atomic=*/true);
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            // A1: a strong execution may
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            auto const result = hookCtx.api().emit(atomicBlob, /*atomic=*/true);
+            BEAST_EXPECT(result.has_value());
+
+            // bookkeeping after a successful atomic emission
+            if (result)
+            {
+                hookCtx.api().recordEmission(*result, /*atomic=*/true);
+                BEAST_EXPECT(applyCtx.atomicEmitCount == 1);
+                BEAST_EXPECT(
+                    hookCtx.nonce_consumed.count(uint256(0)) == 1 &&
+                    hookCtx.nonce_consumed[uint256(0)] == true);
+            }
+            applyCtx.atomicEmitCount = 0;
+        }
+        {
+            // A1: a callback execution may not
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isCallback = true, .isStrong = true}});
+            auto const result = hookCtx.api().emit(atomicBlob, /*atomic=*/true);
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            // A2: no nesting inside an atomic inner txn's application
+            ApplyContext nested =
+                createApplyContext(env, ov, invokeTx, tapATOMIC_EMIT);
+            auto hookCtx = makeStubHookContext(
+                nested,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob, /*atomic=*/true).error() ==
+                EMISSION_FAILURE);
+            // plain emit() is still fine there
+            BEAST_EXPECT(hookCtx.api().emit(blob).has_value());
+        }
+        {
+            // A4: per transaction cap
+            applyCtx.atomicEmitCount = hook_api::max_atomic_emit;
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob, /*atomic=*/true).error() ==
+                EMISSION_FAILURE);
+            // the cap does not apply to plain emit()
+            BEAST_EXPECT(hookCtx.api().emit(blob).has_value());
+            applyCtx.atomicEmitCount = hook_api::max_atomic_emit - 1;
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob, /*atomic=*/true).has_value());
+            applyCtx.atomicEmitCount = 0;
+        }
+        {
+            // A5: the etxn_reserve budget is shared between the two queues
+            std::string reason;
+            auto tx = std::make_shared<ripple::Transaction>(
+                std::make_shared<ripple::STTx const>(emitInvokeTx),
+                reason,
+                env.app());
+            std::queue<std::shared_ptr<ripple::Transaction>> q;
+            q.push(tx);
+            std::vector<std::shared_ptr<ripple::Transaction>> qv{tx};
+            {
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {.expected_etxn_count = 1,
+                     .nonce_used = {{uint256(0), true}},
+                     .result = {.emittedTxn = q, .isStrong = true}});
+                BEAST_EXPECT(
+                    hookCtx.api().emit(atomicBlob, /*atomic=*/true).error() ==
+                    TOO_MANY_EMITTED_TXN);
+            }
+            {
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {.expected_etxn_count = 1,
+                     .nonce_used = {{uint256(0), true}},
+                     .result = {.emittedAtomicTxn = qv, .isStrong = true}});
+                BEAST_EXPECT(
+                    hookCtx.api().emit(blob).error() == TOO_MANY_EMITTED_TXN);
+            }
+        }
+        {
+            // R2: a nonce spent by any emission is refused for emit_atomic,
+            // a nonce spent atomically is refused for emit(); plain emit()
+            // reusing a plain emit() nonce is untouched (legacy)
+            auto mk = [&](bool spentAtomically) {
+                return makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {.expected_etxn_count = 1,
+                     .nonce_used = {{uint256(0), true}},
+                     .nonce_consumed = {{uint256(0), spentAtomically}},
+                     .result = {.isStrong = true}});
+            };
+            {
+                auto hookCtx = mk(false);
+                BEAST_EXPECT(
+                    hookCtx.api()
+                        .emit(atomicBlob, /*atomic=*/true)
+                        .has_value() == !enabled);
+                BEAST_EXPECT(hookCtx.api().emit(blob).has_value());
+            }
+            {
+                auto hookCtx = mk(true);
+                BEAST_EXPECT(
+                    hookCtx.api()
+                        .emit(atomicBlob, /*atomic=*/true)
+                        .has_value() == !enabled);
+                BEAST_EXPECT(hookCtx.api().emit(blob).has_value() == !enabled);
+            }
+        }
+        {
+            // ledger window: emit_atomic requires FLS == LLS == current seq,
+            // and such a blob is in turn refused by plain emit()
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            BEAST_EXPECT(
+                hookCtx.api().emit(blob, /*atomic=*/true).error() ==
+                EMISSION_FAILURE);
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob).error() == EMISSION_FAILURE);
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob, /*atomic=*/true).has_value());
+            BEAST_EXPECT(hookCtx.api().emit(blob).has_value());
+        }
+        {
+            // R1: the fee floor is computed against the view being applied
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), {.expected_etxn_count = 1});
+            auto const fee = hookCtx.api().etxn_fee_base(blob);
+            BEAST_EXPECT(fee.has_value());
+            if (fee && enabled)
+                BEAST_EXPECT(
+                    *fee ==
+                    ripple::calculateBaseFee(applyCtx.view(), emitInvokeTx)
+                        .drops());
+        }
+        {
+            // tapATOMIC_EMIT defensive checks in preflight1 / checkSign: the
+            // flag on anything that is not an unsigned emitted txn is
+            // refused; on a genuine emitted txn preflight passes without
+            // SF_EMITTED
+            auto const& rules = env.current()->rules();
+            STTx const plain = STTx(ttINVOKE, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = 1;
+                obj[sfSigningPubKey] = Slice{};
+                obj[sfFee] = env.closed()->fees().base;
+            });
+            BEAST_EXPECT(
+                preflight(env.app(), rules, plain, tapATOMIC_EMIT, env.journal)
+                    .ter == temINVALID);
+
+            STTx signedEmitted = emitInvokeTx;
+            signedEmitted.setFieldVL(
+                sfTxnSignature, std::vector<uint8_t>(64, 1));
+            BEAST_EXPECT(
+                preflight(
+                    env.app(),
+                    rules,
+                    signedEmitted,
+                    tapATOMIC_EMIT,
+                    env.journal)
+                    .ter == temINVALID);
+
+            STTx zeroKey = emitInvokeTx;
+            zeroKey.setFieldVL(sfSigningPubKey, std::vector<uint8_t>(33, 0));
+            BEAST_EXPECT(hook::hasNoSignatureMaterial(zeroKey));
+            BEAST_EXPECT(
+                preflight(
+                    env.app(), rules, zeroKey, tapATOMIC_EMIT, env.journal)
+                    .ter == tesSUCCESS);
+            BEAST_EXPECT(
+                preflight(env.app(), rules, zeroKey, tapNONE, env.journal)
+                    .ter == telNON_LOCAL_EMITTED_TXN);
         }
     }
 
@@ -4712,6 +5017,7 @@ public:
 
         test_prepare(features);
         test_emit(features);
+        test_emit_atomic(features);
         test_etxn_burden(features);
         test_etxn_generation(features);
         test_otxn_burden(features);
