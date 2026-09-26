@@ -158,10 +158,9 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
 
                 auto const& hookOn =
                     hook::getHookOn(hook, sleDef, sfHookOnIncoming);
-                auto const& hookName =
-                    ctx.view.rules().enabled(fixHookNameValidation) &&
-                        hook.isFieldPresent(sfHookName)
-                    ? std::optional<ripple::Blob>(hook.getFieldVL(sfHookName))
+                auto const hookName =
+                    ctx.view.rules().enabled(fixHookNameValidation)
+                    ? hook[~sfHookName]
                     : std::nullopt;
                 if (hook::canHook(ctx.tx, hookOn, hookName))
                 {

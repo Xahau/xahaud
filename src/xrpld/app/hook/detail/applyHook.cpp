@@ -806,12 +806,12 @@ bool
 hook::canHook(
     STTx const& tx,
     ripple::uint256 hookOn,
-    std::optional<ripple::Blob> hookName)
+    std::optional<ripple::Slice> hookName)
 {
     if (!canHookTT(tx.getTxnType(), hookOn))
         return false;
 
-    if (!hookName)
+    if (!hookName || hookName->empty())
         // no hook name specified to hook, so we can always hook
         return true;
 
@@ -820,7 +820,7 @@ hook::canHook(
         // transaction, so we can't hook without the hook name
         return false;
 
-    return tx.getFieldVL(sfHookName) == hookName;
+    return tx[sfHookName] == *hookName;
 }
 
 ripple::uint256

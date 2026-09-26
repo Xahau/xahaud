@@ -85,7 +85,7 @@ bool
 canHook(
     STTx const& tx,
     ripple::uint256 hookOn,
-    std::optional<ripple::Blob> hookName);
+    std::optional<ripple::Slice> hookName);
 
 bool
 canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit);
