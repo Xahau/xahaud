@@ -404,8 +404,9 @@ fallback-grade randomness must do so explicitly at the call site. Valid
 32..39, contributor count in bits 16..31, and denominator in bits 0..15.
 Negative values remain Hook API errors. This lets Hook code implement policies
 such as one-absent tolerance,
-proportional participation, or an absolute floor without widening the frozen
-draw API. It exposes no digest. Callers must classify tier before count or
+proportional participation, or an absolute floor without embedding those
+participation policies in each draw call. The pre-activation Hook API remains
+under design. Status exposes no digest. Callers must classify tier before count or
 denominator arithmetic because fallback deliberately reports tier 1 and
 `0/0`.
 
