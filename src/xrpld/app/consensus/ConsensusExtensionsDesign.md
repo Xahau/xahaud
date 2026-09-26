@@ -386,7 +386,7 @@ count and the active-validator denominator used for the validator-quorum
 threshold, plus a canonical `EntropyContributors` bitmap ordered by the
 parent-ledger active-validator view. The participant-aligned floor still uses
 the original pre-NegativeUNL view internally. The contributor bitmap is written
-to the pseudo-transaction and SLE for observability, but is not part of the
+to the pseudo-transaction for observability, but is not part of the
 transaction-ordering salt; the salt already binds the selected
 digest/tier/count/denominator tuple. This does not make the bitmap
 non-critical: any disagreement in a ledger-written field is a ledger
@@ -428,7 +428,7 @@ Status remains metadata-only, independent of the per-call composition flags.
 Open-ledger hook execution is provisional. During speculative open-ledger
 execution, `entropy_cr_dice()`/`entropy_cr_random()` and `entropy_cr_status()` can only use the previous
 ledger's finalized entropy; final buildLCL execution sees the current ledger's
-entropy pseudo-tx after it updates the SLE. Hooks that need final entropy must
+entropy pseudo-tx after it publishes the host-only ledger execution context. Hooks that need final entropy must
 treat open-ledger RNG results as previews.
 
 The fallback digest derives from the sanitized pre-injection live-build set

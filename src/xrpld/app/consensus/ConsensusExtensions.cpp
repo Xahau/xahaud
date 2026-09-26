@@ -1844,7 +1844,7 @@ ConsensusExtensions::selectEntropy(
         });
 
     // Residual: the gate passed but no leaf parsed — fall back rather than
-    // skip, so a fresh ConsensusEntropy entry always exists.
+    // skip, so a fresh ConsensusEntropy input is always injected.
     if (sorted.empty())
         return fallback();
     if (malformedContributorSet || contributors.size() != sorted.size())

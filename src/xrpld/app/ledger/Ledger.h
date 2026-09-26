@@ -179,6 +179,16 @@ public:
         return rules_;
     }
 
+    std::shared_ptr<STTx const>
+    consensusEntropy() const override;
+
+    // Cold recovery/audit from this ledger's successfully applied pseudo.
+    std::shared_ptr<STTx const>
+    readConsensusEntropyFromTransactions() const;
+
+    void
+    rawSetConsensusEntropy(std::shared_ptr<STTx const> entropy) override;
+
     bool
     exists(Keylet const& k) const override;
 
@@ -417,6 +427,12 @@ private:
     defaultFees(Config const& config);
 
     bool mImmutable;
+
+    // This cache is not part of the account-state tree or ledger header.
+    // Successor construction starts empty; the CE transactor supplies input.
+    mutable std::mutex entropyMutex_;
+    mutable bool entropyLoaded_ = false;
+    mutable std::shared_ptr<STTx const> entropy_;
 
     // A SHAMap containing the transactions associated with this ledger.
     SHAMap mutable txMap_;

@@ -54,12 +54,16 @@ void
 ApplyContext::discard()
 {
     view_.emplace(&base_, flags_);
+    pendingEntropy_.reset();
 }
 
 std::optional<TxMeta>
 ApplyContext::apply(TER ter)
 {
-    return view_->apply(base_, tx, ter, flags_ & tapDRY_RUN, journal);
+    auto meta = view_->apply(base_, tx, ter, flags_ & tapDRY_RUN, journal);
+    if (isTesSuccess(ter) && !(flags_ & tapDRY_RUN) && pendingEntropy_)
+        base_.rawSetConsensusEntropy(pendingEntropy_);
+    return meta;
 }
 
 std::size_t

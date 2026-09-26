@@ -2303,11 +2303,6 @@ HookAPI::slot_set(Bytes const& data, uint32_t slot_no) const
         if (!sle)
             return Unexpected(DOESNT_EXIST);
 
-        // Inspect the resolved object: ltANY/ltCHILD can address the same SLE.
-        // Exposing the shared digest bypasses the caller-bound draw APIs.
-        if (sle->getType() == ltCONSENSUS_ENTROPY)
-            return Unexpected(NOT_AUTHORIZED);
-
         slot_value = sle;
     }
     else if (data.size() == 32)

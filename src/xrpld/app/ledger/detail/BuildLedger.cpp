@@ -66,6 +66,19 @@ buildLedgerImpl(
         accum.apply(*built);
     }
 
+#ifndef NDEBUG
+    if (built->rules().enabled(featureConsensusEntropy))
+    {
+        auto const hot = built->consensusEntropy();
+        auto const cold = built->readConsensusEntropyFromTransactions();
+        XRPL_ASSERT(
+            (!hot && !cold) ||
+                (hot && cold &&
+                 hot->getTransactionID() == cold->getTransactionID()),
+            "ripple::buildLedgerImpl : hot and recorded entropy agree");
+    }
+#endif
+
     built->updateSkipList();
     {
         // Write the final version of all modified SHAMap

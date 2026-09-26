@@ -84,7 +84,6 @@ enum class LedgerNameSpace : std::uint16_t {
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
     CRON = 'L',
-    CONSENSUS_ENTROPY = 'X',
     AMM = 'A',
     BRIDGE = LEDGER_NAMESPACE2(0x01, 'H'),
     XCHAIN_CLAIM_ID = 'Q',
@@ -577,14 +576,6 @@ cron(uint32_t timestamp, std::optional<AccountID> const& id)
     std::memcpy(h + 12, accHash.cdata(), 20);
 
     return {ltCRON, uint256::fromVoid(h)};
-}
-
-Keylet const&
-consensusEntropy() noexcept
-{
-    static Keylet const ret{
-        ltCONSENSUS_ENTROPY, indexHash(LedgerNameSpace::CONSENSUS_ENTROPY)};
-    return ret;
 }
 
 Keylet

@@ -86,7 +86,8 @@ OpenView::OpenView(OpenView const& rhs)
     , base_{rhs.base_}
     , items_{rhs.items_}
     , hold_{rhs.hold_}
-    , open_{rhs.open_} {};
+    , open_{rhs.open_}
+    , entropy_{rhs.entropy_} {};
 
 OpenView::OpenView(
     open_ledger_t,
@@ -100,6 +101,7 @@ OpenView::OpenView(
     , info_(base->info())
     , base_(base)
     , hold_(std::move(hold))
+    , entropy_(base->consensusEntropy())
 {
     info_.validated = false;
     info_.accepted = false;
@@ -117,6 +119,7 @@ OpenView::OpenView(ReadView const* base, std::shared_ptr<void const> hold)
     , base_(base)
     , hold_(std::move(hold))
     , open_(base->open())
+    , entropy_(base->consensusEntropy())
 {
 }
 
@@ -132,6 +135,10 @@ OpenView::apply(TxsRawView& to) const
     items_.apply(to);
     for (auto const& item : txs_)
         to.rawTxInsert(item.first, item.second.txn, item.second.meta);
+    // Only current-ledger input is published to a built ledger. A previous
+    // ledger's context used for an open preview is not new ledger entropy.
+    if (entropy_ && entropy_->getFieldU32(sfLedgerSequence) == info_.seq)
+        to.rawSetConsensusEntropy(entropy_);
 }
 
 //---

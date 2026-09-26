@@ -91,6 +91,12 @@ public:
     void
     discard();
 
+    void
+    stageConsensusEntropy(std::shared_ptr<STTx const> entropy)
+    {
+        pendingEntropy_ = std::move(entropy);
+    }
+
     /** Apply the transaction result to the base. */
     std::optional<TxMeta> apply(TER);
 
@@ -163,6 +169,7 @@ private:
     ApplyFlags flags_;
     std::optional<ApplyViewImpl> view_;
     std::shared_ptr<Ledger const> replayParentLedger_;
+    std::shared_ptr<STTx const> pendingEntropy_;
 };
 
 }  // namespace ripple

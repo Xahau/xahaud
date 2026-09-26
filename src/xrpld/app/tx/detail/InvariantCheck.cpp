@@ -603,7 +603,6 @@ LedgerEntryTypesMatch::visitEntry(
             case ltCRON:
             case ltIMPORT_VLSEQ:
             case ltUNL_REPORT:
-            case ltCONSENSUS_ENTROPY:
             case ltEXPORT_LATCH:
             case ltEXPORT_COMMITTEE:
             case ltAMM:

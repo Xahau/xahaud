@@ -21,6 +21,9 @@
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
 #include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/ledger/BuildLedger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/LedgerReplay.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/hook/Enum.h>
@@ -88,6 +91,57 @@ expectedDice(uint256 block, std::uint32_t sides)
 
 class ConsensusEntropy_test : public beast::unit_test::suite
 {
+    static std::shared_ptr<STTx const>
+    recordedEntropy(jtx::Env& env)
+    {
+        // Independent oracle: recover the input from committed transactions.
+        return env.app()
+            .getLedgerMaster()
+            .getClosedLedger()
+            ->readConsensusEntropyFromTransactions();
+    }
+
+    void
+    checkEntropyRecovery(jtx::Env& env)
+    {
+        auto const closed = env.app().getLedgerMaster().getClosedLedger();
+        auto const recorded = recordedEntropy(env);
+        BEAST_REQUIRE(recorded);
+        bool loaded = false;
+        auto cold = std::make_shared<Ledger>(
+            closed->info(),
+            loaded,
+            false,
+            env.app().config(),
+            env.app().getNodeFamily(),
+            env.journal);
+        BEAST_REQUIRE(loaded);
+        auto const recovered = cold->consensusEntropy();
+        BEAST_REQUIRE(recovered);
+        BEAST_EXPECT(
+            recovered->getTransactionID() == recorded->getTransactionID());
+
+        // A restarted node can preview N+1 from the loaded N input, while
+        // actual construction of N+1 starts empty until its own pseudo applies.
+        OpenView preview{open_ledger, closed->rules(), cold};
+        OpenView copy{preview};
+        BEAST_EXPECT(copy.consensusEntropy() == recovered);
+        auto successor =
+            std::make_shared<Ledger>(*cold, closed->info().closeTime);
+        BEAST_EXPECT(!successor->consensusEntropy());
+
+        auto const parent = env.app().getLedgerMaster().getLedgerByHash(
+            closed->info().parentHash);
+        BEAST_REQUIRE(parent);
+        auto const replay = buildLedger(
+            LedgerReplay(parent, closed), tapNONE, env.app(), env.journal);
+        BEAST_EXPECT(replay->info().hash == closed->info().hash);
+        auto const replayInput = replay->consensusEntropy();
+        BEAST_REQUIRE(replayInput);
+        BEAST_EXPECT(
+            replayInput->getTransactionID() == recorded->getTransactionID());
+    }
+
     static void
     overrideFlag(Json::Value& jv)
     {
@@ -111,9 +165,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
-    testSLECreated()
+    testContextCreated()
     {
-        testcase("SLE created on ledger close");
+        testcase("Entropy context created by ledger pseudo");
         using namespace jtx;
 
         Env env{
@@ -122,33 +176,39 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             supported_amendments() | featureConsensusEntropy,
             nullptr};
 
-        BEAST_EXPECT(!env.le(keylet::consensusEntropy()));
+        BEAST_EXPECT(!recordedEntropy(env));
 
         env.close();
 
-        auto const sle = env.le(keylet::consensusEntropy());
-        BEAST_REQUIRE(sle);
+        auto const input = recordedEntropy(env);
+        BEAST_REQUIRE(input);
 
-        auto const digest = sle->getFieldH256(sfDigest);
+        auto const digest = input->getFieldH256(sfDigest);
         BEAST_EXPECT(digest != uint256{});
 
-        auto const count = sle->getFieldU16(sfEntropyCount);
+        auto const count = input->getFieldU16(sfEntropyCount);
         BEAST_EXPECT(count >= 5);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == count);
+        BEAST_EXPECT(input->getFieldU16(sfEntropyDenominator) == count);
         BEAST_EXPECT(
-            sle->getFieldVL(sfEntropyContributors) ==
+            input->getFieldVL(sfEntropyContributors) ==
             standaloneContributorMask(count, count));
         BEAST_EXPECT(
-            sle->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
+            input->getFieldU8(sfEntropyTier) == entropyTierValidatorFull);
 
-        auto const sleSeq = sle->getFieldU32(sfLedgerSequence);
-        BEAST_EXPECT(sleSeq == env.closed()->seq());
+        auto const inputSeq = input->getFieldU32(sfLedgerSequence);
+        BEAST_EXPECT(inputSeq == env.closed()->seq());
+        BEAST_EXPECT(
+            env.closed()->consensusEntropy()->getTransactionID() ==
+            input->getTransactionID());
+        BEAST_EXPECT(!env.closed()->read(
+            keylet::unchecked(sha512Half(std::uint16_t{'X'}))));
+        checkEntropyRecovery(env);
     }
 
     void
-    testSLEUpdatedOnSubsequentClose()
+    testContextUpdatedOnSubsequentClose()
     {
-        testcase("SLE updated on subsequent ledger close");
+        testcase("Fresh entropy context on subsequent ledger close");
         using namespace jtx;
 
         Env env{
@@ -158,28 +218,28 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             nullptr};
 
         env.close();
-        auto const sle1 = env.le(keylet::consensusEntropy());
-        BEAST_REQUIRE(sle1);
+        auto const input1 = recordedEntropy(env);
+        BEAST_REQUIRE(input1);
 
-        auto const digest1 = sle1->getFieldH256(sfDigest);
-        auto const seq1 = sle1->getFieldU32(sfLedgerSequence);
+        auto const digest1 = input1->getFieldH256(sfDigest);
+        auto const seq1 = input1->getFieldU32(sfLedgerSequence);
 
         env.close();
 
-        auto const sle2 = env.le(keylet::consensusEntropy());
-        BEAST_REQUIRE(sle2);
+        auto const input2 = recordedEntropy(env);
+        BEAST_REQUIRE(input2);
 
-        auto const digest2 = sle2->getFieldH256(sfDigest);
-        auto const seq2 = sle2->getFieldU32(sfLedgerSequence);
+        auto const digest2 = input2->getFieldH256(sfDigest);
+        auto const seq2 = input2->getFieldU32(sfLedgerSequence);
 
         BEAST_EXPECT(digest2 != digest1);
         BEAST_EXPECT(seq2 == seq1 + 1);
     }
 
     void
-    testNoSLEWithoutAmendment()
+    testNoContextWithoutAmendment()
     {
-        testcase("No SLE without amendment");
+        testcase("No entropy context without amendment");
         using namespace jtx;
 
         Env env{*this, supported_amendments()};
@@ -187,7 +247,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.close();
         env.close();
 
-        BEAST_EXPECT(!env.le(keylet::consensusEntropy()));
+        BEAST_EXPECT(!recordedEntropy(env));
     }
 
     void
@@ -206,8 +266,9 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        // Entropy SLE must exist before hook can use entropy_cr_dice()
-        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+        // Recorded entropy input must exist before hook can use
+        // entropy_cr_dice()
+        BEAST_REQUIRE(recordedEntropy(env));
 
         // Set the hook
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
@@ -255,7 +316,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 1);
 
-        auto const entropy = env.le(keylet::consensusEntropy());
+        auto const entropy = recordedEntropy(env);
         BEAST_REQUIRE(entropy);
         auto const entropyDigest = entropy->getFieldH256(sfDigest);
         auto const drawLedgerSeq = entropy->getFieldU32(sfLedgerSequence);
@@ -278,6 +339,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
 
         // Result should be 3 (accept)
         BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+        checkEntropyRecovery(env);
     }
 
     void
@@ -296,7 +358,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+        BEAST_REQUIRE(recordedEntropy(env));
 
         // Hook calls entropy_cr_random() to fill a 32-byte buffer, then checks
         // the buffer is not all zeroes.
@@ -373,7 +435,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+        BEAST_REQUIRE(recordedEntropy(env));
 
         // entropy_cr_dice(1000000) twice — large range makes collision
         // near-impossible encode r1 in low 20 bits, r2 in high bits
@@ -451,7 +513,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+        BEAST_REQUIRE(recordedEntropy(env));
 
         // Hook calls entropy_cr_dice(0) and returns whatever entropy_cr_dice
         // returns. entropy_cr_dice(0) should return INVALID_ARGUMENT (-7).
@@ -521,12 +583,12 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        auto const sle = env.le(keylet::consensusEntropy());
-        BEAST_REQUIRE(sle);
+        auto const input = recordedEntropy(env);
+        BEAST_REQUIRE(input);
         BEAST_EXPECT(
-            sle->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyCount) == 19);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == 20);
+            input->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
+        BEAST_EXPECT(input->getFieldU16(sfEntropyCount) == 19);
+        BEAST_EXPECT(input->getFieldU16(sfEntropyDenominator) == 20);
 
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
@@ -612,12 +674,12 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        auto const sle = env.le(keylet::consensusEntropy());
-        BEAST_REQUIRE(sle);
+        auto const input = recordedEntropy(env);
+        BEAST_REQUIRE(input);
         BEAST_EXPECT(
-            sle->getFieldU8(sfEntropyTier) == entropyTierConsensusFallback);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyCount) == 0);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == 0);
+            input->getFieldU8(sfEntropyTier) == entropyTierConsensusFallback);
+        BEAST_EXPECT(input->getFieldU16(sfEntropyCount) == 0);
+        BEAST_EXPECT(input->getFieldU16(sfEntropyDenominator) == 0);
 
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
@@ -741,11 +803,11 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         OpenView view{*env.current()};
         auto const openSeq = view.info().seq;
         BEAST_REQUIRE(openSeq > 2);
-        auto const entropy = view.read(keylet::consensusEntropy());
+        auto const entropy = view.consensusEntropy();
         BEAST_REQUIRE(entropy);
-        auto replacement = std::make_shared<SLE>(*entropy, entropy->key());
+        auto replacement = std::make_shared<STTx>(*entropy);
         replacement->setFieldU32(sfLedgerSequence, openSeq - 2);
-        view.rawReplace(replacement);
+        view.rawSetConsensusEntropy(replacement);
 
         auto const hookArray = view.read(keylet::hook(alice.id()));
         BEAST_REQUIRE(hookArray);
@@ -822,14 +884,14 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        auto const sle = env.le(keylet::consensusEntropy());
-        BEAST_REQUIRE(sle);
+        auto const input = recordedEntropy(env);
+        BEAST_REQUIRE(input);
         BEAST_EXPECT(
-            sle->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyCount) == 19);
-        BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == 20);
+            input->getFieldU8(sfEntropyTier) == entropyTierValidatorQuorum);
+        BEAST_EXPECT(input->getFieldU16(sfEntropyCount) == 19);
+        BEAST_EXPECT(input->getFieldU16(sfEntropyDenominator) == 20);
         BEAST_EXPECT(
-            sle->getFieldVL(sfEntropyContributors) ==
+            input->getFieldVL(sfEntropyContributors) ==
             standaloneContributorMask(20, 19));
 
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
@@ -879,7 +941,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        BEAST_EXPECT(!env.le(keylet::consensusEntropy()));
+        BEAST_EXPECT(!recordedEntropy(env));
 
         TestHook diceHook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
@@ -1095,7 +1157,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+        BEAST_REQUIRE(recordedEntropy(env));
 
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
@@ -1161,7 +1223,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
         BEAST_REQUIRE(hookExecutions.size() == 1);
 
-        auto const entropy = env.le(keylet::consensusEntropy());
+        auto const entropy = recordedEntropy(env);
         BEAST_REQUIRE(entropy);
         auto const firstBlock = sha512Half(
             entropy->getFieldU32(sfLedgerSequence),
@@ -1392,7 +1454,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             env.fund(XRP(10000), player, game, issuer);
             env.close();
 
-            BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+            BEAST_REQUIRE(recordedEntropy(env));
 
             std::string const uri = "rng-terminal-veto-token";
             auto const tokenID = uritoken::tokenid(issuer, uri);
@@ -1534,7 +1596,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), game);
         env.close();
 
-        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+        BEAST_REQUIRE(recordedEntropy(env));
 
         TestHook gameHook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
@@ -1775,7 +1837,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
                 BEAST_EXPECT(hookReturnCode(executions[0]) == 32);
             if (mode == 6)
             {
-                auto const entropy = env.le(keylet::consensusEntropy());
+                auto const entropy = recordedEntropy(env);
                 BEAST_REQUIRE(entropy);
                 auto const block = sha512Half(
                     entropy->getFieldU32(sfLedgerSequence),
@@ -1890,7 +1952,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice);
         env.close();
 
-        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+        BEAST_REQUIRE(recordedEntropy(env));
 
         TestHook hook = consensusentropy_test_wasm[R"[test.hook](
             #include <stdint.h>
@@ -1940,7 +2002,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
             hookExecutions[1].getFieldU8(sfHookResult) ==
             static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
 
-        auto const entropy = env.le(keylet::consensusEntropy());
+        auto const entropy = recordedEntropy(env);
         BEAST_REQUIRE(entropy);
         auto const firstBlock = sha512Half(
             entropy->getFieldU32(sfLedgerSequence),
@@ -2099,11 +2161,101 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testViewEntropyAdmission()
+    {
+        testcase(
+            "Open previews use parent entropy; closed execution needs current "
+            "input");
+        using namespace jtx;
+        Env env{*this, supported_amendments() | featureConsensusEntropy};
+        Account const alice{"view-entropy"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto next = std::make_shared<Ledger>(*parent, parent->info().closeTime);
+        OpenView closed{next.get()};
+        OpenView preview{open_ledger, parent->rules(), parent};
+        OpenView staleClosed{closed};
+        staleClosed.rawSetConsensusEntropy(parent->consensusEntropy());
+
+        TestHook wasm = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t rollback(uint32_t, uint32_t, int64_t);
+            extern int64_t entropy_cr_status(void);
+            extern int64_t entropy_cr_dice(uint32_t, uint32_t, uint32_t);
+            extern int64_t entropy_cr_random(uint32_t, uint32_t, uint32_t, uint32_t);
+            #define GUARD(n) _g((1U << 31U) + __LINE__, (n)+1)
+            int64_t hook(uint32_t mode)
+            {
+                _g(1,1);
+                int64_t status = entropy_cr_status();
+                if ((mode == 1 && status != -5) || (mode != 1 && status < 0))
+                    return rollback(0, 0, 100);
+                int64_t draw = entropy_cr_dice(1, 1, 0);
+                if (draw != (mode == 0 ? 0 : -48))
+                    return rollback(0, 0, 101);
+                uint8_t bytes[32];
+                for (int i = 0; GUARD(32), i < 32; ++i)
+                    bytes[i] = 0xA5;
+                int64_t count = entropy_cr_random((uint32_t)bytes, 32, 1, 0);
+                if (count != (mode == 0 ? 32 : -48))
+                    return rollback(0, 0, 102);
+                if (mode != 0)
+                    for (int i = 0; GUARD(32), i < 32; ++i)
+                        if (bytes[i] != 0xA5)
+                            return rollback(0, 0, 103);
+                return accept(0, 0, 0);
+            }
+        )[test.hook]"];
+        auto const run = [&](OpenView& view, uint32_t mode) {
+            STTx tx{ttINVOKE, [&](STObject& obj) {
+                        obj.setAccountID(sfAccount, alice.id());
+                    }};
+            ApplyContext ctx{
+                env.app(),
+                view,
+                tx,
+                tesSUCCESS,
+                view.fees().base,
+                tapNONE,
+                env.journal};
+            hook::HookStateMap state;
+            std::map<std::vector<uint8_t>, std::vector<uint8_t>> params;
+            auto const result = hook::apply(
+                uint256{},
+                sha512Half(Slice{wasm.data(), wasm.size()}),
+                uint256{},
+                uint256{},
+                wasm,
+                params,
+                {},
+                state,
+                ctx,
+                alice.id(),
+                false,
+                false,
+                true,
+                mode,
+                0,
+                {},
+                true);
+            BEAST_EXPECT(result.exitType == hook_api::ExitType::ACCEPT);
+            BEAST_EXPECT(result.exitCode == 0);
+            BEAST_EXPECT(result.rngCallCounter == (mode == 0 ? 2 : 0));
+        };
+        run(preview, 0);
+        run(closed, 1);
+        run(staleClosed, 2);
+    }
+
+    void
     run() override
     {
-        testSLECreated();
-        testSLEUpdatedOnSubsequentClose();
-        testNoSLEWithoutAmendment();
+        testContextCreated();
+        testContextUpdatedOnSubsequentClose();
+        testNoContextWithoutAmendment();
         testDice();
         testDiceZeroSides();
         testEntropyStatus();
@@ -2118,6 +2270,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testGuardedDrawSameChainRefusal();
         testEntropyCompositionFilters();
         testEntropyHostAdmission();
+        testViewEntropyAdmission();
         testEntropyDrawDoesNotBlockWeakAgainAsWeak();
         testRandom();
         testDiceConsecutiveCallsDiffer();

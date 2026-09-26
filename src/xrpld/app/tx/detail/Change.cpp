@@ -466,35 +466,17 @@ Change::applyConsensusEntropy()
     if (ctx_.tx.getFieldU32(sfLedgerSequence) != view().info().seq)
         return tefFAILURE;
 
-    auto const entropy = ctx_.tx.getFieldH256(sfDigest);
+    if (auto const current = view().consensusEntropy();
+        current && current->getFieldU32(sfLedgerSequence) == view().info().seq)
+        return tefFAILURE;
 
-    //@@start rng-consensus-entropy-sle-write
-    auto sle = view().peek(keylet::consensusEntropy());
-    bool const created = !sle;
+    // The pseudo itself is the durable input. Publish its host-only context
+    // only when this transaction commits; discard/dry-run cannot install it.
+    ctx_.stageConsensusEntropy(std::make_shared<STTx const>(ctx_.tx));
 
-    if (created)
-        sle = std::make_shared<SLE>(keylet::consensusEntropy());
-
-    sle->setFieldH256(sfDigest, entropy);
-    sle->setFieldU16(sfEntropyCount, ctx_.tx.getFieldU16(sfEntropyCount));
-    sle->setFieldU16(
-        sfEntropyDenominator, ctx_.tx.getFieldU16(sfEntropyDenominator));
-    sle->setFieldVL(
-        sfEntropyContributors, ctx_.tx.getFieldVL(sfEntropyContributors));
-    sle->setFieldU8(sfEntropyTier, ctx_.tx.getFieldU8(sfEntropyTier));
-    sle->setFieldU32(sfLedgerSequence, view().info().seq);
-    // Note: sfPreviousTxnID and sfPreviousTxnLgrSeq are set automatically
-    // by ApplyStateTable::threadItem() because isThreadedType() returns true
-    // for ledger entries that have sfPreviousTxnID in their format.
-
-    if (created)
-        view().insert(sle);
-    else
-        view().update(sle);
-    //@@end rng-consensus-entropy-sle-write
-
-    JLOG(j_.info()) << "ConsensusEntropy: updated entropy to " << entropy
-                    << " at ledger " << view().info().seq;
+    JLOG(j_.info()) << "ConsensusEntropy: staged entropy "
+                    << ctx_.tx.getFieldH256(sfDigest) << " at ledger "
+                    << view().info().seq;
 
     return tesSUCCESS;
 }

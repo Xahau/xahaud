@@ -3713,8 +3713,7 @@ public:
     test_slot_set_entropy(FeatureBitset features)
     {
         testcase(
-            "slot_set excludes raw consensus entropy through every keylet "
-            "alias");
+            "Entropy has no state entry; slots cannot expose the seed pseudo");
         using namespace jtx;
         using namespace hook;
         Env env{*this, features | featureConsensusEntropy};
@@ -3725,8 +3724,8 @@ public:
         // validated lookup otherwise depends on optional test SQL history.
         env(pay(alice, Account::master, XRP(1)));
         auto const ordinary = env.tx();
-        auto const entropyKey = keylet::consensusEntropy();
-        auto const entropy = env.closed()->read(entropyKey);
+        auto const retiredEntropyKey = sha512Half(std::uint16_t{'X'});
+        auto const entropy = env.closed()->consensusEntropy();
         if (!BEAST_EXPECT(entropy != nullptr))
             return;
         BEAST_EXPECT(
@@ -3770,11 +3769,11 @@ public:
             if (!BEAST_EXPECT(initial && *initial == 1))
                 return;
             auto const* preserved = api.slot(1).value();
-            auto denied = [&](Bytes const& key) {
+            auto denied = [&](Bytes const& key, HookReturnCode error) {
                 for (auto const destination : {0u, 1u})
                 {
                     auto const result = api.slot_set(key, destination);
-                    BEAST_EXPECT(!result && result.error() == NOT_AUTHORIZED);
+                    BEAST_EXPECT(!result && result.error() == error);
                     // Denial must neither overwrite an existing slot nor
                     // allocate an automatic slot containing the raw object.
                     BEAST_EXPECT(api.slot(1).value() == preserved);
@@ -3784,10 +3783,10 @@ public:
                         BEAST_EXPECT(api.slot_clear(*next).has_value());
                 }
             };
-            for (auto const type : {ltCONSENSUS_ENTROPY, ltANY, ltCHILD})
-                denied(bytes(type, entropyKey.key));
+            for (auto const type : {ltANY, ltCHILD})
+                denied(bytes(type, retiredEntropyKey), DOESNT_EXIST);
             // The entropy pseudo-transaction is another raw-digest carrier.
-            denied(*entropyID);
+            denied(*entropyID, NOT_AUTHORIZED);
             for (auto const type : {ltACCOUNT_ROOT, ltANY, ltCHILD})
             {
                 auto const result =
@@ -3796,9 +3795,9 @@ public:
             }
             auto const transaction = api.slot_set(ordinaryID, 1);
             BEAST_EXPECT(transaction && *transaction == 1);
-            // The host's typed ledger access is unaffected by the Hook
-            // boundary.
-            BEAST_EXPECT(applyCtx.view().read(entropyKey) != nullptr);
+            BEAST_EXPECT(applyCtx.view().consensusEntropy() != nullptr);
+            BEAST_EXPECT(
+                !applyCtx.view().read(keylet::unchecked(retiredEntropyKey)));
         };
         check(*env.current());
         check(*env.closed());

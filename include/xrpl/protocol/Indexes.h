@@ -134,10 +134,6 @@ negativeUNL() noexcept;
 Keylet const&
 UNLReport() noexcept;
 
-/** The (fixed) index of the object containing consensus-derived entropy. */
-Keylet const&
-consensusEntropy() noexcept;
-
 /** The beginning of an order book */
 struct book_t
 {

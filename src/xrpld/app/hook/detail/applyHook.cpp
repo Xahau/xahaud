@@ -4035,7 +4035,7 @@ invalidEntropyRequirement(uint32_t minTier)
 
 struct EntropySnapshot
 {
-    std::shared_ptr<SLE> sle;
+    std::shared_ptr<STTx const> input;
     std::uint32_t age;
     std::uint8_t tier;
     std::uint16_t count;
@@ -4045,29 +4045,30 @@ struct EntropySnapshot
 inline std::variant<EntropySnapshot, hook_api::hook_return_code>
 readEntropySnapshot(ApplyView& view)
 {
-    auto sle = view.peek(ripple::keylet::consensusEntropy());
-    if (!sle)
+    auto input = view.consensusEntropy();
+    if (!input)
         return hook_api::hook_return_code::DOESNT_EXIST;
 
-    if (!sle->isFieldPresent(sfDigest) ||
-        !sle->isFieldPresent(sfLedgerSequence) ||
-        !sle->isFieldPresent(sfEntropyTier) ||
-        !sle->isFieldPresent(sfEntropyCount) ||
-        !sle->isFieldPresent(sfEntropyDenominator) ||
-        !sle->isFieldPresent(sfEntropyContributors))
+    if (input->getTxnType() != ttCONSENSUS_ENTROPY ||
+        !input->isFieldPresent(sfDigest) ||
+        !input->isFieldPresent(sfLedgerSequence) ||
+        !input->isFieldPresent(sfEntropyTier) ||
+        !input->isFieldPresent(sfEntropyCount) ||
+        !input->isFieldPresent(sfEntropyDenominator) ||
+        !input->isFieldPresent(sfEntropyContributors))
         return hook_api::hook_return_code::INTERNAL_ERROR;
 
     auto const seq = view.info().seq;
-    auto const entropySeq = sle->getFieldU32(sfLedgerSequence);
+    auto const entropySeq = input->getFieldU32(sfLedgerSequence);
     if (entropySeq > seq)
         return hook_api::hook_return_code::INTERNAL_ERROR;
 
     return EntropySnapshot{
-        sle,
+        input,
         seq - entropySeq,
-        sle->getFieldU8(sfEntropyTier),
-        sle->getFieldU16(sfEntropyCount),
-        sle->getFieldU16(sfEntropyDenominator)};
+        input->getFieldU8(sfEntropyTier),
+        input->getFieldU16(sfEntropyCount),
+        input->getFieldU16(sfEntropyDenominator)};
 }
 
 // Callers normalize byteCount to a multiple of 32.
@@ -4099,11 +4100,11 @@ fairRng(
 
     // Open-ledger hook execution is provisional and can only see the previous
     // ledger's finalized entropy. Final buildLCL execution sees the current
-    // ledger's entropy pseudo-tx after it updates this SLE. That open-vs-final
-    // skew is inherent to speculative execution; callers that need final
-    // entropy must treat open-ledger entropy_cr_dice/entropy_cr_random results
-    // as previews.
-    if (entropy.age > 1 || entropy.tier < minTier)
+    // ledger's entropy pseudo-tx after it installs the context. That
+    // open-vs-final skew is inherent to speculative execution; callers that
+    // need final entropy must treat open-ledger
+    // entropy_cr_dice/entropy_cr_random results as previews.
+    if (entropy.age > (view.open() ? 1u : 0u) || entropy.tier < minTier)
         return {};
 
     // we'll generate bytes in lots of 32
@@ -4124,7 +4125,7 @@ fairRng(
         hr.hookChainPosition,
         hr.isStrong ? std::string("strong") : std::string("weak"),
         hr.isCallback ? std::string("callback") : std::string("direct"),
-        entropy.sle->getFieldH256(sfDigest),
+        entropy.input->getFieldH256(sfDigest),
         hr.rngCallCounter++);
 
     std::vector<uint8_t> bytesOut;

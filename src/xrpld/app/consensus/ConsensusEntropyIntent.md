@@ -30,7 +30,7 @@ in [Amendment-gated peer protocol features](../../overlay/ProtocolFeatureRequire
 Given the same parent ledger and the same *agreed* entropy sidecar, every honest
 node injects the byte-identical `ttCONSENSUS_ENTROPY` (digest, tier, count,
 denominator, contributors). That
-object is ledger state. Therefore **non-fallback entropy must not read mutable
+object is committed in the ledger's transaction tree. Therefore **non-fallback entropy must not read mutable
 local collector state or timing-derived state.** The selector derives non-fallback
 `(digest, tier, count, denominator, contributors)` only from the accepted
 `entropySetMap_` (matched to the hash the gate accepted) plus the parent-ledger
@@ -232,7 +232,8 @@ requests do not alter that conservative plan. Weak/callback/again-as-weak
 execution has no subsequent strong phase.
 
 After argument and composition admission, entropy is served iff it is
-**fresh** (current or previous ledger) **and** meets that class floor;
+**fresh** (current ledger in closed execution; current or previous in open
+previews) **and** meets that class floor;
 otherwise the call **fails closed**
 (`TOO_LITTLE_ENTROPY`). `entropy_cr_status()` separately exposes the stored tier,
 contributor count, and denominator so hooks can impose proportional or absolute
@@ -247,13 +248,19 @@ have exactly that population over the denominator-sized view. Draws are also
 domain-separated by the hook execution role that can share a transaction and
 hook hash: strong vs weak, callback vs direct dispatch, and hook chain position.
 
-The raw digest is not part of the Hook slot interface. `slot_set` rejects the
-resolved `ConsensusEntropy` ledger object, including generic `ltANY`/`ltCHILD`
-aliases, and `ConsensusEntropy` pseudo-transactions fetched by transaction ID,
-with `NOT_AUTHORIZED`. Rejection does not allocate or overwrite a slot. Hooks
-use the caller-bound draw APIs and metadata-only status API; host ledger access,
-consensus and replay still consume the actual entropy object. This does not
-make published historical entropy secret or change open-ledger previews.
+The applied `ConsensusEntropy` pseudo is the durable entropy input. Its
+transactor stages an immutable host-only execution context; successful commit
+publishes that context to the ledger view. Discard and dry-run do not publish
+it. Views and sandboxes forward the context explicitly, and snapshots copy an
+immutable reference. A newly constructed successor ledger starts empty and is
+initialized by its own pseudo. An open preview instead inherits its parent's
+input. A cold-loaded closed ledger recovers its context from its own successful
+pseudo in the transaction tree, once, for subsequent previews and host reads.
+
+There is no entropy state-tree object or keylet. Hooks use caller-bound draws
+and metadata-only status. The seed-bearing pseudo is still excluded from
+transaction-ID `slot_set` lookups with `NOT_AUTHORIZED`; rejection does not
+allocate or overwrite a slot. Published historical seeds remain public.
 
 The live proceed gate and the stored tier label are separate calculations. The
 pipeline may proceed once the accepted reveal set reaches
@@ -278,7 +285,7 @@ unsigned big-endian 32-bit rejection sampling rather than biased modulo
 reduction. `entropy_cr_random` accepts
 one through 512 requested bytes, rounds its internal generation length to a
 32-byte boundary, and writes only the requested prefix. Missing, malformed,
-future, older-than-one-ledger, or below-tier entropy makes either draw return
+future, out-of-date for the execution view, or below-tier entropy makes either draw return
 `TOO_LITTLE_ENTROPY`; invalid arguments retain their specific Hook API error,
 and `entropy_cr_random` performs no output write on an entropy failure.
 
@@ -287,6 +294,10 @@ malformed, or future-snapshot errors, it returns the stored metadata even when
 that snapshot is too old for `entropy_cr_dice` or `entropy_cr_random`, packed as
 `(tier << 32) | (count << 16) | denominator`. This is deliberate: freshness is
 the draw API's safety policy, while status is advisory input to Hook policy.
+With no current pseudo in a closed build, there is no context: status returns
+`DOESNT_EXIST` and draws return `TOO_LITTLE_ENTROPY`. An open preview can report
+its parent input's metadata. No missing-current-input path restores an older
+high-tier seed during closed execution.
 *Enforced:* `fairRng` tier/freshness gate and metadata-only `entropy_cr_status`.
 
 **INV-7 — Inert when un-amended.**
@@ -295,7 +306,7 @@ CE itself adds no proposal bytes. Export may independently use the same extended
 proposal envelope when `featureExport` is active.
 The `entropy_cr_dice`, `entropy_cr_random`, and `entropy_cr_status` Hook imports are independently gated
 by `featureConsensusEntropy`; they are unavailable before that amendment rule is
-enabled even if a stale entropy singleton happens to exist.
+enabled even if a host view retains entropy from an amended parent.
 *Enforced:* the CE per-round enable latch is snapshotted from the *parent
 ledger's* rules; `ExtendedPosition` serializes to exactly the legacy 32-byte
 tx-set hash only when neither feature has populated a sidecar field.
@@ -333,17 +344,15 @@ selector always yields a digest, using `consensus_fallback` when necessary, so
 an enabled live build never skips injection. Re-derivation is reconstructive,
 not additive: supplied or previously derived extension pseudos are removed
 before the one canonical transaction is inserted with zero Account, Sequence,
-and Fee and `sfLedgerSequence` equal to the ledger being built. `BuildLedger`
-and `applyConsensusEntropy` are not duplicate detectors; the exactly-one
-guarantee belongs to live construction.
+and Fee and `sfLedgerSequence` equal to the ledger being built. The transactor
+also rejects a second current-ledger entropy input with `tefFAILURE`.
 
 In a live build, that sole pseudo is attempted once through the evolving view
-before every ordinary transaction. On success it writes the singleton with the
-current ledger sequence, and later Hook execution in that build observes the
-new value. If the first application fails, the builder records the failure and
-continues ordinary execution; the Hook freshness policy may then expose the
-previous-ledger snapshot. This degradation is explicit and must not silently
-become either fail-closed ledger construction or an unordered ordinary apply.
+before every ordinary transaction. On success it publishes the current-ledger
+execution context. If application fails, the builder records the failure and
+continues ordinary execution, but entropy calls have no current input and fail
+closed. Ordinary round failure still selects and applies fresh tier-1 entropy;
+that is separate from a pseudo application failure.
 
 The generic replay adaptor may execute entropy selection or salt calculation
 while reconstructing its consensus inputs, but those calculations do not

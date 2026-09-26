@@ -6,8 +6,7 @@
 namespace ripple {
 
 /// Which gate the ledger's entropy passed. Stored in sfEntropyTier (UINT8)
-/// on the ttCONSENSUS_ENTROPY pseudo-transaction and the ConsensusEntropy
-/// ledger entry.
+/// on the ttCONSENSUS_ENTROPY pseudo-transaction.
 ///
 /// EntropyCount says how many validators contributed; EntropyDenominator says
 /// how many active validators were in the ledger-anchored view for that
@@ -27,7 +26,7 @@ namespace ripple {
 /// active validator withholds, trading availability for no selective-
 /// withholding slack.
 enum EntropyTier : std::uint8_t {
-    /// No usable entropy (reserved; a fresh ConsensusEntropy entry should
+    /// No usable entropy (reserved; a fresh ConsensusEntropy input should
     /// always carry one of the tiers below).
     entropyTierNone = 0,
 

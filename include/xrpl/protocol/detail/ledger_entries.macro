@@ -223,23 +223,6 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
-/** The ledger object which stores consensus-derived entropy.
-
-    \note This is a singleton: only one such object exists in the ledger.
-
-    \sa keylet::consensusEntropy
- */
-LEDGER_ENTRY_DUPLICATE(ltCONSENSUS_ENTROPY, 0x0058, ConsensusEntropy, consensus_entropy, ({
-    {sfDigest,               soeREQUIRED},
-    {sfEntropyCount,         soeREQUIRED},
-    {sfEntropyDenominator,   soeREQUIRED},
-    {sfEntropyContributors,  soeREQUIRED},
-    {sfEntropyTier,          soeREQUIRED},
-    {sfLedgerSequence,       soeREQUIRED},
-    {sfPreviousTxnID,        soeREQUIRED},
-    {sfPreviousTxnLgrSeq,    soeREQUIRED},
-}))
-
 /** A ledger object which describes an account.
 
     \sa keylet::account
