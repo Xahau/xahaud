@@ -149,6 +149,11 @@ int out_len = 0;\
 #define ENTROPY_COUNT(x) (((uint64_t)(x) >> 16U) & 0xFFFFU)
 #define ENTROPY_DENOMINATOR(x) ((uint64_t)(x) & 0xFFFFU)
 
+// Zero flags require the last eligible strong Hook. ANY includes SAME_ACCOUNT;
+// both bits mean ANY. Allowed later Hooks retain ordinary veto authority.
+#define ENTROPY_ALLOW_ANY_STRONG_VETO (1U << 0)
+#define ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO (1U << 1)
+
 #define BUFFER_EQUAL_20(buf1, buf2)\
     (\
         *(((uint64_t*)(buf1)) + 0) == *(((uint64_t*)(buf2)) + 0) &&\
@@ -381,4 +386,3 @@ int out_len = 0;\
 #define amDELIVEREDAMOUNT 18U
 
 #endif
-

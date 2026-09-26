@@ -63,10 +63,20 @@ APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
                     print "    with count=denominator=0. Common policies are denominator-count <= 1,";
                     print "    5*count >= 4*denominator (use widened arithmetic), or count >= floor.";
                     print "";
-                    print "    entropy_cr_dice/entropy_cr_random return TOO_LITTLE_ENTROPY if fresh";
-                    print "    visible entropy is below";
-                    print "    min_tier. Open-ledger and simulate execution are provisional previews;";
-                    print "    final ordered execution may see a different entropy object.";
+                    print "    In strong execution, flags=0 requires the last eligible strong Hook.";
+                    print "    Otherwise: LATER_STRONG_HOOK before drawing or changing output.";
+                    print "    ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO permits later strong Hooks";
+                    print "    only on the installed account of the drawing Hook.";
+                    print "    ENTROPY_ALLOW_ANY_STRONG_VETO permits them on any account, including";
+                    print "    the same account. Both bits mean ANY; unknown bits are invalid.";
+                    print "    Allowed Hooks retain their ordinary veto authority. An opt-in must";
+                    print "    account for downstream code and whoever can replace it.";
+                    print "";
+                    print "    Draws return TOO_LITTLE_ENTROPY if the visible input is missing,";
+                    print "    stale, or below min_tier, independently of composition flags.";
+                    print "    Closed execution requires current-ledger input; open-ledger and";
+                    print "    simulate execution can use previous-ledger input and are provisional";
+                    print "    previews. Final ordered execution may see different entropy.";
                     print "*/";
                 }
                 

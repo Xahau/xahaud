@@ -372,16 +372,30 @@ xport_cancel(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
     with count=denominator=0. Common policies are denominator-count <= 1,
     5*count >= 4*denominator (use widened arithmetic), or count >= floor.
 
-    entropy_cr_dice/entropy_cr_random return TOO_LITTLE_ENTROPY if fresh
-    visible entropy is below
-    min_tier. Open-ledger and simulate execution are provisional previews;
-    final ordered execution may see a different entropy object.
+    In strong execution, flags=0 requires the last eligible strong Hook.
+    Otherwise: LATER_STRONG_HOOK before drawing or changing output.
+    ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO permits later strong Hooks
+    only on the installed account of the drawing Hook.
+    ENTROPY_ALLOW_ANY_STRONG_VETO permits them on any account, including
+    the same account. Both bits mean ANY; unknown bits are invalid.
+    Allowed Hooks retain their ordinary veto authority. An opt-in must
+    account for downstream code and whoever can replace it.
+
+    Draws return TOO_LITTLE_ENTROPY if the visible input is missing,
+    stale, or below min_tier, independently of composition flags.
+    Closed execution requires current-ledger input; open-ledger and
+    simulate execution can use previous-ledger input and are provisional
+    previews. Final ordered execution may see different entropy.
 */
 extern int64_t
-entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
 
 extern int64_t
-entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier);
+entropy_cr_random(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t min_tier,
+    uint32_t flags);
 
 extern int64_t
 entropy_cr_status(void);
