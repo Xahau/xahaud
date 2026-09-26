@@ -2268,11 +2268,64 @@ public:
             BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
         }
 
-        // Call named hook with the wrong hook name
+        // Call named hook with the wrong hook name (size == 0)
+        for (auto const fix : {true, false})
+        {
+            auto f = features - fixHookNameValidation;
+            if (fix)
+                f = f | fixHookNameValidation;
+            Env env{*this, f};
+
+            env.fund(XRP(10000), alice);
+            // execute both named and non-named hooks
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "";
+
+            auto const expected = fix ? ter(temMALFORMED) : ter(tesSUCCESS);
+            env(jv,
+                M("Call named hook with the wrong hook name (size == 0)"),
+                HSFEE,
+                ter(expected));
+            env.close();
+        }
+
+        // Call a named hook with a HookName containing a noncharacter
+        // (U+FFFF followed by 'A'). Well-formed UTF-8, but always rejected.
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "EFBFBF41";
+            env(jv,
+                M("Call named hook with a noncharacter in the hook name"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Call a named hook with a HookName ending in a truncated sequence.
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "414243E0";
+            env(jv,
+                M("Call named hook with a truncated hook name"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Call named hook with the wrong hook name (size > 0)
         {
             auto jv = invoke::invoke(alice);
             jv[jss::HookName] = "41424345";
-            env(jv, M("Call named hook with the wrong hook name"), HSFEE);
+            env(jv,
+                M("Call named hook with the wrong hook name (size > 0)"),
+                HSFEE);
             env.close();
             // execute only non-named hook
             BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
@@ -3439,6 +3492,81 @@ public:
     }
 
     void
+    test_exit_out_of_bounds(FeatureBitset features)
+    {
+        testcase("Test accept()/rollback() with out of bounds reason");
+        using namespace jtx;
+
+        // reason string pointer outside of wasm memory, then fall through
+        TestHook accept_oob_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+                accept(0xFFFFFF00U, 32, 42);
+                return 0;
+            }
+        )[test.hook]"];
+
+        TestHook rollback_oob_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+                rollback(0xFFFFFF00U, 32, 42);
+                return 0;
+            }
+        )[test.hook]"];
+
+        for (bool const withFix : {true, false})
+        {
+            for (auto const& hook_wasm : {accept_oob_wasm, rollback_oob_wasm})
+            {
+                Env env{
+                    *this,
+                    withFix ? features : features - fixHookExitOutOfBounds};
+
+                auto const alice = Account{"alice"};
+                auto const bob = Account{"bob"};
+                env.fund(XRP(10000), alice);
+                env.fund(XRP(10000), bob);
+
+                env(ripple::test::jtx::hook(alice, {{hso(hook_wasm)}}, 0),
+                    M("Install OOB exit hook"),
+                    HSFEE);
+                env.close();
+
+                env(pay(bob, alice, XRP(1)),
+                    M("Test OOB exit hook"),
+                    fee(XRP(1)),
+                    ter(tecHOOK_REJECTED));
+                env.close();
+
+                auto const meta = env.meta();
+                BEAST_REQUIRE(meta && meta->isFieldPresent(sfHookExecutions));
+                auto const& execs = meta->getFieldArray(sfHookExecutions);
+                BEAST_REQUIRE(execs.size() == 1);
+
+                // with the fix: ROLLBACK with OUT_OF_BOUNDS (-1)
+                // without: UNSET (fixXahauV3) with default -1
+                BEAST_EXPECT(
+                    execs[0].getFieldU8(sfHookResult) ==
+                    static_cast<uint8_t>(
+                        withFix ? hook_api::ExitType::ROLLBACK
+                                : hook_api::ExitType::UNSET));
+                BEAST_EXPECT(
+                    execs[0].getFieldU64(sfHookReturnCode) ==
+                    0x8000000000000001ULL);
+                BEAST_EXPECT(execs[0].getFieldVL(sfHookReturnString).empty());
+            }
+        }
+    }
+
+    void
     testGuards(FeatureBitset features)
     {
         testcase("Test guards");
@@ -4589,10 +4717,10 @@ public:
 
                 uint8_t expected1[49] = {
                     0xEDU, 0x20U, 0x2EU, 0x00U, 0x00U, 0x00U, 0x01U, 0x3DU, 0x00U, 0x00U,
-                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x5BU, 0xB8U, 0x05U, 0xD6U,
-                    0xC3U, 0x52U, 0xDFU, 0x7AU, 0x27U, 0x76U, 0x6DU, 0xC0U, 0x20U, 0x47U,
-                    0xB7U, 0x64U, 0x22U, 0x5AU, 0xB7U, 0x5DU, 0xF3U, 0xFAU, 0x0DU, 0xE3U,
-                    0xBDU, 0xC6U, 0x40U, 0xBAU, 0xD0U, 0x0AU, 0x66U, 0xEBU, 0x68U,
+                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x5BU, 0xBCU, 0x09U, 0x95U,
+                    0xFDU, 0x03U, 0x0FU, 0xF1U, 0x85U, 0xF4U, 0xECU, 0xACU, 0x94U, 0xDBU,
+                    0x02U, 0x19U, 0x26U, 0xFEU, 0x58U, 0xD4U, 0x8DU, 0x48U, 0x21U, 0xCCU,
+                    0x82U, 0x2EU, 0x4AU, 0x6AU, 0xC9U, 0xC8U, 0xC6U, 0x7CU, 0x88U
                 };
                 // 0x5CU
                 // EmitNonce 32bytes
@@ -12367,57 +12495,77 @@ public:
             )[test.hook]"];
             HASH_WASM(hook);
 
-            for (auto isfixHookAPI20251128 : {true, false})
+            for (bool const with20251128 : {true, false})
             {
-                Env env{
-                    *this,
-                    isfixHookAPI20251128 ? features | fixHookAPI20251128
-                                         : features - fixHookAPI20251128};
-                env.fund(XRP(10000), alice, bob);
-                env.close();
-
-                // install the hook on alice
-                env(ripple::test::jtx::hook(
-                        alice, {{hso(hook_wasm, overrideFlag)}}, 0),
-                    M("set sto_subarray"),
-                    HSFEE);
-                env.close();
-                EXPECT_HOOK_FEE(hook, 19);
-
-                // invoke the hook
-                env(pay(bob, alice, XRP(1)),
-                    M("test sto_subarray"),
-                    fee(XRP(1)));
-                env.close();
-
-                auto const meta = env.meta();
-                BEAST_REQUIRE(meta);
-                BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
-                auto const hookExecutions =
-                    meta->getFieldArray(sfHookExecutions);
-                BEAST_REQUIRE(hookExecutions.size() == 1);
-                auto const hookExecution = hookExecutions[0];
-                BEAST_REQUIRE(hookExecution.isFieldPresent(sfHookReturnCode));
-                auto const returnCode =
-                    hookExecution.getFieldU64(sfHookReturnCode);
-                if (isfixHookAPI20251128)
+                for (bool const withSType : {true, false})
                 {
+                    auto feats =
+                        features - fixHookAPI20251128 - fixHookAPISType;
+                    if (with20251128)
+                        feats = feats | fixHookAPI20251128;
+                    if (withSType)
+                        feats = feats | fixHookAPISType;
+
+                    Env env{*this, feats};
+                    env.fund(XRP(10000), alice, bob);
+                    env.close();
+
+                    // install the hook on alice
+                    env(ripple::test::jtx::hook(
+                            alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+                        M("set sto_subarray"),
+                        HSFEE);
+                    env.close();
+                    EXPECT_HOOK_FEE(hook, 19);
+
+                    // invoke the hook
+                    env(pay(bob, alice, XRP(1)),
+                        M("test sto_subarray"),
+                        fee(XRP(1)));
+                    env.close();
+
+                    auto const meta = env.meta();
+                    BEAST_REQUIRE(meta);
+                    BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+                    auto const hookExecutions =
+                        meta->getFieldArray(sfHookExecutions);
+                    BEAST_REQUIRE(hookExecutions.size() == 1);
+                    auto const hookExecution = hookExecutions[0];
+                    BEAST_REQUIRE(
+                        hookExecution.isFieldPresent(sfHookReturnCode));
+                    auto const returnCode =
+                        hookExecution.getFieldU64(sfHookReturnCode);
                     auto const doesntExistError = -5;
-                    auto const position = 2;
-                    auto const length = 12;
-                    BEAST_REQUIRE(
-                        returnCode ==
-                        (doesntExistError + ((int64_t)position << 32) +
-                         length));
-                }
-                else
-                {
                     auto const parseError = -18;
-                    auto const position = 1;
-                    auto const length = 33;
-                    BEAST_REQUIRE(
-                        returnCode ==
-                        (parseError + ((int64_t)position << 32) + length));
+                    if (with20251128)
+                    {
+                        auto const position = 2;
+                        auto const length = 12;
+                        // unwrapped correctly: 1 element at pos 2, len 12
+                        BEAST_REQUIRE(
+                            returnCode ==
+                            (doesntExistError + ((int64_t)position << 32) +
+                             length));
+                    }
+                    else if (withSType)
+                    {
+                        // legacy unwrap leaves 0x5C as a 32 byte field header,
+                        // which is rejected as out of bounds.
+                        // negative codes are stored as sign bit + magnitude
+                        BEAST_REQUIRE(
+                            returnCode ==
+                            (0x8000'0000'0000'0000ULL |
+                             -(parseError + parseError)));
+                    }
+                    else
+                    {
+                        auto const position = 1;
+                        auto const length = 33;
+                        // legacy: 32 byte field overruns the 13 byte buffer
+                        BEAST_REQUIRE(
+                            returnCode ==
+                            (parseError + ((int64_t)position << 32) + length));
+                    }
                 }
             }
         }
@@ -15396,6 +15544,7 @@ public:
         testWasm(features);
         test_accept(features);
         test_rollback(features);
+        test_exit_out_of_bounds(features);
 
         testGuards(features);
 

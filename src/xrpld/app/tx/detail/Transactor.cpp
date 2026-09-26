@@ -70,20 +70,11 @@ matchesHookTrigger(
     STTx const& tx,
     bool isOutgoing)
 {
-    if (hookObj.isFieldPresent(sfHookName) &&
-        !hookObj.getFieldVL(sfHookName).empty())
-    {
-        if (!tx.isFieldPresent(sfHookName) ||
-            hookObj.getFieldVL(sfHookName) != tx.getFieldVL(sfHookName))
-            return false;
-    }
-
     return hook::canHook(
-        tx.getTxnType(),
+        tx,
         hook::getHookOn(
-            hookObj,
-            hookDef,
-            isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming));
+            hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming),
+        hookObj[~sfHookName]);
 }
 
 }  // namespace
@@ -197,7 +188,11 @@ preflight1(PreflightContext const& ctx)
             !ctx.rules.enabled(featureNamedHooks))
             return temMALFORMED;
 
-        if (!SetHook::validateHookName(ctx.tx.getFieldVL(sfHookName), ctx.j))
+        auto const& name = ctx.tx.getFieldVL(sfHookName);
+
+        if (name.size() == 0 && ctx.rules.enabled(fixHookNameValidation))
+            return temMALFORMED;
+        if (!SetHook::validateHookName(name, ctx.j))
             return temMALFORMED;
     }
 
@@ -325,19 +320,7 @@ Transactor::calculateHookChainFee(
             // LCOV_EXCL_STOP
         }
 
-        std::optional<Blob> requiredHookName;
-        if (hookObj.isFieldPresent(sfHookName) &&
-            hookObj.getFieldVL(sfHookName).size() > 0)
-            requiredHookName = hookObj.getFieldVL(sfHookName);
-
-        if (requiredHookName)
-        {
-            // need to specify same hook name in the transaction
-            if (!tx.isFieldPresent(sfHookName))
-                continue;
-            if (*requiredHookName != tx.getFieldVL(sfHookName))
-                continue;
-        }
+        auto const hookName = hookObj[~sfHookName];
 
         uint32_t flags = 0;
         if (hookObj.isFieldPresent(sfFlags))
@@ -349,7 +332,7 @@ Transactor::calculateHookChainFee(
         uint256 hookOn = hook::getHookOn(
             hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming);
 
-        if (hook::canHook(tx.getTxnType(), hookOn) &&
+        if (hook::canHook(tx, hookOn, hookName) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
             XRPAmount const toAdd{hookDef->getFieldAmount(sfFee).xrp().drops()};
