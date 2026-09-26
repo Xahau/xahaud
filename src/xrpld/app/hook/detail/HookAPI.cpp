@@ -3007,6 +3007,7 @@ HookAPI::set_state_cache(
             ? accSLE->getFieldV256(sfHookNamespaces).size()
             : 0;
 
+        // TODO:RNG:PRV:6
         if (createNamespace)
         {
             // overflow should never ever happen but check anyway
