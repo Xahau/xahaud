@@ -40,6 +40,7 @@
 
 #include <xrpld/core/ConfigSections.h>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/asio/executor_work_guard.hpp>
 
 namespace ripple {
 
@@ -67,7 +68,7 @@ OverlayImpl::Child::~Child()
 //------------------------------------------------------------------------------
 
 OverlayImpl::Timer::Timer(OverlayImpl& overlay)
-    : Child(overlay), timer_(overlay_.io_service_)
+    : Child(overlay), timer_(overlay_.io_context_)
 {
 }
 
@@ -84,8 +85,10 @@ void
 OverlayImpl::Timer::async_wait()
 {
     timer_.expires_after(std::chrono::seconds(1));
-    timer_.async_wait(overlay_.strand_.wrap(std::bind(
-        &Timer::on_timer, shared_from_this(), std::placeholders::_1)));
+    timer_.async_wait(boost::asio::bind_executor(
+        overlay_.strand_,
+        std::bind(
+            &Timer::on_timer, shared_from_this(), std::placeholders::_1)));
 }
 
 void
@@ -120,19 +123,19 @@ OverlayImpl::OverlayImpl(
     ServerHandler& serverHandler,
     Resource::Manager& resourceManager,
     Resolver& resolver,
-    boost::asio::io_service& io_service,
+    boost::asio::io_context& io_context,
     BasicConfig const& config,
     beast::insight::Collector::ptr const& collector)
     : app_(app)
-    , io_service_(io_service)
-    , work_(std::in_place, std::ref(io_service_))
-    , strand_(io_service_)
+    , io_context_(io_context)
+    , work_(std::in_place, boost::asio::make_work_guard(io_context_))
+    , strand_(boost::asio::make_strand(io_context_))
     , setup_(setup)
     , journal_(app_.journal("Overlay"))
     , serverHandler_(serverHandler)
     , m_resourceManager(resourceManager)
     , m_peerFinder(PeerFinder::make_Manager(
-          io_service,
+          io_context,
           stopwatch(),
           app_.journal("PeerFinder"),
           config,
@@ -413,7 +416,7 @@ OverlayImpl::connect(beast::IP::Endpoint const& remote_endpoint)
 
     auto const p = std::make_shared<ConnectAttempt>(
         app_,
-        io_service_,
+        io_context_,
         beast::IPAddressConversion::to_asio_endpoint(remote_endpoint),
         usage,
         setup_.context,
@@ -556,7 +559,7 @@ OverlayImpl::start()
 void
 OverlayImpl::stop()
 {
-    strand_.dispatch(std::bind(&OverlayImpl::stopChildren, this));
+    boost::asio::dispatch(strand_, std::bind(&OverlayImpl::stopChildren, this));
     {
         std::unique_lock<decltype(mutex_)> lock(mutex_);
         cond_.wait(lock, [this] { return list_.empty(); });
@@ -1487,7 +1490,7 @@ setup_Overlay(BasicConfig const& config)
         if (!ip.empty())
         {
             boost::system::error_code ec;
-            setup.public_ip = beast::IP::Address::from_string(ip, ec);
+            setup.public_ip = boost::asio::ip::make_address(ip, ec);
             if (ec || beast::IP::is_private(setup.public_ip))
                 Throw<std::runtime_error>("Configured public IP is invalid");
         }
@@ -1581,7 +1584,7 @@ make_Overlay(
     ServerHandler& serverHandler,
     Resource::Manager& resourceManager,
     Resolver& resolver,
-    boost::asio::io_service& io_service,
+    boost::asio::io_context& io_context,
     BasicConfig const& config,
     beast::insight::Collector::ptr const& collector)
 {
@@ -1591,7 +1594,7 @@ make_Overlay(
         serverHandler,
         resourceManager,
         resolver,
-        io_service,
+        io_context,
         config,
         collector);
 }

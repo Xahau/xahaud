@@ -32,6 +32,7 @@ test.basics > xrpld.perflog
 test.basics > xrpld.rpc
 test.basics > xrpl.json
 test.basics > xrpl.protocol
+test.beast > test.unit_test
 test.beast > xrpl.basics
 test.conditions > xrpl.basics
 test.conditions > xrpld.conditions
