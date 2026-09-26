@@ -84,11 +84,11 @@ namespace hook {
 bool
 canHook(
     STTx const& tx,
-    ripple::uint256 const& hookOn,
-    std::optional<ripple::Blob> const& hookName);
+    ripple::uint256 hookOn,
+    std::optional<ripple::Blob> hookName);
 
 bool
-canEmit(ripple::TxType const& txType, ripple::uint256 const& hookCanEmit);
+canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit);
 
 ripple::uint256
 getHookCanEmit(ripple::STObject const& hookObj, SLE::pointer const& hookDef);

@@ -785,21 +785,19 @@ hook::removeHookNamespaceEntry(ripple::SLE& sleAccount, ripple::uint256 ns)
 // transactions. If you wish to set a hook that has control over ttHOOK_SET then
 // set bit 1U<<22.
 bool
-canHookTT(ripple::TxType const& txType, ripple::uint256 const& hookOn)
+canHookTT(ripple::TxType txType, ripple::uint256 hookOn)
 {
-    uint256 hookOnCopy = hookOn;
-
     // invert ttHOOK_SET bit
-    hookOnCopy ^= UINT256_BIT[ttHOOK_SET];
+    hookOn ^= UINT256_BIT[ttHOOK_SET];
 
     // invert entire field
-    hookOnCopy = ~hookOnCopy;
+    hookOn = ~hookOn;
 
-    return (hookOnCopy & UINT256_BIT[txType]) != beast::zero;
+    return (hookOn & UINT256_BIT[txType]) != beast::zero;
 }
 
 bool
-hook::canEmit(ripple::TxType const& txType, ripple::uint256 const& hookCanEmit)
+hook::canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit)
 {
     return canHookTT(txType, hookCanEmit);
 }
@@ -807,8 +805,8 @@ hook::canEmit(ripple::TxType const& txType, ripple::uint256 const& hookCanEmit)
 bool
 hook::canHook(
     STTx const& tx,
-    ripple::uint256 const& hookOn,
-    std::optional<ripple::Blob> const& hookName)
+    ripple::uint256 hookOn,
+    std::optional<ripple::Blob> hookName)
 {
     if (!canHookTT(tx.getTxnType(), hookOn))
         return false;
