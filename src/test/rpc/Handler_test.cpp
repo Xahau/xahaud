@@ -91,6 +91,19 @@ class Handler_test : public beast::unit_test::suite
             j);
     }
 
+    auto
+    make_string_vector(std::vector<std::string_view> input)
+    {
+        std::vector<std::string> output;
+        output.reserve(input.size());
+        std::transform(
+            input.begin(),
+            input.end(),
+            std::back_inserter(output),
+            [](std::string_view const& s) { return std::string(s); });
+        return output;
+    }
+
     void
     reportLookupPerformance()
     {
@@ -99,8 +112,7 @@ class Handler_test : public beast::unit_test::suite
         std::random_device dev;
         std::ranlux48 prng(dev());
 
-        std::vector<const char*> names =
-            test::jtx::make_vector(ripple::RPC::getHandlerNames());
+        auto names = make_string_vector(ripple::RPC::getHandlerNames());
 
         std::uniform_int_distribution<std::size_t> distr{0, names.size() - 1};
 

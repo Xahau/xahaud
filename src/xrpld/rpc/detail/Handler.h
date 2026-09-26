@@ -27,6 +27,8 @@
 #include <xrpld/rpc/Status.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/Tuning.h>
+
+#include <string_view>
 #include <vector>
 
 namespace Json {
@@ -74,7 +76,7 @@ makeObjectValue(
 }
 
 /** Return names of all methods. */
-std::set<char const*>
+std::vector<std::string_view>
 getHandlerNames();
 
 template <class T>

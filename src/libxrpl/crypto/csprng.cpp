@@ -18,19 +18,30 @@
 //==============================================================================
 
 #include <xrpl/basics/contract.h>
-#include <xrpl/beast/utility/instrumentation.h>
 #include <xrpl/crypto/csprng.h>
-#include <array>
+
 #include <openssl/rand.h>
-#include <random>
+
 #include <stdexcept>
 
 namespace ripple {
 
+namespace {
+
+/** The largest number of bytes we can request from the CSPRNG at once. */
+constexpr std::size_t max_csprng_bytes_per_request = 8 * 1024 * 1024;
+
+}  // namespace
+
 csprng_engine::csprng_engine()
 {
-    // This is not strictly necessary
-    if (RAND_poll() != 1)
+    // This is not strictly necessary: on any modern system by the time
+    // this is invoked, there should be enough entropy already. Despite
+    // that, we are being conservative:
+    if (RAND_status() != 1)
+        RAND_poll();
+
+    if (RAND_status() != 1)
         Throw<std::runtime_error>("CSPRNG: Initial polling failed");
 }
 
@@ -45,34 +56,25 @@ csprng_engine::~csprng_engine()
 void
 csprng_engine::mix_entropy(void* buffer, std::size_t count)
 {
-    std::array<std::random_device::result_type, 128> entropy;
-
-    {
-        // On every platform we support, std::random_device
-        // is non-deterministic and should provide some good
-        // quality entropy.
-        std::random_device rd;
-
-        for (auto& e : entropy)
-            e = rd();
-    }
+    if (buffer == nullptr || count == 0)
+        return;
 
     std::lock_guard lock(mutex_);
 
-    // We add data to the pool, but we conservatively assume that
-    // it contributes no actual entropy.
+    // We add the data to the pool, but we conservatively assume
+    // that it contributes no actual entropy.
     RAND_add(
-        entropy.data(),
-        entropy.size() * sizeof(std::random_device::result_type),
+        buffer,
+        static_cast<int>(std::min(count, max_csprng_bytes_per_request)),
         0);
-
-    if (buffer != nullptr && count != 0)
-        RAND_add(buffer, count, 0);
 }
 
 void
 csprng_engine::operator()(void* ptr, std::size_t count)
 {
+    if (count > max_csprng_bytes_per_request) [[unlikely]]
+        Throw<std::runtime_error>("CSPRNG: Request too large");
+
     // RAND_bytes is thread-safe on OpenSSL 1.1.0 and later when compiled
     // with thread support, so we don't need to grab a mutex.
     // https://mta.openssl.org/pipermail/openssl-users/2020-November/013146.html
@@ -80,8 +82,8 @@ csprng_engine::operator()(void* ptr, std::size_t count)
     std::lock_guard lock(mutex_);
 #endif
 
-    auto const result =
-        RAND_bytes(reinterpret_cast<unsigned char*>(ptr), count);
+    auto const result = RAND_bytes(
+        reinterpret_cast<unsigned char*>(ptr), static_cast<int>(count));
 
     if (result != 1)
         Throw<std::runtime_error>("CSPRNG: Insufficient entropy");
@@ -98,6 +100,7 @@ csprng_engine::operator()()
 csprng_engine&
 crypto_prng()
 {
+    /** The single instance of the cryptographically secure PRNG */
     static csprng_engine engine;
     return engine;
 }

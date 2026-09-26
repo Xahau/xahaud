@@ -1,13 +1,14 @@
 #ifndef APPLY_HOOK_INCLUDED
-#define APPLY_HOOK_INCLUDED 1
+#define APPLY_HOOK_INCLUDED
+
 #include <xrpld/app/hook/HookAPI.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpl/basics/Blob.h>
+#include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Macro.h>
-#include <xrpl/hook/Misc.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/digest.h>
@@ -20,6 +21,20 @@
 #include <wasmedge/wasmedge.h>
 
 namespace hook {
+
+inline constexpr auto UINT256_BIT = []() consteval {
+    std::array<uint256, 256> table{};
+
+    for (int i = 0; i < 256; ++i)
+    {
+        std::array<std::uint8_t, 32> bytes{};
+        bytes[31 - (i / 8)] = 1 << (i % 8);
+        table[i] = uint256(bytes);
+    }
+
+    return table;
+}();
+
 struct HookContext;
 struct HookResult;
 bool
@@ -87,8 +102,14 @@ canHook(
     ripple::uint256 hookOn,
     std::optional<ripple::Slice> hookName);
 
-bool
-canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit);
+    return (UINT256_BIT[txType] & ~temp) != beast::zero;
+}
+
+[[nodiscard]] constexpr bool
+canEmit(ripple::TxType txType, ripple::uint256 const& hookCanEmit) noexcept
+{
+    return hook::canHook(txType, hookCanEmit);
+}
 
 ripple::uint256
 getHookCanEmit(ripple::STObject const& hookObj, SLE::pointer const& hookDef);

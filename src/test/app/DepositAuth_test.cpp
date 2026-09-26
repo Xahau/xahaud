@@ -292,6 +292,13 @@ struct DepositAuth_test : public beast::unit_test::suite
         IOU const USD1(gw1["USD"]);
         IOU const USD2(gw2["USD"]);
 
+        auto applyNoRipple = [](bool on) -> TrustSetFlags {
+            if (on)
+                return tfSetNoRipple;
+
+            return {};
+        };
+
         auto testIssuer = [&](FeatureBitset const& features,
                               bool noRipplePrev,
                               bool noRippleNext,
@@ -301,8 +308,8 @@ struct DepositAuth_test : public beast::unit_test::suite
             Env env(*this, features);
 
             env.fund(XRP(10000), gw1, alice, bob);
-            env(trust(gw1, alice["USD"](10), noRipplePrev ? tfSetNoRipple : 0));
-            env(trust(gw1, bob["USD"](10), noRippleNext ? tfSetNoRipple : 0));
+            env(trust(gw1, alice["USD"](10), applyNoRipple(noRipplePrev)));
+            env(trust(gw1, bob["USD"](10), applyNoRipple(noRippleNext)));
             env.trust(USD1(10), alice, bob);
 
             env(pay(gw1, alice, USD1(10)));
@@ -324,8 +331,8 @@ struct DepositAuth_test : public beast::unit_test::suite
             Env env(*this, features);
 
             env.fund(XRP(10000), gw1, gw2, alice);
-            env(trust(alice, USD1(10), noRipplePrev ? tfSetNoRipple : 0));
-            env(trust(alice, USD2(10), noRippleNext ? tfSetNoRipple : 0));
+            env(trust(alice, USD1(10), applyNoRipple(noRipplePrev)));
+            env(trust(alice, USD2(10), applyNoRipple(noRippleNext)));
             env(pay(gw2, alice, USD2(10)));
 
             if (withDepositAuth)
@@ -1529,12 +1536,13 @@ struct DepositPreauth_test : public beast::unit_test::suite
                 env(credentials::accept(alice, c.issuer, c.credType));
                 env.close();
 
-                credentialIDs.push_back(credentials::ledgerEntry(
-                                            env,
-                                            alice,
-                                            c.issuer,
-                                            c.credType)[jss::result][jss::index]
-                                            .asString());
+                credentialIDs.push_back(
+                    credentials::ledgerEntry(
+                        env,
+                        alice,
+                        c.issuer,
+                        c.credType)[jss::result][jss::index]
+                        .asString());
             }
 
             // check duplicates in payment params

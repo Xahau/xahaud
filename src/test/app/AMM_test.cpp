@@ -56,9 +56,6 @@ private:
 
         using namespace jtx;
 
-        auto const features =
-            supported_amendments() | featureAMM | featureAMMClawback;
-
         // XRP to IOU
         testAMM([&](AMM& ammAlice, Env&) {
             BEAST_EXPECT(ammAlice.expectBalances(
@@ -75,7 +72,7 @@ private:
 
         // IOU to IOU + transfer fee
         {
-            Env env{*this, features};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(20'000), BTC(0.5)}, Fund::All);
             env(rate(gw, 1.25));
             env.close();
@@ -89,7 +86,7 @@ private:
 
         // Require authorization is set, account is authorized
         {
-            Env env{*this, features};
+            Env env{*this};
             env.fund(XRP(30'000), gw, alice);
             env.close();
             env(fset(gw, asfRequireAuth));
@@ -103,7 +100,7 @@ private:
 
         // Cleared global freeze
         {
-            Env env{*this, features};
+            Env env{*this};
             env.fund(XRP(30'000), gw, alice);
             env.close();
             env.trust(USD(30'000), alice);
@@ -144,12 +141,9 @@ private:
 
         using namespace jtx;
 
-        auto const features =
-            supported_amendments() | featureAMM | featureAMMClawback;
-
         // Can't have both XRP tokens
         {
-            Env env{*this, features};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(30'000)}, Fund::All);
             AMM ammAlice(
                 env, alice, XRP(10'000), XRP(10'000), ter(temBAD_AMM_TOKENS));
@@ -158,7 +152,7 @@ private:
 
         // Can't have both tokens the same IOU
         {
-            Env env{*this, features};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(30'000)}, Fund::All);
             AMM ammAlice(
                 env, alice, USD(10'000), USD(10'000), ter(temBAD_AMM_TOKENS));
@@ -167,7 +161,7 @@ private:
 
         // Can't have zero or negative amounts
         {
-            Env env{*this, features};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(30'000)}, Fund::All);
             AMM ammAlice(env, alice, XRP(0), USD(10'000), ter(temBAD_AMOUNT));
             BEAST_EXPECT(!ammAlice.ammExists());
@@ -183,7 +177,7 @@ private:
 
         // Bad currency
         {
-            Env env{*this, features};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(30'000)}, Fund::All);
             AMM ammAlice(
                 env, alice, XRP(10'000), BAD(10'000), ter(temBAD_CURRENCY));
@@ -192,7 +186,7 @@ private:
 
         // Insufficient IOU balance
         {
-            Env env{*this, features};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(30'000)}, Fund::All);
             AMM ammAlice(
                 env, alice, XRP(10'000), USD(40'000), ter(tecUNFUNDED_AMM));
@@ -201,7 +195,7 @@ private:
 
         // Insufficient XRP balance
         {
-            Env env{*this, features};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(30'000)}, Fund::All);
             AMM ammAlice(
                 env, alice, XRP(40'000), USD(10'000), ter(tecUNFUNDED_AMM));
@@ -210,7 +204,7 @@ private:
 
         // Invalid trading fee
         {
-            Env env{*this, features};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(30'000)}, Fund::All);
             AMM ammAlice(
                 env,
@@ -235,7 +229,7 @@ private:
 
         // Invalid flags
         {
-            Env env{*this, features};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(30'000)}, Fund::All);
             AMM ammAlice(
                 env,
@@ -254,7 +248,7 @@ private:
 
         // Invalid Account
         {
-            Env env{*this, features};
+            Env env{*this};
             Account bad("bad");
             env.memoize(bad);
             AMM ammAlice(
@@ -274,7 +268,7 @@ private:
 
         // Require authorization is set
         {
-            Env env{*this, features};
+            Env env{*this};
             env.fund(XRP(30'000), gw, alice);
             env.close();
             env(fset(gw, asfRequireAuth));
@@ -287,7 +281,7 @@ private:
 
         // Globally frozen
         {
-            Env env{*this, features};
+            Env env{*this};
             env.fund(XRP(30'000), gw, alice);
             env.close();
             env(fset(gw, asfGlobalFreeze));
@@ -300,7 +294,7 @@ private:
 
         // Individually frozen
         {
-            Env env{*this, features};
+            Env env{*this};
             env.fund(XRP(30'000), gw, alice);
             env.close();
             env(trust(gw, alice["USD"](30'000)));
@@ -313,7 +307,7 @@ private:
 
         // Insufficient reserve, XRP/IOU
         {
-            Env env(*this, features);
+            Env env(*this);
             auto const starting_xrp =
                 XRP(1'000) + reserve(env, 3) + env.current()->fees().base * 4;
             env.fund(starting_xrp, gw);
@@ -330,7 +324,7 @@ private:
 
         // Insufficient reserve, IOU/IOU
         {
-            Env env(*this, features);
+            Env env(*this);
             auto const starting_xrp =
                 reserve(env, 4) + env.current()->fees().base * 5;
             env.fund(starting_xrp, gw);
@@ -349,7 +343,7 @@ private:
 
         // Insufficient fee
         {
-            Env env(*this, features);
+            Env env(*this);
             fund(env, gw, {alice}, XRP(2'000), {USD(2'000), EUR(2'000)});
             AMM ammAlice(
                 env,
@@ -400,7 +394,7 @@ private:
 
         // Issuer has DefaultRipple disabled
         {
-            Env env(*this, features);
+            Env env(*this);
             env.fund(XRP(30'000), gw);
             env(fclear(gw, asfDefaultRipple));
             AMM ammGw(env, gw, XRP(10'000), USD(10'000), ter(terNO_RIPPLE));
@@ -1125,7 +1119,7 @@ private:
 
         // Insufficient reserve, XRP/IOU
         {
-            Env env(*this, features);
+            Env env(*this);
             auto const starting_xrp =
                 reserve(env, 4) + env.current()->fees().base * 4;
             env.fund(XRP(10'000), gw);
@@ -1160,7 +1154,7 @@ private:
 
         // Insufficient reserve, IOU/IOU
         {
-            Env env(*this, features);
+            Env env(*this);
             auto const starting_xrp =
                 reserve(env, 4) + env.current()->fees().base * 4;
             env.fund(XRP(10'000), gw);
@@ -1362,8 +1356,7 @@ private:
         testcase("Deposit");
 
         using namespace jtx;
-        auto const all =
-            supported_amendments() | featureAMM | featureAMMClawback;
+        auto const all = supported_amendments();
 
         // Equal deposit: 1000000 tokens, 10% of the current pool
         testAMM([&](AMM& ammAlice, Env& env) {
@@ -1523,7 +1516,7 @@ private:
 
         // IOU to IOU + transfer fee
         {
-            Env env{*this, all};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(20'000), BTC(0.5)}, Fund::All);
             env(rate(gw, 1.25));
             env.close();
@@ -1664,8 +1657,7 @@ private:
         testcase("Invalid Withdraw");
 
         using namespace jtx;
-        auto const all =
-            supported_amendments() | featureAMM | featureAMMClawback;
+        auto const all = supported_amendments();
 
         testAMM(
             [&](AMM& ammAlice, Env& env) {
@@ -1688,7 +1680,7 @@ private:
             {{XRP(99), USD(99)}});
 
         {
-            Env env{*this, all};
+            Env env{*this};
             env.fund(XRP(30'000), gw, alice, bob);
             env.close();
             env(fset(gw, asfRequireAuth));
@@ -2236,8 +2228,7 @@ private:
         testcase("Withdraw");
 
         using namespace jtx;
-        auto const all =
-            supported_amendments() | featureAMM | featureAMMClawback;
+        auto const all = supported_amendments();
 
         // Equal withdrawal by Carol: 1000000 of tokens, 10% of the current
         // pool
@@ -2451,7 +2442,7 @@ private:
 
         // IOU to IOU + transfer fee
         {
-            Env env{*this, all};
+            Env env{*this};
             fund(env, gw, {alice}, {USD(20'000), BTC(0.5)}, Fund::All);
             env(rate(gw, 1.25));
             env.close();
@@ -2614,8 +2605,7 @@ private:
     {
         testcase("Fee Vote");
         using namespace jtx;
-        auto const all =
-            supported_amendments() | featureAMM | featureAMMClawback;
+        auto const all = supported_amendments();
 
         // One vote sets fee to 1%.
         testAMM([&](AMM& ammAlice, Env& env) {
@@ -2733,12 +2723,9 @@ private:
         using namespace jtx;
         using namespace std::chrono;
 
-        auto const features =
-            supported_amendments() | featureAMM | featureAMMClawback;
-
         // burn all the LPTokens through a AMMBid transaction
         {
-            Env env(*this, features);
+            Env env(*this);
             fund(env, gw, {alice}, XRP(2'000), {USD(2'000)});
             AMM amm(env, gw, XRP(1'000), USD(1'000), false, 1'000);
 
@@ -2757,7 +2744,7 @@ private:
 
         // burn all the LPTokens through a AMMBid transaction
         {
-            Env env(*this, features);
+            Env env(*this);
             fund(env, gw, {alice}, XRP(2'000), {USD(2'000)});
             AMM amm(env, gw, XRP(1'000), USD(1'000), false, 1'000);
 
@@ -2935,7 +2922,7 @@ private:
 
         // Bid all tokens, still own the slot
         {
-            Env env(*this, features);
+            Env env(*this);
             fund(env, gw, {alice, bob}, XRP(1'000), {USD(1'000)});
             AMM amm(env, gw, XRP(10), USD(1'000));
             auto const lpIssue = amm.lptIssue();
@@ -3374,15 +3361,12 @@ private:
         using namespace std::chrono;
         using namespace std::literals::chrono_literals;
 
-        auto const features =
-            supported_amendments() | featureAMM | featureAMMClawback;
-
         // Can't pay into AMM account.
         // Can't pay out since there is no keys
         for (auto const& acct : {gw, alice})
         {
             {
-                Env env(*this, features);
+                Env env(*this);
                 fund(env, gw, {alice, carol}, XRP(1'000), {USD(100)});
                 // XRP balance is below reserve
                 AMM ammAlice(env, acct, XRP(10), USD(10));
@@ -3397,7 +3381,7 @@ private:
                     ter(tecNO_PERMISSION));
             }
             {
-                Env env(*this, features);
+                Env env(*this);
                 fund(env, gw, {alice, carol}, XRP(10'000'000), {USD(10'000)});
                 // XRP balance is above reserve
                 AMM ammAlice(env, acct, XRP(1'000'000), USD(100));
@@ -4433,8 +4417,7 @@ private:
     {
         testcase("Amendment");
         using namespace jtx;
-        FeatureBitset const all{
-            supported_amendments() | featureAMM | featureAMMClawback};
+        FeatureBitset const all{supported_amendments()};
         FeatureBitset const noAMM{all - featureAMM};
         FeatureBitset const noNumber{all - fixUniversalNumber};
         FeatureBitset const noAMMAndNumber{
@@ -4484,9 +4467,6 @@ private:
         testcase("Rippling");
         using namespace jtx;
 
-        auto const features =
-            supported_amendments() | featureAMM | featureAMMClawback;
-
         // Rippling via AMM fails because AMM trust line has 0 limit.
         // Set up two issuers, A and B. Have each issue a token called TST.
         // Have another account C hold TST from both issuers,
@@ -4498,7 +4478,7 @@ private:
         //   to shift at a 1:1 rate with no fee applied has it not been
         //   for 0 limit.
         {
-            Env env(*this, features);
+            Env env(*this);
             auto const A = Account("A");
             auto const B = Account("B");
             auto const TSTA = A["TST"];
@@ -5095,8 +5075,7 @@ private:
         testcase("Auto Delete");
 
         using namespace jtx;
-        FeatureBitset const all{
-            supported_amendments() | featureAMM | featureAMMClawback};
+        FeatureBitset const all{supported_amendments()};
 
         {
             Env env(
@@ -5208,9 +5187,7 @@ private:
     {
         testcase("Clawback");
         using namespace jtx;
-        auto const features =
-            supported_amendments() | featureAMM | featureAMMClawback;
-        Env env(*this, features);
+        Env env(*this);
         env.fund(XRP(2'000), gw);
         env.fund(XRP(2'000), alice);
         AMM amm(env, gw, XRP(1'000), USD(1'000));
@@ -5609,8 +5586,7 @@ private:
     {
         testcase("Fix Default Inner Object");
         using namespace jtx;
-        FeatureBitset const all{
-            supported_amendments() | featureAMM | featureAMMClawback};
+        FeatureBitset const all{supported_amendments()};
 
         auto test = [&](FeatureBitset features,
                         TER const& err1,
@@ -6329,7 +6305,7 @@ private:
             {{xrpPool, iouPool}},
             889,
             std::nullopt,
-            {jtx::supported_amendments() | featureAMM | featureAMMClawback});
+            {jtx::supported_amendments()});
     }
 
     void
@@ -7145,8 +7121,7 @@ private:
     void
     run() override
     {
-        FeatureBitset const all{
-            jtx::supported_amendments() | featureAMM | featureAMMClawback};
+        FeatureBitset const all{jtx::supported_amendments()};
         testInvalidInstance();
         testInstanceCreate();
         testInvalidDeposit(all);
