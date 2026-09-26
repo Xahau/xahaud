@@ -680,6 +680,7 @@ notTooManyOffers(ReadView const& view, uint256 const& nftokenID)
 bool
 deleteTokenOffer(ApplyView& view, std::shared_ptr<SLE> const& offer)
 {
+    //@@start dual-directory-delete-precedent
     if (offer->getType() != ltNFTOKEN_OFFER)
         return false;
 
@@ -701,6 +702,7 @@ deleteTokenOffer(ApplyView& view, std::shared_ptr<SLE> const& offer)
             offer->key(),
             false))
         return false;
+    //@@end dual-directory-delete-precedent
 
     adjustOwnerCount(
         view,
@@ -1037,6 +1039,7 @@ tokenOfferCreateApply(
 
         bool const isSellOffer = txFlags & tfSellNFToken;
 
+        //@@start dual-directory-create-precedent
         // Token offers are also added to the token's buy or sell offer
         // directory
         auto const offerNode = view.dirInsert(
@@ -1064,6 +1067,7 @@ tokenOfferCreateApply(
         (*offer)[sfFlags] = sleFlags;
         (*offer)[sfOwnerNode] = *ownerNode;
         (*offer)[sfNFTokenOfferNode] = *offerNode;
+        //@@end dual-directory-create-precedent
 
         if (expiration)
             (*offer)[sfExpiration] = *expiration;

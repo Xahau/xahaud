@@ -132,6 +132,10 @@ public:
     virtual Rules const&
     rules() const = 0;
 
+    /** Host-only entropy input for this execution view, never a state item. */
+    virtual std::shared_ptr<STTx const>
+    consensusEntropy() const = 0;
+
     /** Determine if a state item exists.
 
         @note This can be more efficient than calling read.

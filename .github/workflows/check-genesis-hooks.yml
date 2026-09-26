@@ -40,7 +40,7 @@ jobs:
         run: |
           # Download install.sh
           curl -o /tmp/wasienv-install.sh https://raw.githubusercontent.com/wasienv/wasienv/master/install.sh
-          
+
           # Replace /bin to /local/bin
           sed -i 's|/bin|/local/bin|g' /tmp/wasienv-install.sh
 

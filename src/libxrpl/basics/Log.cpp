@@ -31,6 +31,7 @@
 #include <cassert>
 #include <cstring>
 #include <ctime>
+#include <exception>
 #include <fstream>
 #include <functional>
 #include <iostream>
@@ -351,9 +352,18 @@ Logs::format(
 
     if (useLocalTime)
     {
-        auto now = std::chrono::system_clock::now();
-        auto local = date::make_zoned(date::current_zone(), now);
-        output = date::format(fmt, local);
+        try
+        {
+            auto now = std::chrono::system_clock::now();
+            auto local = date::make_zoned(date::current_zone(), now);
+            output = date::format(fmt, local);
+        }
+        catch (std::exception const&)
+        {
+            // Enhanced logging should not make startup fatal if tzdb lookup is
+            // unavailable or misconfigured. Fall back to UTC formatting.
+            output = date::format(fmt, std::chrono::system_clock::now());
+        }
     }
     else
     {

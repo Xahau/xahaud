@@ -19,10 +19,12 @@
 
 #define MAGIC_ENUM_NO_CHECK_REFLECTED_ENUM
 
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/Config.h>
+#include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>
@@ -58,6 +60,7 @@ MAGIC_ENUM_FLAG(ripple::PaymentChannelClaimFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenMintFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenCreateOfferFlags);
 MAGIC_ENUM_FLAG(ripple::ClaimRewardFlags);
+MAGIC_ENUM_FLAG(ripple::ExportFlags);
 MAGIC_ENUM_16(ripple::AccountFlags);
 
 namespace ripple {
@@ -187,6 +190,10 @@ private:
         {
             ret[jss::LEDGER_ENTRY_TYPES][f.getName()] = f.getType();
         }
+        // The committee keylet uses a protocol-defined value above the
+        // bounded reflection range used for the legacy ledger types.
+        ret[jss::LEDGER_ENTRY_TYPES]["ExportCommittee"] =
+            static_cast<int32_t>(ltEXPORT_COMMITTEE);
 
         ret[jss::FIELDS] = Json::arrayValue;
 
@@ -333,6 +340,7 @@ private:
         addFlagsToJson<MPTokenAuthorizeFlags>(ret, "MPTokenAuthorize");
         addFlagsToJson<MPTokenIssuanceSetFlags>(ret, "MPTokenIssuanceSet");
         addFlagsToJson<AMMClawbackFlags>(ret, "AMMClawback");
+        addFlagsToJson<ExportFlags>(ret, "Export");
         struct FlagData
         {
             std::string name;

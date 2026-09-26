@@ -44,6 +44,7 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/UintTypes.h>
@@ -220,7 +221,7 @@ Ledger::Ledger(
         auto sle = std::make_shared<SLE>(keylet::fees());
 
         uint32_t networkID = config.NETWORK_ID;
-        if (networkID > 1024)
+        if (requiresTxNetworkID(networkID))
             sle->setFieldU32(sfNetworkID, networkID);
 
         // Whether featureXRPFees is supported will depend on startup options.
@@ -560,6 +561,59 @@ Ledger::digest(key_type const& key) const -> std::optional<digest_type>
 }
 
 //------------------------------------------------------------------------------
+
+std::shared_ptr<STTx const>
+Ledger::readConsensusEntropyFromTransactions() const
+{
+    std::shared_ptr<STTx const> result;
+    for (auto const& [tx, meta] : txs)
+    {
+        if (tx->getTxnType() != ttCONSENSUS_ENTROPY || !meta ||
+            meta->getFieldU8(sfTransactionResult) != 0 ||
+            tx->getFieldU32(sfLedgerSequence) != info_.seq)
+            continue;
+        if (result)
+        {
+            JLOG(j_.error()) << "Multiple successful ConsensusEntropy inputs "
+                             << "in ledger " << info_.seq;
+            return {};
+        }
+        result = tx;
+    }
+    return result;
+}
+
+std::shared_ptr<STTx const>
+Ledger::consensusEntropy() const
+{
+    if (!rules_.enabled(featureConsensusEntropy))
+        return {};
+    std::lock_guard lock{entropyMutex_};
+    if (!entropyLoaded_ && mImmutable)
+    {
+        // Loaded ledgers recover the same immutable input that live execution
+        // published. Missing SHAMap nodes throw before the cache is marked
+        // read.
+        entropy_ = readConsensusEntropyFromTransactions();
+        entropyLoaded_ = true;
+    }
+    return entropy_;
+}
+
+void
+Ledger::rawSetConsensusEntropy(std::shared_ptr<STTx const> entropy)
+{
+    XRPL_ASSERT(
+        !mImmutable, "ripple::Ledger::rawSetConsensusEntropy : mutable ledger");
+    XRPL_ASSERT(
+        !entropy ||
+            (entropy->getTxnType() == ttCONSENSUS_ENTROPY &&
+             entropy->getFieldU32(sfLedgerSequence) == info_.seq),
+        "ripple::Ledger::rawSetConsensusEntropy : current ledger input");
+    std::lock_guard lock{entropyMutex_};
+    entropy_ = std::move(entropy);
+    entropyLoaded_ = true;
+}
 
 void
 Ledger::rawErase(std::shared_ptr<SLE> const& sle)

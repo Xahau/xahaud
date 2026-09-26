@@ -68,7 +68,10 @@ enum TELcodes : TERUnderlyingType {
     telNON_LOCAL_EMITTED_TXN,
     telIMPORT_VL_KEY_NOT_RECOGNISED,
     telCAN_NOT_QUEUE_IMPORT,
+    // Keep test-only sentinels before appended branch-local TEL codes so their
+    // numeric values do not move.
     telENV_RPC_FAILED,
+    telEXPORT_LATCH_REQUIRED,
 };
 
 //------------------------------------------------------------------------------
@@ -365,6 +368,7 @@ enum TECcodes : TERUnderlyingType {
     tecARRAY_TOO_LARGE = 197,
     tecLOCKED = 198,
     tecBAD_CREDENTIALS = 199,
+    tecEXPORT_COMMITTEE_UNAVAILABLE = 201,
     tecLAST_POSSIBLE_ENTRY = 255,
 };
 

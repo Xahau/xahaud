@@ -53,6 +53,13 @@ InnerObjectFormats::InnerObjectFormats()
             {sfTxnSignature, soeREQUIRED},
         });
 
+    add(sfExportSigner.jsonName,
+        sfExportSigner.getCode(),
+        {
+            {sfSigningPubKey, soeREQUIRED},
+            {sfTxnSignature, soeREQUIRED},
+        });
+
     add(sfMajority.jsonName,
         sfMajority.getCode(),
         {
@@ -78,6 +85,7 @@ InnerObjectFormats::InnerObjectFormats()
          {sfHookExecutionIndex, soeREQUIRED},
          {sfHookStateChangeCount, soeREQUIRED},
          {sfHookEmitCount, soeREQUIRED},
+         {sfHookExportCount, soeOPTIONAL},
          {sfFlags, soeOPTIONAL}});
 
     add(sfHookEmission.jsonName,

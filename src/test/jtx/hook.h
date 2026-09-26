@@ -91,6 +91,7 @@ struct StubHookContext
     uint16_t emit_nonce_counter{0};
     uint16_t ledger_nonce_counter{0};
     int64_t expected_etxn_count{-1};
+    int64_t expected_export_count{-1};
     std::map<ripple::uint256, bool> nonce_used{};
     uint32_t generation = 0;
     uint64_t burden = 0;

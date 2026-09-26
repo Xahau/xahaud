@@ -33,6 +33,7 @@ enum class SHAMapType {
     TRANSACTION = 1,  // A tree of transactions
     STATE = 2,        // A tree of state nodes
     FREE = 3,         // A tree not part of a ledger
+    SIDECAR = 4,      // A tree of sidecar nodes
 };
 
 inline std::string
@@ -46,6 +47,8 @@ to_string(SHAMapType t)
             return "State Tree";
         case SHAMapType::FREE:
             return "Free Tree";
+        case SHAMapType::SIDECAR:
+            return "Sidecar Tree";
         default:
             return std::to_string(
                 safe_cast<std::underlying_type_t<SHAMapType>>(t));

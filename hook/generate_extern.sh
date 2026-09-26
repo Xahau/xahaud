@@ -41,6 +41,44 @@ APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
                     # Insert __attribute__((noduplicate)) before _g
                     sub(/[[:space:]]+_g/, " __attribute__((noduplicate)) _g", line);
                 }
+
+                if (line ~ /[[:space:]]+xport[[:space:]]*\(/) {
+                    print "// callback_fee_drops: 0 omits third-party delivery permission; otherwise the";
+                    print "// exact Import fee authorized by the emitted Export intent, in native drops.";
+                }
+
+                if (line ~ /[[:space:]]+entropy_cr_dice[[:space:]]*\(/) {
+                    print "/*";
+                    print "    Consensus entropy APIs.";
+                    print "";
+                    print "    min_tier is a required fail-closed floor:";
+                    print "      1 = consensus_fallback, 2 = participant_aligned,";
+                    print "      3 = validator_quorum, 4 = validator_full.";
+                    print "";
+                    print "    entropy_cr_status returns a packed non-negative value:";
+                    print "      bits 32..39 tier, 16..31 count, 0..15 denominator.";
+                    print "    Check for a negative error before using the ENTROPY_* macros.";
+                    print "";
+                    print "    Classify tier before count/denominator arithmetic: fallback is tier 1";
+                    print "    with count=denominator=0. Common policies are denominator-count <= 1,";
+                    print "    5*count >= 4*denominator (use widened arithmetic), or count >= floor.";
+                    print "";
+                    print "    In strong execution, flags=0 requires the last eligible strong Hook.";
+                    print "    Otherwise: LATER_STRONG_HOOK before drawing or changing output.";
+                    print "    ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO permits later strong Hooks";
+                    print "    only on the installed account of the drawing Hook.";
+                    print "    ENTROPY_ALLOW_ANY_STRONG_VETO permits them on any account, including";
+                    print "    the same account. Both bits mean ANY; unknown bits are invalid.";
+                    print "    Allowed Hooks retain their ordinary veto authority. An opt-in must";
+                    print "    account for downstream code and whoever can replace it.";
+                    print "";
+                    print "    Draws return TOO_LITTLE_ENTROPY if the visible input is missing,";
+                    print "    stale, or below min_tier, independently of composition flags.";
+                    print "    Closed execution requires current-ledger input; open-ledger and";
+                    print "    simulate execution can use previous-ledger input and are provisional";
+                    print "    previews. Final ordered execution may see different entropy.";
+                    print "*/";
+                }
                 
                 # printf("\n");
                 

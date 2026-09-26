@@ -56,6 +56,10 @@ enum ltURI_TOKEN {
 enum remarks {
     lsfImmutable = 1,
 };
+enum ltEXPORT_LATCH {
+    lsfExportXpopSeen = 0x00000001,
+    lsfExportCanceled = 0x00000002,
+};
 enum ltMPTOKEN_ISSUANCE {
     lsfMPTLocked = 0x00000001,
     lsfMPTCanLock = 0x00000002,

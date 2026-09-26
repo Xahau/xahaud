@@ -534,7 +534,7 @@ run(int argc, char** argv)
     if (vm.count("definitions"))
     {
         auto defs = getStaticServerDefinitions();
-        std::cout << Json::FastWriter().write(defs);
+        std::cout << to_string(defs);
         return 0;
     }
 

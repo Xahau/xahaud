@@ -20,19 +20,20 @@
 #ifndef RIPPLE_APP_MISC_NETWORKOPS_H_INCLUDED
 #define RIPPLE_APP_MISC_NETWORKOPS_H_INCLUDED
 
-#include <xrpld/app/consensus/RCLConsensus.h>
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/misc/StateAccounting.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/net/InfoSub.h>
+#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/messages.h>
 #include <boost/asio.hpp>
 #include <deque>
 #include <memory>
 #include <tuple>
+#include <vector>
 
 namespace ripple {
 
@@ -41,6 +42,7 @@ namespace ripple {
 
 class Peer;
 class LedgerMaster;
+class RCLConsensus;
 class Transaction;
 class ValidatorKeys;
 
@@ -221,8 +223,8 @@ public:
     */
     virtual std::uint32_t
     acceptLedger(
-        std::optional<std::chrono::milliseconds> consensusDelay =
-            std::nullopt) = 0;
+        std::optional<std::chrono::milliseconds> consensusDelay = std::nullopt,
+        std::string const& caller = "unknown") = 0;
 
     virtual void
     reportFeeChange() = 0;
@@ -245,6 +247,13 @@ public:
         TER result) = 0;
     virtual void
     pubValidation(std::shared_ptr<STValidation> const& val) = 0;
+
+    /** Publish an admitted Export share at a validated observation cursor. */
+    virtual void
+    pubExportSignature(
+        ExportShare const& share,
+        LedgerIndex validatedLedgerSeq,
+        uint256 const& validatedLedgerHash) = 0;
 
     virtual void
     stateAccounting(Json::Value& obj) = 0;

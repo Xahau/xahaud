@@ -20,6 +20,7 @@
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpld/shamap/SHAMapAccountStateLeafNode.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
+#include <xrpld/shamap/SHAMapSidecarLeafNode.h>
 #include <xrpld/shamap/SHAMapSyncFilter.h>
 #include <xrpld/shamap/SHAMapTxLeafNode.h>
 #include <xrpld/shamap/SHAMapTxPlusMetaLeafNode.h>
@@ -43,6 +44,9 @@ makeTypedLeaf(
     if (type == SHAMapNodeType::tnACCOUNT_STATE)
         return std::make_shared<SHAMapAccountStateLeafNode>(
             std::move(item), owner);
+
+    if (type == SHAMapNodeType::tnSIDECAR)
+        return std::make_shared<SHAMapSidecarLeafNode>(std::move(item), owner);
 
     LogicError(
         "Attempt to create leaf node of unknown type " +

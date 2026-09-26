@@ -15,6 +15,8 @@
 #define uint256 std::string
 #define featureHooksUpdate1 "1"
 #define featureHooksUpdate2 "1"
+#define featureExport "1"
+#define featureConsensusEntropy "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
 namespace hook_api {
@@ -385,8 +387,15 @@ enum class hook_return_code : int64_t {
     MEM_OVERLAP = -43,   // one or more specified buffers are the same memory
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 256 modified state
                                          // entires in the combined hook chains
-    TOO_MANY_NAMESPACES = -45
+    TOO_MANY_NAMESPACES = -45,
+    EXPORT_FAILURE = -46,
+    TOO_MANY_EXPORTED_TXN = -47,
+    TOO_LITTLE_ENTROPY = -48,
+    LATER_STRONG_HOOK = -49,
 };
+
+inline constexpr uint32_t ENTROPY_ALLOW_ANY_STRONG_VETO = 1U << 0;
+inline constexpr uint32_t ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO = 1U << 1;
 
 enum class ExitType : uint8_t {
     UNSET = 0,
@@ -399,6 +408,7 @@ const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
 const uint8_t max_nonce = 255;
 const uint8_t max_emit = 255;
+const uint8_t max_export = 2;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 
@@ -416,6 +426,7 @@ getImportWhitelist(Rules const& rules)
 #undef HOOK_API_DEFINITION
 
 #define int64_t 0x7EU
+#define uint64_t 0x7EU
 #define int32_t 0x7FU
 #define uint32_t 0x7FU
 
@@ -432,16 +443,13 @@ getImportWhitelist(Rules const& rules)
 #undef HOOK_API_DEFINITION
 #undef HOOK_WRAP_PARAMS
 #undef int64_t
+#undef uint64_t
 #undef int32_t
 #undef uint32_t
 #pragma pop_macro("HOOK_API_DEFINITION")
 
     return whitelist;
 }
-
-#undef HOOK_API_DEFINITION
-#undef I32
-#undef I64
 
 enum GuardRulesVersion : uint64_t {
     GuardRuleFix20250131 = 0x00000001,

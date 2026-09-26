@@ -25,6 +25,8 @@
 #include <xrpld/overlay/detail/ZeroCopyStream.h>
 #include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/beast/utility/instrumentation.h>
+#include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/messages.h>
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/buffers_iterator.hpp>
@@ -94,6 +96,8 @@ protocolMessageName(int type)
             return "have_transactions";
         case protocol::mtTRANSACTIONS:
             return "transactions";
+        case protocol::mtEXPORT_SHARES:
+            return "export_shares";
         case protocol::mtSQUELCH:
             return "squelch";
         case protocol::mtPROOF_PATH_REQ:
@@ -111,6 +115,45 @@ protocolMessageName(int type)
 }
 
 namespace detail {
+
+/** Parse and structurally validate a canonical ExportShare relay batch.
+
+    maxExportShareRelayPayloadBytes applies to the sum of repeated-field value
+    bytes. maxExportShareRelayMessageBytes additionally includes protobuf tags
+    and length prefixes. Neither limit includes the overlay message header.
+*/
+inline std::optional<std::vector<ExportShare>>
+parseExportShareBatch(protocol::TMExportShares const& message)
+{
+    auto const count = message.shares_size();
+    if (count <= 0 ||
+        static_cast<std::size_t>(count) >
+            ExportLimits::maxExportSharesPerRelay ||
+        message.ByteSizeLong() > ExportLimits::maxExportShareRelayMessageBytes)
+        return std::nullopt;
+
+    std::size_t payloadBytes = 0;
+    std::vector<ExportShare> result;
+    result.reserve(count);
+
+    for (auto const& bytes : message.shares())
+    {
+        if (bytes.empty() ||
+            bytes.size() > ExportLimits::maxSerializedExportShareBytes ||
+            payloadBytes >
+                ExportLimits::maxExportShareRelayPayloadBytes - bytes.size())
+            return std::nullopt;
+
+        payloadBytes += bytes.size();
+        auto share = ExportShare::parse(makeSlice(bytes));
+        if (!share || share->serialize().slice() != makeSlice(bytes))
+            return std::nullopt;
+
+        result.push_back(std::move(*share));
+    }
+
+    return result;
+}
 
 struct MessageHeader
 {
@@ -448,6 +491,10 @@ invokeProtocolMessage(
             break;
         case protocol::mtTRANSACTIONS:
             success = detail::invoke<protocol::TMTransactions>(
+                *header, buffers, handler);
+            break;
+        case protocol::mtEXPORT_SHARES:
+            success = detail::invoke<protocol::TMExportShares>(
                 *header, buffers, handler);
             break;
         case protocol::mtSQUELCH:

@@ -80,9 +80,25 @@ public:
             beast::Journal const& j,
             Json::Value const* xpop = 0);
 
-    explicit Import(ApplyContext& ctx) : Transactor(ctx)
-    {
-    }
+    explicit Import(ApplyContext& ctx);
+
+    // Candidate detection is not authorization. Full proof verification and
+    // current-ledger latch/fee checks are required before unsigned delivery.
+    static bool
+    isUnsigned(STTx const& tx) noexcept;
+
+    static bool
+    hasUnsignedCallbackShape(STTx const& tx) noexcept;
+
+    static NotTEC
+    checkProof(
+        STTx const& tx,
+        Rules const& rules,
+        std::uint32_t sourceNetworkID,
+        beast::Journal j);
+
+    static NotTEC
+    checkImportSign(PreclaimContext const& ctx);
 
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
@@ -100,6 +116,14 @@ public:
     doApply() override;
 
 private:
+    bool callbackAllowanceOnly_ = false;
+
+    bool
+    allowsFeeOnlyClaim() const override
+    {
+        return !callbackAllowanceOnly_;
+    }
+
     void
     doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans);
 

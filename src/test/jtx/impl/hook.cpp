@@ -111,6 +111,7 @@ makeStubHookContext(
         .emit_nonce_counter = stubHookContext.emit_nonce_counter,
         .ledger_nonce_counter = stubHookContext.ledger_nonce_counter,
         .expected_etxn_count = stubHookContext.expected_etxn_count,
+        .expected_export_count = stubHookContext.expected_export_count,
         .nonce_used = stubHookContext.nonce_used,
         .generation = stubHookContext.generation,
         .burden = stubHookContext.burden,

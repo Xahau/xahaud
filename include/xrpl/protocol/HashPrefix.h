@@ -96,6 +96,24 @@ enum class HashPrefix : std::uint32_t {
 
     /** Credentials signature */
     credential = detail::make_hash_prefix('C', 'R', 'D'),
+
+    /** consensus extension sidecar object */
+    sidecar = detail::make_hash_prefix('S', 'C', 'R'),
+
+    /** consensus diagnostic observed participant set */
+    observedParticipants = detail::make_hash_prefix('O', 'B', 'P'),
+
+    /** consensus-bound fallback entropy digest (Tier 1: derived from
+        already-agreed round inputs when no agreed reveal set reaches an
+        accepted validator-participant tier; never to be confused with
+        validator entropy) */
+    entropyFallback = detail::make_hash_prefix('E', 'F', 'B'),
+
+    /** consensus entropy transaction-ordering salt */
+    entropyTxnOrder = detail::make_hash_prefix('E', 'T', 'O'),
+
+    /** immutable Export committee roster */
+    exportCommittee = detail::make_hash_prefix('E', 'C', 'M'),
 };
 
 template <class Hasher>

@@ -72,6 +72,17 @@ public:
             BEAST_EXPECT(result[jss::result][jss::status] == "success");
         }
 
+        {
+            auto const& exportFlags =
+                result[jss::result][jss::TRANSACTION_FLAGS]["Export"];
+            BEAST_EXPECT(
+                exportFlags["tfExportEraseLatch"].asUInt() ==
+                tfExportEraseLatch);
+            BEAST_EXPECT(
+                exportFlags["tfExportEraseCommittee"].asUInt() ==
+                tfExportEraseCommittee);
+        }
+
         // check exception SFields
         {
             auto const fieldExists = [&](std::string name) {
@@ -163,10 +174,10 @@ public:
     void
     testNoParams(FeatureBitset features)
     {
-        testcase("Default Env: config-forced, none on-ledger");
+        testcase("Requested features: config-forced, none on-ledger");
 
         using namespace test::jtx;
-        Env env{*this};
+        Env env{*this, features};
 
         std::map<std::string, VoteBehavior> const& votes =
             ripple::detail::supportedAmendments();
@@ -184,9 +195,12 @@ public:
             bool expectObsolete =
                 (votes.at(feature[jss::name].asString()) ==
                  VoteBehavior::Obsolete);
+            // Check the requested bitset, not the live configuration that
+            // the handler itself reads.
+            auto const id = getRegisteredFeature(feature[jss::name].asString());
             BEAST_EXPECTS(
-                feature.isMember(jss::enabled) &&
-                    feature[jss::enabled].asBool(),
+                id && feature.isMember(jss::enabled) &&
+                    feature[jss::enabled].asBool() == features[*id],
                 feature[jss::name].asString() + " enabled");
             BEAST_EXPECTS(
                 feature.isMember(jss::ledger_enabled) &&

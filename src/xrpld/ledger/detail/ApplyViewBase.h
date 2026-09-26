@@ -56,6 +56,12 @@ public:
     Rules const&
     rules() const override;
 
+    std::shared_ptr<STTx const>
+    consensusEntropy() const override
+    {
+        return base_->consensusEntropy();
+    }
+
     bool
     exists(Keylet const& k) const override;
 

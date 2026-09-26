@@ -684,6 +684,7 @@ public:
     std::optional<SpanTip<Ledger>>
     getPreferred(Seq const largestIssued) const
     {
+        //@@start preferred-ledger-supported-branch-selection
         if (empty())
             return std::nullopt;
 
@@ -775,6 +776,7 @@ public:
                 done = true;
         }
         return curr->span.tip();
+        //@@end preferred-ledger-supported-branch-selection
     }
 
     /** Return whether the trie is tracking any ledgers

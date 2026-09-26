@@ -274,6 +274,17 @@ enum BridgeModifyFlags : uint32_t {
     tfClearAccountCreateAmount = 0x00010000,
 };
 constexpr std::uint32_t tfBridgeModifyMask = ~(tfUniversal | tfClearAccountCreateAmount);
+
+// Export flags:
+enum ExportFlags : uint32_t {
+    // Lifecycle control: erase the named latch and forfeit any later callback.
+    tfExportEraseLatch = 0x00010000,
+    // Committee control: erase the named immutable committee object.
+    tfExportEraseCommittee = 0x00020000,
+};
+constexpr std::uint32_t tfExportMask =
+    ~(tfUniversal | tfExportEraseLatch | tfExportEraseCommittee);
+
 // clang-format on
 
 }  // namespace ripple

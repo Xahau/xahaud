@@ -1,0 +1,430 @@
+# Consensus Entropy — Design Intent (canonical spine)
+
+This is the **normative** intent for `featureConsensusEntropy`: the invariants that
+must hold regardless of how the implementation is refactored. It is deliberately
+short. The verbose mechanics live in `ConsensusExtensionsDesign.md`; the
+reviewer-facing walkthrough lives in the PR description. **Both defer to this
+file.**
+
+How to use it: if code contradicts an invariant below, the *code* is wrong — or
+the invariant is being changed and **this file must be consciously edited in the
+same change, with the rationale**. A plausible-sounding comment added next to
+drifted code is not a design decision. (This document exists because the intent
+once lived only in a maintainer's head; an agent tightened past it and wrote a
+rationale that made the drift look deliberate. Git, not the docs, preserved the
+truth. Don't rely on that twice.)
+
+## Purpose (one line)
+
+Same-ledger consensus randomness for hooks — entropy finalized *after* user intent
+is locked but *before* normal execution — with **bounded, labeled** manipulation
+and **graceful degradation**, and **without ever weakening base-consensus
+determinism or liveness.**
+
+The amendment's peer-protocol compatibility boundary is specified separately
+in [Amendment-gated peer protocol features](../../overlay/ProtocolFeatureRequirements.md).
+
+## Invariants
+
+**INV-1 — Determinism of the injected object.**
+Given the same parent ledger and the same *agreed* entropy sidecar, every honest
+node injects the byte-identical `ttCONSENSUS_ENTROPY` (digest, tier, count,
+denominator, contributors). That
+object is committed in the ledger's transaction tree. Therefore **non-fallback entropy must not read mutable
+local collector state or timing-derived state.** The selector derives non-fallback
+`(digest, tier, count, denominator, contributors)` only from the accepted
+`entropySetMap_` (matched to the hash the gate accepted) plus the parent-ledger
+active view. The contributor bitmap is ordered by the canonical
+parent-ledger active-validator view; it must not resolve signing keys through
+live manifests or any mutable local cache at injection time. The transaction
+ordering salt intentionally uses the digest/tier/count/denominator tuple, not
+the contributor bitmap. This is semantic separation, not a downgrade in
+consensus risk: once the bitmap is written into the pseudo-transaction, any
+disagreement on it is already a ledger-byte disagreement. The salt uses the
+entropy value and quality labels; the bitmap remains the accountability label.
+Root acceptance is provisional deliberation state until live injection. A
+bounded post-accept deadline may withdraw that root before selection; after
+selection receives a still-accepted matching root, local timeout or diagnostic
+state such as `entropyFailed_` must not override it. The deterministic selector
+may still reject an empty, malformed, or below-tier accepted map. A node with no
+accepted root at injection falls back through the normal missing-accepted-root
+path.
+
+Non-fallback selection consumes the exact locally held SIDECAR map whose root
+equals `acceptedEntropySetHash_`. Every leaf must be content-addressed under
+`HashPrefix::sidecar`, have type `sidecarRngReveal`, name an active-view master
+`NodeID` in `sfAccount`, carry a syntactically valid `sfSigningPubKey`, and be
+unique by both master identity and signing key. An empty map, a wrong leaf type,
+an inactive or duplicate identity, a duplicate signing key, or any malformed
+leaf rejects the whole non-fallback candidate; selection does not skip bad
+leaves and count the remainder.
+
+The accepted contributions are sorted lexicographically by signing-key bytes,
+then by reveal digest. The entropy preimage is the concatenation, in that
+order, of each canonically VL-encoded signing key followed by its 256-bit reveal;
+the result is `sha512Half(preimage)`. `EntropyCount` is the number of accepted
+leaves, `EntropyDenominator` is the effective post-NegativeUNL active-view size,
+and `EntropyContributors` is a bitset over the same view's canonically ordered
+master keys. The digest therefore commits to signing-key/reveal pairs while the
+bitmap preserves master-key accountability established at authenticated
+ingress.
+
+Apply rejects a `ttCONSENSUS_ENTROPY` whose `sfLedgerSequence` does not equal
+the ledger being built; persisted metadata therefore cannot claim a different
+source ledger than the transaction that wrote it.
+*Enforced:* `selectEntropy`, the `acceptedEntropySetHash_` gate, and the
+accepted-root authority test. *Anti-pattern:* reading live
+`pendingReveals_`/collector state at injection time, re-evaluating contributor
+identity through live manifests, or letting local timeout flags override an
+accepted root.
+
+**INV-1A — Accept-vs-fallback is also ledger-defining.**
+The choice between a non-fallback sidecar and `consensus_fallback` is part of the
+same injected object. It must be tied to the accepted sidecar-hash discipline and
+the proofed/quorum sidecar material, not to one node's local observation counts.
+Local signals such as previous proposers, currently visible peer positions, or
+"quorum seems impossible from here" may influence logging, diagnostics, and
+bounded waits, but they must not short-circuit the gate while enough proofed
+sidecar material exists to continue toward non-fallback entropy.
+A node that cannot retain the entropy root through the bounded gate may inject
+`consensus_fallback` while the aligned quorum injects validator entropy. This is
+an accepted, validation-resolved lagging-node close result, not a selector
+determinism defect: a matching root still accepted at injection is the sole
+non-fallback candidate, while a root withdrawn before injection is absent. The
+selector may still fall back deterministically when that candidate fails its
+map-shape or tier checks. This residual can occur even when the node otherwise
+agreed on the pre-injection transaction set: CE is appended after base
+transaction-set consensus, so missing CE proposal material is its own close-time
+boundary.
+This is a theoretical/reproduced-in-lab boundary, not a behavior observed on
+healthy testnets. CE reveal material rides the same proposal messages as the
+base transaction-set positions, so a node healthy enough to align on the tx set
+is expected to receive the CE material within the bounded CE window. Reaching
+this state requires a persistent, specific CE-material miss, or a stall at the
+CE sub-state boundary, after base tx-set agreement.
+*Enforced:* the same accepted-hash boundary as INV-1, plus tests that compare
+nodes with asymmetric local observation. *Anti-pattern:* a bootstrap or
+"impossible quorum" shortcut that falls through to close with fallback from
+`prevProposers` or visible `peerPositions` while the proofed commit set already
+meets the entropy gate.
+
+**INV-2 — No single validator can veto.**
+Entropy mints on **quorum, not unanimity**. A minority withholding reveals or
+sidecar-hash advertisements must not, by silence alone, force fallback or stall
+while the remaining fixed-denominator cohort still reaches the entropy gate. On
+timeout the round uses the revealed/quorum-aligned set it has when that set still
+meets the gate; it downgrades only when the remaining set is below threshold or
+conflicted/unresolved.
+*Enforced:* the clean (no-conflict) gate path accepts on `quorumAligned()` alone.
+*Anti-pattern:* requiring `peersSeen == txConverged` (full observation) on the
+clean path (this was the M6 over-correction).
+
+**INV-3 — Anchored denominator.**
+All thresholds are computed over the **fixed parent-ledger UNLReport active-view
+size** (tier-2 over the *original* pre-NegativeUNL size). No node-local
+observation may grow or shrink that denominator `N`. This is load-bearing for
+tier-2 equivocation-uniqueness (`2t − N > f`).
+When either `featureConsensusEntropy` or `featureExport` is enabled in the
+parent ledger's rules, NegativeUNL disable voting uses that parent's UNLReport
+active count as its cap denominator when available. This producer/consumer
+alignment is part of activating either feature; it requires no separate
+amendment or activation ordering. With neither feature enabled, or without a
+usable parent UNLReport, voting retains the legacy trusted-UNL denominator.
+The consumer-side active-view builder still caps raw ledger NegativeUNL
+subtraction defensively against `originalViewSize`.
+*Enforced:* `quorumThreshold` / `tier2Threshold` over `activeValidatorView`; the
+alignment-counting universe is filtered to the active view; amended
+`NegativeUNLVote` uses the same UNLReport active count for its disable cap when
+either feature is parent-enabled and the report is available. *Anti-pattern:*
+counting "valid/observed proposals" as the denominator — that lets a withholder
+shrink `N` and is also node-local (split).
+
+**INV-4 — Quorum alignment is the conflict boundary.**
+Equivocation (a peer showing different hashes to different peers) must not let
+two sidecar hashes both become ledger material. The fixed-denominator entropy
+threshold is sized so any two quorum-aligned cohorts intersect above the
+Byzantine floor, so at most one entropy hash can be quorum-aligned. Once our
+hash reaches that gate, a below-threshold conflicting minority or silent peer
+must not force fallback by withholding full observation; ordinary validation
+resolves the bounded deadline edge.
+*Enforced:* both clean and conflicting entropy-hash gates proceed on
+`quorumAligned()`; conflicting states below that threshold wait only for the
+bounded deadline. *Anti-pattern:* requiring `fullObservation()` before ignoring a
+below-quorum conflict, which lets a minority equivocation recreate a veto.
+
+**INV-4A — Every counted position is authenticated; every reveal is proofed.**
+Proposal sidecars are validator statements. A proposal signature must verify
+before its position enters the peer-position store; cluster-peer transport trust
+never substitutes for that check. Before a stored position may count toward root
+alignment, its captured master `NodeID` must belong to the active view. Before it
+may contribute a commitment or reveal, ingress additionally verifies that its
+signing key resolves to that active-view master. These authenticated,
+active-view-filtered cohorts are the only universes alignment and contribution
+counts may observe.
+
+In this document, a *proofed commitment* is a commitment from proposal sequence
+zero accompanied by a self-contained serialized `ExtendedPosition` whose
+proposal signature and master/signing-key attribution have both verified. A bare
+commitment digest is not proofed. Once a validator has such a commitment, that
+signing key is pinned against substitution for the remainder of the round. Every
+later contribution still passes the live manifest mapping first. A mid-round
+rotation may therefore make the old key's otherwise matching reveal
+inadmissible, while the new key cannot replace the proofed commitment; that
+contributor is omitted and the round may downgrade or fall back rather than
+retarget authority.
+
+A proofed commitment's value is
+`sha512Half(reveal, proposalSigningKey, buildLedgerSequence)`. The commit
+snapshot contains only active validators with such a proof, and each leaf
+records master `NodeID`, signing key, commitment, build sequence, and serialized
+proposal proof. Before any reveal is published, commitment admission freezes:
+duplicates remain harmless, while new or changed commitments cannot enter the
+round.
+
+A reveal is admitted only for the same pinned signing key, an existing proofed
+commitment, and the build sequence derived from the proposal's available parent
+ledger; recomputing the commitment must match exactly. The reveal snapshot then
+contains only deterministic `(master NodeID, signing key, reveal, build
+sequence)` material from that proofed cohort. It deliberately omits a second
+serialized proposal proof: proposal sequence, close time, and signature bytes
+can differ while attesting the same reveal and would make the reveal root depend
+on message timing. Authentication happens at ingress; signed proposal positions
+then authenticate the deterministic reveal-root advertisement used by the
+alignment gate.
+*Enforced:* `PeerImp::checkPropose`, `onTrustedPeerProposal`,
+`ingestRngContribution`, `buildCommitSet`, `freezeRngCommitSet`, and
+`buildEntropySet`.
+
+**INV-5 — Graceful, labeled, deterministic degradation.**
+Under no-UNLReport / lost reveals / failed alignment / timeout / impossible
+quorum, the round mints an **explicitly labeled lower tier**, never an unlabeled
+or non-deterministic value. The tier-1 fallback is a pure function of
+*already-agreed* inputs: `H(entropyFallback, parentLedgerHash, buildTxSetHash,
+seq)` — and must **never** depend on the post-injection tx set (no circular
+dependency on the set that carries the pseudo-tx). `buildTxSetHash` is the raw
+agreed set after removing only supplied ConsensusEntropy and Export synthetic
+transactions; legacy protocol pseudos remain included.
+*Enforced:* `makeLiveBuildTxSet` before ordering and `selectEntropy` fallback;
+the original consensus-set hash remains separate bookkeeping.
+
+Live transaction-set membership grants no authority to write extension state.
+Live-set preparation removes every supplied `ttCONSENSUS_ENTROPY` and
+`ttEXPORT_SIGNATURES` before computing the build-set hash or ordering salt, and
+`onPreBuild` removes them again before local derivation. Only accepted extension
+evidence may synthesize the live extension stream. Historical replay follows
+the opposite rule: it consumes persisted ordered bytes and never sanitizes or
+re-derives them.
+
+**INV-6 — Bounded, opt-in entropy quality.**
+Hooks state `min_tier` explicitly on every draw (no hidden network default).
+Both draws also take a final `flags` argument: `entropy_cr_dice(sides,
+min_tier, flags)` and `entropy_cr_random(write_ptr, write_len, min_tier, flags)`.
+Zero flags require the calling strong Hook to be the last statically eligible
+strong Hook in the transaction. A nonterminal request returns
+`LATER_STRONG_HOOK` (-49) before any draw, output write, or counter increment;
+the Hook may handle this error without rejecting the transaction.
+`ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO` (bit 1) permits later strong Hooks
+only on the drawing Hook's installed account (not the transaction sender).
+Admission requires that account to be the last statically eligible strong
+account. `ENTROPY_ALLOW_ANY_STRONG_VETO` (bit 0) permits later strong Hooks
+on any account, including the same account; setting both bits also means ANY.
+Allowed Hooks retain ordinary veto and skip behavior.
+Unknown bits return `INVALID_ARGUMENT`. Policy is
+per call; one Hook cannot waive another's guarded requirement. The dispatcher
+plans terminal eligibility before strong execution, including same-account
+chain positions and other accounts' strong stakeholders. Runtime `hook_skip`
+requests do not alter that conservative plan. Weak/callback/again-as-weak
+execution has no subsequent strong phase.
+Same-account opt-in extends trust to downstream code installed on the account
+and whoever can replace it. Reusable or pinned-code Hooks trusted independently
+of their host account should remain strict. Do not let untrusted transaction
+parameters choose an application's veto policy.
+
+After argument and composition admission, entropy is served iff it is
+**fresh** (current ledger in closed execution; current or previous in open
+previews) **and** meets that class floor;
+otherwise the call **fails closed**
+(`TOO_LITTLE_ENTROPY`). `entropy_cr_status()` separately exposes the stored tier,
+contributor count, and denominator so hooks can impose proportional or absolute
+policies without freezing those policies into the host ABI.
+These quality/freshness checks apply in all policy modes. Status is
+observational and exposes no global or last-call policy: the successful draw
+and its supplied flags establish the mode, with no silent downgrade.
+Fallback is tier 1 with count/denominator `0/0`, so callers must classify tier
+before arithmetic. The `validator_full` label is structurally valid only when
+`EntropyCount == EntropyDenominator`; the contributor bitmap independently must
+have exactly that population over the denominator-sized view. Draws are also
+domain-separated by the hook execution role that can share a transaction and
+hook hash: strong vs weak, callback vs direct dispatch, and hook chain position.
+
+The applied `ConsensusEntropy` pseudo is the durable entropy input. Its
+transactor stages an immutable host-only execution context; successful commit
+publishes that context to the ledger view. Discard and dry-run do not publish
+it. Views and sandboxes forward the context explicitly, and snapshots copy an
+immutable reference. A newly constructed successor ledger starts empty and is
+initialized by its own pseudo. An open preview instead inherits its parent's
+input. A cold-loaded closed ledger recovers its context from its own successful
+pseudo in the transaction tree, once, for subsequent previews and host reads.
+
+There is no entropy state-tree object or keylet. Hooks use caller-bound draws
+and metadata-only status. The seed-bearing pseudo is still excluded from
+transaction-ID `slot_set` lookups with `NOT_AUTHORIZED`; rejection does not
+allocate or overwrite a slot. Published historical seeds remain public.
+
+The live proceed gate and the stored tier label are separate calculations. The
+pipeline may proceed once the accepted reveal set reaches
+`min(ceil(0.8 * effectiveViewSize), participantThreshold(originalViewSize))`.
+The selector then labels the agreed count, in strict order: `validator_full`
+when it equals the non-empty effective view; otherwise `validator_quorum` when
+it reaches the 80% effective-view threshold; otherwise `participant_aligned`
+when it reaches the intersection-safe threshold over the original pre-nUNL
+view; otherwise `consensus_fallback`. A non-standalone node without a
+parent-ledger UNLReport always falls back even if its locally configured trust
+set and reveal count would otherwise qualify. Below-threshold accepted material
+also falls back as a whole, with count/denominator `0/0` and an empty bitmap.
+
+For draw index `i`, the first 32-byte block is
+`sha512Half(viewSequence, originatingTransactionID, originatingAccount,
+hookHash, hookAccount, hookChainPosition, strong|weak, callback|direct,
+entropyDigest, i)`. The counter is local to one Hook execution role and is
+post-incremented once when a draw stream passes admission; rejected arguments,
+composition, or entropy do not consume it. Further blocks are
+`sha512Half(previousBlock)`. `entropy_cr_dice` rejects zero sides and uses deterministic
+unsigned big-endian 32-bit rejection sampling rather than biased modulo
+reduction. `entropy_cr_random` accepts
+one through 512 requested bytes, rounds its internal generation length to a
+32-byte boundary, and writes only the requested prefix. Missing, malformed,
+future, out-of-date for the execution view, or below-tier entropy makes either draw return
+`TOO_LITTLE_ENTROPY`; invalid arguments retain their specific Hook API error,
+and `entropy_cr_random` performs no output write on an entropy failure.
+
+`entropy_cr_status()` is observational, not a draw. Subject only to missing,
+malformed, or future-snapshot errors, it returns the stored metadata even when
+that snapshot is too old for `entropy_cr_dice` or `entropy_cr_random`, packed as
+`(tier << 32) | (count << 16) | denominator`. This is deliberate: freshness is
+the draw API's safety policy, while status is advisory input to Hook policy.
+With no current pseudo in a closed build, there is no context: status returns
+`DOESNT_EXIST` and draws return `TOO_LITTLE_ENTROPY`. An open preview can report
+its parent input's metadata. No missing-current-input path restores an older
+high-tier seed during closed execution.
+*Enforced:* `fairRng` tier/freshness gate and metadata-only `entropy_cr_status`.
+
+**INV-7 — Inert when un-amended.**
+With `featureConsensusEntropy` off, no RNG sidecar state is consensus-visible and
+CE itself adds no proposal bytes. Export may independently use the same extended
+proposal envelope when `featureExport` is active.
+The `entropy_cr_dice`, `entropy_cr_random`, and `entropy_cr_status` Hook imports are independently gated
+by `featureConsensusEntropy`; they are unavailable before that amendment rule is
+enabled even if a host view retains entropy from an amended parent.
+*Enforced:* the CE per-round enable latch is snapshotted from the *parent
+ledger's* rules; `ExtendedPosition` serializes to exactly the legacy 32-byte
+tx-set hash only when neither feature has populated a sidecar field.
+
+**Rollout note:** enabling `featureConsensusEntropy` or `featureExport` switches
+the network to extension-aware proposal semantics. An individual proposal with
+no populated sidecar fields still serializes to the legacy 32-byte tx-set hash,
+but live proposals may instead carry a serialized `ExtendedPosition` in the
+legacy `currenttxhash` protobuf field. This is a proposal wire-format dependency,
+not a sidecar-fetch dependency. Older binaries that only accept a 32-byte
+`currenttxhash` are not compatible proposal participants after activation;
+operators must upgrade the proposal-processing network first, or add explicit
+version/capability negotiation before attempting a heterogeneous rollout.
+
+**INV-8 — No unbounded liveness dependency.**
+CE may deliberately hold accept while its bounded sub-state is open, but no
+sidecar wait is unbounded. Deadline predicates remain open through exact
+equality and transition on the first later tick. Commit collection compares
+total round time with `rngPIPELINE_TIMEOUT`; after that boundary it advances
+with a proofed cohort that meets the entropy gate or degrades toward fallback.
+An observed commit-root conflict uses its own timestamp and
+`rngREVEAL_TIMEOUT` before reveal publication proceeds. Reveal collection uses
+`rngREVEAL_TIMEOUT` from entry into the reveal phase. After publishing a reveal
+root, the first tick is always an observation window; unresolved root conflict
+or insufficient positive alignment then has a `2 * rngREVEAL_TIMEOUT` window
+before the accepted root is cleared and selection falls back. These deadlines
+may add bounded close latency, but CE must not convert any of them into an
+indefinite wait or a dependency on unanimity.
+*Enforced:* the fixed deadlines and fallback transitions in `extensionsTick`.
+
+**INV-9 — Live construction owns cardinality and first application.**
+When the parent-rule latch enables CE, live construction contains exactly one
+locally derived `ttCONSENSUS_ENTROPY`; when disabled it contains none. The
+selector always yields a digest, using `consensus_fallback` when necessary, so
+an enabled live build never skips injection. Re-derivation is reconstructive,
+not additive: supplied or previously derived extension pseudos are removed
+before the one canonical transaction is inserted with zero Account, Sequence,
+and Fee and `sfLedgerSequence` equal to the ledger being built. The transactor
+also rejects a second current-ledger entropy input with `tefFAILURE`.
+
+In a live build, that sole pseudo is attempted once through the evolving view
+before every ordinary transaction. On success it publishes the current-ledger
+execution context. If application fails, the builder records the failure and
+continues ordinary execution, but entropy calls have no current input and fail
+closed. Ordinary round failure still selects and applies fresh tier-1 entropy;
+that is separate from a pseudo application failure.
+
+The generic replay adaptor may execute entropy selection or salt calculation
+while reconstructing its consensus inputs, but those calculations do not
+rewrite replay authority. Replay does not sanitize the persisted set, inject a
+replacement, or impose live first-application ordering. It applies the recorded
+transaction-index order so the closed ledger's bytes and state are reproduced
+exactly.
+
+## Known residuals (by design — not bugs)
+
+These are deliberate properties, documented so a future reader doesn't "fix" them
+into an INV violation:
+
+- **Commit/reveal withholding bias** of up to one bit per withholder applies to
+  accepted non-full reveal sets: a withholder can choose whether its contribution
+  is included, and colluding withholders near a threshold can force a downgrade
+  or fallback. `validator_full` removes that in-vs-out slack within a successful
+  tier-4 result: every active validator contributed, although a withholder can
+  still force downgrade or make a tier-4-requiring hook fail. The behavior is
+  **bounded and labeled, not eliminated.** True unbiasability would require a VRF
+  / threshold-BLS construction (out of scope). The accountability lever for
+  *persistent* withholding is validator scoring / NegativeUNL, **not** weakening
+  any gate above (that would violate INV-2..INV-4).
+- **Fallback (tier 1) is user-influenceable** (a quiet-ledger submitter can grind
+  the tx set). That is why it is a distinct labeled tier hooks must opt into, and
+  never suitable for value-bearing outcomes.
+- **Zero-flag draws require terminal strong execution.** A draw Hook followed
+  by an accounting Hook in the same account is nonterminal, just as a draw
+  before a Remit destination or burnable URI-token issuer Hook is. Guarded
+  callers get `LATER_STRONG_HOOK` and may defer. Same-account callers allow
+  their own account's later strong Hooks, but still refuse if a foreign strong
+  Hook follows. ANY callers accept all later strong vetoes. Either opt-in may
+  admit outcome-based vetoes within its allowed scope.
+  Inactive HookOn entries, unmatched HookName entries,
+  blank slots, and accounts without Hooks do not count as eligible execution.
+  A defensive dispatcher check still returns `tecHOOK_REJECTED` if an eligible
+  strong Hook violates a successful draw's guard (any later strong Hook for
+  zero flags; a foreign-account strong Hook for same-account flags), indicating
+  a planning/dispatch mismatch. Broader calls cannot clear an earlier guard.
+  This boundary does not prevent the drawing Hook itself from rejecting or
+  exhausting shared resources, nor does it make base application infallible.
+  Value-bearing applications must commit their inputs and stake in an earlier
+  successful transaction before resolving through emitted or Cron work. An
+  emitted transaction still executes applicable strong stakeholder Hooks and
+  is subject to this admission policy. Emission alone does not freeze a draw across
+  retries: the application must prevent retries or rescheduling from selecting
+  a different outcome, and handle failed payouts separately from settlement.
+- **Provisional open-ledger entropy** differs from the closed-ledger value
+  (speculative execution sees the previous ledger's entropy in the open ledger,
+  the current ledger's at close). Open-ledger `entropy_cr_dice()`/`entropy_cr_random()` are previews,
+  not the authority.
+- **Outcome-dependent rollback** is separate from entropy quality. Locking a
+  transaction's bytes does not make its application effects irrevocable. A
+  later untrusted strong Hook can observe a game's pending state and reject the
+  transaction. Applications must constrain accepted transaction/Hook paths or
+  commit the outcome outside that party's rollback authority; merely using an
+  emitted transaction does not remove every strong stakeholder Hook. Blocking
+  raw entropy reads prevents that direct prediction route, not all application
+  disclosure or veto paths.
+- **Bounded accept-vs-fallback timing asymmetry** remains possible at the edge of
+  observation deadlines: one node may see a quorum-aligned entropy sidecar before
+  its deadline while another times out to `consensus_fallback`. That is a
+  validation-backstopped liveness/resync residual of doing sidecar agreement
+  outside the base transaction-set hash, not permission for additional local
+  shortcut gates. Removing it entirely would require making the fallback/accept
+  decision itself an agreed consensus object.

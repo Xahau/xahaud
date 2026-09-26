@@ -1,15 +1,22 @@
 // Implementation of decoupled Hook APIs for emit and related helpers.
 
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/detail/XportWrapperBuilder.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/Import.h>
+#include <xrpl/protocol/ExportLimits.h>
+#include <xrpl/protocol/ExportOriginMemo.h>
 #include <xrpl/protocol/STParsedJSON.h>
+#include <xrpl/protocol/TxFlags.h>
 
 namespace hook {
 
 using namespace ripple;
 using namespace hook_float;
+
+static_assert(ExportLimits::maxExportsPerHook == hook_api::max_export);
 
 /// control APIs
 // _g
@@ -453,7 +460,8 @@ HookAPI::prepare(Slice const& txBlob) const
         json[jss::FirstLedgerSequence] = Json::Value(seq + 1);
 
     if (!json.isMember(jss::LastLedgerSequence))
-        json[jss::LastLedgerSequence] = Json::Value(seq + 5);
+        json[jss::LastLedgerSequence] =
+            Json::Value(seq + ExportLimits::maxAdmissionWindowLedgers);
 
     uint8_t details[512];
     if (!json.isMember(jss::EmitDetails))
@@ -558,6 +566,16 @@ HookAPI::emit(Slice const& txBlob) const
 
     ripple::TxType txType = stpTrans->getTxnType();
 
+    // Export wrappers must flow through xport(), which applies the dedicated
+    // per-Hook cap and verifies the referenced account-owned committee before
+    // queueing the emitted transaction.
+    if (txType == ttEXPORT)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC()
+                        << "]: Export wrappers require xport().";
+        return Unexpected(EMISSION_FAILURE);
+    }
+
     ripple::uint256 const& hookCanEmit = hookCtx.result.hookCanEmit;
     if (!hook::canEmit(txType, hookCanEmit))
     {
@@ -573,8 +591,8 @@ HookAPI::emit(Slice const& txBlob) const
      * 2. PubSigningKey: 000000000000000
      * 3. sfEmitDetails present and valid
      * 4. No sfTxnSignature
-     * 5. LastLedgerSeq > current ledger, > firstledgerseq & LastLedgerSeq < seq
-     * + 5
+     * 5. LastLedgerSeq > current ledger, > firstledgerseq & bounded by the
+     *    export admission window.
      * 6. FirstLedgerSeq > current ledger
      * 7. Fee must be correctly high
      * 8. The generation cannot be higher than 10
@@ -767,11 +785,12 @@ HookAPI::emit(Slice const& txBlob) const
         return Unexpected(EMISSION_FAILURE);
     }
 
-    if (tx_lls > ledgerSeq + 5)
+    if (tx_lls > ledgerSeq + ExportLimits::maxAdmissionWindowLedgers)
     {
         JLOG(j.trace())
             << "HookEmit[" << HC_ACC()
-            << "]: sfLastLedgerSequence cannot be greater than current seq + 5";
+            << "]: sfLastLedgerSequence cannot be greater than current seq + "
+            << ExportLimits::maxAdmissionWindowLedgers;
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -868,14 +887,18 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         std::unique_ptr<STTx const> stpTrans =
             std::make_unique<STTx const>(std::ref(sitTrans));
 
-        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
-            return Transactor::calculateBaseFee(
-                       *(applyCtx.app.openLedger().current()), *stpTrans)
+        // Determinism: emitted transaction fees must be computed against the
+        // ledger being applied. app.openLedger().current() is process-local
+        // mutable state, so using it here would make emit()/xport() wrapper
+        // hashes depend on each node's live open ledger.
+        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128) &&
+            stpTrans->getTxnType() != ttEXPORT)
+            return Transactor::calculateBaseFee(applyCtx.view(), *stpTrans)
                 .drops();
 
-        return invoke_calculateBaseFee(
-                   *(applyCtx.app.openLedger().current()), *stpTrans)
-            .drops();
+        // Export's fee funds committee-wide publication and its permanent
+        // witness. Never let the legacy generic-fee path bypass that schedule.
+        return invoke_calculateBaseFee(applyCtx.view(), *stpTrans).drops();
     }
     catch (std::exception const& e)
     {
@@ -974,6 +997,183 @@ HookAPI::etxn_reserve(uint64_t count) const
     hookCtx.expected_etxn_count = count;
 
     return count;
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_reserve(uint64_t count) const
+{
+    if (hookCtx.expected_export_count > -1)
+        return Unexpected(ALREADY_SET);
+
+    if (count < 1)
+        return Unexpected(TOO_SMALL);
+
+    if (count > ExportLimits::maxExportsPerHook)
+        return Unexpected(TOO_BIG);
+
+    // Also reserve emit slots so the wrapper ttEXPORT can flow
+    // through the normal emitted txn path. Validate the combined reservation
+    // before mutating either counter so failure leaves the reservation state
+    // unchanged.
+    auto const reservedEmits =
+        hookCtx.expected_etxn_count < 0 ? 0 : hookCtx.expected_etxn_count;
+    auto const exportCount = static_cast<int64_t>(count);
+    if (reservedEmits + exportCount > hook_api::max_emit)
+        return Unexpected(TOO_BIG);
+
+    hookCtx.expected_export_count = count;
+    hookCtx.expected_etxn_count = reservedEmits + exportCount;
+
+    return count;
+}
+
+Expected<uint256, HookReturnCode>
+HookAPI::xport(
+    Slice const& txBlob,
+    uint256 const& committeeHash,
+    std::uint64_t callbackFeeDrops) const
+{
+    auto& applyCtx = hookCtx.applyCtx;
+    auto& app = applyCtx.app;
+    auto j = app.journal("View");
+    auto& view = applyCtx.view();
+
+    if (hookCtx.expected_export_count < 0)
+        return Unexpected(PREREQUISITE_NOT_MET);
+
+    if (hookCtx.result.emittedTxn.size() >= hookCtx.expected_etxn_count)
+        return Unexpected(TOO_MANY_EMITTED_TXN);
+
+    if (hookCtx.export_count >= hookCtx.expected_export_count)
+        return Unexpected(TOO_MANY_EXPORTED_TXN);
+
+    auto const committee = view.read(
+        keylet::exportCommittee(hookCtx.result.account, committeeHash));
+    if (!committee)
+        return Unexpected(DOESNT_EXIST);
+    if (!committee->isFieldPresent(sfExportCommittee) ||
+        !ExportLedgerOps::isMatchingExportCommittee(
+            *committee,
+            hookCtx.result.account,
+            committeeHash,
+            makeSlice(committee->getFieldVL(sfExportCommittee))))
+        return Unexpected(EXPORT_FAILURE);
+
+    auto const generation = static_cast<uint32_t>(etxn_generation());
+    if (generation >= 10)
+        return Unexpected(EXPORT_FAILURE);
+
+    auto const burdenResult = etxn_burden();
+    if (!burdenResult)
+        return Unexpected(burdenResult.error());
+
+    auto built = XportWrapperBuilder::build(XportWrapperBuilder::Input{
+        txBlob,
+        committeeHash,
+        hookCtx.result.account,
+        app.config().NETWORK_ID,
+        view.info().seq,
+        applyCtx.tx.getTransactionID(),
+        hookCtx.result.hookHash,
+        hookCtx.result.hasCallback,
+        generation,
+        static_cast<uint64_t>(*burdenResult),
+        [this]() { return etxn_nonce(); },
+        [this](Slice const& serializedWrapper) {
+            return etxn_fee_base(serializedWrapper);
+        },
+        j,
+        callbackFeeDrops});
+    if (!built)
+        return Unexpected(built.error());
+
+    auto builtValue = std::move(built.value());
+    auto exportStx = std::move(builtValue.wrapperTx);
+
+    // Preflight the wrapper.
+    auto preflightResult = ripple::preflight(
+        app, view.rules(), exportStx, ripple::ApplyFlags::tapPREFLIGHT_EMIT, j);
+
+    if (!isTesSuccess(preflightResult.ter))
+    {
+        JLOG(j.trace()) << "HookExport[" << HC_ACC()
+                        << "]: ttEXPORT wrapper preflight failure: "
+                        << transHuman(preflightResult.ter);
+        return Unexpected(EXPORT_FAILURE);
+    }
+
+    // Wrap in Transaction and push to emittedTxn queue.
+    auto stpExport = std::make_shared<STTx const>(std::move(exportStx));
+    std::string reason;
+    auto tpTrans = std::make_shared<Transaction>(stpExport, reason, app);
+    if (tpTrans->getStatus() != NEW)
+    {
+        JLOG(j.trace()) << "HookExport[" << HC_ACC()
+                        << "]: tpTrans->getStatus() != NEW for wrapper";
+        return Unexpected(EXPORT_FAILURE);
+    }
+    auto const wrapperTxHash = tpTrans->getID();
+
+    // Push onto emittedTxn. The wrapper ttEXPORT flows through the
+    // normal emitted txn path (emitted dir → TxQ → open ledger →
+    // retriable Export transactor).
+    hookCtx.result.emittedTxn.push(tpTrans);
+    ++hookCtx.export_count;
+
+    // Return the emitted ttEXPORT wrapper hash. This is the Xahau-side
+    // lifecycle handle the hook/client can use to find metadata, the replay
+    // witness, and eventually assemble the signed target-chain transaction.
+    return wrapperTxHash;
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_cancel(uint256 const& origin, uint32_t flags) const
+{
+    if (origin.isZero() || (flags != 0 && flags != tfExportEraseLatch))
+        return Unexpected(INVALID_ARGUMENT);
+
+    auto& app = hookCtx.applyCtx.app;
+    auto j = app.journal("View");
+    auto const& currentTx = hookCtx.applyCtx.tx;
+    auto const& account = hookCtx.result.account;
+
+    if (currentTx.getTxnType() == ttIMPORT)
+    {
+        auto const [innerTx, meta] = Import::getInnerTxn(currentTx, j);
+        if (innerTx && innerTx->isFieldPresent(sfAccount) &&
+            innerTx->getAccountID(sfAccount) == account)
+        {
+            auto const stamp = ExportOriginMemo::parse(*innerTx);
+            if (stamp && stamp.value().origin.transactionHash == origin)
+            {
+                // Import consumes this latch after strong hooks finish.
+                return Unexpected(PREREQUISITE_NOT_MET);
+            }
+        }
+    }
+    else if (currentTx.getTxnType() == ttEXPORT)
+    {
+        if (currentTx.isFieldPresent(sfAccount) &&
+            currentTx.getAccountID(sfAccount) == account &&
+            currentTx.getTransactionID() == origin)
+        {
+            // Export creates this latch before post-apply hooks run.
+            return Unexpected(PREREQUISITE_NOT_MET);
+        }
+    }
+
+    TER const ter = ExportLedgerOps::controlExportLatch(
+        hookCtx.applyCtx.view(),
+        hookCtx.applyCtx.rawView(),
+        account,
+        origin,
+        flags == tfExportEraseLatch,
+        j);
+
+    if (!isTesSuccess(ter))
+        return Unexpected(DOESNT_EXIST);
+
+    return 1;
 }
 
 uint32_t
@@ -2146,7 +2346,13 @@ HookAPI::slot_set(Bytes const& data, uint32_t slot_no) const
         if (auto const* p = std::get_if<std::pair<
                 std::shared_ptr<ripple::Transaction>,
                 std::shared_ptr<ripple::TxMeta>>>(&hTx))
-            slot_value = p->first->getSTransaction();
+        {
+            auto const& tx = p->first->getSTransaction();
+            // The entropy pseudo-transaction also carries the raw digest.
+            if (tx->getTxnType() == ttCONSENSUS_ENTROPY)
+                return Unexpected(NOT_AUTHORIZED);
+            slot_value = tx;
+        }
         else
             return Unexpected(DOESNT_EXIST);
     }
@@ -2441,26 +2647,36 @@ HookAPI::xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const
         slot_into_meta > hook_api::max_slots)
         return Unexpected(INVALID_ARGUMENT);
 
-    size_t free_count = hook_api::max_slots - hookCtx.slot.size();
-
-    size_t needed_count = slot_into_tx == 0 && slot_into_meta == 0 ? 2
-        : slot_into_tx != 0 && slot_into_meta != 0                 ? 0
-                                                                   : 1;
-
-    if (free_count < needed_count)
-        return Unexpected(NO_FREE_SLOTS);
-
     // if they supply the same slot number for both (other than 0)
     // they will produce a collision
-    if (needed_count == 0 && slot_into_tx == slot_into_meta)
+    if (slot_into_tx != 0 && slot_into_tx == slot_into_meta)
         return Unexpected(INVALID_ARGUMENT);
+
+    auto getFreeSlotExcept = [&](uint32_t reserved) -> std::optional<uint32_t> {
+        for (uint32_t slot = 1; slot <= hook_api::max_slots; ++slot)
+        {
+            if (slot == reserved ||
+                hookCtx.slot.find(slot) != hookCtx.slot.end())
+                continue;
+
+            std::queue<uint32_t> kept;
+            while (!hookCtx.slot_free.empty())
+            {
+                auto const freed = hookCtx.slot_free.front();
+                hookCtx.slot_free.pop();
+                if (freed != slot &&
+                    hookCtx.slot.find(freed) == hookCtx.slot.end())
+                    kept.push(freed);
+            }
+            hookCtx.slot_free = std::move(kept);
+            return slot;
+        }
+        return {};
+    };
 
     if (slot_into_tx == 0)
     {
-        if (no_free_slots())
-            return Unexpected(NO_FREE_SLOTS);
-
-        if (auto found = get_free_slot(); found)
+        if (auto found = getFreeSlotExcept(slot_into_meta); found)
             slot_into_tx = *found;
         else
             return Unexpected(NO_FREE_SLOTS);
@@ -2468,28 +2684,35 @@ HookAPI::xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const
 
     if (slot_into_meta == 0)
     {
-        if (no_free_slots())
-            return Unexpected(NO_FREE_SLOTS);
-
-        if (auto found = get_free_slot(); found)
+        if (auto found = getFreeSlotExcept(slot_into_tx); found)
             slot_into_meta = *found;
         else
             return Unexpected(NO_FREE_SLOTS);
     }
 
-    auto [tx, meta] =
-        Import::getInnerTxn(hookCtx.applyCtx.tx, hookCtx.applyCtx.journal);
+    if (slot_into_tx == slot_into_meta)
+        return Unexpected(INVALID_ARGUMENT);
 
-    if (!tx || !meta)
-        return Unexpected(INVALID_TXN);
+    if (!hookCtx.xpopSlotCache)
+    {
+        auto [tx, meta] =
+            Import::getInnerTxn(hookCtx.applyCtx.tx, hookCtx.applyCtx.journal);
+
+        if (!tx || !meta)
+            return Unexpected(INVALID_TXN);
+
+        hookCtx.xpopSlotCache.emplace(
+            std::shared_ptr<STObject const>{std::move(tx)},
+            std::shared_ptr<STObject const>{std::move(meta)});
+    }
 
     hookCtx.slot[slot_into_tx] =
-        hook::SlotEntry{.storage = std::move(tx), .entry = 0};
+        hook::SlotEntry{.storage = hookCtx.xpopSlotCache->first, .entry = 0};
 
     hookCtx.slot[slot_into_tx].entry = &(*hookCtx.slot[slot_into_tx].storage);
 
     hookCtx.slot[slot_into_meta] =
-        hook::SlotEntry{.storage = std::move(meta), .entry = 0};
+        hook::SlotEntry{.storage = hookCtx.xpopSlotCache->second, .entry = 0};
 
     hookCtx.slot[slot_into_meta].entry =
         &(*hookCtx.slot[slot_into_meta].storage);
@@ -2809,6 +3032,7 @@ HookAPI::set_state_cache(
             ? accSLE->getFieldV256(sfHookNamespaces).size()
             : 0;
 
+        // TODO:RNG:PRV:6
         if (createNamespace)
         {
             // overflow should never ever happen but check anyway

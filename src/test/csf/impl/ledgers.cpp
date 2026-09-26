@@ -98,7 +98,8 @@ LedgerOracle::accept(
     Ledger const& parent,
     TxSetType const& txs,
     NetClock::duration closeTimeResolution,
-    NetClock::time_point const& consensusCloseTime)
+    NetClock::time_point const& consensusCloseTime,
+    std::optional<uint256> const& consensusExtensionEffect)
 {
     using namespace std::chrono_literals;
     Ledger::Instance next(*parent.instance_);
@@ -114,6 +115,7 @@ LedgerOracle::accept(
 
     next.parentCloseTime = parent.closeTime();
     next.parentID = parent.id();
+    next.consensusExtensionEffect = consensusExtensionEffect;
     next.ancestors.push_back(parent.id());
 
     auto it = instances_.left.find(next);

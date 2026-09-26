@@ -20,6 +20,7 @@
 #include <xrpld/shamap/SHAMapAccountStateLeafNode.h>
 #include <xrpld/shamap/SHAMapInnerNode.h>
 #include <xrpld/shamap/SHAMapLeafNode.h>
+#include <xrpld/shamap/SHAMapSidecarLeafNode.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
 #include <xrpld/shamap/SHAMapTxLeafNode.h>
 #include <xrpld/shamap/SHAMapTxPlusMetaLeafNode.h>
@@ -49,6 +50,18 @@ SHAMapTreeNode::makeTransaction(
         return std::make_shared<SHAMapTxLeafNode>(std::move(item), 0, hash);
 
     return std::make_shared<SHAMapTxLeafNode>(std::move(item), 0);
+}
+
+std::shared_ptr<SHAMapTreeNode>
+SHAMapTreeNode::makeSidecar(Slice data, SHAMapHash const& hash, bool hashValid)
+{
+    auto item = make_shamapitem(sha512Half(HashPrefix::sidecar, data), data);
+
+    if (hashValid)
+        return std::make_shared<SHAMapSidecarLeafNode>(
+            std::move(item), 0, hash);
+
+    return std::make_shared<SHAMapSidecarLeafNode>(std::move(item), 0);
 }
 
 std::shared_ptr<SHAMapTreeNode>
@@ -128,6 +141,9 @@ SHAMapTreeNode::makeFromWire(Slice rawNode)
     if (type == wireTypeTransaction)
         return makeTransaction(rawNode, hash, hashValid);
 
+    if (type == wireTypeSidecar)
+        return makeSidecar(rawNode, hash, hashValid);
+
     if (type == wireTypeAccountState)
         return makeAccountState(rawNode, hash, hashValid);
 
@@ -164,6 +180,9 @@ SHAMapTreeNode::makeFromPrefix(Slice rawNode, SHAMapHash const& hash)
 
     if (type == HashPrefix::transactionID)
         return makeTransaction(rawNode, hash, hashValid);
+
+    if (type == HashPrefix::sidecar)
+        return makeSidecar(rawNode, hash, hashValid);
 
     if (type == HashPrefix::leafNode)
         return makeAccountState(rawNode, hash, hashValid);

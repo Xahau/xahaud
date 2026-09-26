@@ -22,6 +22,7 @@
 #include <test/csf/Histogram.h>
 #include <test/csf/Peer.h>
 #include <test/csf/PeerGroup.h>
+#include <test/csf/PeerTick.h>
 #include <test/csf/Proposal.h>
 #include <test/csf/Scheduler.h>
 #include <test/csf/Sim.h>

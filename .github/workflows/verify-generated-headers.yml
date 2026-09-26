@@ -5,6 +5,18 @@ on:
   pull_request:
 
 jobs:
+  verify-hook-sdk-abi:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Check shipped SDK against runtime ABI and constants
+        run: clang++ -std=c++17 -Iinclude -fsyntax-only hook/tests/sdk_abi.cpp
+
+      - name: Compile entropy calls using shipped C headers
+        run: clang -std=c11 -Werror -Wno-pointer-to-int-cast -fsyntax-only hook/tests/entropy_api.c
+
   verify-generated-headers:
     strategy:
       fail-fast: false
@@ -15,6 +27,8 @@ jobs:
           - target: hook/extern.h
             generator: ./hook/generate_extern.sh
           - target: hook/sfcodes.h
+            generator: bash ./hook/generate_sfcodes.sh
+          - target: hook/genesis/headers/sfcodes.h
             generator: bash ./hook/generate_sfcodes.sh
           - target: hook/tts.h
             generator: ./hook/generate_tts.sh

@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
@@ -45,6 +46,39 @@
 
 namespace ripple {
 
+namespace {
+
+bool
+violatesEntropyDrawGuard(
+    std::vector<hook::HookResult> const& results,
+    AccountID const& account)
+{
+    for (auto const& result : results)
+    {
+        if (result.hasGuardedEntropyDraw ||
+            (result.hasAccountGuardedEntropyDraw && result.account != account))
+            return true;
+    }
+
+    return false;
+}
+
+bool
+matchesHookTrigger(
+    STObject const& hookObj,
+    std::shared_ptr<SLE const> const& hookDef,
+    STTx const& tx,
+    bool isOutgoing)
+{
+    return hook::canHook(
+        tx,
+        hook::getHookOn(
+            hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming),
+        hookObj[~sfHookName]);
+}
+
+}  // namespace
+
 /** Performs early sanity checks on the txid */
 NotTEC
 preflight0(PreflightContext const& ctx)
@@ -59,10 +93,9 @@ preflight0(PreflightContext const& ctx)
         uint32_t nodeNID = ctx.app.config().NETWORK_ID;
         std::optional<uint32_t> txNID = ctx.tx[~sfNetworkID];
 
-        if (nodeNID <= 1024)
+        if (!requiresTxNetworkID(nodeNID))
         {
-            // legacy networks have ids less than 1024, these networks cannot
-            // specify NetworkID in txn
+            // Legacy networks cannot specify NetworkID in txn.
             if (txNID)
                 return telNETWORK_ID_MAKES_TX_NON_CANONICAL;
         }
@@ -901,11 +934,11 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getFieldU32(sfNetworkID) == 65535)
         return tesSUCCESS;
 
-    // pass ttIMPORTs, their signatures are checked at the preflight against the
-    // internal xpop txn
+    // Import distinguishes B2M proof authorization from callback account
+    // authorization or an explicit per-intent callback fee allowance.
     if (ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT)
-        return tesSUCCESS;
+        return Import::checkImportSign(ctx);
 
     // pass ttMANIFEST_SETs, their signatures are checked in preflight against
     // the manifest's internal key logic
@@ -913,6 +946,12 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
+    return checkAccountSign(ctx);
+}
+
+NotTEC
+Transactor::checkAccountSign(PreclaimContext const& ctx)
+{
     if (ctx.flags & tapDRY_RUN)
     {
         // This code must be different for `simulate`
@@ -1324,6 +1363,50 @@ Transactor::reset(XRPAmount fee)
     return {ter, fee};
 }
 
+void
+Transactor::planStrongHooks(std::vector<std::pair<AccountID, bool>> const& tsh)
+{
+    terminalStrongHook_.reset();
+    if (!ctx_.view().rules().enabled(featureConsensusEntropy))
+        return;
+
+    auto const considerChain = [&](AccountID const& account, bool outgoing) {
+        auto const hooks = view().read(keylet::hook(account));
+        if (!hooks || !hooks->isFieldPresent(sfHooks))
+            return;
+
+        uint8_t position = 0;
+        for (auto const& hookObj : hooks->getFieldArray(sfHooks))
+        {
+            auto const currentPosition = position++;
+            if (!hookObj.isFieldPresent(sfHookHash))
+                continue;
+            auto const def = view().read(
+                keylet::hookDefinition(hookObj.getFieldH256(sfHookHash)));
+            if (def && matchesHookTrigger(hookObj, def, ctx_.tx, outgoing))
+                terminalStrongHook_ = {account, currentPosition};
+        }
+    };
+
+    if (!ctx_.isEmittedTxn())
+        considerChain(account_, true);
+
+    // Match doTSH's account order and deduplication before its role filter.
+    std::set<AccountID> processed;
+    for (auto const& [account, canRollback] : tsh)
+    {
+        if (account == account_ || !processed.emplace(account).second ||
+            !canRollback)
+            continue;
+        if (!view().read(keylet::account(account)))
+            continue;
+        if (calculateHookChainFee(
+                view(), ctx_.tx, keylet::hook(account), false) == beast::zero)
+            continue;
+        considerChain(account, false);
+    }
+}
+
 TER
 Transactor::executeHookChain(
     std::shared_ptr<ripple::STLedgerEntry const> const& hookSLE,
@@ -1351,7 +1434,12 @@ Transactor::executeHookChain(
         // lookup hook definition
         uint256 const& hookHash = hookObj.getFieldH256(sfHookHash);
 
-        if (hookSkips.find(hookHash) != hookSkips.end())
+        bool const violatesPriorDrawGuard = strong &&
+            ctx_.view().rules().enabled(featureConsensusEntropy) &&
+            violatesEntropyDrawGuard(results, account);
+
+        if (!violatesPriorDrawGuard &&
+            hookSkips.find(hookHash) != hookSkips.end())
         {
             // LCOV_EXCL_START
             JLOG(j_.trace()) << "HookInfo: Skipping " << hookHash;
@@ -1369,14 +1457,21 @@ Transactor::executeHookChain(
             // LCOV_EXCL_STOP
         }
 
-        auto const hookName = hookObj[~sfHookName];
-
-        // check if the hook can fire
-        uint256 hookOn = hook::getHookOn(
-            hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming);
-
-        if (!hook::canHook(ctx_.tx, hookOn, hookName))
+        if (!matchesHookTrigger(hookObj, hookDef, ctx_.tx, isOutgoing))
             continue;  // skip if it can't
+
+        // Defensive invariant: admission uses the immutable terminal Hook or
+        // account, so only a planning/dispatch mismatch can reach this path.
+        // Allowed later Hooks retain their ordinary veto authority.
+        if (violatesPriorDrawGuard)
+        {
+            JLOG(j_.trace())
+                << "HookInfo[" << account << "-"
+                << ctx_.tx.getAccountID(sfAccount)
+                << "]: Rejecting later strong hook after guarded entropy "
+                   "draw.";
+            return tecHOOK_REJECTED;
+        }
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
 
@@ -1428,7 +1523,12 @@ Transactor::executeHookChain(
                 strong,
                 (strong ? 0 : 1UL),  // 0 = strong, 1 = weak
                 hook_no - 1,
-                provisionalMeta));
+                provisionalMeta,
+                strong && terminalStrongHook_ &&
+                    terminalStrongHook_->first == account &&
+                    terminalStrongHook_->second == hook_no - 1,
+                strong && terminalStrongHook_ &&
+                    terminalStrongHook_->first == account));
 
             executedHookCount_++;
 
@@ -1983,6 +2083,8 @@ Transactor::operator()()
     // Weak TSH and callback are executed post-application.
     if (hooksEnabled && isTesSuccess(result))
     {
+        planStrongHooks(tsh);
+
         // this state map will be shared across all hooks in this execution
         // chain and any associated chains which are executed during this
         // transaction also this map can get large so
@@ -2027,6 +2129,7 @@ Transactor::operator()()
         for (auto& hookResult : hookResults)
         {
             hook::finalizeHookResult(hookResult, ctx_, isTesSuccess(result));
+
             if (hookResult.executeAgainAsWeak)
             {
                 if (aawMap.find(hookResult.account) == aawMap.end())
@@ -2403,6 +2506,39 @@ Transactor::operator()()
 
         if (ctx_.size() > oversizeMetaDataCap)
             result = tecOVERSIZE;
+    }
+
+    if (applied && isTesSuccess(result))
+    {
+        auto const limitResult = ctx_.checkExportEmissionLimit(result);
+        if (!isTesSuccess(limitResult))
+        {
+            result = limitResult;
+
+            auto const resetResult = reset(fee);
+            if (!isTesSuccess(resetResult.first))
+            {
+                result = resetResult.first;
+                applied = false;
+            }
+            else
+            {
+                fee = resetResult.second;
+                result = ctx_.checkInvariants(result, fee);
+                applied = isTesSuccess(result) || isTecClaim(result);
+            }
+        }
+    }
+
+    // An opt-in callback allowance does not authorize repeated fee-only
+    // attempts when a Hook or later apply check rejects the callback.
+    if (isTecClaim(result) && !allowsFeeOnlyClaim())
+    {
+        JLOG(j_.debug()) << "Callback allowance does not cover fee-only result "
+                         << transToken(result);
+        ctx_.discard();
+        result = tefBAD_AUTH;
+        applied = false;
     }
 
     std::optional<TxMeta> metadata;

@@ -128,7 +128,9 @@ apply(
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     // result of apply() if this is weak exec
-    std::shared_ptr<STObject const> const& provisionalMeta);
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    bool isTerminalStrongHook = false,
+    bool isTerminalStrongAccount = false);
 
 struct HookContext;
 
@@ -149,7 +151,7 @@ struct HookResult
     ripple::uint256 const hookNamespace;
 
     std::queue<std::shared_ptr<ripple::Transaction>>
-        emittedTxn{};  // etx stored here until accept/rollback
+        emittedTxn{};  // etx stored here until accept/rollback (includes xport)
     HookStateMap& stateMap;
     uint16_t changedStateCount = 0;
     std::map<
@@ -170,6 +172,8 @@ struct HookResult
     bool isCallback =
         false;  // true iff this hook execution is a callback in action
     bool isStrong = false;
+    bool isTerminalStrongHook = false;
+    bool isTerminalStrongAccount = false;
     uint32_t wasmParam = 0;
     uint32_t overrideCount = 0;
     uint8_t hookChainPosition = 0;
@@ -178,6 +182,12 @@ struct HookResult
         false;  // hook_again allows strong pre-apply to nominate
                 // additional weak post-apply execution
     std::shared_ptr<STObject const> provisionalMeta;
+    uint64_t rngCallCounter{
+        0};  // used to ensure conseq. rng calls don't return same data
+    // Monotonic guards from successful strong draws; broader later calls
+    // cannot waive either. Account guard permits this account's later Hooks.
+    bool hasGuardedEntropyDraw = false;
+    bool hasAccountGuardedEntropyDraw = false;
     std::set<std::pair<AccountID, uint256 /* namespace */>>
         foreignStateGrantCache;  // add found grants here to avoid rechecking
 };
@@ -203,11 +213,17 @@ struct HookContext
     std::queue<uint32_t> slot_free{};
     uint32_t slot_counter{0};  // uint16 to avoid accidental overflow and to
                                // allow more slots in future
+    mutable std::optional<std::pair<
+        std::shared_ptr<ripple::STObject const>,
+        std::shared_ptr<ripple::STObject const>>>
+        xpopSlotCache;
     uint16_t emit_nonce_counter{
         0};  // incremented whenever nonce is called to ensure unique nonces
     uint16_t ledger_nonce_counter{0};
     int64_t expected_etxn_count{-1};  // make this a 64bit int so the uint32
                                       // from the hookapi cant overflow it
+    int64_t expected_export_count{-1};
+    int64_t export_count{0};  // how many xport() calls succeeded
     std::map<ripple::uint256, bool> nonce_used{};
     uint32_t generation =
         0;  // used for caching, only generated when txn_generation is called

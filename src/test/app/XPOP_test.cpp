@@ -1,0 +1,456 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of rippled: https://github.com/ripple/rippled
+    Copyright (c) 2026 XRPL Labs
+
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose  with  or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
+
+    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED  WARRANTIES  OF
+    MERCHANTABILITY  AND  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY  SPECIAL ,  DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER  RESULTING  FROM  LOSS  OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION  OF  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+*/
+//==============================================================================
+
+#include <test/jtx.h>
+#include <test/jtx/import.h>
+#include <test/jtx/xpop.h>
+#include <test/shamap/common.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/proof/LedgerProof.h>
+#include <xrpld/app/proof/ProofBuilder.h>
+#include <xrpld/app/proof/XPOPv1.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/protocol/Import.h>
+#include <xrpl/protocol/digest.h>
+#include <xrpl/protocol/jss.h>
+#include <cstring>
+
+namespace ripple {
+namespace test {
+
+namespace {
+
+uint256
+makeHash(char const* label)
+{
+    return sha512Half(Slice(label, std::strlen(label)));
+}
+
+}  // namespace
+
+struct XPOP_test : public beast::unit_test::suite
+{
+    void
+    testBuildLedgerProof()
+    {
+        testcase("Build LedgerProof from a payment");
+
+        using namespace jtx;
+
+        Env env{*this};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        // Submit a payment and close the ledger.
+        env(pay(alice, bob, XRP(100)));
+        env.close();
+
+        // Get the tx hash from the last closed ledger.
+        auto const lcl = env.app().getLedgerMaster().getClosedLedger();
+        BEAST_EXPECT(lcl);
+
+        // Find a payment tx in the ledger.
+        uint256 paymentHash;
+        bool found = false;
+        lcl->txMap().visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                if (!found)
+                {
+                    paymentHash = item->key();
+                    found = true;
+                }
+            });
+        BEAST_EXPECT(found);
+
+        // Build the proof.
+        auto const lp = proof::buildLedgerProof(*lcl, paymentHash);
+        BEAST_EXPECT(lp.has_value());
+
+        if (lp)
+        {
+            // Verify header fields are populated.
+            BEAST_EXPECT(lp->ledgerIndex > 0);
+            BEAST_EXPECT(lp->totalCoins > 0);
+            BEAST_EXPECT(lp->parentHash != uint256{});
+            BEAST_EXPECT(lp->txRoot != uint256{});
+            BEAST_EXPECT(lp->accountRoot != uint256{});
+
+            // Verify tx blob is non-empty.
+            BEAST_EXPECT(!lp->txBlob.empty());
+            BEAST_EXPECT(!lp->metaBlob.empty());
+
+            // Verify merkle proof exists and is valid.
+            BEAST_EXPECT(lp->txProof.has_value());
+            if (lp->txProof)
+            {
+                auto const computedRoot = lp->txProof->computeRoot();
+                BEAST_EXPECT(computedRoot.has_value());
+                if (computedRoot)
+                    BEAST_EXPECT(*computedRoot == lp->txRoot);
+            }
+
+            // Verify ledger hash reconstruction.
+            auto const computedHash = lp->computeLedgerHash();
+            BEAST_EXPECT(computedHash == lcl->info().hash);
+        }
+
+        auto missing = proof::buildLedgerProof(*lcl, makeHash("missing-tx"));
+        BEAST_EXPECT(!missing);
+
+        auto const missingProof =
+            proof::extractProofV1(lcl->txMap(), makeHash("missing-proof"));
+        BEAST_EXPECT(!missingProof);
+    }
+
+    void
+    testProofBuilderEdgeCases()
+    {
+        testcase("ProofBuilder edge cases");
+
+        proof::MerkleProof empty;
+        BEAST_EXPECT(!empty.computeRoot());
+        BEAST_EXPECT(!empty.verify(makeHash("root")));
+        BEAST_EXPECT(empty.toJsonV1().isNull());
+
+        proof::MerkleProof manual;
+        manual.key = makeHash("manual-key");
+        manual.leafHash = makeHash("manual-leaf");
+
+        proof::ProofNode leafParent;
+        leafParent.targetBranch = 3;
+        leafParent.isLeafParent = true;
+        leafParent.branches[0] = makeHash("manual-sibling-0");
+        manual.path.push_back(leafParent);
+
+        auto const computedRoot = manual.computeRoot();
+        BEAST_EXPECT(computedRoot.has_value());
+        if (computedRoot)
+            BEAST_EXPECT(manual.verify(*computedRoot));
+
+        auto const proofJson = manual.toJsonV1();
+        BEAST_EXPECT(proofJson.isArray());
+        BEAST_EXPECT(proofJson.size() == 16);
+        BEAST_EXPECT(proofJson[3].asString() == to_string(manual.leafHash));
+    }
+
+    void
+    testProofBuilderSyntheticTrie()
+    {
+        testcase("ProofBuilder synthetic trie collisions");
+
+        tests::TestNodeFamily f{beast::Journal{beast::Journal::getNullSink()}};
+        SHAMap map{SHAMapType::TRANSACTION, f};
+
+        auto const keyA = uint256{
+            "1000000000000000000000000000000000000000000000000000000000000001"};
+        auto const keyB = uint256{
+            "1800000000000000000000000000000000000000000000000000000000000002"};
+        auto const keyC = uint256{
+            "2000000000000000000000000000000000000000000000000000000000000003"};
+        auto const keyD = uint256{
+            "1f00000000000000000000000000000000000000000000000000000000000004"};
+
+        auto add = [&](uint256 const& key, Blob data) {
+            return map.addItem(
+                SHAMapNodeType::tnTRANSACTION_NM,
+                make_shamapitem(key, makeSlice(data)));
+        };
+        auto payload = [](std::uint8_t first) {
+            Blob data;
+            data.reserve(12);
+            for (std::uint8_t i = 0; i < 12; ++i)
+                data.push_back(first + i);
+            return data;
+        };
+
+        BEAST_EXPECT(add(keyA, payload(0x01)));
+        BEAST_EXPECT(add(keyB, payload(0x11)));
+        BEAST_EXPECT(add(keyC, payload(0x21)));
+        BEAST_EXPECT(add(keyD, payload(0x31)));
+        map.invariants();
+
+        auto const proof = proof::extractProofV1(map, keyA);
+        BEAST_EXPECT(proof.has_value());
+        if (proof)
+        {
+            BEAST_EXPECT(proof->path.size() == 2);
+            auto const computedRoot = proof->computeRoot();
+            BEAST_EXPECT(computedRoot.has_value());
+            if (computedRoot)
+                BEAST_EXPECT(proof->verify(*computedRoot));
+
+            auto const json = proof->toJsonV1();
+            BEAST_EXPECT(json.isArray());
+            BEAST_EXPECT(json[proof->path.front().targetBranch].isArray());
+        }
+
+        auto const nearMiss = uint256{
+            "10000000000000000000000000000000000000000000000000000000000000ff"};
+        BEAST_EXPECT(!proof::extractProofV1(map, nearMiss));
+    }
+
+    void
+    testBuildXPOPv1()
+    {
+        testcase("Build XPOP v1 JSON from a payment");
+
+        using namespace jtx;
+
+        Env env{*this};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        env(pay(alice, bob, XRP(100)));
+        env.close();
+
+        auto const lcl = env.app().getLedgerMaster().getClosedLedger();
+        BEAST_EXPECT(lcl);
+
+        // Find a tx.
+        uint256 txHash;
+        lcl->txMap().visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                txHash = item->key();
+            });
+
+        // Build XPOP using the test helper.
+        auto const xpopCtx = xpop::TestXPOPContext::create(3);
+        auto const xpop = xpopCtx.buildXPOP(*lcl, txHash);
+        BEAST_EXPECT(!xpop.isNull());
+
+        // Verify structure.
+        BEAST_EXPECT(xpop.isMember(jss::ledger));
+        BEAST_EXPECT(xpop.isMember(jss::transaction));
+        BEAST_EXPECT(xpop.isMember(jss::validation));
+
+        // Ledger section.
+        auto const& lgr = xpop[jss::ledger];
+        BEAST_EXPECT(lgr.isMember(jss::index));
+        BEAST_EXPECT(lgr.isMember(jss::coins));
+        BEAST_EXPECT(lgr.isMember(jss::phash));
+        BEAST_EXPECT(lgr.isMember(jss::txroot));
+        BEAST_EXPECT(lgr.isMember(jss::acroot));
+        BEAST_EXPECT(lgr.isMember(jss::close));
+        BEAST_EXPECT(lgr.isMember(jss::pclose));
+        BEAST_EXPECT(lgr.isMember(jss::cres));
+        BEAST_EXPECT(lgr.isMember(jss::flags));
+
+        // Transaction section.
+        auto const& txn = xpop[jss::transaction];
+        BEAST_EXPECT(txn.isMember(jss::blob));
+        BEAST_EXPECT(txn.isMember(jss::meta));
+        BEAST_EXPECT(txn.isMember(jss::proof));
+        BEAST_EXPECT(txn[jss::blob].asString().size() > 0);
+        BEAST_EXPECT(txn[jss::meta].asString().size() > 0);
+
+        // Validation section.
+        auto const& val = xpop[jss::validation];
+        BEAST_EXPECT(val.isMember(jss::data));
+        BEAST_EXPECT(val.isMember(jss::unl));
+        BEAST_EXPECT(val[jss::data].size() == 3);  // 3 validators
+
+        auto const& unl = val[jss::unl];
+        BEAST_EXPECT(unl.isMember(jss::public_key));
+        BEAST_EXPECT(unl.isMember(jss::manifest));
+        BEAST_EXPECT(unl.isMember(jss::blob));
+        BEAST_EXPECT(unl.isMember(jss::signature));
+        BEAST_EXPECT(unl.isMember(jss::version));
+
+        auto const encoded = proof::xpopToHex(xpop);
+        BEAST_EXPECT(!encoded.empty());
+        BEAST_EXPECT(strUnHex(encoded).has_value());
+
+        auto const missing = proof::buildXPOPv1(
+            *lcl,
+            makeHash("missing-xpop-tx"),
+            std::vector<proof::ValidatorKeys>{},
+            xpopCtx.vlData);
+        BEAST_EXPECT(missing.isNull());
+    }
+
+    void
+    testBuildXPOPv1WithoutMerkleProof()
+    {
+        testcase("Build XPOP v1 without merkle proof");
+
+        auto const xpopCtx = jtx::xpop::TestXPOPContext::create(0);
+
+        proof::LedgerProof lp;
+        lp.ledgerIndex = 17;
+        lp.totalCoins = 12345;
+        lp.parentHash = makeHash("xpop-parent");
+        lp.txRoot = makeHash("xpop-tx-root");
+        lp.accountRoot = makeHash("xpop-account-root");
+        lp.parentCloseTime = 100;
+        lp.closeTime = 200;
+        lp.closeTimeResolution = 10;
+        lp.closeFlags = 1;
+        lp.txBlob = Blob{0x12, 0x00, 0x00};
+        lp.metaBlob = Blob{0x01, 0x02};
+
+        auto const xpop = proof::buildXPOPv1(
+            lp, std::vector<proof::ValidatorKeys>{}, xpopCtx.vlData);
+        BEAST_EXPECT(!xpop.isNull());
+        BEAST_EXPECT(xpop[jss::transaction][jss::proof].isArray());
+        BEAST_EXPECT(xpop[jss::transaction][jss::proof].size() == 0);
+        BEAST_EXPECT(xpop[jss::validation][jss::data].size() == 0);
+
+        auto const encoded = proof::xpopToHex(xpop);
+        BEAST_EXPECT(!encoded.empty());
+        BEAST_EXPECT(strUnHex(encoded).has_value());
+    }
+
+    void
+    testMerkleProofVerification()
+    {
+        testcase("Merkle proof verifies against tx root");
+
+        using namespace jtx;
+
+        Env env{*this};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        Account const carol{"carol"};
+
+        env.fund(XRP(10000), alice, bob, carol);
+        env.close();
+
+        // Multiple transactions to create a deeper trie.
+        env(pay(alice, bob, XRP(10)));
+        env(pay(bob, carol, XRP(5)));
+        env(pay(carol, alice, XRP(1)));
+        env.close();
+
+        auto const lcl = env.app().getLedgerMaster().getClosedLedger();
+        BEAST_EXPECT(lcl);
+
+        // Verify proof for each transaction in the ledger.
+        int proofCount = 0;
+        lcl->txMap().visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                auto const lp = proof::buildLedgerProof(*lcl, item->key());
+                BEAST_EXPECT(lp.has_value());
+
+                if (lp && lp->txProof)
+                {
+                    // Proof must verify against the ledger's tx root.
+                    BEAST_EXPECT(lp->txProof->verify(lp->txRoot));
+
+                    // JSON v1 serialization must round-trip.
+                    auto const json = lp->txProof->toJsonV1();
+                    BEAST_EXPECT(!json.isNull());
+                    BEAST_EXPECT(json.isArray());
+
+                    ++proofCount;
+                }
+            });
+
+        // We should have proven at least 3 transactions.
+        BEAST_EXPECT(proofCount >= 3);
+    }
+
+    void
+    testImportWithGeneratedXPOP()
+    {
+        testcase("Import accepts dynamically generated XPOP");
+
+        using namespace jtx;
+
+        // Create XPOP context (VL publisher + validators).
+        auto const xpopCtx = xpop::TestXPOPContext::create(3);
+
+        // --- Source "network": generate a payment and build XPOP ---
+        Env srcEnv{*this};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+
+        srcEnv.fund(XRP(10000), alice, bob);
+        srcEnv.close();
+
+        // Import requires: no sfNetworkID + sfOperationLimit = dest NETWORK_ID.
+        Json::Value payTx;
+        payTx[jss::TransactionType] = jss::Payment;
+        payTx[jss::Account] = alice.human();
+        payTx[jss::Destination] = bob.human();
+        payTx[jss::Amount] = "100000000";
+        payTx[sfOperationLimit.jsonName] = 21337;
+        srcEnv(payTx, fee(XRP(1)));
+        srcEnv.close();
+
+        // Find the tx hash and build the XPOP.
+        auto const srcLcl = srcEnv.app().getLedgerMaster().getClosedLedger();
+        BEAST_EXPECT(srcLcl);
+
+        uint256 paymentHash;
+        srcLcl->txMap().visitLeaves(
+            [&](boost::intrusive_ptr<SHAMapItem const> const& item) {
+                paymentHash = item->key();
+            });
+
+        auto const xpopJson = xpopCtx.buildXPOP(*srcLcl, paymentHash);
+        BEAST_EXPECT(!xpopJson.isNull());
+
+        // --- Destination "network": import the XPOP ---
+        Env dstEnv{*this, xpopCtx.makeEnvConfig(21337)};
+
+        // Burn some XRP so B2M can credit.
+        auto const master = Account("masterpassphrase");
+        dstEnv(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+        dstEnv.close();
+
+        Account const importAlice{"alice"};
+        dstEnv.fund(XRP(1000), importAlice);
+        dstEnv.close();
+
+        auto const feeDrops = dstEnv.current()->fees().base;
+
+        // Submit the import — should succeed (B2M path).
+        dstEnv(
+            import::import(importAlice, xpopJson),
+            fee(feeDrops * 10),
+            ter(tesSUCCESS));
+        dstEnv.close();
+    }
+
+    void
+    run() override
+    {
+        testBuildLedgerProof();
+        testProofBuilderEdgeCases();
+        testProofBuilderSyntheticTrie();
+        testBuildXPOPv1();
+        testBuildXPOPv1WithoutMerkleProof();
+        testMerkleProofVerification();
+        testImportWithGeneratedXPOP();
+    }
+};
+
+BEAST_DEFINE_TESTSUITE(XPOP, app, ripple);
+
+}  // namespace test
+}  // namespace ripple

@@ -74,7 +74,19 @@ public:
     /**
      * We only want to put 25% of the UNL on the NegativeUNL.
      */
-    static constexpr float negativeUNLMaxListed = 0.25;
+    static constexpr size_t negativeUNLMaxListedDenominator = 4;
+
+    /** Maximum number of validators allowed on the NegativeUNL for a given
+     *  UNL size, rounded up. Kept as integer policy arithmetic so consensus
+     *  tests compare against the production helper, not a copied
+     *  floating-point expression.
+     */
+    static constexpr size_t
+    maxNegativeUNLListed(size_t unlSize)
+    {
+        return unlSize / negativeUNLMaxListedDenominator +
+            (unlSize % negativeUNLMaxListedDenominator == 0 ? 0 : 1);
+    }
 
     /**
      * A flag indicating whether a UNLModify Tx is to disable or to re-enable
@@ -219,13 +231,16 @@ private:
      * @param unl the trusted master keys
      * @param negUnl the NegativeUNL
      * @param scoreTable the score table
+     * @param capDenominator the denominator to use for the 25% disable cap,
+     *        or empty to use the trusted UNL size
      * @return the candidates to disable and the candidates to re-enable
      */
     Candidates const
     findAllCandidates(
         hash_set<NodeID> const& unl,
         hash_set<NodeID> const& negUnl,
-        hash_map<NodeID, std::uint32_t> const& scoreTable);
+        hash_map<NodeID, std::uint32_t> const& scoreTable,
+        std::optional<std::size_t> capDenominator = std::nullopt);
 
     /**
      * Purge validators that are not new anymore.

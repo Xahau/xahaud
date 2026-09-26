@@ -124,6 +124,7 @@ transResults()
         MAKE_ERROR(tecARRAY_TOO_LARGE,               "Array is too large."),
         MAKE_ERROR(tecLOCKED,                        "Fund is locked."),
         MAKE_ERROR(tecBAD_CREDENTIALS,               "Bad credentials."),
+        MAKE_ERROR(tecEXPORT_COMMITTEE_UNAVAILABLE, "Export committee is unavailable in the parent validator view."),
 
         MAKE_ERROR(tefALREADY,                     "The exact transaction was already in this ledger."),
         MAKE_ERROR(tefBAD_ADD_AUTH,                "Not authorized to add account."),
@@ -174,6 +175,7 @@ transResults()
         MAKE_ERROR(telIMPORT_VL_KEY_NOT_RECOGNISED, "Import vl key was not recognized."),
         MAKE_ERROR(telCAN_NOT_QUEUE_IMPORT,   "Import transaction was not able to be directly applied and cannot be queued."),
         MAKE_ERROR(telENV_RPC_FAILED,         "Unit test RPC failure."),
+        MAKE_ERROR(telEXPORT_LATCH_REQUIRED, "The imported Export callback has no matching Export latch."),
 
         MAKE_ERROR(temMALFORMED,                 "Malformed transaction."),
         MAKE_ERROR(temBAD_AMM_TOKENS,            "Malformed: Invalid LPTokens."),

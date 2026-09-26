@@ -93,6 +93,16 @@ JobQueue::addRefCountedJob(
     if (iter == m_jobData.end())
         return false;
 
+    // Measurement-only categories have no dispatch capacity. Queuing one
+    // would retain its closure forever and prevent shutdown from draining.
+    if (iter->second.info.special())
+    {
+        JLOG(m_journal.error())
+            << "Refusing to queue job " << name
+            << " with measurement-only type " << iter->second.name();
+        return false;
+    }
+
     JLOG(m_journal.debug())
         << __func__ << " : Adding job : " << name << " : " << type;
     JobTypeData& data(iter->second);

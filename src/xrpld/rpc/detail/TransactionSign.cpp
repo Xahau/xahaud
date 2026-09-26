@@ -34,6 +34,7 @@
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/STParsedJSON.h>
@@ -471,7 +472,7 @@ transactionPreProcessImpl(
         if (!tx_json.isMember(jss::NetworkID))
         {
             auto const networkId = app.config().NETWORK_ID;
-            if (networkId > 1024)
+            if (requiresTxNetworkID(networkId))
                 tx_json[jss::NetworkID] = to_string(networkId);
         }
     }

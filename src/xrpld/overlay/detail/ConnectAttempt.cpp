@@ -363,6 +363,13 @@ ConnectAttempt::processResponse()
             remote_endpoint_.address(),
             app_);
 
+        if (auto const missing =
+                overlay_.missingRequiredProtocolFeatureInHandshake(
+                    response_, *negotiatedProtocol))
+            return fail(
+                "Handshake missing required protocol feature " +
+                std::string(protocolFeatureName(*missing)));
+
         JLOG(journal_.info())
             << "Public Key: " << toBase58(TokenType::NodePublic, publicKey);
 
