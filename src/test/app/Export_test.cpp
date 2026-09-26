@@ -98,6 +98,10 @@ struct Export_test : public beast::unit_test::suite
         return 0;
     }
 
+    // Alice's first XRPL ticket: new accounts in these test ledgers start at
+    // sequence 1, fund() spends it on AccountSet, and TicketCreate spends 2.
+    static constexpr std::uint32_t firstXrplTicketSeq = 3;
+
     struct CallbackXPOP
     {
         Json::Value xpopJson;
@@ -2562,7 +2566,7 @@ struct Export_test : public beast::unit_test::suite
         xahau(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
         xahau.close();
 
-        std::uint32_t const ticketSeq = 2;  // alice's first ticket on XRPL
+        std::uint32_t const ticketSeq = firstXrplTicketSeq;
 
         auto const callback = buildExportCallbackXPOP(
             xahau, xpopCtx, alice, carol, targetNetworkID, ticketSeq);
@@ -2617,8 +2621,8 @@ struct Export_test : public beast::unit_test::suite
             Env env{*this, xpopCtx.makeEnvConfig(21337), features};
             env.fund(XRP(10000), alice, carol, dave);
             env.close();
-            auto const callback =
-                buildExportCallbackXPOP(env, xpopCtx, alice, carol, 31337, 2);
+            auto const callback = buildExportCallbackXPOP(
+                env, xpopCtx, alice, carol, 31337, firstXrplTicketSeq);
             auto const latchKey =
                 keylet::exportLatch(alice.id(), callback.originTxn);
             BEAST_EXPECT(env.current()->exists(latchKey));
@@ -2750,7 +2754,13 @@ struct Export_test : public beast::unit_test::suite
                                             ->getFieldAmount(sfBalance)
                                             .xrp();
             auto const callback = buildExportCallbackXPOP(
-                env, xpopCtx, alice, carol, 31337, 2, callbackFee);
+                env,
+                xpopCtx,
+                alice,
+                carol,
+                31337,
+                firstXrplTicketSeq,
+                callbackFee);
             auto const latchKey =
                 keylet::exportLatch(alice.id(), callback.originTxn);
             auto const latch = env.current()->read(latchKey);
@@ -3042,7 +3052,7 @@ struct Export_test : public beast::unit_test::suite
         env.close();
         XRPAmount const callbackFee{1'000'000};
         auto const callback = buildExportCallbackXPOP(
-            env, xpopCtx, alice, carol, 31337, 2, callbackFee);
+            env, xpopCtx, alice, carol, 31337, firstXrplTicketSeq, callbackFee);
         auto const latchKey =
             keylet::exportLatch(alice.id(), callback.originTxn);
 
@@ -3116,7 +3126,7 @@ struct Export_test : public beast::unit_test::suite
         xahau.close();
 
         auto const callback = buildExportCallbackXPOP(
-            xahau, xpopCtx, alice, carol, targetNetworkID, 2);
+            xahau, xpopCtx, alice, carol, targetNetworkID, firstXrplTicketSeq);
 
         Json::Value cancel;
         cancel[jss::TransactionType] = jss::Export;
@@ -3161,7 +3171,7 @@ struct Export_test : public beast::unit_test::suite
         Account const dave{"dave"};
         std::uint32_t const xahauNetworkID = 21337;
         std::uint32_t const targetNetworkID = 31337;
-        std::uint32_t const ticketSeq = 2;
+        std::uint32_t const ticketSeq = firstXrplTicketSeq;
 
         Env xahau{*this, xpopCtx.makeEnvConfig(xahauNetworkID), features};
 
