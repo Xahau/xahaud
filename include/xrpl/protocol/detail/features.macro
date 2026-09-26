@@ -34,6 +34,7 @@
 // If you add an amendment here, then do not forget to increment `numFeatures`
 // in include/xrpl/protocol/Feature.h.
 
+XRPL_FEATURE(PWALoader,                  Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (20261001,                   Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (HookNameValidation,         Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (HookExitOutOfBounds,        Supported::yes, VoteBehavior::DefaultNo)

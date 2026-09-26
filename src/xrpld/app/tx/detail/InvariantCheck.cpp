@@ -29,6 +29,7 @@
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/FeeUnits.h>
 #include <xrpl/protocol/STArray.h>
@@ -612,6 +613,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltMPTOKEN:
             case ltCREDENTIAL:
             case ltPERMISSIONED_DOMAIN:
+            case ltAPP_LOADER:
             case ltMANIFEST:
                 break;
             default:
@@ -2019,4 +2021,135 @@ ValidLockedBalance::finalize(
 
     return true;
 }
+
+//------------------------------------------------------------------------------
+
+void
+ValidAppLoader::visitEntry(
+    bool isDelete,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    auto const type =
+        after ? after->getType() : (before ? before->getType() : ltANY);
+
+    if (type == ltAPP_LOADER)
+    {
+        auto const& sle = after ? after : before;
+        Loader l;
+        l.key = sle->key();
+        l.owner = sle->getAccountID(sfOwner);
+        l.deleted = isDelete;
+        if (!isDelete)
+        {
+            if (after->isFieldPresent(sfAppLoader))
+            {
+                auto const blob = after->getFieldVL(sfAppLoader);
+                l.blobValid = appLoader::validate(blob.data(), blob.size()) ==
+                    appLoader::Result::ok;
+            }
+        }
+        loaders_.push_back(std::move(l));
+        return;
+    }
+
+    if (type == ltACCOUNT_ROOT)
+    {
+        auto ptr = [](std::shared_ptr<SLE const> const& sle)
+            -> std::optional<uint256> {
+            if (sle && sle->isFieldPresent(sfAppLoaderID))
+                return sle->getFieldH256(sfAppLoaderID);
+            return std::nullopt;
+        };
+        auto const b = ptr(before);
+        auto const a = isDelete ? std::nullopt : ptr(after);
+        if (a != b)
+            pointersChanged_.push_back(
+                (after ? after : before)->getAccountID(sfAccount));
+    }
+}
+
+bool
+ValidAppLoader::finalize(
+    STTx const& tx,
+    TER const,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j)
+{
+    if (loaders_.empty() && pointersChanged_.empty())
+        return true;
+
+    if (!view.rules().enabled(featurePWALoader))
+    {
+        JLOG(j.fatal()) << "Invariant failed: AppLoader state changed "
+                           "before featurePWALoader was enabled";
+        return false;
+    }
+
+    auto const txType = tx.getTxnType();
+    if (txType != ttACCOUNT_SET && txType != ttACCOUNT_DELETE)
+    {
+        JLOG(j.fatal()) << "Invariant failed: AppLoader state changed by "
+                           "a transaction other than AccountSet or "
+                           "AccountDelete";
+        return false;
+    }
+
+    for (auto const& l : loaders_)
+    {
+        if (l.key != keylet::appLoader(l.owner).key)
+        {
+            JLOG(j.fatal()) << "Invariant failed: AppLoader is not keyed "
+                               "at its owner's keylet";
+            return false;
+        }
+
+        auto const root = view.read(keylet::account(l.owner));
+
+        if (l.deleted)
+        {
+            if (root && root->isFieldPresent(sfAppLoaderID))
+            {
+                JLOG(j.fatal()) << "Invariant failed: AppLoader deleted but "
+                                   "its owner still points at it";
+                return false;
+            }
+            continue;
+        }
+
+        if (!l.blobValid)
+        {
+            JLOG(j.fatal()) << "Invariant failed: AppLoader blob does not "
+                               "validate";
+            return false;
+        }
+
+        if (!root || !root->isFieldPresent(sfAppLoaderID) ||
+            root->getFieldH256(sfAppLoaderID) != l.key)
+        {
+            JLOG(j.fatal()) << "Invariant failed: AppLoader is not pointed "
+                               "at by its owner";
+            return false;
+        }
+    }
+
+    for (auto const& acct : pointersChanged_)
+    {
+        auto const root = view.read(keylet::account(acct));
+        if (!root || !root->isFieldPresent(sfAppLoaderID))
+            continue;
+
+        auto const kl = keylet::appLoader(acct);
+        if (root->getFieldH256(sfAppLoaderID) != kl.key || !view.exists(kl))
+        {
+            JLOG(j.fatal()) << "Invariant failed: sfAppLoaderID does not "
+                               "point at the account's AppLoader";
+            return false;
+        }
+    }
+
+    return true;
+}
+
 }  // namespace ripple
