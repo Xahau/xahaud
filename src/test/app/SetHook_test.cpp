@@ -2290,6 +2290,35 @@ public:
             env.close();
         }
 
+        // Call a named hook with a HookName containing a noncharacter
+        // (U+FFFF followed by 'A'). Well-formed UTF-8, but always rejected.
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "EFBFBF41";
+            env(jv,
+                M("Call named hook with a noncharacter in the hook name"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Call a named hook with a HookName ending in a truncated sequence.
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "414243E0";
+            env(jv,
+                M("Call named hook with a truncated hook name"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
         // Call named hook with the wrong hook name (size > 0)
         {
             auto jv = invoke::invoke(alice);
