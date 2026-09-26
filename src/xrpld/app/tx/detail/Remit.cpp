@@ -18,12 +18,12 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/Remit.h>
-#include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/UTF8.h>
 #include <xrpl/protocol/st.h>
 
 namespace ripple {
@@ -201,7 +201,7 @@ Remit::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (!URIToken::validateUTF8(uri, ctx.rules.enabled(featurePWALoader)))
+        if (!isValidUTF8(makeSlice(uri)))
         {
             JLOG(ctx.j.warn())
                 << "Malformed transaction: Invalid UTF8 inside MintURIToken.";

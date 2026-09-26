@@ -23,7 +23,6 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/OpenLedger.h>
-#include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpld/ledger/ApplyView.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
@@ -35,6 +34,7 @@
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/UTF8.h>
 #include <algorithm>
 #include <cstdint>
 #include <exception>
@@ -661,7 +661,7 @@ SetHook::validateHookName(
             << "sfHookName must be between 8 and 32 hex characters.";
         return false;
     }
-    if (!URIToken::validateUTF8(name, permitNoncharacters))
+    if (!isValidUTF8(makeSlice(name)))
     {
         JLOG(j.trace()) << "sfHookName must be a valid UTF-8 string.";
         return false;
