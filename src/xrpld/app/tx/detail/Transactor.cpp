@@ -159,7 +159,8 @@ preflight1(PreflightContext const& ctx)
 
         if (name.size() == 0 && ctx.rules.enabled(fixHookNameValidation))
             return temMALFORMED;
-        if (!SetHook::validateHookName(name, ctx.j))
+        if (!SetHook::validateHookName(
+                name, ctx.rules.enabled(fixUTF8Noncharacters), ctx.j))
             return temMALFORMED;
     }
 

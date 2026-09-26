@@ -2290,6 +2290,28 @@ public:
             env.close();
         }
 
+        // Call a named hook with a HookName containing a noncharacter
+        // (U+FFFF followed by 'A'). Well-formed UTF-8, but rejected by the
+        // validator until fixUTF8Noncharacters.
+        for (bool const fix : {true, false})
+        {
+            auto const f = fix ? features | fixUTF8Noncharacters
+                               : features - fixUTF8Noncharacters;
+            Env env{*this, f};
+
+            env.fund(XRP(10000), alice);
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "EFBFBF41";
+
+            auto const expected = fix ? ter(tesSUCCESS) : ter(temMALFORMED);
+            env(jv,
+                M("Call named hook with a noncharacter in the hook name"),
+                HSFEE,
+                ter(expected));
+            env.close();
+        }
+
         // Call named hook with the wrong hook name (size > 0)
         {
             auto jv = invoke::invoke(alice);

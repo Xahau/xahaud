@@ -201,7 +201,8 @@ Remit::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (!URIToken::validateUTF8(uri))
+        if (!URIToken::validateUTF8(
+                uri, ctx.rules.enabled(fixUTF8Noncharacters)))
         {
             JLOG(ctx.j.warn())
                 << "Malformed transaction: Invalid UTF8 inside MintURIToken.";

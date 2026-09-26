@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/Dir.h>
 #include <xrpl/basics/chrono.h>
@@ -2310,322 +2311,380 @@ struct URIToken_test : public beast::unit_test::suite
         auto const alice = Account("alice");
         auto const bob = Account("bob");
 
-        Env env{*this, features};
-        env.fund(XRP(10000), alice, bob);
-        env.close();
-
-        std::string uri = "";
-
-        // test utf-8 success
+        // Test both sides of the fixUTF8Noncharacters amendment gate to
+        // ensure consensus isn't broken and the old behaviour is maintained
+        // before the amendment is enabled.
+        for (bool const withFix : {false, true})
         {
-            // case: kosme
-            uri = "κόσμε";
-            env(uritoken::mint(alice, uri));
+            auto const amend =
+                withFix ? features : features - fixUTF8Noncharacters;
+            Env env{*this, amend};
 
-            // case: single ASCII character
-            uri = "a";
-            env(uritoken::mint(alice, uri));
+            env.fund(XRP(10000), alice, bob);
+            env.close();
 
-            // case: single non-ASCII character
-            uri = "é";
-            env(uritoken::mint(alice, uri));
+            std::string uri = "";
 
-            // case: valid multi-byte UTF-8 sequence
-            uri = "€";
-            env(uritoken::mint(alice, uri));
+            // =========================================================================
+            // Cases that should ALWAYS succeed regardless of amendment:
+            // valid well-formed UTF-8 that is not a noncharacter
+            // =========================================================================
+            {
+                // case: kosme
+                uri = "κόσμε";
+                env(uritoken::mint(alice, uri));
 
-            // case: ipfs cid
-            uri = "QmaCtDKZFVvvfufvbdy4estZbhQH7DXh16CTpv1howmBGy";
-            env(uritoken::mint(alice, uri));
+                // case: single ASCII character
+                uri = "a";
+                env(uritoken::mint(alice, uri));
 
-            // case: empty ipfs cid url
-            uri = "ipfs://";
-            env(uritoken::mint(alice, uri));
+                // case: single non-ASCII character
+                uri = "é";
+                env(uritoken::mint(alice, uri));
 
-            // case: ipfs cid url
-            uri = "ipfs://QmaCtDKZFVvvfufvbdy4estZbhQH7DXh16CTpv1howmBGy";
-            env(uritoken::mint(alice, uri));
+                // case: valid multi-byte UTF-8 sequence
+                uri = "€";
+                env(uritoken::mint(alice, uri));
 
-            // case: ipfs metadata url
-            uri = "https://example.com/ipfs/";
-            env(uritoken::mint(alice, uri));
+                // case: ipfs cid
+                uri = "QmaCtDKZFVvvfufvbdy4estZbhQH7DXh16CTpv1howmBGy";
+                env(uritoken::mint(alice, uri));
 
-            // BOUNDRY - START
-            // ----------------------------------------------------------------
+                // case: empty ipfs cid url
+                uri = "ipfs://";
+                env(uritoken::mint(alice, uri));
 
-            // case: 1 byte  (U-00000000)
-            uri = "\x00";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
-            // case: 2 bytes (U-00000080)
-            uri = "\xC2\x80";
-            env(uritoken::mint(alice, uri));
-            // case: 3 bytes (U-00000800)
-            uri = "\xE0\xA0\x80";
-            env(uritoken::mint(alice, uri));
-            // case: 4 bytes (U-00010000)
-            uri = "\xF0\x90\x80\x80";
-            env(uritoken::mint(alice, uri));
-            // case: 5 bytes (U-00200000)
-            uri = "\xF8\x88\x80\x80\x80";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
-            // case: 6 bytes (U-04000000)
-            uri = "\xFC\x84\x80\x80\x80\x80";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
+                // case: ipfs cid url
+                uri = "ipfs://QmaCtDKZFVvvfufvbdy4estZbhQH7DXh16CTpv1howmBGy";
+                env(uritoken::mint(alice, uri));
 
-            // BOUNDRY - END
-            // ----------------------------------------------------------------
+                // case: ipfs metadata url
+                uri = "https://example.com/ipfs/";
+                env(uritoken::mint(alice, uri));
+            }
 
-            // case: 1 byte  (U-0000007F)
-            uri = "\x7F";
-            env(uritoken::mint(alice, uri));
-            // case: 2 bytes (U-000007FF)
-            uri = "\xDF\xBF";
-            env(uritoken::mint(alice, uri));
-            // case: 3 bytes (U-0000FFFF)
-            uri = "\xEF\xBF\xBF";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
-            // case: 4 bytes (U-001FFFFF)
-            uri = "\xF7\xBF\xBF\xBF";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
-            // case: 5 bytes (U-03FFFFFF)
-            uri = "\xFB\xBF\xBF\xBF\xBF";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
-            // case: 6 bytes (U-7FFFFFFF)
-            uri = "\xFD\xBF\xBF\xBF\xBF\xBF";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
+            // =========================================================================
+            // Cases that should ALWAYS fail regardless of amendment:
+            // genuinely malformed UTF-8 (well-formedness failures)
+            // =========================================================================
+            {
+                // BOUNDRY - START
+                // ----------------------------------------------------------------
 
-            // // BOUNDRY - OTHER
-            // ----------------------------------------------------------------
-            // case: 1 bytes (U-0000D7FF)
-            uri = "\xD7\xFF";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
-            // case: 2 bytes (U-0000E000)
-            uri = "\xEE\x80\x80";
-            env(uritoken::mint(alice, uri));
-            // case: 3 bytes (U-0000FFFD)
-            uri = "\xEF\xBF\xBD";
-            env(uritoken::mint(alice, uri));
-            // // case: 4 bytes (U-0010FFFF)
-            uri = "\xF4\x8F\xBF\xBF";
-            env(uritoken::mint(alice, uri));
-            // // case: 4 bytes (U-00110000)
-            uri = "\xF4\x90\x80\x80";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD NOT FAIL
-        }
-        // test utf8 malformed
-        {
-            // MALFORMED - END
-            // ----------------------------------------------------------------
-            // First continuation byte 0x80:
-            uri = "\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // Last continuation byte 0xbf
-            uri = "\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: 5 bytes (U-00200000) - beyond valid UTF-8 range
+                uri = "\xF8\x88\x80\x80\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // 2 continuation bytes
-            uri = "��";
-            env(uritoken::mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
+                // case: 6 bytes (U-04000000) - beyond valid UTF-8 range
+                uri = "\xFC\x84\x80\x80\x80\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // 3 continuation bytes
-            uri = "���";
-            env(uritoken::mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
+                // BOUNDRY - END
+                // ----------------------------------------------------------------
 
-            // 4 continuation bytes
-            uri = "����";
-            env(uritoken::mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
+                // case: 3 bytes max (U-0000FFFF) - but this is U+FFFF
+                // noncharacter, handled below in the amendment-gated section
 
-            // 5 continuation bytes
-            uri = "�����";
-            env(uritoken::mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
+                // case: 4 bytes max (U-001FFFFF) - beyond valid BMP
+                uri = "\xF7\xBF\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // 6 continuation bytes
-            uri = "������";
-            env(uritoken::mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
+                // case: 5 bytes max (U-03FFFFFF) - beyond valid UTF-8
+                uri = "\xFB\xBF\xBF\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // 7 continuation bytes
-            uri = "�������";
-            env(uritoken::mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
+                // case: 6 bytes max (U-7FFFFFFF) - beyond valid UTF-8
+                uri = "\xFD\xBF\xBF\xBF\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // Sequence of all 64 possible continuation bytes (0x80-0xbf)
-            uri =
-                "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D\x8E"
-                "\x8F\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9A\x9B\x9C\x9D"
-                "\x9E\x9F\xA0\xA1\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xAB\xAC"
-                "\xAD\xAE\xAF\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA\xBB"
-                "\xBC\xBD\xBE\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // BOUNDRY - OTHER
+                // ----------------------------------------------------------------
+                // case: 1 bytes (U-0000D7FF) - incomplete 2-byte sequence
+                uri = "\xD7\xFF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // TODO: REVIEW - THIS IS NOT THE CORRECT 32 byte sequence.
-            // All 32 first bytes of 2-byte sequences (0xc0-0xdf), each followed
-            // by a space character
-            // uri = "\xE0\x80\x80 \xE0\x80\x81 \xE0\x80\x82 \xE0\x80\x83
-            // \xE0\x80\x84 \xE0\x80\x85 \xE0\x80\x86 \xE0\x80\x87 \xE0\x80\x88
-            // \xE0\x80\x89 \xE0\x80\x8A \xE0\x80\x8B \xE0\x80\x8C \xE0\x80\x8D
-            // \xE0\x80\x8E \xE0\x80\x8F \xE0\x80\x90";
-            // env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: 4 bytes (U-00110000) - beyond valid UTF-8 range
+                uri = "\xF4\x90\x80\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+            }
 
-            // All 16 first bytes of 3-byte sequences (0xe0-0xef), each followed
-            // by a space character
-            uri =
-                "\xE0\x80\x80 \xE0\x80\x81 \xE0\x80\x82 \xE0\x80\x83 "
-                "\xE0\x80\x84 \xE0\x80\x85 \xE0\x80\x86 \xE0\x80\x87 "
-                "\xE0\x80\x88 \xE0\x80\x89 \xE0\x80\x8A \xE0\x80\x8B "
-                "\xE0\x80\x8C \xE0\x80\x8D \xE0\x80\x8E \xE0\x80\x8F "
-                "\xE0\x80\x90";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+            // =========================================================================
+            // Genuinely malformed UTF-8 sequences - always fail
+            // =========================================================================
+            {
+                // MALFORMED - START
+                // ----------------------------------------------------------------
 
-            // All 8 first bytes of 4-byte sequences (0xf0-0xf7), each followed
-            // by a space character
-            uri =
-                "\xF0\x90\x80\x80 \xF0\x90\x80\x81 \xF0\x90\x80\x82 "
-                "\xF0\x90\x80\x83 \xF0\x90\x80\x84 \xF0\x90\x80\x85 "
-                "\xF0\x90\x80\x86 \xF0\x90\x80\x87";
-            env(uritoken::mint(alice, uri));  // TODO: REVIEW - SHOULD FAIL
+                // First continuation byte 0x80:
+                uri = "\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // All 4 first bytes of 5-byte sequences (0xf8-0xfb), each followed
-            // by a space character
-            uri =
-                "\xF8\x88\x80\x80\x80 \xF8\x88\x80\x80\x81 "
-                "\xF8\x88\x80\x80\x82 \xF8\x88\x80\x80\x83";
-            env(uritoken::mint(alice, uri),
-                ter(temMALFORMED));  // TODO: REVIEW - SHOULD FAIL
+                // Last continuation byte 0xbf
+                uri = "\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // All 2 first bytes of 6-byte sequences (0xfc-0xfd), each followed
-            // by a space character
-            uri = "\xFC\x84\x80\x80\x80\x80 \xFC\x84\x80\x80\x80\x81";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // Sequence of all 64 possible continuation bytes (0x80-0xbf)
+                uri =
+                    "\x80\x81\x82\x83\x84\x85\x86\x87\x88\x89\x8A\x8B\x8C\x8D"
+                    "\x8E"
+                    "\x8F\x90\x91\x92\x93\x94\x95\x96\x97\x98\x99\x9A\x9B\x9C"
+                    "\x9D"
+                    "\x9E\x9F\xA0\xA1\xA2\xA3\xA4\xA5\xA6\xA7\xA8\xA9\xAA\xAB"
+                    "\xAC"
+                    "\xAD\xAE\xAF\xB0\xB1\xB2\xB3\xB4\xB5\xB6\xB7\xB8\xB9\xBA"
+                    "\xBB"
+                    "\xBC\xBD\xBE\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // Sequences with last continuation byte missing
+                // All 16 first bytes of 3-byte sequences (0xe0-0xef), each
+                // followed by a space character
+                uri =
+                    "\xE0\x80\x80 \xE0\x80\x81 \xE0\x80\x82 \xE0\x80\x83 "
+                    "\xE0\x80\x84 \xE0\x80\x85 \xE0\x80\x86 \xE0\x80\x87 "
+                    "\xE0\x80\x88 \xE0\x80\x89 \xE0\x80\x8A \xE0\x80\x8B "
+                    "\xE0\x80\x8C \xE0\x80\x8D \xE0\x80\x8E \xE0\x80\x8F "
+                    "\xE0\x80\x90";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // Concatenation of incomplete sequences
+                // All 8 first bytes of 4-byte sequences (0xf0-0xf7), each
+                // followed by a space character
+                uri =
+                    "\xF0\x90\x80\x80 \xF0\x90\x80\x81 \xF0\x90\x80\x82 "
+                    "\xF0\x90\x80\x83 \xF0\x90\x80\x84 \xF0\x90\x80\x85 "
+                    "\xF0\x90\x80\x86 \xF0\x90\x80\x87";
+                env(uritoken::mint(alice, uri));
 
-            // Impossible bytes
-            uri = "\xFE";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            uri = "\xFF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            uri = "\xFE\xFE\xFF\xFF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // All 4 first bytes of 5-byte sequences (0xf8-0xfb), each
+                // followed by a space character
+                uri =
+                    "\xF8\x88\x80\x80\x80 \xF8\x88\x80\x80\x81 "
+                    "\xF8\x88\x80\x80\x82 \xF8\x88\x80\x80\x83";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // Examples of an overlong ASCII character
-            // case: (U+002F)
-            uri = "\xC0\xAF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+002F)
-            uri = "\xE0\x80\xAF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+002F)
-            uri = "\xF0\x80\x80\xAF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+002F)
-            uri = "\xF0\x80\x80\x80\xAF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+002F)
-            uri = "\xF0\x80\x80\x80\x80\xAF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // All 2 first bytes of 6-byte sequences (0xfc-0xfd), each
+                // followed by a space character
+                uri = "\xFC\x84\x80\x80\x80\x80 \xFC\x84\x80\x80\x80\x81";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // Maximum overlong sequences
-            // case: (U+0000007F)
-            uri = "\xC1\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+000007FF)
-            uri = "\xE0\x9F\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+0000FFFF)
-            uri = "\xF0\x8F\xBF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+001FFFFF)
-            uri = "\xF8\x87\xBF\xBF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+03FFFFFF)
-            uri = "\xFC\x83\xBF\xBF\xBF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // Impossible bytes
+                uri = "\xFE";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                uri = "\xFF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                uri = "\xFE\xFE\xFF\xFF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // Overlong representation of the NUL character
-            // case: (U+0000)
-            uri = "\xC0\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+0000)
-            uri = "\xC0\x80\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+0000)
-            uri = "\xC0\x80\x80\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+0000)
-            uri = "\xC0\x80\x80\x80\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+0000)
-            uri = "\xC0\x80\x80\x80\x80\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // Examples of an overlong ASCII character
+                // case: (U+002F)
+                uri = "\xC0\xAF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+002F)
+                uri = "\xE0\x80\xAF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+002F)
+                uri = "\xF0\x80\x80\xAF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+002F)
+                uri = "\xF0\x80\x80\x80\xAF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+002F)
+                uri = "\xF0\x80\x80\x80\x80\xAF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // Single UTF-16 surrogates
-            // case: (U+D800)
-            uri = "\xED\xA0\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DB7F)
-            uri = "\xED\xAD\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DB80)
-            uri = "\xED\xAE\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DBFF)
-            uri = "\xED\xAF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DC00)
-            uri = "\xED\xB0\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DF80)
-            uri = "\xED\xBE\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DFFF)
-            uri = "\xED\xBF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // Maximum overlong sequences
+                // case: (U+0000007F)
+                uri = "\xC1\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+000007FF)
+                uri = "\xE0\x9F\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+0000FFFF)
+                uri = "\xF0\x8F\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+001FFFFF)
+                uri = "\xF8\x87\xBF\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+03FFFFFF)
+                uri = "\xFC\x83\xBF\xBF\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // Paired UTF-16 surrogates
-            // case: (U+D800 U+DC00)
-            uri = "\xED\xA0\x80\xED\xB0\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+D800 U+DFFF)
-            uri = "\xED\xA0\x80\xED\xBF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DB7F U+DC00)
-            uri = "\xED\xAD\xBF\xED\xB0\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DB7F U+DFFF)
-            uri = "\xED\xAD\xBF\xED\xBF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DB80 U+DC00)
-            uri = "\xED\xAE\x80\xED\xB0\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DB80 U+DFFF)
-            uri = "\xED\xAE\x80\xED\xBF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DBFF U+DC00)
-            uri = "\xED\xAF\xBF\xED\xB0\x80";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+DBFF U+DFFF)
-            uri = "\xED\xAF\xBF\xED\xBF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // Overlong representation of the NUL character
+                // case: (U+0000)
+                uri = "\xC0\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+0000)
+                uri = "\xC0\x80\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+0000)
+                uri = "\xC0\x80\x80\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+0000)
+                uri = "\xC0\x80\x80\x80\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+0000)
+                uri = "\xC0\x80\x80\x80\x80\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
 
-            // problematic noncharacters in 16-bit applications
-            // case: (U+FFFE)
-            uri = "\xEF\xBF\xBE";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
-            // case: (U+FFFF)
-            uri = "\xEF\xBF\xBF";
-            env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // Single UTF-16 surrogates
+                // case: (U+D800)
+                uri = "\xED\xA0\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DB7F)
+                uri = "\xED\xAD\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DB80)
+                uri = "\xED\xAE\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DBFF)
+                uri = "\xED\xAF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DC00)
+                uri = "\xED\xB0\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DF80)
+                uri = "\xED\xBE\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DFFF)
+                uri = "\xED\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+
+                // Paired UTF-16 surrogates
+                // case: (U+D800 U+DC00)
+                uri = "\xED\xA0\x80\xED\xB0\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+D800 U+DFFF)
+                uri = "\xED\xA0\x80\xED\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DB7F U+DC00)
+                uri = "\xED\xAD\xBF\xED\xB0\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DB7F U+DFFF)
+                uri = "\xED\xAD\xBF\xED\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DB80 U+DC00)
+                uri = "\xED\xAE\x80\xED\xB0\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DB80 U+DFFF)
+                uri = "\xED\xAE\x80\xED\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DBFF U+DC00)
+                uri = "\xED\xAF\xBF\xED\xB0\x80";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+                // case: (U+DBFF U+DFFF)
+                uri = "\xED\xAF\xBF\xED\xBF\xBF";
+                env(uritoken::mint(alice, uri), ter(temMALFORMED));
+
+                // MALFORMED - END
+                // ----------------------------------------------------------------
+            }
+
+            // =========================================================================
+            // Amendment-gated cases: noncharacters only
+            // Pre-amendment: noncharacters rejected as temMALFORMED
+            // Post-amendment: noncharacters accepted as tesSUCCESS
+            // =========================================================================
+            {
+                // Noncharacters U+FFFE and U+FFFF - valid well-formed UTF-8,
+                // but were rejected by the pre-amendment validator. After the
+                // amendment they are accepted (noncharacters are permitted in
+                // UTF-8 interchange per Unicode standard).
+                uri = "\xEF\xBF\xBE";  // U+FFFE
+                env(uritoken::mint(alice, uri),
+                    ter(withFix ? TER{tesSUCCESS} : TER{temMALFORMED}));
+
+                uri = "\xEF\xBF\xBF";  // U+FFFF
+                env(uritoken::mint(alice, uri),
+                    ter(withFix ? TER{tesSUCCESS} : TER{temMALFORMED}));
+            }
+
+            // =========================================================================
+            // Valid boundary cases that should always succeed
+            // =========================================================================
+            {
+                // BOUNDRY - START (valid minimums)
+                // ----------------------------------------------------------------
+
+                // case: 1 byte  (U-00000000). Must use the string
+                // constructor, not a C-string literal, to avoid strlen
+                // truncation to an empty URI.
+                uri = std::string(1, '\0');
+                env(uritoken::mint(alice, uri));
+                // case: 2 bytes (U-00000080)
+                uri = "\xC2\x80";
+                env(uritoken::mint(alice, uri));
+                // case: 3 bytes (U-00000800)
+                uri = "\xE0\xA0\x80";
+                env(uritoken::mint(alice, uri));
+                // case: 4 bytes (U-00010000)
+                uri = "\xF0\x90\x80\x80";
+                env(uritoken::mint(alice, uri));
+
+                // BOUNDRY - END (valid maximums)
+                // ----------------------------------------------------------------
+
+                // case: 1 byte  (U-0000007F)
+                uri = "\x7F";
+                env(uritoken::mint(alice, uri));
+                // case: 2 bytes (U-000007FF)
+                uri = "\xDF\xBF";
+                env(uritoken::mint(alice, uri));
+                // case: 3 bytes (U-0000FFFF) - noncharacter, amendment-gated,
+                // see above.
+                // case: 4 bytes (U-001FFFFF) - beyond U+10FFFF, always
+                // rejected, see above.
+
+                // BOUNDRY - OTHER
+                // ----------------------------------------------------------------
+                // case: 2 bytes (U-0000E000) - above surrogates
+                uri = "\xEE\x80\x80";
+                env(uritoken::mint(alice, uri));
+                // case: 3 bytes (U-0000FFFD) - replacement character, valid
+                uri = "\xEF\xBF\xBD";
+                env(uritoken::mint(alice, uri));
+                // case: 4 bytes (U-0010FFFF) - max valid code point
+                uri = "\xF4\x8F\xBF\xBF";
+                env(uritoken::mint(alice, uri));
+            }
         }
     }
+    void
+    testUTF8Validator()
+    {
+        testcase("uri_utf8 validator");
+
+        auto const check = [](std::string const& s, bool permit) {
+            return URIToken::validateUTF8(
+                std::vector<uint8_t>(s.begin(), s.end()), permit);
+        };
+
+        for (bool const permit : {false, true})
+        {
+            // Sequences truncated by the end of the buffer are invalid.
+            // The previous decoder read past the end of the vector here.
+            BEAST_EXPECT(!check("a\xC2", permit));
+            BEAST_EXPECT(!check("a\xE0\xA4", permit));
+            BEAST_EXPECT(!check("a\xEF\xBF", permit));
+            BEAST_EXPECT(!check("a\xF0\x90\x8D", permit));
+            BEAST_EXPECT(!check(std::string("\xC2", 1), permit));
+
+            // The complete sequences are fine.
+            BEAST_EXPECT(check("a\xC2\xA2", permit));
+            BEAST_EXPECT(check("a\xE0\xA4\xB9", permit));
+            BEAST_EXPECT(check("a\xF0\x90\x8D\x88", permit));
+            BEAST_EXPECT(check("", permit));
+
+            // Noncharacters, anywhere in the string, are the only
+            // difference between the two modes.
+            BEAST_EXPECT(check("\xEF\xBF\xBE", permit) == permit);
+            BEAST_EXPECT(check("ab\xEF\xBF\xBF", permit) == permit);
+            BEAST_EXPECT(check("\xE2\x82\xAC\xEF\xBF\xBEz", permit) == permit);
+
+            // Neighbours of the noncharacters are unaffected.
+            BEAST_EXPECT(check("\xEF\xBF\xBD", permit));  // U+FFFD
+            BEAST_EXPECT(check("\xEF\xBE\xBF", permit));  // U+FFBF
+        }
+    }
+
     void
     testWithFeats(FeatureBitset features)
     {
@@ -2659,6 +2718,7 @@ public:
     {
         using namespace test::jtx;
         auto const sa = supported_amendments();
+        testUTF8Validator();
         testWithFeats(sa);
     }
 };

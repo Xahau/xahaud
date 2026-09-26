@@ -92,7 +92,10 @@ public:
     validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj);
 
     static bool
-    validateHookName(Blob const& name, beast::Journal const& j);
+    validateHookName(
+        Blob const& name,
+        bool permitNoncharacters,
+        beast::Journal const& j);
 
     static uint32_t
     computeHookReserve(STObject const& hookObj);

@@ -24,59 +24,45 @@
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/UTF8.h>
 
 namespace ripple {
 
 class URIToken : public Transactor
 {
 public:
-    bool inline static validateUTF8(std::vector<uint8_t> const& u)
+    /** Validate a byte sequence as UTF-8.
+
+        Well-formedness is checked by ripple::isValidUTF8, which never reads
+        past the end of the buffer. The one consensus-visible difference
+        across fixUTF8Noncharacters is the treatment of U+FFFE and U+FFFF:
+        before the amendment they were rejected; they are well-formed UTF-8
+        and noncharacters are permitted in interchange, so the amendment
+        accepts them.
+
+        @param permitNoncharacters Pass rules.enabled(fixUTF8Noncharacters).
+               Deliberately has no default, so that every caller is forced to
+               take the rules into account.
+    */
+    bool inline static validateUTF8(
+        std::vector<uint8_t> const& u,
+        bool permitNoncharacters)
     {
-        // this code is from
-        // https://www.cl.cam.ac.uk/~mgk25/ucs/utf8_check.c
-        uint8_t const* s = (uint8_t const*)u.data();
-        uint8_t const* end = s + u.size();
-        while (s < end)
-        {
-            if (*s < 0x80)
-                /* 0xxxxxxx */
-                s++;
-            else if ((s[0] & 0xe0) == 0xc0)
-            {
-                /* 110XXXXx 10xxxxxx */
-                if ((s[1] & 0xc0) != 0x80 ||
-                    (s[0] & 0xfe) == 0xc0) /* overlong? */
-                    return false;
-                else
-                    s += 2;
-            }
-            else if ((s[0] & 0xf0) == 0xe0)
-            {
-                /* 1110XXXX 10Xxxxxx 10xxxxxx */
-                if ((s[1] & 0xc0) != 0x80 || (s[2] & 0xc0) != 0x80 ||
-                    (s[0] == 0xe0 && (s[1] & 0xe0) == 0x80) || /* overlong? */
-                    (s[0] == 0xed && (s[1] & 0xe0) == 0xa0) || /* surrogate? */
-                    (s[0] == 0xef && s[1] == 0xbf &&
-                     (s[2] & 0xfe) == 0xbe)) /* U+FFFE or U+FFFF? */
-                    return false;
-                else
-                    s += 3;
-            }
-            else if ((s[0] & 0xf8) == 0xf0)
-            {
-                /* 11110XXX 10XXxxxx 10xxxxxx 10xxxxxx */
-                if ((s[1] & 0xc0) != 0x80 || (s[2] & 0xc0) != 0x80 ||
-                    (s[3] & 0xc0) != 0x80 ||
-                    (s[0] == 0xf0 && (s[1] & 0xf0) == 0x80) || /* overlong? */
-                    (s[0] == 0xf4 && s[1] > 0x8f) ||
-                    s[0] > 0xf4) /* > U+10FFFF? */
-                    return false;
-                else
-                    s += 4;
-            }
-            else
+        if (!isValidUTF8(u.data(), u.size()))
+            return false;
+
+        if (permitNoncharacters)
+            return true;
+
+        // Pre-amendment behaviour: reject U+FFFE and U+FFFF, which encode as
+        // EF BF BE and EF BF BF. UTF-8 is self-synchronising (0xEF is never a
+        // continuation byte), so in a sequence already known to be
+        // well-formed these bytes can only be those two code points.
+        for (std::size_t i = 0; i + 2 < u.size(); ++i)
+            if (u[i] == 0xEF && u[i + 1] == 0xBF &&
+                (u[i + 2] == 0xBE || u[i + 2] == 0xBF))
                 return false;
-        }
+
         return true;
     }
 
