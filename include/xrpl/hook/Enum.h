@@ -314,6 +314,7 @@ enum keylet_code : uint32_t {
     MPTOKEN = 34,
     CREDENTIAL = 35,
     PERMISSIONED_DOMAIN = 36,
+    MANIFEST = 37,
 };
 }
 

@@ -28,7 +28,9 @@
 #include <xrpl/protocol/jss.h>
 
 #include <boost/lexical_cast.hpp>
+#include <chrono>
 #include <optional>
+#include <thread>
 #include <utility>
 
 namespace ripple {
@@ -907,6 +909,24 @@ public:
     }
 
     void
+    testJSONRPCClientKeepAlive()
+    {
+        testcase("JSON-RPC keep-alive survives test work");
+        using namespace std::chrono_literals;
+        using namespace jtx;
+
+        Env env{*this};
+        env.client().invoke("server_info", {});
+
+        // The normal loopback message timeout is three seconds. Established
+        // Env connections have a separate idle lease because test work can
+        // legitimately take longer between RPCs.
+        std::this_thread::sleep_for(4s);
+        auto const response = env.client().invoke("server_info", {});
+        BEAST_EXPECT(response[jss::result][jss::status] == "success");
+    }
+
+    void
     run() override
     {
         using namespace test::jtx;
@@ -933,6 +953,7 @@ public:
         testSignAndSubmit(all);
         testFeatures(all);
         testExceptionalShutdown();
+        testJSONRPCClientKeepAlive();
     }
 };
 
