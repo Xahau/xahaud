@@ -18,12 +18,12 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/Remit.h>
-#include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/UTF8.h>
 #include <xrpl/protocol/st.h>
 
 namespace ripple {
@@ -201,7 +201,7 @@ Remit::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (!URIToken::validateUTF8(uri))
+        if (!isValidUTF8(makeSlice(uri)))
         {
             JLOG(ctx.j.warn())
                 << "Malformed transaction: Invalid UTF8 inside MintURIToken.";
@@ -328,11 +328,7 @@ Remit::doApply()
         nativeRemit += accountReserve;
 
         // Create the account.
-        std::uint32_t const seqno{
-            sb.rules().enabled(featureXahauGenesis)
-                ? sb.info().parentCloseTime.time_since_epoch().count()
-                : sb.rules().enabled(featureDeletableAccounts) ? sb.seq()
-                                                               : 1};
+        std::uint32_t const seqno = newAccountSeqNo(sb);
 
         sleDstAcc = std::make_shared<SLE>(keylet::account(dstAccID));
         sleDstAcc->setAccountID(sfAccount, dstAccID);
