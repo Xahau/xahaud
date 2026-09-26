@@ -2212,6 +2212,35 @@ DEFINE_HOOK_FUNCTION(
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
 
+            // keylets that take a validator public key
+            case keylet_code::MANIFEST: {
+                if (!applyCtx.view().rules().enabled(featureOnChainManifests))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0)
+                    return INVALID_ARGUMENT;
+
+                if (c != 0 || d != 0 || e != 0 || f != 0)
+                    return INVALID_ARGUMENT;
+
+                uint32_t read_ptr = a, read_len = b;
+
+                if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                ripple::Slice const pkSlice{memory + read_ptr, read_len};
+
+                // Reject anything that is not a well-formed public key before
+                // constructing one: the PublicKey ctor throws on bad input.
+                if (!publicKeyType(pkSlice))
+                    return INVALID_ARGUMENT;
+
+                ripple::Keylet kl =
+                    ripple::keylet::manifest(ripple::PublicKey(pkSlice));
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
                 // keylets that take 20 byte account id, and (4 byte uint for 32
                 // byte hash)
             case keylet_code::ORACLE: {
