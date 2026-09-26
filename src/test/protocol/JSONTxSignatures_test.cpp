@@ -17,8 +17,12 @@
 */
 //==============================================================================
 
+#include <xrpl/basics/strHex.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/JSONTxSignatures.h>
+#include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Seed.h>
+#include <xrpl/protocol/jss.h>
 
 #include <cstdint>
 #include <exception>
@@ -109,13 +113,15 @@ class JSONTxSignatures_test : public beast::unit_test::suite
         // a solidus that does not open a comment is the parser's business
         BEAST_EXPECT(strictOk(R"({"key":"a/b"})"));
 
-        // This validates framing only. Trailing commas, single quotes,
-        // unquoted keys and non-object roots are all rejected too, but by the
+        // plain integers, including at the edges of the grammar
+        BEAST_EXPECT(strictOk(R"({"n":[0,-1,10,9007199254740991]})"));
+
+        // This validates framing and lexical form only. Trailing commas,
+        // single quotes and unquoted keys are all rejected too, but by the
         // parser or by sanitize_jsontx rather than here.
         BEAST_EXPECT(strictOk(R"({"key":"val",})"));
         BEAST_EXPECT(strictOk(R"({'key':'val'})"));
         BEAST_EXPECT(strictOk(R"({key:"val"})"));
-        BEAST_EXPECT(strictOk(R"([1,2,3])"));
     }
 
     void
@@ -156,6 +162,33 @@ class JSONTxSignatures_test : public beast::unit_test::suite
 
         BEAST_EXPECT(!strictOk(""));
         BEAST_EXPECT(!strictOk("   "));
+
+        // the root is an object and nothing but whitespace comes before it
+        BEAST_EXPECT(!strictOk(R"([1,2,3])"));
+        BEAST_EXPECT(!strictOk(R"(x{"a":"b"})"));
+        BEAST_EXPECT(!strictOk(R"("lead" {"a":"b"})"));
+        BEAST_EXPECT(!strictOk("\xEF\xBB\xBF{}"));  // byte order mark
+
+        // a number is spelled exactly as its value: no fraction, no exponent,
+        // no sign but a leading '-', no leading zero, no negative zero
+        BEAST_EXPECT(!strictOk(R"({"n":1.0})"));
+        BEAST_EXPECT(!strictOk(R"({"n":1e6})"));
+        BEAST_EXPECT(!strictOk(R"({"n":1E6})"));
+        BEAST_EXPECT(!strictOk(R"({"n":4503599627370497.5})"));
+        BEAST_EXPECT(!strictOk(R"({"n":012})"));
+        BEAST_EXPECT(!strictOk(R"({"n":-0})"));
+        BEAST_EXPECT(!strictOk(R"({"n":+1})"));
+        BEAST_EXPECT(!strictOk(R"({"n":-})"));
+        BEAST_EXPECT(!strictOk(R"({"n":--1})"));
+        BEAST_EXPECT(!strictOk(R"({"n":[1,2.5]})"));
+
+        // ...but digits inside a string are just text
+        BEAST_EXPECT(strictOk(R"({"n":"1.5e3"})"));
+
+        // raw control characters inside a string
+        BEAST_EXPECT(!strictOk("{\"a\":\"x\ty\"}"));
+        BEAST_EXPECT(!strictOk("{\"a\":\"x\x1b[2Jy\"}"));
+        BEAST_EXPECT(!strictOk(std::string("{\"a\":\"x\0y\"}", 11)));
     }
 
     void
@@ -494,6 +527,14 @@ class JSONTxSignatures_test : public beast::unit_test::suite
         // rejection rather than a silently dropped member
         BEAST_EXPECT(jsontx_field("NoSuchField") == sfInvalid);
         BEAST_EXPECT(jsontx_field("") == sfInvalid);
+
+        // folding is ASCII only, whatever the process locale: a Latin-1 or
+        // UTF-8 capital never folds onto a field name
+        BEAST_EXPECT(jsontx_lower("AbC\xC9\xC3\x89") == "abc\xC9\xC3\x89");
+        BEAST_EXPECT(
+            jsontx_field("\xC1"
+                         "ccount") == sfInvalid);
+        BEAST_EXPECT(jsontx_field("Acc\xC3\x93unt") == sfInvalid);
     }
 
     void
@@ -535,6 +576,240 @@ class JSONTxSignatures_test : public beast::unit_test::suite
         BEAST_EXPECT(threw([&] { (void)sanitize_jsontx(tooFormatted); }));
     }
 
+    static Rules
+    noRules()
+    {
+        return Rules{std::unordered_set<uint256, beast::uhash<>>{}};
+    }
+
+    // What doSubmit does with a { tx, sig } pair, minus the RPC plumbing:
+    // canonicalize, parse, and attach the signature and delta.
+    static std::shared_ptr<STTx const>
+    buildJsonTx(std::string const& raw, Buffer const& sig)
+    {
+        auto const [san, diff] = sanitize_jsontx(raw);
+        Json::Value jv;
+        if (Json::Reader r; !r.parse(san, jv))
+            Throw<std::runtime_error>("unparsable canonical form");
+        std::optional<std::uint64_t> ms;
+        if (jv.isMember(sfTime.fieldName))
+        {
+            ms = jsontx_iso(jv[sfTime.fieldName].asString());
+            jv.removeMember(sfTime.fieldName);
+        }
+        STParsedJSONObject parsed("tx_json", jv);
+        if (!parsed.object)
+            Throw<std::runtime_error>(
+                parsed.error[jss::error_message].asString());
+        if (ms)
+            parsed.object->setFieldU64(sfTime, *ms);
+        parsed.object->setFieldVL(sfTxnSignature, sig);
+        parsed.object->setFieldVL(sfJsonTxDelta, makeSlice(diff));
+        return std::make_shared<STTx const>(std::move(*parsed.object));
+    }
+
+    // the same transaction with f applied to its fields, rebuilt the way a
+    // node would receive it: off the wire
+    template <class F>
+    static STTx
+    mutate(STTx const& tx, F&& f)
+    {
+        STObject obj(tx);
+        f(obj);
+        Serializer ser;
+        obj.add(ser);
+        SerialIter si(ser.slice());
+        return STTx(si);
+    }
+
+    static std::string
+    paymentJson(
+        std::string const& account,
+        std::string const& pk,
+        std::string const& amount)
+    {
+        return "{\n"
+               "  \"TransactionType\": \"Payment\",\n"
+               "  \"Account\": \"" +
+            account +
+            "\",\n"
+            "  \"Destination\": \"rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh\",\n"
+            "  \"Amount\": \"" +
+            amount +
+            "\",\n"
+            "  \"Fee\": \"10\",\n"
+            "  \"Sequence\": 7,\n"
+            "  \"NetworkID\": 21337,\n"
+            "  \"Time\": \"2026-09-26T01:02:03.456Z\",\n"
+            "  \"SigningPubKey\": \"" +
+            pk +
+            "\"\n"
+            "}";
+    }
+
+    void
+    testVerify()
+    {
+        testcase("jsontx_verify end to end");
+
+        // not a structured binding: clang before 16 cannot capture one in a
+        // lambda, and the mutations below do
+        auto const keys =
+            generateKeyPair(KeyType::ed25519, generateSeed("jsontx"));
+        auto const& pk = keys.first;
+        auto const& sk = keys.second;
+        auto const account = toBase58(calcAccountID(pk));
+        auto const pkHex = strHex(pk.slice());
+
+        auto const raw = paymentJson(account, pkHex, "1000000");
+        auto const sig = sign(pk, sk, makeSlice(raw));
+        auto const stx = buildJsonTx(raw, sig);
+
+        // the preimage is recovered exactly, before and after the wire
+        BEAST_EXPECT(jsontx_verify(*stx) == raw);
+        {
+            Serializer ser;
+            stx->add(ser);
+            SerialIter si(ser.slice());
+            STTx const wire{si};
+            BEAST_EXPECT(wire.getTransactionID() == stx->getTransactionID());
+            BEAST_EXPECT(jsontx_verify(wire) == raw);
+        }
+        BEAST_EXPECT(
+            stx->getFieldU64(sfTime) == jsontx_iso("2026-09-26T01:02:03.456Z"));
+
+        // the binary check never accepts it, whatever the rules
+        BEAST_EXPECT(
+            !stx->checkSign(STTx::RequireFullyCanonicalSig::yes, noRules()));
+
+        auto const bad = [](STTx const& t) {
+            return threw([&] { (void)jsontx_verify(t); });
+        };
+
+        // strip the delta: nothing to reconstruct from, and the signature is
+        // not over the binary signing hash
+        {
+            auto const t = mutate(
+                *stx, [](STObject& o) { o.makeFieldAbsent(sfJsonTxDelta); });
+            BEAST_EXPECT(bad(t));
+            BEAST_EXPECT(
+                !t.checkSign(STTx::RequireFullyCanonicalSig::yes, noRules()));
+        }
+
+        // a second delta spelling the same preimage - here, all literal - is
+        // refused, so a relay cannot mint a second id for one signature
+        {
+            std::string lit(1, '\0');
+            for (auto v = raw.size(); v; v >>= 7)
+                lit += static_cast<char>((v & 0x7F) | (v > 0x7F ? 0x80 : 0));
+            lit += raw;
+            BEAST_EXPECT(
+                unsanitize_jsontx(sanitize_jsontx(raw).first, lit) == raw);
+            auto const t = mutate(*stx, [&](STObject& o) {
+                o.setFieldVL(sfJsonTxDelta, makeSlice(lit));
+            });
+            BEAST_EXPECT(t.getTransactionID() != stx->getTransactionID());
+            BEAST_EXPECT(bad(t));
+        }
+
+        // the same fields reformatted: a different preimage, which this
+        // signature does not cover
+        {
+            auto const compact = sanitize_jsontx(raw).first;
+            auto const diff = sanitize_jsontx(compact).second;
+            auto const t = mutate(*stx, [&](STObject& o) {
+                o.setFieldVL(sfJsonTxDelta, makeSlice(diff));
+            });
+            BEAST_EXPECT(bad(t));
+        }
+
+        // a signature the key made over a different transaction does not
+        // carry over, even with that transaction's own delta
+        {
+            auto const other = paymentJson(account, pkHex, "999999999");
+            auto const t = mutate(*stx, [&](STObject& o) {
+                o.setFieldVL(sfTxnSignature, sign(pk, sk, makeSlice(other)));
+                o.setFieldVL(
+                    sfJsonTxDelta, makeSlice(sanitize_jsontx(other).second));
+            });
+            BEAST_EXPECT(bad(t));
+        }
+
+        // any change to a signed field breaks the binding
+        {
+            auto const t = mutate(*stx, [](STObject& o) {
+                o.setFieldAmount(sfAmount, STAmount(XRPAmount(2000000)));
+            });
+            BEAST_EXPECT(bad(t));
+        }
+        {
+            auto const t = mutate(*stx, [](STObject& o) {
+                o.setFieldU64(sfTime, o.getFieldU64(sfTime) + 1);
+            });
+            BEAST_EXPECT(bad(t));
+        }
+        {
+            // a field the signer never saw
+            auto const t = mutate(
+                *stx, [](STObject& o) { o.setFieldU32(sfSourceTag, 1); });
+            BEAST_EXPECT(bad(t));
+        }
+
+        // multi-signing has no single preimage to bind
+        {
+            auto const t = mutate(*stx, [](STObject& o) {
+                o.setFieldArray(sfSigners, STArray{});
+            });
+            BEAST_EXPECT(bad(t));
+        }
+
+        // only ed25519 signs a JsonTx
+        {
+            auto const [spk, ssk] =
+                generateKeyPair(KeyType::secp256k1, generateSeed("jsontx"));
+            auto const sraw = paymentJson(
+                toBase58(calcAccountID(spk)), strHex(spk.slice()), "1000000");
+            auto const t = buildJsonTx(sraw, sign(spk, ssk, makeSlice(sraw)));
+            BEAST_EXPECT(bad(*t));
+        }
+    }
+
+    void
+    testBinarySignatureWithDelta()
+    {
+        testcase("binary signature never authorises a delta");
+
+        auto const [pk, sk] =
+            generateKeyPair(KeyType::ed25519, generateSeed("binary"));
+        auto const raw =
+            paymentJson(toBase58(calcAccountID(pk)), strHex(pk.slice()), "5");
+
+        // an ordinary binary-signed payment
+        Json::Value jv;
+        BEAST_EXPECT(Json::Reader{}.parse(sanitize_jsontx(raw).first, jv));
+        jv.removeMember(sfTime.fieldName);
+        STParsedJSONObject parsed("tx_json", jv);
+        BEAST_EXPECT(parsed.object.has_value());
+        if (!parsed.object)
+            return;
+        STTx tx(std::move(*parsed.object));
+        tx.sign(pk, sk);
+        BEAST_EXPECT(
+            tx.checkSign(STTx::RequireFullyCanonicalSig::yes, noRules()));
+
+        // sfJsonTxDelta is not a signing field, so the binary signature still
+        // covers the transaction with one appended - which is exactly why the
+        // binary check must refuse it rather than mint a new id
+        auto const withDelta = mutate(tx, [](STObject& o) {
+            o.setFieldVL(sfJsonTxDelta, Slice("\x01\x00\x04", 3));
+        });
+        BEAST_EXPECT(withDelta.getSigningHash() == tx.getSigningHash());
+        BEAST_EXPECT(withDelta.getTransactionID() != tx.getTransactionID());
+        BEAST_EXPECT(!withDelta.checkSign(
+            STTx::RequireFullyCanonicalSig::yes, noRules()));
+        BEAST_EXPECT(threw([&] { (void)jsontx_verify(withDelta); }));
+    }
+
 public:
     void
     run() override
@@ -550,6 +825,8 @@ public:
         testNumbers();
         testFieldLookup();
         testBounds();
+        testVerify();
+        testBinarySignatureWithDelta();
     }
 };
 

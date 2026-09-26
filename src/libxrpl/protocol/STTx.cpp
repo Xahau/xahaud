@@ -214,6 +214,15 @@ STTx::checkSign(
     RequireFullyCanonicalSig requireCanonicalSig,
     Rules const& rules) const
 {
+    // sfJsonTxDelta is a non-signing field, so the binary signing hash does
+    // not cover it: a binary signature stays valid with any delta appended.
+    // Were that accepted, anyone relaying a binary-signed transaction could
+    // mint as many new transaction ids for it as there are deltas. A delta
+    // means the signature is over the JSON preimage, which jsontx_verify
+    // checks; a binary signature never authorises one.
+    if (isFieldPresent(sfJsonTxDelta))
+        return Unexpected("Binary signature cannot authorise a JsonTx.");
+
     try
     {
         // Determine whether we're single- or multi-signing by looking

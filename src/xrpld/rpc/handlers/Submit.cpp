@@ -216,8 +216,13 @@ doSubmit(RPC::JsonContext& context)
         }
         else
         {
-            if (!context.params.isMember(jss::sig))
-                throw std::runtime_error("JsonTx: missing sig parameter");
+            // the preimage is the signer's exact bytes, so it arrives as a
+            // string; an object would already have been re-serialized by
+            // someone other than the signer
+            if (!context.params[jss::tx].isString() ||
+                !context.params[jss::sig].isString())
+                throw std::runtime_error(
+                    "JsonTx: tx and sig must both be strings");
             std::string const raw = context.params[jss::tx].asString();
             auto const [san, diff] = sanitize_jsontx(raw);
             auto const sig = strUnHex(context.params[jss::sig].asString());
@@ -228,9 +233,12 @@ doSubmit(RPC::JsonContext& context)
             if (Json::Reader r; !r.parse(san, jv))
                 throw std::runtime_error("JsonTx: unparsable canonical form");
 
-            // The preimage carries the key but not the signature over itself.
+            // The preimage carries the key but not the signature over itself,
+            // nor the delta, which is derived from it.
             for (auto const& n :
-                 {sfTxnSignature.fieldName, sfSigners.fieldName})
+                 {sfTxnSignature.fieldName,
+                  sfSigners.fieldName,
+                  sfJsonTxDelta.fieldName})
                 if (jv.isMember(n))
                     throw std::runtime_error(
                         "JsonTx: " + n + " must not appear in tx");

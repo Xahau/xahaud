@@ -20,14 +20,13 @@
 #ifndef RIPPLE_PROTOCOL_JSONTXSIGNATURES_H_INCLUDED
 #define RIPPLE_PROTOCOL_JSONTXSIGNATURES_H_INCLUDED
 
+#include <xrpl/basics/contract.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <xrpl/protocol/STTx.h>
-
-#include <boost/algorithm/string.hpp>
 
 #include <algorithm>
 #include <charconv>
@@ -72,6 +71,20 @@ inline constexpr std::size_t jsontx_max_ops =
 inline constexpr std::size_t jsontx_min_copy = 4;   // encoder match threshold
 inline constexpr std::size_t jsontx_max_cand = 64;  // encoder candidate cap
 
+// ASCII-only case folding. Not boost::algorithm::to_lower_copy or std::tolower:
+// both consult the global locale, under which a byte such as 0xC9 folds on one
+// node and not on another, and this lookup decides which member a key names.
+// Field names are ASCII, so folding nothing else loses nothing.
+inline std::string
+jsontx_lower(std::string_view s)
+{
+    std::string r(s);
+    for (auto& c : r)
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+    return r;
+}
+
 // Case-insensitive field-name -> canonical SField. Built once from
 // SField::knownCodeToField, the same table doServerDefinitions publishes, using
 // its serializability filter (useful, binary, non-pseudo). sfInvalid if
@@ -84,11 +97,19 @@ jsontx_field(std::string const& name)
         for (auto const& [code, f] : SField::knownCodeToField)
             if (f->isUseful() && f->isBinary() && f->fieldType < 10000 &&
                 !f->fieldName.empty())
-                m.emplace(boost::algorithm::to_lower_copy(f->fieldName), f);
+            {
+                // Two fields folding to one key would make the lookup depend
+                // on knownCodeToField's iteration order. None do today; keep
+                // it that way rather than silently keeping the first.
+                if (!m.emplace(jsontx_lower(f->fieldName), f).second)
+                    LogicError(
+                        "jsontx: field names collide case-insensitively: " +
+                        f->fieldName);
+            }
         return m;
     }();
 
-    auto const i = tbl.find(boost::algorithm::to_lower_copy(name));
+    auto const i = tbl.find(jsontx_lower(name));
     return i == tbl.end() ? sfInvalid : *i->second;
 }
 
@@ -307,13 +328,34 @@ jsontx_num(Json::Value const& v)
 // the signer reads what they sign, text outside the object cannot be allowed
 // to ride along. Reject it before the parser ever sees the document.
 //
-// This validates framing only - one bracketed value, no comments, nothing
-// after it. Whether the contents are legal json is still the parser's job.
+// The same premise rules out any number whose spelling is not its value.
+// jsoncpp hands every token with a '.' or an exponent to sscanf("%lf"), which
+// rounds to the nearest double, so
+//
+//     "Amount": 4503599627370497.5
+//
+// is read by the signer as one value and executes as 4503599627370498 drops,
+// and a token such as 012 reads as octal to some eyes and as twelve to the
+// parser. So a number here is exactly -?(0|[1-9][0-9]*), and not -0: the
+// digits on the page are the digits that execute. (sscanf is also locale
+// sensitive in its decimal point; with no '.' ever reaching it, that stops
+// mattering too.) Fractional amounts are strings, which is what the ledger
+// wants anyway.
+//
+// Raw control characters inside strings are refused for the same reason \u
+// escapes are: the node's own rendering would escape them, so they could never
+// verify, and a terminal would act on them rather than show them.
+//
+// This validates framing and lexical form only - one object, no comments,
+// nothing before or after it. Whether the contents are legal json is still the
+// parser's job.
 inline void
 jsontx_strict(std::string_view raw)
 {
     std::size_t depth = 0;
-    bool str = false, esc = false, closed = false;
+    bool str = false, esc = false, opened = false, closed = false;
+
+    auto const digit = [](char c) { return c >= '0' && c <= '9'; };
 
     for (std::size_t i = 0; i < raw.size(); ++i)
     {
@@ -321,6 +363,8 @@ jsontx_strict(std::string_view raw)
 
         if (str)
         {
+            if (static_cast<unsigned char>(c) < 0x20)
+                throw std::runtime_error("jsontx: control character in string");
             if (esc)
             {
                 if (c == 'u')
@@ -343,7 +387,23 @@ jsontx_strict(std::string_view raw)
             case '\r':
             case '\n':
                 continue;
+            default:
+                break;
+        }
 
+        if (closed)
+            throw std::runtime_error("jsontx: trailing data after document");
+
+        if (!opened)
+        {
+            // the root is an object, and nothing but whitespace precedes it
+            if (c != '{')
+                throw std::runtime_error("jsontx: document must be an object");
+            opened = true;
+        }
+
+        switch (c)
+        {
             case '"':
                 str = true;
                 break;
@@ -359,7 +419,7 @@ jsontx_strict(std::string_view raw)
                     throw std::runtime_error("jsontx: unbalanced document");
                 if (--depth == 0)
                     closed = true;
-                continue;
+                break;
 
             case '/':
                 // a bare '/' is not legal json either way, so leave that to
@@ -371,11 +431,29 @@ jsontx_strict(std::string_view raw)
                 break;
 
             default:
+                if (c == '-' || c == '+' || digit(c))
+                {
+                    // take the whole token, as far as anything the parser
+                    // could fold into a number, then check its spelling
+                    std::size_t j = i;
+                    while (j < raw.size() &&
+                           (digit(raw[j]) || raw[j] == '-' || raw[j] == '+' ||
+                            raw[j] == '.' || raw[j] == 'e' || raw[j] == 'E'))
+                        ++j;
+                    std::string_view const tok = raw.substr(i, j - i);
+                    std::size_t const neg = tok.front() == '-' ? 1 : 0;
+                    std::string_view const mag = tok.substr(neg);
+                    bool const ok = !mag.empty() &&
+                        std::all_of(mag.begin(), mag.end(), digit) &&
+                        (mag.size() == 1 || mag.front() != '0') &&
+                        !(neg && mag == "0");
+                    if (!ok)
+                        throw std::runtime_error(
+                            "jsontx: number must be a plain integer");
+                    i = j - 1;
+                }
                 break;
         }
-
-        if (closed)
-            throw std::runtime_error("jsontx: trailing data after document");
     }
 
     if (str || depth || !closed)
