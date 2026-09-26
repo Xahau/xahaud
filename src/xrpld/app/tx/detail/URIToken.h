@@ -34,7 +34,7 @@ public:
     /** Validate a URI or HookName as UTF-8. See ripple::isValidUTF8. */
     bool inline static validateUTF8(std::vector<uint8_t> const& u)
     {
-        return isValidUTF8(u.data(), u.size());
+        return isValidUTF8(makeSlice(u));
     }
 
     static constexpr ConsequencesFactoryType ConsequencesFactory{Normal};

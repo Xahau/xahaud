@@ -20,8 +20,7 @@
 #ifndef RIPPLE_PROTOCOL_UTF8_H_INCLUDED
 #define RIPPLE_PROTOCOL_UTF8_H_INCLUDED
 
-#include <cstddef>
-#include <cstdint>
+#include <xrpl/basics/Slice.h>
 
 namespace ripple {
 
@@ -49,13 +48,12 @@ namespace ripple {
     sequences, where the previous decoder read out of bounds, are now always
     rejected. Any further change to what this accepts needs an amendment.
 
-    @param data Pointer to the first byte; may be nullptr iff size is 0.
-    @param size Length in bytes.
+    @param s The bytes to check.
 
-    @note Total: every byte read is within [data, data + size).
+    @note Total: every byte read is within s.
 */
 bool
-isValidUTF8(std::uint8_t const* data, std::size_t size) noexcept;
+isValidUTF8(Slice const& s) noexcept;
 
 }  // namespace ripple
 

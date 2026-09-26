@@ -22,8 +22,10 @@
 namespace ripple {
 
 bool
-isValidUTF8(std::uint8_t const* data, std::size_t size) noexcept
+isValidUTF8(Slice const& s) noexcept
 {
+    std::size_t const size = s.size();
+
     // Markus Kuhn's utf8_check.c
     // (https://www.cl.cam.ac.uk/~mgk25/ucs/utf8_check.c), the decoder
     // URIToken has always used, with one change: each branch establishes
@@ -32,7 +34,7 @@ isValidUTF8(std::uint8_t const* data, std::size_t size) noexcept
     std::size_t i = 0;
     while (i < size)
     {
-        std::uint8_t const c0 = data[i];
+        std::uint8_t const c0 = s[i];
 
         if (c0 < 0x80)
         {
@@ -46,7 +48,7 @@ isValidUTF8(std::uint8_t const* data, std::size_t size) noexcept
             // 110xxxxx 10xxxxxx
             if (size - i < 2)
                 return false;
-            if ((data[i + 1] & 0xC0) != 0x80)
+            if ((s[i + 1] & 0xC0) != 0x80)
                 return false;
             if ((c0 & 0xFE) == 0xC0)  // overlong
                 return false;
@@ -59,15 +61,15 @@ isValidUTF8(std::uint8_t const* data, std::size_t size) noexcept
             // 1110xxxx 10xxxxxx 10xxxxxx
             if (size - i < 3)
                 return false;
-            std::uint8_t const c1 = data[i + 1];
-            if ((c1 & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80)
+            std::uint8_t const c1 = s[i + 1];
+            if ((c1 & 0xC0) != 0x80 || (s[i + 2] & 0xC0) != 0x80)
                 return false;
             if (c0 == 0xE0 && (c1 & 0xE0) == 0x80)  // overlong
                 return false;
             if (c0 == 0xED && (c1 & 0xE0) == 0xA0)  // UTF-16 surrogate
                 return false;
             if (c0 == 0xEF && c1 == 0xBF &&
-                (data[i + 2] & 0xFE) == 0xBE)  // U+FFFE or U+FFFF
+                (s[i + 2] & 0xFE) == 0xBE)  // U+FFFE or U+FFFF
                 return false;
             i += 3;
             continue;
@@ -78,9 +80,9 @@ isValidUTF8(std::uint8_t const* data, std::size_t size) noexcept
             // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
             if (size - i < 4)
                 return false;
-            std::uint8_t const c1 = data[i + 1];
-            if ((c1 & 0xC0) != 0x80 || (data[i + 2] & 0xC0) != 0x80 ||
-                (data[i + 3] & 0xC0) != 0x80)
+            std::uint8_t const c1 = s[i + 1];
+            if ((c1 & 0xC0) != 0x80 || (s[i + 2] & 0xC0) != 0x80 ||
+                (s[i + 3] & 0xC0) != 0x80)
                 return false;
             if (c0 == 0xF0 && (c1 & 0xF0) == 0x80)  // overlong
                 return false;
