@@ -55,10 +55,8 @@ sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abb
 conan export external/snappy --version 1.1.10 --user xahaud --channel stable &&
 conan export external/soci --version 4.0.3 --user xahaud --channel stable &&
 cd release-build &&
-# Install dependencies - tool_requires in conanfile.py handles glibc 2.28 compatibility
-# for build tools (protoc, grpc plugins, b2) in HBB environment
-# The tool_requires('b2/5.3.2') in conanfile.py should force b2 to build from source
-# with the correct toolchain, avoiding the GLIBCXX_3.4.29 issue
+# Install dependencies. The Conan profile tags package_ids with the glibc
+# baseline, so tools like b2/protoc are built locally instead of downloaded.
 echo "=== Installing dependencies ===" &&
 conan install .. --output-folder . --build missing --settings build_type=$BUILD_TYPE \
   -o with_wasmedge=False -o tool_requires_b2=True &&
@@ -78,8 +76,10 @@ strip -s rippled &&
 mv rippled xahaud &&
 echo "=== Full ldd output ===" &&
 ldd xahaud &&
-echo "=== Running libcheck ===" &&
-libcheck xahaud &&
+echo "=== Checking GLIBC requirement (must be <= 2.28) ===" &&
+GLIBC_MAX=$(objdump -T xahaud | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1) &&
+echo "Max required: $GLIBC_MAX" &&
+[ "$(printf '%s\n' GLIBC_2.28 "$GLIBC_MAX" | sort -V | tail -1)" = "GLIBC_2.28" ] &&
 echo "Build host: `hostname`" > release.info &&
 echo "Build date: `date`" >> release.info &&
 echo "Build md5: `md5sum xahaud`" >> release.info &&
@@ -88,9 +88,11 @@ git remote -v >> release.info &&
 echo "Git status:" >> release.info &&
 git status -v >> release.info &&
 echo "Git log [last 20]:" >> release.info &&
-git log -n 20 >> release.info;
+git log -n 20 >> release.info || BUILD_FAILED=1
 
-if [[ "$4" == "" ]]; then
+if [[ -n "${BUILD_FAILED:-}" ]]; then
+  echo "ERR build failed, not publishing"
+elif [[ "$4" == "" ]]; then
   # Non GH, local building
   echo "Non GH, local building, no Action runner magic"
 else
@@ -109,7 +111,7 @@ else
   echo $(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
 fi
 
-cd ..;
+cd /io;
 
 mv src/xrpld/net/detail/RegisterSSLCerts.cpp.old src/xrpld/net/detail/RegisterSSLCerts.cpp;
 mv cmake/deps/WasmEdge.old cmake/deps/WasmEdge.cmake;
@@ -117,3 +119,5 @@ rm src/certs/certbundle.h;
 git checkout src/libxrpl/protocol/BuildInfo.cpp;
 
 echo "END INSIDE CONTAINER - CORE"
+
+[[ -z "${BUILD_FAILED:-}" ]] || exit 1
