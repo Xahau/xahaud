@@ -388,6 +388,12 @@ HOOK_API_DEFINITION(
   int64_t, xport_cancel, (uint32_t, uint32_t, uint32_t),
   featureExport)
 
+// Draws in a strong Hook require terminal strong execution: a subsequent
+// eligible strong Hook makes the transaction fail with tecHOOK_REJECTED,
+// even if it would accept or hook_skip requested its omission. Status queries
+// and rejected draws do not trigger this boundary. The drawing Hook can still
+// fail, so value-bearing applications must commit inputs/stake in an earlier
+// transaction and prevent settlement retries from selecting a fresh outcome.
 // int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
 HOOK_API_DEFINITION(
   int64_t, entropy_cr_dice, (uint32_t, uint32_t),

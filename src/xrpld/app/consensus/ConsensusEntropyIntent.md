@@ -352,6 +352,24 @@ into an INV violation:
 - **Fallback (tier 1) is user-influenceable** (a quiet-ledger submitter can grind
   the tx set). That is why it is a distinct labeled tier hooks must opt into, and
   never suitable for value-bearing outcomes.
+- **Strong Hook composition after a draw fails closed.** With CE enabled, once
+  a strong Hook has drawn, reaching another eligible strong Hook rejects the
+  transaction with `tecHOOK_REJECTED`. This includes later Hooks in the same
+  chain and strong stakeholders such as a Remit destination or burnable
+  URI-token issuer, even if those Hooks would accept. The engine does not
+  silently bypass their protections. `hook_skip` cannot evade this rule;
+  inactive HookOn entries, unmatched HookName entries, blank slots, and accounts
+  without Hooks do not count as eligible later execution. Status queries and
+  failed draws do not consume a draw; weak/again-as-weak execution remains
+  separate from strong veto authority.
+  This boundary does not prevent the drawing Hook itself from rejecting or
+  exhausting shared resources, nor does it make base application infallible.
+  Value-bearing applications must commit their inputs and stake in an earlier
+  successful transaction before resolving through emitted or Cron work. An
+  emitted transaction still executes applicable strong stakeholder Hooks and
+  is subject to this boundary. Emission alone does not freeze a draw across
+  retries: the application must prevent retries or rescheduling from selecting
+  a different outcome, and handle failed payouts separately from settlement.
 - **Provisional open-ledger entropy** differs from the closed-ledger value
   (speculative execution sees the previous ledger's entropy in the open ledger,
   the current ledger's at close). Open-ledger `entropy_cr_dice()`/`entropy_cr_random()` are previews,

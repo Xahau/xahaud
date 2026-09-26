@@ -46,6 +46,22 @@
 
 namespace ripple {
 
+namespace {
+
+bool
+hasConsensusEntropyDraw(std::vector<hook::HookResult> const& results)
+{
+    for (auto const& result : results)
+    {
+        if (result.rngCallCounter != 0)
+            return true;
+    }
+
+    return false;
+}
+
+}  // namespace
+
 /** Performs early sanity checks on the txid */
 NotTEC
 preflight0(PreflightContext const& ctx)
@@ -1365,7 +1381,11 @@ Transactor::executeHookChain(
         // lookup hook definition
         uint256 const& hookHash = hookObj.getFieldH256(sfHookHash);
 
-        if (hookSkips.find(hookHash) != hookSkips.end())
+        bool const afterEntropyDraw = strong &&
+            ctx_.view().rules().enabled(featureConsensusEntropy) &&
+            hasConsensusEntropyDraw(results);
+
+        if (!afterEntropyDraw && hookSkips.find(hookHash) != hookSkips.end())
         {
             // LCOV_EXCL_START
             JLOG(j_.trace()) << "HookInfo: Skipping " << hookHash;
@@ -1403,6 +1423,19 @@ Transactor::executeHookChain(
 
         if (!hook::canHook(ctx_.tx.getTxnType(), hookOn))
             continue;  // skip if it can't
+
+        // A draw must not disable another strong Hook's veto. Reject this
+        // composition before running the later Hook or honoring hook_skip:
+        // skips can themselves depend on the preceding draw's outcome.
+        if (afterEntropyDraw)
+        {
+            JLOG(j_.trace())
+                << "HookInfo[" << account << "-"
+                << ctx_.tx.getAccountID(sfAccount)
+                << "]: Rejecting later strong hook after consensus entropy "
+                   "draw.";
+            return tecHOOK_REJECTED;
+        }
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
 

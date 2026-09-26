@@ -27,10 +27,12 @@
 #include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
 #include <algorithm>
+#include <array>
 #include <limits>
 
 namespace ripple {
@@ -99,6 +101,13 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         return (rawCode & 0x8000000000000000ULL)
             ? -static_cast<int64_t>(rawCode & 0x7FFFFFFFFFFFFFFFULL)
             : static_cast<int64_t>(rawCode);
+    }
+
+    static std::string
+    hookReturnString(STObject const& hookExecution)
+    {
+        auto const ret = hookExecution.getFieldVL(sfHookReturnString);
+        return std::string(ret.begin(), ret.end());
     }
 
     void
@@ -1151,6 +1160,677 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testEntropyDrawRejectsLaterStrongStakeholder()
+    {
+        testcase(
+            "Hook entropy draw rejects later strong stakeholder composition");
+        using namespace jtx;
+
+        TestHook gameHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t state_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len);
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                int64_t roll = entropy_cr_dice(6, 3);
+                if (roll < 0)
+                    return rollback(0, 0, roll);
+
+                uint8_t key[32] = {
+                    'r','n','g','-','s','t','r','o','n','g','-','v','e','t','o'};
+                uint8_t marker[1] = {0xA5U};
+                if (state_set(SBUF(marker), SBUF(key)) != 1)
+                    return rollback(0, 0, 100);
+
+                return accept(0, 0, roll);
+            }
+        )[test.hook]"];
+
+        TestHook plainGameHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t state_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len);
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                uint8_t key[32] = {
+                    'r','n','g','-','s','t','r','o','n','g','-','v','e','t','o'};
+                uint8_t marker[1] = {0xA5U};
+                if (state_set(SBUF(marker), SBUF(key)) != 1)
+                    return rollback(0, 0, 100);
+
+                return accept(0, 0, 77);
+            }
+        )[test.hook]"];
+
+        TestHook issuerHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t otxn_field(uint32_t write_ptr, uint32_t write_len, uint32_t field_id);
+            extern int64_t state_foreign(
+                uint32_t write_ptr,
+                uint32_t write_len,
+                uint32_t kread_ptr,
+                uint32_t kread_len,
+                uint32_t nread_ptr,
+                uint32_t nread_len,
+                uint32_t aread_ptr,
+                uint32_t aread_len);
+            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define sfDestination ((8U << 16U) + 3U)
+            #define DOESNT_EXIST (-5)
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                uint8_t destination[20];
+                if (otxn_field(SBUF(destination), sfDestination) != 20)
+                    return rollback(0, 0, 200);
+
+                uint8_t key[32] = {
+                    'r','n','g','-','s','t','r','o','n','g','-','v','e','t','o'};
+                uint8_t ns[32];
+                for (int i = 0; GUARD(32), i < 32; ++i)
+                    ns[i] = 0;
+
+                uint8_t marker[1] = {0};
+                int64_t bytes = state_foreign(
+                    SBUF(marker), SBUF(key), SBUF(ns), SBUF(destination));
+
+                // This is the post-selection vector: a later strong
+                // burnable-token issuer can see destination pending state
+                // created after an entropy draw and tries to veto.
+                if (bytes == 1 && marker[0] == 0xA5U)
+                    return rollback((uint32_t)"issuer veto", 11, 9001);
+
+                if (bytes != DOESNT_EXIST && bytes != 1)
+                    return rollback(0, 0, bytes);
+
+                return accept(0, 0, bytes);
+            }
+        )[test.hook]"];
+
+        std::array<std::uint8_t, 32> markerKeyBytes{};
+        std::string const markerKeyPrefix = "rng-strong-veto";
+        std::copy(
+            markerKeyPrefix.begin(),
+            markerKeyPrefix.end(),
+            markerKeyBytes.begin());
+        auto const markerKey = uint256::fromVoid(markerKeyBytes.data());
+
+        {
+            Env env{
+                *this,
+                envconfig(),
+                supported_amendments() | featureConsensusEntropy,
+                nullptr};
+
+            auto const player = Account{"player"};
+            auto const game = Account{"game"};
+            auto const issuer = Account{"issuer"};
+            env.fund(XRP(10000), player, game, issuer);
+            env.close();
+
+            std::string const uri = "rng-terminal-veto-control";
+            auto const tokenID = uritoken::tokenid(issuer, uri);
+            auto const hexTokenID = strHex(tokenID);
+
+            env(uritoken::mint(issuer, uri),
+                txflags(tfBurnable),
+                ter(tesSUCCESS));
+            env(uritoken::sell(issuer, hexTokenID),
+                uritoken::amt(XRP(1)),
+                uritoken::dest(player),
+                ter(tesSUCCESS));
+            env.close();
+
+            env(uritoken::buy(player, hexTokenID),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            env(ripple::test::jtx::hook(
+                    game, {{hso(plainGameHook, overrideFlag)}}, 0),
+                M("set non-rng game hook"),
+                HSFEE);
+            env.close();
+
+            env(ripple::test::jtx::hook(
+                    issuer, {{hso(issuerHook, overrideFlag)}}, 0),
+                M("set vetoing issuer hook"),
+                HSFEE);
+            env.close();
+
+            auto const preToken = env.le(Keylet{ltURI_TOKEN, tokenID});
+            BEAST_REQUIRE(preToken);
+            BEAST_EXPECT(preToken->getAccountID(sfOwner) == player.id());
+            BEAST_EXPECT(preToken->getAccountID(sfIssuer) == issuer.id());
+            BEAST_EXPECT(preToken->getFlags() & lsfBurnable);
+
+            env(remit::remit(player, game),
+                remit::token_ids({hexTokenID}),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+
+            auto meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 2);
+            BEAST_EXPECT(
+                hookExecutions[0].getAccountID(sfHookAccount) == game.id());
+            BEAST_EXPECT(
+                hookExecutions[0].getFieldU8(sfHookResult) ==
+                static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+            BEAST_EXPECT(hookReturnCode(hookExecutions[0]) == 77);
+            BEAST_EXPECT(
+                hookExecutions[1].getAccountID(sfHookAccount) == issuer.id());
+            BEAST_EXPECT(
+                hookExecutions[1].getFieldU8(sfHookResult) ==
+                static_cast<std::uint8_t>(hook_api::ExitType::ROLLBACK));
+            BEAST_EXPECT(hookReturnCode(hookExecutions[1]) == 9001);
+            BEAST_EXPECT(hookReturnString(hookExecutions[1]) == "issuer veto");
+
+            BEAST_EXPECT(
+                !env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
+
+            auto const postToken = env.le(Keylet{ltURI_TOKEN, tokenID});
+            BEAST_REQUIRE(postToken);
+            BEAST_EXPECT(postToken->getAccountID(sfOwner) == player.id());
+        }
+
+        {
+            Env env{
+                *this,
+                envconfig(),
+                supported_amendments() | featureConsensusEntropy,
+                nullptr};
+
+            auto const player = Account{"player"};
+            auto const game = Account{"game"};
+            auto const issuer = Account{"issuer"};
+            env.fund(XRP(10000), player, game, issuer);
+            env.close();
+
+            BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+
+            std::string const uri = "rng-terminal-veto-token";
+            auto const tokenID = uritoken::tokenid(issuer, uri);
+            auto const hexTokenID = strHex(tokenID);
+
+            env(uritoken::mint(issuer, uri),
+                txflags(tfBurnable),
+                ter(tesSUCCESS));
+            env(uritoken::sell(issuer, hexTokenID),
+                uritoken::amt(XRP(1)),
+                uritoken::dest(player),
+                ter(tesSUCCESS));
+            env.close();
+
+            env(uritoken::buy(player, hexTokenID),
+                uritoken::amt(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            env(ripple::test::jtx::hook(
+                    game, {{hso(gameHook, overrideFlag)}}, 0),
+                M("set rng game hook"),
+                HSFEE);
+            env.close();
+
+            env(ripple::test::jtx::hook(
+                    issuer, {{hso(issuerHook, overrideFlag)}}, 0),
+                M("set vetoing issuer hook"),
+                HSFEE);
+            env.close();
+
+            auto const preToken = env.le(Keylet{ltURI_TOKEN, tokenID});
+            BEAST_REQUIRE(preToken);
+            BEAST_EXPECT(preToken->getAccountID(sfOwner) == player.id());
+            BEAST_EXPECT(preToken->getAccountID(sfIssuer) == issuer.id());
+            BEAST_EXPECT(preToken->getFlags() & lsfBurnable);
+
+            BEAST_EXPECT(
+                !env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
+
+            env(remit::remit(player, game),
+                remit::token_ids({hexTokenID}),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+
+            auto meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+            BEAST_EXPECT(
+                hookExecutions[0].getAccountID(sfHookAccount) == game.id());
+            BEAST_EXPECT(
+                hookExecutions[0].getFieldU8(sfHookResult) ==
+                static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+
+            auto const entropy = env.le(keylet::consensusEntropy());
+            BEAST_REQUIRE(entropy);
+            auto const firstBlock = sha512Half(
+                entropy->getFieldU32(sfLedgerSequence),
+                env.tx()->getTransactionID(),
+                player.id(),
+                hookExecutions[0].getFieldH256(sfHookHash),
+                game.id(),
+                std::uint8_t{0},
+                std::string{"strong"},
+                std::string{"direct"},
+                entropy->getFieldH256(sfDigest),
+                std::uint64_t{0});
+            BEAST_EXPECT(
+                hookReturnCode(hookExecutions[0]) ==
+                expectedDice(firstBlock, 6));
+
+            BEAST_EXPECT(
+                !env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
+
+            auto const token = env.le(Keylet{ltURI_TOKEN, tokenID});
+            BEAST_REQUIRE(token);
+            BEAST_EXPECT(token->getAccountID(sfOwner) == player.id());
+
+            // Terminal destination draw remains usable when there is no
+            // subsequent strong stakeholder Hook.
+            env(pay(player, game, XRP(1)), fee(XRP(1)));
+            BEAST_EXPECT(
+                env.meta()->getFieldArray(sfHookExecutions).size() == 1);
+            BEAST_EXPECT(
+                env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
+
+            // A sender drawing first cannot bypass the destination's Hook,
+            // even when that destination would itself accept the payment.
+            env(ripple::test::jtx::hook(
+                    player, {{hso(gameHook, overrideFlag)}}, 0),
+                HSFEE);
+            env.close();
+            auto const gameBalance = env.balance(game);
+            env(pay(player, game, XRP(1)), fee(XRP(1)), ter(tecHOOK_REJECTED));
+            auto const senderExecutions =
+                env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(senderExecutions.size() == 1);
+            BEAST_EXPECT(
+                senderExecutions[0].getAccountID(sfHookAccount) == player.id());
+            BEAST_EXPECT(env.balance(game) == gameBalance);
+            BEAST_EXPECT(!env.le(
+                keylet::hookState(player.id(), markerKey, beast::zero)));
+        }
+    }
+
+    void
+    testEntropyDrawRejectsLaterStrongHookInSameChain()
+    {
+        testcase(
+            "Hook entropy draw rejects later strong same-chain composition");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+
+        auto const game = Account{"samechain"};
+        env.fund(XRP(10000), game);
+        env.close();
+
+        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+
+        TestHook gameHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t state_set(uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len);
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                int64_t roll = entropy_cr_dice(6, 3);
+                if (roll < 0)
+                    return rollback(0, 0, roll);
+
+                uint8_t key[32] = {
+                    'r','n','g','-','s','a','m','e','-','c','h','a','i','n'};
+                uint8_t marker[1] = {0xA5U};
+                if (state_set(SBUF(marker), SBUF(key)) != 1)
+                    return rollback(0, 0, 100);
+
+                return accept(0, 0, roll);
+            }
+        )[test.hook]"];
+
+        TestHook vetoHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t state(uint32_t write_ptr, uint32_t write_len, uint32_t kread_ptr, uint32_t kread_len);
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define DOESNT_EXIST (-5)
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                uint8_t key[32] = {
+                    'r','n','g','-','s','a','m','e','-','c','h','a','i','n'};
+                uint8_t marker[1] = {0};
+                int64_t bytes = state(SBUF(marker), SBUF(key));
+                if (bytes == 1 && marker[0] == 0xA5U)
+                    return rollback((uint32_t)"same chain veto", 15, 9101);
+
+                if (bytes != DOESNT_EXIST && bytes != 1)
+                    return rollback(0, 0, bytes);
+
+                return accept(0, 0, bytes);
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(
+                game,
+                {{hso(gameHook, overrideFlag), hso(vetoHook, overrideFlag)}},
+                0),
+            M("set same-chain rng and veto hooks"),
+            HSFEE);
+        env.close();
+
+        std::array<std::uint8_t, 32> markerKeyBytes{};
+        std::string const markerKeyPrefix = "rng-same-chain";
+        std::copy(
+            markerKeyPrefix.begin(),
+            markerKeyPrefix.end(),
+            markerKeyBytes.begin());
+        auto const markerKey = uint256::fromVoid(markerKeyBytes.data());
+
+        BEAST_EXPECT(
+            !env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = game.human();
+        env(invoke,
+            M("same-chain composition rejected after rng"),
+            fee(XRP(1)),
+            ter(tecHOOK_REJECTED));
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+        BEAST_EXPECT(
+            hookExecutions[0].getAccountID(sfHookAccount) == game.id());
+        BEAST_EXPECT(
+            hookExecutions[0].getFieldU8(sfHookResult) ==
+            static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+
+        auto const entropy = env.le(keylet::consensusEntropy());
+        BEAST_REQUIRE(entropy);
+        auto const firstBlock = sha512Half(
+            entropy->getFieldU32(sfLedgerSequence),
+            env.tx()->getTransactionID(),
+            game.id(),
+            hookExecutions[0].getFieldH256(sfHookHash),
+            game.id(),
+            std::uint8_t{0},
+            std::string{"strong"},
+            std::string{"direct"},
+            entropy->getFieldH256(sfDigest),
+            std::uint64_t{0});
+        BEAST_EXPECT(
+            hookReturnCode(hookExecutions[0]) == expectedDice(firstBlock, 6));
+
+        BEAST_EXPECT(
+            !env.le(keylet::hookState(game.id(), markerKey, beast::zero)));
+    }
+
+    void
+    testEntropyCompositionFilters()
+    {
+        testcase("Entropy composition admission, skips, and inactive Hooks");
+        using namespace jtx;
+
+        TestHook drawingHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            extern int64_t rollback(uint32_t, uint32_t, int64_t);
+            extern int64_t entropy_cr_random(uint32_t, uint32_t, uint32_t);
+            extern int64_t entropy_cr_dice(uint32_t, uint32_t);
+            extern int64_t entropy_cr_status(void);
+            extern int64_t otxn_field(uint32_t, uint32_t, uint32_t);
+            extern int64_t hook_hash(uint32_t, uint32_t, int32_t);
+            extern int64_t hook_skip(uint32_t, uint32_t, uint32_t);
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define sfSourceTag ((2U << 16U) + 3U)
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                uint8_t tag[4];
+                if (otxn_field(SBUF(tag), sfSourceTag) != 4)
+                    return rollback(0, 0, 100);
+
+                if (tag[3] == 0)
+                    return accept(0, 0, entropy_cr_status());
+                if (tag[3] == 1)
+                    return accept(0, 0, entropy_cr_dice(0, 3));
+
+                uint8_t bytes[32];
+                if (entropy_cr_random(SBUF(bytes), 3) != 32)
+                    return rollback(0, 0, 101);
+
+                if (tag[3] == 3)
+                {
+                    uint8_t hash[32];
+                    if (hook_hash(SBUF(hash), 1) != 32)
+                        return rollback(0, 0, 102);
+                    if (hook_skip(SBUF(hash), 0) != 1)
+                        return rollback(0, 0, 103);
+                }
+                return accept(0, 0, 42);
+            }
+        )[test.hook]"];
+
+        TestHook acceptingHook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t, uint32_t, int64_t);
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                return accept(0, 0, 77);
+            }
+        )[test.hook]"];
+
+        Env env{*this, supported_amendments() | featureConsensusEntropy};
+        auto const alice = Account{"composition"};
+        auto const bob = Account{"unhooked"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        env(ripple::test::jtx::hook(
+                alice,
+                {{hso(drawingHook, overrideFlag),
+                  hso(acceptingHook, overrideFlag)}},
+                0),
+            HSFEE);
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+
+        // Status and rejected draw arguments do not enter the draw boundary.
+        // Successful byte draws reject even an accepting later Hook, including
+        // when the drawing Hook tries to skip it after receiving the bytes.
+        for (unsigned mode = 0; mode < 4; ++mode)
+        {
+            invoke["SourceTag"] = mode;
+            env(invoke,
+                fee(XRP(1)),
+                mode < 2 ? ter(tesSUCCESS) : ter(tecHOOK_REJECTED));
+            auto const meta = env.meta();
+            BEAST_REQUIRE(meta);
+            auto const executions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(executions.size() == (mode < 2 ? 2 : 1));
+            BEAST_EXPECT(
+                executions[0].getFieldU8(sfHookResult) ==
+                static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+            if (mode < 2)
+                BEAST_EXPECT(hookReturnCode(executions[1]) == 77);
+            else
+                BEAST_EXPECT(hookReturnCode(executions[0]) == 42);
+        }
+
+        // Only eligible later Hooks prohibit the composition. An inactive
+        // HookOn, unmatched HookName, or blank slot is not a veto authority.
+        for (unsigned filter = 0; filter < 3; ++filter)
+        {
+            auto tail = hso(acceptingHook, overrideFlag);
+            if (filter == 0)
+                tail[jss::HookOn] = to_string(UINT256_BIT[ttINVOKE]);
+            else if (filter == 1)
+                tail[jss::HookName] = "7465726D";
+            else
+                tail = hso_delete();
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(drawingHook, overrideFlag), tail}}, 0),
+                HSFEE);
+            env.close();
+            invoke["SourceTag"] = 2;
+            env(invoke, fee(XRP(1)));
+            BEAST_REQUIRE(env.meta());
+            auto const executions = env.meta()->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(executions.size() == 1);
+            BEAST_EXPECT(hookReturnCode(executions[0]) == 42);
+
+            if (filter == 1)
+            {
+                // Matching that name makes the later Hook eligible again.
+                invoke[jss::HookName] = "7465726D";
+                env(invoke, fee(XRP(1)), ter(tecHOOK_REJECTED));
+                invoke.removeMember(jss::HookName);
+            }
+        }
+
+        // A later strong stakeholder with no Hook is also harmless.
+        invoke[jss::Destination] = bob.human();
+        env(invoke, fee(XRP(1)));
+        BEAST_REQUIRE(env.meta());
+        BEAST_EXPECT(env.meta()->getFieldArray(sfHookExecutions).size() == 1);
+    }
+
+    void
+    testEntropyDrawDoesNotBlockWeakAgainAsWeak()
+    {
+        testcase("Hook entropy draw does not block weak again-as-weak");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            supported_amendments() | featureConsensusEntropy,
+            nullptr};
+
+        auto const alice = Account{"weakrng"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        BEAST_REQUIRE(env.le(keylet::consensusEntropy()));
+
+        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier);
+            extern int64_t hook_again(void);
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                if (r > 0)
+                    return accept((uint32_t)"weak", 4, 42);
+
+                int64_t roll = entropy_cr_dice(6, 3);
+                if (roll < 0)
+                    return rollback(0, 0, roll);
+
+                if (hook_again() != 1)
+                    return rollback((uint32_t)"again failed", 12, 100);
+
+                return accept((uint32_t)"strong", 6, roll);
+            }
+        )[test.hook]"];
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set rng hook_again hook"),
+            HSFEE);
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+        env(invoke, M("rng strong plus weak again-as-weak"), fee(XRP(1)));
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 2);
+        BEAST_EXPECT(
+            hookExecutions[0].getFieldU8(sfHookResult) ==
+            static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+        BEAST_EXPECT(
+            hookExecutions[1].getFieldU8(sfHookResult) ==
+            static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT));
+
+        auto const entropy = env.le(keylet::consensusEntropy());
+        BEAST_REQUIRE(entropy);
+        auto const firstBlock = sha512Half(
+            entropy->getFieldU32(sfLedgerSequence),
+            env.tx()->getTransactionID(),
+            alice.id(),
+            hookExecutions[0].getFieldH256(sfHookHash),
+            alice.id(),
+            std::uint8_t{0},
+            std::string{"strong"},
+            std::string{"direct"},
+            entropy->getFieldH256(sfDigest),
+            std::uint64_t{0});
+        BEAST_EXPECT(
+            hookReturnCode(hookExecutions[0]) == expectedDice(firstBlock, 6));
+        BEAST_EXPECT(hookReturnString(hookExecutions[0]) == "strong");
+        BEAST_EXPECT(hookReturnCode(hookExecutions[1]) == 42);
+        BEAST_EXPECT(hookReturnString(hookExecutions[1]) == "weak");
+    }
+
+    void
     run() override
     {
         testSLECreated();
@@ -1166,6 +1846,10 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testRetiredImportNamesRejected();
         testRandomTierRequirementNotMet();
         testInvalidEntropyRequirements();
+        testEntropyDrawRejectsLaterStrongStakeholder();
+        testEntropyDrawRejectsLaterStrongHookInSameChain();
+        testEntropyCompositionFilters();
+        testEntropyDrawDoesNotBlockWeakAgainAsWeak();
         testRandom();
         testDiceConsecutiveCallsDiffer();
     }
