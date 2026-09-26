@@ -636,6 +636,12 @@ parseXChainOwnedCreateAccountClaimID(
 static std::optional<uint256>
 parseAppLoader(Json::Value const& params, Json::Value& jvResult)
 {
+    if (!params.isString())
+    {
+        jvResult[jss::error] = "malformedAddress";
+        return std::nullopt;
+    }
+
     auto const account = parseBase58<AccountID>(params.asString());
     if (!account || account->isZero())
     {

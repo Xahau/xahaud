@@ -704,6 +704,52 @@ public:
         beast::Journal const&);
 };
 
+/**
+ * @brief Invariants: AppLoader objects and their AccountRoot pointers stay
+ *        consistent.
+ *
+ * An ltAPP_LOADER is not in any owner directory; the only link to it is
+ * sfAppLoaderID on the owning AccountRoot. Nothing else (no directory walk,
+ * no OwnerCount) would notice the two drifting apart, so this checks, for
+ * every transaction that touches either side:
+ *
+ * - only AccountSet and AccountDelete create, modify or delete a loader or
+ *   change sfAppLoaderID, and only once featurePWALoader is enabled;
+ * - a live loader is keyed at keylet::appLoader(sfOwner), its owner's
+ *   AccountRoot exists and points at it, and its blob still passes
+ *   appLoader::validate (non-empty, within maxAppLoaderLength);
+ * - a deleted loader leaves no pointer behind on a surviving AccountRoot;
+ * - an AccountRoot that carries sfAppLoaderID points at its own keylet and
+ *   that object exists.
+ */
+class ValidAppLoader
+{
+    struct Loader
+    {
+        uint256 key;
+        AccountID owner;
+        bool deleted = false;
+        bool blobValid = false;
+    };
+    std::vector<Loader> loaders_;
+    std::vector<AccountID> pointersChanged_;
+
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&);
+};
+
 // additional invariant checks can be declared above and then added to this
 // tuple
 using InvariantChecks = std::tuple<
@@ -725,7 +771,8 @@ using InvariantChecks = std::tuple<
     ValidMPTIssuance,
     ValidPermissionedDomain,
     ValidAMM,
-    ValidLockedBalance>;
+    ValidLockedBalance,
+    ValidAppLoader>;
 
 /**
  * @brief get a tuple of all invariant checks

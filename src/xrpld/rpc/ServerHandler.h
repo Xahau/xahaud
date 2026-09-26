@@ -22,10 +22,13 @@
 
 #include <xrpld/app/main/CollectorManager.h>
 #include <xrpld/core/JobQueue.h>
+#include <xrpld/rpc/PWAStats.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/detail/UDPInfoSub.h>
 #include <xrpld/rpc/detail/WSInfoSub.h>
 #include <xrpl/json/Output.h>
+#include <xrpl/protocol/AccountID.h>
+#include <xrpl/resource/Consumer.h>
 #include <xrpl/server/Server.h>
 #include <xrpl/server/Session.h>
 #include <xrpl/server/WSSession.h>
@@ -99,6 +102,7 @@ private:
     std::condition_variable condition_;
     bool stopped_{false};
     std::map<std::reference_wrapper<Port const>, int> count_;
+    PWAStats pwaStats_;
 
     // A private type used to restrict access to the ServerHandler constructor.
     struct ServerHandlerCreator
@@ -139,6 +143,13 @@ public:
     setup() const
     {
         return setup_;
+    }
+
+    /** Usage statistics for "pwa" ports; see the pwa_info RPC. */
+    PWAStats&
+    pwaStats()
+    {
+        return pwaStats_;
     }
 
     Endpoints const&
@@ -217,15 +228,26 @@ private:
         std::shared_ptr<Session> const&,
         std::shared_ptr<JobQueue::Coro> coro);
 
-    /** Serve an account's on-ledger AppLoader document as HTML.
+    /** Entry point for ports whose protocol is "pwa".
 
-        Only reached when PWA_ENABLED is set and the request was a GET of
-        /pwa/<account>. Runs on the job queue because it reads the ledger.
+        Runs on the I/O thread and does only cheap work: checks that the
+        request came through a secure_gateway proxy with X-Forwarded-For,
+        meters it against the forwarded client address, and parses the
+        target. The ledger read is posted to the job queue.
+    */
+    void
+    onPWARequest(Session& session);
+
+    /** Serve an account's AppLoader document from the validated ledger.
+        Always closes the connection.
     */
     void
     processPWARequest(
         std::shared_ptr<Session> const& session,
-        AccountID const& account);
+        AccountID const& account,
+        boost::asio::ip::address const& client,
+        Resource::Consumer usage,
+        std::string const& ifNoneMatch);
 
     void
     processRequest(

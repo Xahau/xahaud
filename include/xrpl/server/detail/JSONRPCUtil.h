@@ -23,9 +23,6 @@
 #include <xrpl/json/Output.h>
 #include <xrpl/json/json_value.h>
 
-#include <string>
-#include <vector>
-
 namespace ripple {
 
 void
@@ -33,9 +30,7 @@ HTTPReply(
     int nStatus,
     std::string const& strMsg,
     Json::Output const&,
-    beast::Journal j,
-    std::string const& contentType = "application/json; charset=UTF-8",
-    std::vector<std::string> const& extraHeaders = {});
+    beast::Journal j);
 
 }  // namespace ripple
 

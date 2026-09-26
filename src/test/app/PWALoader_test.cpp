@@ -25,6 +25,8 @@
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/jss.h>
 
+#include <iterator>
+#include <random>
 #include <string>
 
 namespace ripple {
@@ -498,6 +500,361 @@ struct PWALoader_test : public beast::unit_test::suite
         BEAST_EXPECT(!env.le(keylet::appLoader(alice.id())));
     }
 
+    // validate() is consensus-critical: any change to what it accepts needs
+    // an amendment. These vectors pin behaviour at the edges that the
+    // shallow checks leave open, so an innocent-looking refactor that moves
+    // any of them fails here instead of forking the network.
+    void
+    testValidatorPinned()
+    {
+        testcase("validator pinned edge cases");
+        using R = appLoader::Result;
+        auto b = [](char const* s, std::size_t n) {
+            return check(std::string(s, n));
+        };
+#define PIN(lit, expect) BEAST_EXPECT(b(lit, sizeof(lit) - 1) == R::expect)
+
+        // The <html start tag may sit inside a comment; nothing parses
+        // comments. Accepted by design -- clients must not rely on
+        // structure beyond the checks documented in AppLoader.h.
+        PIN("<!DOCTYPE html><!-- <html> --><p></p></html>", ok);
+        // ...but a leading comment is not a doctype.
+        PIN("<!-- x --><html></html>", noDoctype);
+        // A trailing comment after </html> is rejected even though browsers
+        // accept it (build tools commonly emit one).
+        PIN("<!DOCTYPE html><html></html><!-- -->", trailingGarbage);
+
+        // A literal "</html>" inside a script string does not end the
+        // document early: the last well-formed end tag wins.
+        PIN("<html><script>'</html>'</script></html>", ok);
+        PIN("<html></html></html>", ok);
+        PIN("<!DOCTYPE html><htmlx><html></html>", ok);
+        // "</html/>" is not an end tag here.
+        PIN("<html></html/>", unclosed);
+        PIN("<html></HTML\t>", ok);
+
+        // Only one BOM is skipped.
+        PIN("\xEF\xBB\xBF\xEF\xBB\xBF<html></html>", noDoctype);
+        // An interior U+FEFF is ordinary text.
+        PIN("<html>\xEF\xBB\xBF</html>", ok);
+
+        // FORM FEED is HTML whitespace and is accepted everywhere,
+        // including as the doctype separator and inside the start tag.
+        // (AppLoader.h's summary lists only TAB, LF, CR -- the code is
+        // authoritative; fix the comment, not this vector.)
+        PIN("<!doctype\x0Chtml><html></html>", ok);
+        PIN("<html\x0C></html>", ok);
+        PIN("<html\r\n></html>", ok);
+        PIN("<html></html>\x0C", ok);
+
+        // Other C0 and DEL are rejected; C1 (U+0080..U+009F) is not.
+        PIN("<html>\x0B</html>", badControlChar);
+        PIN("<html>\x1B</html>", badControlChar);
+        PIN("<html>\x7F</html>", badControlChar);
+        PIN("<html></html>\x0B", badControlChar);
+        PIN("<html>\xC2\x85</html>", ok);
+
+        // Only ASCII whitespace may trail: NBSP and IDEOGRAPHIC SPACE do not
+        // count.
+        PIN("<html></html>\xC2\xA0", trailingGarbage);
+        PIN("<html></html>\xE3\x80\x80", trailingGarbage);
+
+        PIN("<!doctype><html></html>", noDoctype);
+
+        // Precedence: UTF-8 is checked before control characters, and size
+        // before either.
+        PIN("\xC0\xAF\x01", badUTF8);
+        BEAST_EXPECT(
+            check(std::string(maxAppLoaderLength + 1, '\x01')) == R::tooLarge);
+
+        // Content is not policed beyond structure: a meta refresh to an
+        // arbitrary site passes. The hosting endpoint is therefore an open
+        // redirector for anyone willing to pay the fee.
+        PIN("<html><meta http-equiv=\"refresh\" "
+            "content=\"0;url=https://evil.example\"></html>",
+            ok);
+#undef PIN
+
+        // nullptr with a non-zero size is defined, not UB.
+        BEAST_EXPECT(appLoader::validate(nullptr, 5) == R::empty);
+        BEAST_EXPECT(appLoader::validate(nullptr, 0) == R::empty);
+
+        // Size is measured in bytes, not code points, at the boundary.
+        {
+            std::string const h = "<html>", t = "</html>";
+            std::string const fits = h +
+                std::string(maxAppLoaderLength - h.size() - t.size() - 2, 'x') +
+                "\xC2\xA2" + t;
+            BEAST_EXPECT(fits.size() == maxAppLoaderLength);
+            BEAST_EXPECT(check(fits) == R::ok);
+            BEAST_EXPECT(check(fits + " ") == R::tooLarge);
+        }
+
+        // Totality: random inputs built from the tokens the validator cares
+        // about never crash and are deterministic. (Run under ASan/UBSan in
+        // CI; standalone, 300k cases of this generator are clean.)
+        {
+            static char const* const frag[] = {
+                "<html",
+                "<HTML",
+                ">",
+                "</html",
+                "</html>",
+                "<!doctype",
+                " ",
+                "\t",
+                "\n",
+                "\f",
+                "\xEF\xBB\xBF",
+                "\xEF\xBF\xBE",
+                "\xF4\x8F\xBF",
+                "\xC2",
+                "\xA2",
+                "/",
+                "x"};
+            std::mt19937_64 g{0x5057414c};
+            for (int i = 0; i < 20000; ++i)
+            {
+                std::string s;
+                std::size_t const n = g() % 48;
+                for (std::size_t k = 0; k < n; ++k)
+                {
+                    if (g() % 4)
+                        s += frag[g() % std::size(frag)];
+                    else
+                        s += static_cast<char>(g());
+                }
+                auto const r1 = check(s);
+                auto const r2 = check(s);
+                BEAST_EXPECT(r1 == r2);
+                BEAST_EXPECT(
+                    std::string(appLoader::to_string(r1)) != "unknown");
+            }
+        }
+    }
+
+    // The design claim is that a loader can be published by an account
+    // sitting at its reserve floor, and that it never touches OwnerCount.
+    void
+    testReserveFloor(FeatureBitset features)
+    {
+        testcase("reserve floor and owner count");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        auto const base = env.current()->fees().base;
+        std::string const doc = docOfSize(maxAppLoaderLength);
+        auto const needed = base + XRPAmount{std::int64_t(doc.size())};
+
+        env.fund(
+            drops(env.current()->fees().accountReserve(0) + needed),
+            noripple(alice));
+        env.close();
+
+        auto jt = noop(alice);
+        jt[sfAppLoader.fieldName] = strHex(doc);
+        env(jt, fee(needed));
+        env.close();
+
+        BEAST_EXPECT(env.le(keylet::appLoader(alice.id())));
+        BEAST_EXPECT(
+            env.balance(alice) ==
+            drops(env.current()->fees().accountReserve(0)));
+        env.require(owners(alice, 0));
+    }
+
+    void
+    testFeeVariants(FeatureBitset features)
+    {
+        testcase("fee: overwrite and multisign");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        auto const bogie = Account("bogie");
+        auto const demon = Account("demon");
+        env.fund(XRP(1000), alice);
+        env.close();
+        auto const base = env.current()->fees().base;
+
+        std::string const doc = docOfSize(2000);
+        auto jt = noop(alice);
+        jt[sfAppLoader.fieldName] = strHex(doc);
+
+        env(jt, fee(base + XRPAmount{2000}));
+        env.close();
+
+        // Overwrite with identical bytes still pays per byte: there is no
+        // "unchanged" discount, and there must not be one, since the fee is
+        // the only thing standing in for a reserve.
+        env(jt, fee(base + XRPAmount{1999}), ter(telINSUF_FEE_P));
+        env(jt, fee(base + XRPAmount{2000}));
+        env.close();
+
+        // Multisigned: base scales with signers, the per-byte part does not.
+        env(signers(alice, 2, {{bogie, 1}, {demon, 1}}));
+        env.close();
+        auto const msFee = base * 3 + XRPAmount{2000};
+        env(jt,
+            msig(bogie, demon),
+            fee(msFee - XRPAmount{1}),
+            ter(telINSUF_FEE_P));
+        env(jt, msig(bogie, demon), fee(msFee));
+        env.close();
+        BEAST_EXPECT(env.le(keylet::appLoader(alice.id())));
+    }
+
+    void
+    testMetadata(FeatureBitset features)
+    {
+        testcase("metadata and threading");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        auto countNodes = [&](SField const& kind) {
+            int n = 0;
+            for (auto const& node : env.meta()->getFieldArray(sfAffectedNodes))
+                if (node.getFName() == kind &&
+                    node.getFieldU16(sfLedgerEntryType) == ltAPP_LOADER)
+                    ++n;
+            return n;
+        };
+
+        auto jt = noop(alice);
+        jt[sfAppLoader.fieldName] = strHex(goodDoc());
+        env(jt, fee(XRP(1)));
+        env.close();
+        BEAST_EXPECT(countNodes(sfCreatedNode) == 1);
+        auto const created = env.tx()->getTransactionID();
+        if (auto const sle = env.le(keylet::appLoader(alice.id()));
+            BEAST_EXPECT(sle))
+            BEAST_EXPECT((*sle)[sfPreviousTxnID] == created);
+
+        jt[sfAppLoader.fieldName] = strHex(std::string("<html>2</html>"));
+        env(jt, fee(XRP(1)));
+        env.close();
+        BEAST_EXPECT(countNodes(sfModifiedNode) == 1);
+        if (auto const sle = env.le(keylet::appLoader(alice.id()));
+            BEAST_EXPECT(sle))
+            BEAST_EXPECT(
+                (*sle)[sfPreviousTxnID] == env.tx()->getTransactionID());
+
+        jt[sfAppLoader.fieldName] = "";
+        env(jt, fee(XRP(1)));
+        env.close();
+        BEAST_EXPECT(countNodes(sfDeletedNode) == 1);
+    }
+
+    void
+    testCombinedAndTickets(FeatureBitset features)
+    {
+        testcase("combined with other AccountSet fields; tickets");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        // Flags and the loader in one transaction both take effect.
+        auto jt = fset(alice, asfRequireDest);
+        jt[sfAppLoader.fieldName] = strHex(goodDoc());
+        env(jt, fee(XRP(1)));
+        env.close();
+        BEAST_EXPECT(env.le(keylet::appLoader(alice.id())));
+        BEAST_EXPECT(env.le(alice)->getFlags() & lsfRequireDestTag);
+
+        // A malformed loader rejects the whole transaction, including the
+        // flag change riding with it.
+        auto bad = fclear(alice, asfRequireDest);
+        bad[sfAppLoader.fieldName] = strHex(std::string("<div></div>"));
+        env(bad, fee(XRP(1)), ter(temMALFORMED));
+        env.close();
+        BEAST_EXPECT(env.le(alice)->getFlags() & lsfRequireDestTag);
+
+        // Via ticket.
+        std::uint32_t const tkt = env.seq(alice) + 1;
+        env(ticket::create(alice, 1));
+        env.close();
+        auto jtt = noop(alice);
+        jtt[sfAppLoader.fieldName] = "";
+        env(jtt, ticket::use(tkt), fee(XRP(1)));
+        env.close();
+        BEAST_EXPECT(!env.le(keylet::appLoader(alice.id())));
+    }
+
+    void
+    testRecreateAfterDelete(FeatureBitset features)
+    {
+        testcase("account resurrected after delete");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        env.fund(XRP(1000), alice, bob);
+        env.close();
+
+        auto jt = noop(alice);
+        jt[sfAppLoader.fieldName] = strHex(goodDoc());
+        env(jt, fee(XRP(1)));
+        env.close();
+
+        for (int i = 0; i < 256; ++i)
+            env.close();
+        env(acctdelete(alice, bob),
+            fee(drops(env.current()->fees().increment)));
+        env.close();
+
+        env(pay(bob, alice, XRP(100)));
+        env.close();
+
+        // Nothing leaks across the account's two lives.
+        BEAST_EXPECT(!env.le(keylet::appLoader(alice.id())));
+        if (auto const root = env.le(alice); BEAST_EXPECT(root))
+            BEAST_EXPECT(!root->isFieldPresent(sfAppLoaderID));
+
+        env(jt, fee(XRP(1)));
+        env.close();
+        BEAST_EXPECT(env.le(keylet::appLoader(alice.id())));
+    }
+
+    void
+    testLedgerEntryRPC(FeatureBitset features)
+    {
+        testcase("ledger_entry app_loader errors");
+        using namespace jtx;
+
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        auto le = [&](std::string const& v) {
+            return env.rpc(
+                "json", "ledger_entry", R"({"app_loader":)" + v + "}");
+        };
+
+        BEAST_EXPECT(
+            le(R"("notanaddress")")[jss::result][jss::error] ==
+            "malformedAddress");
+        BEAST_EXPECT(
+            le("\"" + toBase58(AccountID{}) + "\"")[jss::result][jss::error] ==
+            "malformedAddress");
+        // Well-formed but absent.
+        BEAST_EXPECT(
+            le("\"" + alice.human() + "\"")[jss::result][jss::error] ==
+            "entryNotFound");
+        // Non-string parameter must not throw.
+        BEAST_EXPECT(le("{}")[jss::result].isMember(jss::error));
+        BEAST_EXPECT(le("123")[jss::result].isMember(jss::error));
+    }
+
     void
     testWithFeats(FeatureBitset features)
     {
@@ -506,6 +863,12 @@ struct PWALoader_test : public beast::unit_test::suite
         testFee(features);
         testMalformed(features);
         testAccountDelete(features);
+        testReserveFloor(features);
+        testFeeVariants(features);
+        testMetadata(features);
+        testCombinedAndTickets(features);
+        testRecreateAfterDelete(features);
+        testLedgerEntryRPC(features);
     }
 
 public:
@@ -515,6 +878,7 @@ public:
         using namespace test::jtx;
         testValidator();
         testUTF8();
+        testValidatorPinned();
         testWithFeats(supported_amendments());
     }
 };

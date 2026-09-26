@@ -599,6 +599,7 @@ JSS(request);               // RPC
 JSS(requested);             // out: Manifest
 JSS(reservations);          // out: Reservations
 JSS(reserve_base);          // out: NetworkOPs
+JSS(reset);                 // in: PWAInfo
 JSS(reserve_base_xrp);      // out: NetworkOPs
 JSS(reserve_base_native);   // out: NetworkOPs
 JSS(reserve_inc);           // out: NetworkOPs
@@ -682,6 +683,7 @@ JSS(track);                   // out: PeerImp
 JSS(traffic);                 // out: Overlay
 JSS(trim);                    // in: get_aggregate_price
 JSS(trimmed_set);             // out: get_aggregate_price
+JSS(top);                     // in: PWAInfo
 JSS(total);                   // out: counters
 JSS(total_bytes_recv);        // out: Peers
 JSS(total_bytes_sent);        // out: Peers

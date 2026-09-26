@@ -15513,6 +15513,406 @@ public:
     }
 
     void
+    test_app_loader(FeatureBitset features)
+    {
+        testcase("Test AppLoader keylet, slot, etxn_fee_base and emit");
+        using namespace jtx;
+
+        // Reads the hook account's AppLoader through util_keylet + slot.
+        // Returns slot_size(sfAppLoader) on success, else 1000 - err from
+        // util_keylet, 2000 - err from slot_set, 3000 - err from
+        // slot_subfield.
+        TestHook slot_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g           (uint32_t id, uint32_t maxiter);
+            extern int64_t accept       (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t hook_account (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t util_keylet  (uint32_t write_ptr, uint32_t write_len, uint32_t keylet_type,
+                                         uint32_t a, uint32_t b, uint32_t c, uint32_t d, uint32_t e, uint32_t f);
+            extern int64_t slot_set     (uint32_t read_ptr, uint32_t read_len, uint32_t slot_no);
+            extern int64_t slot_subfield(uint32_t parent_slot, uint32_t field_id, uint32_t new_slot);
+            extern int64_t slot_size    (uint32_t slot_no);
+            #define KEYLET_APP_LOADER 38
+            #define sfAppLoader ((7U << 16U) + 96U)
+            int64_t hook(uint32_t reserved)
+            {
+                _g(1,1);
+                uint8_t acc[20];
+                hook_account((uint32_t)acc, 20);
+                uint8_t kl[34];
+                int64_t r = util_keylet((uint32_t)kl, 34, KEYLET_APP_LOADER, (uint32_t)acc, 20, 0, 0, 0, 0);
+                if (r < 0)
+                    return accept(0,0,1000 - r);
+                r = slot_set((uint32_t)kl, 34, 1);
+                if (r < 0)
+                    return accept(0,0,2000 - r);
+                r = slot_subfield(1, sfAppLoader, 2);
+                if (r < 0)
+                    return accept(0,0,3000 - r);
+                return accept(0,0,slot_size(2));
+            }
+        )[test.hook]"];
+        HASH_WASM(slot);
+
+        // Prices the same AccountSet with and without a 13-byte AppLoader.
+        // Returns 10000 + (difference), or 1000/2000 - err.
+        TestHook feeprobe_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g           (uint32_t id, uint32_t maxiter);
+            extern int64_t accept       (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t etxn_reserve (uint32_t count);
+            extern int64_t etxn_fee_base(uint32_t read_ptr, uint32_t read_len);
+            extern int64_t hook_account (uint32_t write_ptr, uint32_t write_len);
+            // clang-format off
+            uint8_t with_loader[90] =
+            {
+                0x12U, 0x00U, 0x03U,
+                0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                0x70U, 0x60U, 0x0DU, '<','h','t','m','l','>','<','/','h','t','m','l','>',
+                0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+            };
+            uint8_t without_loader[74] =
+            {
+                0x12U, 0x00U, 0x03U,
+                0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+            };
+            // clang-format on
+            int64_t hook(uint32_t reserved)
+            {
+                _g(1,1);
+                etxn_reserve(1);
+                hook_account((uint32_t)(with_loader + 70U), 20);
+                hook_account((uint32_t)(without_loader + 54U), 20);
+                int64_t a = etxn_fee_base((uint32_t)with_loader, sizeof(with_loader));
+                int64_t b = etxn_fee_base((uint32_t)without_loader, sizeof(without_loader));
+                if (a < 0)
+                    return accept(0,0,1000 - a);
+                if (b < 0)
+                    return accept(0,0,2000 - b);
+                return accept(0,0,10000 + a - b);
+            }
+        )[test.hook]"];
+        HASH_WASM(feeprobe);
+
+        // Emits AccountSet { AppLoader } from the hook account, paying
+        // etxn_fee_base. Returns 0 on success, 1000 - err from etxn_fee_base,
+        // 2000 - err from emit.
+        TestHook emitloader_wasm = wasm[R"[test.hook](
+            #define SHORTFALL 0
+            #include <stdint.h>
+            extern int32_t _g           (uint32_t id, uint32_t maxiter);
+            extern int64_t accept       (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t emit         (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+            extern int64_t etxn_reserve (uint32_t count);
+            extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t etxn_fee_base(uint32_t read_ptr, uint32_t read_len);
+            extern int64_t hook_account (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t ledger_seq   (void);
+            extern int64_t otxn_type    (void);
+            #define ttINVOKE 99
+            // clang-format off
+            // AccountSet { AppLoader: "<html></html>" }, canonical field order
+            uint8_t txn[245] =
+            {
+                /*   3,   0 tt = AccountSet  */ 0x12U, 0x00U, 0x03U,
+                /*   5,   3 flags            */ 0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   5,   8 sequence         */ 0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   6,  13 firstledgerseq   */ 0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   6,  19 lastledgerseq    */ 0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   9,  25 fee              */ 0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*  35,  34 signingpubkey    */ 0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*  16,  69 apploader        */ 0x70U, 0x60U, 0x0DU, '<','h','t','m','l','>','<','/','h','t','m','l','>',
+                /*  22,  85 account          */ 0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /* 138, 107 emit details     */
+                /*   0, 245                  */
+            };
+            // clang-format on
+            #define FLS_OUT (txn + 15U)
+            #define LLS_OUT (txn + 21U)
+            #define FEE_OUT (txn + 26U)
+            #define ACCOUNT_OUT (txn + 87U)
+            #define EMIT_OUT (txn + 107U)
+            #define FLIP_ENDIAN_32(value)                                                  \
+              (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                          ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+            #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+            #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+              do {                                                                         \
+                uint8_t *b = (ptr);                                                        \
+                *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+                *b++ = (amount >> 48) & 0xFFU;                                             \
+                *b++ = (amount >> 40) & 0xFFU;                                             \
+                *b++ = (amount >> 32) & 0xFFU;                                             \
+                *b++ = (amount >> 24) & 0xFFU;                                             \
+                *b++ = (amount >> 16) & 0xFFU;                                             \
+                *b++ = (amount >> 8) & 0xFFU;                                              \
+                *b++ = (amount >> 0) & 0xFFU;                                              \
+              } while (0)
+            int64_t cbak(uint32_t r)
+            {
+                _g(1,1);
+                return accept(0,0,0);
+            }
+            int64_t hook(uint32_t reserved)
+            {
+                _g(1,1);
+                // Only emit on the triggering Invoke, not on the emitted
+                // AccountSet when it comes back through this hook.
+                if (otxn_type() != ttINVOKE)
+                    return accept(0,0,0);
+                etxn_reserve(1);
+                uint32_t fls = (uint32_t)ledger_seq() + 1;
+                SET_UINT32(FLS_OUT, fls);
+                SET_UINT32(LLS_OUT, fls + 4);
+                hook_account((uint32_t)ACCOUNT_OUT, 20);
+                etxn_details((uint32_t)EMIT_OUT, 138U);
+                int64_t fee = etxn_fee_base((uint32_t)txn, sizeof(txn));
+                if (fee < 0)
+                    return accept(0,0,1000 - fee);
+                fee -= SHORTFALL;
+                SET_NATIVE_AMOUNT(FEE_OUT, fee);
+                uint8_t emithash[32];
+                int64_t e = emit((uint32_t)emithash, 32, (uint32_t)txn, sizeof(txn));
+                if (e < 0)
+                    return accept(0,0,2000 - e);
+                return accept(0,0,0);
+            }
+        )[test.hook]"];
+        HASH_WASM(emitloader);
+
+        // As above, one drop short of etxn_fee_base.
+        TestHook emitshort_wasm = wasm[R"[test.hook](
+            #define SHORTFALL 1
+            #include <stdint.h>
+            extern int32_t _g           (uint32_t id, uint32_t maxiter);
+            extern int64_t accept       (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t emit         (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+            extern int64_t etxn_reserve (uint32_t count);
+            extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t etxn_fee_base(uint32_t read_ptr, uint32_t read_len);
+            extern int64_t hook_account (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t ledger_seq   (void);
+            extern int64_t otxn_type    (void);
+            #define ttINVOKE 99
+            // clang-format off
+            // AccountSet { AppLoader: "<html></html>" }, canonical field order
+            uint8_t txn[245] =
+            {
+                /*   3,   0 tt = AccountSet  */ 0x12U, 0x00U, 0x03U,
+                /*   5,   3 flags            */ 0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   5,   8 sequence         */ 0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   6,  13 firstledgerseq   */ 0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   6,  19 lastledgerseq    */ 0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   9,  25 fee              */ 0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*  35,  34 signingpubkey    */ 0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*  16,  69 apploader        */ 0x70U, 0x60U, 0x0DU, '<','h','t','m','l','>','<','/','h','t','m','l','>',
+                /*  22,  85 account          */ 0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /* 138, 107 emit details     */
+                /*   0, 245                  */
+            };
+            // clang-format on
+            #define FLS_OUT (txn + 15U)
+            #define LLS_OUT (txn + 21U)
+            #define FEE_OUT (txn + 26U)
+            #define ACCOUNT_OUT (txn + 87U)
+            #define EMIT_OUT (txn + 107U)
+            #define FLIP_ENDIAN_32(value)                                                  \
+              (uint32_t)(((value & 0xFFU) << 24) | ((value & 0xFF00U) << 8) |              \
+                          ((value & 0xFF0000U) >> 8) | ((value & 0xFF000000U) >> 24))
+            #define SET_UINT32(ptr, value) *((uint32_t *)(ptr)) = FLIP_ENDIAN_32(value);
+            #define SET_NATIVE_AMOUNT(ptr, amount)                                         \
+              do {                                                                         \
+                uint8_t *b = (ptr);                                                        \
+                *b++ = 0b01000000 + ((amount >> 56) & 0b00111111);                         \
+                *b++ = (amount >> 48) & 0xFFU;                                             \
+                *b++ = (amount >> 40) & 0xFFU;                                             \
+                *b++ = (amount >> 32) & 0xFFU;                                             \
+                *b++ = (amount >> 24) & 0xFFU;                                             \
+                *b++ = (amount >> 16) & 0xFFU;                                             \
+                *b++ = (amount >> 8) & 0xFFU;                                              \
+                *b++ = (amount >> 0) & 0xFFU;                                              \
+              } while (0)
+            int64_t cbak(uint32_t r)
+            {
+                _g(1,1);
+                return accept(0,0,0);
+            }
+            int64_t hook(uint32_t reserved)
+            {
+                _g(1,1);
+                // Only emit on the triggering Invoke, not on the emitted
+                // AccountSet when it comes back through this hook.
+                if (otxn_type() != ttINVOKE)
+                    return accept(0,0,0);
+                etxn_reserve(1);
+                uint32_t fls = (uint32_t)ledger_seq() + 1;
+                SET_UINT32(FLS_OUT, fls);
+                SET_UINT32(LLS_OUT, fls + 4);
+                hook_account((uint32_t)ACCOUNT_OUT, 20);
+                etxn_details((uint32_t)EMIT_OUT, 138U);
+                int64_t fee = etxn_fee_base((uint32_t)txn, sizeof(txn));
+                if (fee < 0)
+                    return accept(0,0,1000 - fee);
+                fee -= SHORTFALL;
+                SET_NATIVE_AMOUNT(FEE_OUT, fee);
+                uint8_t emithash[32];
+                int64_t e = emit((uint32_t)emithash, 32, (uint32_t)txn, sizeof(txn));
+                if (e < 0)
+                    return accept(0,0,2000 - e);
+                return accept(0,0,0);
+            }
+        )[test.hook]"];
+        HASH_WASM(emitshort);
+
+        std::string const doc13 = "<html></html>";
+        // A document long enough to need a two-byte VL length prefix.
+        std::string const doc300 =
+            "<html>" + std::string(300 - 13, 'x') + "</html>";
+        BEAST_EXPECT(doc300.size() == 300);
+
+        auto returnCode = [&](Env& env) -> std::optional<std::uint64_t> {
+            auto const meta = env.meta();
+            if (!meta || !meta->isFieldPresent(sfHookExecutions))
+                return std::nullopt;
+            auto const execs = meta->getFieldArray(sfHookExecutions);
+            if (execs.size() != 1)
+                return std::nullopt;
+            return execs[0].getFieldU64(sfHookReturnCode);
+        };
+
+        for (bool const enabled : {true, false})
+        {
+            auto const feats = enabled ? features : features - featurePWALoader;
+            Env env{*this, feats};
+            auto const alice = Account{"alice"};
+            auto const bob = Account{"bob"};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            auto publish = [&](std::string const& d) {
+                auto jt = noop(alice);
+                jt[sfAppLoader.fieldName] = strHex(d);
+                env(jt, fee(XRP(1)));
+                env.close();
+            };
+            auto poke = [&](std::string const& why) {
+                env(invoke::invoke(bob),
+                    invoke::dest(alice),
+                    M(why),
+                    fee(XRP(1)));
+                env.close();
+                return returnCode(env);
+            };
+
+            // --- util_keylet + slot ---
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(slot_wasm, overrideFlag)}}, 0),
+                M("set slot probe"),
+                HSFEE);
+            env.close();
+
+            if (!enabled)
+            {
+                // KEYLET_APP_LOADER is refused before the amendment.
+                BEAST_EXPECT(poke("keylet disabled") == 1000 + 7);
+            }
+            else
+            {
+                // No loader yet: the keylet is fine, the object is absent.
+                BEAST_EXPECT(poke("no loader") == 2000 + 5);
+
+                // slot_size is the serialized VL: length prefix + payload.
+                publish(doc13);
+                BEAST_EXPECT(poke("small loader") == 13 + 1);
+                publish(doc300);
+                BEAST_EXPECT(poke("large loader") == 300 + 2);
+
+                // Removal is visible to the hook too.
+                {
+                    auto jt = noop(alice);
+                    jt[sfAppLoader.fieldName] = "";
+                    env(jt, fee(XRP(1)));
+                    env.close();
+                }
+                BEAST_EXPECT(poke("removed loader") == 2000 + 5);
+            }
+
+            // --- etxn_fee_base sees the per-byte fee ---
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(feeprobe_wasm, overrideFlag)}}, 0),
+                M("set fee probe"),
+                HSFEE);
+            env.close();
+            // Enabled: exactly one drop per byte of the 13-byte loader.
+            // Disabled: the field parses but costs nothing extra.
+            BEAST_EXPECT(poke("fee probe") == 10000 + (enabled ? 13 : 0));
+
+            // --- a Hook can publish a loader by emitting AccountSet ---
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(emitshort_wasm, overrideFlag)}}, 0),
+                M("set short emitter"),
+                HSFEE);
+            env.close();
+            // One drop under etxn_fee_base is refused by emit itself, and
+            // before the amendment emit's preflight refuses the field.
+            BEAST_EXPECT(poke("short emit") == 2000 + 11);
+            env.close();
+            BEAST_EXPECT(!env.le(keylet::appLoader(alice.id())));
+
+            env(ripple::test::jtx::hook(
+                    alice, {{hso(emitloader_wasm, overrideFlag)}}, 0),
+                M("set emitter"),
+                HSFEE);
+            env.close();
+
+            if (!enabled)
+            {
+                BEAST_EXPECT(poke("emit disabled") == 2000 + 11);
+                env.close();
+                BEAST_EXPECT(!env.le(keylet::appLoader(alice.id())));
+                continue;
+            }
+
+            BEAST_EXPECT(poke("emit") == 0);
+
+            // The emitted AccountSet lands in the next ledger, succeeds, and
+            // paid at least base + 13 drops.
+            env.close();
+            bool found = false;
+            for (auto const& [tx, meta] : env.closed()->txs)
+            {
+                if (tx->getTxnType() != ttACCOUNT_SET ||
+                    !tx->isFieldPresent(sfEmitDetails))
+                    continue;
+                found = true;
+                BEAST_EXPECT(
+                    tx->getFieldVL(sfAppLoader) ==
+                    Blob(doc13.begin(), doc13.end()));
+                BEAST_EXPECT(
+                    TER::fromInt(meta->getFieldU8(sfTransactionResult)) ==
+                    tesSUCCESS);
+                BEAST_EXPECT(
+                    tx->getFieldAmount(sfFee).xrp() >=
+                    env.current()->fees().base + XRPAmount{13});
+            }
+            BEAST_EXPECT(found);
+
+            if (auto const sle = env.le(keylet::appLoader(alice.id()));
+                BEAST_EXPECT(sle))
+                BEAST_EXPECT((*sle)[sfAppLoader] == makeSlice(doc13));
+            if (auto const root = env.le(alice); BEAST_EXPECT(root))
+                BEAST_EXPECT(
+                    (*root)[sfAppLoaderID] ==
+                    keylet::appLoader(alice.id()).key);
+        }
+    }
+
+    void
     testWithFeatures(FeatureBitset features)
     {
         testHooksOwnerDir(features);
@@ -15630,6 +16030,7 @@ public:
 
         test_util_accid(features);    //
         test_util_keylet(features);   //
+        test_app_loader(features);    //
         test_util_raddr(features);    //
         test_util_sha512h(features);  //
         test_util_verify(features);   //

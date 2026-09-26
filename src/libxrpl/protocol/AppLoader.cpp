@@ -147,8 +147,11 @@ validate(std::uint8_t const* data, std::size_t size)
         ++open;
     }
 
-    // Locate the last </html> end tag. Scanning backwards means a literal
-    // "</html>" inside a script string does not shadow the real one.
+    // Locate the last well-formed </html> end tag. The scan runs forwards
+    // and keeps the final match, so a literal "</html>" inside a script
+    // string earlier in the document does not shadow the real one. Each
+    // probe resumes one byte past the previous match, so the whole scan is
+    // linear in the size of the blob.
     std::size_t close = size;
     std::size_t closeEnd = size;
     {

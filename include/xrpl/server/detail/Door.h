@@ -298,7 +298,7 @@ Door<Handler>::Door(
           port_.protocol.count("peer") > 0)
     , plain_(
           port_.protocol.count("http") > 0 || port_.protocol.count("ws") > 0 ||
-          port_.protocol.count("ws2"))
+          port_.protocol.count("ws2") || port_.protocol.count("pwa"))
 {
     reOpen();
 }

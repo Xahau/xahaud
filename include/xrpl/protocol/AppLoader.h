@@ -40,12 +40,20 @@ namespace ripple {
       - pass ripple::isValidUTF8 (well-formed UTF-8: no overlongs,
         surrogates, truncated sequences or scalar values above U+10FFFF,
         and no U+FFFE or U+FFFF);
-      - contain no C0 control characters other than TAB, LF and CR, and no
-        NUL or DEL;
+      - contain no C0 control characters other than the HTML whitespace
+        characters TAB, LF, FF and CR, and no NUL or DEL (C1 controls,
+        U+0080..U+009F, are not rejected);
       - begin (after an optional BOM and leading whitespace) with either an
         HTML doctype or an `<html` start tag;
-      - contain an `<html` start tag and a matching `</html>` end tag, in
-        that order, with the end tag being the last non-whitespace content.
+      - contain an `<html` start tag and a later `</html>` end tag (ASCII
+        whitespace is allowed before its '>'), with the last such end tag
+        followed by nothing but ASCII whitespace.
+
+    Nothing parses comments, scripts or attributes: an `<html` inside a
+    comment satisfies the start-tag check, and content is not policed (a
+    meta refresh to another site passes). This function is consensus
+    critical; any change to what it accepts needs an amendment, and the
+    edge cases are pinned in PWALoader_test.
 */
 namespace appLoader {
 
