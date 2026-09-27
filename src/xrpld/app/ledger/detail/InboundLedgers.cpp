@@ -45,9 +45,10 @@ namespace {
 std::size_t
 historyPrimingCacheSize(Application& app)
 {
-    auto const configured = static_cast<std::size_t>(app.config().LEDGER_HISTORY);
-    auto const bounded = std::min<std::size_t>(
-        configured == 0 ? 8 : configured, 32);
+    auto const configured =
+        static_cast<std::size_t>(app.config().LEDGER_HISTORY);
+    auto const bounded =
+        std::min<std::size_t>(configured == 0 ? 8 : configured, 32);
     return std::max<std::size_t>(1, bounded);
 }
 

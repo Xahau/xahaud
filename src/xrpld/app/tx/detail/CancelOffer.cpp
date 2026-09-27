@@ -39,26 +39,14 @@ CancelOffer::preflight(PreflightContext const& ctx)
         return temINVALID_FLAG;
     }
 
-    if (ctx.rules.enabled(fixXahauV1))
+    if ((!ctx.tx.isFieldPresent(sfOfferSequence) &&
+         !ctx.tx.isFieldPresent(sfOfferID)) ||
+        (ctx.tx.isFieldPresent(sfOfferSequence) &&
+         ctx.tx.isFieldPresent(sfOfferID)))
     {
-        if ((!ctx.tx.isFieldPresent(sfOfferSequence) &&
-             !ctx.tx.isFieldPresent(sfOfferID)) ||
-            (ctx.tx.isFieldPresent(sfOfferSequence) &&
-             ctx.tx.isFieldPresent(sfOfferID)))
-        {
-            JLOG(ctx.j.trace())
-                << "CancelOffer::preflight: invalid sequence or offer id";
-            return temBAD_SEQUENCE;
-        }
-    }
-    else
-    {
-        if (!ctx.tx.isFieldPresent(sfOfferSequence) ||
-            ctx.tx[sfOfferSequence] == 0)
-        {
-            JLOG(ctx.j.trace()) << "CancelOffer::preflight: missing sequence";
-            return temBAD_SEQUENCE;
-        }
+        JLOG(ctx.j.trace())
+            << "CancelOffer::preflight: invalid sequence or offer id";
+        return temBAD_SEQUENCE;
     }
 
     return preflight2(ctx);
@@ -112,8 +100,7 @@ CancelOffer::doApply()
         else
             JLOG(j_.debug()) << "Trying to cancel offer #" << *offerSequence;
 
-        bool const fixV1 = view().rules().enabled(fixXahauV1);
-        if (fixV1 && sleOffer->getFieldU16(sfLedgerEntryType) != ltOFFER)
+        if (sleOffer->getFieldU16(sfLedgerEntryType) != ltOFFER)
         {
             JLOG(j_.debug()) << "OfferCancel specified non-offer ledger object";
             return tecINTERNAL;

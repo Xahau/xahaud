@@ -375,10 +375,12 @@ accountHolds(
             // if something bad does happen the trustline acts as a frozen line.
             if (spendableBalance < beast::zero || spendableBalance > amount)
             {
+                // LCOV_EXCL_START
                 JLOG(j.error())
                     << "SpendableBalance has illegal value in accountHolds "
                     << spendableBalance;
                 amount.clear(Issue{currency, issuer});
+                // LCOV_EXCL_STOP
             }
             else
                 amount = spendableBalance;

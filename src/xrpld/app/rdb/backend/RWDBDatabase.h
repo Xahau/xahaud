@@ -8,6 +8,7 @@
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/misc/detail/AccountTxPaging.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
+#include <xrpl/basics/RangeSet.h>
 #include <algorithm>
 #include <map>
 #include <mutex>
@@ -564,6 +565,120 @@ public:
     closeTransactionDB() override
     {
         // No-op for in-memory database
+    }
+
+    std::size_t
+    deleteLedgersInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> rowLimit = std::nullopt) override
+    {
+        XRPL_ASSERT(
+            minSeq <= maxSeq,
+            "RWDBDatabase::deleteLedgersInRange : minSeq <= maxSeq");
+        XRPL_ASSERT(
+            !rowLimit || *rowLimit > 0,
+            "RWDBDatabase::deleteLedgersInRange : rowLimit must be positive");
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        auto it = ledgers_.lower_bound(minSeq);
+        auto end = ledgers_.upper_bound(maxSeq);
+
+        std::size_t count = 0;
+        while (it != end)
+        {
+            if (rowLimit && count >= *rowLimit)
+                break;
+
+            ledgerHashToSeq_.erase(it->second.info.hash);
+            it = ledgers_.erase(it);
+            ++count;
+        }
+        return count;
+    }
+
+    std::size_t
+    deleteTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> rowLimit = std::nullopt) override
+    {
+        XRPL_ASSERT(
+            minSeq <= maxSeq,
+            "RWDBDatabase::deleteTransactionsInRange : minSeq <= maxSeq");
+        XRPL_ASSERT(
+            !rowLimit || *rowLimit > 0,
+            "RWDBDatabase::deleteTransactionsInRange : rowLimit must be "
+            "positive");
+        if (!useTxTables_)
+            return 0;
+
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        auto it = ledgers_.lower_bound(minSeq);
+        auto end = ledgers_.upper_bound(maxSeq);
+
+        // Erase from both the per-ledger map and the global index.
+        // Important: erase from per-ledger map as we go so that partial
+        // deletes (hitting limit) make forward progress on the next call.
+        std::size_t count = 0;
+        while (it != end)
+        {
+            auto txIt = it->second.transactions.begin();
+            while (txIt != it->second.transactions.end())
+            {
+                if (rowLimit && count >= *rowLimit)
+                    return count;
+
+                transactionMap_.erase(txIt->first);
+                txIt = it->second.transactions.erase(txIt);
+                ++count;
+            }
+            ++it;
+        }
+        return count;
+    }
+
+    std::size_t
+    deleteAccountTransactionsInRange(
+        LedgerIndex minSeq,
+        LedgerIndex maxSeq,
+        std::optional<std::size_t> rowLimit = std::nullopt) override
+    {
+        XRPL_ASSERT(
+            minSeq <= maxSeq,
+            "RWDBDatabase::deleteAccountTransactionsInRange : minSeq <= "
+            "maxSeq");
+        XRPL_ASSERT(
+            !rowLimit || *rowLimit > 0,
+            "RWDBDatabase::deleteAccountTransactionsInRange : rowLimit must be "
+            "positive");
+        if (!useTxTables_)
+            return 0;
+
+        std::unique_lock<std::shared_mutex> lock(mutex_);
+        std::size_t count = 0;
+
+        for (auto& [_, accountData] : accountTxMap_)
+        {
+            auto txIt = accountData.ledgerTxMap.lower_bound(minSeq);
+            auto txEnd = accountData.ledgerTxMap.upper_bound(maxSeq);
+
+            while (txIt != txEnd)
+            {
+                std::size_t toDelete = txIt->second.size();
+                if (rowLimit && count + toDelete > *rowLimit)
+                {
+                    // Partial deletion from this ledger
+                    toDelete = *rowLimit - count;
+                    txIt->second.resize(txIt->second.size() - toDelete);
+                    count += toDelete;
+                    return count;
+                }
+
+                count += toDelete;
+                txIt = accountData.ledgerTxMap.erase(txIt);
+            }
+        }
+        return count;
     }
 
     ~RWDBDatabase()

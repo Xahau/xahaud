@@ -140,8 +140,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         bool skipTests = false,
         bool const testFlag = false,
         bool const badNetID = false,
-        uint32_t const expectedOwnerCount =
-            10 /** testFlag ? 10 : 14 (default) */)
+        uint32_t const expectedOwnerCount = 14 /** case for testFlag=false */)
     {
         using namespace jtx;
 
@@ -250,9 +249,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             genesisAccRoot->getFieldAmount(sfBalance) ==
             XahauGenesis::GenesisAmount);
         BEAST_EXPECT(
-            genesisAccRoot->getFieldU32(sfOwnerCount) == !testFlag
-                ? expectedOwnerCount
-                : 14);
+            genesisAccRoot->getFieldU32(sfOwnerCount) == expectedOwnerCount);
 
         // ensure the definitions are correctly set
         {
@@ -595,7 +592,8 @@ struct XahauGenesis_test : public beast::unit_test::suite
             false,
             true,
             {},
-            3 /* IRR,IRD,IMC */ + members.size() + tables.size());
+            2 /*Hook objects *2 */ + 3 /* IRR,IRD,IMC HookStates */ +
+                members.size());
 
         env.close();
         env.close();
@@ -2327,7 +2325,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             {
                 BEAST_EXPECT(
                     root->getFieldU32(sfOwnerCount) ==
-                    mc * 2 + 2 + paramsCount);
+                    (mc * 2 + 2 + paramsCount));
                 BEAST_EXPECT(root->getFieldU32(sfFlags) & lsfDisableMaster);
                 BEAST_EXPECT(root->getAccountID(sfRegularKey) == noAccount());
             }
@@ -4356,11 +4354,11 @@ struct XahauGenesis_test : public beast::unit_test::suite
         using namespace std::chrono_literals;
         testcase("test claim reward valid for L1 with unl report");
 
-        for (bool const withXahauV1 : {true, false})
         {
-            FeatureBitset _features = features - featureXahauGenesis;
-            auto const amend = withXahauV1 ? _features : _features - fixXahauV1;
-            Env env{*this, makeNetworkConfig(21337), amend};
+            Env env{
+                *this,
+                makeNetworkConfig(21337),
+                features - featureXahauGenesis};
 
             double const rateDrops = 0.00333333333 * 1'000'000;
             STAmount const feesXRP = XRP(1);
@@ -4455,9 +4453,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
                 accountKeyAndSle(*env.current(), alice);
 
             // claim reward
-            auto const txResult =
-                withXahauV1 ? ter(tesSUCCESS) : ter(tecHOOK_REJECTED);
-            env(claimReward(alice, env.master), fee(feesXRP), txResult);
+            env(claimReward(alice, env.master), fee(feesXRP), ter(tesSUCCESS));
             env.close();
 
             // trigger emitted txn
@@ -4466,8 +4462,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             // calculate rewards
             STAmount const netReward =
                 rewardUserAmount(*acctSle, preLedger, rateDrops);
-            STAmount const l1Reward =
-                withXahauV1 ? rewardL1Amount(netReward, 20) : STAmount(0);
+            STAmount const l1Reward = rewardL1Amount(netReward, 20);
 
             // validate govern rewards
             BEAST_EXPECT(env.balance(bob) == preBob + l1Reward);
@@ -4477,16 +4472,14 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
             // validate account fields
             STAmount const postAlice = preAlice + netReward + l1Reward;
-            bool const boolResult = withXahauV1 ? true : false;
             bool const has240819 = env.current()->rules().enabled(fix240819);
-            BEAST_EXPECT(
-                expectAccountFields(
-                    env,
-                    alice,
-                    preLedger,
-                    preLedger + 1,
-                    has240819 ? (preAlice - feesXRP) : postAlice,
-                    preTime) == boolResult);
+            BEAST_EXPECT(expectAccountFields(
+                env,
+                alice,
+                preLedger,
+                preLedger + 1,
+                has240819 ? (preAlice - feesXRP) : postAlice,
+                preTime));
         }
     }
 

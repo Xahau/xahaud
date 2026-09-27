@@ -38,6 +38,7 @@
 #define KEYLET_HOOK_DEFINITION 24
 #define KEYLET_HOOK_STATE_DIR 25
 #define KEYLET_CRON 26
+#define KEYLET_MANIFEST 37
 
 #define COMPARE_EQUAL 1U
 #define COMPARE_LESS 2U
@@ -48,5 +49,8 @@
 #include "sfcodes.h"
 #include "macro.h"
 #include "tts.h"
+
+#include "ls_flags.h"
+#include "tx_flags.h"
 
 #endif

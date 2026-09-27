@@ -158,6 +158,45 @@ deleteBeforeLedgerSeq(
 }
 
 std::size_t
+deleteRange(
+    soci::session& session,
+    TableType type,
+    LedgerIndex minSeq,
+    LedgerIndex maxSeq,
+    std::optional<std::size_t> rowLimit)
+{
+    XRPL_ASSERT(
+        minSeq <= maxSeq, "ripple::detail::deleteRange : minSeq <= maxSeq");
+    XRPL_ASSERT(
+        !rowLimit || *rowLimit > 0,
+        "ripple::detail::deleteRange : rowLimit must be positive");
+    std::string sql;
+    if (rowLimit)
+    {
+        // SQLite doesn't support DELETE...LIMIT unless compiled with
+        // SQLITE_ENABLE_UPDATE_DELETE_LIMIT. Use subquery workaround.
+        sql = "DELETE FROM " + to_string(type) +
+            " WHERE rowid IN (SELECT rowid FROM " + to_string(type) +
+            " WHERE LedgerSeq >= " + std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) +
+            " ORDER BY LedgerSeq ASC LIMIT " + std::to_string(*rowLimit) + ");";
+    }
+    else
+    {
+        sql = "DELETE FROM " + to_string(type) +
+            " WHERE LedgerSeq >= " + std::to_string(minSeq) +
+            " AND LedgerSeq <= " + std::to_string(maxSeq) + ";";
+    }
+
+    session << sql;
+
+    // Get the number of rows deleted
+    long changes = 0;
+    session << "SELECT changes();", soci::into(changes);
+    return static_cast<std::size_t>(changes);
+}
+
+std::size_t
 getRows(soci::session& session, TableType type)
 {
     std::size_t rows;
@@ -224,8 +263,11 @@ saveValidatedLedger(
         Serializer s(128);
         s.add32(HashPrefix::ledgerMaster);
         addRaw(ledger->info(), s);
+        // Use pinnedLEDGER type for pinned ledgers, hotLEDGER for others
+        auto ledgerType =
+            app.getLedgerMaster().isPinned(seq) ? pinnedLEDGER : hotLEDGER;
         app.getNodeStore().store(
-            hotLEDGER, std::move(s.modData()), ledger->info().hash, seq);
+            ledgerType, std::move(s.modData()), ledger->info().hash, seq);
     }
 
     std::shared_ptr<AcceptedLedger> aLedger;
@@ -235,8 +277,13 @@ saveValidatedLedger(
         if (!aLedger)
         {
             aLedger = std::make_shared<AcceptedLedger>(ledger, app);
-            app.getAcceptedLedgerCache().canonicalize_replace_client(
-                ledger->info().hash, aLedger);
+
+            // Only cache if the ledger is NOT in the pinned range
+            if (!app.getLedgerMaster().isPinned(ledger->info().seq))
+            {
+                app.getAcceptedLedgerCache().canonicalize_replace_client(
+                    ledger->info().hash, aLedger);
+            }
         }
     }
     catch (std::exception const&)

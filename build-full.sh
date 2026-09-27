@@ -12,17 +12,16 @@ echo "-- GITHUB_REPOSITORY: $1"
 echo "-- GITHUB_SHA:        $2"
 echo "-- GITHUB_RUN_NUMBER: $4"
 
-umask 0000;
+umask 0000
 
 ####
 
-cd /io;
-mkdir -p src/certs;
-curl --silent -k https://raw.githubusercontent.com/RichardAH/rippled-release-builder/main/ca-bundle/certbundle.h -o src/certs/certbundle.h;
-if [ "`grep certbundle.h src/xrpld/net/detail/RegisterSSLCerts.cpp | wc -l`" -eq "0" ]
-then
-    cp src/xrpld/net/detail/RegisterSSLCerts.cpp src/xrpld/net/detail/RegisterSSLCerts.cpp.old
-    perl -i -pe "s/^{/{
+cd /io
+mkdir -p src/certs
+curl --silent -k https://raw.githubusercontent.com/RichardAH/rippled-release-builder/main/ca-bundle/certbundle.h -o src/certs/certbundle.h
+if [ "$(grep certbundle.h src/xrpld/net/detail/RegisterSSLCerts.cpp | wc -l)" -eq "0" ]; then
+  cp src/xrpld/net/detail/RegisterSSLCerts.cpp src/xrpld/net/detail/RegisterSSLCerts.cpp.old
+  perl -i -pe "s/^{/{
     #ifdef EMBEDDED_CA_BUNDLE
     BIO *cbio = BIO_new_mem_buf(ca_bundle.data(), ca_bundle.size());
     X509_STORE  *cts = SSL_CTX_get_cert_store(ctx.native_handle());
@@ -68,15 +67,14 @@ fi
 source /opt/rh/gcc-toolset-11/enable
 export PATH=/usr/local/bin:$PATH
 export CC='/usr/lib64/ccache/gcc' &&
-export CXX='/usr/lib64/ccache/g++' &&
-echo "-- Build Rippled --" &&
-pwd &&
+  export CXX='/usr/lib64/ccache/g++' &&
+  echo "-- Build Rippled --" &&
+  pwd &&
+  echo "MOVING TO [ build-core.sh ]"
 
-echo "MOVING TO [ build-core.sh ]";
-
-printenv > .env.temp;
-cat .env.temp | grep '=' | sed s/\\\(^[^=]\\+=\\\)/\\1\\\"/g|sed s/\$/\\\"/g > .env;
-rm .env.temp;
+printenv >.env.temp
+cat .env.temp | grep '=' | sed s/\\\(^[^=]\\+=\\\)/\\1\\\"/g | sed s/\$/\\\"/g >.env
+rm .env.temp
 
 echo "Persisting ENV:"
 cat .env

@@ -1,0 +1,107 @@
+name: Check Genesis Hooks
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check-genesis-hooks:
+    runs-on: ubuntu-24.04
+    env:
+      CLANG_VERSION: 18
+    name: Verify xahau.h is in sync with genesis hooks
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      # Install binaryen from GitHub Releases (pinned to version 100)
+      - name: Install binaryen (version 100)
+        run: |
+          curl -LO https://github.com/WebAssembly/binaryen/releases/download/version_100/binaryen-version_100-x86_64-linux.tar.gz
+          tar -xzf binaryen-version_100-x86_64-linux.tar.gz
+          sudo cp binaryen-version_100/bin/* /usr/local/bin/
+          wasm-opt --version
+
+      - name: Install clang-format
+        run: |
+          codename=$( lsb_release --codename --short )
+          sudo tee /etc/apt/sources.list.d/llvm.list >/dev/null <<EOF
+          deb http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${CLANG_VERSION} main
+          deb-src http://apt.llvm.org/${codename}/ llvm-toolchain-${codename}-${CLANG_VERSION} main
+          EOF
+          wget -O - https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add
+          sudo apt-get update
+          sudo apt-get install clang-format-${CLANG_VERSION}
+          clang-format --version
+
+      # Install wasienv (WebAssembly SDK)
+      - name: Install wasienv
+        run: |
+          # Download install.sh
+          curl -o /tmp/wasienv-install.sh https://raw.githubusercontent.com/wasienv/wasienv/master/install.sh
+          
+          # Replace /bin to /local/bin
+          sed -i 's|/bin|/local/bin|g' /tmp/wasienv-install.sh
+
+          # Execute the installed script
+          bash /tmp/wasienv-install.sh
+
+      # Add wasienv to PATH for subsequent steps
+      - name: Setup wasienv
+        run: |
+          echo "$HOME/.wasienv/bin" >> $GITHUB_PATH
+          wasmcc -v || true
+
+      # Build and install hook-cleaner tool
+      - name: Build and install hook-cleaner
+        run: |
+          git clone https://github.com/richardah/hook-cleaner-c.git /tmp/hook-cleaner
+          cd /tmp/hook-cleaner
+          make
+          cp hook-cleaner /usr/local/bin/
+          chmod +x /usr/local/bin/hook-cleaner
+
+      # Build and install guard_checker tool
+      - name: Build and install guard_checker
+        run: |
+          cd include/xrpl/hook
+          make
+          cp guard_checker /usr/local/bin/
+          chmod +x /usr/local/bin/guard_checker
+
+      # Verify all required tools are available
+      - name: Verify required tools
+        run: |
+          echo "Checking tool availability..."
+          command -v wasmcc || (echo "Error: wasmcc not found" && exit 1)
+          command -v wasm-opt || (echo "Error: wasm-opt not found" && exit 1)
+          command -v hook-cleaner || (echo "Error: hook-cleaner not found" && exit 1)
+          command -v guard_checker || (echo "Error: guard_checker not found" && exit 1)
+          command -v xxd || (echo "Error: xxd not found" && exit 1)
+          command -v clang-format || (echo "Error: clang-format not found" && exit 1)
+          echo "All tools verified successfully"
+
+      # Execute build script to regenerate xahau.h
+      - name: Run build_xahau_h.sh
+        run: |
+          cd hook/genesis
+          ./build_xahau_h.sh
+
+      # Check if xahau.h has changed (fail if out of sync)
+      - name: Verify xahau.h is in sync
+        run: |
+          if ! git diff --exit-code include/xrpl/hook/xahau.h; then
+            echo ""
+            echo "❌ ERROR: xahau.h is out of sync with genesis hooks"
+            echo ""
+            echo "The generated xahau.h differs from the committed version."
+            echo "Please run the following command and commit the changes:"
+            echo ""
+            echo "    cd hook/genesis && ./build_xahau_h.sh"
+            echo ""
+            echo "Diff:"
+            git diff include/xrpl/hook/xahau.h
+            exit 1
+          fi
+          echo "✅ xahau.h is in sync with genesis hooks"

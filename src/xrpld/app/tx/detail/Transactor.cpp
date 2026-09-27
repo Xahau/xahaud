@@ -24,6 +24,7 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpld/core/Config.h>
@@ -148,6 +149,20 @@ preflight1(PreflightContext const& ctx)
         }
     }
 
+    if (ctx.tx.isFieldPresent(sfHookName))
+    {
+        if (!ctx.rules.enabled(featureHooks) ||
+            !ctx.rules.enabled(featureNamedHooks))
+            return temMALFORMED;
+
+        auto const& name = ctx.tx.getFieldVL(sfHookName);
+
+        if (name.size() == 0 && ctx.rules.enabled(fixHookNameValidation))
+            return temMALFORMED;
+        if (!SetHook::validateHookName(name, ctx.j))
+            return temMALFORMED;
+    }
+
     auto const spk = ctx.tx.getSigningPubKey();
 
     if (!spk.empty() && !publicKeyType(makeSlice(spk)))
@@ -266,9 +281,13 @@ Transactor::calculateHookChainFee(
         // at the same ledger the fee calculation for it can no longer occur
         if (!hookDef)
         {
+            // LCOV_EXCL_START
             printf("calculateHookChainFee edge case\n");
             continue;
+            // LCOV_EXCL_STOP
         }
+
+        auto const hookName = hookObj[~sfHookName];
 
         uint32_t flags = 0;
         if (hookObj.isFieldPresent(sfFlags))
@@ -280,7 +299,7 @@ Transactor::calculateHookChainFee(
         uint256 hookOn = hook::getHookOn(
             hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming);
 
-        if (hook::canHook(tx.getTxnType(), hookOn) &&
+        if (hook::canHook(tx, hookOn, hookName) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
             XRPAmount const toAdd{hookDef->getFieldAmount(sfFee).xrp().drops()};
@@ -308,7 +327,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     //  * The additional cost of each multisignature on the transaction.
     XRPAmount baseFee = view.fees().base;
 
-    if (tx.getFieldU16(sfTransactionType) == ttIMPORT)
+    if (tx.getTxnType() == ttIMPORT)
     {
         XRPAmount const importFee = baseFee * 10;
         if (importFee > baseFee)
@@ -325,7 +344,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     if (view.rules().enabled(featureHooks))
     {
         // if this is a "cleanup" txn we regard it as already paid up
-        if (tx.getFieldU16(sfTransactionType) == ttEMIT_FAILURE)
+        if (tx.getTxnType() == ttEMIT_FAILURE)
             return XRPAmount{0};
 
         // if the txn is an emitted txn then we add the callback fee
@@ -381,7 +400,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     XRPAmount accumulator = baseFee;
 
     if (view.rules().enabled(featureHooks) &&
-        view.rules().enabled(fixXahauV1) && tx.isFieldPresent(sfHookParameters))
+        tx.isFieldPresent(sfHookParameters))
     {
         uint64_t paramBytes = 0;
         auto const& params = tx.getFieldArray(sfHookParameters);
@@ -577,6 +596,13 @@ Transactor::checkSeqProxy(
         return terNO_ACCOUNT;
     }
 
+    // A manifest txn is derived deterministically from the manifest alone, so
+    // it cannot depend on account state: preflight pins sfSequence to 0 and the
+    // account sequence is neither checked here nor consumed below.
+    if (view.rules().enabled(featureOnChainManifests) &&
+        tx.getTxnType() == ttMANIFEST_SET)
+        return tesSUCCESS;
+
     SeqProxy const a_seq = SeqProxy::sequence((*sle)[sfSequence]);
 
     // pass all emitted tx provided their seq is 0
@@ -678,8 +704,7 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
 
-    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks) &&
-        ctx.view.rules().enabled(fixXahauV2))
+    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks))
     {
         // check if the emitted txn exists on ledger and is in the emission
         // directory if not that's a re-apply so discard
@@ -726,6 +751,17 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
 
     // do not update sequence of sfAccountTxnID for emitted tx
     if (ctx_.isEmittedTxn())
+        return tesSUCCESS;
+
+    // Manifest txns get the same treatment: pinned to sfSequence 0 and not
+    // signed by the account, so they neither consume nor reset its sequence.
+    // Doing so would be actively harmful -- the write below is
+    // seqProx.value() + 1, which for a seq-0 txn sets the account sequence to
+    // 1 and makes every previously used sequence replayable. Handling it here
+    // rather than in apply() also covers reset(), which re-consumes on the
+    // tec / failed-invariant path.
+    if (view().rules().enabled(featureOnChainManifests) &&
+        ctx_.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();
@@ -869,6 +905,12 @@ Transactor::checkSign(PreclaimContext const& ctx)
     // internal xpop txn
     if (ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT)
+        return tesSUCCESS;
+
+    // pass ttMANIFEST_SETs, their signatures are checked in preflight against
+    // the manifest's internal key logic
+    if (ctx.view.rules().enabled(featureOnChainManifests) &&
+        ctx.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
     if (ctx.flags & tapDRY_RUN)
@@ -1311,23 +1353,29 @@ Transactor::executeHookChain(
 
         if (hookSkips.find(hookHash) != hookSkips.end())
         {
+            // LCOV_EXCL_START
             JLOG(j_.trace()) << "HookInfo: Skipping " << hookHash;
             continue;
+            // LCOV_EXCL_STOP
         }
 
         auto const& hookDef =
             ctx_.view().peek(keylet::hookDefinition(hookHash));
         if (!hookDef)
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn()) << "HookError[]: Failure: hook def missing (send)";
             continue;
+            // LCOV_EXCL_STOP
         }
+
+        auto const hookName = hookObj[~sfHookName];
 
         // check if the hook can fire
         uint256 hookOn = hook::getHookOn(
             hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming);
 
-        if (!hook::canHook(ctx_.tx.getTxnType(), hookOn))
+        if (!hook::canHook(ctx_.tx, hookOn, hookName))
             continue;  // skip if it can't
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
@@ -1536,10 +1584,7 @@ Transactor::doHookCallback(
                 true,
                 true,
                 false,
-                safe_cast<TxType>(ctx_.tx.getFieldU16(sfTransactionType)) ==
-                        ttEMIT_FAILURE
-                    ? 1UL
-                    : 0UL,
+                ctx_.tx.getTxnType() == ttEMIT_FAILURE ? 1UL : 0UL,
                 hook_no - 1,
                 provisionalMeta);
 
@@ -2154,7 +2199,8 @@ Transactor::operator()()
 
         bool const has240819 = view().rules().enabled(fix240819);
         bool const has240911 = view().rules().enabled(fix240911);
-
+        bool const hasIOURewardClaim =
+            view().rules().enabled(featureIOURewardClaim);
         auto const& sfRewardFields =
             *(ripple::SField::knownCodeToField.at(917511 - has240819));
 
@@ -2164,11 +2210,92 @@ Transactor::operator()()
             SField const& metaType = node.getFName();
             uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
 
-            // we only care about ltACCOUNT_ROOT objects being modified or
-            // created
-            if (nodeType != ltACCOUNT_ROOT || metaType == sfDeletedNode)
+            // we only care about ltACCOUNT_ROOT and ltRIPPLE_STATE objects
+            // being modified or created
+            if ((nodeType != ltACCOUNT_ROOT && nodeType != ltRIPPLE_STATE) ||
+                metaType == sfDeletedNode)
                 continue;
 
+            // ltRippleState
+            if (nodeType == ltRIPPLE_STATE)
+            {
+                if (!hasIOURewardClaim)
+                    continue;
+
+                if (!node.isFieldPresent(sfPreviousFields) ||
+                    !node.isFieldPresent(sfLedgerIndex))
+                    continue;
+                auto sle = view().peek(
+                    Keylet{ltRIPPLE_STATE, node.getFieldH256(sfLedgerIndex)});
+                if (!sle)
+                    continue;
+                STObject& previousFields = (const_cast<STObject&>(node))
+                                               .getField(sfPreviousFields)
+                                               .downcast<STObject>();
+                if (!previousFields.isFieldPresent(sfBalance))
+                    continue;
+
+                auto balance = previousFields.getFieldAmount(sfBalance);
+
+                if (balance.native())
+                    continue;
+
+                SField const* sfRewardFields[] = {&sfLowReward, &sfHighReward};
+                for (auto const* sfRewardFieldPtr : sfRewardFields)
+                {
+                    auto const& sfRewardField = *sfRewardFieldPtr;
+
+                    if (!sle->isFieldPresent(sfRewardField))
+                        continue;
+
+                    auto balance_ = balance;
+                    if (sfRewardField == sfHighReward)
+                        balance_.negate();
+
+                    if (balance_.negative())
+                        balance_.clear();
+
+                    auto& reward = sle->peekFieldObject(sfRewardField);
+                    uint32_t lgrLast = reward.getFieldU32(sfRewardLgrLast);
+                    uint32_t lgrElapsed = lgrCur - lgrLast;
+
+                    // update even in cases such as overflow or underflow.
+                    reward.setFieldU32(sfRewardLgrLast, lgrCur);
+
+                    // overflow safety
+                    if (lgrElapsed > lgrCur || lgrElapsed == 0)
+                        continue;
+
+                    auto accum =
+                        reward.getFieldAmount(sfTrustLineRewardAccumulator);
+
+                    STAmount accumNew;
+                    try
+                    {
+                        accumNew = accum +
+                            multiply(balance_,
+                                     STAmount(((uint64_t)lgrElapsed)),
+                                     balance_.issue());
+                    }
+                    catch (std::exception const&)
+                    {
+                        // Overflow detected, skip this reward calculation
+                        continue;
+                    }
+
+                    // check for overflow(<) and underflow(=)
+                    if (accumNew <= accum)
+                        continue;
+
+                    reward.setFieldAmount(
+                        sfTrustLineRewardAccumulator, accumNew);
+                }
+
+                view().update(sle);
+                continue;
+            }
+
+            // ltAccountRoot
             if (!node.isFieldPresent(sfRewardFields) ||
                 !node.isFieldPresent(sfLedgerIndex))
                 continue;

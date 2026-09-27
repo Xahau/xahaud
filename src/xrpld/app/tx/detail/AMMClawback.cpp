@@ -259,7 +259,6 @@ AMMClawback::equalWithdrawMatchingOneAmount(
     STAmount const& amount)
 {
     auto frac = Number{amount} / amountBalance;
-    auto amount2Withdraw = amount2Balance * frac;
 
     auto const lpTokensWithdraw =
         toSTAmount(lptAMMBalance.issue(), lptAMMBalance * frac);

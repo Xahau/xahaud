@@ -92,6 +92,23 @@ setSavedState(soci::session& session, SavedState const& state);
 void
 setLastRotated(soci::session& session, LedgerIndex seq);
 
+/**
+ * @brief getPinnedRanges Returns the serialized pinned ledger ranges.
+ * @param session Session with the database.
+ * @return Serialized range set string (e.g.,
+ * "1000000-2000000,3000000-3500000").
+ */
+std::string
+getPinnedRanges(soci::session& session);
+
+/**
+ * @brief setPinnedRanges Updates the pinned ledger ranges.
+ * @param session Session with the database.
+ * @param ranges Serialized range set string to save.
+ */
+void
+setPinnedRanges(soci::session& session, std::string const& ranges);
+
 }  // namespace ripple
 
 #endif

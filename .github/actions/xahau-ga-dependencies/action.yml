@@ -50,6 +50,10 @@ inputs:
     options:
       - libstdcxx
       - libcxx
+  conan_deps_cxxflags:
+    description: 'Extra cxxflags applied to Conan dependency package builds only (NOT the rippled build). JSON object keyed by Conan package pattern, e.g. {"grpc/*":["-Wno-foo"]}. Maps to <pattern>:tools.build:cxxflags.'
+    required: false
+    default: '{}'
 
 outputs:
   cache-hit:
@@ -81,6 +85,8 @@ runs:
 
     - name: Configure Conan
       shell: bash
+      env:
+        CONAN_DEPS_CXXFLAGS: ${{ inputs.conan_deps_cxxflags }}
       run: |
         # Create the default profile directory if it doesn't exist
         mkdir -p ~/.conan2/profiles
@@ -105,7 +111,14 @@ runs:
         os=${{ inputs.os }}
         EOF
 
-        # Add buildenv and conf sections for Linux (not needed for macOS)
+        # [buildenv] + [conf] sections.
+        # Linux pins compiler executables; macOS uses the system toolchain.
+        # conan_deps_cxxflags (matrix-driven) optionally adds package-pattern
+        # scoped tools.build:cxxflags for Conan dependency builds only - typically
+        # grpc workarounds for newer clang's stricter diagnostics. Because these
+        # are profile-pattern scoped (e.g. grpc/*:...), they do NOT affect the
+        # consumer/rippled toolchain generated for the main build.
+        NEED_CONF=0
         if [ "${{ inputs.os }}" = "Linux" ] && [ -n "${{ inputs.cc }}" ]; then
           cat >> ~/.conan2/profiles/default <<EOF
 
@@ -116,16 +129,38 @@ runs:
         [conf]
         tools.build:compiler_executables={"c": "/usr/bin/${{ inputs.cc }}", "cpp": "/usr/bin/${{ inputs.cxx }}"}
         EOF
+          NEED_CONF=1
         fi
 
-        # Add macOS-specific conf if needed
-        if [ "${{ inputs.os }}" = "Macos" ]; then
-          cat >> ~/.conan2/profiles/default <<EOF
+        if [ -n "${CONAN_DEPS_CXXFLAGS}" ] && [ "${CONAN_DEPS_CXXFLAGS}" != "{}" ]; then
+          CONAN_DEPS_CXXFLAGS_LINES="$(python3 - <<'PY'
+        import json
+        import os
+        import sys
 
-        [conf]
-        # Workaround for gRPC with newer Apple Clang
-        tools.build:cxxflags=["-Wno-missing-template-arg-list-after-template-kw"]
-        EOF
+        raw = os.environ["CONAN_DEPS_CXXFLAGS"]
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            sys.exit("conan_deps_cxxflags must be a JSON object like {\"grpc/*\": [\"-Wno-...\"]}")
+
+        for pattern, flags in data.items():
+            if not isinstance(pattern, str) or not pattern:
+                sys.exit("conan_deps_cxxflags keys must be non-empty Conan package patterns")
+            if pattern == "&":
+                sys.exit("conan_deps_cxxflags must target dependency package patterns, not the consumer (&)")
+            if not isinstance(flags, list) or not all(isinstance(flag, str) for flag in flags):
+                sys.exit(f"{pattern}: cxxflags must be a JSON string list")
+            if flags:
+                print(f"{pattern}:tools.build:cxxflags={json.dumps(flags, separators=(',', ':'))}")
+        PY
+          )"
+          if [ -n "${CONAN_DEPS_CXXFLAGS_LINES}" ] && [ "$NEED_CONF" = "0" ]; then
+            echo "" >> ~/.conan2/profiles/default
+            echo "[conf]" >> ~/.conan2/profiles/default
+          fi
+          if [ -n "${CONAN_DEPS_CXXFLAGS_LINES}" ]; then
+            printf '%s\n' "${CONAN_DEPS_CXXFLAGS_LINES}" >> ~/.conan2/profiles/default
+          fi
         fi
 
         # Display profile for verification

@@ -1,9 +1,9 @@
 all: reward govern mint
 accept:
-	wasmcc accept.c -o accept.wasm -Oz -Wl,--allow-undefined  -I../
+	wasmcc accept.c -o accept.wasm -Oz -Wl,--allow-undefined  -I./headers
 	hook-cleaner accept.wasm
 reward:
-	wasmcc reward.c -o reward.wasm -Oz -Wl,--allow-undefined  -I../
+	wasmcc reward.c -o reward.wasm -Oz -Wl,--allow-undefined  -I./headers
 	wasm-opt reward.wasm -o reward.wasm \
 		--shrink-level=100000000 \
 		--coalesce-locals-learning \
@@ -58,7 +58,7 @@ reward:
 	hook-cleaner reward.wasm
 	guard_checker reward.wasm
 govern:
-	wasmcc govern.c -o govern.wasm -Oz -Wl,--allow-undefined  -I../
+	wasmcc govern.c -o govern.wasm -Oz -Wl,--allow-undefined  -I./headers
 	wasm-opt govern.wasm -o govern.wasm \
 		--shrink-level=100000000 \
 		--coalesce-locals-learning \
@@ -113,7 +113,7 @@ govern:
 	hook-cleaner govern.wasm
 	guard_checker govern.wasm
 mint:
-	wasmcc mint.c -o mint.wasm -Oz -Wl,--allow-undefined  -I../
+	wasmcc mint.c -o mint.wasm -Oz -Wl,--allow-undefined  -I./headers
 	wasm-opt mint.wasm -o mint.wasm \
 		--shrink-level=100000000 \
 		--coalesce-locals-learning \
@@ -142,5 +142,5 @@ mint:
 	hook-cleaner mint.wasm
 	guard_checker mint.wasm
 nftoken:
-	wasmcc nftoken.c -o nftoken.wasm -Oz -Wl,--allow-undefined  -I../
+	wasmcc nftoken.c -o nftoken.wasm -Oz -Wl,--allow-undefined  -I./headers
 	hook-cleaner nftoken.wasm

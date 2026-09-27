@@ -19,15 +19,548 @@
 
 #include <test/jtx.h>
 #include <test/jtx/WSClient.h>
+#include <test/jtx/envconfig.h>
+#include <xrpld/app/consensus/RCLValidations.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/core/Config.h>
 #include <xrpld/core/ConfigSections.h>
+#include <xrpl/basics/FileUtilities.h>
+#include <xrpl/basics/chrono.h>
+#include <xrpl/beast/utility/temp_dir.h>
+#include <xrpl/protocol/BuildInfo.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
+#include <boost/filesystem/operations.hpp>
+#include <boost/filesystem/path.hpp>
+#include <chrono>
+#include <cstring>
+#include <memory>
+#include <mutex>
+#include <stdexcept>
+#include <string>
 
 namespace ripple {
 
 class AmendmentBlocked_test : public beast::unit_test::suite
 {
+    // An amendment id this binary will never support.
+    static uint256
+    unsupportedAmendmentId()
+    {
+        std::string const in = "AmendmentBlocked_test.unsupported";
+        sha256_hasher h;
+        using beast::hash_append;
+        hash_append(h, in);
+        auto const d = static_cast<sha256_hasher::result_type>(h);
+        uint256 result;
+        std::memcpy(result.data(), d.data(), d.size());
+        return result;
+    }
+
+    // The majority period only sets how far out activation is expected, so
+    // shorten it from two weeks. That keeps the ledger close-time jumps in
+    // these tests down to minutes, and makes the relationship to the
+    // five-minute shutdown lead time in LedgerMaster obvious.
+    static std::unique_ptr<Config>
+    shortMajorityConfig()
+    {
+        using namespace std::chrono_literals;
+        auto cfg = test::jtx::envconfig();
+        cfg->AMENDMENT_MAJORITY_TIME = 15min;
+        return cfg;
+    }
+
+    // Give the amendment table a majority, as of now, for an amendment we do
+    // not support; activation is then expected one majority period out.
+    // Bypasses the ReadView overload (and therefore needValidatedLedger) on
+    // purpose: because lastUpdateSeq_ is set to the current sequence, later
+    // closes within the same 256-ledger block will not recompute -- and so
+    // will not clear -- what we inject here.
+    void
+    injectUnsupportedMajority(test::jtx::Env& env)
+    {
+        auto const seq = env.closed()->info().seq;
+        majorityAmendments_t majority;
+        majority[unsupportedAmendmentId()] = env.now();
+        env.app().getAmendmentTable().doValidatedLedger(seq, {}, majority);
+
+        auto const first =
+            env.app().getAmendmentTable().firstUnsupportedExpected();
+        BEAST_EXPECT(
+            first &&
+            *first == env.now() + env.app().config().AMENDMENT_MAJORITY_TIME);
+    }
+
+    void
+    testReceiptFileHelpers()
+    {
+        testcase("amendment blocked receipt helpers");
+
+        auto const id = unsupportedAmendmentId();
+
+        {
+            beast::temp_dir td;
+            Config cfg;
+            cfg.CONFIG_DIR = td.path();
+
+            auto const path = amendmentBlockedFilePath(cfg);
+            BEAST_EXPECT(path.filename() == "README_AMENDMENT_BLOCKED");
+            BEAST_EXPECT(
+                path.parent_path() == boost::filesystem::path{td.path()});
+            BEAST_EXPECT(!boost::filesystem::exists(path));
+
+            // Nothing to remove yet, and that is not an error.
+            boost::system::error_code ec;
+            BEAST_EXPECT(!removeAmendmentBlockedFile(cfg, ec));
+            BEAST_EXPECT(!ec);
+
+            BEAST_EXPECT(!writeAmendmentBlockedFile(
+                cfg, {to_string(id) + "  (already active)"}));
+            BEAST_EXPECT(boost::filesystem::exists(path));
+
+            auto const contents = getFileContents(ec, path);
+            BEAST_EXPECT(!ec);
+            BEAST_EXPECT(
+                contents.find("XAHAUD STOPPED: UPGRADE REQUIRED") == 0);
+            // When it stopped, what was running, and what it choked on.
+            BEAST_EXPECT(contents.find("Stopped at:") != std::string::npos);
+            BEAST_EXPECT(
+                contents.find(BuildInfo::getVersionString()) !=
+                std::string::npos);
+            BEAST_EXPECT(contents.find(to_string(id)) != std::string::npos);
+            BEAST_EXPECT(contents.find("already active") != std::string::npos);
+            BEAST_EXPECT(contents.find("Upgrade xahaud") != std::string::npos);
+            // The receipt is self-clearing, so it must not tell the operator
+            // to delete anything.
+            BEAST_EXPECT(
+                contents.find("removed automatically") != std::string::npos);
+
+            // The timestamp is rendered, not a placeholder: to_string_iso
+            // gives YYYY-MM-DDTHH:MM:SSZ.
+            auto const stampAt = contents.find("Stopped at:");
+            if (BEAST_EXPECT(stampAt != std::string::npos))
+            {
+                auto const eol = contents.find('\n', stampAt);
+                auto const line = contents.substr(stampAt, eol - stampAt);
+                BEAST_EXPECT(line.find("20") != std::string::npos);
+                BEAST_EXPECT(line.find('T') != std::string::npos);
+                BEAST_EXPECT(line.find('Z') != std::string::npos);
+            }
+
+            // Now it can be removed, and removal is reported.
+            ec.clear();
+            BEAST_EXPECT(removeAmendmentBlockedFile(cfg, ec));
+            BEAST_EXPECT(!ec);
+            BEAST_EXPECT(!boost::filesystem::exists(path));
+
+            // With no amendments to name the receipt still says something
+            // useful.
+            BEAST_EXPECT(!writeAmendmentBlockedFile(cfg, {}));
+            ec.clear();
+            auto const bare = getFileContents(ec, path);
+            BEAST_EXPECT(!ec);
+            BEAST_EXPECT(
+                bare.find("not supported by this build") != std::string::npos);
+        }
+
+        // A directory we cannot write to must surface an error rather than
+        // throw. The shutdown continues either way; only the receipt is lost,
+        // which is what happens on installs where CONFIG_DIR is read-only for
+        // the account xahaud runs as.
+        {
+            Config cfg;
+            cfg.CONFIG_DIR =
+                boost::filesystem::path{"/"} / "no" / "such" / "directory";
+            BEAST_EXPECT(!!writeAmendmentBlockedFile(cfg, {}));
+
+            boost::system::error_code ec;
+            BEAST_EXPECT(!removeAmendmentBlockedFile(cfg, ec));
+        }
+    }
+
+    void
+    testStandaloneDoesNotStop()
+    {
+        testcase("standalone does not stop or leave a receipt");
+        using namespace test::jtx;
+
+        beast::temp_dir td;
+        Env env{*this, envconfig([&](std::unique_ptr<Config> cfg) {
+                    cfg->CONFIG_DIR = td.path();
+                    return cfg;
+                })};
+        BEAST_EXPECT(env.app().config().standalone());
+
+        auto const path = amendmentBlockedFilePath(env.app().config());
+        env.app().getOPs().setAmendmentBlocked();
+
+        BEAST_EXPECT(env.app().getOPs().isAmendmentBlocked());
+        BEAST_EXPECT(!env.app().getOPs().isAmendmentWarned());
+        BEAST_EXPECT(!env.app().isStopping());
+        BEAST_EXPECT(!boost::filesystem::exists(path));
+    }
+
+    void
+    testShutdownOnBlock()
+    {
+        testcase("amendment blocked stops the server");
+        using namespace test::jtx;
+
+        // A non-standalone Env is needed to exercise shutdown rather than
+        // only setting the blocked flag. Consequences when editing:
+        // setup() arms the state timer, run() arms the deadlock detector, and
+        // signalStop() below releases run() to tear the application down
+        // concurrently with the rest of this function. Do all the assertions
+        // straight away and let the Env go out of scope promptly.
+        beast::temp_dir td;
+        Env env{*this, envconfig([&](std::unique_ptr<Config> config) {
+                    config->NODE_SIZE = 0;
+                    config->setupControl(true, true, false);
+                    // setupControl picks a production node size for
+                    // non-standalone; put it back to "tiny" for the test.
+                    config->NODE_SIZE = 0;
+                    config->CONFIG_DIR = td.path();
+                    config->legacy("database_path", td.path());
+                    return config;
+                })};
+        BEAST_EXPECT(!env.app().config().standalone());
+
+        auto const path = amendmentBlockedFilePath(env.app().config());
+        BEAST_EXPECT(path.filename() == "README_AMENDMENT_BLOCKED");
+        BEAST_EXPECT(!boost::filesystem::exists(path));
+        BEAST_EXPECT(!env.app().isStopping());
+
+        // Make the table report an unsupported amendment so the receipt has
+        // something concrete to name.
+        auto const id = unsupportedAmendmentId();
+        env.app().getAmendmentTable().enable(id);
+        BEAST_EXPECT(env.app().getAmendmentTable().hasUnsupportedEnabled());
+
+        env.app().getOPs().setAmendmentBlocked();
+        BEAST_EXPECT(env.app().getOPs().isAmendmentBlocked());
+        BEAST_EXPECT(env.app().isStopping());
+        BEAST_EXPECT(boost::filesystem::exists(path));
+
+        boost::system::error_code readError;
+        auto const contents = getFileContents(readError, path);
+        BEAST_EXPECT(!readError);
+        BEAST_EXPECT(
+            contents.find("XAHAUD STOPPED: UPGRADE REQUIRED") !=
+            std::string::npos);
+        BEAST_EXPECT(contents.find("Upgrade xahaud") != std::string::npos);
+        BEAST_EXPECT(contents.find(to_string(id)) != std::string::npos);
+        BEAST_EXPECT(contents.find("already active") != std::string::npos);
+
+        // Repeat calls are a no-op: Change::applyAmendment reaches this from
+        // the transaction apply path without an isBlocked() guard, so it must
+        // not rewrite the receipt or re-log once per ledger.
+        BEAST_EXPECT(boost::filesystem::remove(path));
+        env.app().getOPs().setAmendmentBlocked();
+        BEAST_EXPECT(!boost::filesystem::exists(path));
+    }
+
+    void
+    checkJump(bool unsupported)
+    {
+        using namespace test::jtx;
+
+        beast::temp_dir td;
+        Env env{*this, envconfig([&](std::unique_ptr<Config> cfg) {
+                    cfg->setupControl(true, true, false);
+                    cfg->NODE_SIZE = 0;
+                    cfg->CONFIG_DIR = td.path();
+                    cfg->legacy("database_path", td.path());
+                    return cfg;
+                })};
+        auto& app = env.app();
+        auto& ops = app.getOPs();
+        auto& master = app.getLedgerMaster();
+        std::lock_guard lock(app.getMasterMutex());
+        auto const before = master.getClosedLedger();
+
+        // A direct child is not preferred over our LCL: consensus may be
+        // about to build it. Two ledgers ahead forces the JUMP path.
+        auto parent =
+            std::make_shared<Ledger>(*before, app.timeKeeper().closeTime());
+        parent->updateSkipList();
+        parent->setImmutable();
+        auto candidate =
+            std::make_shared<Ledger>(*parent, app.timeKeeper().closeTime());
+        candidate->updateSkipList();
+
+        if (unsupported)
+        {
+            auto const key = keylet::amendments();
+            auto const existing = candidate->read(key);
+            auto sle = existing ? std::make_shared<SLE>(*existing)
+                                : std::make_shared<SLE>(key);
+            STVector256 amendments;
+            if (sle->isFieldPresent(sfAmendments))
+                amendments = sle->getFieldV256(sfAmendments);
+            amendments.push_back(unsupportedAmendmentId());
+            sle->setFieldV256(sfAmendments, amendments);
+            if (existing)
+                candidate->rawReplace(sle);
+            else
+                candidate->rawInsert(sle);
+        }
+
+        // A serialized uint32 with an unknown field number. Insert raw bytes
+        // so the real transaction parser, reached through TxQ, must throw.
+        BEAST_EXPECT(SField::getField(STI_UINT32, 255).isInvalid());
+        auto tx = std::make_shared<Serializer>();
+        tx->add8(0x20);
+        tx->add8(255);
+        while (tx->getDataLength() < txMinSizeBytes)
+            tx->add8(0);
+        auto meta = std::make_shared<Serializer>();
+        meta->add8(0xE1);
+        auto const txID = sha512Half(tx->slice());
+        candidate->rawTxInsert(txID, tx, meta);
+        candidate->setImmutable();
+
+        bool unknownField = false;
+        try
+        {
+            candidate->txRead(txID);
+        }
+        catch (std::runtime_error const& e)
+        {
+            unknownField = std::string(e.what()).starts_with("Unknown field");
+        }
+        if (!BEAST_EXPECT(unknownField))
+            return;
+
+        master.storeLedger(candidate);
+        auto const keys = randomKeyPair(KeyType::secp256k1);
+        auto const nodeID = calcNodeID(keys.first);
+        auto validation = std::make_shared<STValidation>(
+            app.timeKeeper().closeTime(),
+            keys.first,
+            keys.second,
+            nodeID,
+            [&](STValidation& v) {
+                v.setFieldH256(sfLedgerHash, candidate->info().hash);
+                v.setFieldU32(sfLedgerSequence, candidate->seq());
+            });
+        // Add directly so ledger acceptance does not discover the amendment
+        // before JUMP has a chance to inspect the candidate itself.
+        BEAST_EXPECT(
+            app.getValidations().add(nodeID, RCLValidation{validation}) ==
+            ValStatus::current);
+        if (!BEAST_EXPECT(
+                app.getValidations().getPreferredLCL(
+                    RCLValidatedLedger{before, env.journal},
+                    master.getValidLedgerIndex(),
+                    {}) == candidate->info().hash))
+            return;
+
+        BEAST_EXPECT(!app.getAmendmentTable().hasUnsupportedEnabled());
+        BEAST_EXPECT(!app.getAmendmentTable().firstUnsupportedExpected());
+        BEAST_EXPECT(!ops.isAmendmentBlocked());
+        BEAST_EXPECT(!app.isStopping());
+        auto const receipt = amendmentBlockedFilePath(app.config());
+        BEAST_EXPECT(!boost::filesystem::exists(receipt));
+
+        bool threw = false;
+        try
+        {
+            ops.endConsensus({});
+        }
+        catch (std::runtime_error const& e)
+        {
+            threw = true;
+            BEAST_EXPECT(std::string(e.what()).starts_with("Unknown field"));
+        }
+        BEAST_EXPECT(threw == !unsupported);
+        BEAST_EXPECT(ops.isAmendmentBlocked() == unsupported);
+        BEAST_EXPECT(app.isStopping() == unsupported);
+        BEAST_EXPECT(boost::filesystem::exists(receipt) == unsupported);
+        BEAST_EXPECT(
+            master.getClosedLedger()->info().hash == before->info().hash);
+    }
+
+    void
+    testJumpStopsForUnsupportedAmendment()
+    {
+        testcase("JUMP to an unsupported ledger stops the server");
+        checkJump(/*unsupported=*/true);
+    }
+
+    void
+    testJumpRethrowsParsingError()
+    {
+        testcase("JUMP parsing errors without unsupported amendments escape");
+        checkJump(/*unsupported=*/false);
+    }
+
+    void
+    testWarnsOutsideShutdownWindow()
+    {
+        testcase("unsupported majority warns while activation is distant");
+        using namespace test::jtx;
+
+        Env env{*this, shortMajorityConfig()};
+        BEAST_EXPECT(!env.app().getOPs().isBlocked());
+
+        BEAST_EXPECT(env.close());
+        injectUnsupportedMajority(env);
+        BEAST_EXPECT(env.close());
+
+        // A majority period out: warn, keep running.
+        BEAST_EXPECT(env.app().getOPs().isAmendmentWarned());
+        BEAST_EXPECT(!env.app().getOPs().isAmendmentBlocked());
+
+        // The table can name the amendment, and reports it as pending rather
+        // than active. This is what ends up in the receipt.
+        auto const unsupported =
+            env.app().getAmendmentTable().unsupportedAmendments();
+        BEAST_EXPECT(unsupported.size() == 1);
+        if (unsupported.size() == 1)
+        {
+            BEAST_EXPECT(unsupported[0].id == unsupportedAmendmentId());
+            BEAST_EXPECT(
+                unsupported[0].expected ==
+                env.app().getAmendmentTable().firstUnsupportedExpected());
+        }
+
+        // Because firstUnsupportedExpected() is set, the warning carries the
+        // expected activation date.
+        auto const si = env.rpc("server_info")[jss::result];
+        BEAST_EXPECT(si.isMember(jss::info));
+        auto const& warnings = si[jss::info][jss::warnings];
+        BEAST_EXPECT(warnings.isArray() && warnings.size() == 1);
+        if (warnings.isArray() && warnings.size() == 1)
+        {
+            BEAST_EXPECT(
+                warnings[0u][jss::id].asInt() == warnRPC_UNSUPPORTED_MAJORITY);
+            auto const& details = warnings[0u][jss::details];
+            BEAST_EXPECT(details.isMember(jss::expected_date));
+            BEAST_EXPECT(details.isMember(jss::expected_date_UTC));
+        }
+    }
+
+    void
+    testUnsupportedAmendmentReporting()
+    {
+        testcase("unsupported amendments are reported for the receipt");
+        using namespace test::jtx;
+
+        Env env{*this, shortMajorityConfig()};
+        auto& table = env.app().getAmendmentTable();
+        BEAST_EXPECT(table.unsupportedAmendments().empty());
+
+        // Majority, not yet active -> reported with an expected time.
+        BEAST_EXPECT(env.close());
+        injectUnsupportedMajority(env);
+        auto pending = table.unsupportedAmendments();
+        BEAST_EXPECT(pending.size() == 1);
+        if (pending.size() == 1)
+            BEAST_EXPECT(pending[0].expected.has_value());
+
+        // Majority lost -> nothing to report. The list is recomputed from the
+        // ledger each time, so it must not accumulate.
+        auto const seq = env.closed()->info().seq;
+        table.doValidatedLedger(seq, {}, {});
+        BEAST_EXPECT(table.unsupportedAmendments().empty());
+        BEAST_EXPECT(!table.firstUnsupportedExpected());
+
+        // Active -> reported with no expected time.
+        BEAST_EXPECT(table.enable(unsupportedAmendmentId()));
+        BEAST_EXPECT(table.hasUnsupportedEnabled());
+        auto const active = table.unsupportedAmendments();
+        BEAST_EXPECT(active.size() == 1);
+        if (active.size() == 1)
+        {
+            BEAST_EXPECT(active[0].id == unsupportedAmendmentId());
+            BEAST_EXPECT(!active[0].expected);
+        }
+    }
+
+    void
+    testWarningVisibleWithoutAdmin()
+    {
+        testcase("unsupported majority warning is not admin only");
+        using namespace test::jtx;
+
+        // No closes here: ledger_accept is Role::ADMIN, server_info is
+        // Role::USER, which is the whole point of the test.
+        Env env{*this, envconfig(no_admin)};
+        env.app().getOPs().setAmendmentWarned();
+        BEAST_EXPECT(env.app().getOPs().isAmendmentWarned());
+
+        auto const si = env.rpc("server_info")[jss::result];
+        BEAST_EXPECT(si.isMember(jss::info));
+        auto const& warnings = si[jss::info][jss::warnings];
+        BEAST_EXPECT(warnings.isArray() && warnings.size() == 1);
+        if (warnings.isArray() && warnings.size() == 1)
+        {
+            BEAST_EXPECT(
+                warnings[0u][jss::id].asInt() == warnRPC_UNSUPPORTED_MAJORITY);
+        }
+    }
+
+    void
+    testShutsDownInsideShutdownWindow()
+    {
+        testcase("unsupported majority stops the server before activation");
+        using namespace test::jtx;
+
+        Env env{*this, shortMajorityConfig()};
+        BEAST_EXPECT(!env.app().getOPs().isBlocked());
+
+        BEAST_EXPECT(env.close());
+        injectUnsupportedMajority(env);
+
+        // First close only warns: activation is still a majority period away.
+        BEAST_EXPECT(env.close());
+        BEAST_EXPECT(env.app().getOPs().isAmendmentWarned());
+        BEAST_EXPECT(!env.app().getOPs().isAmendmentBlocked());
+
+        auto const expected =
+            *env.app().getAmendmentTable().firstUnsupportedExpected();
+
+        // Close two minutes short of the expected activation time. This is not
+        // a flag ledger and the warning has already been issued, so the check
+        // has to run on every validated ledger to see this at all.
+        BEAST_EXPECT(env.close(expected - NetClock::duration{120}));
+        BEAST_EXPECT(env.app().getOPs().isAmendmentBlocked());
+        BEAST_EXPECT(!env.app().getOPs().isAmendmentWarned());
+
+        // Standalone, so the flag is set but the server keeps running.
+        BEAST_EXPECT(!env.app().isStopping());
+    }
+
+    void
+    testShutsDownWhenActivationOverdue()
+    {
+        testcase("unsupported majority stops the server when overdue");
+        using namespace test::jtx;
+
+        Env env{*this, shortMajorityConfig()};
+        BEAST_EXPECT(!env.app().getOPs().isBlocked());
+
+        BEAST_EXPECT(env.close());
+        injectUnsupportedMajority(env);
+
+        auto const expected =
+            *env.app().getAmendmentTable().firstUnsupportedExpected();
+
+        // firstUnsupportedExpected() is a lower bound: the amendment actually
+        // activates at the first flag ledger at or after it, so the server can
+        // legitimately still be running an hour past it. That is the most
+        // dangerous state, not the safest, and must stop the server.
+        BEAST_EXPECT(env.close(expected + NetClock::duration{3600}));
+        BEAST_EXPECT(env.app().getOPs().isAmendmentBlocked());
+        BEAST_EXPECT(!env.app().getOPs().isAmendmentWarned());
+    }
+
     void
     testBlockedMethods()
     {
@@ -250,6 +783,16 @@ public:
     void
     run() override
     {
+        testReceiptFileHelpers();
+        testStandaloneDoesNotStop();
+        testShutdownOnBlock();
+        testJumpRethrowsParsingError();
+        testJumpStopsForUnsupportedAmendment();
+        testWarnsOutsideShutdownWindow();
+        testUnsupportedAmendmentReporting();
+        testWarningVisibleWithoutAdmin();
+        testShutsDownInsideShutdownWindow();
+        testShutsDownWhenActivationOverdue();
         testBlockedMethods();
     }
 };

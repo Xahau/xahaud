@@ -66,7 +66,7 @@ blob::operator()(Env& env, JTx& jt) const
 void
 dest::operator()(Env& env, JTx& jt) const
 {
-    jt.jv[sfDestination.jsonName] = dest_.human();
+    jt.jv[sfDestination.jsonName] = to_string(dest_);
 }
 
 }  // namespace invoke

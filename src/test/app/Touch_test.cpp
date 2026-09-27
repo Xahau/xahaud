@@ -207,19 +207,25 @@ private:
         test::jtx::Env env{*this, envconfig(), features};
 
         auto const alice = Account("alice");
-        auto const issuer = Account("issuer");
-        env.fund(XRP(1000), alice, issuer);
+        auto const issuer = Account::master;
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        env(hook(issuer, {{hso(jtx::genesis::AcceptHook)}}, 0), fee(XRP(1)));
         env.close();
 
         // claim reward
-        env(reward::claim(alice), reward::issuer(issuer), ter(tesSUCCESS));
+        env(reward::claim(alice),
+            reward::issuer(issuer),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
         env.close();
 
         // verify touch
         validateTouch(env, alice, {"ClaimReward", "tesSUCCESS"});
         auto const tt = env.current()->rules().enabled(featureTouch)
             ? "ClaimReward"
-            : "AccountSet";
+            : "SetHook";
         validateTouch(env, issuer, {tt, "tesSUCCESS"});
     }
 
@@ -880,9 +886,9 @@ private:
     }
 
     void
-    testSignersListSet(FeatureBitset features)
+    testSignerListSet(FeatureBitset features)
     {
-        testcase("signers list set");
+        testcase("signer list set");
 
         using namespace test::jtx;
         using namespace std::literals;
@@ -895,7 +901,7 @@ private:
         env.fund(XRP(1000), alice, signer1, signer2);
         env.close();
 
-        // signers list set
+        // signer list set
         env(signers(alice, 2, {{signer1, 1}, {signer2, 1}}), ter(tesSUCCESS));
         env.close();
 
@@ -1384,7 +1390,7 @@ private:
         testPaymentChannelFund(features);
         testSetHook(features);
         testSetRegularKey(features);
-        testSignersListSet(features);
+        testSignerListSet(features);
         testTicketCreate(features);
         testTrustSet(features);
         testURITokenMint(features);

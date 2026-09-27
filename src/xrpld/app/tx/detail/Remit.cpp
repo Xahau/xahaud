@@ -18,12 +18,12 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/Remit.h>
-#include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/UTF8.h>
 #include <xrpl/protocol/st.h>
 
 namespace ripple {
@@ -201,7 +201,7 @@ Remit::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (!URIToken::validateUTF8(uri))
+        if (!isValidUTF8(makeSlice(uri)))
         {
             JLOG(ctx.j.warn())
                 << "Malformed transaction: Invalid UTF8 inside MintURIToken.";
@@ -256,10 +256,17 @@ Remit::doApply()
     if (ctx_.tx.isFieldPresent(sfInform))
     {
         auto const informAcc = ctx_.tx.getAccountID(sfInform);
-        if (!sb.exists(keylet::account(informAcc)))
+        auto const sleInformAcc = sb.read(keylet::account(informAcc));
+        if (!sleInformAcc)
         {
             JLOG(j.warn()) << "Remit: sfInform account does not exist.";
             return tecNO_TARGET;
+        }
+
+        if (sleInformAcc->isFieldPresent(sfAMMID))
+        {
+            JLOG(j.warn()) << "Remit: sfInform account is an AMM.";
+            return tecNO_PERMISSION;
         }
     }
 
@@ -286,6 +293,11 @@ Remit::doApply()
     // Check if the destination has disallowed incoming
     if (sb.rules().enabled(featureDisallowIncoming) &&
         (flags & lsfDisallowIncomingRemit))
+        return tecNO_PERMISSION;
+
+    // AMMs can never receive an XAH payment.
+    // Must use AMMDeposit transaction instead.
+    if (sleDstAcc && sleDstAcc->isFieldPresent(sfAMMID))
         return tecNO_PERMISSION;
 
     // Check if the destination account requires deposit authorization.
@@ -316,11 +328,7 @@ Remit::doApply()
         nativeRemit += accountReserve;
 
         // Create the account.
-        std::uint32_t const seqno{
-            sb.rules().enabled(featureXahauGenesis)
-                ? sb.info().parentCloseTime.time_since_epoch().count()
-                : sb.rules().enabled(featureDeletableAccounts) ? sb.seq()
-                                                               : 1};
+        std::uint32_t const seqno = newAccountSeqNo(sb);
 
         sleDstAcc = std::make_shared<SLE>(keylet::account(dstAccID));
         sleDstAcc->setAccountID(sfAccount, dstAccID);

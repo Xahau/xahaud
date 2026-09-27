@@ -77,6 +77,11 @@ test.ledger > xrpld.app
 test.ledger > xrpld.core
 test.ledger > xrpld.ledger
 test.ledger > xrpl.protocol
+test.net > test.toplevel
+test.net > xrpl.basics
+test.net > xrpld.core
+test.net > xrpld.net
+test.net > xrpl.json
 test.nodestore > test.jtx
 test.nodestore > test.toplevel
 test.nodestore > test.unit_test
@@ -84,6 +89,7 @@ test.nodestore > xrpl.basics
 test.nodestore > xrpld.core
 test.nodestore > xrpld.nodestore
 test.nodestore > xrpld.unity
+test.nodestore > xrpl.protocol
 test.overlay > test.jtx
 test.overlay > test.toplevel
 test.overlay > test.unit_test
@@ -118,6 +124,7 @@ test.rpc > xrpld.core
 test.rpc > xrpld.net
 test.rpc > xrpld.overlay
 test.rpc > xrpld.rpc
+test.rpc > xrpld.shamap
 test.rpc > xrpl.hook
 test.rpc > xrpl.json
 test.rpc > xrpl.protocol
@@ -198,6 +205,7 @@ xrpld.rpc > xrpld.core
 xrpld.rpc > xrpld.ledger
 xrpld.rpc > xrpld.nodestore
 xrpld.rpc > xrpld.shamap
+xrpld.rpc > xrpl.hook
 xrpld.rpc > xrpl.json
 xrpld.rpc > xrpl.protocol
 xrpld.rpc > xrpl.resource

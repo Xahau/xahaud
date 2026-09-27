@@ -367,35 +367,6 @@ public:
     void
     invariants() const;
 
-public:
-    /**
-     * Serialize a SHAMap to a stream, optionally as a delta from another map
-     * Only leaf nodes are serialized since inner nodes can be reconstructed.
-     *
-     * @param stream The output stream to write to
-     * @param writtenNodes Set to track written node hashes to avoid duplicates
-     * @param baseSHAMap Optional base map to compute delta against
-     * @return Number of nodes written
-     */
-    template <typename StreamType>
-    std::size_t
-    serializeToStream(
-        StreamType& stream,
-        std::optional<std::reference_wrapper<const SHAMap>> baseSHAMap =
-            std::nullopt) const;
-
-    /**
-     * Deserialize a SHAMap from a stream
-     * Reconstructs the full tree from leaf nodes.
-     *
-     * @param stream The input stream to read from
-     * @param baseSHAMap Optional base map to apply deltas to
-     * @return True if deserialization succeeded
-     */
-    template <typename StreamType>
-    bool
-    deserializeFromStream(StreamType& stream);
-
 private:
     using SharedPtrNodeStack =
         std::stack<std::pair<std::shared_ptr<SHAMapTreeNode>, SHAMapNodeID>>;

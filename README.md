@@ -12,7 +12,7 @@ The server software that powers Xahau is called `xahaud` and is available in thi
 
 ### Build from Source
 
-* [Read the build instructions in our documentation](https://xahau.network/infrastructure/building-xahau)
+* [Read the build instructions in our documentation](https://xahau.network/docs/infrastructure/build-xahaud/)
 * If you encounter any issues, please [open an issue](https://github.com/xahau/xahaud/issues)
 
 ## Highlights of Xahau

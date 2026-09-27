@@ -879,7 +879,7 @@ inline std::string ImportTCSetRegularKey::w_signers = R"json({
 }
 })json";
 
-class ImportTCSignersListSet
+class ImportTCSignerListSet
 {
 public:
     static std::string w_seed_bad_fee;
@@ -891,7 +891,7 @@ public:
     static std::string w_signers_empty;
 };
 
-inline std::string ImportTCSignersListSet::w_seed_bad_fee = R"json({
+inline std::string ImportTCSignerListSet::w_seed_bad_fee = R"json({
 "ledger": {
     "acroot": "64F75A08037D9F8ED8A103893401EB2AD726E7D6AAC3EAA249005916A9354892",
     "close": 743008501,
@@ -952,7 +952,7 @@ inline std::string ImportTCSignersListSet::w_seed_bad_fee = R"json({
     }
 }
 })json";
-inline std::string ImportTCSignersListSet::w_seed = R"json({
+inline std::string ImportTCSignerListSet::w_seed = R"json({
 "ledger": {
     "acroot": "8112FF5F3FEEA34894A16CCCD64A24D552521F2E699780A587A9E6F5F5117CE5",
     "close": 743008510,
@@ -993,7 +993,7 @@ inline std::string ImportTCSignersListSet::w_seed = R"json({
     }
 }
 })json";
-inline std::string ImportTCSignersListSet::w_regular_key = R"json({
+inline std::string ImportTCSignerListSet::w_regular_key = R"json({
 "ledger": {
     "acroot": "2A25CA219781A3144C72FD5FB6EB62763214E050050DA6176624A046C51EECBD",
     "close": 743015350,
@@ -1034,7 +1034,7 @@ inline std::string ImportTCSignersListSet::w_regular_key = R"json({
     }
 }
 })json";
-inline std::string ImportTCSignersListSet::w_signers = R"json({
+inline std::string ImportTCSignerListSet::w_signers = R"json({
 "ledger": {
     "acroot": "BC35E65B52724CF258BDAC8B8E0D3B9CA0F012F5B243F6AAD1B671EDABD5188E",
     "close": 745594953,
@@ -1075,7 +1075,7 @@ inline std::string ImportTCSignersListSet::w_signers = R"json({
     }
 }
 })json";
-inline std::string ImportTCSignersListSet::w_seed_empty = R"json({
+inline std::string ImportTCSignerListSet::w_seed_empty = R"json({
 "ledger": {
     "acroot": "ECCAFDE52A6D5F1E36EB82EAA5247FF1D8ADE51FCF1ED0842850193018A510F7",
     "close": 743056482,
@@ -1116,7 +1116,7 @@ inline std::string ImportTCSignersListSet::w_seed_empty = R"json({
     }
 }
 })json";
-inline std::string ImportTCSignersListSet::w_regular_key_empty = R"json({
+inline std::string ImportTCSignerListSet::w_regular_key_empty = R"json({
 "ledger": {
     "acroot": "E222F46D5F35C79FDA3BB98973E2024EF9F6FA7B26471CC9CEF2CE033FA0E6E7",
     "close": 743169800,
@@ -1157,7 +1157,7 @@ inline std::string ImportTCSignersListSet::w_regular_key_empty = R"json({
     }
 }
 })json";
-inline std::string ImportTCSignersListSet::w_signers_empty = R"json({
+inline std::string ImportTCSignerListSet::w_signers_empty = R"json({
 "ledger": {
     "acroot": "987438A87AD998B7D7ED04A280FB5414C76E8475D621A55FB8463F15CEEEAD49",
     "close": 743172592,

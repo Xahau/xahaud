@@ -5,285 +5,8 @@
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpl/protocol/STParsedJSON.h>
-#include <cfenv>
 
 namespace hook {
-namespace hook_float {
-
-// power of 10 LUT for fast integer math
-static int64_t power_of_ten[19] = {
-    1LL,
-    10LL,
-    100LL,
-    1000LL,
-    10000LL,
-    100000LL,
-    1000000LL,
-    10000000LL,
-    100000000LL,
-    1000000000LL,
-    10000000000LL,
-    100000000000LL,
-    1000000000000LL,
-    10000000000000LL,
-    100000000000000LL,
-    1000000000000000LL,  // 15
-    10000000000000000LL,
-    100000000000000000LL,
-    1000000000000000000LL,
-};
-
-using namespace hook_api;
-static int64_t const minMantissa = 1000000000000000ull;
-static int64_t const maxMantissa = 9999999999999999ull;
-static int32_t const minExponent = -96;
-static int32_t const maxExponent = 80;
-
-inline Expected<int32_t, HookReturnCode>
-get_exponent(int64_t float1)
-{
-    if (float1 < 0)
-        return Unexpected(INVALID_FLOAT);
-    if (float1 == 0)
-        return 0;
-    uint64_t float_in = (uint64_t)float1;
-    float_in >>= 54U;
-    float_in &= 0xFFU;
-    return ((int32_t)float_in) - 97;
-}
-
-inline Expected<uint64_t, HookReturnCode>
-get_mantissa(int64_t float1)
-{
-    if (float1 < 0)
-        return Unexpected(INVALID_FLOAT);
-    if (float1 == 0)
-        return 0;
-    float1 -= ((((uint64_t)float1) >> 54U) << 54U);
-    return float1;
-}
-
-inline bool
-is_negative(int64_t float1)
-{
-    return ((float1 >> 62U) & 1ULL) == 0;
-}
-
-inline int64_t
-invert_sign(int64_t float1)
-{
-    int64_t r = (int64_t)(((uint64_t)float1) ^ (1ULL << 62U));
-    return r;
-}
-
-inline int64_t
-set_sign(int64_t float1, bool set_negative)
-{
-    bool neg = is_negative(float1);
-    if ((neg && set_negative) || (!neg && !set_negative))
-        return float1;
-
-    return invert_sign(float1);
-}
-
-inline Expected<uint64_t, HookReturnCode>
-set_mantissa(int64_t float1, uint64_t mantissa)
-{
-    if (mantissa > maxMantissa)
-        return Unexpected(MANTISSA_OVERSIZED);
-    if (mantissa < minMantissa)
-        return Unexpected(MANTISSA_UNDERSIZED);
-    return float1 - get_mantissa(float1).value() + mantissa;
-}
-
-inline Expected<uint64_t, HookReturnCode>
-set_exponent(int64_t float1, int32_t exponent)
-{
-    if (exponent > maxExponent)
-        return Unexpected(EXPONENT_OVERSIZED);
-    if (exponent < minExponent)
-        return Unexpected(EXPONENT_UNDERSIZED);
-
-    uint64_t exp = (exponent + 97);
-    exp <<= 54U;
-    float1 &= ~(0xFFLL << 54);
-    float1 += (int64_t)exp;
-    return float1;
-}
-
-inline Expected<uint64_t, HookReturnCode>
-make_float(ripple::IOUAmount& amt)
-{
-    int64_t man_out = amt.mantissa();
-    int64_t float_out = 0;
-    bool neg = man_out < 0;
-    if (neg)
-        man_out *= -1;
-
-    float_out = set_sign(float_out, neg);
-    auto const mantissa = set_mantissa(float_out, (uint64_t)man_out);
-    if (!mantissa)
-        // TODO: This change requires the amendment.
-        // return Unexpected(mantissa.error());
-        float_out = mantissa.error();
-    else
-        float_out = mantissa.value();
-    auto const exponent = set_exponent(float_out, amt.exponent());
-    if (!exponent)
-        return Unexpected(exponent.error());
-    float_out = exponent.value();
-    return float_out;
-}
-
-inline Expected<uint64_t, HookReturnCode>
-make_float(uint64_t mantissa, int32_t exponent, bool neg)
-{
-    if (mantissa == 0)
-        return 0;
-    if (mantissa > maxMantissa)
-        return Unexpected(MANTISSA_OVERSIZED);
-    if (mantissa < minMantissa)
-        return Unexpected(MANTISSA_UNDERSIZED);
-    if (exponent > maxExponent)
-        return Unexpected(EXPONENT_OVERSIZED);
-    if (exponent < minExponent)
-        return Unexpected(EXPONENT_UNDERSIZED);
-    int64_t out = 0;
-
-    auto const m = set_mantissa(out, mantissa);
-    if (!m)
-        return m.error();
-    out = m.value();
-
-    auto const e = set_exponent(out, exponent);
-    if (!e)
-        return e.error();
-    out = e.value();
-
-    out = set_sign(out, neg);
-    return out;
-}
-
-/**
- * This function normalizes the mantissa and exponent passed, if it can.
- * It returns the XFL and mutates the supplied manitssa and exponent.
- * If a negative mantissa is provided then the returned XFL has the negative
- * flag set. If there is an overflow error return XFL_OVERFLOW. On underflow
- * returns canonical 0
- */
-template <typename T>
-inline Expected<uint64_t, HookReturnCode>
-normalize_xfl(T& man, int32_t& exp, bool neg = false)
-{
-    if (man == 0)
-        return 0;
-
-    if (man == std::numeric_limits<int64_t>::min())
-        man++;
-
-    constexpr bool sman = std::is_same<T, int64_t>::value;
-    static_assert(sman || std::is_same<T, uint64_t>());
-
-    if constexpr (sman)
-    {
-        if (man < 0)
-        {
-            man *= -1LL;
-            neg = true;
-        }
-    }
-
-    // mantissa order
-    std::feclearexcept(FE_ALL_EXCEPT);
-    int32_t mo = log10(man);
-    // defensively ensure log10 produces a sane result; we'll borrow the
-    // overflow error code if it didn't
-    if (std::fetestexcept(FE_INVALID))
-        return Unexpected(XFL_OVERFLOW);
-
-    int32_t adjust = 15 - mo;
-
-    if (adjust > 0)
-    {
-        // defensive check
-        if (adjust > 18)
-            return 0;
-        man *= power_of_ten[adjust];
-        exp -= adjust;
-    }
-    else if (adjust < 0)
-    {
-        // defensive check
-        if (-adjust > 18)
-            return Unexpected(XFL_OVERFLOW);
-        man /= power_of_ten[-adjust];
-        exp -= adjust;
-    }
-
-    if (man == 0)
-    {
-        exp = 0;
-        return 0;
-    }
-
-    // even after adjustment the mantissa can be outside the range by one place
-    // improving the math above would probably alleviate the need for these
-    // branches
-    if (man < minMantissa)
-    {
-        if (man == minMantissa - 1LL)
-            man += 1LL;
-        else
-        {
-            man *= 10LL;
-            exp--;
-        }
-    }
-
-    if (man > maxMantissa)
-    {
-        if (man == maxMantissa + 1LL)
-            man -= 1LL;
-        else
-        {
-            man /= 10LL;
-            exp++;
-        }
-    }
-
-    if (exp < minExponent)
-    {
-        man = 0;
-        exp = 0;
-        return 0;
-    }
-
-    if (man == 0)
-    {
-        exp = 0;
-        return 0;
-    }
-
-    if (exp > maxExponent)
-        return Unexpected(XFL_OVERFLOW);
-
-    auto const ret = make_float((uint64_t)man, exp, neg);
-    if constexpr (sman)
-    {
-        if (neg)
-            man *= -1LL;
-    }
-
-    if (!ret)
-        return ret.error();
-
-    return ret;
-}
-
-const int64_t float_one_internal =
-    make_float(1000000000000000ull, -15, false).value();
-
-}  // namespace hook_float
 
 using namespace ripple;
 using namespace hook_float;
@@ -378,6 +101,14 @@ HookAPI::sto_subfield(Bytes const& data, uint32_t field_id) const
     if (data.size() < 2)
         return Unexpected(TOO_SMALL);
 
+    if (hookCtx.applyCtx.view().rules().enabled(fixHookAPISType))
+    {
+        // validate the data
+        auto const valid = sto_validate(data);
+        if (!valid || !valid.value())
+            return Unexpected(PARSE_ERROR);
+    }
+
     unsigned char* start = const_cast<unsigned char*>(data.data());
     unsigned char* upto = start;
     unsigned char* end = start + data.size();
@@ -441,6 +172,18 @@ HookAPI::sto_subarray(Bytes const& data, uint32_t index_id) const
     unsigned char* start = const_cast<unsigned char*>(data.data());
     unsigned char* upto = start;
     unsigned char* end = start + data.size();
+
+    if (hookCtx.applyCtx.view().rules().enabled(fixHookAPISType))
+    {
+        // check if the array has valid trailing data
+        if ((*upto & 0xF0U) == 0xF0U && *(end - 1) != 0xF1U)
+            return Unexpected(PARSE_ERROR);
+
+        // validate the array
+        auto const valid = sto_validate(data);
+        if (!valid || !valid.value())
+            return Unexpected(PARSE_ERROR);
+    }
 
     // unwrap the array if it is wrapped,
     // by removing a byte from the start and end
@@ -536,6 +279,13 @@ HookAPI::sto_emplace(
             return Unexpected(TOO_SMALL);
     }
 
+    if (hookCtx.applyCtx.view().rules().enabled(fixHookAPISType))
+    {
+        auto const source_valid = sto_validate(source_object);
+        if (!source_valid || !source_valid.value())
+            return Unexpected(PARSE_ERROR);
+    }
+
     if (field_object.has_value() &&
         hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
     {
@@ -555,6 +305,9 @@ HookAPI::sto_emplace(
             hookCtx.applyCtx.view().rules(),
             0);
         if (!length)
+            return Unexpected(PARSE_ERROR);
+        if (hookCtx.applyCtx.view().rules().enabled(fixHookAPISType) &&
+            length.value() != field_object->size())
             return Unexpected(PARSE_ERROR);
         if ((type << 16) + field != field_id)
         {
@@ -1178,7 +931,7 @@ HookAPI::etxn_details(uint8_t* out_ptr) const
 
     auto hash = etxn_nonce();
     if (!hash.has_value())
-        return INTERNAL_ERROR;
+        return Unexpected(INTERNAL_ERROR);
 
     memcpy(out, hash->data(), 32);
 
@@ -1273,7 +1026,7 @@ HookAPI::float_set(int32_t exponent, int64_t mantissa) const
     {
         if (normalized.error() == XFL_OVERFLOW)
             return Unexpected(INVALID_FLOAT);
-        return normalized.error();
+        return Unexpected(normalized.error());
     }
     if (normalized.value() == 0)
         return Unexpected(INVALID_FLOAT);
@@ -1321,7 +1074,7 @@ HookAPI::float_mulratio(
 
     auto const result = make_float((uint64_t)man1, exp1, is_negative(float1));
     if (!result)
-        return result.error();
+        return Unexpected(result.error());
     return result;
 }
 
@@ -1932,7 +1685,7 @@ HookAPI::hook_hash(int32_t hook_no) const
     return hook.getFieldH256(sfHookHash);
 }
 
-Expected<int64_t, HookReturnCode>
+Expected<uint64_t, HookReturnCode>
 HookAPI::hook_again() const
 {
     if (hookCtx.result.executeAgainAsWeak)
@@ -1941,7 +1694,7 @@ HookAPI::hook_again() const
     if (hookCtx.result.isStrong)
     {
         hookCtx.result.executeAgainAsWeak = true;
-        return 1;
+        return 1ULL;
     }
 
     return Unexpected(PREREQUISITE_NOT_MET);
@@ -2197,88 +1950,114 @@ HookAPI::state_foreign_set(
     if (hookCtx.result.foreignStateSetDisabled)
         return Unexpected(PREVIOUS_FAILURE_PREVENTS_RETRY);
 
-    // first check if we've already modified this state
-    auto cacheEntry = lookup_state_cache(account, ns, key);
-    if (cacheEntry && cacheEntry->get().first)
-    {
-        // if a cache entry already exists and it has already been modified
-        // don't check grants again
-        if (auto ret = set_state_cache(account, ns, key, data, true);
-            !ret.has_value())
-            return Unexpected(ret.error());
+    bool const hasFix = hookCtx.applyCtx.view().rules().enabled(fixHookMap);
 
-        return data.size();
+    if (!hasFix)
+    {
+        // first check if we've already modified this state
+        auto cacheEntry = lookup_state_cache(account, ns, key);
+        if (cacheEntry && cacheEntry->get().first)
+        {
+            // if a cache entry already exists and it has already been modified
+            // don't check grants again
+            if (auto ret = set_state_cache(account, ns, key, data, true);
+                !ret.has_value())
+                return Unexpected(ret.error());
+
+            return data.size();
+        }
     }
-
-    // cache miss or cache was present but entry was not marked as previously
-    // modified therefore before continuing we need to check grants
-    auto const sle =
-        hookCtx.applyCtx.view().read(ripple::keylet::hook(account));
-    if (!sle)
-        return Unexpected(INTERNAL_ERROR);
-
-    bool found_auth = false;
-
-    // we do this by iterating the hooks installed on the foreign account and in
-    // turn their grants and namespaces
-    auto const& hooks = sle->getFieldArray(sfHooks);
-    for (auto const& hookObj : hooks)
+    // check if we've used a grant to modify this state entry before, if not
+    // look up possible grants
+    if (!hasFix ||
+        hookCtx.result.foreignStateGrantCache.find({account, ns}) ==
+            hookCtx.result.foreignStateGrantCache.end())
     {
-        // skip blank entries
-        if (!hookObj.isFieldPresent(sfHookHash))
-            continue;
+        auto const sle =
+            hookCtx.applyCtx.view().read(ripple::keylet::hook(account));
 
-        if (!hookObj.isFieldPresent(sfHookGrants))
-            continue;
-
-        auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
-
-        if (hookGrants.size() < 1)
-            continue;
-
-        // the grant allows the hook to modify the granter's namespace only
-        if (hookObj.isFieldPresent(sfHookNamespace))
+        if (!sle)
         {
-            if (hookObj.getFieldH256(sfHookNamespace) != ns)
-                continue;
-        }
-        else
-        {
-            // fetch the hook definition
-            auto const def =
-                hookCtx.applyCtx.view().read(ripple::keylet::hookDefinition(
-                    hookObj.getFieldH256(sfHookHash)));
-            if (!def)  // should never happen except in a rare race condition
-                continue;
-            if (def->getFieldH256(sfHookNamespace) != ns)
-                continue;
-        }
-
-        // this is expensive search so we'll disallow after one failed attempt
-        for (auto const& hookGrantObj : hookGrants)
-        {
-            bool hasAuthorizedField = hookGrantObj.isFieldPresent(sfAuthorize);
-
-            if (hookGrantObj.getFieldH256(sfHookHash) ==
-                    hookCtx.result.hookHash &&
-                (!hasAuthorizedField ||
-                 hookGrantObj.getAccountID(sfAuthorize) ==
-                     hookCtx.result.account))
+            if (hasFix)
             {
-                found_auth = true;
-                break;
+                hookCtx.result.foreignStateSetDisabled = true;
+                return Unexpected(NOT_AUTHORIZED);
             }
+
+            return Unexpected(INTERNAL_ERROR);
         }
 
-        if (found_auth)
-            break;
-    }
+        // RH TODO: test this code path more completely
 
-    if (!found_auth)
-    {
-        // hook only gets one attempt
-        hookCtx.result.foreignStateSetDisabled = true;
-        return Unexpected(NOT_AUTHORIZED);
+        bool found_auth = false;
+
+        // we do this by iterating the hooks installed on the foreign account
+        // and in turn their grants and namespaces
+        auto const& hooks = sle->getFieldArray(sfHooks);
+        for (auto const& hookObj : hooks)
+        {
+            // skip blank entries
+            if (!hookObj.isFieldPresent(sfHookHash))
+                continue;
+
+            if (!hookObj.isFieldPresent(sfHookGrants))
+                continue;
+
+            auto const& hookGrants = hookObj.getFieldArray(sfHookGrants);
+
+            if (hookGrants.size() < 1)
+                continue;
+
+            // the grant allows the hook to modify the granter's namespace only
+            if (hookObj.isFieldPresent(sfHookNamespace))
+            {
+                if (hookObj.getFieldH256(sfHookNamespace) != ns)
+                    continue;
+            }
+            else
+            {
+                // fetch the hook definition
+                auto const def =
+                    hookCtx.applyCtx.view().read(ripple::keylet::hookDefinition(
+                        hookObj.getFieldH256(sfHookHash)));
+                if (!def)  // should never happen except in a rare race
+                           // condition
+                    continue;
+                if (def->getFieldH256(sfHookNamespace) != ns)
+                    continue;
+            }
+
+            // this is expensive search so we'll disallow after one failed
+            // attempt
+            for (auto const& hookGrantObj : hookGrants)
+            {
+                bool hasAuthorizedField =
+                    hookGrantObj.isFieldPresent(sfAuthorize);
+
+                if (hookGrantObj.getFieldH256(sfHookHash) ==
+                        hookCtx.result.hookHash &&
+                    (!hasAuthorizedField ||
+                     hookGrantObj.getAccountID(sfAuthorize) ==
+                         hookCtx.result.account))
+                {
+                    found_auth = true;
+                    break;
+                }
+            }
+
+            if (found_auth)
+                break;
+        }
+
+        if (!found_auth)
+        {
+            // hook only gets one attempt
+            hookCtx.result.foreignStateSetDisabled = true;
+            return Unexpected(NOT_AUTHORIZED);
+        }
+
+        // add the grant to the cache
+        hookCtx.result.foreignStateGrantCache.emplace(account, ns);
     }
 
     if (auto ret = set_state_cache(account, ns, key, data, true);
@@ -2607,7 +2386,7 @@ HookAPI::slot_float(uint32_t slot_no) const
             normalized = ret.value();
         }
 
-        if (normalized == EXPONENT_UNDERSIZED)
+        if (normalized == (int64_t)EXPONENT_UNDERSIZED)
             /* exponent undersized (underflow) */
             return 0;  // return 0 in this case
         return normalized;
@@ -2655,7 +2434,7 @@ HookAPI::meta_slot(uint32_t slot_into) const
 Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
 HookAPI::xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const
 {
-    if (hookCtx.applyCtx.tx.getFieldU16(sfTransactionType) != ttIMPORT)
+    if (hookCtx.applyCtx.tx.getTxnType() != ttIMPORT)
         return Unexpected(PREREQUISITE_NOT_MET);
 
     if (slot_into_tx > hook_api::max_slots ||
@@ -2994,8 +2773,7 @@ HookAPI::set_state_cache(
     if (modified && stateMap.modified_entry_count >= max_state_modifications)
         return Unexpected(TOO_MANY_STATE_MODIFICATIONS);
 
-    bool const createNamespace = view.rules().enabled(fixXahauV1) &&
-        !view.exists(keylet::hookStateDir(acc, ns));
+    bool const createNamespace = !view.exists(keylet::hookStateDir(acc, ns));
 
     if (stateMap.find(acc) == stateMap.end())
     {
@@ -3134,8 +2912,8 @@ HookAPI::set_state_cache(
 // including header bytes (and footer bytes in the event of array or object)
 // negative indicates error
 inline Expected<
-    int32_t,
-    HookAPI::parse_error>
+    uint32_t,
+    HookAPI::STOParseErrorCode>
 HookAPI::get_stobject_length(
     unsigned char* start,   // in - begin iterator
     unsigned char* maxptr,  // in - end iterator
@@ -3148,6 +2926,7 @@ HookAPI::get_stobject_length(
     int recursion_depth)  // used internally
     const
 {
+    using enum HookAPI::STOParseErrorCode;
     if (recursion_depth > 10)
         return Unexpected(pe_excessive_nesting);
 
@@ -3156,7 +2935,7 @@ HookAPI::get_stobject_length(
         : STI_VECTOR256;
 
     if (type > max_sti_type)
-        return pe_unknown_type_early;
+        return Unexpected(pe_unknown_type_early);
 
     unsigned char* end = maxptr;
     unsigned char* upto = start;
@@ -3216,7 +2995,7 @@ HookAPI::get_stobject_length(
     // not supported types
     if (type == STI_NUMBER || type == STI_UINT96 || type == STI_UINT192 ||
         type == STI_UINT384 || type == STI_UINT512)
-        return pe_unknown_type_early;
+        return Unexpected(pe_unknown_type_early);
 
     bool is_vl =
         (type == STI_ACCOUNT || type == STI_VL ||
@@ -3286,7 +3065,7 @@ HookAPI::get_stobject_length(
                 length = 20;
                 break;
             default:
-                return -1;
+                return Unexpected(pe_unknown_type_late);
         }
     }
     else if (type == STI_AMOUNT) /* AMOUNT */
@@ -3299,6 +3078,7 @@ HookAPI::get_stobject_length(
         type == STI_PATHSET && rules.enabled(featureHookAPISerializedType240))
     {
         length = 0;
+        bool terminated = false;
         while (upto + length < end)
         {
             // iterate Path step
@@ -3308,13 +3088,16 @@ HookAPI::get_stobject_length(
                 int flag = *(upto + length++);
                 // flag shoud be 0x01 or 0x10 or 0x20 or those union
                 if (flag == 0 || flag & ~(0x01 | 0x10 | 0x20))
-                    return pe_unexpected_end;
+                    return Unexpected(pe_unexpected_end);
                 if (flag & 0x01)  // account
                     length += 20;
                 if (flag & 0x10)  // currency
                     length += 20;
                 if (flag & 0x20)  // issuer
                     length += 20;
+
+                if (rules.enabled(fixHookAPISType) && upto + length >= end)
+                    return Unexpected(pe_unexpected_end);
 
                 int next_flag = *(upto + length);
                 if (next_flag == 0x00 || next_flag == 0xff)
@@ -3327,43 +3110,68 @@ HookAPI::get_stobject_length(
             if (lastflag == 0xff)
                 continue;  // continue byte
             else if (lastflag == 0x00)
+            {
+                terminated = true;
                 break;  // end byte
+            }
             else
-                return pe_unexpected_end;
+                return Unexpected(pe_unexpected_end);
         }
         if (upto >= end)
-            return pe_unexpected_end;
+            return Unexpected(pe_unexpected_end);
+        if (rules.enabled(fixHookAPISType) && !terminated)
+            return Unexpected(pe_unexpected_end);
     }
     else if (type == STI_ISSUE)
     {
+        bool const fix = rules.enabled(fixHookAPISType);
         auto zero20 = std::array<char, 20>{0};
         // if first 20 byte is all zeros return 20
         // else return 40
+        if (fix && end - upto < 20)
+            return Unexpected(pe_unexpected_end);
         if (memcmp(upto, zero20.data(), 20) == 0)
             length = 20;
+        // MPT is not supported yet
+        // else if (
+        //     fix && end - upto >= 40 &&
+        //     memcmp(upto + 20, noAccount().data(), 20) == 0)
+        //     length = 44;  // MPT: Issuer + noAccount + Sequence
         else
             length = 40;
     }
     else if (type == STI_XCHAIN_BRIDGE)
     {
+        bool const fix = rules.enabled(fixHookAPISType);
         auto zero20 = std::array<char, 20>{0};
-        // Lock Chain
-        length = 1;    // Door Account1 prefix length
-        length += 20;  // Door Account1 length
-        // Door Issue1
-        if (memcmp(upto + length, zero20.data(), 20) == 0)
-            length += 20;  // only Currency
-        else
-            length += 40;  // Currency and Issue
+        length = 0;
+        for (int i = 0; i < 2; ++i)  // Locking Chain, Issuing Chain
+        {
+            // Door Account
+            if (!fix)
+                length += 21;
+            else if (end - upto <= length)
+                return Unexpected(pe_unexpected_end);
+            else if (upto[length] == 0)
+                length += 1;  // default (empty) account
+            else if (upto[length] == 20)
+                length += 21;
+            else
+                return Unexpected(pe_unexpected_end);
 
-        // Issuing Chain
-        length += 1;   // Door Account2 prefix length
-        length += 20;  // Door Account2 length
-        // Door Issue2
-        if (memcmp(upto + length, zero20.data(), 20) == 0)
-            length += 20;  // only Currency
-        else
-            length += 40;  // Currency and Issue
+            // Door Issue
+            if (fix && end - upto < length + 20)
+                return Unexpected(pe_unexpected_end);
+            if (memcmp(upto + length, zero20.data(), 20) == 0)
+                length += 20;  // only Currency
+            // MPT is not supported yet
+            // else if (
+            //     fix && end - upto >= length + 40 &&
+            //     memcmp(upto + length + 20, noAccount().data(), 20) == 0)
+            //     length += 44;  // MPT: Issuer + noAccount + Sequence
+            else
+                length += 40;  // Currency and Issuer
+        }
     }
 
     if (length > -1)
@@ -3380,6 +3188,10 @@ HookAPI::get_stobject_length(
             length,
             payload_start,
             payload_length);
+
+        if (rules.enabled(fixHookAPISType) && length > end - upto)
+            return Unexpected(pe_unexpected_end);
+
         return length + (upto - start);
     }
 

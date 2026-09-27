@@ -22,26 +22,16 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/core/Config.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>
-#include <xrpl/protocol/LedgerFormats.h>
-#include <xrpl/protocol/RPCErr.h>
-#include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/algorithm/string.hpp>
-#include <magic/magic_enum.h>
+#include <magic_enum.hpp>
 #include <sstream>
-
-#define MAGIC_ENUM(x, _min, _max)               \
-    template <>                                 \
-    struct magic_enum::customize::enum_range<x> \
-    {                                           \
-        static constexpr int min = _min;        \
-        static constexpr int max = _max;        \
-    };
 
 #define MAGIC_ENUM_16(x)                        \
     template <>                                 \
@@ -58,15 +48,6 @@
         static constexpr bool is_flags = true;  \
     };
 
-MAGIC_ENUM(ripple::SerializedTypeID, -2, 10004);
-MAGIC_ENUM(ripple::LedgerEntryType, 0, 255);
-MAGIC_ENUM(ripple::TELcodes, -399, 300);
-MAGIC_ENUM(ripple::TEMcodes, -299, -200);
-MAGIC_ENUM(ripple::TEFcodes, -199, -100);
-MAGIC_ENUM(ripple::TERcodes, -99, -1);
-MAGIC_ENUM(ripple::TEScodes, 0, 1);
-MAGIC_ENUM(ripple::TECcodes, 100, 255);
-MAGIC_ENUM_16(ripple::TxType);
 MAGIC_ENUM_FLAG(ripple::UniversalFlags);
 MAGIC_ENUM_FLAG(ripple::AccountSetFlags);
 MAGIC_ENUM_FLAG(ripple::OfferCreateFlags);
@@ -192,24 +173,19 @@ private:
 
         ret[jss::TYPES]["Done"] = -1;
         std::map<int32_t, std::string> type_map{{-1, "Done"}};
-        for (auto const& entry : magic_enum::enum_entries<SerializedTypeID>())
+        for (auto const& [rawName, typeValue] : sTypeMap)
         {
-            const auto name = entry.second;
-            std::string type_name =
-                translate(name.data() + 4 /* remove STI_ */);
-            int32_t type_value = static_cast<int32_t>(entry.first);
-            ret[jss::TYPES][type_name] = type_value;
-            type_map[type_value] = type_name;
+            std::string typeName =
+                translate(std::string(rawName).substr(4) /* remove STI_ */);
+            ret[jss::TYPES][typeName] = typeValue;
+            type_map[typeValue] = typeName;
         }
 
         ret[jss::LEDGER_ENTRY_TYPES] = Json::objectValue;
         ret[jss::LEDGER_ENTRY_TYPES][jss::Invalid] = -1;
-        for (auto const& entry : magic_enum::enum_entries<LedgerEntryType>())
+        for (auto const& f : LedgerFormats::getInstance())
         {
-            const auto name = entry.second;
-            std::string type_name = translate(name.data() + 2 /* remove lt_ */);
-            int32_t type_value = static_cast<int32_t>(entry.first);
-            ret[jss::LEDGER_ENTRY_TYPES][type_name] = type_value;
+            ret[jss::LEDGER_ENTRY_TYPES][f.getName()] = f.getType();
         }
 
         ret[jss::FIELDS] = Json::arrayValue;
@@ -269,32 +245,6 @@ private:
 
         {
             Json::Value a = Json::arrayValue;
-            a[0U] = "hash";
-            Json::Value v = Json::objectValue;
-            v[jss::nth] = 257;
-            v[jss::isVLEncoded] = false;
-            v[jss::isSerialized] = false;
-            v[jss::isSigningField] = false;
-            v[jss::type] = "Hash256";
-            a[1U] = v;
-            ret[jss::FIELDS][i++] = a;
-        }
-
-        {
-            Json::Value a = Json::arrayValue;
-            a[0U] = "index";
-            Json::Value v = Json::objectValue;
-            v[jss::nth] = 258;
-            v[jss::isVLEncoded] = false;
-            v[jss::isSerialized] = false;
-            v[jss::isSigningField] = false;
-            v[jss::type] = "Hash256";
-            a[1U] = v;
-            ret[jss::FIELDS][i++] = a;
-        }
-
-        {
-            Json::Value a = Json::arrayValue;
             a[0U] = "taker_gets_funded";
             Json::Value v = Json::objectValue;
             v[jss::nth] = 258;
@@ -326,22 +276,23 @@ private:
 
             Json::Value innerObj = Json::objectValue;
 
-            uint32_t fc = code & 0xFFU;
-            uint32_t tc = code >> 16U;
+            uint32_t type = f->fieldType;
 
-            innerObj[jss::nth] = fc;
+            innerObj[jss::nth] = f->fieldValue;
 
             innerObj[jss::isVLEncoded] =
-                (tc == 7U /* Blob       */ || tc == 8U /* AccountID  */ ||
-                 tc == 19U /* Vector256  */);
+                (type == 7U /* Blob       */ || type == 8U /* AccountID  */ ||
+                 type == 19U /* Vector256  */);
 
             innerObj[jss::isSerialized] =
-                (tc <
-                 10000); /* TRANSACTION, LEDGER_ENTRY, VALIDATION, METADATA */
+                (type < 10000 && f->fieldName != "hash" &&
+                 f->fieldName !=
+                     "index"); /* hash, index, TRANSACTION, LEDGER_ENTRY,
+                                  VALIDATION, METADATA */
 
             innerObj[jss::isSigningField] = f->shouldInclude(false);
 
-            innerObj[jss::type] = type_map[tc];
+            innerObj[jss::type] = type_map[type];
 
             Json::Value innerArray = Json::arrayValue;
             innerArray[0U] = f->fieldName;
@@ -351,71 +302,16 @@ private:
         }
 
         ret[jss::TRANSACTION_RESULTS] = Json::objectValue;
-        for (auto const& entry : magic_enum::enum_entries<TELcodes>())
+        for (auto const& [code, terInfo] : transResults())
         {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
+            ret[jss::TRANSACTION_RESULTS][terInfo.first] = code;
         }
-        for (auto const& entry : magic_enum::enum_entries<TEMcodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-        for (auto const& entry : magic_enum::enum_entries<TEFcodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-        for (auto const& entry : magic_enum::enum_entries<TERcodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-        for (auto const& entry : magic_enum::enum_entries<TEScodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-        for (auto const& entry : magic_enum::enum_entries<TECcodes>())
-        {
-            const auto name = entry.second;
-            ret[jss::TRANSACTION_RESULTS][STR(name)] =
-                static_cast<int32_t>(entry.first);
-        }
-
-        auto const translate_tt = [](std::string inp) -> std::string {
-            if (inp == "Amendment")
-                return "EnableAmendment";
-            if (inp == "Fee")
-                return "SetFee";
-            if (inp == "PaychanClaim")
-                return "PaymentChannelClaim";
-            if (inp == "PaychanCreate")
-                return "PaymentChannelCreate";
-            if (inp == "PaychanFund")
-                return "PaymentChannelFund";
-            if (inp == "RegularKeySet")
-                return "SetRegularKey";
-            if (inp == "HookSet")
-                return "SetHook";
-            if (inp == "RemarksSet")
-                return "SetRemarks";
-            return inp;
-        };
 
         ret[jss::TRANSACTION_TYPES] = Json::objectValue;
         ret[jss::TRANSACTION_TYPES][jss::Invalid] = -1;
-        for (auto const& entry : magic_enum::enum_entries<TxType>())
+        for (auto const& f : TxFormats::getInstance())
         {
-            const auto name = entry.second;
-            std::string type_name = translate_tt(translate(name.data() + 2));
-            int32_t type_value = static_cast<int32_t>(entry.first);
-            ret[jss::TRANSACTION_TYPES][type_name] = type_value;
+            ret[jss::TRANSACTION_TYPES][f.getName()] = f.getType();
         }
 
         // Transaction Flags:
@@ -524,6 +420,15 @@ public:
 };
 
 Json::Value
+getStaticServerDefinitions()
+{
+    static const Definitions defs{};
+    Json::Value ret = defs();
+    ret[jss::hash] = to_string(defs.getHash());
+    return ret;
+}
+
+Json::Value
 doServerDefinitions(RPC::JsonContext& context)
 {
     auto& params = context.params;
@@ -560,6 +465,25 @@ doServerDefinitions(RPC::JsonContext& context)
         for (auto const& [h, t] : majorities)
             features[to_string(h)][jss::majority] =
                 t.time_since_epoch().count();
+
+        // getJson's enabled is on-ledger; [features] also apply here.
+        for (auto const& name : features.getMemberNames())
+        {
+            Json::Value& entry = features[name];
+            entry[jss::ledger_enabled] = entry[jss::enabled].asBool();
+        }
+        for (auto const& h : context.app.config().features)
+        {
+            Json::Value& entry = features[to_string(h)];
+            if (!entry.isMember(jss::name))
+            {
+                if (auto const fname = featureToName(h); !fname.empty())
+                    entry[jss::name] = fname;
+            }
+            if (!entry.isMember(jss::ledger_enabled))
+                entry[jss::ledger_enabled] = false;
+            entry[jss::enabled] = true;
+        }
 
         lastFeatures = features;
         {

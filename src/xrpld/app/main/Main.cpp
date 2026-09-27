@@ -24,6 +24,7 @@
 #include <xrpld/core/TimeKeeper.h>
 #include <xrpld/net/RPCCall.h>
 #include <xrpld/rpc/RPCHandler.h>
+#include <xrpld/rpc/handlers/Handlers.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/contract.h>
@@ -387,7 +388,8 @@ run(int argc, char** argv)
          po::value<std::string>(),
          "Specify the range of present ledgers for testing purposes. Min and "
          "max values are comma separated.")(
-            "version", "Display the build version.");
+            "version", "Display the build version.")(
+            "definitions", "Output server definitions as JSON and exit.");
 
     po::options_description data("Ledger/Data Options");
     data.add_options()("import", importText.c_str())(
@@ -526,6 +528,13 @@ run(int argc, char** argv)
 #ifdef GIT_BRANCH
         std::cout << "Git build branch: " << GIT_BRANCH << std::endl;
 #endif
+        return 0;
+    }
+
+    if (vm.count("definitions"))
+    {
+        auto defs = getStaticServerDefinitions();
+        std::cout << Json::FastWriter().write(defs);
         return 0;
     }
 
@@ -800,6 +809,31 @@ run(int argc, char** argv)
     // No arguments. Run server.
     if (!vm.count("parameters"))
     {
+        // Clear any receipt left by a previous amendment-blocked shutdown. It
+        // records why the server stopped; it is not a lock. If this build
+        // still does not support the amendment it will stop again and write a
+        // fresh one, so there is nothing for the operator to delete by hand
+        // and no way for a stale receipt to keep a working build down.
+        // Standalone does not write receipts, so it does not clear them
+        // either, leaving the file readable for diagnosis.
+        if (!config->standalone())
+        {
+            boost::system::error_code ec;
+            auto const blockedFile = amendmentBlockedFilePath(*config);
+            if (removeAmendmentBlockedFile(*config, ec))
+            {
+                JLOG(logs->journal("Application").warn())
+                    << "Removed amendment-blocked receipt " << blockedFile
+                    << " left by a previous run.";
+            }
+            else if (ec)
+            {
+                JLOG(logs->journal("Application").warn())
+                    << "Could not remove amendment-blocked receipt "
+                    << blockedFile << ": " << ec.message();
+            }
+        }
+
         // TODO: this comment can be removed in a future release -
         // say 1.7 or higher
         if (config->had_trailing_comments())

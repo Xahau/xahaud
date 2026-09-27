@@ -37,10 +37,10 @@ import(jtx::Account const& account, Json::Value const& xpop);
 class issuer
 {
 private:
-    jtx::Account issuer_;
+    AccountID issuer_;
 
 public:
-    explicit issuer(jtx::Account const& issuer) : issuer_(issuer)
+    explicit issuer(AccountID const& issuer) : issuer_(issuer)
     {
     }
 

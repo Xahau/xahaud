@@ -44,7 +44,7 @@ import(jtx::Account const& account, Json::Value const& xpop)
 void
 issuer::operator()(Env& env, JTx& jt) const
 {
-    jt.jv[sfIssuer.jsonName] = issuer_.human();
+    jt.jv[sfIssuer.jsonName] = to_string(issuer_);
 }
 
 Json::Value

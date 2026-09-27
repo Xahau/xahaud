@@ -174,8 +174,7 @@ public:
     }
 
     virtual std::shared_ptr<Ledger const>
-    getClosestFullyWiredLedger(
-        std::shared_ptr<Ledger const> const&) override
+    getClosestFullyWiredLedger(std::shared_ptr<Ledger const> const&) override
     {
         return {};
     }

@@ -32,9 +32,16 @@ DatabaseNodeImp::store(
 {
     storeStats(1, data.size());
 
+    // Pinned types bypass the cache and get reduced to hot equivalents
+    bool skipCache = isPinnedType(type);
+    if (skipCache)
+        type = toHotType(type);
+
     auto obj = NodeObject::createObject(type, std::move(data), hash);
     backend_->store(obj);
-    if (cache_)
+
+    // Only add to cache if it's not an uncached type
+    if (cache_ && !skipCache)
     {
         // After the store, replace a negative cache entry if there is one
         cache_->canonicalize(

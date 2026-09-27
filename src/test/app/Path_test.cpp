@@ -20,6 +20,8 @@
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
 #include <xrpld/app/paths/AccountCurrencies.h>
+#include <xrpld/app/paths/Pathfinder.h>
+#include <xrpld/app/paths/RippleLineCache.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/RPCHandler.h>
@@ -571,6 +573,164 @@ public:
             stpath("dan"),
             stpath("carol")));
         BEAST_EXPECT(equal(sa, Account("alice")["USD"](5)));
+    }
+
+    Json::Value
+    six_path_append_request_result()
+    {
+        using namespace jtx;
+        Env env = pathTestEnv();
+
+        Account A1{"A1"};
+        Account A2{"A2"};
+        Account G1{"G1"};
+        Account G2{"G2"};
+        Account M1{"M1"};
+        Account M2{"M2"};
+        Account M3{"M3"};
+        Account M4{"M4"};
+        Account M5{"M5"};
+        Account M6{"M6"};
+        Account MM{"MM"};
+
+        env.fund(XRP(1000), A1, A2, G1, G2, M1, M2, M3, M4, M5, M6, MM);
+        env.close();
+
+        env.trust(G1["HKD"](2000), A1);
+        env.trust(G2["HKD"](2000), A2);
+
+        env.trust(G1["HKD"](100000), M1, M2, M3, M4, M5, M6, MM);
+        env.trust(G2["HKD"](100000), M1, M2, M3, M4, M5, M6, MM);
+        env.close();
+
+        env(pay(G1, A1, G1["HKD"](1000)));
+
+        env(pay(G1, M1, G1["HKD"](10)));
+        env(pay(G1, M2, G1["HKD"](10)));
+        env(pay(G1, M3, G1["HKD"](10)));
+        env(pay(G1, M4, G1["HKD"](10)));
+        env(pay(G1, M5, G1["HKD"](10)));
+        env(pay(G1, M6, G1["HKD"](10)));
+        env(pay(G1, MM, G1["HKD"](1000)));
+
+        env(pay(G2, M1, G2["HKD"](10)));
+        env(pay(G2, M2, G2["HKD"](10)));
+        env(pay(G2, M3, G2["HKD"](10)));
+        env(pay(G2, M4, G2["HKD"](10)));
+        env(pay(G2, M5, G2["HKD"](10)));
+        env(pay(G2, M6, G2["HKD"](10)));
+        env(pay(G2, MM, G2["HKD"](1000)));
+        env.close();
+
+        env(offer(MM, G1["HKD"](1000), G2["HKD"](100)));
+        env.close();
+
+        return find_paths_request(
+            env, A1, A2, A2["HKD"](60), std::nullopt, G1["HKD"].currency);
+    }
+
+    void
+    pathfind_paths_computed_never_exceeds_six()
+    {
+        testcase("pathfind paths_computed never exceeds six");
+
+        auto const result = six_path_append_request_result();
+        BEAST_EXPECT(result.isMember(jss::alternatives));
+        if (!result.isMember(jss::alternatives))
+            return;
+
+        BEAST_EXPECT(result[jss::alternatives].isArray());
+        if (!result[jss::alternatives].isArray())
+            return;
+
+        bool sawPathsComputed = false;
+        for (auto const& alt : result[jss::alternatives])
+        {
+            if (!alt.isMember(jss::paths_computed))
+                continue;
+            sawPathsComputed = true;
+            BEAST_EXPECT(alt[jss::paths_computed].isArray());
+            if (alt[jss::paths_computed].isArray())
+                BEAST_EXPECT(alt[jss::paths_computed].size() <= 6);
+        }
+        BEAST_EXPECT(sawPathsComputed);
+    }
+
+    void
+    pathfind_can_return_six_paths_with_append()
+    {
+        testcase("pathfind can return six paths with append");
+        using namespace jtx;
+        Env env = pathTestEnv();
+
+        Account A1{"A1"};
+        Account A2{"A2"};
+        Account G1{"G1"};
+        Account G2{"G2"};
+        Account M1{"M1"};
+        Account M2{"M2"};
+        Account M3{"M3"};
+        Account M4{"M4"};
+        Account M5{"M5"};
+        Account M6{"M6"};
+        Account MM{"MM"};
+
+        env.fund(XRP(1000), A1, A2, G1, G2, M1, M2, M3, M4, M5, M6, MM);
+        env.close();
+
+        env.trust(G1["HKD"](2000), A1);
+        env.trust(G2["HKD"](2000), A2);
+
+        env.trust(G1["HKD"](100000), M1, M2, M3, M4, M5, M6, MM);
+        env.trust(G2["HKD"](100000), M1, M2, M3, M4, M5, M6, MM);
+        env.close();
+
+        env(pay(G1, A1, G1["HKD"](1000)));
+
+        env(pay(G1, M1, G1["HKD"](10)));
+        env(pay(G1, M2, G1["HKD"](10)));
+        env(pay(G1, M3, G1["HKD"](10)));
+        env(pay(G1, M4, G1["HKD"](10)));
+        env(pay(G1, M5, G1["HKD"](10)));
+        env(pay(G1, M6, G1["HKD"](10)));
+        env(pay(G1, MM, G1["HKD"](1000)));
+
+        env(pay(G2, M1, G2["HKD"](10)));
+        env(pay(G2, M2, G2["HKD"](10)));
+        env(pay(G2, M3, G2["HKD"](10)));
+        env(pay(G2, M4, G2["HKD"](10)));
+        env(pay(G2, M5, G2["HKD"](10)));
+        env(pay(G2, M6, G2["HKD"](10)));
+        env(pay(G2, MM, G2["HKD"](1000)));
+        env.close();
+
+        env(offer(MM, G1["HKD"](1000), G2["HKD"](100)));
+        env.close();
+
+        auto cache = std::make_shared<RippleLineCache>(
+            env.current(), env.app().journal("RippleLineCache"));
+        Pathfinder pf(
+            cache,
+            A1.id(),
+            A2.id(),
+            G1["HKD"].currency,
+            std::nullopt,
+            A2["HKD"](60),
+            std::nullopt,
+            env.app());
+
+        BEAST_EXPECT(pf.findPaths(7));
+        pf.computePathRanks(5);
+
+        STPath fullLiquidityPath;
+        auto bestPaths =
+            pf.getBestPaths(5, fullLiquidityPath, STPathSet{}, A1.id());
+        BEAST_EXPECT(bestPaths.size() == 5);
+        BEAST_EXPECT(!fullLiquidityPath.empty());
+
+        if (!fullLiquidityPath.empty())
+            bestPaths.push_back(fullLiquidityPath);
+        BEAST_EXPECT(bestPaths.size() == 6);
     }
 
     void
@@ -1381,6 +1541,8 @@ public:
         path_find_04();
         path_find_05();
         path_find_06();
+        pathfind_paths_computed_never_exceeds_six();
+        pathfind_can_return_six_paths_with_append();
     }
 };
 

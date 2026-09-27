@@ -821,17 +821,9 @@ Import::preflight(PreflightContext const& ctx)
                         << " validation count: " << validationCount;
 
     // check if the validation count is adequate
-    auto hasInsufficientQuorum =
-        [&ctx](uint64_t quorum, uint64_t validationCount) {
-            if (ctx.rules.enabled(fixXahauV1))
-            {
-                return quorum > validationCount;
-            }
-            else
-            {
-                return quorum >= validationCount;
-            }
-        };
+    auto hasInsufficientQuorum = [](uint64_t quorum, uint64_t validationCount) {
+        return quorum > validationCount;
+    };
     if (hasInsufficientQuorum(quorum, validationCount))
     {
         JLOG(ctx.j.warn()) << "Import: xpop did not contain an 80% quorum for "
@@ -869,6 +861,17 @@ Import::preclaim(PreclaimContext const& ctx)
 
     if (!ctx.tx.isFieldPresent(sfBlob))
         return tefINTERNAL;
+
+    if (ctx.tx.isFieldPresent(sfIssuer) &&
+        ctx.view.rules().enabled(fixImportIssuer))
+    {
+        auto const sleIssuer = ctx.view.read(keylet::account(ctx.tx[sfIssuer]));
+        if (!sleIssuer)
+            return tecNO_ISSUER;
+
+        if (sleIssuer->isFieldPresent(sfAMMID))
+            return tecNO_PERMISSION;
+    }
 
     // parse blob as json
     auto const xpop = syntaxCheckXPOP(ctx.tx.getFieldVL(sfBlob), ctx.j);
@@ -1121,7 +1124,7 @@ Import::doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
 
     JLOG(ctx_.journal.trace()) << "Import: doRegularKey acc: " << id;
 
-    if (stpTrans.getFieldU16(sfTransactionType) != ttREGULAR_KEY_SET)
+    if (stpTrans.getTxnType() != ttREGULAR_KEY_SET)
     {
         JLOG(ctx_.journal.warn())
             << "Import: doRegularKey called on non-regular key transaction.";
@@ -1304,12 +1307,7 @@ Import::doApply()
     if (create)
     {
         // Create the account.
-        std::uint32_t const seqno{
-            view().rules().enabled(featureXahauGenesis)
-                ? view().info().parentCloseTime.time_since_epoch().count()
-                : view().rules().enabled(featureDeletableAccounts)
-                ? view().seq()
-                : 1};
+        std::uint32_t const seqno = newAccountSeqNo(view());
 
         sle = std::make_shared<SLE>(keylet::account(id));
         sle->setAccountID(sfAccount, id);

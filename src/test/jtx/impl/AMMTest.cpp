@@ -180,7 +180,7 @@ AMMTest::reserve(jtx::Env& env, std::uint32_t count) const
 XRPAmount
 AMMTest::ammCrtFee(jtx::Env& env) const
 {
-    return env.current()->fees().increment;
+    return env.current()->fees().increment + env.current()->fees().base;
 }
 
 jtx::Env
@@ -197,7 +197,8 @@ AMMTest::pathTestEnv()
             cfg->PATH_SEARCH_MAX = 10;
             return cfg;
         }),
-        supported_amendments() - featureXahauGenesis - featureTouch);
+        (supported_amendments() | featureAMM | featureAMMClawback) -
+            featureXahauGenesis - featureTouch);
 }
 
 Json::Value

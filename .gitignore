@@ -53,6 +53,9 @@ Builds/levelization/results/paths.txt
 Builds/levelization/results/includes/
 Builds/levelization/results/includedby/
 
+# Python
+__pycache__
+
 # Ignore tmp directory.
 tmp
 

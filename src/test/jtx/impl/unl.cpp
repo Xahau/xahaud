@@ -63,7 +63,7 @@ countTx(std::shared_ptr<SHAMap> const& txSet)
         auto tx = std::make_shared<STTx
     const>(SerialIter{sit.getSlice(sit.getVLDataLength())});
 
-        if (tx->getFieldU16(sfTransactionType) == ttUNL_MODIFY)
+        if (tx->getTxnType() == ttUNL_MODIFY)
             counter++;
     }
     */
