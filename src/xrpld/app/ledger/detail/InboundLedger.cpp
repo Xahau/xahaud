@@ -146,7 +146,7 @@ primeInboundLedgerForUse(
     beast::Journal journal,
     char const* context)
 {
-    if (!Config::null_backend())
+    if (!ledger->stateMap().family().isNullBackend())
         return true;
 
     if (ledger->isFullyWired())
@@ -154,19 +154,18 @@ primeInboundLedgerForUse(
 
     if (!baseLedger || !baseLedger->isFullyWired())
     {
-        // No base ledger available for a delta walk. The full state tree
-        // walk (wireCompleteSHAMap on 70M+ leaves) is too expensive — on
-        // x86 it takes longer than a consensus round, preventing the node
-        // from ever catching up. Sync already pinned every child in the
-        // tree via canonicalizeChild (in descendAsync/addKnownNode), so
-        // the state map is fully wired. Just wire the (tiny) tx map.
+        // No wired base to compare against. Null RWDB cannot fetch a
+        // child that was never linked, so both maps are walked before
+        // the ledger is treated as fully wired.
         try
         {
+            auto const stateLeaves = wireCompleteSHAMap(ledger->stateMap());
             auto const txLeaves = wireCompleteSHAMap(ledger->txMap());
             ledger->setFullyWired();
             JLOG(journal.info())
-                << context << ": wired ledger " << ledger->info().seq
-                << " (sync-pinned state, " << txLeaves << " tx leaves)";
+                << context << ": wired ledger " << ledger->info().seq << " ("
+                << stateLeaves << " state leaves, " << txLeaves
+                << " tx leaves)";
             return true;
         }
         catch (SHAMapMissingNode const& e)
@@ -659,7 +658,8 @@ InboundLedger::done()
         jtLEDGER_DATA, "AcquisitionDone", [self = shared_from_this()]() {
             if (self->complete_ && !self->failed_)
             {
-                if (!Config::null_backend() && self->mReason != Reason::HISTORY)
+                if (!self->app_.config().nullBackend() &&
+                    self->mReason != Reason::HISTORY)
                 {
                     // Prime the state tree BEFORE checkAccept so consensus
                     // never sees a lazy tree. Runs off any inbound lock —

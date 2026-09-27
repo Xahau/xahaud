@@ -377,21 +377,18 @@ public:
         return isMem;
     }
 
-    /** Returns true when the RWDB backend is running in null mode.
+    /** True when this configuration's node store is null RWDB.
 
-        In null mode the in-memory node store never persists or retrieves
-        objects — nodes are retained purely through the Ledger -> SHAMap
-        shared_ptr retention chain.  Activated via the XAHAU_RWDB_NULL
-        environment variable.
+        Null mode keeps nodes through Ledger and SHAMap pointers.
+        The result is read from this configuration, so two
+        applications in one process do not share it.
     */
-    static bool
-    null_backend()
+    bool
+    nullBackend() const
     {
-        static bool const v = [] {
-            char const* e = std::getenv("XAHAU_RWDB_NULL");
-            return e && *e && std::string_view(e) != "0";
-        }();
-        return v;
+        auto const& node = section(ConfigSection::nodeDatabase());
+        return !node.empty() &&
+            boost::beast::iequals(get(node, "type"), "rwdb");
     }
 
     bool

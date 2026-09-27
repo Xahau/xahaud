@@ -1,4 +1,3 @@
-#include <xrpld/core/Config.h>
 #include <xrpld/nodestore/Factory.h>
 #include <xrpld/nodestore/Manager.h>
 #include <xrpld/nodestore/detail/DecodedBlob.h>
@@ -22,6 +21,7 @@ private:
     std::string name_;
     beast::Journal journal_;
     bool isOpen_{false};
+    bool const nullMode_;
 
     struct base_uint_hasher
     {
@@ -46,7 +46,9 @@ public:
         size_t keyBytes,
         Section const& keyValues,
         beast::Journal journal)
-        : name_(get(keyValues, "path")), journal_(journal)
+        : name_(get(keyValues, "path"))
+        , journal_(journal)
+        , nullMode_(keyValues.exists("null") && get(keyValues, "null") == "1")
     {
         boost::ignore_unused(journal_);
         if (name_.empty())
@@ -93,16 +95,10 @@ public:
         // blocked by the (potentially millions-of-entries) map destructor.
     }
 
-    static bool
-    nullMode()
-    {
-        return Config::null_backend();
-    }
-
     Status
     fetch(void const* key, std::shared_ptr<NodeObject>* pObject) override
     {
-        if (nullMode())
+        if (nullMode_)
             return notFound;
 
         uint256 const hash(uint256::fromVoid(key));
@@ -147,7 +143,7 @@ public:
         if (!object)
             return;
 
-        if (nullMode())
+        if (nullMode_)
             return;
 
         EncodedBlob encoded(object);

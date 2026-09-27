@@ -82,6 +82,17 @@ public:
 
     virtual void
     reset() = 0;
+
+    /** True when this family's node store does not persist nodes.
+
+        Null RWDB keeps tree nodes only through in-memory SHAMap
+        pointers. The flag is per family, not process-wide.
+    */
+    virtual bool
+    isNullBackend() const
+    {
+        return false;
+    }
 };
 
 }  // namespace ripple

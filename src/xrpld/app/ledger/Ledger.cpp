@@ -412,7 +412,7 @@ Ledger::setImmutable(bool rehash)
 bool
 Ledger::fullWireForUse(beast::Journal journal, char const* context) const
 {
-    if (!Config::null_backend() || isFullyWired())
+    if (!stateMap_.family().isNullBackend() || isFullyWired())
         return true;
 
     try

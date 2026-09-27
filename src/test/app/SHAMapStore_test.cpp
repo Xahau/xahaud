@@ -666,6 +666,15 @@ public:
         return cfg;
     }
 
+    static auto
+    nullBackendDeleteOff(std::unique_ptr<Config> cfg)
+    {
+        cfg = nullBackend(std::move(cfg));
+        cfg->LEDGER_HISTORY = 256;
+        cfg->section(ConfigSection::nodeDatabase()).set("online_delete", "0");
+        return cfg;
+    }
+
     // Payments keep applying after more closes than ledger_history,
     // with no node-store record of the state tree. Close time comes
     // from the resident ledger, not a node-store header walk.
@@ -737,6 +746,41 @@ public:
         // lastRotated. The account is still readable.
         BEAST_EXPECT(env.app().getSHAMapStore().getLastRotated() == 0);
         BEAST_EXPECT(env.balance(alice) == balance);
+    }
+
+    // online_delete=0 is an explicit disable. It must not be treated
+    // as a missing key and replaced with ledger_history.
+    void
+    testExplicitOnlineDeleteZero()
+    {
+        testcase("explicit online_delete zero stays off");
+
+        using namespace jtx;
+        Env env(*this, envconfig(nullBackendDeleteOff));
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        auto const balance = env.balance(alice);
+        env.close();
+
+        BEAST_EXPECT(env.app().getSHAMapStore().getLastRotated() == 0);
+        BEAST_EXPECT(env.balance(alice) == balance);
+    }
+
+    void
+    testNullBackendIsPerConfig()
+    {
+        testcase("null backend flag is per configuration");
+
+        Config rwdbCfg;
+        Config nudbCfg;
+        rwdbCfg.section(ConfigSection::nodeDatabase()).set("type", "rwdb");
+        nudbCfg.section(ConfigSection::nodeDatabase()).set("type", "NuDB");
+
+        BEAST_EXPECT(rwdbCfg.nullBackend());
+        BEAST_EXPECT(!nudbCfg.nullBackend());
+        BEAST_EXPECT(rwdbCfg.nullBackend());
     }
 
     void
@@ -1024,6 +1068,8 @@ public:
         testArchiveReadSurvivesRotation();
         testNullModeLedgerProgression();
         testNullModeFullHistoryRotation();
+        testExplicitOnlineDeleteZero();
+        testNullBackendIsPerConfig();
         testRotate();
         testPinnedRangeRestoreRequiresPinnedData();
     }

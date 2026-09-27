@@ -134,14 +134,12 @@ SHAMapStoreImp::SHAMapStoreImp(
             section.set("filter_bits", "10");
     }
 
-    get_if_exists(section, "online_delete", deleteInterval_);
+    // An explicit online_delete=0 disables cleanup. Only a missing
+    // key is defaulted below. get_if_exists cannot tell those apart.
+    bool const onlineDeleteConfigured = section.exists("online_delete");
+    if (onlineDeleteConfigured)
+        get_if_exists(section, "online_delete", deleteInterval_);
     isNullBackend_ = boost::iequals(get(section, "type"), "rwdb");
-
-    // RWDB is always null-backend: the in-memory node store never
-    // persists or retrieves objects.  Set the env var so that libxrpl
-    // helpers (which cannot access Config) can detect null mode.
-    if (isNullBackend_)
-        ::setenv("XAHAU_RWDB_NULL", "1", 1);
 
     if (isNullBackend_)
     {
@@ -155,13 +153,13 @@ SHAMapStoreImp::SHAMapStoreImp(
             << config.LEDGER_HISTORY << " ledgers in memory";
     }
 
-    // For RWDB, default online_delete to ledger_history only if user did not
-    // explicitly set online_delete.  Clamp to the minimum so an implicit
-    // value never triggers the "online_delete must be at least …" throw.
+    // For RWDB, default online_delete to ledger_history only when the
+    // key is absent.  Clamp to the minimum so an implicit value never
+    // triggers the "online_delete must be at least …" throw.
     // ledger_history=full is uint32 max. A finite interval is rejected
     // because it is less than that history, and the max itself wraps
     // lastRotated + deleteInterval_. Leave online delete off.
-    if (isNullBackend_ && deleteInterval_ == 0 &&
+    if (isNullBackend_ && !onlineDeleteConfigured &&
         config.LEDGER_HISTORY != std::numeric_limits<std::uint32_t>::max())
     {
         auto const minInterval = config.standalone()
@@ -239,6 +237,8 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
         // Null mode: create a plain (non-rotating) Database with a
         // single NullBackend.  No DatabaseRotatingImp, no rotation
         // thread artifacts.  dbRotating_ stays nullptr.
+        // The null key is read by this backend instance only.
+        nscfg.set("null", "1");
         db = NodeStore::Manager::instance().make_Database(
             megabytes(
                 app_.config().getValueFor(SizedItem::burstSize, std::nullopt)),
