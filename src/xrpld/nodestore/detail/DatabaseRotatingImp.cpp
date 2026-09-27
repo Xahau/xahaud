@@ -208,9 +208,14 @@ DatabaseRotatingImp::fetchNodeObject(
                 writable = writableBackend_;
             }
 
-            // Update writable backend with data from the archive backend
-            if (duplicate)
-                writable->store(nodeObject);
+            // Promote every archive hit into the writable backend.
+            // Ordinary reads pass duplicate=false; the rotation copy
+            // pass passes true. Both must copy. The next rotation
+            // deletes this archive, and copyNode only walks the state
+            // tree, so an unpromoted header or transaction node
+            // disappears while SQL still names it.
+            (void)duplicate;
+            writable->store(nodeObject);
         }
     }
 

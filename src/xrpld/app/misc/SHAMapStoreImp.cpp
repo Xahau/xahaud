@@ -151,14 +151,18 @@ SHAMapStoreImp::SHAMapStoreImp(
                 "RWDB null mode requires ledger_history > 0");
         }
         JLOG(journal_.info())
-            << "RWDB null mode: node store is ephemeral, "
-            << "retaining " << config.LEDGER_HISTORY << " ledgers in memory";
+            << "RWDB null mode: node store is ephemeral, " << "retaining "
+            << config.LEDGER_HISTORY << " ledgers in memory";
     }
 
     // For RWDB, default online_delete to ledger_history only if user did not
     // explicitly set online_delete.  Clamp to the minimum so an implicit
     // value never triggers the "online_delete must be at least …" throw.
-    if (isNullBackend_ && deleteInterval_ == 0)
+    // ledger_history=full is uint32 max. A finite interval is rejected
+    // because it is less than that history, and the max itself wraps
+    // lastRotated + deleteInterval_. Leave online delete off.
+    if (isNullBackend_ && deleteInterval_ == 0 &&
+        config.LEDGER_HISTORY != std::numeric_limits<std::uint32_t>::max())
     {
         auto const minInterval = config.standalone()
             ? minimumDeletionIntervalSA_
@@ -465,8 +469,11 @@ SHAMapStoreImp::run()
             state_db_.setLastRotated(lastRotated);
         }
 
-        bool const readyToRotate =
-            validatedSeq >= lastRotated + deleteInterval_ &&
+        // Widen the sum. deleteInterval_ == uint32 max would wrap a
+        // 32-bit add and make this true on every ledger.
+        bool const readyToRotate = deleteInterval_ != 0 &&
+            std::uint64_t{validatedSeq} >=
+                std::uint64_t{lastRotated} + deleteInterval_ &&
             canDelete_ >= lastRotated - 1 && healthWait() == keepGoing;
 
         // will delete up to (not including) lastRotated

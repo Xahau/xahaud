@@ -96,7 +96,7 @@ public:
 private:
     std::shared_ptr<Backend> writableBackend_;
     std::shared_ptr<Backend> archiveBackend_;
-    mutable reader_preferring_shared_mutex mutex_;
+    mutable ReaderPreferringSharedMutex mutex_;
 
     std::shared_ptr<NodeObject>
     fetchNodeObject(

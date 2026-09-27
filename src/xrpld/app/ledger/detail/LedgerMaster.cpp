@@ -1891,11 +1891,31 @@ LedgerMaster::getCloseTimeByHash(
     LedgerHash const& ledgerHash,
     std::uint32_t index)
 {
-    // Prefer an in-memory Ledger (retained / history cache) over the node
-    // store so this works in RWDB-only configs where headers may not be
-    // persisted long-term.
-    if (auto ledger = getLedgerByHash(ledgerHash))
-        return ledger->info().closeTime;
+    // Resident ledgers only. getLedgerByHash loads a cache miss and,
+    // in null mode, walks the whole state tree. Close time is a header
+    // field, so fall through to the node-store header when nothing is
+    // already in memory.
+    if (auto const cached = mLedgerHistory.getCachedLedger(ledgerHash))
+        return cached->info().closeTime;
+
+    if (auto const closed = mClosedLedger.get();
+        closed && closed->info().hash == ledgerHash)
+        return closed->info().closeTime;
+
+    if (auto const valid = mValidLedger.get();
+        valid && valid->info().hash == ledgerHash)
+        return valid->info().closeTime;
+
+    {
+        std::lock_guard lock(m_mutex);
+        if (mPubLedger && mPubLedger->info().hash == ledgerHash)
+            return mPubLedger->info().closeTime;
+        for (auto const& ledger : mRetainedLedgers)
+        {
+            if (ledger && ledger->info().hash == ledgerHash)
+                return ledger->info().closeTime;
+        }
+    }
 
     auto nodeObject = app_.getNodeStore().fetchNodeObject(ledgerHash, index);
     if (nodeObject && (nodeObject->getData().size() >= 120))

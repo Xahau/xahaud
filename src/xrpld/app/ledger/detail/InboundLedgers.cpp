@@ -380,10 +380,11 @@ public:
         if (!inbound)
             return;
 
-        auto const ledger = inbound->getLedger();
-        if (!ledger || !ledger->isFullyWired())
-            return;
-
+        // isFullyWired is a null-mode flag. Durable fetches leave it
+        // false. Still count them. Only the in-memory priming cache
+        // requires a wired tree.
+        if (auto const ledger = inbound->getLedger();
+            ledger && ledger->isFullyWired())
         {
             ScopedLockType sl(mLock);
             if (auto const it = mLedgers.find(ledger->info().hash);

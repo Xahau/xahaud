@@ -37,7 +37,7 @@ private:
     using DataStore =
         std::map<uint256, std::vector<std::uint8_t>>;  // Store compressed blob
                                                        // data
-    mutable reader_preferring_shared_mutex mutex_;
+    mutable ReaderPreferringSharedMutex mutex_;
 
     DataStore table_;
 
