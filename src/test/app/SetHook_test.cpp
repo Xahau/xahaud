@@ -2271,9 +2271,9 @@ public:
         // Call named hook with the wrong hook name (size == 0)
         for (auto const fix : {true, false})
         {
-            auto f = features - fixHookNameValidation;
+            auto f = features - fix20261001;
             if (fix)
-                f = f | fixHookNameValidation;
+                f = f | fix20261001;
             Env env{*this, f};
 
             env.fund(XRP(10000), alice);

@@ -158,8 +158,7 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
 
                 auto const& hookOn =
                     hook::getHookOn(hook, sleDef, sfHookOnIncoming);
-                auto const hookName =
-                    ctx.view.rules().enabled(fixHookNameValidation)
+                auto const hookName = ctx.view.rules().enabled(fix20261001)
                     ? hook[~sfHookName]
                     : std::nullopt;
                 if (hook::canHook(ctx.tx, hookOn, hookName))
