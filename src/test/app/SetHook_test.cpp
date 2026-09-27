@@ -3526,9 +3526,7 @@ public:
         {
             for (auto const& hook_wasm : {accept_oob_wasm, rollback_oob_wasm})
             {
-                Env env{
-                    *this,
-                    withFix ? features : features - fixHookExitOutOfBounds};
+                Env env{*this, withFix ? features : features - fix20261001};
 
                 auto const alice = Account{"alice"};
                 auto const bob = Account{"bob"};
