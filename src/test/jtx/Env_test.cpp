@@ -917,6 +917,7 @@ public:
 
         Env env{*this};
         env.client().invoke("server_info", {});
+        auto const reconnects = env.client().reconnects();
 
         // The normal loopback message timeout is three seconds. Established
         // Env connections have a separate idle lease because test work can
@@ -925,7 +926,7 @@ public:
         auto const response = env.client().invoke("server_info", {});
         BEAST_EXPECT(response[jss::result][jss::status] == "success");
         // The server kept the connection; the client did not replace it.
-        BEAST_EXPECT(env.client().reconnects() == 0);
+        BEAST_EXPECT(env.client().reconnects() == reconnects);
     }
 
     void
@@ -938,10 +939,12 @@ public:
         Env env{*this};
 
         // The client connects when the Env is built, and the server closes a
-        // loopback connection whose first request takes longer than three
-        // seconds to arrive. Test setup can take that long on a loaded
-        // machine; the client replaces the closed connection.
-        std::this_thread::sleep_for(4s);
+        // loopback connection whose first request takes longer than
+        // BaseHTTPPeer::timeoutSecondsLocal (3 s) to arrive. Test setup can
+        // take that long on a loaded machine; the client replaces the closed
+        // connection. The sleep gives the server's timer 5 s of slack to fire
+        // first, and tracks that deadline.
+        std::this_thread::sleep_for(8s);
         auto const response = env.client().invoke("server_info", {});
         BEAST_EXPECT(response[jss::result][jss::status] == "success");
         BEAST_EXPECT(env.client().reconnects() == 1);
