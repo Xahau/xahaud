@@ -2436,6 +2436,9 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMGetObjectByHash> const& m)
         if (packet.has_seq())
             reply.set_seq(packet.seq());
 
+        if (packet.has_requestid())
+            reply.set_requestid(packet.requestid());
+
         reply.set_type(packet.type());
 
         if (packet.has_ledgerhash())
@@ -2747,6 +2750,9 @@ PeerImp::doTransactions(
     std::shared_ptr<protocol::TMGetObjectByHash> const& packet)
 {
     protocol::TMTransactions reply;
+
+    if (packet->has_requestid())
+        reply.set_requestid(packet->requestid());
 
     JLOG(p_journal_.trace()) << "received TMGetObjectByHash requesting tx "
                              << packet->objects_size();
@@ -3249,6 +3255,12 @@ PeerImp::processLedgerRequest(std::shared_ptr<protocol::TMGetLedger> const& m)
     protocol::TMLedgerData ledgerData;
     bool fatLeaves{true};
     auto const itype{m->itype()};
+    auto const copyRequestMetadata = [&] {
+        if (m->has_requestcookie())
+            ledgerData.set_requestcookie(m->requestcookie());
+        if (m->has_requestid())
+            ledgerData.set_requestid(m->requestid());
+    };
 
     if (itype == protocol::liTS_CANDIDATE)
     {
@@ -3260,8 +3272,7 @@ PeerImp::processLedgerRequest(std::shared_ptr<protocol::TMGetLedger> const& m)
         ledgerData.set_ledgerseq(0);
         ledgerData.set_ledgerhash(m->ledgerhash());
         ledgerData.set_type(protocol::liTS_CANDIDATE);
-        if (m->has_requestcookie())
-            ledgerData.set_requestcookie(m->requestcookie());
+        copyRequestMetadata();
 
         // We'll already have most transactions
         fatLeaves = false;
@@ -3288,8 +3299,7 @@ PeerImp::processLedgerRequest(std::shared_ptr<protocol::TMGetLedger> const& m)
         ledgerData.set_ledgerhash(ledgerHash.begin(), ledgerHash.size());
         ledgerData.set_ledgerseq(ledger->info().seq);
         ledgerData.set_type(itype);
-        if (m->has_requestcookie())
-            ledgerData.set_requestcookie(m->requestcookie());
+        copyRequestMetadata();
 
         switch (itype)
         {
