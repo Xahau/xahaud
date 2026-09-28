@@ -85,7 +85,8 @@ InnerObjectFormats::InnerObjectFormats()
         {{sfHookHash, soeREQUIRED},
          {sfHookAccount, soeREQUIRED},
          {sfEmittedTxnID, soeREQUIRED},
-         {sfEmitNonce, soeOPTIONAL}});
+         {sfEmitNonce, soeOPTIONAL},
+         {sfHookEmittedTransactionResult, soeOPTIONAL}});
 
     add(sfHook.jsonName,
         sfHook.getCode(),
