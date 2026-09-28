@@ -332,6 +332,9 @@ public:
     uint256
     util_sha512h(Slice const& data) const;
 
+    uint256
+    util_sha256(Slice const& data) const;
+
     // util_keylet()
 
     /// sto APIs

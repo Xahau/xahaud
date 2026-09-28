@@ -2927,6 +2927,34 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
+// Compute the SHA-256 of the input and write the 32 byte digest to write_ptr.
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_sha256,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx, view on current stack
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length) ||
+        NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const hash =
+        api.util_sha256(ripple::Slice{memory + read_ptr, read_len});
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, 32, hash.data(), 32, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
 // Given an serialized object in memory locate and return the offset and length
 // of the payload of a subfield of that object. Arrays are returned fully
 // formed. If successful returns offset and length joined as int64_t. Use

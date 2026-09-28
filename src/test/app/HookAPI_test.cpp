@@ -4407,6 +4407,35 @@ public:
     }
 
     void
+    test_util_sha256(FeatureBitset features)
+    {
+        testcase("Test util_sha256");
+
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        auto& api = hookCtx.api();
+
+        // sha256("rN6SYwr2dTVCzEq9WCwJ"), same vector as SetHook_test
+        std::string msg{"rN6SYwr2dTVCzEq9WCwJ"};
+        BEAST_EXPECT(
+            strHex(api.util_sha256(Slice(msg.data(), msg.size()))) ==
+            "CF0F064C376333BE8948C60796870FAFF29CBA9CD2E62B0B2EB4507DD8746FFD");
+
+        // well-known SHA-256 of the empty string
+        BEAST_EXPECT(
+            strHex(api.util_sha256(Slice{})) ==
+            "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855");
+    }
+
+    void
     test_util_verify(FeatureBitset features)
     {
         testcase("Test util_verify");
@@ -4888,6 +4917,7 @@ public:
         test_util_keylet(features);
         test_util_raddr(features);
         test_util_sha512h(features);
+        test_util_sha256(features);
         test_util_verify(features);
         test_util_verify_p256(features);
     }

@@ -59,6 +59,13 @@ util_sha512h(
     uint32_t read_len);
 
 extern int64_t
+util_sha256(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+
+extern int64_t
 util_keylet(
     uint32_t write_ptr,
     uint32_t write_len,

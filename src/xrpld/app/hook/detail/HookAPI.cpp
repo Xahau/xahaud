@@ -123,6 +123,15 @@ HookAPI::util_sha512h(Slice const& data) const
     return ripple::sha512Half(data);
 }
 
+uint256
+HookAPI::util_sha256(Slice const& data) const
+{
+    ripple::sha256_hasher h;
+    h(data.data(), data.size());
+    return uint256::fromVoid(
+        static_cast<ripple::sha256_hasher::result_type>(h).data());
+}
+
 // util_keylet
 
 /// sto APIs
