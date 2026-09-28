@@ -1041,11 +1041,7 @@ ValidNewAccountRoot::finalize(
          tt == ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION) &&
         isTesSuccess(result))
     {
-        std::uint32_t const startingSeq{
-            view.rules().enabled(featureXahauGenesis)
-                ? view.info().parentCloseTime.time_since_epoch().count()
-                : view.rules().enabled(featureDeletableAccounts) ? view.seq()
-                                                                 : 1};
+        std::uint32_t const startingSeq = newAccountSeqNo(view);
 
         if (accountSeq_ != startingSeq)
         {

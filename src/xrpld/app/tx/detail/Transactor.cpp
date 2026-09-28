@@ -155,7 +155,11 @@ preflight1(PreflightContext const& ctx)
             !ctx.rules.enabled(featureNamedHooks))
             return temMALFORMED;
 
-        if (!SetHook::validateHookName(ctx.tx.getFieldVL(sfHookName), ctx.j))
+        auto const& name = ctx.tx.getFieldVL(sfHookName);
+
+        if (name.size() == 0 && ctx.rules.enabled(fix20261001))
+            return temMALFORMED;
+        if (!SetHook::validateHookName(name, ctx.j))
             return temMALFORMED;
     }
 
@@ -283,19 +287,7 @@ Transactor::calculateHookChainFee(
             // LCOV_EXCL_STOP
         }
 
-        std::optional<Blob> requiredHookName;
-        if (hookObj.isFieldPresent(sfHookName) &&
-            hookObj.getFieldVL(sfHookName).size() > 0)
-            requiredHookName = hookObj.getFieldVL(sfHookName);
-
-        if (requiredHookName)
-        {
-            // need to specify same hook name in the transaction
-            if (!tx.isFieldPresent(sfHookName))
-                continue;
-            if (*requiredHookName != tx.getFieldVL(sfHookName))
-                continue;
-        }
+        auto const hookName = hookObj[~sfHookName];
 
         uint32_t flags = 0;
         if (hookObj.isFieldPresent(sfFlags))
@@ -307,7 +299,7 @@ Transactor::calculateHookChainFee(
         uint256 hookOn = hook::getHookOn(
             hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming);
 
-        if (hook::canHook(tx.getTxnType(), hookOn) &&
+        if (hook::canHook(tx, hookOn, hookName) &&
             (!collectCallsOnly || (flags & hook::hsfCOLLECT)))
         {
             XRPAmount const toAdd{hookDef->getFieldAmount(sfFee).xrp().drops()};
@@ -408,7 +400,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
     XRPAmount accumulator = baseFee;
 
     if (view.rules().enabled(featureHooks) &&
-        view.rules().enabled(fixXahauV1) && tx.isFieldPresent(sfHookParameters))
+        tx.isFieldPresent(sfHookParameters))
     {
         uint64_t paramBytes = 0;
         auto const& params = tx.getFieldArray(sfHookParameters);
@@ -712,8 +704,7 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
 
-    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks) &&
-        ctx.view.rules().enabled(fixXahauV2))
+    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks))
     {
         // check if the emitted txn exists on ledger and is in the emission
         // directory if not that's a re-apply so discard
@@ -1378,25 +1369,13 @@ Transactor::executeHookChain(
             // LCOV_EXCL_STOP
         }
 
-        std::optional<Blob> requiredHookName;
-        if (hookObj.isFieldPresent(sfHookName) &&
-            hookObj.getFieldVL(sfHookName).size() > 0)
-            requiredHookName = hookObj.getFieldVL(sfHookName);
-
-        if (requiredHookName)
-        {
-            // need to specify same hook name in the transaction
-            if (!ctx_.tx.isFieldPresent(sfHookName))
-                continue;
-            if (*requiredHookName != ctx_.tx.getFieldVL(sfHookName))
-                continue;
-        }
+        auto const hookName = hookObj[~sfHookName];
 
         // check if the hook can fire
         uint256 hookOn = hook::getHookOn(
             hookObj, hookDef, isOutgoing ? sfHookOnOutgoing : sfHookOnIncoming);
 
-        if (!hook::canHook(ctx_.tx.getTxnType(), hookOn))
+        if (!hook::canHook(ctx_.tx, hookOn, hookName))
             continue;  // skip if it can't
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);

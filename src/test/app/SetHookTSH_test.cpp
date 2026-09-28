@@ -740,15 +740,7 @@ private:
     {
         auto const executions = meta[sfHookExecutions.jsonName];
         auto const execution = executions[0u][sfHookExecution.jsonName];
-        bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-        if (fixV2)
-        {
-            BEAST_EXPECT(execution[sfFlags.jsonName] == expected);
-        }
-        else
-        {
-            BEAST_REQUIRE(!execution[sfFlags.jsonName]);
-        }
+        BEAST_EXPECT(execution[sfFlags.jsonName] == expected);
     }
 
     void
@@ -2269,16 +2261,10 @@ private:
             setTSHHook(env, account, testStrong);
 
             // cancel escrow
-            Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
-            {
-                tx = cancel(account, account, 0);
-            }
-            else
-            {
-                tx = cancel(account, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(cancel(account, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2323,16 +2309,10 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // cancel escrow
-            Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
-            {
-                tx = cancel(account, account, 0);
-            }
-            else
-            {
-                tx = cancel(account, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(cancel(account, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2381,16 +2361,10 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // cancel escrow
-            Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
-            {
-                tx = cancel(dest, account, 0);
-            }
-            else
-            {
-                tx = cancel(dest, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(cancel(dest, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2432,23 +2406,14 @@ private:
             setTSHHook(env, account, testStrong);
 
             // cancel escrow
-            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-            Json::Value tx;
-            if (!fixV1)
-            {
-                tx = cancel(dest, account, 0);
-            }
-            else
-            {
-                tx = cancel(dest, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(cancel(dest, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            auto const expected =
-                (fixV1 ? (testStrong ? tshSTRONG : tshSTRONG)
-                       : (testStrong ? tshNONE : tshNONE));
+            auto const expected = testStrong ? tshSTRONG : tshSTRONG;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -2497,16 +2462,10 @@ private:
             setTSHHook(env, gw, testStrong);
 
             // cancel escrow
-            Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
-            {
-                tx = cancel(account, account, 0);
-            }
-            else
-            {
-                tx = cancel(account, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(cancel(account, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2922,16 +2881,10 @@ private:
             setTSHHook(env, account, testStrong);
 
             // finish escrow
-            Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
-            {
-                tx = finish(account, account, 0);
-            }
-            else
-            {
-                tx = finish(account, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(finish(account, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -2970,23 +2923,14 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // finish escrow
-            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-            Json::Value tx;
-            if (!fixV1)
-            {
-                tx = finish(account, account, 0);
-            }
-            else
-            {
-                tx = finish(account, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(finish(account, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            auto const expected =
-                (fixV1 ? (testStrong ? tshSTRONG : tshSTRONG)
-                       : (testStrong ? tshNONE : tshNONE));
+            auto const expected = testStrong ? tshSTRONG : tshSTRONG;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -3022,16 +2966,10 @@ private:
             setTSHHook(env, dest, testStrong);
 
             // finish escrow
-            Json::Value tx;
-            if (!env.current()->rules().enabled(fixXahauV1))
-            {
-                tx = finish(dest, account, 0);
-            }
-            else
-            {
-                tx = finish(dest, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(finish(dest, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -3070,23 +3008,14 @@ private:
             setTSHHook(env, account, testStrong);
 
             // finish escrow
-            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-            Json::Value tx;
-            if (!fixV1)
-            {
-                tx = finish(dest, account, 0);
-            }
-            else
-            {
-                tx = finish(dest, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(finish(dest, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
-            auto const expected =
-                (fixV1 ? (testStrong ? tshSTRONG : tshSTRONG)
-                       : (testStrong ? tshNONE : tshNONE));
+            auto const expected = testStrong ? tshSTRONG : tshSTRONG;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -3132,17 +3061,10 @@ private:
             setTSHHook(env, gw, testStrong);
 
             // finish escrow
-            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
-            Json::Value tx;
-            if (!fixV1)
-            {
-                tx = finish(dest, account, 0);
-            }
-            else
-            {
-                tx = finish(dest, account);
-            }
-            env(tx, escrow_id(escrowId), fee(XRP(1)), ter(tesSUCCESS));
+            env(finish(dest, account),
+                escrow_id(escrowId),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
             env.close();
 
             // verify tsh hook triggered
@@ -3448,10 +3370,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-            auto const expected =
-                (fixV2 ? (testStrong ? tshNONE : tshWEAK)
-                       : (testStrong ? tshSTRONG : tshSTRONG));
+            auto const expected = testStrong ? tshNONE : tshWEAK;
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -6310,10 +6229,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-            auto const expected =
-                (fixV2 ? (testStrong ? tshSTRONG : tshSTRONG)
-                       : (testStrong ? tshNONE : tshNONE));
+            auto const expected = testStrong ? tshSTRONG : tshSTRONG;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -6394,10 +6310,7 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            bool const fixV2 = env.current()->rules().enabled(fixXahauV2);
-            auto const expected =
-                (fixV2 ? (testStrong ? tshSTRONG : tshSTRONG)
-                       : (testStrong ? tshNONE : tshNONE));
+            auto const expected = testStrong ? tshSTRONG : tshSTRONG;
             testTSHStrongWeak(env, expected, __LINE__);
         }
     }
@@ -6503,15 +6416,12 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             bool const withIOUIssuerWeakTSH =
                 env.current()->rules().enabled(featureIOUIssuerWeakTSH);
 
-            auto const expected =
-                (fixV1
-                     ? (testStrong ? tshNONE
-                                   : (withIOUIssuerWeakTSH ? tshWEAK : tshNONE))
-                     : (testStrong ? tshSTRONG : tshSTRONG));
+            auto const expected = testStrong
+                ? tshNONE
+                : (withIOUIssuerWeakTSH ? tshWEAK : tshNONE);
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -6610,14 +6520,11 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             bool const withIOUIssuerWeakTSH =
                 env.current()->rules().enabled(featureIOUIssuerWeakTSH);
-            auto const expected =
-                (fixV1
-                     ? (testStrong ? tshNONE
-                                   : (withIOUIssuerWeakTSH ? tshWEAK : tshNONE))
-                     : (testStrong ? tshSTRONG : tshSTRONG));
+            auto const expected = testStrong
+                ? tshNONE
+                : (withIOUIssuerWeakTSH ? tshWEAK : tshNONE);
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -6667,15 +6574,12 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            bool const fixV1 = env.current()->rules().enabled(fixXahauV1);
             bool const withIOUIssuerWeakTSH =
                 env.current()->rules().enabled(featureIOUIssuerWeakTSH);
 
-            auto const expected =
-                (fixV1
-                     ? (testStrong ? tshNONE
-                                   : (withIOUIssuerWeakTSH ? tshWEAK : tshNONE))
-                     : (testStrong ? tshSTRONG : tshSTRONG));
+            auto const expected = testStrong
+                ? tshNONE
+                : (withIOUIssuerWeakTSH ? tshWEAK : tshNONE);
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
@@ -7735,7 +7639,6 @@ private:
         env.close();
 
         auto const preDest = env.balance(dest);
-        bool const withFix = env.current()->rules().enabled(fixXahauV2);
 
         env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
             auto const tx =
@@ -7743,24 +7646,15 @@ private:
             auto result =
                 ripple::apply(env.app(), view, *tx, tapNONE, env.journal);
 
-            bool const applyResult = withFix ? false : true;
-            if (withFix)
-            {
-                BEAST_EXPECT(result.ter == tefNONDIR_EMIT);
-            }
-            else
-            {
-                BEAST_EXPECT(result.ter == tesSUCCESS);
-            }
-            BEAST_EXPECT(result.applied == applyResult);
+            BEAST_EXPECT(result.ter == tefNONDIR_EMIT);
+            BEAST_EXPECT(!result.applied);
             return result.applied;
         });
 
         env.close();
 
         auto const postDest = env.balance(dest);
-        auto const postValue = withFix ? XRP(0) : XRP(1);
-        BEAST_EXPECT(postDest == preDest + postValue);
+        BEAST_EXPECT(postDest == preDest);
 
         for (size_t i = 0; i < 4; i++)
         {
@@ -7771,8 +7665,7 @@ private:
         }
 
         auto const postDest1 = env.balance(dest);
-        auto const postValue1 = withFix ? XRP(0) : XRP(2);
-        BEAST_EXPECT(postDest1 == postDest + postValue1);
+        BEAST_EXPECT(postDest1 == postDest);
     }
 
     void
@@ -8386,16 +8279,16 @@ private:
 
         // validate the emitted txn ids
         std::vector<std::string> const txIds = {
-            "9610F73CDD6590EB6B3C82E5EC55D4B4C80CD7128B98AA556F7EC9DD96AE7056",
-            "2F4582A29272390C0C25A80D4A3BCE5A14ACE6D86D8D0CB2C57719EB6FA881AE",
-            "89A301CFEF0DD781AB9032A6A2DCE0937BC0119D2CDD06033B8B2FD80968E519",
-            "DD8721B59024E168480B4DF8F8E93778601F0BD2E77FC991F3DA1182F5AD8B1E",
-            "5D735C2EE3CB8289F8E11621FDC9565F9D6D67F3AE59D65332EACE591D67945F",
-            "F02470E01731C968881AF4CBDEC90BB9E1F7AB0BE1CC22AF15451FB6D191096D",
-            "8AD65E541DECD49B1693F8C17DFD8A2B906F49C673C4FD2034FF772E2BE50C30",
-            "9F225229059CCC6257814D03C107884CF588C1C246A89ADFC16E50DF671B834C",
-            "13C2A54A14BADF3648CED05175E1CCAD713F7E5EA56D9735CF8813CD5551F281",
-            "87C60F41A96554587CED289F83F52DEE3CF670EEB189B067E6066B9A06056ADF",
+            "2FBEF981BAC322225D13C274D0118FECC1B93A89EDBC0AB3CBD8B30A1591024E",
+            "3C0A12F6A322486ABDA4180DC2B424BD252FD2FA6A33553B0B5D1526C020C475",
+            "AFFD55D757136FC0BE665F16E0D8CFBDC0D37CF85B5D3329BE1DBD3A44BB281C",
+            "BBE43C01068CE511DBF24F84A928E481451FF448AF2493E1A9BE099628D1F523",
+            "45970753F7B52448C23D66E5E19DBBC65F5BE6055C04AC3BA9896D7D67891DB1",
+            "97F4E09B2AEF4D798D378B1390B0624A68F304247B358334167E93217D502A16",
+            "770D3B786C8E3BEF560D9589B02557B0BDFC1C7FD15C6CF42E86068A6A411EFC",
+            "239DFA86EE8391418170D7FDF5AA8B8EEE0BBEF5E9F928BC29C23EEF6F1858AD",
+            "9FAA93AC6340C87B5C722FF0E8D4D3F39B9A0CA5E9799EC4CE316BFD5E379540",
+            "8672B2D8AA5E9EF86929B8662FE436541B2F739052732020B874BC304601C4DB",
         };
         Json::Value params;
         params[jss::transaction] =
@@ -8621,10 +8514,8 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 4> const feats{
+        static std::array<FeatureBitset, 2> const feats{
             all,
-            all - fixXahauV1 - fixXahauV2 - featureIOUIssuerWeakTSH,
-            all - fixXahauV2 - featureIOUIssuerWeakTSH,
             all - featureIOUIssuerWeakTSH,
         };
 
@@ -8654,14 +8545,10 @@ public:
         }                                                \
     };
 
-SETHOOKTSH_TEST(1, false)
-SETHOOKTSH_TEST(2, false)
-SETHOOKTSH_TEST(3, true)
+SETHOOKTSH_TEST(1, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH1, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH2, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH3, app, ripple, 2);
 
 }  // namespace test
 }  // namespace ripple

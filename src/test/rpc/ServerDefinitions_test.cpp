@@ -163,7 +163,7 @@ public:
     void
     testNoParams(FeatureBitset features)
     {
-        testcase("No Params, None Enabled");
+        testcase("Default Env: config-forced, none on-ledger");
 
         using namespace test::jtx;
         Env env{*this};
@@ -178,8 +178,6 @@ public:
         {
             if (!BEAST_EXPECT(feature.isMember(jss::name)))
                 return;
-            // default config - so all should be disabled, and
-            // supported. Some may be vetoed.
             bool expectVeto =
                 (votes.at(feature[jss::name].asString()) ==
                  VoteBehavior::DefaultNo);
@@ -188,8 +186,12 @@ public:
                  VoteBehavior::Obsolete);
             BEAST_EXPECTS(
                 feature.isMember(jss::enabled) &&
-                    !feature[jss::enabled].asBool(),
+                    feature[jss::enabled].asBool(),
                 feature[jss::name].asString() + " enabled");
+            BEAST_EXPECTS(
+                feature.isMember(jss::ledger_enabled) &&
+                    !feature[jss::ledger_enabled].asBool(),
+                feature[jss::name].asString() + " ledger_enabled");
             BEAST_EXPECTS(
                 feature.isMember(jss::vetoed) &&
                     feature[jss::vetoed].isBool() == !expectObsolete &&
@@ -208,7 +210,7 @@ public:
     void
     testSomeEnabled(FeatureBitset features)
     {
-        testcase("No Params, Some Enabled");
+        testcase("Two config-forced, none on-ledger");
 
         using namespace test::jtx;
         Env env{
@@ -228,7 +230,10 @@ public:
             (void)id.parseHex(it.key().asString().c_str());
             if (!BEAST_EXPECT((*it).isMember(jss::name)))
                 return;
-            bool expectEnabled = env.app().getAmendmentTable().isEnabled(id);
+            bool const expectOnLedger =
+                env.app().getAmendmentTable().isEnabled(id);
+            bool const expectForced =
+                id == featureDepositAuth || id == featureDepositPreauth;
             bool expectSupported =
                 env.app().getAmendmentTable().isSupported(id);
             bool expectVeto =
@@ -239,9 +244,14 @@ public:
                  VoteBehavior::Obsolete);
             BEAST_EXPECTS(
                 (*it).isMember(jss::enabled) &&
-                    (*it)[jss::enabled].asBool() == expectEnabled,
+                    (*it)[jss::enabled].asBool() ==
+                        (expectOnLedger || expectForced),
                 (*it)[jss::name].asString() + " enabled");
-            if (expectEnabled)
+            BEAST_EXPECTS(
+                (*it).isMember(jss::ledger_enabled) &&
+                    (*it)[jss::ledger_enabled].asBool() == expectOnLedger,
+                (*it)[jss::name].asString() + " ledger_enabled");
+            if (expectOnLedger)
                 BEAST_EXPECTS(
                     !(*it).isMember(jss::vetoed),
                     (*it)[jss::name].asString() + " vetoed");
@@ -361,11 +371,121 @@ public:
     }
 
     void
+    testConfigForced(FeatureBitset features)
+    {
+        testcase("Config-forced features ([features] stanza)");
+
+        using namespace test::jtx;
+
+        auto const forced = featurePriceOracle;
+        auto const forcedHex = to_string(forced);
+
+        Env env{*this, FeatureBitset(forced)};
+
+        auto jrr = env.rpc("server_definitions")[jss::result];
+        if (!BEAST_EXPECT(jrr.isMember(jss::features)))
+            return;
+
+        bool sawForced = false;
+        for (auto it = jrr[jss::features].begin();
+             it != jrr[jss::features].end();
+             ++it)
+        {
+            auto const& f = *it;
+            auto const name = f[jss::name].asString();
+
+            if (!BEAST_EXPECTS(
+                    f.isMember(jss::enabled) && f.isMember(jss::ledger_enabled),
+                    name + " enabled/ledger_enabled"))
+                return;
+
+            BEAST_EXPECTS(
+                !f[jss::ledger_enabled].asBool(), name + " ledger_enabled");
+
+            if (it.key().asString() == forcedHex)
+            {
+                sawForced = true;
+                BEAST_EXPECTS(f[jss::enabled].asBool(), name + " enabled");
+            }
+            else
+            {
+                BEAST_EXPECTS(!f[jss::enabled].asBool(), name + " enabled");
+            }
+        }
+        BEAST_EXPECT(sawForced);
+    }
+
+    void
+    testOnLedger(FeatureBitset features)
+    {
+        testcase("On-ledger plus one config-forced");
+
+        using namespace test::jtx;
+
+        // Veto XahauGenesis: FRESH would otherwise enable it via pseudo-tx.
+        auto const forced = featurePriceOracle;
+        auto const forcedHex = to_string(forced);
+
+        Env env{
+            *this,
+            envconfig([](std::unique_ptr<Config> cfg) {
+                cfg->START_UP = Config::FRESH;
+                cfg->section(SECTION_VETO_AMENDMENTS)
+                    .append(to_string(featureXahauGenesis) + " XahauGenesis");
+                return cfg;
+            }),
+            FeatureBitset(forced)};
+
+        auto jrr = env.rpc("server_definitions")[jss::result];
+        if (!BEAST_EXPECT(jrr.isMember(jss::features)))
+            return;
+
+        bool sawOnLedger = false;
+        bool sawForced = false;
+        for (auto it = jrr[jss::features].begin();
+             it != jrr[jss::features].end();
+             ++it)
+        {
+            uint256 id;
+            (void)id.parseHex(it.key().asString().c_str());
+            auto const& f = *it;
+            auto const name = f[jss::name].asString();
+
+            if (!BEAST_EXPECTS(
+                    f.isMember(jss::enabled) && f.isMember(jss::ledger_enabled),
+                    name + " enabled/ledger_enabled"))
+                return;
+
+            bool const onLedger = env.app().getAmendmentTable().isEnabled(id);
+            bool const isForced = it.key().asString() == forcedHex;
+
+            BEAST_EXPECTS(
+                f[jss::ledger_enabled].asBool() == onLedger,
+                name + " ledger_enabled");
+            BEAST_EXPECTS(
+                f[jss::enabled].asBool() == (onLedger || isForced),
+                name + " enabled");
+
+            if (onLedger)
+                sawOnLedger = true;
+            if (isForced)
+            {
+                sawForced = true;
+                BEAST_EXPECTS(!onLedger, name + " forced not on-ledger");
+            }
+        }
+        BEAST_EXPECT(sawOnLedger);
+        BEAST_EXPECT(sawForced);
+    }
+
+    void
     testServerFeatures(FeatureBitset features)
     {
         testNoParams(features);
         testSomeEnabled(features);
         testWithMajorities(features);
+        testConfigForced(features);
+        testOnLedger(features);
     }
 
     void

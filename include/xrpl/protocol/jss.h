@@ -292,7 +292,9 @@ JSS(duration_us);             // out: NetworkOPs
 JSS(effective);               // out: ValidatorList
                               // in: UNL
 JSS(elapsed_seconds);
-JSS(enabled);                // out: AmendmentTable
+JSS(enabled);                // out: AmendmentTable (on-ledger);
+                             //      ServerDefinitions (this server)
+JSS(ledger_enabled);         // out: ServerDefinitions (on-ledger)
 JSS(engine_result);          // out: NetworkOPs, TransactionSign, Submit
 JSS(engine_result_code);     // out: NetworkOPs, TransactionSign, Submit
 JSS(engine_result_message);  // out: NetworkOPs, TransactionSign, Submit
