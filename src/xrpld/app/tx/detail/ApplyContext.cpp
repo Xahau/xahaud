@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/ApplyContext.h>
+#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpld/app/tx/detail/InvariantCheck.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/basics/Log.h>
@@ -35,7 +36,8 @@ ApplyContext::ApplyContext(
     TER preclaimResult_,
     XRPAmount baseFee_,
     ApplyFlags flags,
-    beast::Journal journal_)
+    beast::Journal journal_,
+    std::shared_ptr<Ledger const> replayParentLedger)
     : app(app_)
     , tx(tx_)
     , preclaimResult(preclaimResult_)
@@ -43,6 +45,7 @@ ApplyContext::ApplyContext(
     , journal(journal_)
     , base_(base)
     , flags_(flags)
+    , replayParentLedger_(std::move(replayParentLedger))
 {
     view_.emplace(&base_, flags_);
 }
@@ -51,12 +54,16 @@ void
 ApplyContext::discard()
 {
     view_.emplace(&base_, flags_);
+    pendingEntropy_.reset();
 }
 
 std::optional<TxMeta>
 ApplyContext::apply(TER ter)
 {
-    return view_->apply(base_, tx, ter, flags_ & tapDRY_RUN, journal);
+    auto meta = view_->apply(base_, tx, ter, flags_ & tapDRY_RUN, journal);
+    if (isTesSuccess(ter) && !(flags_ & tapDRY_RUN) && pendingEntropy_)
+        base_.rawSetConsensusEntropy(pendingEntropy_);
+    return meta;
 }
 
 std::size_t
@@ -154,6 +161,50 @@ ApplyContext::checkInvariants(TER const result, XRPAmount const fee)
         result,
         fee,
         std::make_index_sequence<std::tuple_size<InvariantChecks>::value>{});
+}
+
+TER
+ApplyContext::checkExportEmissionLimit(TER const result)
+{
+    if (!isTesSuccess(result))
+        return result;
+
+    bool addedPendingExport = false;
+    int delta = 0;
+
+    visit([&addedPendingExport, &delta](
+              uint256 const&,
+              bool,
+              std::shared_ptr<SLE const> const& before,
+              std::shared_ptr<SLE const> const& after) {
+        bool const beforePending =
+            before && ExportLedgerOps::isPendingExportEmission(*before);
+        bool const afterPending =
+            after && ExportLedgerOps::isPendingExportEmission(*after);
+
+        if (!beforePending && afterPending)
+        {
+            addedPendingExport = true;
+            ++delta;
+        }
+        else if (beforePending && !afterPending)
+        {
+            --delta;
+        }
+    });
+
+    if (!addedPendingExport)
+        return result;
+
+    auto const pending = ExportLedgerOps::pendingExportEmissionCount(base_);
+    auto const projected = static_cast<int>(pending) + delta;
+    if (projected <= static_cast<int>(ExportLimits::maxPendingExports))
+        return result;
+
+    JLOG(journal.warn()) << "Export emission limit reached pending="
+                         << projected
+                         << " max=" << +ExportLimits::maxPendingExports;
+    return tecDIR_FULL;
 }
 
 }  // namespace ripple

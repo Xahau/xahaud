@@ -20,22 +20,26 @@
 #ifndef RIPPLE_APP_CONSENSUS_RCLCONSENSUS_H_INCLUDED
 #define RIPPLE_APP_CONSENSUS_RCLCONSENSUS_H_INCLUDED
 
+#include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/RCLCensorshipDetector.h>
 #include <xrpld/app/consensus/RCLCxLedger.h>
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/consensus/RCLCxTx.h>
 #include <xrpld/app/misc/FeeVote.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
-#include <xrpld/consensus/Consensus.h>
+#include <xrpld/consensus/ConsensusParms.h>
+#include <xrpld/consensus/ConsensusTypes.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/CountedObject.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/beast/clock/abstract_clock.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/RippleLedgerHash.h>
 #include <xrpl/protocol/STValidation.h>
 #include <atomic>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <set>
@@ -44,10 +48,14 @@
 
 namespace ripple {
 
+class CanonicalTXSet;
 class InboundTransactions;
+class LedgerReplay;
 class LocalTxs;
 class LedgerMaster;
 class ValidatorKeys;
+template <class Adaptor>
+class Consensus;
 
 /** Manages the generic consensus algorithm for use by the RCL.
  */
@@ -61,6 +69,7 @@ class RCLConsensus
     class Adaptor
     {
         Application& app_;
+        std::recursive_mutex& consensusMutex_;
         std::unique_ptr<FeeVote> feeVote_;
         LedgerMaster& ledgerMaster_;
         LocalTxs& localTxs_;
@@ -91,17 +100,22 @@ class RCLConsensus
         RCLCensorshipDetector<TxID, LedgerIndex> censorshipDetector_;
         NegativeUNLVote nUnlVote_;
 
+        // RNG/Export state has moved to ConsensusExtensions
+        // (owned by Application, accessible via app_.getConsensusExtensions())
+
     public:
         using Ledger_t = RCLCxLedger;
         using NodeID_t = NodeID;
         using NodeKey_t = PublicKey;
         using TxSet_t = RCLTxSet;
         using PeerPosition_t = RCLCxPeerPos;
+        using Position_t = ExtendedPosition;
 
         using Result = ConsensusResult<Adaptor>;
 
         Adaptor(
             Application& app,
+            std::recursive_mutex& consensusMutex,
             std::unique_ptr<FeeVote>&& feeVote,
             LedgerMaster& ledgerMaster,
             LocalTxs& localTxs,
@@ -182,6 +196,14 @@ class RCLConsensus
             return parms_;
         }
 
+        // --- ConsensusExtensions access ---
+
+        ConsensusExtensions&
+        ce();
+
+        ConsensusExtensions const&
+        ce() const;
+
     private:
         //---------------------------------------------------------------------
         // The following members implement the generic Consensus requirements
@@ -190,10 +212,10 @@ class RCLConsensus
         // Consensus<Adaptor> methods and since RCLConsensus::consensus_ should
         // only be accessed under lock, these will only be called under lock.
         //
-        // In general, the idea is that there is only ONE thread that is running
-        // consensus code at anytime. The only special case is the dispatched
-        // onAccept call, which does not take a lock and relies on Consensus not
-        // changing state until a future call to startRound.
+        // Normally only one thread runs consensus code at a time. The
+        // dispatched accept job builds the ledger outside the lock, but
+        // reacquires it for extension preparation. The accepted result must
+        // still remain unchanged until a future call to startRound.
         friend class Consensus<Adaptor>;
 
         /** Attempt to acquire a specific ledger.
@@ -396,6 +418,7 @@ class RCLConsensus
         buildLCL(
             RCLCxLedger const& previousLedger,
             CanonicalTXSet& retriableTxs,
+            std::unique_ptr<LedgerReplay> replayData,
             NetClock::time_point closeTime,
             bool closeTimeCorrect,
             NetClock::duration closeResolution,
@@ -420,6 +443,8 @@ class RCLConsensus
     };
 
 public:
+    using clock_type = beast::abstract_clock<std::chrono::steady_clock>;
+
     //! Constructor
     RCLConsensus(
         Application& app,
@@ -427,9 +452,11 @@ public:
         LedgerMaster& ledgerMaster,
         LocalTxs& localTxs,
         InboundTransactions& inboundTransactions,
-        Consensus<Adaptor>::clock_type const& clock,
+        clock_type const& clock,
         ValidatorKeys const& validatorKeys,
         beast::Journal journal);
+
+    ~RCLConsensus();
 
     RCLConsensus(RCLConsensus const&) = delete;
 
@@ -472,10 +499,11 @@ public:
     }
 
     ConsensusPhase
-    phase() const
-    {
-        return consensus_.phase();
-    }
+    phase() const;
+
+    //! Whether extensions have pending sub-state work in establish
+    bool
+    extensionsBusy() const;
 
     //! @see Consensus::getJson
     Json::Value
@@ -505,11 +533,7 @@ public:
 
     // @see Consensus::prevLedgerID
     RCLCxLedger::ID
-    prevLedgerID() const
-    {
-        std::lock_guard _{mutex_};
-        return consensus_.prevLedgerID();
-    }
+    prevLedgerID() const;
 
     //! @see Consensus::simulate
     void
@@ -530,13 +554,15 @@ public:
     }
 
 private:
-    // Since Consensus does not provide intrinsic thread-safety, this mutex
-    // guards all calls to consensus_. adaptor_ uses atomics internally
-    // to allow concurrent access of its data members that have getters.
+    // Guards mutable consensus state and accept-job round-state access.
+    // Atomic-only status polls and the extension's independently synchronized
+    // cross-thread APIs are exempt. Constructed before adaptor_.
+    // Lock order: C before LedgerMaster, never the reverse; C before busyMu_
+    // before the collector.
     mutable std::recursive_mutex mutex_;
 
     Adaptor adaptor_;
-    Consensus<Adaptor> consensus_;
+    std::unique_ptr<Consensus<Adaptor>> consensus_;
     beast::Journal const j_;
 };
 

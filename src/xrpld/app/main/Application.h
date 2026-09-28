@@ -67,7 +67,9 @@ using SLE = STLedgerEntry;
 using CachedSLEs = TaggedCache<uint256, SLE const>;
 
 class CollectorManager;
+class ConsensusExtensions;
 class Family;
+class RuntimeConfig;
 class HashRouter;
 class Logs;
 class LoadFeeTrack;
@@ -182,6 +184,8 @@ public:
     getAmendmentTable() = 0;
     virtual HashRouter&
     getHashRouter() = 0;
+    virtual RuntimeConfig&
+    getRuntimeConfig() = 0;
     virtual LoadFeeTrack&
     getFeeTrack() = 0;
     virtual LoadManager&
@@ -220,6 +224,10 @@ public:
     getLedgerCleaner() = 0;
     virtual LedgerReplayer&
     getLedgerReplayer() = 0;
+    virtual ConsensusExtensions&
+    getConsensusExtensions() = 0;
+    virtual std::weak_ptr<ConsensusExtensions>
+    getConsensusExtensionsWeak() = 0;
     virtual NetworkOPs&
     getOPs() = 0;
     virtual OrderBookDB&
@@ -237,6 +245,11 @@ public:
     virtual std::optional<PublicKey const>
     getValidationPublicKey() const = 0;
 
+    virtual SecretKey const&
+    getValidationSecretKey() const = 0;
+
+    virtual ValidatorKeys const&
+    getValidatorKeys() const = 0;
     virtual Resource::Manager&
     getResourceManager() = 0;
     virtual PathRequests&

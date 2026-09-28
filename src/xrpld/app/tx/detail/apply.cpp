@@ -21,16 +21,18 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 
 namespace ripple {
 
 // These are the same flags defined as SF_PRIVATE1-4 in HashRouter.h
-#define SF_SIGBAD SF_PRIVATE1     // Signature is bad
-#define SF_SIGGOOD SF_PRIVATE2    // Signature is good
-#define SF_LOCALBAD SF_PRIVATE3   // Local checks failed
-#define SF_LOCALGOOD SF_PRIVATE4  // Local checks passed
+#define SF_SIGBAD SF_PRIVATE1              // Signature is bad
+#define SF_SIGGOOD SF_PRIVATE2             // Signature is good
+#define SF_LOCALBAD SF_PRIVATE3            // Local checks failed
+#define SF_LOCALGOOD SF_PRIVATE4           // Local checks passed
+#define SF_CALLBACK_PROOFGOOD SF_PRIVATE7  // Unsigned callback XPOP verified
 
 //------------------------------------------------------------------------------
 
@@ -97,11 +99,48 @@ checkValidity(
         return {Validity::Valid, ""};
     }
 
+    bool const unsignedImport = Import::isUnsigned(tx);
+    if (unsignedImport)
+    {
+        // A carrier supplies proof, not an account signature. Shape is not
+        // authority: only this callback-specific, amendment-gated path may
+        // substitute complete XPOP verification for an outer signature.
+        if (!rules.enabled(featureImport) || !rules.enabled(featureExport) ||
+            !Import::hasUnsignedCallbackShape(tx))
+            return {Validity::SigBad, "Unsigned Import envelope is invalid."};
+
+        auto const networkID = tx[~sfNetworkID];
+        if (requiresTxNetworkID(config.NETWORK_ID)
+                ? (!networkID || *networkID != config.NETWORK_ID)
+                : networkID.has_value())
+            return {Validity::SigBad, "Unsigned Import network is invalid."};
+
+        if (flags & SF_SIGBAD)
+            return {Validity::SigBad, "Import proof is known bad."};
+
+        // forceValidity() can mark ordinary signatures trusted, but cannot
+        // stand in for proof verification. Use a distinct receipt for the
+        // exact immutable transaction; latch/fee authority is never cached.
+        if (!(flags & SF_CALLBACK_PROOFGOOD))
+        {
+            if (!isTesSuccess(Import::checkProof(
+                    tx,
+                    rules,
+                    config.NETWORK_ID,
+                    beast::Journal{beast::Journal::getNullSink()})))
+            {
+                router.setFlags(id, SF_SIGBAD);
+                return {Validity::SigBad, "Import proof is invalid."};
+            }
+            router.setFlags(id, SF_CALLBACK_PROOFGOOD);
+        }
+    }
+
     if (flags & SF_SIGBAD)
         // Signature is known bad
         return {Validity::SigBad, "Transaction has bad signature."};
 
-    if (!(flags & SF_SIGGOOD))
+    if (!unsignedImport && !(flags & SF_SIGGOOD))
     {
         // Don't know signature state. Check it.
         auto const requireCanonicalSig =
@@ -166,14 +205,15 @@ apply(
     OpenView& view,
     STTx const& tx,
     ApplyFlags flags,
-    beast::Journal j)
+    beast::Journal j,
+    ApplyOptions const& options)
 {
     STAmountSO stAmountSO{view.rules().enabled(fixSTAmountCanonicalize)};
     NumberSO stNumberSO{view.rules().enabled(fixUniversalNumber)};
 
     auto pfresult = preflight(app, view.rules(), tx, flags, j);
     auto pcresult = preclaim(pfresult, app, view);
-    return doApply(pcresult, app, view);
+    return doApply(pcresult, app, view, options);
 }
 
 ApplyTransactionResult
@@ -183,7 +223,8 @@ applyTransaction(
     STTx const& txn,
     bool retryAssured,
     ApplyFlags flags,
-    beast::Journal j)
+    beast::Journal j,
+    ApplyOptions const& options)
 {
     // Returns false if the transaction has need not be retried.
     if (retryAssured)
@@ -194,7 +235,7 @@ applyTransaction(
 
     try
     {
-        auto const result = apply(app, view, txn, flags, j);
+        auto const result = apply(app, view, txn, flags, j, options);
         if (result.applied)
         {
             JLOG(j.debug())

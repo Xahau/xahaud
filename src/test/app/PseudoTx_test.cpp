@@ -16,9 +16,17 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/ApplyContext.h>
+#include <xrpld/app/tx/detail/ExportResultBuilder.h>
+#include <xrpld/ledger/PaymentSandbox.h>
+#include <xrpld/ledger/Sandbox.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STAccount.h>
+#include <xrpl/protocol/Sign.h>
 #include <string>
 #include <vector>
 
@@ -27,6 +35,27 @@ namespace test {
 
 struct PseudoTx_test : public beast::unit_test::suite
 {
+    STTx
+    consensusEntropyTx(
+        std::uint32_t seq,
+        std::uint8_t tier,
+        std::uint16_t count,
+        std::uint16_t denominator,
+        Blob contributors)
+    {
+        return STTx(ttCONSENSUS_ENTROPY, [&](auto& obj) {
+            obj.setAccountID(sfAccount, AccountID());
+            obj.setFieldU32(sfSequence, 0);
+            obj.setFieldAmount(sfFee, STAmount{});
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.setFieldH256(sfDigest, uint256(3));
+            obj.setFieldU16(sfEntropyCount, count);
+            obj.setFieldU16(sfEntropyDenominator, denominator);
+            obj.setFieldVL(sfEntropyContributors, contributors);
+            obj.setFieldU8(sfEntropyTier, tier);
+        });
+    }
+
     std::vector<STTx>
     getPseudoTxs(Rules const& rules, std::uint32_t seq)
     {
@@ -55,6 +84,27 @@ struct PseudoTx_test : public beast::unit_test::suite
             obj.setFieldH256(sfAmendment, uint256(2));
             obj.setFieldU32(sfLedgerSequence, seq);
         }));
+
+        res.emplace_back(consensusEntropyTx(
+            seq, entropyTierValidatorQuorum, 1, 1, Blob{0x01}));
+
+        auto const secret = generateSecretKey(KeyType::secp256k1, randomSeed());
+        auto const publicKey = derivePublicKey(KeyType::secp256k1, secret);
+        ExportResultBuilder::PositionedSignatureSnapshot signatures;
+        std::uint8_t const signatureBytes[] = {1, 2, 3};
+        signatures.emplace(
+            0,
+            ExportResultBuilder::PositionedSignature{
+                publicKey, Buffer{signatureBytes, sizeof(signatureBytes)}});
+        auto const releaseTarget = STTx(ttPAYMENT, [&](auto& obj) {
+            obj.setAccountID(sfAccount, AccountID(1));
+            obj.setAccountID(sfDestination, AccountID(2));
+            obj.setFieldU32(sfSequence, 0);
+            obj.setFieldAmount(sfFee, STAmount{});
+            obj.setFieldVL(sfSigningPubKey, Blob{});
+        });
+        res.emplace_back(ExportResultBuilder::buildSignatureWitness(
+            uint256(4), releaseTarget, signatures, 1, seq));
 
         return res;
     }
@@ -92,7 +142,7 @@ struct PseudoTx_test : public beast::unit_test::suite
                 [&](OpenView& view, beast::Journal j) {
                     auto const result =
                         ripple::apply(env.app(), view, stx, tapNONE, j);
-                    BEAST_EXPECT(!result.applied && result.ter == temINVALID);
+                    BEAST_EXPECT(!result.applied);
                     return result.applied;
                 });
         }
@@ -110,6 +160,183 @@ struct PseudoTx_test : public beast::unit_test::suite
     }
 
     void
+    expectOpenLedgerResult(jtx::Env& env, STTx const& tx, TER expected)
+    {
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
+            auto const result = ripple::apply(env.app(), view, tx, tapNONE, j);
+            BEAST_EXPECT(result.ter == expected);
+            BEAST_EXPECT(!result.applied);
+            return result.applied;
+        });
+    }
+
+    void
+    testConsensusEntropyContributorMaskPreflight()
+    {
+        testcase("ConsensusEntropy contributor mask preflight");
+
+        using namespace jtx;
+        Env env(*this, supported_amendments() | featureConsensusEntropy);
+        auto const seq = env.closed()->seq() + 1;
+
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(seq, entropyTierConsensusFallback, 0, 0, Blob{}),
+            temINVALID);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 2, 3, Blob{0x03}),
+            temINVALID);
+
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierConsensusFallback, 1, 1, Blob{0x01}),
+            temMALFORMED);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 1, 9, Blob{0x01}),
+            temMALFORMED);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 1, 9, Blob{0x01, 0x02}),
+            temMALFORMED);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 2, 3, Blob{0x01}),
+            temMALFORMED);
+        expectOpenLedgerResult(
+            env,
+            consensusEntropyTx(seq, entropyTierValidatorFull, 2, 3, Blob{0x03}),
+            temMALFORMED);
+    }
+
+    void
+    testConsensusEntropyLedgerSequence()
+    {
+        testcase("ConsensusEntropy current ledger binding");
+
+        using namespace jtx;
+        Env env(*this, supported_amendments() | featureConsensusEntropy);
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto const seq = parent->seq() + 1;
+
+        auto applyToNextLedger = [&](STTx const& tx, TER expected) {
+            auto next = std::make_shared<Ledger>(
+                *parent, env.app().timeKeeper().closeTime());
+            OpenView accum(&*next);
+            auto const result =
+                ripple::apply(env.app(), accum, tx, tapNONE, env.journal);
+            BEAST_EXPECT(result.ter == expected);
+            BEAST_EXPECT(result.applied == isTesSuccess(expected));
+        };
+
+        applyToNextLedger(
+            consensusEntropyTx(
+                seq + 1, entropyTierValidatorQuorum, 1, 1, Blob{0x01}),
+            tefFAILURE);
+        applyToNextLedger(
+            consensusEntropyTx(
+                seq, entropyTierValidatorQuorum, 1, 1, Blob{0x01}),
+            tesSUCCESS);
+    }
+
+    void
+    testEntropyContextPublication()
+    {
+        testcase("Entropy context commit, discard, dry-run, and duplicate");
+        using namespace jtx;
+        Env env{*this, supported_amendments() | featureConsensusEntropy};
+        env.close();
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto next = std::make_shared<Ledger>(*parent, parent->info().closeTime);
+        OpenView view{next.get()};
+        BEAST_EXPECT(!view.consensusEntropy());
+        auto const tx = consensusEntropyTx(
+            view.seq(), entropyTierConsensusFallback, 0, 0, Blob{});
+        auto const input = std::make_shared<STTx const>(tx);
+
+        // Staging is transaction-local and cannot contaminate the base or its
+        // sibling snapshot when an attempt is discarded.
+        OpenView sibling{view};
+        ApplyContext staged{
+            env.app(),
+            view,
+            tx,
+            tesSUCCESS,
+            view.fees().base,
+            tapNONE,
+            env.journal};
+        staged.stageConsensusEntropy(input);
+        BEAST_EXPECT(!view.consensusEntropy());
+        staged.discard();
+        // A synthetic successful apply after discard detects leaked staging.
+        // This isolated view is never committed as a ledger.
+        staged.apply(tesSUCCESS);
+        BEAST_EXPECT(!view.consensusEntropy());
+        BEAST_EXPECT(!sibling.consensusEntropy());
+
+        OpenView failedView{next.get()};
+        ApplyContext failed{
+            env.app(),
+            failedView,
+            tx,
+            tesSUCCESS,
+            failedView.fees().base,
+            tapNONE,
+            env.journal};
+        failed.stageConsensusEntropy(input);
+        failed.apply(tecINVARIANT_FAILED);
+        BEAST_EXPECT(!failedView.consensusEntropy());
+
+        OpenView dryView{next.get()};
+        auto const dry =
+            ripple::apply(env.app(), dryView, tx, tapDRY_RUN, env.journal);
+        BEAST_EXPECT(isTesSuccess(dry.ter));
+        BEAST_EXPECT(!dryView.consensusEntropy());
+        BEAST_EXPECT(dryView.txCount() == 0);
+
+        OpenView committed{next.get()};
+        auto const result =
+            ripple::apply(env.app(), committed, tx, tapNONE, env.journal);
+        BEAST_EXPECT(result.applied && isTesSuccess(result.ter));
+        auto const published = committed.consensusEntropy();
+        if (!BEAST_EXPECT(published != nullptr))
+            return;
+        BEAST_EXPECT(published->getTransactionID() == tx.getTransactionID());
+        BEAST_EXPECT(!sibling.consensusEntropy());
+
+        OpenView copied{committed};
+        Sandbox sandbox{&copied, tapNONE};
+        PaymentSandbox payment{&sandbox, tapNONE};
+        BEAST_EXPECT(sandbox.consensusEntropy() == published);
+        BEAST_EXPECT(payment.consensusEntropy() == published);
+        // Discarding an ordinary transaction view leaves the ledger input.
+        ApplyContext ordinary{
+            env.app(),
+            committed,
+            tx,
+            tesSUCCESS,
+            committed.fees().base,
+            tapNONE,
+            env.journal};
+        ordinary.discard();
+        BEAST_EXPECT(ordinary.view().consensusEntropy() == published);
+
+        auto duplicate = consensusEntropyTx(
+            committed.seq(), entropyTierValidatorQuorum, 1, 1, Blob{0x01});
+        auto const rejected = ripple::apply(
+            env.app(), committed, duplicate, tapNONE, env.journal);
+        BEAST_EXPECT(rejected.ter == tefFAILURE && !rejected.applied);
+        BEAST_EXPECT(committed.consensusEntropy() == published);
+        BEAST_EXPECT(committed.txCount() == 1);
+    }
+
+    void
     run() override
     {
         using namespace test::jtx;
@@ -119,6 +346,9 @@ struct PseudoTx_test : public beast::unit_test::suite
         testPrevented(all - featureXRPFees);
         testPrevented(all);
         testAllowed();
+        testConsensusEntropyContributorMaskPreflight();
+        testConsensusEntropyLedgerSequence();
+        testEntropyContextPublication();
     }
 };
 

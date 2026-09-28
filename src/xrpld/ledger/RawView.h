@@ -97,6 +97,9 @@ public:
 class TxsRawView : public RawView
 {
 public:
+    virtual void
+    rawSetConsensusEntropy(std::shared_ptr<STTx const> entropy) = 0;
+
     /** Add a transaction to the tx map.
 
         Closed ledgers must have metadata,

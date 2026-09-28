@@ -42,12 +42,14 @@ static constexpr unsigned char const wireTypeAccountState = 1;
 static constexpr unsigned char const wireTypeInner = 2;
 static constexpr unsigned char const wireTypeCompressedInner = 3;
 static constexpr unsigned char const wireTypeTransactionWithMeta = 4;
+static constexpr unsigned char const wireTypeSidecar = 5;
 
 enum SHAMapNodeType : uint8_t {
     tnINNER = 1,
     tnTRANSACTION_NM = 2,  // transaction, no metadata
     tnTRANSACTION_MD = 3,  // transaction, with metadata
     tnACCOUNT_STATE = 4,
+    tnSIDECAR = 5,    // sidecar object
     tnREMOVE = 254,   // special type to mark deleted nodes in serialization
     tnTERMINAL = 255  // special type to mark the end of a serialization stream
 };
@@ -188,6 +190,9 @@ private:
 
     static std::shared_ptr<SHAMapTreeNode>
     makeTransactionWithMeta(Slice data, SHAMapHash const& hash, bool hashValid);
+
+    static std::shared_ptr<SHAMapTreeNode>
+    makeSidecar(Slice data, SHAMapHash const& hash, bool hashValid);
 };
 
 }  // namespace ripple

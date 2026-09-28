@@ -27,6 +27,8 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/unit_test.h>
 
+#include <limits>
+
 namespace ripple {
 namespace test {
 
@@ -546,8 +548,12 @@ struct NetworkHistory
         std::optional<int> numLedgers;
     };
 
-    NetworkHistory(beast::unit_test::suite& suite, Parameter const& p)
-        : env(suite, jtx::supported_amendments() | featureNegativeUNL)
+    NetworkHistory(
+        beast::unit_test::suite& suite,
+        Parameter const& p,
+        FeatureBitset features = jtx::supported_amendments() |
+            featureNegativeUNL)
+        : env(suite, features | featureNegativeUNL)
         , param(p)
         , validations(env.app().getValidations())
     {
@@ -1121,6 +1127,41 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
     }
 
     void
+    testFindAllCandidatesWithActiveViewCap()
+    {
+        testcase("Find All Candidates with active-view cap denominator");
+
+        jtx::Env env(*this);
+        NegativeUNLVote vote(NodeID(0xA0), env.journal, env.app());
+
+        std::vector<NodeID> nodeIds;
+        hash_set<NodeID> unl;
+        hash_set<NodeID> negUnl;
+        hash_map<NodeID, std::uint32_t> scoreTable;
+
+        for (std::size_t i = 0; i < 20; ++i)
+        {
+            nodeIds.emplace_back(i + 1);
+            unl.insert(nodeIds.back());
+            scoreTable[nodeIds.back()] =
+                NegativeUNLVote::negativeUNLLowWaterMark - 1;
+        }
+
+        for (std::size_t i = 0; i < 3; ++i)
+            negUnl.insert(nodeIds[i]);
+
+        auto const legacyCandidates =
+            vote.findAllCandidates(unl, negUnl, scoreTable);
+        BEAST_EXPECT(legacyCandidates.toDisableCandidates.size() == 17);
+        BEAST_EXPECT(legacyCandidates.toReEnableCandidates.empty());
+
+        auto const activeViewCandidates =
+            vote.findAllCandidates(unl, negUnl, scoreTable, 10);
+        BEAST_EXPECT(activeViewCandidates.toDisableCandidates.empty());
+        BEAST_EXPECT(activeViewCandidates.toReEnableCandidates.empty());
+    }
+
+    void
     testFindAllCandidatesCombination()
     {
         testcase("Find All Candidates Combination");
@@ -1375,6 +1416,7 @@ class NegativeUNLVoteInternal_test : public beast::unit_test::suite
         testPickOneCandidate();
         testBuildScoreTableSpecialCases();
         testFindAllCandidates();
+        testFindAllCandidatesWithActiveViewCap();
         testFindAllCandidatesCombination();
         testNewValidators();
     }
@@ -1614,6 +1656,82 @@ class NegativeUNLVoteOffline_test : public beast::unit_test::suite
 class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
 {
     void
+    seedUNLReport(NetworkHistory& history, std::size_t activeCount)
+    {
+        BEAST_EXPECT(activeCount <= history.UNLKeys.size());
+        auto& ledger = history.history.back();
+        OpenView accum(&*ledger);
+        PublicKey const importKey = history.UNLKeys.back();
+
+        for (std::size_t i = 0; i < activeCount; ++i)
+        {
+            auto tx = unl::createUNLReportTx(
+                ledger->seq(), importKey, history.UNLKeys[i]);
+            BEAST_EXPECT(unl::applyAndTestResult(history.env, accum, tx, true));
+        }
+
+        accum.apply(*ledger);
+
+        auto const sle = ledger->read(keylet::UNLReport());
+        BEAST_EXPECT(sle);
+        if (sle)
+        {
+            BEAST_EXPECT(sle->isFieldPresent(sfActiveValidators));
+            if (sle->isFieldPresent(sfActiveValidators))
+                BEAST_EXPECT(
+                    sle->getFieldArray(sfActiveValidators).size() ==
+                    activeCount);
+        }
+    }
+
+    std::size_t
+    voteCountWithUNLReport(FeatureBitset features, bool withReport = true)
+    {
+        NetworkHistory history = {*this, {20, 3, false, false, {}}, features};
+        BEAST_EXPECT(history.goodHistory);
+        if (!history.goodHistory)
+            return 0;
+
+        if (withReport)
+            seedUNLReport(history, 10);
+        history.walkHistoryAndAddValidations(
+            [&](std::shared_ptr<Ledger const> const&, std::size_t idx) -> bool {
+                return idx == history.UNLNodeIDs.size() - 1;
+            });
+
+        NegativeUNLVote vote(
+            history.UNLNodeIDs.back(), history.env.journal, history.env.app());
+        auto txSet = std::make_shared<SHAMap>(
+            SHAMapType::TRANSACTION, history.env.app().getNodeFamily());
+        vote.doVoting(
+            history.lastLedger(),
+            history.UNLKeySet,
+            history.validations,
+            txSet);
+
+        return unl::countTx(txSet);
+    }
+
+    void
+    testMaxListedPolicy()
+    {
+        testcase("Max listed policy");
+
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(0) == 0);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(1) == 1);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(4) == 1);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(5) == 2);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(8) == 2);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(9) == 3);
+        BEAST_EXPECT(NegativeUNLVote::maxNegativeUNLListed(32) == 8);
+
+        auto const max = std::numeric_limits<std::size_t>::max();
+        BEAST_EXPECT(
+            NegativeUNLVote::maxNegativeUNLListed(max) ==
+            max / NegativeUNLVote::negativeUNLMaxListedDenominator + 1);
+    }
+
+    void
     testDoVoting()
     {
         testcase("Do Voting");
@@ -1638,9 +1756,46 @@ class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
     }
 
     void
+    testActiveViewCap()
+    {
+        auto const legacyFeatures = (jtx::supported_amendments() -
+                                     featureConsensusEntropy - featureExport) |
+            featureNegativeUNL;
+
+        for (bool const entropy : {false, true})
+        {
+            for (bool const exportEnabled : {false, true})
+            {
+                testcase(
+                    std::string("Active-view cap: CE=") +
+                    (entropy ? "on" : "off") +
+                    ", Export=" + (exportEnabled ? "on" : "off"));
+                auto features = legacyFeatures;
+                if (entropy)
+                    features.set(featureConsensusEntropy);
+                if (exportEnabled)
+                    features.set(featureExport);
+
+                // Three validators are already disabled. A 20-validator
+                // trusted UNL permits a fourth disable vote, whereas the
+                // parent report's 10 active validators cap the list at three.
+                BEAST_EXPECT(
+                    voteCountWithUNLReport(features) ==
+                    (entropy || exportEnabled ? 0 : 1));
+
+                // Without a parent report, all four feature combinations
+                // retain the trusted-UNL denominator.
+                BEAST_EXPECT(voteCountWithUNLReport(features, false) == 1);
+            }
+        }
+    }
+
+    void
     run() override
     {
+        testMaxListedPolicy();
         testDoVoting();
+        testActiveViewCap();
     }
 };
 

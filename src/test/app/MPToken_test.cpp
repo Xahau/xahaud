@@ -1878,6 +1878,15 @@ class MPToken_test : public beast::unit_test::suite
                   [jss::Amount] = mpt.getJson(JsonOptions::none);
                 test(jv, sfAmounts.jsonName.c_str());
             }
+            // Export callback fee authorization is a native-only amount.
+            {
+                Json::Value jv;
+                jv[jss::TransactionType] = jss::Export;
+                jv[jss::Account] = alice.human();
+                jv[sfExportCallbackFee.jsonName] =
+                    mpt.getJson(JsonOptions::none);
+                test(jv, sfExportCallbackFee.fieldName);
+            }
             // ClaimReward
             {
                 Json::Value jv = reward::claim(alice);

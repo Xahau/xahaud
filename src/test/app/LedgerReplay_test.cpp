@@ -30,6 +30,8 @@
 #include <xrpld/overlay/PeerSet.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Serializer.h>
 
 #include <chrono>
 #include <thread>
@@ -40,7 +42,7 @@ namespace test {
 struct LedgerReplay_test : public beast::unit_test::suite
 {
     void
-    run() override
+    testReplay()
     {
         testcase("Replay ledger");
 
@@ -72,6 +74,73 @@ struct LedgerReplay_test : public beast::unit_test::suite
             env.journal);
 
         BEAST_EXPECT(replayed->info().hash == lastClosed->info().hash);
+    }
+
+    void
+    testConsensusEntropyReplay()
+    {
+        testcase("Replay ledger with consensus entropy");
+
+        using namespace jtx;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+
+        Env env = [&] {
+            auto c = jtx::envconfig();
+            auto& sectionNode = c->section(ConfigSection::nodeDatabase());
+            sectionNode.set("type", "memory");
+            c->overwrite(SECTION_RELATIONAL_DB, "backend", "sqlite");
+            return jtx::Env(
+                *this,
+                std::move(c),
+                supported_amendments() | featureConsensusEntropy,
+                nullptr);
+        }();
+        env.fund(XRP(100000), alice, bob);
+        env.close();
+
+        LedgerMaster& ledgerMaster = env.app().getLedgerMaster();
+        auto const lastClosed = ledgerMaster.getClosedLedger();
+        auto const lastClosedParent =
+            ledgerMaster.getLedgerByHash(lastClosed->info().parentHash);
+
+        LedgerReplay const replayData(lastClosedParent, lastClosed);
+        auto const& orderedTxns = replayData.orderedTxns();
+        BEAST_EXPECT(orderedTxns.size() > 1);
+        if (orderedTxns.empty())
+            return;
+
+        auto const& [index, entropyTx] = *orderedTxns.begin();
+        BEAST_EXPECT(index == 0);
+        BEAST_EXPECT(entropyTx->getTxnType() == ttCONSENSUS_ENTROPY);
+
+        auto const persisted =
+            lastClosed->txRead(entropyTx->getTransactionID());
+        BEAST_EXPECT(persisted.first);
+        BEAST_EXPECT(
+            persisted.second &&
+            persisted.second->getFieldU32(sfTransactionIndex) == index);
+        if (persisted.first)
+        {
+            Serializer persistedBytes;
+            persisted.first->add(persistedBytes);
+            Serializer replayBytes;
+            entropyTx->add(replayBytes);
+            BEAST_EXPECT(replayBytes.peekData() == persistedBytes.peekData());
+        }
+
+        auto const replayed =
+            buildLedger(replayData, tapNONE, env.app(), env.journal);
+
+        BEAST_EXPECT(replayed->info().hash == lastClosed->info().hash);
+    }
+
+    void
+    run() override
+    {
+        testReplay();
+        testConsensusEntropyReplay();
     }
 };
 

@@ -95,6 +95,10 @@ doUnsubscribe(RPC::JsonContext& context)
             {
                 context.netOps.unsubValidations(ispSub->getSeq());
             }
+            else if (streamName == "export_signatures")
+            {
+                context.netOps.unsubExportSignatures(ispSub->getSeq());
+            }
             else if (streamName == "peer_status")
             {
                 context.netOps.unsubPeerStatus(ispSub->getSeq());

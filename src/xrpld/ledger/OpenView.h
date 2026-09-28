@@ -97,6 +97,7 @@ private:
     detail::RawStateTable items_;
     std::shared_ptr<void const> hold_;
     bool open_ = true;
+    std::shared_ptr<STTx const> entropy_;
 
 public:
     OpenView() = delete;
@@ -184,6 +185,18 @@ public:
     */
     std::size_t
     txCount() const;
+
+    std::shared_ptr<STTx const>
+    consensusEntropy() const override
+    {
+        return entropy_;
+    }
+
+    void
+    rawSetConsensusEntropy(std::shared_ptr<STTx const> entropy) override
+    {
+        entropy_ = std::move(entropy);
+    }
 
     /** Apply changes. */
     void

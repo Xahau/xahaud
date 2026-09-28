@@ -21,6 +21,7 @@
 #include <test/jtx/Env.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/basics/BasicConfig.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
@@ -97,11 +98,12 @@ public:
             runTx(env, jv, telNETWORK_ID_MAKES_TX_NON_CANONICAL);
         }
 
-        // any network up to and including networkid 1024 cannot support
-        // NetworkID
+        // Legacy networks cannot support NetworkID.
         {
-            test::jtx::Env env{*this, makeNetworkConfig(1024)};
-            BEAST_EXPECT(env.app().config().NETWORK_ID == 1024);
+            test::jtx::Env env{
+                *this, makeNetworkConfig(maxNetworkIDWithoutTxField)};
+            BEAST_EXPECT(
+                env.app().config().NETWORK_ID == maxNetworkIDWithoutTxField);
 
             // try to submit a txn without network id, this should work
             Json::Value jv;
@@ -110,18 +112,20 @@ public:
             runTx(env, jv, tesSUCCESS);
 
             // now submit with a network id, this will fail
-            jv[jss::NetworkID] = 1024;
+            jv[jss::NetworkID] = maxNetworkIDWithoutTxField;
             runTx(env, jv, telNETWORK_ID_MAKES_TX_NON_CANONICAL);
 
             jv[jss::NetworkID] = 1000;
             runTx(env, jv, telNETWORK_ID_MAKES_TX_NON_CANONICAL);
         }
 
-        // any network above networkid 1024 will produce an error if fed a txn
-        // absent networkid
+        // Any network above the legacy range rejects a txn absent NetworkID.
         {
-            test::jtx::Env env{*this, makeNetworkConfig(1025)};
-            BEAST_EXPECT(env.app().config().NETWORK_ID == 1025);
+            test::jtx::Env env{
+                *this, makeNetworkConfig(maxNetworkIDWithoutTxField + 1)};
+            BEAST_EXPECT(
+                env.app().config().NETWORK_ID ==
+                maxNetworkIDWithoutTxField + 1);
             // try to submit a txn without network id, this should not work
             {
                 env.fund(XRP(200), alice);
@@ -150,11 +154,11 @@ public:
             jv[jss::NetworkID] = 0;
             runTx(env, jv, telWRONG_NETWORK);
 
-            jv[jss::NetworkID] = 1024;
+            jv[jss::NetworkID] = maxNetworkIDWithoutTxField;
             runTx(env, jv, telWRONG_NETWORK);
 
             // submit the correct network id
-            jv[jss::NetworkID] = 1025;
+            jv[jss::NetworkID] = maxNetworkIDWithoutTxField + 1;
             runTx(env, jv, tesSUCCESS);
         }
     }

@@ -7,15 +7,19 @@
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
+#include <array>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
@@ -551,7 +555,10 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttFEE:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
-        case ttUNL_REPORT: {
+        case ttUNL_REPORT:
+        case ttEXPORT:
+        case ttCONSENSUS_ENTROPY:
+        case ttEXPORT_SIGNATURES: {
             break;
         }
         default: {
@@ -1034,7 +1041,9 @@ hook::apply(
     bool isStrong,
     uint32_t wasmParam,
     uint8_t hookChainPosition,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    bool isTerminalStrongHook,
+    bool isTerminalStrongAccount)
 {
     HookContext hookCtx = {
         .applyCtx = applyCtx,
@@ -1062,6 +1071,9 @@ hook::apply(
              .hasCallback = hasCallback,
              .isCallback = isCallback,
              .isStrong = isStrong,
+             .isTerminalStrongHook = isTerminalStrongHook,
+             .isTerminalStrongAccount =
+                 isTerminalStrongHook || isTerminalStrongAccount,
              .wasmParam = wasmParam,
              .hookChainPosition = hookChainPosition,
              .foreignStateSetDisabled = false,
@@ -1492,6 +1504,7 @@ hook::finalizeHookResult(
     // directory) if we are allowed to
     std::vector<std::pair<uint256 /* txnid */, uint256 /* emit nonce */>>
         emission_txnid;
+    std::vector<uint256 /* txnid */> exported_txnid;
 
     if (doEmit)
     {
@@ -1516,8 +1529,12 @@ hook::finalizeHookResult(
                                               .getField(sfEmitDetails)
                                               .downcast<STObject>();
 
-                emission_txnid.emplace_back(
-                    id, emitDetails.getFieldH256(sfEmitNonce));
+                if (ptr->getTxnType() == ttEXPORT)
+                    exported_txnid.emplace_back(id);
+                else
+                    emission_txnid.emplace_back(
+                        id, emitDetails.getFieldH256(sfEmitNonce));
+
                 sleEmitted = std::make_shared<SLE>(emittedId);
 
                 // RH TODO: add a new constructor to STObject to avoid this
@@ -1526,7 +1543,8 @@ hook::finalizeHookResult(
                 ptr->add(s);
                 SerialIter sit(s.slice());
 
-                sleEmitted->emplace_back(ripple::STObject(sit, sfEmittedTxn));
+                sleEmitted->set(
+                    std::make_unique<ripple::STObject>(sit, sfEmittedTxn));
                 auto page = applyCtx.view().dirInsert(
                     keylet::emittedDir(), emittedId, [&](SLE::ref sle) {
                         (*sle)[sfFlags] = lsfEmittedDir;
@@ -1547,6 +1565,12 @@ hook::finalizeHookResult(
                 }
             }
         }
+
+        // Exported txns now flow through the emitted txn path above
+        // (xport() pushes a ttEXPORT wrapper onto emittedTxn).
+        // The export backlog cap is enforced after hook finalization by
+        // ApplyContext::checkExportEmissionLimit(), so strong and weak hook
+        // emissions use the same fee-only reset path.
     }
 
     // add a metadata entry for this hook execution result
@@ -1573,6 +1597,10 @@ hook::finalizeHookResult(
         meta.setFieldU16(
             sfHookEmitCount,
             emission_txnid.size());  // this will never wrap, hard limit
+        if (applyCtx.view().rules().enabled(featureExport))
+        {
+            meta.setFieldU16(sfHookExportCount, exported_txnid.size());
+        }
         meta.setFieldU16(sfHookExecutionIndex, exec_index);
         meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount);
         meta.setFieldH256(sfHookHash, hookResult.hookHash);
@@ -2889,6 +2917,42 @@ DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
     HOOK_TEARDOWN();
 }
 
+DEFINE_HOOK_FUNCTION(int64_t, xport_reserve, uint32_t count)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const result = api.xport_reserve(count);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    xport_cancel,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t flags)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+    if (read_len != uint256::bytes)
+        return INVALID_ARGUMENT;
+
+    auto const result =
+        api.xport_cancel(uint256::fromVoid(memory + read_ptr), flags);
+    if (!result)
+        return result.error();
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
 // Compute the burden of an emitted transaction based on a number of factors
 DEFINE_HOOK_FUNCTION(int64_t, etxn_burden)
 {
@@ -3952,6 +4016,337 @@ DEFINE_HOOK_FUNCTION(
         return result.error();
 
     return std::get<0>(result.value()) << 16U | std::get<1>(result.value());
+
+    HOOK_TEARDOWN();
+}
+
+//@@start xport-impl
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    xport,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t committee_hash_ptr,
+    uint32_t committee_hash_len,
+    uint64_t callback_fee_drops)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(committee_hash_ptr, committee_hash_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+    if (committee_hash_len != uint256::bytes)
+        return INVALID_ARGUMENT;
+
+    // Delegate to decoupled HookAPI for xport logic
+    ripple::Slice txBlob{
+        reinterpret_cast<const void*>(memory + read_ptr), read_len};
+
+    auto const res = api.xport(
+        txBlob,
+        uint256::fromVoid(memory + committee_hash_ptr),
+        callback_fee_drops);
+
+    if (!res)
+        return res.error();
+
+    auto const& wrapperTxHash = *res;
+
+    if (wrapperTxHash.size() > write_len)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, wrapperTxHash.size(), memory_length))
+        return OUT_OF_BOUNDS;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        wrapperTxHash.size(),
+        wrapperTxHash.data(),
+        wrapperTxHash.size(),
+        memory,
+        memory_length);
+    HOOK_TEARDOWN();
+}
+//@@end xport-impl
+
+inline bool
+invalidEntropyRequirement(uint32_t minTier)
+{
+    return minTier < entropyTierConsensusFallback ||
+        minTier > entropyTierValidatorFull;
+}
+
+inline bool
+invalidEntropyFlags(uint32_t flags)
+{
+    return flags &
+        ~(hook_api::ENTROPY_ALLOW_ANY_STRONG_VETO |
+          hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO);
+}
+
+inline bool
+hasDisallowedLaterStrongHook(hook::HookResult const& hr, uint32_t flags)
+{
+    if (!hr.isStrong || (flags & hook_api::ENTROPY_ALLOW_ANY_STRONG_VETO))
+        return false;
+    if (flags & hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO)
+        return !hr.isTerminalStrongAccount;
+    return !hr.isTerminalStrongHook;
+}
+
+struct EntropySnapshot
+{
+    std::shared_ptr<STTx const> input;
+    std::uint32_t age;
+    std::uint8_t tier;
+    std::uint16_t count;
+    std::uint16_t denominator;
+};
+
+inline std::variant<EntropySnapshot, hook_api::hook_return_code>
+readEntropySnapshot(ApplyView& view)
+{
+    auto input = view.consensusEntropy();
+    if (!input)
+        return hook_api::hook_return_code::DOESNT_EXIST;
+
+    if (input->getTxnType() != ttCONSENSUS_ENTROPY ||
+        !input->isFieldPresent(sfDigest) ||
+        !input->isFieldPresent(sfLedgerSequence) ||
+        !input->isFieldPresent(sfEntropyTier) ||
+        !input->isFieldPresent(sfEntropyCount) ||
+        !input->isFieldPresent(sfEntropyDenominator) ||
+        !input->isFieldPresent(sfEntropyContributors))
+        return hook_api::hook_return_code::INTERNAL_ERROR;
+
+    auto const seq = view.info().seq;
+    auto const entropySeq = input->getFieldU32(sfLedgerSequence);
+    if (entropySeq > seq)
+        return hook_api::hook_return_code::INTERNAL_ERROR;
+
+    return EntropySnapshot{
+        input,
+        seq - entropySeq,
+        input->getFieldU8(sfEntropyTier),
+        input->getFieldU16(sfEntropyCount),
+        input->getFieldU16(sfEntropyDenominator)};
+}
+
+// Callers normalize byteCount to a multiple of 32.
+// minTier is the CALLER'S stated class requirement (a required hook API
+// argument — there is deliberately no network-wide default). Count and
+// denominator policy is available separately through entropy_cr_status().
+inline std::vector<uint8_t>
+fairRng(
+    ApplyContext& applyCtx,
+    hook::HookResult& hr,
+    uint32_t byteCount,
+    uint32_t minTier,
+    uint32_t flags)
+{
+    if (byteCount > 512)
+        byteCount = 512;
+
+    // Preserve the caller's 32-byte block invariant defensively.
+    byteCount &= ~0b11111;
+
+    if (byteCount == 0)
+        return {};
+
+    auto& view = applyCtx.view();
+    auto snapshot = readEntropySnapshot(view);
+    if (!std::holds_alternative<EntropySnapshot>(snapshot))
+        return {};
+    auto const& entropy = std::get<EntropySnapshot>(snapshot);
+
+    // Open-ledger hook execution is provisional and can only see the previous
+    // ledger's finalized entropy. Final buildLCL execution sees the current
+    // ledger's entropy pseudo-tx after it installs the context. That
+    // open-vs-final skew is inherent to speculative execution; callers that
+    // need final entropy must treat open-ledger
+    // entropy_cr_dice/entropy_cr_random results as previews.
+    if (entropy.age > (view.open() ? 1u : 0u) || entropy.tier < minTier)
+        return {};
+
+    // we'll generate bytes in lots of 32
+
+    // Domain-separate by the execution role known AT DRAW TIME: hr.isStrong is
+    // set per pass (strong pre-apply vs weak/again-as-weak post-apply) and
+    // hr.isCallback distinguishes emitted-transaction callbacks from ordinary
+    // hook dispatch. The old executeAgainAsWeak flag is only set during the
+    // strong pass by hook_again and is false during the actual weak pass, so it
+    // mislabelled the weak draw "strong" and reused the strong-pass stream
+    // within one transaction.
+    uint256 rndData = sha512Half(
+        view.info().seq,
+        applyCtx.tx.getTransactionID(),
+        hr.otxnAccount,
+        hr.hookHash,
+        hr.account,
+        hr.hookChainPosition,
+        hr.isStrong ? std::string("strong") : std::string("weak"),
+        hr.isCallback ? std::string("callback") : std::string("direct"),
+        entropy.input->getFieldH256(sfDigest),
+        hr.rngCallCounter++);
+
+    std::vector<uint8_t> bytesOut;
+    bytesOut.resize(byteCount);
+
+    uint8_t* ptr = bytesOut.data();
+    while (1)
+    {
+        std::memcpy(ptr, rndData.data(), 32);
+        ptr += 32;
+
+        if (ptr - bytesOut.data() >= byteCount)
+            break;
+
+        rndData = sha512Half(rndData);
+    }
+
+    // A later broader call cannot clear either earlier guarded admission.
+    if (hr.isStrong && !(flags & hook_api::ENTROPY_ALLOW_ANY_STRONG_VETO))
+    {
+        if (flags & hook_api::ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO)
+            hr.hasAccountGuardedEntropyDraw = true;
+        else
+            hr.hasGuardedEntropyDraw = true;
+    }
+    return bytesOut;
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    entropy_cr_dice,
+    uint32_t sides,
+    uint32_t min_tier,
+    uint32_t flags)
+{
+    HOOK_SETUP();
+
+    if (sides == 0)
+        return INVALID_ARGUMENT;
+
+    if (invalidEntropyRequirement(min_tier))
+        return INVALID_ARGUMENT;
+
+    if (invalidEntropyFlags(flags))
+        return INVALID_ARGUMENT;
+
+    if (hasDisallowedLaterStrongHook(hookCtx.result, flags))
+        return LATER_STRONG_HOOK;
+
+    auto vec = fairRng(applyCtx, hookCtx.result, 32, min_tier, flags);
+
+    if (vec.empty())
+        return TOO_LITTLE_ENTROPY;
+
+    if (vec.size() != 32)
+        return INTERNAL_ERROR;
+
+    auto bytes = std::move(vec);
+    std::uint64_t const sampleRange =
+        std::uint64_t{std::numeric_limits<std::uint32_t>::max()} + 1;
+    std::uint64_t const acceptLimit = sampleRange - (sampleRange % sides);
+
+    for (;;)
+    {
+        for (std::size_t i = 0; i + sizeof(std::uint32_t) <= bytes.size();
+             i += sizeof(std::uint32_t))
+        {
+            auto const* candidate = bytes.data() + i;
+            std::uint32_t const value = (std::uint32_t{candidate[0]} << 24U) |
+                (std::uint32_t{candidate[1]} << 16U) |
+                (std::uint32_t{candidate[2]} << 8U) |
+                std::uint32_t{candidate[3]};
+            if (value < acceptLimit)
+                return value % sides;
+        }
+
+        // Rejection sampling removes modulo bias. If all 32-byte candidates are
+        // outside the largest fair multiple of sides, deterministically extend
+        // the draw instead of falling back to a biased residue.
+        auto const next = sha512Half(Slice(bytes.data(), bytes.size()));
+        bytes.resize(next.size());
+        std::memcpy(bytes.data(), next.data(), next.size());
+    }
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    entropy_cr_random,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t min_tier,
+    uint32_t flags)
+{
+    HOOK_SETUP();
+
+    if (write_len == 0)
+        return TOO_SMALL;
+
+    if (write_len > 512)
+        return TOO_BIG;
+
+    uint32_t required = write_len;
+
+    if ((required & ~0b11111) == required)
+    {
+        // already a multiple of 32 bytes
+    }
+    else
+    {
+        // round up
+        required &= ~0b11111;
+        required += 32;
+    }
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (invalidEntropyRequirement(min_tier))
+        return INVALID_ARGUMENT;
+
+    if (invalidEntropyFlags(flags))
+        return INVALID_ARGUMENT;
+
+    if (hasDisallowedLaterStrongHook(hookCtx.result, flags))
+        return LATER_STRONG_HOOK;
+
+    auto vec = fairRng(applyCtx, hookCtx.result, required, min_tier, flags);
+
+    if (vec.empty())
+        return TOO_LITTLE_ENTROPY;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, vec.data(), vec.size(), memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, entropy_cr_status)
+{
+    HOOK_SETUP();
+
+    auto snapshot = readEntropySnapshot(view);
+    if (std::holds_alternative<hook_api::hook_return_code>(snapshot))
+        return std::get<hook_api::hook_return_code>(snapshot);
+
+    auto const& entropy = std::get<EntropySnapshot>(snapshot);
+    return (std::uint64_t{entropy.tier} << 32U) |
+        (std::uint64_t{entropy.count} << 16U) | entropy.denominator;
 
     HOOK_TEARDOWN();
 }

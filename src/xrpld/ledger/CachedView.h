@@ -85,6 +85,12 @@ public:
         return base_.rules();
     }
 
+    std::shared_ptr<STTx const>
+    consensusEntropy() const override
+    {
+        return base_.consensusEntropy();
+    }
+
     std::optional<key_type>
     succ(
         key_type const& key,

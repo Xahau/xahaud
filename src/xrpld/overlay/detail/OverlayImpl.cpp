@@ -43,6 +43,16 @@
 
 namespace ripple {
 
+namespace {
+
+constexpr std::uint32_t
+protocolFeatureMask(ProtocolFeature feature)
+{
+    return std::uint32_t{1} << static_cast<unsigned>(feature);
+}
+
+}  // namespace
+
 namespace CrawlOptions {
 enum {
     Disabled = 0,
@@ -262,6 +272,12 @@ OverlayImpl::onHandoff(
             remote_endpoint.address(),
             app_);
 
+        if (auto const missing = missingRequiredProtocolFeatureInHandshake(
+                request, *negotiatedVersion))
+            throw std::runtime_error(
+                "Handshake missing required protocol feature " +
+                std::string(protocolFeatureName(*missing)));
+
         {
             // The node gets a reserved slot if it is in our cluster
             // or if it has a reservation.
@@ -462,6 +478,16 @@ OverlayImpl::add_active(std::shared_ptr<PeerImp> const& peer)
                                   TokenType::NodePublic, peer->getNodePublic())
                            << ")";
 
+    // Close the admission race where the requirement changes after the HTTP
+    // response was checked but before this peer is added to the active set.
+    if (auto const missing = missingRequiredProtocolFeature(*peer))
+    {
+        peer->fail(
+            "Missing required protocol feature " +
+            std::string(protocolFeatureName(*missing)));
+        return;
+    }
+
     // As we are not on the strand, run() must be called
     // while holding the lock, otherwise new I/O can be
     // queued after a call to stop().
@@ -595,9 +621,23 @@ OverlayImpl::onWrite(beast::PropertyStream::Map& stream)
     peer activation. At this point, the peer address and the public key
     are known.
 */
-void
+bool
 OverlayImpl::activate(std::shared_ptr<PeerImp> const& peer)
 {
+    // Close the admission race where the requirement changes after the HTTP
+    // request was checked but before an inbound peer enters the active set.
+    if (auto const missing = missingRequiredProtocolFeature(*peer))
+    {
+        JLOG(journal_.warn())
+            << "Rejected active peer missing required protocol feature "
+            << protocolFeatureName(*missing) << " from "
+            << peer->getRemoteAddress();
+        peer->fail(
+            "Missing required protocol feature " +
+            std::string(protocolFeatureName(*missing)));
+        return false;
+    }
+
     // Now track this peer
     {
         std::lock_guard lock(mutex_);
@@ -619,6 +659,7 @@ OverlayImpl::activate(std::shared_ptr<PeerImp> const& peer)
 
     // We just accepted this peer so we have non-zero active peers
     XRPL_ASSERT(size(), "ripple::OverlayImpl::activate : nonzero peers");
+    return true;
 }
 
 void
@@ -1129,10 +1170,50 @@ OverlayImpl::findPeerByPublicKey(PublicKey const& pubKey)
 }
 
 void
+OverlayImpl::requireProtocolFeature(ProtocolFeature feature)
+{
+    auto const mask = protocolFeatureMask(feature);
+    auto const previous =
+        requiredProtocolFeatures_.fetch_or(mask, std::memory_order_acq_rel);
+    if ((previous & mask) != 0)
+        return;
+
+    JLOG(journal_.warn()) << "Peer protocol feature now required: "
+                          << protocolFeatureName(feature);
+
+    for_each([feature](std::shared_ptr<PeerImp>&& peer) {
+        if (!peer->supportsFeature(feature))
+            peer->fail(
+                "Missing required protocol feature " +
+                std::string(protocolFeatureName(feature)));
+    });
+}
+
+bool
+OverlayImpl::isProtocolFeatureRequired(ProtocolFeature feature) const
+{
+    return (requiredProtocolFeatures_.load(std::memory_order_acquire) &
+            protocolFeatureMask(feature)) != 0;
+}
+
+std::optional<ProtocolFeature>
+OverlayImpl::missingRequiredProtocolFeature(Peer const& peer) const
+{
+    for (auto const feature : allProtocolFeatures)
+        if (isProtocolFeatureRequired(feature) &&
+            !peer.supportsFeature(feature))
+            return feature;
+    return std::nullopt;
+}
+
+void
 OverlayImpl::broadcast(protocol::TMProposeSet& m)
 {
     auto const sm = std::make_shared<Message>(m, protocol::mtPROPOSE_LEDGER);
-    for_each([&](std::shared_ptr<PeerImp>&& p) { p->send(sm); });
+    for_each([&](std::shared_ptr<PeerImp>&& p) {
+        if (!missingRequiredProtocolFeature(*p))
+            p->send(sm);
+    });
 }
 
 std::set<Peer::id_t>
@@ -1146,7 +1227,8 @@ OverlayImpl::relay(
         auto const sm =
             std::make_shared<Message>(m, protocol::mtPROPOSE_LEDGER, validator);
         for_each([&](std::shared_ptr<PeerImp>&& p) {
-            if (toSkip->find(p->id()) == toSkip->end())
+            if (toSkip->find(p->id()) == toSkip->end() &&
+                !missingRequiredProtocolFeature(*p))
                 p->send(sm);
         });
         return *toSkip;
@@ -1159,6 +1241,102 @@ OverlayImpl::broadcast(protocol::TMValidation& m)
 {
     auto const sm = std::make_shared<Message>(m, protocol::mtVALIDATION);
     for_each([sm](std::shared_ptr<PeerImp>&& p) { p->send(sm); });
+}
+
+void
+OverlayImpl::broadcast(protocol::TMExportShares& m)
+{
+    auto const shares = detail::parseExportShareBatch(m);
+    if (!shares)
+    {
+        JLOG(journal_.error())
+            << "Refusing to broadcast malformed ExportShare batch";
+        return;
+    }
+
+    // Local callers are responsible for application admission before using
+    // this API. Register raw-wire suppression before routing the batch.
+    for (auto const& share : *shares)
+        app_.getHashRouter().addSuppression(share.wireHash());
+
+    relay(m);
+}
+
+void
+OverlayImpl::relay(protocol::TMExportShares& m)
+{
+    auto const shares = detail::parseExportShareBatch(m);
+    if (!shares)
+    {
+        JLOG(journal_.error())
+            << "Refusing to relay malformed ExportShare batch";
+        return;
+    }
+
+    using Route = std::pair<std::size_t, std::set<Peer::id_t>>;
+    std::vector<Route> routes;
+    routes.reserve(shares->size());
+    for (std::size_t i = 0; i < shares->size(); ++i)
+    {
+        if (auto const toSkip =
+                app_.getHashRouter().shouldRelay((*shares)[i].wireHash()))
+            routes.emplace_back(i, std::move(*toSkip));
+    }
+
+    if (routes.empty())
+        return;
+
+    for_each([&](std::shared_ptr<PeerImp>&& peer) {
+        protocol::TMExportShares outbound;
+        outbound.mutable_shares()->Reserve(routes.size());
+        for (auto const& [index, toSkip] : routes)
+        {
+            if (!toSkip.contains(peer->id()))
+                outbound.add_shares(m.shares(index));
+        }
+
+        if (outbound.shares_size() != 0 &&
+            !missingRequiredProtocolFeature(*peer))
+            peer->send(
+                std::make_shared<Message>(outbound, protocol::mtEXPORT_SHARES));
+    });
+}
+
+void
+OverlayImpl::setExportShareHandler(ExportShareHandler handler)
+{
+    std::lock_guard lock(exportShareHandlerLock_);
+    exportShareHandler_ = std::move(handler);
+}
+
+ExportShareAdmission
+OverlayImpl::acceptExportShare(
+    ExportShare const& share,
+    ExportShareChargeHandler deferredCharge)
+{
+    ExportShareHandler handler;
+    {
+        std::lock_guard lock(exportShareHandlerLock_);
+        handler = exportShareHandler_;
+    }
+
+    if (!handler)
+        return {ExportShareDisposition::deferred, ExportShareCharge::none};
+
+    try
+    {
+        return handler(share, std::move(deferredCharge));
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(journal_.error())
+            << "ExportShare admission callback failed: " << e.what();
+    }
+    catch (...)
+    {
+        JLOG(journal_.error()) << "ExportShare admission callback failed";
+    }
+    return {ExportShareDisposition::deferred, ExportShareCharge::none};
 }
 
 std::set<Peer::id_t>

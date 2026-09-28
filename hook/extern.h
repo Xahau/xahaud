@@ -339,6 +339,67 @@ prepare(
     uint32_t read_ptr,
     uint32_t read_len);
 
+extern int64_t
+xport_reserve(uint32_t count);
+
+// callback_fee_drops: 0 omits third-party delivery permission; otherwise the
+// exact Import fee authorized by the emitted Export intent, in native drops.
+extern int64_t
+xport(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t committee_hash_ptr,
+    uint32_t committee_hash_len,
+    uint64_t callback_fee_drops);
+
+extern int64_t
+xport_cancel(uint32_t read_ptr, uint32_t read_len, uint32_t flags);
+
+/*
+    Consensus entropy APIs.
+
+    min_tier is a required fail-closed floor:
+      1 = consensus_fallback, 2 = participant_aligned,
+      3 = validator_quorum, 4 = validator_full.
+
+    entropy_cr_status returns a packed non-negative value:
+      bits 32..39 tier, 16..31 count, 0..15 denominator.
+    Check for a negative error before using the ENTROPY_* macros.
+
+    Classify tier before count/denominator arithmetic: fallback is tier 1
+    with count=denominator=0. Common policies are denominator-count <= 1,
+    5*count >= 4*denominator (use widened arithmetic), or count >= floor.
+
+    In strong execution, flags=0 requires the last eligible strong Hook.
+    Otherwise: LATER_STRONG_HOOK before drawing or changing output.
+    ENTROPY_ALLOW_SAME_ACCOUNT_STRONG_VETO permits later strong Hooks
+    only on the installed account of the drawing Hook.
+    ENTROPY_ALLOW_ANY_STRONG_VETO permits them on any account, including
+    the same account. Both bits mean ANY; unknown bits are invalid.
+    Allowed Hooks retain their ordinary veto authority. An opt-in must
+    account for downstream code and whoever can replace it.
+
+    Draws return TOO_LITTLE_ENTROPY if the visible input is missing,
+    stale, or below min_tier, independently of composition flags.
+    Closed execution requires current-ledger input; open-ledger and
+    simulate execution can use previous-ledger input and are provisional
+    previews. Final ordered execution may see different entropy.
+*/
+extern int64_t
+entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
+
+extern int64_t
+entropy_cr_random(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t min_tier,
+    uint32_t flags);
+
+extern int64_t
+entropy_cr_status(void);
+
 #ifdef __cplusplus
 }
 #endif

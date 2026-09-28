@@ -113,6 +113,9 @@ public:
     {
         XRPL_ASSERT(
             map_, "ripple::RCLTxSet::MutableTxSet::RCLTxSet : non-null input");
+        XRPL_ASSERT(
+            map_->mapType() == SHAMapType::TRANSACTION,
+            "ripple::RCLTxSet::MutableTxSet::RCLTxSet : transaction map input");
     }
 
     /** Constructor from a previously created MutableTxSet
