@@ -868,14 +868,22 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         std::unique_ptr<STTx const> stpTrans =
             std::make_unique<STTx const>(std::ref(sitTrans));
 
-        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
-            return Transactor::calculateBaseFee(
-                       *(applyCtx.app.openLedger().current()), *stpTrans)
-                .drops();
+        // fix20261001: the minimum fee decides whether emit() accepts the
+        // txn, which is consensus-visible. Compute it against the view being
+        // applied, not the node-local open ledger (whose hook definitions can
+        // differ between nodes).
+        std::shared_ptr<ReadView const> hold;
+        ReadView const* feeView = &applyCtx.view();
+        if (!applyCtx.view().rules().enabled(fix20261001))
+        {
+            hold = applyCtx.app.openLedger().current();
+            feeView = hold.get();
+        }
 
-        return invoke_calculateBaseFee(
-                   *(applyCtx.app.openLedger().current()), *stpTrans)
-            .drops();
+        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
+            return Transactor::calculateBaseFee(*feeView, *stpTrans).drops();
+
+        return invoke_calculateBaseFee(*feeView, *stpTrans).drops();
     }
     catch (std::exception const& e)
     {
