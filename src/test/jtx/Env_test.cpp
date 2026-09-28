@@ -924,6 +924,27 @@ public:
         std::this_thread::sleep_for(4s);
         auto const response = env.client().invoke("server_info", {});
         BEAST_EXPECT(response[jss::result][jss::status] == "success");
+        // The server kept the connection; the client did not replace it.
+        BEAST_EXPECT(env.client().reconnects() == 0);
+    }
+
+    void
+    testJSONRPCClientSlowFirstRequest()
+    {
+        testcase("JSON-RPC first request survives slow test setup");
+        using namespace std::chrono_literals;
+        using namespace jtx;
+
+        Env env{*this};
+
+        // The client connects when the Env is built, and the server closes a
+        // loopback connection whose first request takes longer than three
+        // seconds to arrive. Test setup can take that long on a loaded
+        // machine; the client replaces the closed connection.
+        std::this_thread::sleep_for(4s);
+        auto const response = env.client().invoke("server_info", {});
+        BEAST_EXPECT(response[jss::result][jss::status] == "success");
+        BEAST_EXPECT(env.client().reconnects() == 1);
     }
 
     void
@@ -954,6 +975,7 @@ public:
         testFeatures(all);
         testExceptionalShutdown();
         testJSONRPCClientKeepAlive();
+        testJSONRPCClientSlowFirstRequest();
     }
 };
 
