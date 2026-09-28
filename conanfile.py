@@ -55,6 +55,7 @@ class Xrpl(ConanFile):
         "xrpld": False,
         "with_wasmedge": True,
         "tool_requires_b2": False,
+        "boost/*:without_cobalt": True,
         "date/*:header_only": False,
         "grpc/*:shared": False,
         "grpc/*:secure": True,
@@ -109,8 +110,6 @@ class Xrpl(ConanFile):
     def configure(self):
         if self.settings.compiler == "apple-clang":
             self.options["boost/*"].visibility = "global"
-        if self.settings.compiler in ["clang", "gcc"]:
-            self.options["boost/*"].without_cobalt = True
 
     def requirements(self):
         # Force sqlite3 version to avoid conflicts with soci
