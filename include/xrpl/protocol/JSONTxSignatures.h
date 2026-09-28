@@ -152,7 +152,9 @@ jsontx_strict(std::string_view raw);
 
 // The canonical form of `raw` alone: whitespace stripped, field names in
 // their Xahau spelling, members ordered by field code, numbers formatted per
-// field type. Throws on anything it cannot canonicalize.
+// field type, and - at the root only - an omitted Sequence written as
+// "Sequence":0 when the document has a Time or a TicketSequence. Throws on
+// anything it cannot canonicalize.
 std::string
 jsontx_canonical(std::string_view raw);
 

@@ -712,6 +712,75 @@ class JSONTxSignatures_test : public beast::unit_test::suite
     }
 
     void
+    testImpliedSequence()
+    {
+        testcase("omitted Sequence with a Time or TicketSequence");
+
+        std::string const t = "\"2026-09-28T00:00:00.000Z\"";
+
+        // implied as 0, and always present in the canonical form
+        BEAST_EXPECT(
+            canon("{\"Account\":\"rA\",\"Time\":" + t + "}") ==
+            "{\"Sequence\":0,\"Time\":" + t + ",\"Account\":\"rA\"}");
+        BEAST_EXPECT(
+            canon(R"({"Account":"rA","TicketSequence":5})") ==
+            R"({"Sequence":0,"TicketSequence":5,"Account":"rA"})");
+        // the trigger matches case-insensitively, like every field name
+        BEAST_EXPECT(
+            canon("{\"account\":\"rA\",\"TIME\":" + t + "}") ==
+            "{\"Sequence\":0,\"Time\":" + t + ",\"Account\":\"rA\"}");
+        BEAST_EXPECT(
+            canon(R"({"ticketsequence":5})") ==
+            R"({"Sequence":0,"TicketSequence":5})");
+
+        // the two spellings are one canonical form; each round-trips to its
+        // own text, through its own delta
+        std::string const omitted =
+            "{\n  \"Account\": \"rA\",\n  \"Time\": " + t + "\n}";
+        std::string const spelled =
+            "{\n  \"Account\": \"rA\",\n  \"Sequence\": 0,\n  \"Time\": " + t +
+            "\n}";
+        BEAST_EXPECT(canon(omitted) == canon(spelled));
+        BEAST_EXPECT(canon(canon(omitted)) == canon(omitted));
+        BEAST_EXPECT(roundTrips(omitted));
+        BEAST_EXPECT(roundTrips(spelled));
+        BEAST_EXPECT(
+            sanitize_jsontx(omitted).second != sanitize_jsontx(spelled).second);
+
+        // a Sequence that is there is never touched - including a lowercase
+        // one, which would otherwise surface as a duplicate
+        BEAST_EXPECT(
+            canon("{\"Sequence\":7,\"Time\":" + t + "}") ==
+            "{\"Sequence\":7,\"Time\":" + t + "}");
+        BEAST_EXPECT(
+            canon("{\"sequence\":7,\"Time\":" + t + "}") ==
+            "{\"Sequence\":7,\"Time\":" + t + "}");
+        BEAST_EXPECT(
+            canon("{\"Sequence\":0,\"Time\":" + t + "}") ==
+            "{\"Sequence\":0,\"Time\":" + t + "}");
+
+        // with neither, nothing is implied; the submit RPC refuses it
+        BEAST_EXPECT(canon(R"({"Account":"rA"})") == R"({"Account":"rA"})");
+        BEAST_EXPECT(canon(R"({"Fee":"10"})") == R"({"Fee":"10"})");
+
+        // the root only: an inner object is never given one
+        BEAST_EXPECT(
+            canon(
+                R"({"Sequence":1,"Memos":[{"Memo":{"TicketSequence":1}}]})") ==
+            R"({"Sequence":1,"Memos":[{"Memo":{"TicketSequence":1}}]})");
+        BEAST_EXPECT(
+            canon(
+                "{\"Sequence\":1,\"Memos\":[{\"Memo\":{\"Time\":" + t +
+                "}}]}") ==
+            "{\"Sequence\":1,\"Memos\":[{\"Memo\":{\"Time\":" + t + "}}]}");
+
+        // a malformed Time still fails as itself, not as a sequence problem
+        BEAST_EXPECT(why([] {
+                         (void)jsontx_canonical(R"({"Time":"yesterday"})");
+                     }).find("Time") != std::string::npos);
+    }
+
+    void
     testEncoderPinned()
     {
         testcase("encoder output is pinned");
@@ -1028,6 +1097,34 @@ class JSONTxSignatures_test : public beast::unit_test::suite
                 *stx, [&](STObject& o) { o.setFieldVL(sfTxnSignature, s); });
             BEAST_EXPECT(t.getTransactionID() != stx->getTransactionID());
             BEAST_EXPECT(bad(t));
+        }
+
+        // The same payment with Sequence left out. It signs, submits and
+        // verifies as itself; both spellings describe one transaction, but a
+        // signature over one never authorises the other.
+        {
+            std::string omitted = raw;
+            auto const line = std::string("  \"Sequence\": 0,\n");
+            omitted.erase(omitted.find(line), line.size());
+            BEAST_EXPECT(omitted.find("Sequence") == std::string::npos);
+
+            auto const otx = buildJsonTx(omitted, jsonSign(pk, sk, omitted));
+            BEAST_EXPECT(jsontx_verify(*otx) == omitted);
+            BEAST_EXPECT(otx->getFieldU32(sfSequence) == 0);
+            BEAST_EXPECT(otx->isTimeSequenced());
+            BEAST_EXPECT(otx->getSigningHash() == stx->getSigningHash());
+            BEAST_EXPECT(otx->getTransactionID() != stx->getTransactionID());
+
+            // omitted text's signature with the spelled text's delta
+            BEAST_EXPECT(bad(mutate(*otx, [&](STObject& o) {
+                o.setFieldVL(
+                    sfJsonTxDelta, makeSlice(sanitize_jsontx(raw).second));
+            })));
+            // and the reverse
+            BEAST_EXPECT(bad(mutate(*stx, [&](STObject& o) {
+                o.setFieldVL(
+                    sfJsonTxDelta, makeSlice(sanitize_jsontx(omitted).second));
+            })));
         }
 
         // no delta at all
@@ -1394,6 +1491,7 @@ public:
         testNumbers();
         testFieldLookup();
         testBounds();
+        testImpliedSequence();
         testEncoderPinned();
         testPaths();
         testVerify();

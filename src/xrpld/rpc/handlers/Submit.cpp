@@ -255,6 +255,17 @@ doSubmit(RPC::JsonContext& context)
             if (!jv.isMember(sfSigningPubKey.fieldName))
                 throw std::runtime_error("JsonTx: tx must carry SigningPubKey");
 
+            // The canonical form already wrote an omitted Sequence as 0 if
+            // the document has a Time or a TicketSequence, so an absent one
+            // here means it has neither. Say so, rather than let the template
+            // check report a missing field. And there is deliberately no
+            // autofill: the account's next sequence is ledger state, and the
+            // signer's text has to determine the transaction by itself.
+            if (!jv.isMember(sfSequence.fieldName))
+                throw std::runtime_error(
+                    "JsonTx: no Sequence: add a Time, a TicketSequence, or a "
+                    "Sequence");
+
             // Hand the parser the u64 rather than teaching STUInt64 a second
             // spelling; the ISO form only ever exists in the preimage.
             std::optional<std::uint64_t> ms;

@@ -79,7 +79,7 @@ struct JsonTx_test : public beast::unit_test::suite
         jtx::Account const& from,
         jtx::Account const& to,
         std::string const& amount,
-        std::uint32_t seq,
+        std::optional<std::uint32_t> seq,
         std::optional<std::uint64_t> time,
         std::string const& extra = "")
     {
@@ -88,7 +88,8 @@ struct JsonTx_test : public beast::unit_test::suite
         s += "  \"Destination\": \"" + to.human() + "\",\n";
         s += "  \"Amount\": " + amount + ",\n";
         s += "  \"Fee\": \"12\",\n";
-        s += "  \"Sequence\": " + std::to_string(seq) + ",\n";
+        if (seq)
+            s += "  \"Sequence\": " + std::to_string(*seq) + ",\n";
         if (time)
             s += "  \"Time\": \"" + jsontx_iso_str(*time) + "\",\n";
         s += extra;
@@ -347,6 +348,38 @@ struct JsonTx_test : public beast::unit_test::suite
             env.close();
         }
 
+        // With a Time, Sequence can be left out altogether: it is 0.
+        {
+            auto const before = env.seq(alice);
+            auto const t = nowMs(env);
+            auto const x = paymentText(alice, bob, "\"1\"", std::nullopt, t);
+            BEAST_EXPECT(x.find("Sequence") == std::string::npos);
+            auto const r = submitJson(env, x, jsonSign(alice, x));
+            BEAST_EXPECT(engine(r) == "tesSUCCESS");
+            BEAST_EXPECT(r[jss::tx_json][jss::Sequence] == 0);
+            env.close();
+            BEAST_EXPECT(env.seq(alice) == before);
+            BEAST_EXPECT(lastTxnTime(env, alice) == t);
+        }
+
+        // So it can with a TicketSequence, which needs Sequence 0 too.
+        {
+            std::uint32_t const tkt = env.seq(alice) + 1;
+            env(ticket::create(alice, 1));
+            env.close();
+            auto const x = paymentText(
+                alice,
+                bob,
+                "\"1\"",
+                std::nullopt,
+                std::nullopt,
+                "  \"TicketSequence\": " + std::to_string(tkt) + ",\n");
+            BEAST_EXPECT(
+                engine(submitJson(env, x, jsonSign(alice, x))) == "tesSUCCESS");
+            env.close();
+            BEAST_EXPECT(!env.le(keylet::ticket(alice, tkt)));
+        }
+
         // binary-signed transactions may use sfTime too
         {
             auto const t = nowMs(env);
@@ -470,6 +503,15 @@ struct JsonTx_test : public beast::unit_test::suite
                 "  \"TxnSignature\": \"00\",\n");
             BEAST_EXPECT(failsWith(
                 submitJson(env, t, jsonSign(alice, t)), "must not appear"));
+        }
+
+        // No Sequence and nothing else to sequence it: refused up front with a
+        // clear reason rather than a template error, and never autofilled
+        {
+            auto const t =
+                paymentText(alice, bob, "\"1\"", std::nullopt, std::nullopt);
+            BEAST_EXPECT(failsWith(
+                submitJson(env, t, jsonSign(alice, t)), "no Sequence"));
         }
 
         // the key must be in the preimage

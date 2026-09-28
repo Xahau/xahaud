@@ -360,7 +360,7 @@ require(Node const& v, Node::Kind k, std::string const& what)
 }
 
 void
-emitFields(Node const& n, std::string& o);
+emitFields(Node const& n, std::string& o, bool root = false);
 
 // A string or a number, where the ledger wants a string: numbers become the
 // quoted spelling of their exact digits.
@@ -512,17 +512,47 @@ emitField(SField const& f, Node const& v, std::string& o)
 }
 
 void
-emitFields(Node const& n, std::string& o)
+emitFields(Node const& n, std::string& o, bool root)
 {
-    std::vector<std::pair<SField const*, std::size_t>> ks;
-    ks.reserve(n.keys.size());
+    std::vector<std::pair<SField const*, Node const*>> ks;
+    ks.reserve(n.keys.size() + 1);
     for (std::size_t i = 0; i < n.keys.size(); ++i)
     {
         auto const& f = jsontx_field(n.keys[i]);
         if (f == sfInvalid)
             fail("unknown field '" + n.keys[i] + "'");
-        ks.emplace_back(&f, i);
+        ks.emplace_back(&f, &n.items[i]);
     }
+
+    // An omitted Sequence is Sequence 0 when something else sequences the
+    // transaction: a Time (time-sequenced) or a TicketSequence. Both need
+    // Sequence 0, and neither can mean anything else by it. The canonical
+    // form always carries the field, because the node's own rendering does:
+    // getJson emits every required field. Written this way the two spellings
+    // of such a preimage - with and without "Sequence": 0 - canonicalize to
+    // the same bytes, and the delta simply skips the ones the signer left
+    // out.
+    //
+    // Only a constant may be implied here, never anything read from the
+    // ledger such as the account's next sequence: the transaction must be a
+    // pure function of the preimage, or the binding check means nothing.
+    //
+    // With neither field, nothing is implied: an absent Sequence is left
+    // absent, and the submit RPC refuses the document for want of one.
+    if (root)
+    {
+        auto const has = [&ks](SField const& f) {
+            return std::any_of(ks.begin(), ks.end(), [&f](auto const& k) {
+                return *k.first == f;
+            });
+        };
+        if (!has(sfSequence) && (has(sfTime) || has(sfTicketSequence)))
+        {
+            static Node const zero{Node::Kind::number, "0", {}, {}};
+            ks.emplace_back(&sfSequence, &zero);
+        }
+    }
+
     // field codes are unique, so this order is total
     std::sort(ks.begin(), ks.end(), [](auto const& a, auto const& b) {
         return a.first->fieldCode < b.first->fieldCode;
@@ -531,14 +561,14 @@ emitFields(Node const& n, std::string& o)
     o += '{';
     for (std::size_t j = 0; j < ks.size(); ++j)
     {
-        auto const& [f, i] = ks[j];
+        auto const& [f, v] = ks[j];
         if (j && f == ks[j - 1].first)  // e.g. "Fee" and "fee"
             fail("duplicate field '" + f->fieldName + "'");
         if (o.back() != '{')
             o += ',';
         quoted(o, f->fieldName);
         o += ':';
-        emitField(*f, n.items[i], o);
+        emitField(*f, *v, o);
     }
     o += '}';
 }
@@ -547,7 +577,7 @@ std::string
 canonical(Node const& root)
 {
     std::string out;
-    emitFields(root, out);
+    emitFields(root, out, true);
     // Usually far smaller than the input, but a bare number in a field the
     // ledger wants as a string gains two quote characters, so a document of
     // bare amounts can grow past the cap. unsanitize_jsontx refuses a
