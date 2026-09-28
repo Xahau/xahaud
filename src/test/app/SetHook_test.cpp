@@ -12499,12 +12499,11 @@ public:
             {
                 for (bool const withSType : {true, false})
                 {
-                    auto feats =
-                        features - fixHookAPI20251128 - fixHookAPISType;
+                    auto feats = features - fixHookAPI20251128 - fix20261001;
                     if (with20251128)
                         feats = feats | fixHookAPI20251128;
                     if (withSType)
-                        feats = feats | fixHookAPISType;
+                        feats = feats | fix20261001;
 
                     Env env{*this, feats};
                     env.fund(XRP(10000), alice, bob);
