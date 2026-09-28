@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#ifndef RIPPLE_PROTOCOL_UTF8_H_INCLUDED
-#define RIPPLE_PROTOCOL_UTF8_H_INCLUDED
+#ifndef RIPPLE_BASICS_UTF8_H_INCLUDED
+#define RIPPLE_BASICS_UTF8_H_INCLUDED
 
 #include <xrpl/basics/Slice.h>
 

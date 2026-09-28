@@ -4000,7 +4000,7 @@ public:
              sfBaseAsset.getCode(),
              "011A0000000000000000000000005553440000000000"},
         };
-        if (env.closed()->rules().enabled(fixHookAPISType))
+        if (env.closed()->rules().enabled(fix20261001))
         {
             // encodings the legacy parser measures incorrectly
             data_list.insert(
@@ -4019,7 +4019,7 @@ public:
                      "00000"},
                 });
         }
-        bool const fixEnabled = env.closed()->rules().enabled(fixHookAPISType);
+        bool const fixEnabled = env.closed()->rules().enabled(fix20261001);
         for (auto const& data : data_list)
         {
             auto source_object = _source_object;
@@ -4120,7 +4120,7 @@ public:
             // should be "F9EA7D02BEEFE1F1" {Memos:[{Memo:{MemoData:"BEEF"}}]}
             auto const invalid_end_marker = *strUnHex("F9EA7D02BEEFE100");
             auto const result = api.sto_subarray(invalid_end_marker, 0);
-            if (env.closed()->rules().enabled(fixHookAPISType))
+            if (env.closed()->rules().enabled(fix20261001))
             {
                 BEAST_EXPECT(!result.has_value());
                 BEAST_EXPECT(result.error() == PARSE_ERROR);
@@ -4136,7 +4136,7 @@ public:
             // truncated.
             auto const invalid_tail = *strUnHex("F9EA7D02BEEFE1EA7D02BEEFF1");
             auto const result = api.sto_subarray(invalid_tail, 0);
-            if (env.closed()->rules().enabled(fixHookAPISType))
+            if (env.closed()->rules().enabled(fix20261001))
             {
                 BEAST_EXPECT(!result.has_value());
                 BEAST_EXPECT(result.error() == PARSE_ERROR);
@@ -4210,7 +4210,7 @@ public:
             auto const invalid_tail = Blob{data.begin(), data.end() - 1};
             auto const result =
                 api.sto_subfield(invalid_tail, sfSequence.getCode());
-            if (env.closed()->rules().enabled(fixHookAPISType))
+            if (env.closed()->rules().enabled(fix20261001))
             {
                 BEAST_EXPECT(!result.has_value());
                 BEAST_EXPECT(result.error() == PARSE_ERROR);
@@ -4783,12 +4783,12 @@ public:
         test_state_set(features);
 
         test_sto_emplace(features);
-        test_sto_emplace(features - fixHookAPISType);
+        test_sto_emplace(features - fix20261001);
         // test_sto_erase(features); // tested in test_sto_emplace
         test_sto_subarray(features);
-        test_sto_subarray(features - fixHookAPISType);
+        test_sto_subarray(features - fix20261001);
         test_sto_subfield(features);
-        test_sto_subfield(features - fixHookAPISType);
+        test_sto_subfield(features - fix20261001);
         test_sto_validate(features);
 
         test_trace(features);
