@@ -36,7 +36,6 @@
 
 XRPL_FIX    (20261001,                   Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (HookNameValidation,         Supported::yes, VoteBehavior::DefaultYes)
-XRPL_FIX    (HookAPISType,               Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(HookOnV2_1,                 Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(OnChainManifests,           Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (HookMap,                    Supported::yes, VoteBehavior::DefaultYes)
