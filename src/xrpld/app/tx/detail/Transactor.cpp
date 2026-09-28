@@ -140,25 +140,26 @@ preflight1(PreflightContext const& ctx)
         if (ctx.tx.getTxnType() == ttIMPORT ||
             ctx.tx.getTxnType() == ttMANIFEST_SET)
             return temMALFORMED;
-
-        if (ctx.tx.isTimeSequenced())
-        {
-            switch (ctx.tx.getTxnType())
-            {
-                // Each of these keys a new ledger object by the raw
-                // transaction sequence rather than through seqID(). Every
-                // time-sequenced transaction has Sequence 0, so a second one
-                // from the same account would reuse the first one's object
-                // id - and an insert over an existing key is a LogicError,
-                // which would take down every node applying the ledger.
-                case ttMPTOKEN_ISSUANCE_CREATE:
-                case ttPERMISSIONED_DOMAIN_SET:
-                    return temBAD_SEQUENCE;
-                default:
-                    break;
-            }
-        }
     }
+
+    // MPTokenIssuanceCreate and PermissionedDomainSet key the object they
+    // create by the raw sequence value, (sequence, account). Every other
+    // creator goes through seqID(), which falls back to the transaction id
+    // when the SeqProxy is sequence(0) - an emitted or a time-sequenced
+    // transaction - but these two ids are fixed formats with no room for one.
+    // Two such transactions from one account would name the same object,
+    // and inserting over an existing key is a LogicError on every node that
+    // builds the ledger. So they need a real Sequence or a Ticket.
+    //
+    // Time-sequenced transactions are new with featureJsonTx and refused
+    // unconditionally. Refusing the emitted case changes existing behaviour,
+    // so it waits for fix20261001. (Neither feature is supported yet, so
+    // neither case is reachable on a live network today.)
+    if ((ctx.tx.getTxnType() == ttMPTOKEN_ISSUANCE_CREATE ||
+         ctx.tx.getTxnType() == ttPERMISSIONED_DOMAIN_SET) &&
+        ctx.tx.getSeqProxy() == SeqProxy::sequence(0) &&
+        (ctx.tx.isTimeSequenced() || ctx.rules.enabled(fix20261001)))
+        return temBAD_SEQUENCE;
 
     auto const ret = preflight0(ctx);
     if (!isTesSuccess(ret))

@@ -20,6 +20,7 @@
 #include <test/jtx.h>
 #include <test/jtx/TestHelpers.h>
 #include <test/jtx/acctdelete.h>
+#include <test/jtx/permissioned_domains.h>
 #include <test/jtx/ticket.h>
 #include <test/jtx/token.h>
 #include <xrpld/app/ledger/LocalTxs.h>
@@ -890,6 +891,16 @@ struct JsonTx_test : public beast::unit_test::suite
             env(withTime(jv, now));
         }
 
+        // the same for a permissioned domain, keyed (account, sequence) too
+        {
+            Account const issuer{"issuer"};
+            env.fund(XRP(1000), issuer);
+            env.close();
+            auto const jv = pdomain::setTx(
+                alice.id(), pdomain::Credentials{{issuer, "abcd"}});
+            env(withTime(jv, nowMs(env)), seq(0), ter(temBAD_SEQUENCE));
+        }
+
         // Sequence 0 already means something else for these
         auto const pinned = [&](TxType type) {
             return std::make_shared<STTx const>(type, [&](STObject& o) {
@@ -961,6 +972,146 @@ struct JsonTx_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 applyDirect(env, std::make_shared<STTx const>(tx)) ==
                 temMALFORMED);
+        }
+    }
+
+    void
+    testSequenceKeyedObjects(FeatureBitset features)
+    {
+        testcase("objects keyed by sequence: time, emitted and tickets");
+        using namespace jtx;
+
+        auto const all = features | featureMPTokensV1 |
+            featurePermissionedDomains | featureCredentials;
+
+        // Everything created through seqID() is keyed by transaction id when
+        // the SeqProxy is sequence(0), so two in one ledger never collide.
+        {
+            Env env{*this, all};
+            Account const alice{"alice", KeyType::ed25519};
+            Account const bob{"bob"};
+            env.fund(XRP(100000), alice, bob);
+            env.close();
+            auto const t = nowMs(env);
+
+            // payment channels
+            auto const chan = [&](std::uint64_t at) {
+                Json::Value jv;
+                jv[jss::TransactionType] = jss::PaymentChannelCreate;
+                jv[jss::Account] = alice.human();
+                jv[jss::Destination] = bob.human();
+                jv[jss::Amount] = XRP(10).value().getJson(JsonOptions::none);
+                jv[sfSettleDelay.jsonName] = 100;
+                jv[sfPublicKey.jsonName] = strHex(alice.pk().slice());
+                return env.jt(withTime(jv, at), seq(0));
+            };
+            auto const c1 = chan(t), c2 = chan(t + 1);
+            BEAST_EXPECT(engine(submitBlob(env, stx(c1))) == "tesSUCCESS");
+            BEAST_EXPECT(engine(submitBlob(env, stx(c2))) == "tesSUCCESS");
+            env.close();
+            BEAST_EXPECT(env.le(keylet::payChan(
+                alice.id(), bob.id(), stx(c1).getTransactionID())));
+            BEAST_EXPECT(env.le(keylet::payChan(
+                alice.id(), bob.id(), stx(c2).getTransactionID())));
+            BEAST_EXPECT(!env.le(keylet::payChan(alice.id(), bob.id(), 0u)));
+
+            // NFToken offers
+            auto const nft = token::getNextID(env, alice, 0, tfTransferable);
+            env(token::mint(alice, 0), txflags(tfTransferable));
+            env.close();
+            auto const o1 = env.jt(
+                withTime(token::createOffer(alice, nft, XRP(1)), t + 2),
+                seq(0),
+                txflags(tfSellNFToken));
+            auto const o2 = env.jt(
+                withTime(token::createOffer(alice, nft, XRP(2)), t + 3),
+                seq(0),
+                txflags(tfSellNFToken));
+            BEAST_EXPECT(engine(submitBlob(env, stx(o1))) == "tesSUCCESS");
+            BEAST_EXPECT(engine(submitBlob(env, stx(o2))) == "tesSUCCESS");
+            env.close();
+            BEAST_EXPECT(env.le(
+                keylet::nftoffer(alice.id(), stx(o1).getTransactionID())));
+            BEAST_EXPECT(env.le(
+                keylet::nftoffer(alice.id(), stx(o2).getTransactionID())));
+        }
+
+        // The two raw-sequence creators refuse an emitted transaction under
+        // fix20261001. Before it the emitted-transaction path is reached as
+        // it always was (and refuses this one for not coming out of the
+        // emission directory).
+        {
+            auto const emitted = [](AccountID const& a, TxType type) {
+                return std::make_shared<STTx const>(type, [&](STObject& o) {
+                    o.setAccountID(sfAccount, a);
+                    o.setFieldU32(sfSequence, 0);
+                    o.setFieldAmount(sfFee, XRP(1));
+                    o.setFieldVL(sfSigningPubKey, Blob{});
+                    o.makeFieldPresent(sfEmitDetails);
+                });
+            };
+            for (auto const type :
+                 {ttMPTOKEN_ISSUANCE_CREATE, ttPERMISSIONED_DOMAIN_SET})
+            {
+                {
+                    Env env{*this, all};
+                    Account const alice{"alice"};
+                    env.fund(XRP(10000), alice);
+                    env.close();
+                    BEAST_EXPECT(
+                        applyDirect(env, emitted(alice.id(), type)) ==
+                        temBAD_SEQUENCE);
+                }
+                {
+                    Env env{*this, all - fix20261001};
+                    Account const alice{"alice"};
+                    env.fund(XRP(10000), alice);
+                    env.close();
+                    BEAST_EXPECT(
+                        applyDirect(env, emitted(alice.id(), type)) ==
+                        telNON_LOCAL_EMITTED_TXN);
+                }
+            }
+        }
+
+        // Tickets. MPTokenIssuanceCreate always took the Ticket number;
+        // PermissionedDomainSet took the raw Sequence - 0 for every ticketed
+        // transaction - until fix20261001. (The unfixed path is not run
+        // here: its second domain collides with the first, which is a
+        // LogicError when the ledger is built.)
+        {
+            Env env{*this, all};
+            Account const alice{"alice"};
+            Account const issuer{"issuer"};
+            env.fund(XRP(100000), alice, issuer);
+            env.close();
+
+            std::uint32_t const first = env.seq(alice) + 1;
+            env(ticket::create(alice, 4));
+            env.close();
+
+            Json::Value mpt;
+            mpt[jss::TransactionType] = "MPTokenIssuanceCreate";
+            mpt[jss::Account] = alice.human();
+            env(mpt, ticket::use(first));
+            env(mpt, ticket::use(first + 1));
+            env.close();
+            BEAST_EXPECT(env.le(keylet::mptIssuance(first, alice.id())));
+            BEAST_EXPECT(env.le(keylet::mptIssuance(first + 1, alice.id())));
+
+            auto const pd = pdomain::setTx(
+                alice.id(), pdomain::Credentials{{issuer, "abcd"}});
+            env(pd, ticket::use(first + 2));
+            env(pd, ticket::use(first + 3));
+            env.close();
+            for (auto const tkt : {first + 2, first + 3})
+            {
+                auto const sle =
+                    env.le(keylet::permissionedDomain(alice.id(), tkt));
+                if (BEAST_EXPECT(sle))
+                    BEAST_EXPECT(sle->getFieldU32(sfSequence) == tkt);
+            }
+            BEAST_EXPECT(!env.le(keylet::permissionedDomain(alice.id(), 0)));
         }
     }
 
@@ -1160,6 +1311,7 @@ struct JsonTx_test : public beast::unit_test::suite
         testSequencing(all);
         testObjectIds(all);
         testDenied(all);
+        testSequenceKeyedObjects(all);
         testAccountDelete(all);
         testQueue(all);
         testCanonicalOrder();
