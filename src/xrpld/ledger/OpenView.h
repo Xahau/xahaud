@@ -46,6 +46,21 @@ struct open_ledger_t
 
 extern open_ledger_t const open_ledger;
 
+/** Closed nested view construction tag.
+
+    A view constructed with this tag sits on top of another OpenView
+    and is always treated as a closed ledger, regardless of the base.
+    It is used to apply an atomically emitted hook transaction
+    (emit_atomic) together with its parent, so that the whole group can
+    be committed or discarded as a unit. See Transactor::operator().
+*/
+struct closed_view_t
+{
+    explicit closed_view_t() = default;
+};
+
+extern closed_view_t const closed_view;
+
 //------------------------------------------------------------------------------
 
 /** Writable ledger view that accumulates state and tx changes.
@@ -97,6 +112,12 @@ private:
     detail::RawStateTable items_;
     std::shared_ptr<void const> hold_;
     bool open_ = true;
+
+    // closed_view only: number of transactions already in the base chain
+    // (so TransactionIndex continues from the base) and the base OpenView
+    // for txExists() delegation. Zero / nullptr for every other view.
+    std::size_t baseTxCount_ = 0;
+    OpenView const* baseTxs_ = nullptr;
 
 public:
     OpenView() = delete;
@@ -170,6 +191,23 @@ public:
     */
     OpenView(ReadView const* base, std::shared_ptr<void const> hold = nullptr);
 
+    /** Construct a sandbox view on top of another OpenView.
+
+        Effects:
+
+            The LedgerInfo and rules are copied from the base
+            (the sequence is NOT incremented).
+
+            The view always reports closed (open() == false), even
+            when the base is an open ledger, so that transactions
+            applied into it see consensus-side semantics.
+
+            txCount() continues from the base so that metadata
+            TransactionIndex values stay contiguous, and txExists()
+            also consults the base.
+    */
+    OpenView(closed_view_t, OpenView const& base);
+
     /** Returns true if this reflects an open ledger. */
     bool
     open() const override
@@ -188,6 +226,17 @@ public:
     /** Apply changes. */
     void
     apply(TxsRawView& to) const;
+
+    /** Apply state changes only (no transactions).
+
+        Also forwards the XRP destroyed in this view
+        (RawStateTable::apply calls to.rawDestroyXRP).
+        Used when committing a closed_view into an open ledger,
+        whose transaction list must not receive the inner
+        transactions.
+    */
+    void
+    applyState(RawView& to) const;
 
     // ReadView
 

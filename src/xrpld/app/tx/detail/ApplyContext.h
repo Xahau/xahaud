@@ -50,10 +50,23 @@ public:
     XRPAmount const baseFee;
     beast::Journal const journal;
 
+    /** Number of emit_atomic emissions accepted so far for this
+        transaction, across every hook execution. Lives here (not on the
+        ApplyViewImpl) so it survives discard()/reset(); it is never
+        decremented, even when a hook later rolls back. */
+    std::uint32_t atomicEmitCount = 0;
+
     ApplyView&
     view()
     {
         return *view_;
+    }
+
+    /** The view this transaction is being applied to. */
+    OpenView&
+    base()
+    {
+        return base_;
     }
 
     ApplyView const&
@@ -88,6 +101,11 @@ public:
 
     /** Apply the transaction result to the base. */
     std::optional<TxMeta> apply(TER);
+
+    /** Apply to an arbitrary view (emit_atomic sandbox); applied for real
+        even on a dry run so the inners see the parent's state. */
+    std::optional<TxMeta>
+    apply(TER, OpenView& to);
 
     /** Get the number of unapplied changes. */
     std::size_t

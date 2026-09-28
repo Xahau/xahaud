@@ -329,6 +329,72 @@ class View_test : public beast::unit_test::suite
         BEAST_EXPECT(!v0.exists(k(4)));
     }
 
+    // OpenView closed_view constructor (emit_atomic sandbox)
+    void
+    testClosedView()
+    {
+        testcase("Closed nested view");
+
+        using namespace jtx;
+        Env env(*this);
+        auto const open = env.current();
+
+        auto const txn = std::make_shared<Serializer>();
+        txn->add32(1);
+
+        // existing constructors are unchanged: txCount() counts only the
+        // view's own transactions and txExists() does not consult the base
+        OpenView base(&*open);
+        BEAST_EXPECT(base.open());
+        BEAST_EXPECT(base.txCount() == 0);
+        base.rawTxInsert(uint256(1), txn, nullptr);
+        BEAST_EXPECT(base.txCount() == 1);
+        BEAST_EXPECT(base.txExists(uint256(1)));
+        {
+            OpenView plain(&base);
+            BEAST_EXPECT(plain.txCount() == 0);
+            BEAST_EXPECT(!plain.txExists(uint256(1)));
+            OpenView copy(base);
+            BEAST_EXPECT(copy.txCount() == 1);
+        }
+
+        // closed view: always closed, same sequence, contiguous txCount,
+        // txExists delegated to the base (one level)
+        OpenView sandbox(closed_view, base);
+        BEAST_EXPECT(!sandbox.open());
+        BEAST_EXPECT(sandbox.seq() == base.seq());
+        BEAST_EXPECT(sandbox.info().parentHash == base.info().parentHash);
+        BEAST_EXPECT(sandbox.txCount() == 1);
+        BEAST_EXPECT(sandbox.txExists(uint256(1)));
+        BEAST_EXPECT(!sandbox.txExists(uint256(2)));
+        sandbox.rawTxInsert(uint256(2), txn, txn);
+        BEAST_EXPECT(sandbox.txCount() == 2);
+        BEAST_EXPECT(base.txCount() == 1);
+        {
+            OpenView copy(sandbox);
+            BEAST_EXPECT(!copy.open());
+            BEAST_EXPECT(copy.txCount() == 2);
+            BEAST_EXPECT(copy.txExists(uint256(1)));
+        }
+
+        // applyState propagates state (and destroyed drops) but no txns
+        sandbox.rawInsert(sle(7, 7));
+        sandbox.rawDestroyXRP(XRPAmount{5});
+        sandbox.applyState(base);
+        BEAST_EXPECT(base.exists(k(7)));
+        BEAST_EXPECT(!base.txExists(uint256(2)));
+        BEAST_EXPECT(base.txCount() == 1);
+
+        // apply propagates both
+        OpenView sandbox2(closed_view, base);
+        sandbox2.rawTxInsert(uint256(3), txn, txn);
+        sandbox2.rawInsert(sle(8, 8));
+        sandbox2.apply(base);
+        BEAST_EXPECT(base.exists(k(8)));
+        BEAST_EXPECT(base.txExists(uint256(3)));
+        BEAST_EXPECT(base.txCount() == 2);
+    }
+
     // Verify contextual information
     void
     testContext()
@@ -1098,6 +1164,7 @@ class View_test : public beast::unit_test::suite
         testMeta();
         testMetaSucc();
         testStacked();
+        testClosedView();
         testContext();
         testSles();
         testUpperAndLowerBound();

@@ -17,6 +17,7 @@
 #define featureHooksUpdate2 "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
+#define featureAtomicEmit "1"
 namespace hook_api {
 struct Rules
 {
@@ -399,6 +400,9 @@ const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
 const uint8_t max_nonce = 255;
 const uint8_t max_emit = 255;
+// maximum number of atomically emitted txns (emit_atomic) per outer
+// transaction, across all hook executions.
+const uint8_t max_atomic_emit = 8;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 

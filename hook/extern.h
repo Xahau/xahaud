@@ -339,6 +339,20 @@ prepare(
     uint32_t read_ptr,
     uint32_t read_len);
 
+extern int64_t
+emit_atomic(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+
+extern int64_t
+prepare_atomic(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+
 #ifdef __cplusplus
 }
 #endif
