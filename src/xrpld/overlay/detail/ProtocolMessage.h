@@ -330,6 +330,8 @@ invoke(MessageHeader const& header, Buffers const& buffers, Handler& handler)
     @param handler The handler that will be used to process the message
     @param hint If possible, a hint as to the amount of data to read next. The
                 returned value MAY be zero, which means "no hint"
+    @param enforceManifestFrameLimit Reject oversized manifest frames at the
+                header; otherwise consume and discard legacy cache dumps.
 
     @return The number of bytes consumed, or the error code if any.
 */
@@ -338,7 +340,8 @@ std::pair<std::size_t, boost::system::error_code>
 invokeProtocolMessage(
     Buffers const& buffers,
     Handler& handler,
-    std::size_t& hint)
+    std::size_t& hint,
+    bool enforceManifestFrameLimit)
 {
     std::pair<std::size_t, boost::system::error_code> result = {0, {}};
 

@@ -384,9 +384,11 @@ public:
     }
 
     void
-    testManifestFrameLimit()
+    testManifestFrameLimit(bool enforceManifestFrameLimit)
     {
-        testcase("manifest frame limits and legacy discard alignment");
+        testcase(
+            enforceManifestFrameLimit ? "strict manifest frame limits"
+                                      : "legacy manifest discard alignment");
         struct Handler
         {
             bool
@@ -435,7 +437,8 @@ public:
             auto const result = invokeProtocolMessage(
                 boost::asio::buffer(header.data(), header.size()),
                 handler,
-                hint);
+                hint,
+                enforceManifestFrameLimit);
             BEAST_EXPECT(result.first == 0);
             BEAST_EXPECT(
                 result.second ==
@@ -444,6 +447,8 @@ public:
             BEAST_EXPECT(handler.received == 0);
             if (!reject)
                 BEAST_EXPECT(hint == wire);
+            else
+                BEAST_EXPECT(hint == 0);
         };
         check(maxManifestMessageSize, maxManifestMessageSize, false, false);
         check(maxManifestMessageSize + 1, 0, false, enforceManifestFrameLimit);
@@ -465,21 +470,28 @@ public:
         Message packet{*msg, protocol::mtMANIFESTS};
         auto const& bytes = packet.getBuffer(Compressed::Off);
         std::size_t hint = 0;
-        auto const result =
-            invokeProtocolMessage(boost::asio::buffer(bytes), handler, hint);
+        auto const result = invokeProtocolMessage(
+            boost::asio::buffer(bytes),
+            handler,
+            hint,
+            enforceManifestFrameLimit);
         BEAST_EXPECT(!result.second);
         BEAST_EXPECT(result.first == bytes.size());
         BEAST_EXPECT(handler.received == 1);
         std::vector<std::uint8_t> coalesced(bytes.begin(), bytes.end());
         coalesced.insert(coalesced.end(), bytes.begin(), bytes.end());
         auto first = invokeProtocolMessage(
-            boost::asio::buffer(coalesced), handler, hint);
+            boost::asio::buffer(coalesced),
+            handler,
+            hint,
+            enforceManifestFrameLimit);
         BEAST_EXPECT(!first.second && first.first == bytes.size());
         auto second = invokeProtocolMessage(
             boost::asio::buffer(
                 coalesced.data() + first.first, coalesced.size() - first.first),
             handler,
-            hint);
+            hint,
+            enforceManifestFrameLimit);
         BEAST_EXPECT(!second.second && second.first == bytes.size());
         BEAST_EXPECT(handler.received == 3);
 
@@ -499,7 +511,10 @@ public:
             frame.addRaw(bytes.data(), bytes.size());
             int const received = handler.received;
             auto discarded = invokeProtocolMessage(
-                boost::asio::buffer(frame.data(), frame.size()), handler, hint);
+                boost::asio::buffer(frame.data(), frame.size()),
+                handler,
+                hint,
+                enforceManifestFrameLimit);
             BEAST_EXPECT(handler.received == received);
             if (enforceManifestFrameLimit)
             {
@@ -518,7 +533,8 @@ public:
                             discarded.first,
                         frame.size() - discarded.first),
                     handler,
-                    hint);
+                    hint,
+                    enforceManifestFrameLimit);
                 BEAST_EXPECT(!next.second && next.first == bytes.size());
                 BEAST_EXPECT(handler.received == received + 1);
             }
@@ -689,7 +705,8 @@ class manifest_frame_test : public compression_test
     void
     run() override
     {
-        testManifestFrameLimit();
+        for (bool const strict : {false, true})
+            testManifestFrameLimit(strict);
     }
 };
 

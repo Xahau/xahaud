@@ -37,6 +37,7 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -905,6 +906,12 @@ PeerImp::onReadMessage(error_code ec, std::size_t bytes_transferred)
 
     auto hint = Tuning::readBufferBytes;
 
+    // Coordinate strict rejection through amendment activation, not the peer's
+    // advertised version. Before activation, discard oversized legacy dumps
+    // without disconnecting; afterward reject at the header, before buffering.
+    bool const enforceManifestFrameLimit =
+        app_.getLedgerMaster().getValidatedRules().enabled(fix20261001);
+
     while (read_buffer_.size() > 0)
     {
         std::size_t bytes_consumed;
@@ -912,7 +919,11 @@ PeerImp::onReadMessage(error_code ec, std::size_t bytes_transferred)
         using namespace std::chrono_literals;
         std::tie(bytes_consumed, ec) = perf::measureDurationAndLog(
             [&]() {
-                return invokeProtocolMessage(read_buffer_.data(), *this, hint);
+                return invokeProtocolMessage(
+                    read_buffer_.data(),
+                    *this,
+                    hint,
+                    enforceManifestFrameLimit);
             },
             "invokeProtocolMessage",
             350ms,
