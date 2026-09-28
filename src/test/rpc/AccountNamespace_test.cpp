@@ -41,13 +41,8 @@ public:
         env.fund(XRP(1000), alice, bob);
         env.close();
 
-        auto const ns = uint256::fromVoid(
-            (std::array<uint8_t, 32>{
-                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
-                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
-                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU,
-                 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU, 0xCAU, 0xFEU})
-                .data());
+        uint256 constexpr ns(
+            "cafecafecafecafecafecafecafecafecafecafecafecafecafecafecafecafe");
 
         {
             // account_namespace with no account.

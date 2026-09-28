@@ -20,6 +20,7 @@
 
 #include <xrpl/beast/utility/instrumentation.h>
 #include <atomic>
+#include <concepts>
 #include <limits>
 #include <type_traits>
 
@@ -30,6 +31,7 @@
 namespace ripple {
 
 namespace detail {
+
 /** Inform the processor that we are in a tight spin-wait loop.
 
     Spinlocks caught in tight loops can result in the processor's pipeline
@@ -52,11 +54,132 @@ spin_pause() noexcept
 
 }  // namespace detail
 
-/** @{ */
-/** Classes to handle arrays of spinlocks packed into a single atomic integer:
+//------------------------------------------------------------------------------
 
-    Packed spinlocks allow for tremendously space-efficient lock-sharding
-    but they come at a cost.
+/** Attempt to acquire a spinlock without blocking.
+
+    @tparam T An unsigned integral type.
+    @param lock The atomic variable used as the lock.
+    @return true if the lock was acquired, false if it was already held.
+ */
+template <typename T>
+    requires(std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
+[[nodiscard]] bool
+spin_try_lock(std::atomic<T>& lock) noexcept
+{
+    T expected = 0;
+
+    return lock.compare_exchange_strong(
+        expected,
+        std::numeric_limits<T>::max(),
+        std::memory_order::acquire,
+        std::memory_order::relaxed);
+}
+
+/** Acquire a spinlock, blocking until available.
+
+    Uses a TTAS (test-and-test-and-set) pattern to reduce cache coherency
+    traffic during contention.
+
+    @tparam T An unsigned integral type.
+    @param lock The atomic variable used as the lock.
+ */
+template <typename T>
+    requires(std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
+void
+spin_lock(std::atomic<T>& lock) noexcept
+{
+    T expected = 0;
+
+    while (!lock.compare_exchange_weak(
+        expected,
+        std::numeric_limits<T>::max(),
+        std::memory_order::acquire,
+        std::memory_order::relaxed))
+    {
+        expected = 0;
+
+        while (lock.load(std::memory_order::relaxed) != 0)
+            detail::spin_pause();
+    }
+}
+
+/** Release a spinlock.
+
+    @tparam T An unsigned integral type.
+    @param lock The atomic variable used as the lock.
+ */
+template <typename T>
+    requires(std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
+void
+spin_unlock(std::atomic<T>& lock) noexcept
+{
+    lock.store(0, std::memory_order::release);
+}
+
+//------------------------------------------------------------------------------
+
+/** A Lockable interface to a spinlock implemented on top of an atomic.
+
+    @tparam T An unsigned integral type.
+
+    @note Using `packed_spinlock` and `spinlock` against the same underlying
+          atomic integer can result in `spinlock` not being able to actually
+          acquire the lock during periods of high contention, because of how
+          the two locks operate: `spinlock` will spin trying to grab all the
+          bits at once, whereas any given `packed_spinlock` will only try to
+          grab one bit at a time. Caveat emptor.
+
+    This class meets the requirements of Lockable:
+        https://en.cppreference.com/w/cpp/named_req/Lockable
+ */
+template <typename T>
+    requires(std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free)
+class spinlock
+{
+    std::atomic<T>& lock_;
+
+public:
+    spinlock(spinlock const&) = delete;
+    spinlock&
+    operator=(spinlock const&) = delete;
+
+    /** Construct a spinlock handle.
+
+        @param lock The atomic integer to spin against.
+
+        @note For performance reasons, you should strive to have `lock` be
+              on a cacheline by itself.
+     */
+    explicit spinlock(std::atomic<T>& lock) noexcept : lock_(lock)
+    {
+    }
+
+    [[nodiscard]] bool
+    try_lock() noexcept
+    {
+        return spin_try_lock(lock_);
+    }
+
+    void
+    lock() noexcept
+    {
+        spin_lock(lock_);
+    }
+
+    void
+    unlock() noexcept
+    {
+        spin_unlock(lock_);
+    }
+};
+
+//------------------------------------------------------------------------------
+
+/** A Lockable interface to a packed spinlock implemented on top of an atomic.
+
+    Packed spinlocks offer tremendous space-efficient lock-sharding but
+    they come at a cost.
 
     First, the implementation is necessarily low-level and uses advanced
     features like memory ordering and highly platform-specific tricks to
@@ -78,26 +201,19 @@ spin_pause() noexcept
     that it can, usually, outperform spinlocks.
 
     @tparam T An unsigned integral type (e.g. std::uint16_t)
- */
-
-/** A class that grabs a single packed spinlock from an atomic integer.
 
     This class meets the requirements of Lockable:
         https://en.cppreference.com/w/cpp/named_req/Lockable
  */
-template <class T>
+template <typename T>
+    requires(
+        std::is_unsigned_v<T> && std::atomic<T>::is_always_lock_free &&
+        requires(std::atomic<T>& a, T v) {
+            { a.fetch_or(v) } -> std::same_as<T>;
+            { a.fetch_and(v) } -> std::same_as<T>;
+        })
 class packed_spinlock
 {
-    // clang-format off
-    static_assert(std::is_unsigned_v<T>);
-    static_assert(std::atomic<T>::is_always_lock_free);
-    static_assert(
-        std::is_same_v<decltype(std::declval<std::atomic<T>&>().fetch_or(0)), T> &&
-        std::is_same_v<decltype(std::declval<std::atomic<T>&>().fetch_and(0)), T>,
-        "std::atomic<T>::fetch_and(T) and std::atomic<T>::fetch_and(T) are required by packed_spinlock");
-    // clang-format on
-
-private:
     std::atomic<T>& bits_;
     T const mask_;
 
@@ -106,7 +222,7 @@ public:
     packed_spinlock&
     operator=(packed_spinlock const&) = delete;
 
-    /** A single spinlock packed inside the specified atomic
+    /** Construct a packed spinlock handle for a single bit.
 
         @param lock The atomic integer inside which the spinlock is packed.
         @param index The index of the spinlock this object acquires.
@@ -114,7 +230,7 @@ public:
         @note For performance reasons, you should strive to have `lock` be
               on a cacheline by itself.
      */
-    packed_spinlock(std::atomic<T>& lock, int index)
+    packed_spinlock(std::atomic<T>& lock, int index) noexcept
         : bits_(lock), mask_(static_cast<T>(1) << index)
     {
         XRPL_ASSERT(
@@ -123,13 +239,13 @@ public:
     }
 
     [[nodiscard]] bool
-    try_lock()
+    try_lock() noexcept
     {
-        return (bits_.fetch_or(mask_, std::memory_order_acquire) & mask_) == 0;
+        return (bits_.fetch_or(mask_, std::memory_order::acquire) & mask_) == 0;
     }
 
     void
-    lock()
+    lock() noexcept
     {
         while (!try_lock())
         {
@@ -137,88 +253,17 @@ public:
             // serves to help reduce cache coherency traffic during times
             // of contention by avoiding writes that would definitely not
             // result in the lock being acquired.
-            while ((bits_.load(std::memory_order_relaxed) & mask_) != 0)
+            while ((bits_.load(std::memory_order::relaxed) & mask_) != 0)
                 detail::spin_pause();
         }
     }
 
     void
-    unlock()
+    unlock() noexcept
     {
-        bits_.fetch_and(~mask_, std::memory_order_release);
+        bits_.fetch_and(~mask_, std::memory_order::release);
     }
 };
-
-/** A spinlock implemented on top of an atomic integer.
-
-    @note Using `packed_spinlock` and `spinlock` against the same underlying
-          atomic integer can result in `spinlock` not being able to actually
-          acquire the lock during periods of high contention, because of how
-          the two locks operate: `spinlock` will spin trying to grab all the
-          bits at once, whereas any given `packed_spinlock` will only try to
-          grab one bit at a time. Caveat emptor.
-
-    This class meets the requirements of Lockable:
-        https://en.cppreference.com/w/cpp/named_req/Lockable
- */
-template <class T>
-class spinlock
-{
-    static_assert(std::is_unsigned_v<T>);
-    static_assert(std::atomic<T>::is_always_lock_free);
-
-private:
-    std::atomic<T>& lock_;
-
-public:
-    spinlock(spinlock const&) = delete;
-    spinlock&
-    operator=(spinlock const&) = delete;
-
-    /** Grabs the
-
-        @param lock The atomic integer to spin against.
-
-        @note For performance reasons, you should strive to have `lock` be
-              on a cacheline by itself.
-     */
-    spinlock(std::atomic<T>& lock) : lock_(lock)
-    {
-    }
-
-    [[nodiscard]] bool
-    try_lock()
-    {
-        T expected = 0;
-
-        return lock_.compare_exchange_weak(
-            expected,
-            std::numeric_limits<T>::max(),
-            std::memory_order_acquire,
-            std::memory_order_relaxed);
-    }
-
-    void
-    lock()
-    {
-        while (!try_lock())
-        {
-            // The use of relaxed memory ordering here is intentional and
-            // serves to help reduce cache coherency traffic during times
-            // of contention by avoiding writes that would definitely not
-            // result in the lock being acquired.
-            while (lock_.load(std::memory_order_relaxed) != 0)
-                detail::spin_pause();
-        }
-    }
-
-    void
-    unlock()
-    {
-        lock_.store(0, std::memory_order_release);
-    }
-};
-/** @} */
 
 }  // namespace ripple
 

@@ -25,13 +25,16 @@
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/jss.h>
+
 #include <boost/asio/ip/host_name.hpp>
+
 #include <condition_variable>
 #include <cstdint>
 #include <fstream>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
@@ -108,12 +111,14 @@ class PerfLogImp : public PerfLog
         // keys and values are created before more threads are started.
         std::unordered_map<std::string, Locked<Rpc>> rpc_;
         std::unordered_map<JobType, Locked<Jq>> jq_;
-        std::vector<std::pair<JobType, steady_time_point>> jobs_;
+        std::vector<std::optional<std::pair<std::string, steady_time_point>>>
+            jobs_;
         mutable std::mutex jobsMutex_;
         std::unordered_map<std::uint64_t, MethodStart> methods_;
         mutable std::mutex methodsMutex_;
 
-        Counters(std::set<char const*> const& labels, JobTypes const& jobTypes);
+        Counters(std::vector<std::string_view> labels);
+
         Json::Value
         countersJson() const;
         Json::Value
@@ -124,7 +129,7 @@ class PerfLogImp : public PerfLog
     Application& app_;
     beast::Journal const j_;
     std::function<void()> const signalStop_;
-    Counters counters_{ripple::RPC::getHandlerNames(), JobTypes::instance()};
+    Counters counters_;
     std::ofstream logFile_;
     std::thread thread_;
     std::mutex mutex_;

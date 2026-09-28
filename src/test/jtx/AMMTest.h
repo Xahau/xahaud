@@ -93,8 +93,7 @@ protected:
         std::optional<std::pair<STAmount, STAmount>> const& pool = std::nullopt,
         std::uint16_t tfee = 0,
         std::optional<jtx::ter> const& ter = std::nullopt,
-        std::vector<FeatureBitset> const& features = {
-            supported_amendments() | featureAMM | featureAMMClawback});
+        std::vector<FeatureBitset> const& features = {supported_amendments()});
 
     void
     testAMM(

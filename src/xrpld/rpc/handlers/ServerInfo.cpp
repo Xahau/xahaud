@@ -48,7 +48,7 @@ doServerInfo(RPC::JsonContext& context)
         context.params.isMember(jss::counters) &&
             context.params[jss::counters].asBool());
 
-    ret[jss::native_currency_code] = systemCurrencyCode();
+    ret[jss::native_currency_code] = systemCurrencyCode;
 
     return ret;
 }

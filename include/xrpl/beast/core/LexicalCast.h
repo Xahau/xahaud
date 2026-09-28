@@ -20,187 +20,161 @@
 #ifndef BEAST_MODULE_CORE_TEXT_LEXICALCAST_H_INCLUDED
 #define BEAST_MODULE_CORE_TEXT_LEXICALCAST_H_INCLUDED
 
-#include <xrpl/beast/utility/instrumentation.h>
+#include <xrpl/beast/type_name.h>
 
+#include <boost/beast/core/string_type.hpp>
 #include <boost/core/detail/string_view.hpp>
+#include <boost/utility/string_view.hpp>
+
 #include <algorithm>
-#include <cerrno>
+#include <array>
 #include <charconv>
-#include <cstdlib>
 #include <iterator>
 #include <limits>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <typeinfo>
-#include <utility>
 
 namespace beast {
-
-namespace detail {
-
-// These specializatons get called by the non-member functions to do the work
-template <class Out, class In>
-struct LexicalCast;
-
-// conversion to std::string
-template <class In>
-struct LexicalCast<std::string, In>
-{
-    explicit LexicalCast() = default;
-
-    template <class Arithmetic = In>
-    std::enable_if_t<std::is_arithmetic_v<Arithmetic>, bool>
-    operator()(std::string& out, Arithmetic in)
-    {
-        out = std::to_string(in);
-        return true;
-    }
-
-    template <class Enumeration = In>
-    std::enable_if_t<std::is_enum_v<Enumeration>, bool>
-    operator()(std::string& out, Enumeration in)
-    {
-        out = std::to_string(
-            static_cast<std::underlying_type_t<Enumeration>>(in));
-        return true;
-    }
-};
-
-// Parse a std::string_view into a number
-template <typename Out>
-struct LexicalCast<Out, std::string_view>
-{
-    explicit LexicalCast() = default;
-
-    static_assert(
-        std::is_integral_v<Out>,
-        "beast::LexicalCast can only be used with integral types");
-
-    template <class Integral = Out>
-    std::enable_if_t<
-        std::is_integral_v<Integral> && !std::is_same_v<Integral, bool>,
-        bool>
-    operator()(Integral& out, std::string_view in) const
-    {
-        auto first = in.data();
-        auto last = in.data() + in.size();
-
-        if (first != last && *first == '+')
-            ++first;
-
-        auto ret = std::from_chars(first, last, out);
-
-        return ret.ec == std::errc() && ret.ptr == last;
-    }
-
-    bool
-    operator()(bool& out, std::string_view in) const
-    {
-        std::string result;
-
-        // Convert the input to lowercase
-        std::transform(
-            in.begin(), in.end(), std::back_inserter(result), [](auto c) {
-                return std::tolower(static_cast<unsigned char>(c));
-            });
-
-        if (result == "1" || result == "true")
-        {
-            out = true;
-            return true;
-        }
-
-        if (result == "0" || result == "false")
-        {
-            out = false;
-            return true;
-        }
-
-        return false;
-    }
-};
-//------------------------------------------------------------------------------
-
-// Parse boost library's string_view to number or boolean value
-// Note: As of Jan 2024, Boost contains three different types of string_view
-// (boost::core::basic_string_view<char>, boost::string_ref and
-// boost::string_view). The below template specialization is included because
-// it is used in the handshake.cpp file
-template <class Out>
-struct LexicalCast<Out, boost::core::basic_string_view<char>>
-{
-    explicit LexicalCast() = default;
-
-    bool
-    operator()(Out& out, boost::core::basic_string_view<char> in) const
-    {
-        return LexicalCast<Out, std::string_view>()(out, in);
-    }
-};
-
-// Parse std::string to number or boolean value
-template <class Out>
-struct LexicalCast<Out, std::string>
-{
-    explicit LexicalCast() = default;
-
-    bool
-    operator()(Out& out, std::string in) const
-    {
-        return LexicalCast<Out, std::string_view>()(out, in);
-    }
-};
-
-// Conversion from null terminated char const*
-template <class Out>
-struct LexicalCast<Out, char const*>
-{
-    explicit LexicalCast() = default;
-
-    bool
-    operator()(Out& out, char const* in) const
-    {
-        XRPL_ASSERT(
-            in, "beast::detail::LexicalCast(char const*) : non-null input");
-        return LexicalCast<Out, std::string_view>()(out, in);
-    }
-};
-
-// Conversion from null terminated char*
-// The string is not modified.
-template <class Out>
-struct LexicalCast<Out, char*>
-{
-    explicit LexicalCast() = default;
-
-    bool
-    operator()(Out& out, char* in) const
-    {
-        XRPL_ASSERT(in, "beast::detail::LexicalCast(char*) : non-null input");
-        return LexicalCast<Out, std::string_view>()(out, in);
-    }
-};
-
-}  // namespace detail
-
-//------------------------------------------------------------------------------
 
 /** Thrown when a conversion is not possible with LexicalCast.
     Only used in the throw variants of lexicalCast.
 */
-struct BadLexicalCast : public std::bad_cast
+struct BadLexicalCast : std::bad_cast
 {
-    explicit BadLexicalCast() = default;
+private:
+    std::string msg;
+
+public:
+    explicit BadLexicalCast(std::string m = {}) : msg(std::bad_cast::what())
+    {
+        if (!m.empty())
+            msg += ": " + m;
+    }
+
+    [[nodiscard]] char const*
+    what() const noexcept override
+    {
+        return msg.c_str();
+    }
 };
 
-/** Intelligently convert from one type to another.
+//------------------------------------------------------------------------------
+
+/** Convert from std::string_view to integral type.
     @return `false` if there was a parsing or range error
 */
-template <class Out, class In>
-bool
-lexicalCastChecked(Out& out, In in)
+template <class Out>
+    requires std::is_integral_v<Out> && (!std::is_same_v<Out, bool>)
+[[nodiscard]] bool
+lexicalCastChecked(Out& out, std::string_view in) noexcept
 {
-    return detail::LexicalCast<Out, In>()(out, in);
+    if (in.empty())
+        return false;
+
+    if (in.front() == '+')
+    {
+        in.remove_prefix(1);
+
+        if (in.empty() || in.front() == '-')
+            return false;
+    }
+
+    auto [ptr, ec] = std::from_chars(in.data(), in.data() + in.size(), out);
+
+    return ec == std::errc{} && ptr == in.data() + in.size();
+}
+
+/** Convert from std::string_view to bool.
+    @return `false` if there was a parsing error
+*/
+[[nodiscard]] inline bool
+lexicalCastChecked(bool& out, std::string_view in) noexcept
+{
+    auto iequals = [](std::string_view a, std::string_view b) {
+        return std::equal(
+            a.begin(), a.end(), b.begin(), b.end(), [](char ca, char cb) {
+                // We avoid std::tolower because it is locale-dependent. It
+                // would be really nice if C++ added support for std::ascii
+                // as outlined in P3688.
+                if (ca >= 'A' && ca <= 'Z')
+                    ca = ca + ('a' - 'A');
+
+                if (cb >= 'A' && ca <= 'Z')
+                    cb = cb + ('a' - 'A');
+
+                return ca == cb;
+            });
+    };
+
+    if (in == "1" || iequals(in, "true"))
+    {
+        out = true;
+        return true;
+    }
+
+    if (in == "0" || iequals(in, "false"))
+    {
+        out = false;
+        return true;
+    }
+
+    return false;
+}
+
+/** Convert from integral type to std::string.
+    @return `false` if there was a conversion error
+*/
+template <class In>
+    requires std::is_integral_v<In>
+[[nodiscard]] bool
+lexicalCastChecked(std::string& out, In in) noexcept
+{
+    std::array<char, std::numeric_limits<In>::digits10 + 3> buf;
+
+    auto [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), in);
+
+    if (ec != std::errc{})
+        return false;
+
+    out.assign(buf.data(), ptr);
+    return true;
+}
+
+/** Convert from enum type to std::string.
+    @return `false` if there was a conversion error
+*/
+template <class In>
+    requires std::is_enum_v<In>
+[[nodiscard]] bool
+lexicalCastChecked(std::string& out, In in) noexcept
+{
+    return lexicalCastChecked(out, static_cast<std::underlying_type_t<In>>(in));
+}
+
+/** Convert from Boost string_view types to integral types.
+
+    Boost has multiple string_view variants (such as boost::beast::string_view
+    and boost::core::string_view) that can be aliases to std::string_view, but
+    which don't have to be.
+
+    Since we handle std::string_view separately, this constrained overload for
+    the Boost custom implementations is needed because they are not implicitly
+    convertible to std::string_view.
+
+    @return `false` if there was a parsing or range error
+ */
+template <class Out, class In>
+    requires(
+        !std::is_same_v<In, std::string_view> &&
+        (std::is_same_v<In, boost::core::string_view> ||
+         std::is_same_v<In, boost::beast::string_view> ||
+         std::is_same_v<In, boost::string_view>))
+[[nodiscard]] bool
+lexicalCastChecked(Out& out, In in) noexcept
+{
+    return lexicalCastChecked(out, std::string_view(in.data(), in.size()));
 }
 
 /** Convert from one type to another, throw on error
@@ -216,16 +190,21 @@ lexicalCastThrow(In in)
     if (Out out; lexicalCastChecked(out, in))
         return out;
 
-    throw BadLexicalCast();
+    throw BadLexicalCast(
+#ifdef DEBUG
+        beast::type_name<In>() + " -> " + beast::type_name<Out>()
+#endif
+    );
 }
 
 /** Convert from one type to another.
 
-    @param defaultValue The value returned if parsing fails
+    @param in The value to convert.
+    @param defaultValue The value returned if parsing fails.
     @return The new type.
 */
 template <class Out, class In>
-Out
+[[nodiscard]] Out
 lexicalCast(In in, Out defaultValue = Out())
 {
     if (Out out; lexicalCastChecked(out, in))

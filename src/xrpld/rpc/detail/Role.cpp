@@ -43,7 +43,7 @@ passwordUnrequiredOrSentCorrect(Port const& port, Json::Value const& params)
 
 bool
 ipAllowed(
-    beast::IP::Address const& remoteIp,
+    boost::asio::ip::address const& remoteIp,
     std::vector<boost::asio::ip::network_v4> const& nets4,
     std::vector<boost::asio::ip::network_v6> const& nets6)
 {
@@ -84,7 +84,7 @@ bool
 isAdmin(
     Port const& port,
     Json::Value const& params,
-    beast::IP::Address const& remoteIp)
+    boost::asio::ip::address const& remoteIp)
 {
     return ipAllowed(remoteIp, port.admin_nets_v4, port.admin_nets_v6) &&
         passwordUnrequiredOrSentCorrect(port, params);
@@ -95,19 +95,17 @@ requestRole(
     Role const& required,
     Port const& port,
     Json::Value const& params,
-    beast::IP::Endpoint const& remoteIp,
+    boost::asio::ip::address const& remoteIp,
     std::string_view user)
 {
-    if (isAdmin(port, params, remoteIp.address()))
+    if (isAdmin(port, params, remoteIp))
         return Role::ADMIN;
 
     if (required == Role::ADMIN)
         return Role::FORBID;
 
     if (ipAllowed(
-            remoteIp.address(),
-            port.secure_gateway_nets_v4,
-            port.secure_gateway_nets_v6))
+            remoteIp, port.secure_gateway_nets_v4, port.secure_gateway_nets_v6))
     {
         if (user.size())
             return Role::IDENTIFIED;
@@ -126,6 +124,7 @@ isUnlimited(Role const& role)
     return role == Role::ADMIN || role == Role::IDENTIFIED;
 }
 
+[[deprecated("isUnlimited with Endpoint")]]
 bool
 isUnlimited(
     Role const& required,
@@ -134,7 +133,8 @@ isUnlimited(
     beast::IP::Endpoint const& remoteIp,
     std::string const& user)
 {
-    return isUnlimited(requestRole(required, port, params, remoteIp, user));
+    return isUnlimited(
+        requestRole(required, port, params, remoteIp.address(), user));
 }
 
 Resource::Consumer

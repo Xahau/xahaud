@@ -281,7 +281,7 @@ public:
                 {.expected_etxn_count = 1,
                  .nonce_used = {{uint256(0), true}},
                  .result = {
-                     .hookCanEmit = UINT256_BIT[ttINVOKE],
+                     .hookCanEmit = hook::UINT256_BIT[ttINVOKE],
                  }});
             auto& api = hookCtx.api();
             auto tx = emitInvokeTx;
@@ -312,7 +312,7 @@ public:
                 {
                     .expected_etxn_count = 1,
                     .nonce_used = {{uint256(0), true}},
-                    .result = {.hookCanEmit = UINT256_BIT[ttHOOK_SET]},
+                    .result = {.hookCanEmit = hook::UINT256_BIT[ttHOOK_SET]},
                 });
             auto& api = hookCtx.api();
             auto tx = emitSetHookTx;

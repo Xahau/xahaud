@@ -171,53 +171,6 @@ ed25519Canonical(Slice const& sig)
     return std::lexicographical_compare(S, S + 32, Order, Order + 32);
 }
 
-//------------------------------------------------------------------------------
-
-PublicKey::PublicKey(Slice const& slice)
-{
-    if (slice.size() < size_)
-        LogicError(
-            "PublicKey::PublicKey - Input slice cannot be an undersized "
-            "buffer");
-
-    if (!publicKeyType(slice))
-        LogicError("PublicKey::PublicKey invalid type");
-    std::memcpy(buf_, slice.data(), size_);
-}
-
-PublicKey::PublicKey(PublicKey const& other)
-{
-    std::memcpy(buf_, other.buf_, size_);
-}
-
-PublicKey&
-PublicKey::operator=(PublicKey const& other)
-{
-    if (this != &other)
-    {
-        std::memcpy(buf_, other.buf_, size_);
-    }
-
-    return *this;
-}
-
-//------------------------------------------------------------------------------
-
-std::optional<KeyType>
-publicKeyType(Slice const& slice)
-{
-    if (slice.size() == 33)
-    {
-        if (slice[0] == 0xED)
-            return KeyType::ed25519;
-
-        if (slice[0] == 0x02 || slice[0] == 0x03)
-            return KeyType::secp256k1;
-    }
-
-    return std::nullopt;
-}
-
 bool
 verifyDigest(
     PublicKey const& publicKey,

@@ -31,12 +31,23 @@ class DummyScheduler : public Scheduler
 public:
     DummyScheduler() = default;
     ~DummyScheduler() = default;
+
     void
-    scheduleTask(Task& task) override;
+    scheduleTask(Task& task) override
+    {
+        // Invoke the task synchronously.
+        task.performScheduledTask();
+    }
+
     void
-    onFetch(FetchReport const& report) override;
+    onFetch(FetchReport const& report) override
+    {
+    }
+
     void
-    onBatchWrite(BatchWriteReport const& report) override;
+    onBatchWrite(BatchWriteReport const& report) override
+    {
+    }
 };
 
 }  // namespace NodeStore

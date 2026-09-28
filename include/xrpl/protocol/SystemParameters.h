@@ -22,29 +22,26 @@
 
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/XRPAmount.h>
+
 #include <cstdint>
-#include <string>
+#include <string_view>
 
 namespace ripple {
 
 // Various protocol and system specific constant globals.
 
 /* The name of the system. */
-static inline std::string const&
-systemName()
-{
-    static std::string const name = "xahau";
-    return name;
-}
+inline constexpr std::string_view systemName = "xahau";
 
-/** Configure the native currency. */
+/* The currency code for the native currency. */
+inline constexpr std::string_view systemCurrencyCode = "XAH";
 
 /** Number of drops in the genesis account. */
-constexpr XRPAmount INITIAL_XRP{100'000'000'000 * DROPS_PER_XRP};
+inline constexpr XRPAmount INITIAL_XRP{100'000'000'000 * DROPS_PER_XRP};
 
 /** Returns true if the amount does not exceed the initial XRP in existence. */
 inline bool
-isLegalAmount(XRPAmount const& amount)
+isLegalAmount(XRPAmount const& amount) noexcept
 {
     return amount <= INITIAL_XRP;
 }
@@ -52,30 +49,22 @@ isLegalAmount(XRPAmount const& amount)
 /** Returns true if the absolute value of the amount does not exceed the initial
  * XRP in existence. */
 inline bool
-isLegalAmountSigned(XRPAmount const& amount)
+isLegalAmountSigned(XRPAmount const& amount) noexcept
 {
     return amount >= -INITIAL_XRP && amount <= INITIAL_XRP;
 }
 
-/* The currency code for the native currency. */
-static inline std::string const&
-systemCurrencyCode()
-{
-    static std::string const code = "XAH";
-    return code;
-}
-
 /** The XRP ledger network's earliest allowed sequence */
-static constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{1U};
+inline constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{1U};
 
 /** The minimum amount of support an amendment should have.
 
     @note This value is used by legacy code and will become obsolete
           once the fixAmendmentMajorityCalc amendment activates.
 */
-constexpr std::ratio<204, 256> preFixAmendmentMajorityCalcThreshold;
+inline constexpr std::ratio<204, 256> preFixAmendmentMajorityCalcThreshold;
 
-constexpr std::ratio<80, 100> postFixAmendmentMajorityCalcThreshold;
+inline constexpr std::ratio<80, 100> postFixAmendmentMajorityCalcThreshold;
 
 /** The minimum amount of time an amendment must hold a majority */
 constexpr std::chrono::seconds const defaultAmendmentMajorityTime =

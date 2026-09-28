@@ -18,164 +18,120 @@
 //==============================================================================
 
 #include <xrpl/beast/net/IPEndpoint.h>
-#include <boost/algorithm/string.hpp>
+#include <boost/algorithm/string/trim.hpp>
+#include <charconv>
+#include <system_error>
 
 namespace beast {
 namespace IP {
 
-Endpoint::Endpoint() : m_port(0)
+namespace {
+Port
+make_port(std::string_view s)
 {
+    Port port = 0;
+
+    if (!s.empty())
+    {
+        auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), port);
+
+        if (ec != std::errc{} || ptr != s.data() + s.size())
+            throw std::system_error(std::make_error_code(ec));
+    }
+
+    return port;
 }
 
-Endpoint::Endpoint(Address const& addr, Port port) : m_addr(addr), m_port(port)
-{
-}
+}  // namespace
 
 std::optional<Endpoint>
-Endpoint::from_string_checked(std::string const& s)
+Endpoint::from_string_checked(std::string_view s)
 {
-    if (s.size() <= 64)
-    {
-        std::stringstream is(boost::trim_copy(s));
-        Endpoint endpoint;
-        is >> endpoint;
-        if (!is.fail() && is.rdbuf()->in_avail() == 0)
-            return endpoint;
-    }
-    return {};
-}
+    using namespace boost::asio::ip;
 
-Endpoint
-Endpoint::from_string(std::string const& s)
-{
-    if (std::optional<Endpoint> const result = from_string_checked(s))
-        return *result;
-    return Endpoint{};
+    // We need to catch exceptions here because we use the throwing versions of
+    // the boost address parsing functions. It is also possible that exceptions
+    // come from std::string_view, even though we are careful.
+    try
+    {
+        auto is_space = [](std::string_view::value_type c) {
+            return std::isspace(std::string_view::traits_type::to_int_type(c));
+        };
+
+        s.remove_prefix(
+            std::distance(
+                s.begin(), std::find_if_not(s.begin(), s.end(), is_space)));
+        s.remove_suffix(
+            std::distance(
+                s.rbegin(), std::find_if_not(s.rbegin(), s.rend(), is_space)));
+
+        if (s.empty())
+            return std::nullopt;
+
+        if (s[0] == '[')
+        {  // Bracketed notation: must be an IPv6 address
+            auto close = s.find(']');
+
+            if (close == std::string_view::npos)
+                return std::nullopt;
+
+            auto addr = s.substr(1, close - 1);
+            auto rest = s.substr(close + 1);
+
+            if (rest.empty())
+                return Endpoint{make_address_v6(addr)};
+
+            if (rest[0] != ':')
+                return std::nullopt;
+
+            return Endpoint{make_address_v6(addr), make_port(rest.substr(1))};
+        }
+
+        // We now need to check if a space is present. We already trimmed
+        // whitespace from the end of the input string, so if we find any
+        // it means we have a port present.
+        auto sp = std::find_if(s.begin(), s.end(), is_space);
+
+        if (sp == s.end())
+        {
+            auto colon = s.find(':');
+
+            // A single colon suggests this is an IPv4 address with a port.
+            if (colon != std::string_view::npos && colon == s.rfind(':'))
+                return Endpoint{
+                    make_address_v4(s.substr(0, colon)),
+                    make_port(s.substr(colon + 1))};
+
+            // It's a standalone address (either v4 or v6)
+            return Endpoint{make_address(s)};
+        }
+
+        // Either a v4 or a v6 address followed by one or more spaces and a port
+        auto rest = s.substr(std::distance(s.begin(), sp));
+
+        return Endpoint{
+            make_address(s.substr(0, std::distance(s.begin(), sp))),
+            make_port(rest.substr(
+                std::distance(
+                    rest.begin(),
+                    std::find_if_not(rest.begin(), rest.end(), is_space))))};
+    }
+    catch (...)
+    {
+        return std::nullopt;
+    }
 }
 
 std::string
 Endpoint::to_string() const
 {
-    std::string s;
-    s.reserve(
-        (address().is_v6() ? INET6_ADDRSTRLEN - 1 : 15) +
-        (port() == 0 ? 0 : 6 + (address().is_v6() ? 2 : 0)));
+    if (port() == 0)
+        return address().to_string();
 
-    if (port() != 0 && address().is_v6())
-        s += '[';
-    s += address().to_string();
-    if (port())
-    {
-        if (address().is_v6())
-            s += ']';
-        s += ":" + std::to_string(port());
-    }
+    if (address().is_v6())
+        return "[" + address().to_string() + "]:" + std::to_string(port());
 
-    return s;
-}
-
-bool
-operator==(Endpoint const& lhs, Endpoint const& rhs)
-{
-    return lhs.address() == rhs.address() && lhs.port() == rhs.port();
-}
-
-bool
-operator<(Endpoint const& lhs, Endpoint const& rhs)
-{
-    if (lhs.address() < rhs.address())
-        return true;
-    if (lhs.address() > rhs.address())
-        return false;
-    return lhs.port() < rhs.port();
-}
-
-//------------------------------------------------------------------------------
-
-std::istream&
-operator>>(std::istream& is, Endpoint& endpoint)
-{
-    std::string addrStr;
-    // valid addresses only need INET6_ADDRSTRLEN-1 chars, but allow the extra
-    // char to check for invalid lengths
-    addrStr.reserve(INET6_ADDRSTRLEN);
-    char i{0};
-    char readTo{0};
-    is.get(i);
-    if (i == '[')  // we are an IPv6 endpoint
-        readTo = ']';
-    else
-        addrStr += i;
-
-    while (is && is.rdbuf()->in_avail() > 0 && is.get(i))
-    {
-        // NOTE: There is a legacy data format
-        // that allowed space to be used as address / port separator
-        // so we continue to honor that here by assuming we are at the end
-        // of the address portion if we hit a space (or the separator
-        // we were expecting to see)
-        if (isspace(static_cast<unsigned char>(i)) || (readTo && i == readTo))
-            break;
-
-        if ((i == '.') || (i >= '0' && i <= ':') || (i >= 'a' && i <= 'f') ||
-            (i >= 'A' && i <= 'F'))
-        {
-            addrStr += i;
-
-            // don't exceed a reasonable length...
-            if (addrStr.size() == INET6_ADDRSTRLEN ||
-                (readTo && readTo == ':' && addrStr.size() > 15))
-            {
-                is.setstate(std::ios_base::failbit);
-                return is;
-            }
-
-            if (!readTo && (i == '.' || i == ':'))
-            {
-                // if we see a dot first, must be IPv4
-                // otherwise must be non-bracketed IPv6
-                readTo = (i == '.') ? ':' : ' ';
-            }
-        }
-        else  // invalid char
-        {
-            is.unget();
-            is.setstate(std::ios_base::failbit);
-            return is;
-        }
-    }
-
-    if (readTo == ']' && is.rdbuf()->in_avail() > 0)
-    {
-        is.get(i);
-        if (!(isspace(static_cast<unsigned char>(i)) || i == ':'))
-        {
-            is.unget();
-            is.setstate(std::ios_base::failbit);
-            return is;
-        }
-    }
-
-    boost::system::error_code ec;
-    auto addr = Address::from_string(addrStr, ec);
-    if (ec)
-    {
-        is.setstate(std::ios_base::failbit);
-        return is;
-    }
-
-    if (is.rdbuf()->in_avail() > 0)
-    {
-        Port port;
-        is >> port;
-        if (is.fail())
-            return is;
-        endpoint = Endpoint(addr, port);
-    }
-    else
-        endpoint = Endpoint(addr);
-
-    return is;
+    return address().to_string() + ":" + std::to_string(port());
 }
 
 }  // namespace IP

@@ -26,7 +26,7 @@ namespace ripple {
 
 template <class F>
 JobQueue::Coro::Coro(
-    Coro_create_t,
+    JobQueue::CoroCreator,
     JobQueue& jq,
     JobType type,
     std::string const& name,
@@ -48,6 +48,7 @@ JobQueue::Coro::Coro(
           },
           boost::coroutines::attributes(megabytes(1)))
 {
+    ++jq_.totalCoroutines_;
 }
 
 inline JobQueue::Coro::~Coro()
@@ -55,15 +56,14 @@ inline JobQueue::Coro::~Coro()
 #ifndef NDEBUG
     XRPL_ASSERT(finished_, "ripple::JobQueue::Coro::~Coro : is finished");
 #endif
+
+    --jq_.totalCoroutines_;
 }
 
 inline void
 JobQueue::Coro::yield() const
 {
-    {
-        std::lock_guard lock(jq_.m_mutex);
-        ++jq_.nSuspend_;
-    }
+    ++jq_.suspendedCoroutines_;
     (*yield_)();
 }
 
@@ -78,9 +78,7 @@ JobQueue::Coro::post()
     // sp keeps 'this' alive
     if (jq_.addJob(
             type_, name_, [this, sp = shared_from_this()]() { resume(); }))
-    {
         return true;
-    }
 
     // The coroutine will not run.  Clean up running_.
     std::lock_guard lk(mutex_run_);
@@ -96,10 +94,7 @@ JobQueue::Coro::resume()
         std::lock_guard lk(mutex_run_);
         running_ = true;
     }
-    {
-        std::lock_guard lock(jq_.m_mutex);
-        --jq_.nSuspend_;
-    }
+    --jq_.suspendedCoroutines_;
     auto saved = detail::getLocalValues().release();
     detail::getLocalValues().reset(&lvs_);
     std::lock_guard lock(mutex_);
@@ -133,8 +128,8 @@ JobQueue::Coro::expectEarlyExit()
         //
         // That said, since we're outside the Coro's stack, we need to
         // decrement the nSuspend that the Coro's call to yield caused.
-        std::lock_guard lock(jq_.m_mutex);
-        --jq_.nSuspend_;
+        --jq_.suspendedCoroutines_;
+
 #ifndef NDEBUG
         finished_ = true;
 #endif

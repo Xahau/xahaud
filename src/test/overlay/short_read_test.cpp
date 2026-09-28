@@ -186,7 +186,7 @@ private:
                 , acceptor_(
                       test_.io_context_,
                       endpoint_type(
-                          beast::IP::Address::from_string(
+                          boost::asio::ip::address::from_string(
                               test::getEnvLocalhostAddr()),
                           0))
                 , socket_(test_.io_context_)

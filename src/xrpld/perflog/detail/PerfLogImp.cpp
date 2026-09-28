@@ -41,38 +41,33 @@
 namespace ripple {
 namespace perf {
 
-PerfLogImp::Counters::Counters(
-    std::set<char const*> const& labels,
-    JobTypes const& jobTypes)
+PerfLogImp::Counters::Counters(std::vector<std::string_view> labels)
 {
+    // populateRpc
+    rpc_.reserve(labels.size());
+    for (auto label : labels)
     {
-        // populateRpc
-        rpc_.reserve(labels.size());
-        for (std::string const label : labels)
+        auto const inserted = rpc_.emplace(label, Rpc()).second;
+        if (!inserted)
         {
-            auto const inserted = rpc_.emplace(label, Rpc()).second;
-            if (!inserted)
-            {
-                // Ensure that no other function populates this entry.
-                UNREACHABLE(
-                    "ripple::perf::PerfLogImp::Counters::Counters : failed to "
-                    "insert label");
-            }
+            // Ensure that no other function populates this entry.
+            UNREACHABLE(
+                "ripple::perf::PerfLogImp::Counters::Counters : failed to "
+                "insert label");
         }
     }
+
+    // populateJq
+    jq_.reserve(jobTypes.size());
+    for (auto const& jobType : jobTypes)
     {
-        // populateJq
-        jq_.reserve(jobTypes.size());
-        for (auto const& [jobType, _] : jobTypes)
+        auto const inserted = jq_.emplace(jobType.type, Jq()).second;
+        if (!inserted)
         {
-            auto const inserted = jq_.emplace(jobType, Jq()).second;
-            if (!inserted)
-            {
-                // Ensure that no other function populates this entry.
-                UNREACHABLE(
-                    "ripple::perf::PerfLogImp::Counters::Counters : failed to "
-                    "insert job type");
-            }
+            // Ensure that no other function populates this entry.
+            UNREACHABLE(
+                "ripple::perf::PerfLogImp::Counters::Counters : failed to "
+                "insert job type");
         }
     }
 }
@@ -148,7 +143,7 @@ PerfLogImp::Counters::countersJson() const
         j[jss::running_duration_us] =
             std::to_string(value.runningDuration.count());
         totalJq.runningDuration += value.runningDuration;
-        jqobj[JobTypes::name(proc.first)] = j;
+        jqobj[jobTypes[proc.first].name] = j;
     }
 
     if (totalJq.queued)
@@ -185,14 +180,15 @@ PerfLogImp::Counters::currentJson() const
 
     for (auto const& j : jobs)
     {
-        if (j.first == jtINVALID)
-            continue;
-        Json::Value jobj(Json::objectValue);
-        jobj[jss::job] = JobTypes::name(j.first);
-        jobj[jss::duration_us] = std::to_string(
-            std::chrono::duration_cast<microseconds>(present - j.second)
-                .count());
-        jobsArray.append(jobj);
+        if (j)
+        {
+            Json::Value jobj(Json::objectValue);
+            jobj[jss::job] = j->first;
+            jobj[jss::duration_us] = std::to_string(
+                std::chrono::duration_cast<microseconds>(present - j->second)
+                    .count());
+            jobsArray.append(jobj);
+        }
     }
 
     Json::Value methodsArray(Json::arrayValue);
@@ -314,7 +310,11 @@ PerfLogImp::PerfLogImp(
     Application& app,
     beast::Journal journal,
     std::function<void()>&& signalStop)
-    : setup_(setup), app_(app), j_(journal), signalStop_(std::move(signalStop))
+    : setup_(setup)
+    , app_(app)
+    , j_(journal)
+    , signalStop_(std::move(signalStop))
+    , counters_(ripple::RPC::getHandlerNames())
 {
     openLog();
 }
@@ -414,7 +414,7 @@ PerfLogImp::jobStart(
     }
     std::lock_guard lock(counters_.jobsMutex_);
     if (instance >= 0 && instance < counters_.jobs_.size())
-        counters_.jobs_[instance] = {type, startTime};
+        counters_.jobs_[instance].emplace(jobTypes[type].name, startTime);
 }
 
 void
@@ -434,7 +434,7 @@ PerfLogImp::jobFinish(JobType const type, microseconds dur, int instance)
     }
     std::lock_guard lock(counters_.jobsMutex_);
     if (instance >= 0 && instance < counters_.jobs_.size())
-        counters_.jobs_[instance] = {jtINVALID, steady_time_point()};
+        counters_.jobs_[instance].reset();
 }
 
 void
@@ -442,7 +442,7 @@ PerfLogImp::resizeJobs(int const resize)
 {
     std::lock_guard lock(counters_.jobsMutex_);
     if (resize > counters_.jobs_.size())
-        counters_.jobs_.resize(resize, {jtINVALID, steady_time_point()});
+        counters_.jobs_.resize(resize, std::nullopt);
 }
 
 void
