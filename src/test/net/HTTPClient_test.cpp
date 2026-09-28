@@ -587,18 +587,15 @@ class HTTPClient_test : public beast::unit_test::suite
         server.setResponseBody("fallback");
         auto j = env.app().journal("HTTPClient");
         boost::asio::io_context ios;
-        // Reserve the first address/port without listening. The mock server
-        // listens only on 127.0.0.1, the second entry in the fallback list.
-        boost::asio::ip::tcp::socket refused(ios);
-        refused.open(boost::asio::ip::tcp::v4());
-        refused.bind(
-            {boost::asio::ip::make_address("127.0.0.2"), server.port()});
-
+        // The mock server listens only on 127.0.0.1, the second entry in the
+        // fallback list; nothing listens on its port at ::1, so the first
+        // connect fails (refused, or unavailable where IPv6 is off). Not
+        // another 127/8 address: macOS configures only 127.0.0.1.
         int completions = 0;
         HTTPClient::get(
             false,
             ios,
-            std::deque<std::string>{"127.0.0.2", "127.0.0.1"},
+            std::deque<std::string>{"::1", "127.0.0.1"},
             server.port(),
             "/",
             megabytes(1),

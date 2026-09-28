@@ -186,11 +186,14 @@ class OverlayLifecycle_test : public beast::unit_test::suite
         testcase("refused connection releases its attempt");
         jtx::Env env{*this};
         boost::asio::io_context ioc;
-        // Reserve an endpoint without listening; no close/rebind race.
-        tcp::acceptor reserved(ioc);
-        reserved.open(tcp::v4());
-        reserved.bind({boost::asio::ip::make_address("127.0.0.1"), 0});
-        auto attempt = makeAttempt(env, ioc, reserved.local_endpoint());
+        // Hold a port with a connected socket; no close/rebind race. A bound
+        // but unlistened port is refused only on Linux: BSD stacks (macOS)
+        // drop the SYN and the connect hangs.
+        tcp::acceptor listener(
+            ioc, {boost::asio::ip::make_address("127.0.0.1"), 0});
+        tcp::socket held(ioc);
+        held.connect(listener.local_endpoint());
+        auto attempt = makeAttempt(env, ioc, held.local_endpoint());
         if (!attempt)
             return;
         std::weak_ptr<ConnectAttempt> weak = attempt;
