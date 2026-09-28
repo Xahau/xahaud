@@ -36,6 +36,9 @@ operator<(CanonicalTXSet::Key const& lhs, CanonicalTXSet::Key const& rhs)
     if (lhs.seqProxy_ > rhs.seqProxy_)
         return false;
 
+    if (lhs.time_ != rhs.time_)
+        return lhs.time_ < rhs.time_;
+
     return lhs.txId_ < rhs.txId_;
 }
 
@@ -54,6 +57,7 @@ CanonicalTXSet::insert(std::shared_ptr<STTx const> const& txn)
     map_.insert(std::make_pair(
         Key(accountKey(txn->getAccountID(sfAccount)),
             txn->getSeqProxy(),
+            (*txn)[~sfTime].value_or(0),
             txn->getTransactionID()),
         txn));
 }
@@ -74,7 +78,11 @@ CanonicalTXSet::popAcctTransaction(std::shared_ptr<STTx const> const& tx)
     std::shared_ptr<STTx const> result;
     uint256 const effectiveAccount{accountKey(tx->getAccountID(sfAccount))};
 
-    Key const after(effectiveAccount, tx->getSeqProxy(), beast::zero);
+    Key const after(
+        effectiveAccount,
+        tx->getSeqProxy(),
+        (*tx)[~sfTime].value_or(0),
+        beast::zero);
     auto const itrNext{map_.lower_bound(after)};
     if (itrNext != map_.end() &&
         itrNext->first.getAccount() == effectiveAccount)

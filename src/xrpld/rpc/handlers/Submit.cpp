@@ -99,6 +99,10 @@ doInject(RPC::JsonContext& context)
 //     OR manifest: <hex>
 //     OR tx_json: <object> together with secret: <secret> (deprecated)
 // }
+//
+// For tx + sig (featureJsonTx), `tx` is the exact JSON text the signer read
+// and `sig` is their ed25519 signature over jsontx_signing_data(tx): the
+// four bytes jsontx_sign_prefix followed by that text.
 Json::Value
 doSubmit(RPC::JsonContext& context)
 {
@@ -111,6 +115,12 @@ doSubmit(RPC::JsonContext& context)
     bool const isJsonTx =
         context.params.isMember(jss::tx) && context.params.isMember(jss::sig);
     bool const hasManifest = context.params.isMember(jss::manifest);
+
+    // Half a JsonTx would otherwise fall through to the legacy signing path
+    // and fail there with an unrelated complaint about tx_json.
+    if (context.params.isMember(jss::tx) != context.params.isMember(jss::sig))
+        return RPC::make_param_error(
+            "JsonTx submission needs both `tx` and `sig`");
     bool const hasTxBlob = context.params.isMember(jss::tx_blob);
 
     // Both of these carry authority that only their amendment teaches the

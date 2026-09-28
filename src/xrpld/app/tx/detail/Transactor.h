@@ -293,6 +293,12 @@ seqID(C const& ctx_)
         ctx_.tx.isFieldPresent(sfEmitDetails))
         return ctx_.tx.getTransactionID();
 
+    // Every time-sequenced transaction has Sequence 0, so its SeqProxy
+    // cannot tell one object from the next. Its transaction id can: sfTime
+    // is strictly increasing per account, so no two ever share an id.
+    if (ctx_.view().rules().enabled(featureJsonTx) && ctx_.tx.isTimeSequenced())
+        return ctx_.tx.getTransactionID();
+
     return ctx_.tx.getSeqProxy().value();
 }
 
