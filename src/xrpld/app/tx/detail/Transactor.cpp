@@ -157,7 +157,7 @@ preflight1(PreflightContext const& ctx)
 
         auto const& name = ctx.tx.getFieldVL(sfHookName);
 
-        if (name.size() == 0 && ctx.rules.enabled(fixHookNameValidation))
+        if (name.size() == 0 && ctx.rules.enabled(fix20261001))
             return temMALFORMED;
         if (!SetHook::validateHookName(name, ctx.j))
             return temMALFORMED;
