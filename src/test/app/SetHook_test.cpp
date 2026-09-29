@@ -2271,9 +2271,9 @@ public:
         // Call named hook with the wrong hook name (size == 0)
         for (auto const fix : {true, false})
         {
-            auto f = features - fix20261001;
+            auto f = features - fix20260929;
             if (fix)
-                f = f | fix20261001;
+                f = f | fix20260929;
             Env env{*this, f};
 
             env.fund(XRP(10000), alice);
@@ -3526,7 +3526,7 @@ public:
         {
             for (auto const& hook_wasm : {accept_oob_wasm, rollback_oob_wasm})
             {
-                Env env{*this, withFix ? features : features - fix20261001};
+                Env env{*this, withFix ? features : features - fix20260929};
 
                 auto const alice = Account{"alice"};
                 auto const bob = Account{"bob"};
@@ -12497,11 +12497,11 @@ public:
             {
                 for (bool const withSType : {true, false})
                 {
-                    auto feats = features - fixHookAPI20251128 - fix20261001;
+                    auto feats = features - fixHookAPI20251128 - fix20260929;
                     if (with20251128)
                         feats = feats | fixHookAPI20251128;
                     if (withSType)
-                        feats = feats | fix20261001;
+                        feats = feats | fix20260929;
 
                     Env env{*this, feats};
                     env.fund(XRP(10000), alice, bob);
