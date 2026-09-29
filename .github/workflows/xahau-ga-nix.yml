@@ -498,7 +498,7 @@ jobs:
           retention-days: 30
 
       - name: Upload coverage report
-        if: matrix.job_type == 'coverage'
+        if: matrix.job_type == 'coverage' && github.repository == 'Xahau/xahaud'
         uses: codecov/codecov-action@v5
         with:
           files: ${{ env.COVERAGE_FILE }}
