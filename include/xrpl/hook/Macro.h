@@ -244,9 +244,9 @@
                                << "Tried to accept/rollback but specified "    \
                                   "memory outside of the wasm instance "       \
                                << "limit when specifying a reason string";     \
-                if (!view.rules().enabled(fix20261001))                        \
+                if (!view.rules().enabled(fix20260929))                        \
                     return OUT_OF_BOUNDS;                                      \
-                /* fix20261001: terminate as a rollback so the                 \
+                /* fix20260929: terminate as a rollback so the                 \
                    failure is visible in HookExecution metadata */             \
                 hookCtx.result.exitType = hook_api::ExitType::ROLLBACK;        \
                 hookCtx.result.exitCode = (int64_t)OUT_OF_BOUNDS;              \

@@ -15,6 +15,9 @@ env:
 
 jobs:
   checkout:
+    # build publishes to build.xahau.tech, so this workflow only runs from
+    # Xahau/xahaud. build and tests are skipped along with this job.
+    if: github.repository == 'Xahau/xahaud'
     runs-on: [self-hosted, vanity]
     outputs:
       checkout_path: ${{ steps.vars.outputs.checkout_path }}
@@ -86,7 +89,7 @@ jobs:
   cleanup:
     runs-on: [self-hosted, xahaud-build]
     needs: [tests, checkout]
-    if: always()
+    if: always() && github.repository == 'Xahau/xahaud'
     steps:
       - name: Cleanup workspace
         run: |
