@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/JSONRPCClient.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpl/beast/hash/uhash.h>
@@ -27,8 +28,16 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
 
+#include <boost/asio/io_context.hpp>
+#include <boost/asio/ip/tcp.hpp>
+#include <boost/beast/core/flat_buffer.hpp>
+#include <boost/beast/http/read.hpp>
+#include <boost/beast/http/string_body.hpp>
+#include <boost/beast/http/write.hpp>
 #include <boost/lexical_cast.hpp>
+#include <chrono>
 #include <optional>
+#include <thread>
 #include <utility>
 
 namespace ripple {
@@ -907,6 +916,106 @@ public:
     }
 
     void
+    testJSONRPCClientKeepAlive()
+    {
+        testcase("JSON-RPC keep-alive survives test work");
+        using namespace std::chrono_literals;
+        using namespace jtx;
+
+        Env env{*this};
+        env.client().invoke("server_info", {});
+        auto const reconnects = env.client().reconnects();
+
+        // The normal loopback message timeout is three seconds. Established
+        // Env connections have a separate idle lease because test work can
+        // legitimately take longer between RPCs.
+        std::this_thread::sleep_for(4s);
+        auto const response = env.client().invoke("server_info", {});
+        BEAST_EXPECT(response[jss::result][jss::status] == "success");
+        // The server kept the connection; the client did not replace it.
+        BEAST_EXPECT(env.client().reconnects() == reconnects);
+    }
+
+    void
+    testJSONRPCClientSlowFirstRequest()
+    {
+        testcase("JSON-RPC first request survives slow test setup");
+        using namespace std::chrono_literals;
+        using namespace jtx;
+
+        Env env{*this};
+
+        // The client connects when the Env is built, and the server closes a
+        // loopback connection whose first request takes longer than
+        // BaseHTTPPeer::timeoutSecondsLocal (3 s) to arrive. Test setup can
+        // take that long on a loaded machine. Whether or not the server's
+        // timer has fired by now, the request must succeed;
+        // testJSONRPCClientReconnects covers the replacement itself.
+        std::this_thread::sleep_for(4s);
+        auto const response = env.client().invoke("server_info", {});
+        BEAST_EXPECT(response[jss::result][jss::status] == "success");
+    }
+
+    void
+    testJSONRPCClientReconnects()
+    {
+        testcase("JSON-RPC client replaces a connection the server closed");
+        using namespace boost::asio;
+        namespace http = boost::beast::http;
+
+        // A server that closes the client's first connection without
+        // answering, as BaseHTTPPeer does when the first request is late, and
+        // answers on the second.
+        io_context ioc;
+        ip::tcp::acceptor acceptor(ioc, {ip::make_address("127.0.0.1"), 0});
+        ip::tcp::socket first(ioc);
+        ip::tcp::socket second(ioc);
+        boost::beast::flat_buffer buffer;
+        http::request<http::string_body> req;
+        http::response<http::string_body> res{http::status::ok, 11};
+        res.body() = R"({"result":{"status":"success"}})";
+        res.prepare_payload();
+        acceptor.async_accept(first, [&](boost::system::error_code) {
+            boost::system::error_code ignored;
+            first.close(ignored);
+            acceptor.async_accept(second, [&](boost::system::error_code acc) {
+                if (acc)
+                    return;
+                http::async_read(
+                    second,
+                    buffer,
+                    req,
+                    [&](boost::system::error_code rd, std::size_t) {
+                        if (!rd)
+                            http::async_write(
+                                second,
+                                res,
+                                [](boost::system::error_code, std::size_t) {});
+                    });
+            });
+        });
+        std::thread server([&] { ioc.run(); });
+
+        auto cfg = jtx::envconfig();
+        (*cfg)["port_rpc"].set("ip", "127.0.0.1");
+        (*cfg)["port_rpc"].set(
+            "port", std::to_string(acceptor.local_endpoint().port()));
+        auto client = makeJSONRPCClient(*cfg);
+        try
+        {
+            auto const response = client->invoke("server_info", {});
+            BEAST_EXPECT(response[jss::result][jss::status] == "success");
+            BEAST_EXPECT(client->reconnects() == 1);
+        }
+        catch (std::exception const& e)
+        {
+            fail(e.what(), __FILE__, __LINE__);
+        }
+        ioc.stop();
+        server.join();
+    }
+
+    void
     run() override
     {
         using namespace test::jtx;
@@ -933,6 +1042,9 @@ public:
         testSignAndSubmit(all);
         testFeatures(all);
         testExceptionalShutdown();
+        testJSONRPCClientKeepAlive();
+        testJSONRPCClientSlowFirstRequest();
+        testJSONRPCClientReconnects();
     }
 };
 

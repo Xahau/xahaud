@@ -26,12 +26,6 @@
 
 namespace ripple {
 
-TxConsequences
-Invoke::makeTxConsequences(PreflightContext const& ctx)
-{
-    return TxConsequences{ctx.tx, TxConsequences::normal};
-}
-
 NotTEC
 Invoke::preflight(PreflightContext const& ctx)
 {

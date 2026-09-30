@@ -72,15 +72,26 @@ jobs:
                   "job_type": "build"
               },
               {
-                  "compiler_id": "gcc-13-libstdcxx",
-                  "compiler": "gcc",
-                  "cc": "gcc-13",
-                  "cxx": "g++-13",
-                  "gcov": "gcov-13",
-                  "compiler_version": 13,
-                  "stdlib": "default",
+                  # Latest stable Clang for the most accurate source-based
+                  # coverage mapping (newer language features, fewer bugs in
+                  # llvm-cov region inference). Pulled from apt.llvm.org since
+                  # Ubuntu 24.04 default repos cap at clang-18.
+                  "compiler_id": "clang-20-libcxx",
+                  "compiler": "clang",
+                  "cc": "clang-20",
+                  "cxx": "clang++-20",
+                  "compiler_version": 20,
+                  "stdlib": "libcxx",
                   "configuration": "Debug",
-                  "job_type": "coverage"
+                  "job_type": "coverage",
+                  "coverage_tool": "llvm",
+                  "coverage_format": "lcov",
+                  # grpc 1.50.1 uses `Foo::template Bar(...)` without an
+                  # angle-bracket arg list; clang-19+ promoted that to
+                  # -Werror. Drop when grpc is bumped past the fix.
+                  "conan_deps_cxxflags": {
+                      "grpc/*": ["-Wno-missing-template-arg-list-after-template-kw"]
+                  }
               },
               {
                   "compiler_id": "clang-14-libstdcxx-gcc11",
@@ -131,7 +142,7 @@ jobs:
           # Minimal matrix for PRs and feature branches
           minimal_matrix = [
               full_matrix[1],  # gcc-13 (middle-ground gcc)
-              full_matrix[2],  # gcc-13 coverage
+              full_matrix[2],  # clang-20 llvm-cov coverage
               full_matrix[3]   # clang-14 (mature, stable clang)
           ]
           
@@ -207,9 +218,9 @@ jobs:
           # Select the appropriate matrix
           if use_full:
               if force_full:
-                  print(f"Using FULL matrix (7 configs) - forced by [ci-nix-full-matrix] tag")
+                  print(f"Using FULL matrix (7 configs (build x6 + clang-20 llvm-cov coverage)) - forced by [ci-nix-full-matrix] tag")
               else:
-                  print(f"Using FULL matrix (7 configs) - targeting main branch")
+                  print(f"Using FULL matrix (7 configs (build x6 + clang-20 llvm-cov coverage)) - targeting main branch")
               matrix = full_matrix
           else:
               print(f"Using MINIMAL matrix (3 configs) - feature branch/PR")
@@ -257,9 +268,25 @@ jobs:
 
       - name: Install build dependencies
         run: |
+          # Bump apt's default 3 retries; papers over short upstream blips
+          # like the recurring ppa.launchpadcontent.net outages.
+          echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
           apt-get update
           apt-get install -y software-properties-common
           add-apt-repository ppa:ubuntu-toolchain-r/test -y
+
+          # apt.llvm.org for Clang versions newer than what Ubuntu 24.04 ships
+          # (24.04 default repos cap at clang-18). The bootstrap script adds
+          # the LLVM apt source for the requested version and runs apt-get update.
+          if [ "${{ matrix.compiler }}" = "clang" ] && [ "${{ matrix.compiler_version }}" -ge 19 ]; then
+            apt-get install -y wget gnupg lsb-release
+            wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+            chmod +x /tmp/llvm.sh
+            # `all` installs clang + libllvm + lldb + lld + the llvm-N package
+            # (which provides llvm-profdata-N / llvm-cov-N for coverage runs).
+            /tmp/llvm.sh ${{ matrix.compiler_version }} all
+          fi
+
           apt-get update
           apt-get install -y git python3 python-is-python3 pipx
           pipx ensurepath
@@ -332,10 +359,16 @@ jobs:
           pipx install "conan>=2.0,<3"
           echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-          # Install gcovr for coverage jobs
+          # Install coverage tooling
           if [ "${{ matrix.job_type }}" = "coverage" ]; then
-            pipx install "gcovr>=7,<9"
             apt-get install -y curl lcov
+            if [ "${{ matrix.coverage_tool }}" = "llvm" ]; then
+              # Native LLVM source-based coverage: llvm-profdata + llvm-cov.
+              # The clang-N package doesn't pull these in; the llvm-N package does.
+              apt-get install -y "llvm-${{ matrix.compiler_version }}"
+            else
+              pipx install "gcovr>=7,<9"
+            fi
           fi
 
       - name: Check environment
@@ -348,10 +381,15 @@ jobs:
           which ${{ matrix.cxx }} && ${{ matrix.cxx }} --version || echo "${{ matrix.cxx }} not found"
           which ccache && ccache --version || echo "ccache not found"
 
-          # Check gcovr for coverage jobs
+          # Check coverage tooling
           if [ "${{ matrix.job_type }}" = "coverage" ]; then
-            which gcov && gcov --version || echo "gcov not found"
-            which gcovr && gcovr --version || echo "gcovr not found"
+            if [ "${{ matrix.coverage_tool }}" = "llvm" ]; then
+              which "llvm-profdata-${{ matrix.compiler_version }}" && "llvm-profdata-${{ matrix.compiler_version }}" --version || echo "llvm-profdata not found"
+              which "llvm-cov-${{ matrix.compiler_version }}" && "llvm-cov-${{ matrix.compiler_version }}" --version || echo "llvm-cov not found"
+            else
+              which gcov && gcov --version || echo "gcov not found"
+              which gcovr && gcovr --version || echo "gcovr not found"
+            fi
           fi
 
           echo "---- Full Environment ----"
@@ -378,6 +416,7 @@ jobs:
           cc: ${{ matrix.cc }}
           cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
+          conan_deps_cxxflags: ${{ matrix.conan_deps_cxxflags && toJson(matrix.conan_deps_cxxflags) || '{}' }}
           gha_cache_enabled: 'false' # Disable caching for self hosted runner
 
       - name: Build
@@ -410,8 +449,9 @@ jobs:
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
           stdlib: ${{ matrix.stdlib }}
-          # Coverage builds are slower due to instrumentation; use fewer parallel jobs to avoid flakiness
-          cmake-args: '-Dcoverage=ON -Dcoverage_format=xml -Dcoverage_test_parallelism=$(($(nproc)/2)) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS="-O0" -DCMAKE_C_FLAGS="-O0"'
+          # Coverage builds are slower due to instrumentation; use fewer parallel jobs to avoid flakiness.
+          # Use *_FLAGS_DEBUG so the build action's stdlib flag (e.g. -stdlib=libc++) in CMAKE_CXX_FLAGS isn't clobbered.
+          cmake-args: '-Dcoverage=ON -Dcoverage_tool=${{ matrix.coverage_tool }} -Dcoverage_format=${{ matrix.coverage_format }} -Dcoverage_test_parallelism=$(($(nproc)/2)) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0"'
           cmake-target: 'coverage'
           ccache_max_size: '100G'
 
@@ -443,22 +483,26 @@ jobs:
       - name: Move coverage report
         if: matrix.job_type == 'coverage'
         shell: bash
+        env:
+          COVERAGE_FILE: ${{ matrix.coverage_tool == 'llvm' && 'coverage.lcov' || 'coverage.xml' }}
         run: |
-          mv "${{ env.build_dir }}/coverage.xml" ./
+          mv "${{ env.build_dir }}/${COVERAGE_FILE}" ./
+          echo "COVERAGE_FILE=${COVERAGE_FILE}" >> "$GITHUB_ENV"
 
       - name: Archive coverage report
         if: matrix.job_type == 'coverage'
         uses: actions/upload-artifact@v4
         with:
-          name: coverage.xml
-          path: coverage.xml
+          name: ${{ env.COVERAGE_FILE }}-${{ matrix.compiler_id }}
+          path: ${{ env.COVERAGE_FILE }}
           retention-days: 30
 
       - name: Upload coverage report
         if: matrix.job_type == 'coverage'
         uses: codecov/codecov-action@v5
         with:
-          files: coverage.xml
+          files: ${{ env.COVERAGE_FILE }}
+          flags: ${{ matrix.coverage_tool }}
           fail_ci_if_error: true
           disable_search: true
           verbose: true

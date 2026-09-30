@@ -91,5 +91,11 @@ jobs:
       - name: Cleanup workspace
         run: |
           CHECKOUT_PATH="${{ needs.checkout.outputs.checkout_path }}"
+          # A run cancelled before checkout has no path; an empty one would
+          # make the rm below delete every run's checkout on the runner.
+          if [[ -z "${CHECKOUT_PATH}" ]]; then
+            echo "No checkout path (cancelled before checkout); nothing to clean"
+            exit 0
+          fi
           echo "Cleaning workspace for ${CHECKOUT_PATH}"
           rm -rf "${{ github.workspace }}/${CHECKOUT_PATH}"

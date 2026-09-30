@@ -28,15 +28,17 @@ target_compile_options (opts
     $<$<AND:$<BOOL:${is_gcc}>,$<COMPILE_LANGUAGE:CXX>>:-Wsuggest-override>
     $<$<BOOL:${is_gcc}>:-Wno-maybe-uninitialized>
     $<$<BOOL:${perf}>:-fno-omit-frame-pointer>
-    $<$<AND:$<BOOL:${is_gcc}>,$<BOOL:${coverage}>>:-g --coverage -fprofile-abs-path>
-    $<$<AND:$<BOOL:${is_clang}>,$<BOOL:${coverage}>>:-g --coverage>
+    $<$<AND:$<BOOL:${is_gcc}>,$<BOOL:${coverage}>,$<STREQUAL:${coverage_tool},gcov>>:-g --coverage -fprofile-abs-path>
+    $<$<AND:$<BOOL:${is_clang}>,$<BOOL:${coverage}>,$<STREQUAL:${coverage_tool},gcov>>:-g --coverage>
+    $<$<AND:$<BOOL:${is_clang}>,$<BOOL:${coverage}>,$<STREQUAL:${coverage_tool},llvm>>:-g -fprofile-instr-generate -fcoverage-mapping>
     $<$<BOOL:${profile}>:-pg>
     $<$<AND:$<BOOL:${is_gcc}>,$<BOOL:${profile}>>:-p>)
 
 target_link_libraries (opts
   INTERFACE
-    $<$<AND:$<BOOL:${is_gcc}>,$<BOOL:${coverage}>>:-g --coverage -fprofile-abs-path>
-    $<$<AND:$<BOOL:${is_clang}>,$<BOOL:${coverage}>>:-g --coverage>
+    $<$<AND:$<BOOL:${is_gcc}>,$<BOOL:${coverage}>,$<STREQUAL:${coverage_tool},gcov>>:-g --coverage -fprofile-abs-path>
+    $<$<AND:$<BOOL:${is_clang}>,$<BOOL:${coverage}>,$<STREQUAL:${coverage_tool},gcov>>:-g --coverage>
+    $<$<AND:$<BOOL:${is_clang}>,$<BOOL:${coverage}>,$<STREQUAL:${coverage_tool},llvm>>:-g -fprofile-instr-generate -fcoverage-mapping>
     $<$<BOOL:${profile}>:-pg>
     $<$<AND:$<BOOL:${is_gcc}>,$<BOOL:${profile}>>:-p>)
 
