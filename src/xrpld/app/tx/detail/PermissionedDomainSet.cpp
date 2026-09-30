@@ -126,12 +126,12 @@ PermissionedDomainSet::doApply()
             return tecINSUFFICIENT_RESERVE;
 
         // The raw Sequence is 0 for a transaction that uses a Ticket, so
-        // before fix20261001 every ticketed domain an account created was
+        // before fix20260929 every ticketed domain an account created was
         // keyed (account, 0): the second collided with the first, and an
         // insert over an existing key is a LogicError when the ledger is
         // built. The SeqProxy value is the Ticket number for those, which is
         // what every other sequence-keyed object already uses.
-        std::uint32_t const seq = ctx_.view().rules().enabled(fix20261001)
+        std::uint32_t const seq = ctx_.view().rules().enabled(fix20260929)
             ? ctx_.tx.getSeqProxy().value()
             : ctx_.tx.getFieldU32(sfSequence);
         Keylet const pdKeylet = keylet::permissionedDomain(account_, seq);

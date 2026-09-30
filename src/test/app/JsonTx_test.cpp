@@ -664,6 +664,10 @@ struct JsonTx_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob);
         env.close();
 
+        // jtx's clock starts at the ripple epoch; get far enough past it that
+        // the window arithmetic below cannot wrap
+        while (nowMs(env) <= txTimeMaxAgeMs + txTimeMaxFutureMs)
+            env.close();
         auto const now = nowMs(env);
 
         // older than txTimeMaxAgeMs: expired, as a past LastLedgerSequence
@@ -766,7 +770,7 @@ struct JsonTx_test : public beast::unit_test::suite
             auto const jt =
                 env.jt(withTime(pay(alice, nobody, drops(1)), t + 10), seq(0));
             BEAST_EXPECT(
-                engine(submitBlob(env, stx(jt))) == "tecNO_DST_INSUF_XRP");
+                engine(submitBlob(env, stx(jt))) == "tecNO_DST_INSUF_NATIVE");
             env.close();
             BEAST_EXPECT(lastTxnTime(env, alice) == t + 10);
             BEAST_EXPECT(engine(submitBlob(env, stx(jt))) == "tefPAST_SEQ");
@@ -813,12 +817,13 @@ struct JsonTx_test : public beast::unit_test::suite
         BEAST_EXPECT(!env.le(keylet::offer(alice.id(), 0u)));
 
         // Offers keyed by transaction id have no sequence to cancel them by;
-        // OfferCancel takes the id instead.
+        // OfferCancel takes the offer's ledger index instead.
         {
             Json::Value jv;
             jv[jss::TransactionType] = jss::OfferCancel;
             jv[jss::Account] = alice.human();
-            jv[sfOfferID.jsonName] = to_string(stx(o1).getTransactionID());
+            jv[sfOfferID.jsonName] = to_string(
+                keylet::offer(alice.id(), stx(o1).getTransactionID()).key);
             env(jv);
             env.close();
             BEAST_EXPECT(
@@ -875,7 +880,12 @@ struct JsonTx_test : public beast::unit_test::suite
         testcase("transactions that may not be time-sequenced");
         using namespace jtx;
 
-        Env env{*this, features | featureMPTokensV1};
+        // Each type below checks its own amendment before preflight1, so all
+        // of them must be on for the refusals under test to be reached.
+        auto const all = features | featureMPTokensV1 |
+            featurePermissionedDomains | featureCredentials |
+            featureOnChainManifests;
+        Env env{*this, all};
         Account const alice{"alice", KeyType::ed25519};
         env.fund(XRP(10000), alice);
         env.close();
@@ -1037,7 +1047,7 @@ struct JsonTx_test : public beast::unit_test::suite
         }
 
         // The two raw-sequence creators refuse an emitted transaction under
-        // fix20261001. Before it the emitted-transaction path is reached as
+        // fix20260929. Before it the emitted-transaction path is reached as
         // it always was (and refuses this one for not coming out of the
         // emission directory).
         {
@@ -1063,7 +1073,7 @@ struct JsonTx_test : public beast::unit_test::suite
                         temBAD_SEQUENCE);
                 }
                 {
-                    Env env{*this, all - fix20261001};
+                    Env env{*this, all - fix20260929};
                     Account const alice{"alice"};
                     env.fund(XRP(10000), alice);
                     env.close();
@@ -1076,7 +1086,7 @@ struct JsonTx_test : public beast::unit_test::suite
 
         // Tickets. MPTokenIssuanceCreate always took the Ticket number;
         // PermissionedDomainSet took the raw Sequence - 0 for every ticketed
-        // transaction - until fix20261001. (The unfixed path is not run
+        // transaction - until fix20260929. (The unfixed path is not run
         // here: its second domain collides with the first, which is a
         // LogicError when the ledger is built.)
         {
@@ -1180,9 +1190,13 @@ struct JsonTx_test : public beast::unit_test::suite
         q.set("minimum_queue_size", "2");
         Env env{*this, std::move(cfg), features};
 
+        // One account per ledger: each fund is a Payment and an AccountSet,
+        // and a third transaction in the open ledger would already escalate.
         Account const alice{"alice", KeyType::ed25519};
         Account const carol{"carol"};
-        env.fund(XRP(10000), alice, carol);
+        env.fund(XRP(10000), alice);
+        env.close();
+        env.fund(XRP(10000), carol);
         env.close();
 
         // push the open ledger into fee escalation

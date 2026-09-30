@@ -153,12 +153,12 @@ preflight1(PreflightContext const& ctx)
     //
     // Time-sequenced transactions are new with featureJsonTx and refused
     // unconditionally. Refusing the emitted case changes existing behaviour,
-    // so it waits for fix20261001. (Neither feature is supported yet, so
+    // so it waits for fix20260929. (Neither feature is supported yet, so
     // neither case is reachable on a live network today.)
     if ((ctx.tx.getTxnType() == ttMPTOKEN_ISSUANCE_CREATE ||
          ctx.tx.getTxnType() == ttPERMISSIONED_DOMAIN_SET) &&
         ctx.tx.getSeqProxy() == SeqProxy::sequence(0) &&
-        (ctx.tx.isTimeSequenced() || ctx.rules.enabled(fix20261001)))
+        (ctx.tx.isTimeSequenced() || ctx.rules.enabled(fix20260929)))
         return temBAD_SEQUENCE;
 
     auto const ret = preflight0(ctx);
