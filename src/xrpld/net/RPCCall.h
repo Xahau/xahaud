@@ -23,7 +23,9 @@
 #include <xrpld/core/Config.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/json/json_value.h>
-#include <boost/asio/io_service.hpp>
+
+#include <boost/asio/io_context.hpp>
+
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -49,7 +51,7 @@ fromCommandLine(
 
 void
 fromNetwork(
-    boost::asio::io_service& io_service,
+    boost::asio::io_context& io_context,
     std::string const& strIp,
     const std::uint16_t iPort,
     std::string const& strUsername,
