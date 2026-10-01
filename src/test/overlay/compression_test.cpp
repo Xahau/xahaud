@@ -46,6 +46,7 @@
 #include <boost/beast/core/multi_buffer.hpp>
 #include <boost/endian/conversion.hpp>
 #include <algorithm>
+#include <array>
 
 namespace ripple {
 
@@ -68,6 +69,15 @@ ledgerHash(LedgerInfo const& info)
         std::uint32_t(info.closeTime.time_since_epoch().count()),
         std::uint8_t(info.closeTimeResolution.count()),
         std::uint8_t(info.closeFlags));
+}
+
+// boost::asio::buffer() yields a single buffer, which ZeroCopyInputStream
+// cannot iterate. Present it as a one-element buffer sequence.
+template <class... Args>
+std::array<boost::asio::const_buffer, 1>
+bufferSequence(Args&&... args)
+{
+    return {boost::asio::buffer(std::forward<Args>(args)...)};
 }
 
 class compression_test : public beast::unit_test::suite
@@ -435,7 +445,7 @@ public:
                 header.add32(plain);
             std::size_t hint = 0;
             auto const result = invokeProtocolMessage(
-                boost::asio::buffer(header.data(), header.size()),
+                bufferSequence(header.data(), header.size()),
                 handler,
                 hint,
                 enforceManifestFrameLimit);
@@ -471,23 +481,20 @@ public:
         auto const& bytes = packet.getBuffer(Compressed::Off);
         std::size_t hint = 0;
         auto const result = invokeProtocolMessage(
-            boost::asio::buffer(bytes),
-            handler,
-            hint,
-            enforceManifestFrameLimit);
+            bufferSequence(bytes), handler, hint, enforceManifestFrameLimit);
         BEAST_EXPECT(!result.second);
         BEAST_EXPECT(result.first == bytes.size());
         BEAST_EXPECT(handler.received == 1);
         std::vector<std::uint8_t> coalesced(bytes.begin(), bytes.end());
         coalesced.insert(coalesced.end(), bytes.begin(), bytes.end());
         auto first = invokeProtocolMessage(
-            boost::asio::buffer(coalesced),
+            bufferSequence(coalesced),
             handler,
             hint,
             enforceManifestFrameLimit);
         BEAST_EXPECT(!first.second && first.first == bytes.size());
         auto second = invokeProtocolMessage(
-            boost::asio::buffer(
+            bufferSequence(
                 coalesced.data() + first.first, coalesced.size() - first.first),
             handler,
             hint,
@@ -511,7 +518,7 @@ public:
             frame.addRaw(bytes.data(), bytes.size());
             int const received = handler.received;
             auto discarded = invokeProtocolMessage(
-                boost::asio::buffer(frame.data(), frame.size()),
+                bufferSequence(frame.data(), frame.size()),
                 handler,
                 hint,
                 enforceManifestFrameLimit);
@@ -528,7 +535,7 @@ public:
                 BEAST_EXPECT(!discarded.second);
                 BEAST_EXPECT(discarded.first == discardedSize);
                 auto next = invokeProtocolMessage(
-                    boost::asio::buffer(
+                    bufferSequence(
                         reinterpret_cast<std::uint8_t const*>(frame.data()) +
                             discarded.first,
                         frame.size() - discarded.first),

@@ -28,12 +28,22 @@
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/Sign.h>
 
+#include <array>
 #include <condition_variable>
 #include <future>
 
 namespace ripple {
 
 namespace test {
+
+// boost::asio::buffer() yields a single buffer, which ZeroCopyInputStream
+// cannot iterate. Present it as a one-element buffer sequence.
+template <class... Args>
+std::array<boost::asio::const_buffer, 1>
+bufferSequence(Args&&... args)
+{
+    return {boost::asio::buffer(std::forward<Args>(args)...)};
+}
 
 class tx_reduce_relay_test : public beast::unit_test::suite
 {
@@ -602,7 +612,7 @@ private:
                 return;
             BEAST_EXPECT(header->payload_wire_size <= maxManifestMessageSize);
             auto parsed = detail::parseMessageContent<protocol::TMManifests>(
-                *header, boost::asio::buffer(bytes));
+                *header, bufferSequence(bytes));
             if (!BEAST_EXPECT(parsed))
                 return;
             BEAST_EXPECT(parsed->list_size() <= maxManifestEntries);
@@ -616,20 +626,19 @@ private:
         }
         BEAST_EXPECT(offered == keys);
         auto const remote =
-            beast::IP::Endpoint(beast::IP::Address::from_string("172.1.1.240"));
+            beast::IP::Endpoint(boost::asio::ip::make_address("172.1.1.240"));
         auto slot = inbound.peerFinder().new_outbound_slot(remote);
         if (!BEAST_EXPECT(slot))
             return;
         BEAST_EXPECT(inbound.peerFinder().onConnected(
             slot,
-            beast::IP::Endpoint(
-                beast::IP::Address::from_string("172.1.1.239"))));
+            beast::IP::Endpoint(boost::asio::ip::make_address("172.1.1.239"))));
         auto const nodeKey = randomKeyPair(KeyType::ed25519).first;
         BEAST_EXPECT(
             inbound.peerFinder().activate(slot, nodeKey, false) ==
             PeerFinder::Result::success);
         auto stream = std::make_unique<stream_type>(
-            socket_type(receiver.app().getIOService()), *context_);
+            socket_type(receiver.app().getIOContext()), *context_);
         stream->next_layer().socket().open(boost::asio::ip::tcp::v4());
         PeerTest::init();
         PeerTest::sid_ = 1;
