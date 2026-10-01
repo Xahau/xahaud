@@ -8459,7 +8459,7 @@ private:
         testcase("set manifest TSH");
 
         // OnChainManifests is not yet Supported::yes, so enable it explicitly.
-        features |= featureOnChainManifests;
+        features = features | featureOnChainManifests;
 
         // otxn: master
         // tsh: ephemeral
