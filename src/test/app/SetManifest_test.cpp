@@ -952,23 +952,25 @@ public:
     void
     run() override
     {
-        // RH TODO: re-add these when the amendment is ready for supported::yes
-        /*
-                using namespace test::jtx;
-                auto const sa = supported_amendments();
-                testSubmission(sa);
-                testUpdate(sa);
-                testRevocation(sa);
-                testRetrieval(sa);
-                testListedAfterLedgerRevocation(sa);
-                testListedAfterLedgerRevocation(sa, true);
-                testSigningKeyRetrieval(sa);
-                testMalformed(sa);
-                testEnvelopeRejections(sa);
-                testCorruptLedger(sa);
-                testGossipSelection(sa);
-                testDisabled(sa);
-        */
+        using namespace test::jtx;
+        auto const sa = supported_amendments();
+
+        // The on-ledger cases run only while OnChainManifests is supported.
+        if (sa[featureOnChainManifests])
+        {
+            testSubmission(sa);
+            testUpdate(sa);
+            testRevocation(sa);
+            testRetrieval(sa);
+            testListedAfterLedgerRevocation(sa);
+            testListedAfterLedgerRevocation(sa, true);
+            testSigningKeyRetrieval(sa);
+            testMalformed(sa);
+            testEnvelopeRejections(sa);
+            testCorruptLedger(sa);
+            testGossipSelection(sa);
+        }
+        testDisabled(sa);
     }
 };
 
