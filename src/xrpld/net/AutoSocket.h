@@ -46,7 +46,7 @@ public:
 
 public:
     AutoSocket(
-        boost::asio::io_service& s,
+        boost::asio::io_context& s,
         boost::asio::ssl::context& c,
         bool secureOnly,
         bool plainOnly)
@@ -57,7 +57,7 @@ public:
         mSocket = std::make_unique<ssl_socket>(s, c);
     }
 
-    AutoSocket(boost::asio::io_service& s, boost::asio::ssl::context& c)
+    AutoSocket(boost::asio::io_context& s, boost::asio::ssl::context& c)
         : AutoSocket(s, c, false, false)
     {
     }
