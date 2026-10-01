@@ -701,9 +701,9 @@ private:
     std::array<SubMapType, SubTypes::sLastEntry> mStreamMaps;
 
     ServerFeeSummary mLastFeeSummary;  ///< Guarded by mFeeSummaryMutex_.
-    std::mutex mFeeSummaryMutex_;       ///< Guards mLastFeeSummary only. Kept
-                                        ///< separate from mSubLock to avoid
-                                        ///< lock-ordering hazards with masterMutex.
+    std::mutex mFeeSummaryMutex_;      ///< Guards mLastFeeSummary only. Kept
+                                       ///< separate from mSubLock to avoid
+                                   ///< lock-ordering hazards with masterMutex.
 
     JobQueue& m_job_queue;
 
@@ -4279,9 +4279,8 @@ NetworkOPsImp::subServer(
         toBase58(TokenType::NodePublic, app_.nodeIdentity().first);
 
     std::lock_guard sl(mSubLock);
-    bool const added = mStreamMaps[sServer]
-        .emplace(isrListener->getSeq(), isrListener)
-        .second;
+    bool const added =
+        mStreamMaps[sServer].emplace(isrListener->getSeq(), isrListener).second;
     if (added && mStreamMaps[sServer].size() == 1)
     {
         // First subscriber on an otherwise-quiet node: reset mLastFeeSummary
