@@ -24,10 +24,12 @@
 #include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/beast/utility/instrumentation.h>
 #include <xrpl/server/Session.h>
+#include <xrpl/server/detail/Spawn.h>
 #include <xrpl/server/detail/io_list.h>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/spawn.hpp>
 #include <boost/asio/ssl/stream.hpp>
+#include <boost/asio/strand.hpp>
 #include <boost/asio/streambuf.hpp>
 #include <boost/beast/core/stream_traits.hpp>
 #include <boost/beast/http/dynamic_body.hpp>
@@ -214,8 +216,8 @@ BaseHTTPPeer<Handler, Impl>::BaseHTTPPeer(
     ConstBufferSequence const& buffers)
     : port_(port)
     , handler_(handler)
-    , work_(executor)
-    , strand_(executor)
+    , work_(boost::asio::make_work_guard(executor))
+    , strand_(boost::asio::make_strand(executor))
     , remote_address_(remote_address)
     , journal_(journal)
 {
@@ -300,7 +302,13 @@ BaseHTTPPeer<Handler, Impl>::do_read(yield_context do_yield)
 {
     complete_ = false;
     error_code ec;
-    start_timer();
+    // Do not treat an established keep-alive waiting for its next request as
+    // an unfinished loopback request.
+    if (request_count_ == 0)
+        start_timer();
+    else
+        boost::beast::get_lowest_layer(impl().stream_)
+            .expires_after(std::chrono::seconds(timeoutSeconds));
     boost::beast::http::async_read(
         impl().stream_, read_buf_, message_, do_yield[ec]);
     cancel_timer();
@@ -355,7 +363,7 @@ BaseHTTPPeer<Handler, Impl>::on_write(
         return;
     if (graceful_)
         return do_close();
-    boost::asio::spawn(
+    util::spawn(
         strand_,
         std::bind(
             &BaseHTTPPeer<Handler, Impl>::do_read,
@@ -374,7 +382,7 @@ BaseHTTPPeer<Handler, Impl>::do_writer(
     {
         auto const p = impl().shared_from_this();
         resume = std::function<void(void)>([this, p, writer, keep_alive]() {
-            boost::asio::spawn(
+            util::spawn(
                 strand_,
                 std::bind(
                     &BaseHTTPPeer<Handler, Impl>::do_writer,
@@ -405,7 +413,7 @@ BaseHTTPPeer<Handler, Impl>::do_writer(
     if (!keep_alive)
         return do_close();
 
-    boost::asio::spawn(
+    util::spawn(
         strand_,
         std::bind(
             &BaseHTTPPeer<Handler, Impl>::do_read,
@@ -447,14 +455,14 @@ BaseHTTPPeer<Handler, Impl>::write(
     std::shared_ptr<Writer> const& writer,
     bool keep_alive)
 {
-    boost::asio::spawn(bind_executor(
+    util::spawn(
         strand_,
         std::bind(
             &BaseHTTPPeer<Handler, Impl>::do_writer,
             impl().shared_from_this(),
             writer,
             keep_alive,
-            std::placeholders::_1)));
+            std::placeholders::_1));
 }
 
 // DEPRECATED
@@ -489,12 +497,12 @@ BaseHTTPPeer<Handler, Impl>::complete()
     }
 
     // keep-alive
-    boost::asio::spawn(bind_executor(
+    util::spawn(
         strand_,
         std::bind(
             &BaseHTTPPeer<Handler, Impl>::do_read,
             impl().shared_from_this(),
-            std::placeholders::_1)));
+            std::placeholders::_1));
 }
 
 // DEPRECATED

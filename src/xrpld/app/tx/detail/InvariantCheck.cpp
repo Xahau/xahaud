@@ -171,8 +171,9 @@ XRPNotCreated::finalize(
 
         auto const result = meta->getFieldU8(sfTransactionResult);
 
-        XRPAmount maxDropsAdded = isTesSuccess(result) ||
-                (result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY)
+        XRPAmount maxDropsAdded = !view.rules().enabled(featureZeroB2M) &&
+                (isTesSuccess(result) ||
+                 (result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY))
             ? inner->getFieldAmount(sfFee).xrp()  // burned in PoB
             : beast::zero;  // if the txn didnt burn a fee we add nothing
 
@@ -1041,11 +1042,7 @@ ValidNewAccountRoot::finalize(
          tt == ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION) &&
         isTesSuccess(result))
     {
-        std::uint32_t const startingSeq{
-            view.rules().enabled(featureXahauGenesis)
-                ? view.info().parentCloseTime.time_since_epoch().count()
-                : view.rules().enabled(featureDeletableAccounts) ? view.seq()
-                                                                 : 1};
+        std::uint32_t const startingSeq = newAccountSeqNo(view);
 
         if (accountSeq_ != startingSeq)
         {

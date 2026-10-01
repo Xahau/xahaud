@@ -22,7 +22,8 @@
 
 #include <xrpl/basics/Resolver.h>
 #include <xrpl/beast/utility/Journal.h>
-#include <boost/asio/io_service.hpp>
+
+#include <boost/asio/io_context.hpp>
 
 namespace ripple {
 
@@ -32,7 +33,7 @@ public:
     explicit ResolverAsio() = default;
 
     static std::unique_ptr<ResolverAsio>
-    New(boost::asio::io_service&, beast::Journal);
+    New(boost::asio::io_context&, beast::Journal);
 };
 
 }  // namespace ripple

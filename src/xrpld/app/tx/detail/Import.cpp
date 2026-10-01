@@ -398,21 +398,24 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (!list.isMember(jss::sequence) || !list[jss::sequence].isInt())
+    if (!list.isMember(jss::sequence) || !list[jss::sequence].isInt() ||
+        list[jss::sequence].asInt() < 0)
     {
         JLOG(ctx.j.warn()) << "Import: unl blob json (after base64 decoding) "
                               "lacked required field (sequence) and/or types "
                            << tx.getTransactionID();
         return temMALFORMED;
     }
-    if (!list.isMember(jss::expiration) || !list[jss::expiration].isInt())
+    if (!list.isMember(jss::expiration) || !list[jss::expiration].isInt() ||
+        list[jss::expiration].asInt() < 0)
     {
         JLOG(ctx.j.warn()) << "Import: unl blob json (after base64 decoding) "
                               "lacked required field (expiration) and/or types "
                            << tx.getTransactionID();
         return temMALFORMED;
     }
-    if (list.isMember(jss::effective) && !list[jss::effective].isInt())
+    if (list.isMember(jss::effective) &&
+        (!list[jss::effective].isInt() || list[jss::effective].asInt() < 0))
     {
         JLOG(ctx.j.warn()) << "Import: unl blob json (after base64 decoding) "
                               "lacked required field (effective) and/or types "
@@ -431,7 +434,6 @@ Import::preflight(PreflightContext const& ctx)
         list.isMember(jss::effective) ? list[jss::effective].asUInt() : 0}};
     auto const validUntil = TimeKeeper::time_point{
         TimeKeeper::duration{list[jss::expiration].asUInt()}};
-    auto const now = ctx.app.timeKeeper().now();
     if (validUntil <= validFrom)
     {
         JLOG(ctx.j.warn()) << "Import: unl blob validUntil <= validFrom "
@@ -439,19 +441,7 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    if (validUntil <= now)
-    {
-        JLOG(ctx.j.warn()) << "Import: unl blob expired "
-                           << tx.getTransactionID();
-        return temMALFORMED;
-    }
-
-    if (validFrom > now)
-    {
-        JLOG(ctx.j.warn()) << "Import: unl blob not yet valid "
-                           << tx.getTransactionID();
-        return temMALFORMED;
-    }
+    // expiry and effective are checked against the parent ledger in preclaim
 
     auto const sig =
         strUnHex((*xpop)[jss::validation][jss::unl][jss::signature].asString());
@@ -481,13 +471,20 @@ Import::preflight(PreflightContext const& ctx)
         sha512Half(HashPrefix::txNode, s.slice());
 
     // check if the proof is inside the proof tree/list
-    if (!([](Json::Value const& proof, std::string hash) -> bool {
+    //
+    // Only a declared hash that hashProof() below actually consumes counts as
+    // containment: a list form string, or the hash of a tree form node with no
+    // children. hashProof() ignores an inner node's declared hash and
+    // recomputes it from that node's children, so matching one here would let
+    // a fabricated blob/meta pair verify against a genuine ledger. Hashes are
+    // compared as parsed values, as hashProof() reads them, not as hex text.
+    if (!([](Json::Value const& proof, uint256 const& hash) -> bool {
             auto const proofContains = [](Json::Value const* proof,
-                                          std::string hash,
+                                          uint256 const& hash,
                                           int depth = 0,
                                           auto proofContains =
                                               nullptr) -> bool {
-                if (depth > 32)
+                if (depth > 64)
                     return false;
 
                 if (!proof->isObject() && !proof->isArray())
@@ -505,9 +502,20 @@ Import::preflight(PreflightContext const& ctx)
                     if (entry->isNull())
                         continue;
 
-                    if ((entry->isString() && entry->asString() == hash) ||
-                        (entry->isObject() && entry->isMember(jss::hash) &&
-                         (*entry)[jss::hash] == hash) ||
+                    uint256 declared;
+                    bool matched = false;
+
+                    if (entry->isString())
+                        matched = declared.parseHex(entry->asString()) &&
+                            declared == hash;
+                    else if (
+                        entry->isObject() && (*entry)[jss::hash].isString() &&
+                        (*entry)[jss::children].size() == 0)
+                        matched =
+                            declared.parseHex((*entry)[jss::hash].asString()) &&
+                            declared == hash;
+
+                    if (matched ||
                         proofContains(entry, hash, depth + 1, proofContains))
                         return true;
                 }
@@ -516,8 +524,7 @@ Import::preflight(PreflightContext const& ctx)
             };
 
             return proofContains(&proof, hash, 0, proofContains);
-        })((*xpop)[jss::transaction][jss::proof],
-           strHex(computed_tx_hash_and_meta)))
+        })((*xpop)[jss::transaction][jss::proof], computed_tx_hash_and_meta))
     {
         JLOG(ctx.j.warn())
             << "Import: xpop proof did not contain the specified txn hash "
@@ -527,17 +534,22 @@ Import::preflight(PreflightContext const& ctx)
     }
 
     // compute the merkel root over the proof
-    uint256 const computedTxRoot = ([](Json::Value const& proof) -> uint256 {
+    //
+    // An unparseable hash or an over-deep / malformed node fails the whole
+    // computation, rather than being skipped or hashed as zero, which would
+    // silently produce a root over a different preimage.
+    auto const computedTxRoot = [](Json::Value const& proof) {
         auto hashProof = [](Json::Value const& proof,
                             int depth = 0,
-                            auto const& hashProof = nullptr) -> uint256 {
+                            auto const& hashProof =
+                                nullptr) -> std::optional<uint256> {
             const uint256 nullhash;
 
-            if (depth > 32)
-                return nullhash;
+            if (depth > 64)
+                return std::nullopt;
 
             if (!proof.isObject() && !proof.isArray())
-                return nullhash;
+                return std::nullopt;
 
             sha512_half_hasher h;
             using beast::hash_append;
@@ -550,11 +562,18 @@ Import::preflight(PreflightContext const& ctx)
                     if (entry.isString())
                     {
                         uint256 hash;
-                        if (hash.parseHex(entry.asString()))
-                            hash_append(h, hash);
+                        if (!hash.parseHex(entry.asString()))
+                            return std::nullopt;
+                        hash_append(h, hash);
                     }
                     else
-                        hash_append(h, hashProof(entry, depth + 1, hashProof));
+                    {
+                        auto const child =
+                            hashProof(entry, depth + 1, hashProof);
+                        if (!child)
+                            return std::nullopt;
+                        hash_append(h, *child);
+                    }
                 }
             }
             else if (proof.isObject())
@@ -569,28 +588,41 @@ Import::preflight(PreflightContext const& ctx)
                         proof[jss::children][nibble][jss::children].size() ==
                         0u)
                     {
+                        auto const& declared =
+                            proof[jss::children][nibble][jss::hash];
                         uint256 hash;
-                        if (hash.parseHex(
-                                proof[jss::children][nibble][jss::hash]
-                                    .asString()))
-                            hash_append(h, hash);
+                        if (!declared.isString() ||
+                            !hash.parseHex(declared.asString()))
+                            return std::nullopt;
+                        hash_append(h, hash);
                     }
                     else
-                        hash_append(
-                            h,
-                            hashProof(
-                                proof[jss::children][nibble],
-                                depth + 1,
-                                hashProof));
+                    {
+                        auto const child = hashProof(
+                            proof[jss::children][nibble], depth + 1, hashProof);
+                        if (!child)
+                            return std::nullopt;
+                        hash_append(h, *child);
+                    }
                 }
             }
             return static_cast<uint256>(h);
         };
         return hashProof(proof, 0, hashProof);
-    })((*xpop)[jss::transaction][jss::proof]);
+    }((*xpop)[jss::transaction][jss::proof]);
+
+    if (!computedTxRoot)
+    {
+        JLOG(ctx.j.warn()) << "Import: could not compute txroot over the xpop "
+                              "proof, invalid xpop. "
+                           << tx.getTransactionID();
+        return temMALFORMED;
+    }
 
     auto const& lgr = (*xpop)[jss::ledger];
-    if (strHex(computedTxRoot) != lgr[jss::txroot])
+    uint256 declaredTxRoot;
+    if (!declaredTxRoot.parseHex(lgr[jss::txroot].asString()) ||
+        declaredTxRoot != *computedTxRoot)
     {
         JLOG(ctx.j.warn()) << "Import: computed txroot does not match xpop "
                               "txroot, invalid xpop. "
@@ -617,7 +649,7 @@ Import::preflight(PreflightContext const& ctx)
         std::uint32_t(lgr[jss::index].asUInt()),
         *coins,
         phash,
-        computedTxRoot,
+        *computedTxRoot,
         acroot,
         std::uint32_t(lgr[jss::pclose].asUInt()),
         std::uint32_t(lgr[jss::close].asUInt()),
@@ -862,6 +894,40 @@ Import::preclaim(PreclaimContext const& ctx)
     if (!ctx.tx.isFieldPresent(sfBlob))
         return tefINTERNAL;
 
+    // parse blob as json
+    auto const xpop = syntaxCheckXPOP(ctx.tx.getFieldVL(sfBlob), ctx.j);
+
+    if (!xpop)
+    {
+        JLOG(ctx.j.warn())
+            << "Import: during preclaim could not parse xpop, bailing.";
+        return tefINTERNAL;
+    }
+
+    // the unl blob's validity window is checked against the parent ledger's
+    // close time, never the node's clock, and ahead of any fee-claiming result
+    {
+        auto const window = getVLWindow(*xpop, ctx.j);
+        if (!window)
+            return tefINTERNAL;
+
+        auto const [validFrom, validUntil] = *window;
+        auto const now = ctx.view.parentCloseTime();
+        if (validUntil <= now)
+        {
+            JLOG(ctx.j.warn())
+                << "Import: unl blob expired " << ctx.tx.getTransactionID();
+            return temMALFORMED;
+        }
+
+        if (validFrom > now)
+        {
+            JLOG(ctx.j.warn()) << "Import: unl blob not yet valid "
+                               << ctx.tx.getTransactionID();
+            return temMALFORMED;
+        }
+    }
+
     if (ctx.tx.isFieldPresent(sfIssuer) &&
         ctx.view.rules().enabled(fixImportIssuer))
     {
@@ -871,16 +937,6 @@ Import::preclaim(PreclaimContext const& ctx)
 
         if (sleIssuer->isFieldPresent(sfAMMID))
             return tecNO_PERMISSION;
-    }
-
-    // parse blob as json
-    auto const xpop = syntaxCheckXPOP(ctx.tx.getFieldVL(sfBlob), ctx.j);
-
-    if (!xpop)
-    {
-        JLOG(ctx.j.warn())
-            << "Import: during preclaim could not parse xpop, bailing.";
-        return tefINTERNAL;
     }
 
     auto const [stpTrans, meta] = getInnerTxn(ctx.tx, ctx.j, &(*xpop));
@@ -1307,12 +1363,7 @@ Import::doApply()
     if (create)
     {
         // Create the account.
-        std::uint32_t const seqno{
-            view().rules().enabled(featureXahauGenesis)
-                ? view().info().parentCloseTime.time_since_epoch().count()
-                : view().rules().enabled(featureDeletableAccounts)
-                ? view().seq()
-                : 1};
+        std::uint32_t const seqno = newAccountSeqNo(view());
 
         sle = std::make_shared<SLE>(keylet::account(id));
         sle->setAccountID(sfAccount, id);

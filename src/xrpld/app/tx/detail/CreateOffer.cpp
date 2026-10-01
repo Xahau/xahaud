@@ -181,6 +181,25 @@ CreateOffer::preclaim(PreclaimContext const& ctx)
     if (offerID && cancelSequence)
         return temBAD_SEQUENCE;
 
+    if (offerID)
+    {
+        if (auto const sleCancel = ctx.view.read(keylet::unchecked(*offerID)))
+        {
+            if (sleCancel->getFieldU16(sfLedgerEntryType) != ltOFFER)
+            {
+                JLOG(ctx.j.debug())
+                    << "OfferCreate specified non-offer ledger object";
+                return tecNO_PERMISSION;
+            }
+            else if (sleCancel->getAccountID(sfAccount) != id)
+            {
+                JLOG(ctx.j.debug())
+                    << "OfferCreate specified offer not owned by sender";
+                return tecNO_PERMISSION;
+            }
+        }
+    }
+
     // This can probably be simplified to make sure that you cancel sequences
     // before the transaction sequence number.
     if (cancelSequence && (uAccountSequence <= *cancelSequence))
