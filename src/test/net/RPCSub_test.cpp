@@ -44,8 +44,10 @@ namespace test {
 // expected count would never be reached within the timeout.
 class MockWebhookEndpoint
 {
-    boost::asio::io_service ios_;
-    std::unique_ptr<boost::asio::io_service::work> work_;
+    boost::asio::io_context ios_;
+    std::unique_ptr<boost::asio::executor_work_guard<
+        boost::asio::io_context::executor_type>>
+        work_;
     boost::asio::ip::tcp::acceptor acceptor_;
     std::thread thread_;
     unsigned short port_;
@@ -56,11 +58,13 @@ class MockWebhookEndpoint
 
 public:
     MockWebhookEndpoint()
-        : work_(std::make_unique<boost::asio::io_service::work>(ios_))
+        : work_(std::make_unique<boost::asio::executor_work_guard<
+                    boost::asio::io_context::executor_type>>(
+              boost::asio::make_work_guard(ios_)))
         , acceptor_(
               ios_,
               boost::asio::ip::tcp::endpoint(
-                  boost::asio::ip::address::from_string("127.0.0.1"),
+                  boost::asio::ip::make_address("127.0.0.1"),
                   0))
     {
         port_ = acceptor_.local_endpoint().port();
@@ -134,7 +138,7 @@ private:
                 {
                     auto timer =
                         std::make_shared<boost::asio::steady_timer>(ios_);
-                    timer->expires_from_now(std::chrono::milliseconds(delay));
+                    timer->expires_after(std::chrono::milliseconds(delay));
                     timer->async_wait(
                         [this, sock, timer](auto) { reply(sock); });
                 }
