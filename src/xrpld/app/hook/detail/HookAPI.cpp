@@ -171,7 +171,7 @@ HookAPI::sto_subfield(Bytes const& data, uint32_t field_id) const
     if (data.size() < 2)
         return Unexpected(TOO_SMALL);
 
-    if (hookCtx.applyCtx.view().rules().enabled(fix20261001))
+    if (hookCtx.applyCtx.view().rules().enabled(fix20260929))
     {
         // validate the data
         auto const valid = sto_validate(data);
@@ -243,7 +243,7 @@ HookAPI::sto_subarray(Bytes const& data, uint32_t index_id) const
     unsigned char* upto = start;
     unsigned char* end = start + data.size();
 
-    if (hookCtx.applyCtx.view().rules().enabled(fix20261001))
+    if (hookCtx.applyCtx.view().rules().enabled(fix20260929))
     {
         // check if the array has valid trailing data
         if ((*upto & 0xF0U) == 0xF0U && *(end - 1) != 0xF1U)
@@ -349,7 +349,7 @@ HookAPI::sto_emplace(
             return Unexpected(TOO_SMALL);
     }
 
-    if (hookCtx.applyCtx.view().rules().enabled(fix20261001))
+    if (hookCtx.applyCtx.view().rules().enabled(fix20260929))
     {
         auto const source_valid = sto_validate(source_object);
         if (!source_valid || !source_valid.value())
@@ -376,7 +376,7 @@ HookAPI::sto_emplace(
             0);
         if (!length)
             return Unexpected(PARSE_ERROR);
-        if (hookCtx.applyCtx.view().rules().enabled(fix20261001) &&
+        if (hookCtx.applyCtx.view().rules().enabled(fix20260929) &&
             length.value() != field_object->size())
             return Unexpected(PARSE_ERROR);
         if ((type << 16) + field != field_id)
@@ -938,14 +938,22 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         std::unique_ptr<STTx const> stpTrans =
             std::make_unique<STTx const>(std::ref(sitTrans));
 
-        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
-            return Transactor::calculateBaseFee(
-                       *(applyCtx.app.openLedger().current()), *stpTrans)
-                .drops();
+        // fix20260929: the minimum fee decides whether emit() accepts the
+        // txn, which is consensus-visible. Compute it against the view being
+        // applied, not the node-local open ledger (whose hook definitions can
+        // differ between nodes).
+        std::shared_ptr<ReadView const> hold;
+        ReadView const* feeView = &applyCtx.view();
+        if (!applyCtx.view().rules().enabled(fix20260929))
+        {
+            hold = applyCtx.app.openLedger().current();
+            feeView = hold.get();
+        }
 
-        return invoke_calculateBaseFee(
-                   *(applyCtx.app.openLedger().current()), *stpTrans)
-            .drops();
+        if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
+            return Transactor::calculateBaseFee(*feeView, *stpTrans).drops();
+
+        return invoke_calculateBaseFee(*feeView, *stpTrans).drops();
     }
     catch (std::exception const& e)
     {
@@ -3166,7 +3174,7 @@ HookAPI::get_stobject_length(
                 if (flag & 0x20)  // issuer
                     length += 20;
 
-                if (rules.enabled(fix20261001) && upto + length >= end)
+                if (rules.enabled(fix20260929) && upto + length >= end)
                     return Unexpected(pe_unexpected_end);
 
                 int next_flag = *(upto + length);
@@ -3189,12 +3197,12 @@ HookAPI::get_stobject_length(
         }
         if (upto >= end)
             return Unexpected(pe_unexpected_end);
-        if (rules.enabled(fix20261001) && !terminated)
+        if (rules.enabled(fix20260929) && !terminated)
             return Unexpected(pe_unexpected_end);
     }
     else if (type == STI_ISSUE)
     {
-        bool const fix = rules.enabled(fix20261001);
+        bool const fix = rules.enabled(fix20260929);
         auto zero20 = std::array<char, 20>{0};
         // if first 20 byte is all zeros return 20
         // else return 40
@@ -3212,7 +3220,7 @@ HookAPI::get_stobject_length(
     }
     else if (type == STI_XCHAIN_BRIDGE)
     {
-        bool const fix = rules.enabled(fix20261001);
+        bool const fix = rules.enabled(fix20260929);
         auto zero20 = std::array<char, 20>{0};
         length = 0;
         for (int i = 0; i < 2; ++i)  // Locking Chain, Issuing Chain
@@ -3259,7 +3267,7 @@ HookAPI::get_stobject_length(
             payload_start,
             payload_length);
 
-        if (rules.enabled(fix20261001) && length > end - upto)
+        if (rules.enabled(fix20260929) && length > end - upto)
             return Unexpected(pe_unexpected_end);
 
         return length + (upto - start);

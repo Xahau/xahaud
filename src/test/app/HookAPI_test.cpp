@@ -732,6 +732,56 @@ public:
             else
                 BEAST_EXPECT(result.value() == baseFee + memoSize);
         }
+        {
+            // fix20260929: the minimum fee is computed against the view
+            // being applied, not the node-local open ledger. Simulate that
+            // by inserting a hook definition (with a callback fee) into
+            // applyCtx.view() only -- it is never inserted into the open
+            // ledger the node otherwise reads.
+            uint256 const hookHash{1};
+
+            STTx const emittedTx = STTx(ttINVOKE, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = 0;
+                obj[sfSigningPubKey] = Slice{};
+                obj[sfFirstLedgerSequence] = ov.seq() + 1;
+                obj[sfLastLedgerSequence] = ov.seq() + 5;
+                obj[sfFee] = env.closed()->fees().base;
+
+                auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
+                emitDetails[sfEmitGeneration] = 1;
+                emitDetails[sfEmitBurden] = 1;
+                emitDetails[sfEmitParentTxnID] = invokeTx.getTransactionID();
+                emitDetails[sfEmitNonce] = uint256();
+                emitDetails[sfEmitHookHash] = hookHash;
+            });
+            Serializer const emittedTxSerializer = emittedTx.getSerializer();
+
+            auto const baseline =
+                api.etxn_fee_base(emittedTxSerializer.slice());
+            BEAST_EXPECT(baseline.has_value());
+
+            auto hookDef =
+                std::make_shared<SLE>(keylet::hookDefinition(hookHash));
+            hookDef->setFieldH256(sfHookHash, hookHash);
+            hookDef->setFieldH256(sfHookNamespace, uint256());
+            hookDef->setFieldArray(sfHookParameters, STArray{});
+            hookDef->setFieldU16(sfHookApiVersion, 0);
+            hookDef->setFieldVL(sfCreateCode, std::vector<uint8_t>{});
+            hookDef->setFieldH256(sfHookSetTxnID, invokeTx.getTransactionID());
+            hookDef->setFieldU64(sfReferenceCount, 1);
+            hookDef->setFieldAmount(sfFee, XRPAmount{0});
+            hookDef->setFieldAmount(sfHookCallbackFee, XRPAmount{12345});
+            applyCtx.view().insert(hookDef);
+
+            auto const result = api.etxn_fee_base(emittedTxSerializer.slice());
+            BEAST_EXPECT(result.has_value());
+
+            if (env.closed()->rules().enabled(fix20260929))
+                BEAST_EXPECT(result.value() == baseline.value() + 12345);
+            else
+                BEAST_EXPECT(result.value() == baseline.value());
+        }
     }
 
     void
@@ -4000,7 +4050,7 @@ public:
              sfBaseAsset.getCode(),
              "011A0000000000000000000000005553440000000000"},
         };
-        if (env.closed()->rules().enabled(fix20261001))
+        if (env.closed()->rules().enabled(fix20260929))
         {
             // encodings the legacy parser measures incorrectly
             data_list.insert(
@@ -4019,7 +4069,7 @@ public:
                      "00000"},
                 });
         }
-        bool const fixEnabled = env.closed()->rules().enabled(fix20261001);
+        bool const fixEnabled = env.closed()->rules().enabled(fix20260929);
         for (auto const& data : data_list)
         {
             auto source_object = _source_object;
@@ -4120,7 +4170,7 @@ public:
             // should be "F9EA7D02BEEFE1F1" {Memos:[{Memo:{MemoData:"BEEF"}}]}
             auto const invalid_end_marker = *strUnHex("F9EA7D02BEEFE100");
             auto const result = api.sto_subarray(invalid_end_marker, 0);
-            if (env.closed()->rules().enabled(fix20261001))
+            if (env.closed()->rules().enabled(fix20260929))
             {
                 BEAST_EXPECT(!result.has_value());
                 BEAST_EXPECT(result.error() == PARSE_ERROR);
@@ -4136,7 +4186,7 @@ public:
             // truncated.
             auto const invalid_tail = *strUnHex("F9EA7D02BEEFE1EA7D02BEEFF1");
             auto const result = api.sto_subarray(invalid_tail, 0);
-            if (env.closed()->rules().enabled(fix20261001))
+            if (env.closed()->rules().enabled(fix20260929))
             {
                 BEAST_EXPECT(!result.has_value());
                 BEAST_EXPECT(result.error() == PARSE_ERROR);
@@ -4210,7 +4260,7 @@ public:
             auto const invalid_tail = Blob{data.begin(), data.end() - 1};
             auto const result =
                 api.sto_subfield(invalid_tail, sfSequence.getCode());
-            if (env.closed()->rules().enabled(fix20261001))
+            if (env.closed()->rules().enabled(fix20260929))
             {
                 BEAST_EXPECT(!result.has_value());
                 BEAST_EXPECT(result.error() == PARSE_ERROR);
@@ -4836,6 +4886,7 @@ public:
         test_otxn_generation(features);
         test_etxn_details(features);
         test_etxn_fee_base(features - fixHookAPI20251128);
+        test_etxn_fee_base(features - fix20260929);
         test_etxn_fee_base(features);
         test_etxn_nonce(features);
         test_etxn_reserve(features);
@@ -4901,12 +4952,12 @@ public:
         test_state_set(features);
 
         test_sto_emplace(features);
-        test_sto_emplace(features - fix20261001);
+        test_sto_emplace(features - fix20260929);
         // test_sto_erase(features); // tested in test_sto_emplace
         test_sto_subarray(features);
-        test_sto_subarray(features - fix20261001);
+        test_sto_subarray(features - fix20260929);
         test_sto_subfield(features);
-        test_sto_subfield(features - fix20261001);
+        test_sto_subfield(features - fix20260929);
         test_sto_validate(features);
 
         test_trace(features);
