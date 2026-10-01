@@ -86,7 +86,7 @@ checkValidity(
         // This path runs at RPC/overlay ingress, before transactor preflight.
         // The DoS ordering is deliberate: structural nonsense must not buy
         // either manifest-signature checks or attached multisign work.
-        if (!hasCanonicalUnsignedSetManifestShape(tx))
+        if (!hasCanonicalUnsignedSetManifestShape(tx, config.NETWORK_ID))
             return {
                 Validity::SigBad,
                 "Manifest-authorized envelope is not canonical"};
@@ -184,6 +184,11 @@ checkManifestIngressFee(Application& app, STTx const& tx)
     auto const open = app.openLedger().current();
     if (!open->rules().enabled(featureOnChainManifests) ||
         !hasManifestAuthorityMarkers(tx))
+        return {ManifestIngressFee::NotApplicable, {}};
+
+    // A non-canonical shape can never become valid, so it is not a fee miss:
+    // leave it to checkValidity(), which rejects it as a bad envelope.
+    if (!hasCanonicalUnsignedSetManifestShape(tx, app.config().NETWORK_ID))
         return {ManifestIngressFee::NotApplicable, {}};
 
     // An amendment-blocked node's open ledger may sit on history the network

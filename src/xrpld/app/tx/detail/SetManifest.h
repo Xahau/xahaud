@@ -51,11 +51,14 @@ isUnsignedSetManifest(STTx const& tx) noexcept;
 
 /** Return whether every outer byte has the manifest-authorized shape.
 
-    The supplied Fee and NetworkID are mirrored here; their contextual values
-    are pinned later by checkFee and preflight0 respectively.
+    Account is derived from the manifest's master key and NetworkID from
+    `networkID`, this server's network. Only the Fee is mirrored from the
+    candidate; checkFee pins it against the applying view.
 */
 bool
-hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept;
+hasCanonicalUnsignedSetManifestShape(
+    STTx const& tx,
+    std::uint32_t networkID) noexcept;
 
 /** Return the one canonical Fee for a manifest-authorized update.
 

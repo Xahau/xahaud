@@ -78,9 +78,10 @@ enum class ManifestIngressFee {
     NotApplicable,
     /// The Fee is canonical for this node's validated or open ledger.
     Canonical,
-    /// Drop without verifying the manifest. Not a bad signature: the same
-    /// bytes may be canonical on another node, or here once this node reaches
-    /// the fee setting they were built for.
+    /// A canonically shaped envelope whose Fee cannot be confirmed here. Drop
+    /// without verifying the manifest. Not a bad signature: the same bytes
+    /// may be canonical on another node, or here once this node reaches the
+    /// fee setting they were built for.
     Refused
 };
 

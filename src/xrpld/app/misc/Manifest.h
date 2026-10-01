@@ -486,9 +486,11 @@ public:
         peer gossip or in a published list. It is a third source of manifests,
         not a more trusted one.
 
-        Probes the locally trusted master-key set on each validated ledger
-        rather than scanning transactions. This common path costs one SHAMap
-        read per key and also catches manifests published in skipped ledgers.
+        Probes a master-key set, the locally trusted keys and newly eligible
+        list candidates, on the last closed ledger at the start of each
+        consensus round, rather than scanning transactions. This common path
+        costs one SHAMap read per key and also catches manifests published in
+        skipped ledgers.
 
         @param view Ledger to read from
         @param masterKeys Master public keys to probe for

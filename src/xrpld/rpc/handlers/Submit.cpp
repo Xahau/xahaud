@@ -153,8 +153,9 @@ doSubmit(RPC::JsonContext& context)
             return RPC::make_error(
                 rpcNOT_ENABLED,
                 "The OnChainManifests amendment is not enabled on this "
-                "network. Manifest submission will work once it activates; "
-                "nothing is wrong with this request.");
+                "network. Once it is, a manifest submitted here updates an "
+                "existing on-ledger registration; the first registration "
+                "must be an account-signed SetManifest.");
 
         auto const raw = strUnHex(context.params[jss::manifest].asString());
         if (!raw || raw->empty())

@@ -91,29 +91,48 @@ canonicalUnsignedSetManifest(
     });
 }
 
+/** The NetworkID a canonical envelope carries for this server's network.
+
+    Networks above 1024 require the field and legacy networks forbid it
+    (preflight0), so the canonical envelope follows the same rule.
+ */
+static std::optional<std::uint32_t>
+canonicalNetworkID(std::uint32_t networkID)
+{
+    if (networkID > 1024)
+        return networkID;
+    return std::nullopt;
+}
+
 /** Cheap full-envelope shape gate for manifest-only authority.
 
-    The field-count comparison rejects ordinary extension attacks (Memos,
-    tags, bounds, Signers, and future optional common fields) before copying
-    their contents or verifying either manifest signature. The byte comparison
-    then pins every admitted field, its encoded size, and its representation.
-    Fee is mirrored here and pinned to its one value by checkFee().
+    Every outer field except Fee is derived, never copied from the candidate:
+    Account from the manifest's master key and NetworkID from this server.
+    A relayer-chosen Account or NetworkID would otherwise mint fresh txids
+    that each reach manifest signature checks. The byte comparison then pins
+    every field, its encoded size, and its representation, and rejects any
+    extension (Memos, tags, bounds, Signers, future optional fields) before
+    either manifest signature is verified. Fee is mirrored here and pinned to
+    its one value by checkFee() and, at ingress, checkManifestIngressFee().
  */
 bool
-hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept
+hasCanonicalUnsignedSetManifestShape(
+    STTx const& tx,
+    std::uint32_t networkID) noexcept
 {
     try
     {
         auto const& manifest =
             const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+        auto const masterKey = manifest.getFieldVL(sfPublicKey);
+        if (!publicKeyType(makeSlice(masterKey)))
+            return false;
+
         auto const canonical = canonicalUnsignedSetManifest(
             manifest,
-            tx.getAccountID(sfAccount),
-            tx[~sfNetworkID],
+            calcAccountID(PublicKey(makeSlice(masterKey))),
+            canonicalNetworkID(networkID),
             tx[sfFee].xrp());
-
-        if (tx.getCount() != canonical.getCount())
-            return false;
 
         auto const actualBytes = tx.getSerializer();
         auto const canonicalBytes = canonical.getSerializer();
@@ -128,8 +147,11 @@ hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept
 std::optional<std::uint32_t>
 onLedgerManifestSequence(ReadView const& view, PublicKey const& masterKey)
 {
+    // One keylet namespace serves both lookup directions, so another
+    // account's signing-key copy can sit at this master key's keylet. Only
+    // the master's own copy is a registration.
     auto const sle = view.read(keylet::manifest(masterKey));
-    if (!sle)
+    if (!sle || sle->getAccountID(sfAccount) != calcAccountID(masterKey))
         return std::nullopt;
     return sle->getFieldU32(sfSequence);
 }
@@ -162,7 +184,8 @@ SetManifest::preflight(PreflightContext const& ctx)
     // complete shape even if a relayer also attached Signers: the canonical
     // envelope has none, so that extension is rejected before any crypto.
     bool const manifestAuthorityCandidate = hasManifestAuthorityMarkers(tx);
-    if (manifestAuthorityCandidate && !hasCanonicalUnsignedSetManifestShape(tx))
+    if (manifestAuthorityCandidate &&
+        !hasCanonicalUnsignedSetManifestShape(tx, ctx.app.config().NETWORK_ID))
     {
         JLOG(j.warn()) << "SetManifest: non-canonical unsigned envelope.";
         return temMALFORMED;
@@ -194,10 +217,12 @@ SetManifest::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
-    // preflight2 already verified the manifest-authorized lane. An ordinary
+    // preflight2 already verified the manifest-authorized lane, except in a
+    // dry run (simulate), where it skips signature checks. An ordinary
     // account signature authenticates only the envelope, so that lane still
     // needs the manifest's own signatures checked here.
-    if (!manifestAuthorized && !manifest->verify())
+    if ((!manifestAuthorized || (ctx.flags & tapDRY_RUN)) &&
+        !manifest->verify())
     {
         JLOG(j.warn())
             << "SetManifest: invalid manifest passed (manifest.verify failed).";
@@ -597,8 +622,7 @@ makeSetManifestTx(
         return serializeHex(canonicalUnsignedSetManifest(
             manifestObject,
             calcAccountID(man->masterKey),
-            networkID > 1024 ? std::optional<std::uint32_t>{networkID}
-                             : std::nullopt,
+            canonicalNetworkID(networkID),
             *fee));
     }
     catch (std::exception const& e)

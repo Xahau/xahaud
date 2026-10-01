@@ -55,8 +55,8 @@ namespace test {
 */
 struct SetManifest_test : public beast::unit_test::suite
 {
-    // A manifest transaction is unsigned, so the network id is mandatory and
-    // the network must be one that requires it (id > 1024).
+    // A network that requires NetworkID (id > 1024), so the canonical unsigned
+    // envelope carries one and the account-signed lane sets it too.
     static std::unique_ptr<Config>
     makeConfig(std::string fee = "10")
     {
@@ -264,13 +264,14 @@ struct SetManifest_test : public beast::unit_test::suite
     applyDirect(
         jtx::Env& env,
         std::shared_ptr<STTx const> const& tx,
-        std::function<void(OpenView&)> const& prepare = {})
+        std::function<void(OpenView&)> const& prepare = {},
+        ApplyFlags flags = tapNONE)
     {
         TER ret = tesSUCCESS;
         env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
             if (prepare)
                 prepare(view);
-            ret = ripple::apply(env.app(), view, *tx, tapNONE, j).ter;
+            ret = ripple::apply(env.app(), view, *tx, flags, j).ter;
             return false;  // discard, corrupt or otherwise
         });
         return ret;
@@ -348,6 +349,10 @@ struct SetManifest_test : public beast::unit_test::suite
             sleAcct->getFieldH256(sfManifestID) ==
             keylet::manifest(master.pk()).key);
         BEAST_EXPECT(sleAcct->getFieldU32(sfOwnerCount) == 1);
+
+        // The ephemeral key's keylet holds this account's signing-key copy.
+        // That is not a registration of the ephemeral key as a master.
+        BEAST_EXPECT(!onLedgerManifestSequence(*env.current(), ephemeral.pk()));
 
         // Account-signed registration consumed exactly one ordinary Sequence.
         BEAST_EXPECT(env.seq(master) == sequenceBefore + 1);
@@ -1100,21 +1105,31 @@ struct SetManifest_test : public beast::unit_test::suite
                     obj.setFieldU32(sfFlags, 0x00000001);
                 })) == temINVALID_FLAG);
 
-        // Outer authority is checked before manifest parsing. An unsigned
-        // envelope delegates that check to the embedded manifest, so malformed
-        // or badly signed manifest bytes are signature failures here.
+        // The canonical envelope derives its Account from the manifest's master
+        // key, so a manifest without one has no canonical envelope at all and
+        // is malformed before any signature work.
         BEAST_EXPECT(
             applyDirect(
                 env, envelope(env, makeUnparseableManifest(), master.id())) ==
-            temINVALID);
+            temMALFORMED);
 
-        // A manifest whose signatures do not check out.
+        // A manifest whose signatures do not check out. Outer authority is
+        // checked before the manifest is otherwise parsed, and an unsigned
+        // envelope delegates that check to the embedded manifest, so this is a
+        // signature failure.
         {
             auto bad = good;
             bad[bad.size() - 1] ^= 0xFF;
             BEAST_EXPECT(
                 applyDirect(env, envelope(env, bad, master.id())) ==
                 temINVALID);
+
+            // A dry run (simulate) skips preflight2's signature checks, so the
+            // transactor verifies the manifest itself.
+            BEAST_EXPECT(
+                applyDirect(
+                    env, envelope(env, bad, master.id()), {}, tapDRY_RUN) ==
+                temMALFORMED);
 
             // Envelope shape is cheaper than either manifest signature. Even
             // at RPC/overlay ingress, the same bad manifest plus a Memo is
@@ -1137,9 +1152,31 @@ struct SetManifest_test : public beast::unit_test::suite
             BEAST_EXPECT(applyDirect(env, badWithMemo) == temMALFORMED);
         }
 
-        // The envelope's account must be the manifest's master key.
-        BEAST_EXPECT(
-            applyDirect(env, envelope(env, good, other.id())) == temMALFORMED);
+        // The envelope's account must be the manifest's master key, and its
+        // NetworkID this server's. Both are derived rather than mirrored, so a
+        // relayer cannot vary either to mint txids that reach manifest crypto:
+        // ingress rejects the variant as a bad envelope before verifying, and
+        // never as a soft fee miss.
+        auto const otherAccount = envelope(env, good, other.id());
+        auto const otherNetwork =
+            envelope(env, good, master.id(), [](STObject& obj) {
+                obj.setFieldU32(sfNetworkID, 21338);
+            });
+        for (auto const& variant : {otherAccount, otherNetwork})
+        {
+            auto const [validity, reason] = checkValidity(
+                env.app().getHashRouter(),
+                *variant,
+                env.current()->rules(),
+                env.app().config());
+            BEAST_EXPECT(validity == Validity::SigBad);
+            BEAST_EXPECT(
+                reason == "Manifest-authorized envelope is not canonical");
+            BEAST_EXPECT(
+                checkManifestIngressFee(env.app(), *variant).first ==
+                ManifestIngressFee::NotApplicable);
+        }
+        BEAST_EXPECT(applyDirect(env, otherAccount) == temMALFORMED);
 
         // Every envelope field a relayer could otherwise choose is pinned.
         for (auto const& [name, tweak] : std::vector<
@@ -1279,8 +1316,9 @@ struct SetManifest_test : public beast::unit_test::suite
                          view.rawReplace(replacement);
                      }) == tefBAD_LEDGER);
 
-        // The reverse: the account root has forgotten its manifest, so the
-        // erase pass is skipped and the keylet is found occupied.
+        // The reverse: the account root has forgotten its manifest while the
+        // canonical keylet still holds this account's object. Preclaim
+        // refuses that half-present slot before doApply runs.
         BEAST_EXPECT(applyDirect(env, update, [&](OpenView& view) {
                          auto replacement =
                              rawCopy(view.read(keylet::account(master.id())));
