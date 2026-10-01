@@ -20,12 +20,12 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/misc/ValidatorSite.h>
-#include <xrpld/app/tx/apply.h>
 #include <xrpld/app/rdb/RelationalDatabase.h>
 #include <xrpld/app/rdb/Wallet.h>
-#include <xrpld/core/ConfigSections.h>
+#include <xrpld/app/tx/apply.h>
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/ConnectAttempt.h>
 #include <xrpld/overlay/detail/PeerImp.h>
@@ -37,7 +37,9 @@
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/protocol/STTx.h>
+#include <xrpl/resource/Fees.h>
 #include <xrpl/server/SimpleWriter.h>
 
 #include <xrpld/core/ConfigSections.h>
@@ -104,6 +106,7 @@ OverlayImpl::Timer::on_timer(error_code ec)
 
     overlay_.m_peerFinder->once_per_second();
     overlay_.sendEndpoints();
+    overlay_.sendXUSHPeers();
     overlay_.autoConnect();
     if (overlay_.app_.config().TX_REDUCE_RELAY_ENABLE)
         overlay_.sendTxQueue();
@@ -147,6 +150,8 @@ OverlayImpl::OverlayImpl(
     , next_id_(1)
     , timer_count_(0)
     , slots_(app.logs(), *this)
+    , xushSocket4_(io_service_)
+    , xushSocket6_(io_service_)
     , m_stats(
           std::bind(&OverlayImpl::collect_metrics, this),
           collector,
@@ -492,6 +497,9 @@ OverlayImpl::start()
     m_peerFinder->setConfig(config);
     m_peerFinder->start();
 
+    if (app_.config().UDP_HIGHWAY)
+        openXUSH();
+
     auto addIps = [this](std::vector<std::string> ips, bool fixed) {
         beast::Journal const& j = app_.journal("Overlay");
         for (auto& ip : ips)
@@ -564,6 +572,7 @@ OverlayImpl::stop()
         cond_.wait(lock, [this] { return list_.empty(); });
     }
     m_peerFinder->stop();
+    closeXUSH();
 }
 
 //------------------------------------------------------------------------------
@@ -1469,374 +1478,357 @@ OverlayImpl::deleteIdlePeers()
     slots_.deleteIdlePeers();
 }
 
+//------------------------------------------------------------------------------
+//
+// XUSH (Xahau UDP Superhighway)
+//
+//------------------------------------------------------------------------------
+
+namespace {
+
+// Called from the JobQueue. Performs the expensive checks and then hands the
+// transaction to NetworkOPs which, if it applies, relays it over both the peer
+// protocol and the highway.
+void
+checkXUSHTransaction(
+    Application& app,
+    beast::Journal j,
+    std::shared_ptr<STTx const> const& stx,
+    Resource::Consumer usage)
+{
+    auto const txID = stx->getTransactionID();
+
+    try
+    {
+        if (stx->isFieldPresent(sfLastLedgerSequence) &&
+            (stx->getFieldU32(sfLastLedgerSequence) <
+             app.getLedgerMaster().getValidLedgerIndex()))
+        {
+            app.getHashRouter().setFlags(txID, SF_BAD);
+            usage.charge(Resource::feeUselessData, "XUSH expired tx");
+            return;
+        }
+
+        if (auto const [validity, reason] = checkValidity(
+                app.getHashRouter(),
+                *stx,
+                app.getLedgerMaster().getValidatedRules(),
+                app.config());
+            validity != Validity::Valid)
+        {
+            JLOG(j.trace())
+                << "XUSH: transaction " << txID << " failed checks: " << reason;
+            app.getHashRouter().setFlags(txID, SF_BAD);
+            usage.charge(Resource::feeInvalidSignature, "XUSH tx signature");
+            return;
+        }
+
+        std::string why;
+        auto tx = std::make_shared<Transaction>(stx, why, app);
+        if (tx->getStatus() == INVALID)
+        {
+            JLOG(j.trace())
+                << "XUSH: transaction " << txID << " is invalid: " << why;
+            app.getHashRouter().setFlags(txID, SF_BAD);
+            usage.charge(Resource::feeInvalidSignature, "XUSH tx (impossible)");
+            return;
+        }
+
+        app.getOPs().processTransaction(
+            tx, false, false, NetworkOPs::FailHard::no);
+    }
+    catch (std::exception const& ex)
+    {
+        JLOG(j.warn()) << "XUSH: exception checking transaction " << txID
+                       << ": " << ex.what();
+        app.getHashRouter().setFlags(txID, SF_BAD);
+        usage.charge(Resource::feeInvalidData, "XUSH tx exception");
+    }
+}
+
+}  // namespace
+
 void
 OverlayImpl::processXUSH(
     std::string const& message,
     boost::asio::ip::tcp::endpoint const& remoteEndpoint)
 {
-    JLOG(journal_.trace()) << "processXUSH";
-    // Fragment tracking: txid -> {endpoint, timestamp, total_size,
-    // fragments_received, data_map}
-    struct FragmentInfo
+    if (!app_.config().UDP_HIGHWAY)
+        return;
+
+    auto const remote = beast::IPAddressConversion::from_asio(remoteEndpoint);
+
+    // Datagrams are unauthenticated, so they are accounted for against the
+    // sender's IP address exactly like an inbound peer connection.
+    auto usage = m_resourceManager.newInboundEndpoint(remote);
+    if (usage.disconnect(journal_))
+        return;
+    usage.charge(Resource::feeTrivialPeer, "XUSH datagram");
+
+    Slice const datagram(message.data(), message.size());
+
+    switch (xush::classify(datagram))
     {
-        boost::asio::ip::tcp::endpoint sender;
-        uint32_t timestamp;
-        uint32_t total_size;
-        uint32_t num_fragments;
-        std::map<uint32_t, std::string> fragments;
-    };
-    static std::map<uint256, FragmentInfo> fragment_map;
-    static std::map<boost::asio::ip::tcp::endpoint, uint32_t> bad_sender_score;
-    static std::mt19937 rng{std::random_device{}()};
+        case xush::MessageType::peers:
+            onXUSHPeers(datagram, remote, usage);
+            break;
 
-    const uint8_t* data = reinterpret_cast<const uint8_t*>(message.data());
-    uint32_t now = std::time(nullptr);
+        case xush::MessageType::txn:
+            onXUSHTxnFragment(datagram, remote, usage);
+            break;
 
-    // Opportunistic cleanup - check up to 10 random entries
-    if (!fragment_map.empty())
+        case xush::MessageType::unknown:
+            // Ignored, so that new datagram types can be added later.
+            JLOG(journal_.trace()) << "XUSH: unknown datagram from " << remote;
+            break;
+    }
+}
+
+void
+OverlayImpl::onXUSHPeers(
+    Slice datagram,
+    beast::IP::Endpoint const& remote,
+    Resource::Consumer& usage)
+{
+    auto const endpoints = xush::decodePeers(datagram);
+    if (!endpoints)
     {
-        int checks_to_perform =
-            std::min(10, static_cast<int>(fragment_map.size()));
-
-        for (int i = 0; i < checks_to_perform; i++)
-        {
-            auto it = fragment_map.begin();
-            std::advance(
-                it,
-                std::uniform_int_distribution<>(
-                    0, fragment_map.size() - 1)(rng));
-
-            if (now - it->second.timestamp > 30)
-            {  // 30 second timeout
-                bad_sender_score[it->second.sender]++;
-                fragment_map.erase(it);
-            }
-        }
+        usage.charge(Resource::feeMalformedRequest, "XUSHPEER malformed");
+        return;
     }
 
-    // XUSHPEER packet
-    if (message.size() >= 10 && std::memcmp(data, "XUSHPEER", 8) == 0)
+    JLOG(journal_.trace()) << "XUSHPEER from " << remote << " with "
+                           << endpoints->size() << " endpoints";
+
+    m_peerFinder->add_highway_peers(*endpoints);
+}
+
+void
+OverlayImpl::onXUSHTxnFragment(
+    Slice datagram,
+    beast::IP::Endpoint const& remote,
+    Resource::Consumer& usage)
+{
+    auto const fragment = xush::decodeTxnFragment(datagram);
+    if (!fragment)
     {
-        JLOG(journal_.trace()) << "XUSHTXNF packet";
-        uint256 txid{
-            uint256::fromVoid(reinterpret_cast<const char*>(data + 8))};
-        uint32_t total_size =
-            ntohl(*reinterpret_cast<const uint32_t*>(data + 40));
-        uint32_t num_fragments =
-            ntohl(*reinterpret_cast<const uint32_t*>(data + 44));
-        uint32_t fragment_num =
-            ntohl(*reinterpret_cast<const uint32_t*>(data + 48));
-
-        if (fragment_num >= num_fragments || total_size > 1048576 * 2)
-            return;  // 2MB limit
-
-        // Mute bad senders progressively
-        if (bad_sender_score[remoteEndpoint] > 10)
-        {
-            if (std::uniform_int_distribution<>(
-                    0, bad_sender_score[remoteEndpoint])(rng) > 10)
-                return;
-        }
-
-        auto& info = fragment_map[txid];
-        if (info.fragments.empty())
-        {
-            info.sender = remoteEndpoint;
-            info.timestamp = now;
-            info.total_size = total_size;
-            info.num_fragments = num_fragments;
-        }
-
-
-                Slice txSlice(complete_tx.data(), complete_tx.size());
-                SerialIter sit(txSlice);
-
-                try
-                {
-                    auto stx = std::make_shared<STTx const>(sit);
-                    uint256 computedTxid = stx->getTransactionID();
-
-                    JLOG(journal_.info()) << "XUSH txn complete " << strHex(computedTxid)
-                              << "\n";
-
-                    // if txn is corrupt (wrong txid) or an emitted txn, or
-                    // can't make it into a ledger bill the sender and drop
-                    if (txid != computedTxid ||
-                        stx->isFieldPresent(sfEmitDetails) ||
-                        (stx->isFieldPresent(sfLastLedgerSequence) &&
-                         (stx->getFieldU32(sfLastLedgerSequence) <
-                          app_.getLedgerMaster().getValidLedgerIndex())))
-                    {
-                        bad_sender_score[remoteEndpoint]++;
-                        fragment_map.erase(txid);
-                        return;
-                    }
-
-                    // Check the signature
-                    if (auto [valid, validReason] = checkValidity(
-                            app_.getHashRouter(),
-                            *stx,
-                            app_.getLedgerMaster().getValidatedRules(),
-                            app_.config());
-                        valid != Validity::Valid)
-                    {
-                        if (!validReason.empty())
-                        {
-                            JLOG(journal_.trace())
-                                << "Exception checking transaction: "
-                                << validReason;
-                        }
-
-                        app_.getHashRouter().setFlags(
-                            stx->getTransactionID(), SF_BAD);
-                        bad_sender_score[remoteEndpoint]++;
-                        fragment_map.erase(txid);
-                        return;
-                    }
-
-                    // execution to here means the txn passed basic checks
-                    // machine gun it to peers over the highway
-
-                    m_peerFinder->machine_gun_highway_peers(txSlice, txid);
-
-                    // add it to our own node for processing
-                    std::string reason;
-                    auto tpTrans =
-                        std::make_shared<Transaction>(stx, reason, app_);
-                    if (tpTrans->getStatus() != NEW)
-                        return;
-
-                    app_.getOPs().processTransaction(tpTrans, false, false, NetworkOPs::FailHard::no);
-
-                    return;
-                }
-                catch (std::exception const& ex)
-                {
-                    JLOG(journal_.warn())
-                        << "Transaction invalid: " << strHex(txSlice)
-                        << ". Exception: " << ex.what();
-                }
-            }
-
-            // successful reconstruction would have returned before here
-            bad_sender_score[remoteEndpoint]++;
-            fragment_map.erase(txid);
-        }
+        usage.charge(Resource::feeMalformedRequest, "XUSHTXNF malformed");
+        return;
     }
 
-    // XUSHPING packet (network topology discovery)
-    else if (message.size() >= 9 && std::memcmp(data, "XUSHPING", 8) == 0)
+    auto result = [&] {
+        std::lock_guard lock(xushMutex_);
+        return xushReassembler_.add(
+            remote, *fragment, xush::Reassembler::clock_type::now());
+    }();
+
+    switch (result.status)
     {
-        JLOG(journal_.trace()) << "XUSHPING packet";
-        JLOG(journal_.trace()) << "XUSHPING from: " << remoteEndpoint;
+        case xush::Reassembler::Status::pending:
+            break;
 
-        // Extract the ping data (everything after the 8-byte header)
-        std::vector<uint8_t> pingData(data + 8, data + message.size());
+        case xush::Reassembler::Status::overloaded:
+            JLOG(journal_.debug())
+                << "XUSHTXNF: reassembly limit reached, dropped fragment from "
+                << remote;
+            break;
 
-        // Get our node identity
-        auto const& nodeIdentity = app_.nodeIdentity();
-        std::vector<uint8_t> myNodeId(32);
-        std::memcpy(
-            myNodeId.data(),
-            nodeIdentity.first.data(),
-            std::min(myNodeId.size(), nodeIdentity.first.size()));
+        case xush::Reassembler::Status::invalid:
+            usage.charge(Resource::feeInvalidData, "XUSHTXNF inconsistent");
+            break;
 
-        // Check TTL
-        if (pingData.size() < 9)
-        {
-            JLOG(journal_.warn()) << "XUSHPING: packet too small";
-            return;
-        }
-
-        // Decode sender node ID
-        if (pingData.size() < 12)
-        {
-            JLOG(journal_.warn()) << "XUSHPING: malformed packet";
-            return;
-        }
-        uint32_t senderNodeIdLen = (static_cast<uint32_t>(pingData[0]) << 24) |
-            (static_cast<uint32_t>(pingData[1]) << 16) |
-            (static_cast<uint32_t>(pingData[2]) << 8) |
-            static_cast<uint32_t>(pingData[3]);
-
-        if (senderNodeIdLen > 64 || 4 + senderNodeIdLen > pingData.size())
-        {
-            JLOG(journal_.warn()) << "XUSHPING: bad sender node ID length";
-            return;
-        }
-
-        // Decode sender node ID bytes
-        std::vector<uint8_t> senderId(
-            pingData.begin() + 4, pingData.begin() + 4 + senderNodeIdLen);
-
-        // Check if this ping has returned to us (we are the sender)
-        if (senderId == myNodeId)
-        {
-            JLOG(journal_.info())
-                << "XUSHPING returned to us via " << remoteEndpoint;
-
-            // Record topology info
-            uint16_t hopCountOffset = 4 + senderNodeIdLen;
-            if (hopCountOffset + 2 <= pingData.size())
-            {
-                uint16_t hopCount =
-                    (static_cast<uint16_t>(pingData[hopCountOffset]) << 8) |
-                    pingData[hopCountOffset + 1];
-
-                // Record each hop as a potential hub
-                for (uint16_t i = 0; i < hopCount; i++)
-                {
-                    size_t entryOffset =
-                        hopCountOffset + 2 + i * (4 + senderNodeIdLen);
-                    if (entryOffset + 4 + senderNodeIdLen > pingData.size())
-                        break;
-
-                    uint32_t entryLen =
-                        (static_cast<uint32_t>(pingData[entryOffset]) << 24) |
-                        (static_cast<uint32_t>(pingData[entryOffset + 1])
-                         << 16) |
-                        (static_cast<uint32_t>(pingData[entryOffset + 2])
-                         << 8) |
-                        static_cast<uint32_t>(pingData[entryOffset + 3]);
-
-                    if (entryLen > 0 &&
-                        entryLen + entryOffset + 4 <= pingData.size())
-                    {
-                        // Log the hop
-                        std::string hexId;
-                        for (size_t k = 0;
-                             k < std::min((size_t)8, (size_t)entryLen);
-                             k++)
-                            hexId +=
-                                std::to_string(pingData[entryOffset + 4 + k]);
-                        JLOG(journal_.info())
-                            << "XUSHPING topology hop " << i << ": " << hexId;
-                    }
-                }
-            }
-            return;
-        }
-
-        // Decode hop count and TTL
-        uint16_t hopCountOffset = 4 + senderNodeIdLen;
-        if (hopCountOffset + 6 > pingData.size())
-        {
-            JLOG(journal_.warn()) << "XUSHPING: can't read hop count/TTL";
-            return;
-        }
-
-        uint16_t hopCount =
-            (static_cast<uint16_t>(pingData[hopCountOffset]) << 8) |
-            pingData[hopCountOffset + 1];
-
-        size_t ttlOffset =
-            hopCountOffset + 2 + hopCount * (4 + senderNodeIdLen);
-        if (ttlOffset + 4 > pingData.size())
-        {
-            JLOG(journal_.warn()) << "XUSHPING: can't read TTL";
-            return;
-        }
-
-        uint32_t ttl = (static_cast<uint32_t>(pingData[ttlOffset]) << 24) |
-            (static_cast<uint32_t>(pingData[ttlOffset + 1]) << 16) |
-            (static_cast<uint32_t>(pingData[ttlOffset + 2]) << 8) |
-            static_cast<uint32_t>(pingData[ttlOffset + 3]);
-
-        // Check if we're already in the hop list
-        bool alreadyInList = false;
-        for (uint16_t i = 0; i < hopCount; i++)
-        {
-            size_t entryOffset = hopCountOffset + 2 + i * (4 + senderNodeIdLen);
-            if (entryOffset + 4 + senderNodeIdLen > pingData.size())
-                break;
-
-            uint32_t entryLen =
-                (static_cast<uint32_t>(pingData[entryOffset]) << 24) |
-                (static_cast<uint32_t>(pingData[entryOffset + 1]) << 16) |
-                (static_cast<uint32_t>(pingData[entryOffset + 2]) << 8) |
-                static_cast<uint32_t>(pingData[entryOffset + 3]);
-
-            if (entryLen == myNodeId.size() &&
-                std::memcmp(
-                    pingData.data() + entryOffset + 4,
-                    myNodeId.data(),
-                    myNodeId.size()) == 0)
-            {
-                alreadyInList = true;
-                break;
-            }
-        }
-
-        if (alreadyInList)
-        {
-            JLOG(journal_.warn()) << "XUSHPING: loop detected, dropping";
-            return;
-        }
-
-        if (ttl == 0)
-        {
-            JLOG(journal_.warn()) << "XUSHPING: TTL expired";
-            return;
-        }
-
-        // Hidden mode: don't add ourselves to hop list, just forward
-        if (app_.config().HIDDEN_MODE)
-        {
-            JLOG(journal_.info())
-                << "XUSHPING: hidden mode - forwarding without self-advertise";
-            ttl--;
-            pingData[ttlOffset] = static_cast<uint8_t>((ttl >> 24) & 0xFF);
-            pingData[ttlOffset + 1] = static_cast<uint8_t>((ttl >> 16) & 0xFF);
-            pingData[ttlOffset + 2] = static_cast<uint8_t>((ttl >> 8) & 0xFF);
-            pingData[ttlOffset + 3] = static_cast<uint8_t>(ttl & 0xFF);
-            Slice slice(pingData.data(), pingData.size());
-            m_peerFinder->machine_gun_highway_peers(slice, uint256{});
-            return;
-        }
-
-        // Add ourselves to hop list (in real impl we'd rebuild the packet)
-        // For now, decrement TTL and forward
-        ttl--;
-        pingData[ttlOffset] = static_cast<uint8_t>((ttl >> 24) & 0xFF);
-        pingData[ttlOffset + 1] = static_cast<uint8_t>((ttl >> 16) & 0xFF);
-        pingData[ttlOffset + 2] = static_cast<uint8_t>((ttl >> 8) & 0xFF);
-        pingData[ttlOffset + 3] = static_cast<uint8_t>(ttl & 0xFF);
-
-        // Record hops for topology analysis
-        for (uint16_t i = 0; i < hopCount; i++)
-        {
-            size_t entryOffset = hopCountOffset + 2 + i * (4 + senderNodeIdLen);
-            if (entryOffset + 4 + senderNodeIdLen > pingData.size())
-                break;
-
-            uint32_t entryLen =
-                (static_cast<uint32_t>(pingData[entryOffset]) << 24) |
-                (static_cast<uint32_t>(pingData[entryOffset + 1]) << 16) |
-                (static_cast<uint32_t>(pingData[entryOffset + 2]) << 8) |
-                static_cast<uint32_t>(pingData[entryOffset + 3]);
-
-            if (entryLen > 0 && entryLen + entryOffset + 4 <= pingData.size())
-            {
-                std::string hexId;
-                for (size_t k = 0; k < std::min((size_t)8, (size_t)entryLen);
-                     k++)
-                    hexId += std::to_string(pingData[entryOffset + 4 + k]);
-                JLOG(journal_.trace()) << "XUSHPING hop " << i << ": " << hexId;
-            }
-        }
-
-        // Forward to other highway peers
-        JLOG(journal_.info())
-            << "XUSHPING: forwarding ttl=" << ttl << " hops=" << hopCount;
-        Slice slice(pingData.data(), pingData.size());
-        m_peerFinder->machine_gun_highway_peers(slice, uint256{});
+        case xush::Reassembler::Status::complete:
+            onXUSHTransaction(result.txn, fragment->txid, usage);
+            break;
     }
+}
+
+void
+OverlayImpl::onXUSHTransaction(
+    Buffer const& blob,
+    uint256 const& txid,
+    Resource::Consumer& usage)
+{
+    // If we've never been in sync, there's nothing we can do with it
+    if (app_.getOPs().isNeedNetworkLedger())
+        return;
+
+    std::shared_ptr<STTx const> stx;
+    try
+    {
+        SerialIter sit(Slice(blob.data(), blob.size()));
+        stx = std::make_shared<STTx const>(sit);
+    }
+    catch (std::exception const& ex)
+    {
+        JLOG(journal_.debug()) << "XUSH: malformed transaction: " << ex.what();
+        usage.charge(Resource::feeInvalidData, "XUSH malformed tx");
+        return;
+    }
+
+    auto const txID = stx->getTransactionID();
+
+    // The ID in the header can't be used for anything (in particular, not to
+    // suppress a transaction) until it's known to match the content.
+    if (txID != txid)
+    {
+        usage.charge(Resource::feeInvalidData, "XUSH tx ID mismatch");
+        return;
+    }
+
+    // Emitted transactions are never relayed, and pseudo-transactions are
+    // never submitted by servers.
+    if (stx->isFieldPresent(sfEmitDetails) || isPseudoTx(*stx))
+    {
+        usage.charge(Resource::feeHeavyBurdenPeer, "XUSH emitted/pseudo tx");
+        return;
+    }
+
+    int flags;
+    if (!app_.getHashRouter().shouldProcess(
+            txID, 0, flags, std::chrono::seconds(10)))
+    {
+        // We have seen this transaction recently
+        if (flags & SF_BAD)
+            usage.charge(Resource::feeUselessData, "XUSH known bad tx");
+        return;
+    }
+
+    if (app_.getLedgerMaster().getValidatedLedgerAge() >
+        std::chrono::minutes(4))
+    {
+        JLOG(journal_.trace()) << "XUSH: no new transactions until synced";
+        return;
+    }
+
+    if (app_.getJobQueue().getJobCount(jtTRANSACTION) >
+        app_.config().MAX_TRANSACTIONS)
+    {
+        incJqTransOverflow();
+        JLOG(journal_.info()) << "XUSH: transaction queue is full";
+        return;
+    }
+
+    app_.getJobQueue().addJob(
+        jtTRANSACTION,
+        "XUSH->checkTransaction",
+        [&app = app_, j = journal_, stx, usage]() {
+            checkXUSHTransaction(app, j, stx, usage);
+        });
 }
 
 void
 OverlayImpl::publishTxXUSH(Slice const& tx, uint256 const& txid)
 {
-    m_peerFinder->machine_gun_highway_peers(tx, txid);
+    if (!app_.config().UDP_HIGHWAY)
+        return;
+
+    auto const targets = m_peerFinder->highway_targets(xush::txnFanout);
+    if (targets.empty())
+        return;
+
+    auto const datagrams = xush::encodeTxn(tx, txid);
+    if (datagrams.empty())
+    {
+        JLOG(journal_.debug())
+            << "XUSH: transaction " << txid << " is too large for the highway";
+        return;
+    }
+
+    sendXUSH(datagrams, targets);
+}
+
+void
+OverlayImpl::sendXUSHPeers()
+{
+    if (!app_.config().UDP_HIGHWAY)
+        return;
+
+    auto const adverts =
+        m_peerFinder->highway_adverts(xush::maxAdvertisedPeers);
+    if (adverts.empty())
+        return;
+
+    auto const targets = m_peerFinder->highway_targets(xush::advertFanout);
+    if (targets.empty())
+        return;
+
+    sendXUSH({xush::encodePeers(adverts)}, targets);
+}
+
+void
+OverlayImpl::sendXUSH(
+    std::vector<Buffer> const& datagrams,
+    std::vector<beast::IP::Endpoint> const& targets)
+{
+    std::lock_guard lock(xushSendMutex_);
+
+    for (auto const& target : targets)
+    {
+        auto& socket = target.address().is_v4() ? xushSocket4_ : xushSocket6_;
+        if (!socket.is_open())
+            continue;
+
+        boost::asio::ip::udp::endpoint const to(
+            target.address(), target.port());
+
+        for (auto const& datagram : datagrams)
+        {
+            boost::system::error_code ec;
+            socket.send_to(
+                boost::asio::buffer(datagram.data(), datagram.size()),
+                to,
+                0,
+                ec);
+
+            // The socket never blocks: if it can't take a datagram now, the
+            // rest are dropped too. The peer protocol still relays them.
+            if (ec)
+            {
+                JLOG(journal_.trace()) << "XUSH: send to " << target
+                                       << " failed: " << ec.message();
+                break;
+            }
+        }
+    }
+}
+
+void
+OverlayImpl::openXUSH()
+{
+    using boost::asio::ip::udp;
+
+    std::lock_guard lock(xushSendMutex_);
+
+    auto open = [this](udp::socket& socket, udp const& protocol) {
+        boost::system::error_code ec;
+        socket.open(protocol, ec);
+        if (!ec && protocol == udp::v6())
+            socket.set_option(boost::asio::ip::v6_only(true), ec);
+        if (!ec)
+            socket.non_blocking(true, ec);
+
+        if (ec)
+        {
+            JLOG(journal_.warn()) << "XUSH: unable to open "
+                                  << (protocol == udp::v4() ? "IPv4" : "IPv6")
+                                  << " socket: " << ec.message();
+            boost::system::error_code ignored;
+            socket.close(ignored);
+        }
+    };
+
+    open(xushSocket4_, udp::v4());
+    open(xushSocket6_, udp::v6());
+}
+
+void
+OverlayImpl::closeXUSH()
+{
+    std::lock_guard lock(xushSendMutex_);
+    boost::system::error_code ignored;
+    xushSocket4_.close(ignored);
+    xushSocket6_.close(ignored);
 }
 
 //------------------------------------------------------------------------------

@@ -533,8 +533,8 @@ Config::loadFromString(std::string const& fileContents)
     if (getSingleSection(secConfig, SECTION_PEER_PRIVATE, strTemp, j_))
         PEER_PRIVATE = beast::lexicalCastThrow<bool>(strTemp);
 
-    if (getSingleSection(secConfig, SECTION_HIDDEN_MODE, strTemp, j_))
-        HIDDEN_MODE = beast::lexicalCastThrow<bool>(strTemp);
+    if (getSingleSection(secConfig, SECTION_UDP_HIGHWAY, strTemp, j_))
+        UDP_HIGHWAY = beast::lexicalCastThrow<bool>(strTemp);
 
     if (getSingleSection(secConfig, SECTION_PEERS_MAX, strTemp, j_))
     {

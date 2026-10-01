@@ -79,9 +79,6 @@ public:
 template <class Handler>
 class ServerImpl : public Server
 {
-public:
-    Application& app_;
-
 private:
     using clock_type = std::chrono::system_clock;
 
@@ -105,8 +102,7 @@ public:
     ServerImpl(
         Handler& handler,
         boost::asio::io_service& io_service,
-        beast::Journal journal,
-        Application& app);
+        beast::Journal journal);
 
     ~ServerImpl();
 
@@ -146,10 +142,8 @@ template <class Handler>
 ServerImpl<Handler>::ServerImpl(
     Handler& handler,
     boost::asio::io_service& io_service,
-    beast::Journal journal,
-    Application& app)
-    : app_(app)
-    , handler_(handler)
+    beast::Journal journal)
+    : handler_(handler)
     , j_(journal)
     , io_service_(io_service)
     , strand_(io_service_)
@@ -211,18 +205,14 @@ ServerImpl<Handler>::ports(std::vector<Port> const& ports)
                 sp->run();
             }
 
-            if (port.has_peer())
+            // UDP Superhighway (XUSH) datagrams arrive on the peer port
+            // number. TCP and UDP port numbers are independent, so this
+            // needs no socket sharing with the TCP door.
+            if (internalPort.has_peer() && internalPort.udp_highway)
             {
-                if (app_.config().UDP_HIGHWAY_PORT == 0)
-                    app_.config().UDP_HIGHWAY_PORT = port.port;
-
-                // peer ports run dual tcp/udp stack
                 if (auto sp = ios_.emplace<UDPDoor<Handler>>(
-                        handler_, io_service_, ports_.back(), j_))
-                {
-                    eps.push_back(sp->get_endpoint());
+                        handler_, io_service_, internalPort, j_))
                     sp->run();
-                }
             }
         }
     }

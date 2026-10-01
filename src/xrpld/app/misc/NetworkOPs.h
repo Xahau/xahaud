@@ -110,7 +110,7 @@ public:
         std::shared_ptr<Transaction>& transaction,
         bool bUnlimited,
         bool bLocal,
-        FailHard failType = FailHard::no) = 0;
+        FailHard failType) = 0;
 
     //--------------------------------------------------------------------------
     //

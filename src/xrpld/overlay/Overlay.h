@@ -26,7 +26,6 @@
 #include <xrpl/json/json_value.h>
 #include <xrpl/server/Handoff.h>
 #include <boost/asio/buffer.hpp>
-#include <xrpld/peerfinder/PeerfinderManager.h>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/ssl/stream.hpp>
@@ -237,18 +236,21 @@ public:
     virtual Json::Value
     txMetrics() const = 0;
 
-    /** Returns peer finder manager reference */
-    virtual PeerFinder::Manager&
-    peerFinder() = 0;
+    /** Process a datagram received on the UDP Superhighway (XUSH).
 
-    /** Process incoming Xahau UDP Superhighway (XUSH) message */
+        Datagrams arrive on the peer port. They are unauthenticated and are
+        accounted for against the sender's IP address.
+    */
     virtual void
     processXUSH(
         std::string const& message,
         boost::asio::ip::tcp::endpoint const& remoteEndpoint) = 0;
 
+    /** Send a serialized transaction to UDP Superhighway (XUSH) peers.
 
-    /** Send the txn to UDP Superhighway peers */
+        Does nothing unless the highway is enabled. Callers must relay each
+        transaction at most once (see HashRouter::shouldRelay).
+    */
     virtual void
     publishTxXUSH(Slice const& tx, uint256 const& txid) = 0;
 };

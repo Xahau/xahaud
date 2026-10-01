@@ -1580,6 +1580,12 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     tx.set_deferred(e.result == terQUEUED);
                     // FIXME: This should be when we received it
                     app_.overlay().relay(e.transaction->getID(), tx, *toSkip);
+
+                    // Also fan it out over the UDP Superhighway, if enabled.
+                    // shouldRelay() above ensures we do this at most once.
+                    app_.overlay().publishTxXUSH(
+                        s.slice(), e.transaction->getID());
+
                     e.transaction->setBroadcast();
                 }
             }

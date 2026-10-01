@@ -24,10 +24,15 @@
 #include <xrpld/peerfinder/detail/Logic.h>
 #include <xrpld/peerfinder/detail/SourceStrings.h>
 #include <xrpld/peerfinder/detail/StoreSqdb.h>
+#include <xrpld/peerfinder/detail/Tuning.h>
+#include <xrpl/basics/random.h>
 #include <boost/asio/io_service.hpp>
 #include <boost/utility/in_place_factory.hpp>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <random>
 #include <thread>
 
 namespace ripple {
@@ -94,6 +99,17 @@ public:
     void
     setConfig(Config const& config) override
     {
+        {
+            std::lock_guard lock(m_highwayMutex);
+            m_highwayEnabled = config.udpHighway;
+            m_highwayPrivate = config.peerPrivate;
+            if (!m_highwayEnabled)
+            {
+                m_highwayPeers.clear();
+                m_highwayLearned = 0;
+            }
+        }
+
         m_logic.config(config);
     }
 
@@ -108,12 +124,14 @@ public:
         std::string const& name,
         std::vector<beast::IP::Endpoint> const& addresses) override
     {
-        // add fixed peers to superhighway
         {
-            std::lock_guard<std::mutex> lock(m_udp_highway_mutex);
-            uint32_t t = static_cast<uint32_t>(std::time(nullptr));
-            for (auto const& a : addresses)
-                m_udp_highway_peers.emplace(a, t);
+            std::lock_guard lock(m_highwayMutex);
+            if (m_highwayEnabled)
+            {
+                auto const now = m_clock.now();
+                for (auto const& address : addresses)
+                    learnHighwayPeer(address, HighwaySource::fixed, now);
+            }
         }
 
         m_logic.addFixedPeer(name, addresses);
@@ -153,12 +171,15 @@ public:
     on_endpoints(std::shared_ptr<Slot> const& slot, Endpoints const& endpoints)
         override
     {
-        // add endpoints to superhighway
         {
-            std::lock_guard<std::mutex> lock(m_udp_highway_mutex);
-            uint32_t t = static_cast<uint32_t>(std::time(nullptr));
-            for (auto const& a : endpoints)
-                m_udp_highway_peers.emplace(a.address, t);
+            std::lock_guard lock(m_highwayMutex);
+            if (m_highwayEnabled)
+            {
+                auto const now = m_clock.now();
+                for (auto const& ep : endpoints)
+                    learnHighwayPeer(
+                        ep.address, HighwaySource::authenticated, now);
+            }
         }
 
         SlotImp::ptr impl(std::dynamic_pointer_cast<SlotImp>(slot));
@@ -184,13 +205,17 @@ public:
         boost::asio::ip::tcp::endpoint const& remote_address,
         std::vector<boost::asio::ip::tcp::endpoint> const& eps) override
     {
-        // add redirects to superhighway
         {
-            std::lock_guard<std::mutex> lock(m_udp_highway_mutex);
-            uint32_t t = static_cast<uint32_t>(std::time(nullptr));
-            for (auto const& a : eps)
-                m_udp_highway_peers.emplace(
-                    beast::IPAddressConversion::from_asio(a), t);
+            std::lock_guard lock(m_highwayMutex);
+            if (m_highwayEnabled)
+            {
+                auto const now = m_clock.now();
+                for (auto const& ep : eps)
+                    learnHighwayPeer(
+                        beast::IPAddressConversion::from_asio(ep),
+                        HighwaySource::authenticated,
+                        now);
+            }
         }
 
         m_logic.onRedirects(eps.begin(), eps.end(), remote_address);
@@ -234,120 +259,7 @@ public:
     once_per_second() override
     {
         m_logic.once_per_second();
-
-        // clean superhighway in an amortized fashion
-        static std::mt19937 rng(std::random_device{}());
-        {
-            std::lock_guard<std::mutex> lock(m_udp_highway_mutex);
-
-            uint32_t t = static_cast<uint32_t>(std::time(nullptr));
-
-            for (int i = 0; i < std::min(3, (int)m_udp_highway_peers.size());
-                 ++i)
-            {
-                auto it = std::next(
-                    m_udp_highway_peers.begin(),
-                    std::uniform_int_distribution<>(
-                        0, m_udp_highway_peers.size() - 1)(rng));
-
-                /* highway peers we haven't seen anything from for 500 seconds
-                 * are removed */
-                if (t - it->second > 500)
-                    m_udp_highway_peers.erase(it);
-            }
-        }
-
-        // we will also randomly choose some peers and send our peer list
-        {
-            static boost::asio::io_context io_ctx;
-            static boost::asio::ip::udp::socket sock(
-                io_ctx, boost::asio::ip::udp::v4());
-
-            if (m_udp_highway_peers.empty())
-                return;
-
-            // Lambda to randomly sample N items from map
-            auto sample = [&](size_t n) {
-                std::vector<std::pair<beast::IP::Endpoint, uint32_t>> vec(
-                    m_udp_highway_peers.begin(), m_udp_highway_peers.end());
-                std::shuffle(vec.begin(), vec.end(), rng);
-                vec.resize(std::min(n, vec.size()));
-                return vec;
-            };
-
-            // Select up to 100 peers to encode
-            auto peers_to_encode = sample(100);
-
-            // Lambda to encode peers into binary packet
-            // Format: [8 bytes: "XUSHPEER"][1 byte: IPv4 count][1 byte: IPv6
-            // count][IPv4s][IPv6s]
-            auto encode = [](const auto& peers) {
-                std::vector<uint8_t> packet;
-                packet.reserve(
-                    10 +
-                    peers.size() * 24);  // 8 magic + 2 header + max peer data
-
-                // Separate IPv4 and IPv6
-                std::vector<const beast::IP::Endpoint*> ipv4s, ipv6s;
-                for (const auto& p : peers)
-                {
-                    if (p.first.address().is_v4())
-                        ipv4s.push_back(&p.first);
-                    else
-                        ipv6s.push_back(&p.first);
-                }
-
-                // Magic code: XUSHPEER
-                const char* magic = "XUSHPEER";
-                packet.insert(packet.end(), magic, magic + 8);
-
-                // Header: [IPv4 count][IPv6 count]
-                packet.push_back(static_cast<uint8_t>(ipv4s.size()));
-                packet.push_back(static_cast<uint8_t>(ipv6s.size()));
-
-                // Pack IPv4s (4 bytes IP + 4 bytes port)
-                for (auto ep : ipv4s)
-                {
-                    auto v4 = ep->address().to_v4().to_bytes();
-                    packet.insert(packet.end(), v4.begin(), v4.end());
-                    uint32_t port = htonl(ep->port());
-                    packet.insert(
-                        packet.end(), (uint8_t*)&port, (uint8_t*)&port + 4);
-                }
-
-                // Pack IPv6s (16 bytes IP + 4 bytes port)
-                for (auto ep : ipv6s)
-                {
-                    auto v6 = ep->address().to_v6().to_bytes();
-                    packet.insert(packet.end(), v6.begin(), v6.end());
-                    uint32_t port = htonl(ep->port());
-                    packet.insert(
-                        packet.end(), (uint8_t*)&port, (uint8_t*)&port + 4);
-                }
-
-                return packet;
-            };
-
-            auto packet = encode(peers_to_encode);
-
-            // Select 20 peers to send to (re-roll, overlap is fine)
-            auto targets = sample(20);
-
-            // Send packet to each target
-            for (const auto& [endpoint, _] : targets)
-            {
-                try
-                {
-                    boost::asio::ip::udp::endpoint udp_ep(
-                        endpoint.address(), endpoint.port());
-                    sock.send_to(boost::asio::buffer(packet), udp_ep);
-                }
-                catch (...)
-                {
-                    // Silent fail, continue to next peer
-                }
-            }
-        }
+        expireHighwayPeers();
     }
 
     std::vector<std::pair<std::shared_ptr<Slot>, std::vector<Endpoint>>>
@@ -355,6 +267,47 @@ public:
     {
         return m_logic.buildEndpointsForPeers();
     }
+
+    //--------------------------------------------------------------------------
+    //
+    // XUSH (Xahau UDP Superhighway)
+    //
+    //--------------------------------------------------------------------------
+
+    void
+    add_highway_peers(
+        std::vector<beast::IP::Endpoint> const& endpoints) override
+    {
+        std::lock_guard lock(m_highwayMutex);
+        if (!m_highwayEnabled)
+            return;
+
+        auto const now = m_clock.now();
+        for (auto const& ep : endpoints)
+            learnHighwayPeer(ep, HighwaySource::advertised, now);
+    }
+
+    std::vector<beast::IP::Endpoint>
+    highway_targets(std::size_t n) override
+    {
+        std::lock_guard lock(m_highwayMutex);
+        return sampleHighwayPeers(n, [this](HighwayPeer const& peer) {
+            return peer.fixed || !m_highwayPrivate;
+        });
+    }
+
+    std::vector<beast::IP::Endpoint>
+    highway_adverts(std::size_t n) override
+    {
+        std::lock_guard lock(m_highwayMutex);
+        if (m_highwayPrivate)
+            return {};
+
+        return sampleHighwayPeers(
+            n, [](HighwayPeer const& peer) { return !peer.fixed; });
+    }
+
+    //--------------------------------------------------------------------------
 
     void
     start() override
@@ -377,6 +330,138 @@ public:
     }
 
 private:
+    //--------------------------------------------------------------------------
+    //
+    // XUSH (Xahau UDP Superhighway)
+    //
+    //--------------------------------------------------------------------------
+
+    enum class HighwaySource {
+        // Configured by the operator in [ips_fixed]
+        fixed,
+
+        // Endpoint gossip or a redirect received over a peer connection
+        authenticated,
+
+        // An unauthenticated XUSHPEER datagram
+        advertised
+    };
+
+    struct HighwayPeer
+    {
+        // Fixed peers never expire and are never advertised.
+        bool fixed = false;
+
+        // When the endpoint was last learned from a fixed or authenticated
+        // source. Learned entries expire once this is too old.
+        clock_type::time_point learned;
+    };
+
+    std::mutex m_highwayMutex;
+    bool m_highwayEnabled = false;
+    bool m_highwayPrivate = true;
+    std::size_t m_highwayLearned = 0;  // Number of entries that are not fixed
+    std::map<beast::IP::Endpoint, HighwayPeer> m_highwayPeers;
+
+    // Requires m_highwayMutex
+    void
+    learnHighwayPeer(
+        beast::IP::Endpoint const& ep,
+        HighwaySource source,
+        clock_type::time_point now)
+    {
+        if (is_unspecified(ep) || ep.port() == 0)
+            return;
+
+        auto const it = m_highwayPeers.find(ep);
+
+        if (source == HighwaySource::fixed)
+        {
+            if (it == m_highwayPeers.end())
+            {
+                m_highwayPeers.emplace(ep, HighwayPeer{true, now});
+            }
+            else if (!it->second.fixed)
+            {
+                it->second.fixed = true;
+                --m_highwayLearned;
+            }
+            return;
+        }
+
+        // Endpoints learned from other servers must be publicly routable.
+        if (!is_public(ep))
+            return;
+
+        if (it != m_highwayPeers.end())
+        {
+            // Only authenticated sources extend the life of an entry, so that
+            // unauthenticated advertisements can't keep stale entries alive.
+            if (source == HighwaySource::authenticated)
+                it->second.learned = now;
+            return;
+        }
+
+        if (m_highwayLearned >= Tuning::highwayPeersMax)
+            return;
+
+        m_highwayPeers.emplace(ep, HighwayPeer{false, now});
+        ++m_highwayLearned;
+    }
+
+    void
+    expireHighwayPeers()
+    {
+        std::lock_guard lock(m_highwayMutex);
+        auto const now = m_clock.now();
+
+        for (auto it = m_highwayPeers.begin(); it != m_highwayPeers.end();)
+        {
+            if (!it->second.fixed &&
+                now - it->second.learned > Tuning::highwayPeerSecondsToLive)
+            {
+                it = m_highwayPeers.erase(it);
+                --m_highwayLearned;
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+
+    // Requires m_highwayMutex
+    template <class Predicate>
+    std::vector<beast::IP::Endpoint>
+    sampleHighwayPeers(std::size_t n, Predicate&& eligible)
+    {
+        std::vector<beast::IP::Endpoint const*> candidates;
+        candidates.reserve(m_highwayPeers.size());
+        for (auto const& [ep, peer] : m_highwayPeers)
+        {
+            if (eligible(peer))
+                candidates.push_back(&ep);
+        }
+
+        n = std::min(n, candidates.size());
+
+        // A partial Fisher-Yates shuffle: the first n candidates become a
+        // uniformly random sample.
+        std::vector<beast::IP::Endpoint> result;
+        result.reserve(n);
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            std::uniform_int_distribution<std::size_t> pick(
+                i, candidates.size() - 1);
+            std::swap(candidates[i], candidates[pick(default_prng())]);
+            result.push_back(*candidates[i]);
+        }
+
+        return result;
+    }
+
+    //--------------------------------------------------------------------------
+
     struct Stats
     {
         template <class Handler>

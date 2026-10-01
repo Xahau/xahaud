@@ -176,7 +176,6 @@ public:
 
     // Network parameters
     uint32_t NETWORK_ID = 0;
-    uint16_t UDP_HIGHWAY_PORT = 0;  // this will be the first peer port
 
     // DEPRECATED - Fee units for a reference transction.
     // Only provided for backwards compatibility in a couple of places
@@ -195,9 +194,10 @@ public:
     // True to ask peers not to relay current IP.
     bool PEER_PRIVATE = false;
 
-    // Hidden mode: validator participates in consensus but does not
-    // advertise itself to the network. Useful for stealth validators.
-    bool HIDDEN_MODE = false;
+    // True to enable the Xahau UDP Superhighway (XUSH): a best-effort UDP
+    // transport on the peer port used to fan transactions out to other
+    // highway-enabled servers in addition to the normal peer relay.
+    bool UDP_HIGHWAY = false;
     // peers_max is a legacy configuration, which is going to be replaced
     // with individual inbound peers peers_in_max and outbound peers
     // peers_out_max configuration. for now we support both the legacy and

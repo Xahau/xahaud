@@ -114,7 +114,7 @@ ServerHandler::ServerHandler(
     , m_resourceManager(resourceManager)
     , m_journal(app_.journal("Server"))
     , m_networkOPs(networkOPs)
-    , m_server(make_Server(*this, io_service, app_.journal("Server"), app))
+    , m_server(make_Server(*this, io_service, app_.journal("Server")))
     , m_jobQueue(jobQueue)
 {
     auto const& group(cm.group("rpc"));
@@ -388,21 +388,11 @@ void
 ServerHandler::onUDPMessage(
     std::string const& message,
     boost::asio::ip::tcp::endpoint const& remoteEndpoint,
-    Port const& p,
+    Port const& port,
     std::function<void(std::string const&)> sendResponse)
 {
-    uint8_t static is_peer[65536] = {};
-    auto const port = p.port;
-
-    if (is_peer[port] == 0 /* not yet known */)
-    {
-        is_peer[port] = p.has_peer() ? 1 : 2;
-        std::cout << "set port " << port << " to " << ('0' + is_peer[port])
-                  << "\n";
-    }
-
-    // udp messages arriving on peer protocol ports are sent back to overlay
-    if (is_peer[port] == 1)
+    // Datagrams arriving on the peer port belong to the UDP Superhighway
+    if (port.has_peer())
         return app_.overlay().processXUSH(message, remoteEndpoint);
 
     Json::Value jv;
@@ -1468,6 +1458,12 @@ setup_ServerHandler(Config const& config, std::ostream&& log)
 {
     ServerHandler::Setup setup;
     setup.ports = parse_Ports(config, log);
+
+    if (config.UDP_HIGHWAY)
+    {
+        for (auto& port : setup.ports)
+            port.udp_highway = port.has_peer();
+    }
 
     setup_Client(setup);
     setup_Overlay(setup);

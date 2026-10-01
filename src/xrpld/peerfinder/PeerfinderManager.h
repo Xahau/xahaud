@@ -19,8 +19,6 @@
 
 #ifndef RIPPLE_PEERFINDER_MANAGER_H_INCLUDED
 #define RIPPLE_PEERFINDER_MANAGER_H_INCLUDED
-#include <xrpl/basics/Slice.h>
-#include <xrpl/basics/base_uint.h>
 
 #include <xrpld/core/Config.h>
 #include <xrpld/peerfinder/Slot.h>
@@ -76,6 +74,9 @@ struct Config
 
     /** Limit how many incoming connections we allow per IP */
     int ipLimit;
+
+    /** `true` if the Xahau UDP Superhighway (XUSH) is enabled. */
+    bool udpHighway = false;
 
     //--------------------------------------------------------------------------
 
@@ -275,13 +276,43 @@ public:
     virtual void
     once_per_second() = 0;
 
-    // XUSH (Xahau UDP Superhighway): register known highway peer endpoints
-    virtual void
-    add_highway_peers(std::vector<beast::IP::Endpoint> const&) {}
+    //--------------------------------------------------------------------------
+    //
+    // XUSH (Xahau UDP Superhighway)
+    //
+    // Highway endpoints are learned from fixed peers, from endpoint gossip
+    // and redirects received over authenticated peer connections, and from
+    // XUSHPEER advertisements received over UDP. Nothing is tracked unless
+    // the highway is enabled in the configuration.
+    //
+    //--------------------------------------------------------------------------
 
-    // XUSH (Xahau UDP Superhighway): broadcast data to all highway peers
+    /** Add highway endpoints advertised by another server over UDP.
+
+        Advertisements are unauthenticated, so only valid public addresses
+        are accepted, they never extend the lifetime of an existing entry,
+        and the number of learned (non-fixed) entries is bounded.
+    */
     virtual void
-    machine_gun_highway_peers(Slice const& data, uint256 const& txid) {}
+    add_highway_peers(std::vector<beast::IP::Endpoint> const& endpoints) = 0;
+
+    /** Returns up to `n` distinct highway endpoints, chosen at random, to
+        send highway traffic to.
+
+        If our own address is private only fixed peers are returned, so that
+        we never reveal our address to servers we did not choose.
+    */
+    virtual std::vector<beast::IP::Endpoint>
+    highway_targets(std::size_t n) = 0;
+
+    /** Returns up to `n` distinct highway endpoints, chosen at random, that
+        may be advertised to other servers.
+
+        Fixed peers are never advertised, and a server whose own address is
+        private advertises nothing.
+    */
+    virtual std::vector<beast::IP::Endpoint>
+    highway_adverts(std::size_t n) = 0;
 };
 
 }  // namespace PeerFinder

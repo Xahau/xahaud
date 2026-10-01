@@ -78,10 +78,9 @@ public:
         error_code ec;
 
         // Create UDP endpoint from port configuration
-        auto const addr = port_.ip.to_v4();
-        boost::asio::ip::udp::endpoint udp_endpoint(addr, port_.port);
+        boost::asio::ip::udp::endpoint udp_endpoint(port_.ip, port_.port);
 
-        socket_.open(boost::asio::ip::udp::v4(), ec);
+        socket_.open(udp_endpoint.protocol(), ec);
         if (ec)
         {
             JLOG(j_.error()) << "UDP socket open failed: " << ec.message();
@@ -96,25 +95,6 @@ public:
                 << "UDP set reuse_address failed: " << ec.message();
             return;
         }
-
-        std::cout << "UDP Door created on port " << port.port << "\n";
-
-        // Port reuse means we can support dual udp/tcp on the same port
-        // used for peer upgrades to lightweight udp protocol
-        /*
-        RHNOTE: in boost 1.70 apparently SO_REUSEPORT is included with reuse_address, 
-                there's no actual option without modifying the native socket handle
-                despite the obvious need for one. 
-        */
-        /*
-        socket_.set_option(boost::asio::socket_base::reuse_port(true), ec);
-        if (ec)
-        {
-            JLOG(j_.debug())
-                << "UDP set reuse_port failed: " << ec.message();
-            // Not fatal - some platforms don't support it
-        }
-        */
 
         socket_.bind(udp_endpoint, ec);
         if (ec)
@@ -152,8 +132,6 @@ private:
     void
     do_receive()
     {
-        std::cout << "UDP Door receive on " << port_.port << "\n";
-
         if (!socket_.is_open())
             return;
 
