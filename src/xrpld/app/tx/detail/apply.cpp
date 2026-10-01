@@ -206,16 +206,16 @@ checkManifestIngressFee(Application& app, STTx const& tx)
         auto const& manifest =
             const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
 
-        // Exactly two snapshots: no intermediate fee setting between them and
-        // no remembered earlier ones, so a relayer cannot widen the set of
-        // txids that reach manifest signature checks.
-        for (auto const base : {validated->fees().base, open->fees().base})
-        {
-            if (auto const canonical =
-                    canonicalUnsignedSetManifestFee(base, manifest);
-                canonical && *canonical == fee)
-                return {ManifestIngressFee::Canonical, {}};
-        }
+        // A transaction is priced from the parent of the ledger it is applied
+        // to. Here that is the open ledger, whose fees() are its parent's:
+        // exactly what preclaim enforces. A wrapper priced for any other fee
+        // setting cannot apply on this server, so it is not worth verifying,
+        // and no remembered setting widens the set of txids that reach
+        // manifest signature checks.
+        if (auto const canonical =
+                canonicalUnsignedSetManifestFee(open->fees().base, manifest);
+            canonical && *canonical == fee)
+            return {ManifestIngressFee::Canonical, {}};
     }
     catch (std::exception const&)
     {
@@ -226,8 +226,8 @@ checkManifestIngressFee(Application& app, STTx const& tx)
 
     return {
         ManifestIngressFee::Refused,
-        "Fee is not the canonical SetManifest fee for this server's "
-        "validated or open ledger"};
+        "Fee is not the canonical SetManifest fee for this server's open "
+        "ledger"};
 }
 
 ApplyResult

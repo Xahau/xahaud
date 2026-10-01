@@ -76,7 +76,7 @@ enum class ManifestIngressFee {
     /// Not a manifest-authorized SetManifest, or the amendment is not
     /// enabled; checkValidity applies as usual.
     NotApplicable,
-    /// The Fee is canonical for this node's validated or open ledger.
+    /// The Fee is canonical for the ledger this server would apply it to.
     Canonical,
     /// A canonically shaped envelope whose Fee cannot be confirmed here. Drop
     /// without verifying the manifest. Not a bad signature: the same bytes
@@ -87,11 +87,12 @@ enum class ManifestIngressFee {
 
 /** Checks an unsigned SetManifest's Fee before any manifest signature work.
 
-    The canonical Fee follows the voted base fee, so it is a function of
-    ledger state. Ingress accepts exactly the values computed from this node's
-    validated ledger and its open ledger, which differ only across a fee
-    change. A node with no validated ledger, or one that is amendment blocked,
-    has no trustworthy base and refuses.
+    The canonical Fee follows the voted base fee of the parent of the ledger
+    a transaction is applied to. Ingress accepts exactly the value for this
+    server's open ledger, priced from its parent: the same value preclaim
+    enforces, so nothing that passes here is refused there for its Fee. A
+    server with no validated ledger, or one that is amendment blocked, has no
+    trustworthy base and refuses.
 
     Every ingress caller runs this before checkValidity(), which no longer
     checks the Fee because the transactor engine calls it without a ledger.
