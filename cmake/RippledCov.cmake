@@ -11,6 +11,21 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
   return()
 endif()
 
+if(coverage_tool STREQUAL "llvm")
+  include(CodeCoverageLLVM)
+
+  setup_target_for_coverage_llvm(
+    NAME coverage
+    FORMAT ${coverage_format}
+    EXECUTABLE rippled
+    EXECUTABLE_ARGS --unittest$<$<BOOL:${coverage_test}>:=${coverage_test}> --unittest-jobs ${coverage_test_parallelism} --quiet --unittest-log
+    EXCLUDE "src/test" "include/xrpl/beast/test" "include/xrpl/beast/unit_test" "${CMAKE_BINARY_DIR}/pb-xrpl.libpb"
+    DEPENDENCIES rippled
+  )
+  return()
+endif()
+
+# coverage_tool == "gcov" (default): existing gcovr-driven pipeline.
 include(CodeCoverage)
 
 # The instructions for these commands come from the `CodeCoverage` module,

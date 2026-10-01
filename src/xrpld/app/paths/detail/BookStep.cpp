@@ -995,7 +995,13 @@ sum(TCollection const& col)
     using TResult = std::decay_t<decltype(*col.begin())>;
     if (col.empty())
         return TResult{beast::zero};
-    return std::accumulate(col.begin() + 1, col.end(), *col.begin());
+    return std::accumulate(
+        col.begin() + 1,
+        col.end(),
+        *col.begin(),
+        [](TResult const& a, TResult const& b) {
+            return checkedStepAdd(a, b);
+        });
 };
 
 template <class TIn, class TOut, class TDerived>

@@ -81,8 +81,8 @@ AMMCreate::preflight(PreflightContext const& ctx)
 XRPAmount
 AMMCreate::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
-    // The fee required for AMMCreate is one owner reserve.
-    return view.fees().increment;
+    // The least fee required for AMMCreate is one owner reserve.
+    return Transactor::calculateBaseFee(view, tx) + view.fees().increment;
 }
 
 TER

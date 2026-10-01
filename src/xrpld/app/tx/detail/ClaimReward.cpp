@@ -158,7 +158,10 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
 
                 auto const& hookOn =
                     hook::getHookOn(hook, sleDef, sfHookOnIncoming);
-                if (hook::canHook(ttCLAIM_REWARD, hookOn))
+                auto const hookName = ctx.view.rules().enabled(fix20260929)
+                    ? hook[~sfHookName]
+                    : std::nullopt;
+                if (hook::canHook(ctx.tx, hookOn, hookName))
                 {
                     hasClaimRewardHook = true;
                     break;

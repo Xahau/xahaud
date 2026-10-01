@@ -1135,7 +1135,15 @@ public:
                 return types == typesOut;
             };
             // Find AMM objects
-            AMM amm(env, gw, XRP(1'000), USD(1'000));
+            // gw has a hook installed, so pay the hook execution fee too.
+            AMM amm(
+                env,
+                gw,
+                XRP(1'000),
+                USD(1'000),
+                false,
+                0,
+                env.current()->fees().increment.drops() + 1'000'000);
             amm.deposit(alice, USD(1));
             // AMM account has 4 objects: AMM object and 3 trustlines
             auto const lines = getAccountLines(env, amm.ammAccount());

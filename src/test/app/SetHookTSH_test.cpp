@@ -8422,7 +8422,10 @@ private:
         testcase("set manifest TSH");
 
         if (!features[featureOnChainManifests])
+        {
+            pass();
             return;
+        }
 
         // otxn: master
         // tsh: ephemeral
