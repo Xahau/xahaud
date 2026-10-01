@@ -157,7 +157,7 @@ preflight1(PreflightContext const& ctx)
 
         auto const& name = ctx.tx.getFieldVL(sfHookName);
 
-        if (name.size() == 0 && ctx.rules.enabled(fixHookNameValidation))
+        if (name.size() == 0 && ctx.rules.enabled(fix20260929))
             return temMALFORMED;
         if (!SetHook::validateHookName(name, ctx.j))
             return temMALFORMED;
@@ -2050,6 +2050,16 @@ Transactor::operator()()
     if (auto stream = j_.trace())
         stream << "preclaim result: " << transToken(result);
 
+    return finishApply(result, hooksEnabled, aawMap, tsh);
+}
+
+ApplyResult
+Transactor::finishApply(
+    TER result,
+    bool hooksEnabled,
+    std::map<AccountID, std::set<uint256>>& aawMap,
+    std::vector<std::pair<AccountID, bool>>& tsh)
+{
     bool applied = isTesSuccess(result);
 
     auto fee = ctx_.tx.getFieldAmount(sfFee).xrp();

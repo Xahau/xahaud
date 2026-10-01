@@ -22,6 +22,8 @@
 
 #include <xrpld/app/paths/detail/AmountSpec.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/MathUtilities.h>
+#include <xrpl/basics/contract.h>
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/QualityFunction.h>
 #include <xrpl/protocol/STLedgerEntry.h>
@@ -29,6 +31,7 @@
 
 #include <boost/container/flat_set.hpp>
 #include <optional>
+#include <type_traits>
 
 namespace ripple {
 class PaymentSandbox;
@@ -509,6 +512,47 @@ public:
     {
     }
 };
+/// @endcond
+
+/// @cond INTERNAL
+/** Add two step amounts, returning std::nullopt if the exact sum is not
+    representable.
+*/
+template <class T>
+[[nodiscard]] std::optional<T>
+checkedStepAddOpt(T const& lhs, T const& rhs)
+{
+    if constexpr (std::is_same_v<T, XRPAmount>)
+    {
+        if (auto const r = checkedAdd(lhs.drops(), rhs.drops()))
+            return XRPAmount{*r};
+        return std::nullopt;
+    }
+    else if constexpr (std::is_same_v<T, IOUAmount>)
+    {
+        // IOUAmount normalizes and throws std::overflow_error on overflow;
+        // it cannot silently wrap.
+        return lhs + rhs;
+    }
+    else
+    {
+        // A new amount type must decide explicitly how to add; do not fall
+        // back to an unchecked add.
+        static_assert(sizeof(T) == 0, "checkedStepAddOpt: unsupported type");
+    }
+}
+
+/** As checkedStepAddOpt, but throws FlowException(tecPATH_DRY) on overflow
+    so that the enclosing strand is treated as dry.
+*/
+template <class T>
+[[nodiscard]] T
+checkedStepAdd(T const& lhs, T const& rhs)
+{
+    if (auto const r = checkedStepAddOpt(lhs, rhs))
+        return *r;
+    Throw<FlowException>(tecPATH_DRY);
+}
 /// @endcond
 
 /// @cond INTERNAL

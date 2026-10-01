@@ -25,6 +25,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/ledger/ApplyView.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/UTF8.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
 #include <xrpl/protocol/Feature.h>
@@ -34,7 +35,6 @@
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/TxFlags.h>
-#include <xrpl/protocol/UTF8.h>
 #include <algorithm>
 #include <cstdint>
 #include <exception>

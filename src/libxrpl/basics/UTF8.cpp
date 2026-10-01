@@ -17,7 +17,7 @@
 */
 //==============================================================================
 
-#include <xrpl/protocol/UTF8.h>
+#include <xrpl/basics/UTF8.h>
 
 namespace ripple {
 
