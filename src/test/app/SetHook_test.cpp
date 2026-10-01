@@ -2268,11 +2268,64 @@ public:
             BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
         }
 
-        // Call named hook with the wrong hook name
+        // Call named hook with the wrong hook name (size == 0)
+        for (auto const fix : {true, false})
+        {
+            auto f = features - fix20260929;
+            if (fix)
+                f = f | fix20260929;
+            Env env{*this, f};
+
+            env.fund(XRP(10000), alice);
+            // execute both named and non-named hooks
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "";
+
+            auto const expected = fix ? ter(temMALFORMED) : ter(tesSUCCESS);
+            env(jv,
+                M("Call named hook with the wrong hook name (size == 0)"),
+                HSFEE,
+                ter(expected));
+            env.close();
+        }
+
+        // Call a named hook with a HookName containing a noncharacter
+        // (U+FFFF followed by 'A'). Well-formed UTF-8, but always rejected.
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "EFBFBF41";
+            env(jv,
+                M("Call named hook with a noncharacter in the hook name"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Call a named hook with a HookName ending in a truncated sequence.
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+
+            auto jv = invoke::invoke(alice);
+            jv[jss::HookName] = "414243E0";
+            env(jv,
+                M("Call named hook with a truncated hook name"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // Call named hook with the wrong hook name (size > 0)
         {
             auto jv = invoke::invoke(alice);
             jv[jss::HookName] = "41424345";
-            env(jv, M("Call named hook with the wrong hook name"), HSFEE);
+            env(jv,
+                M("Call named hook with the wrong hook name (size > 0)"),
+                HSFEE);
             env.close();
             // execute only non-named hook
             BEAST_EXPECT(!env.meta()->isFieldPresent(sfHookEmissions));
@@ -3473,9 +3526,7 @@ public:
         {
             for (auto const& hook_wasm : {accept_oob_wasm, rollback_oob_wasm})
             {
-                Env env{
-                    *this,
-                    withFix ? features : features - fixHookExitOutOfBounds};
+                Env env{*this, withFix ? features : features - fix20260929};
 
                 auto const alice = Account{"alice"};
                 auto const bob = Account{"bob"};
@@ -12446,12 +12497,11 @@ public:
             {
                 for (bool const withSType : {true, false})
                 {
-                    auto feats =
-                        features - fixHookAPI20251128 - fixHookAPISType;
+                    auto feats = features - fixHookAPI20251128 - fix20260929;
                     if (with20251128)
                         feats = feats | fixHookAPI20251128;
                     if (withSType)
-                        feats = feats | fixHookAPISType;
+                        feats = feats | fix20260929;
 
                     Env env{*this, feats};
                     env.fund(XRP(10000), alice, bob);

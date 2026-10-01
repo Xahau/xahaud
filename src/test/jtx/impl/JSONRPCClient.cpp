@@ -23,6 +23,7 @@
 #include <xrpl/server/Port.h>
 #include <boost/asio.hpp>
 #include <boost/beast/http/dynamic_body.hpp>
+#include <boost/beast/http/error.hpp>
 #include <boost/beast/http/message.hpp>
 #include <boost/beast/http/read.hpp>
 #include <boost/beast/http/string_body.hpp>
@@ -74,11 +75,35 @@ class JSONRPCClient : public AbstractClient
     }
 
     boost::asio::ip::tcp::endpoint ep_;
-    boost::asio::io_service ios_;
+    boost::asio::io_context ios_;
     boost::asio::ip::tcp::socket stream_;
     boost::beast::multi_buffer bin_;
     boost::beast::multi_buffer bout_;
     unsigned rpc_version_;
+    unsigned reconnects_ = 0;
+
+    // Errors meaning the server closed the keep-alive connection, rather
+    // than a failed request, so the request can be sent again on a fresh one.
+    static bool
+    droppedConnection(boost::system::error_code const& ec)
+    {
+        namespace error = boost::asio::error;
+        return ec == boost::beast::http::error::end_of_stream ||
+            ec == error::eof || ec == error::connection_reset ||
+            ec == error::connection_aborted || ec == error::broken_pipe ||
+            ec == error::not_connected;
+    }
+
+    // Replace the dropped connection, discarding any bytes buffered from it.
+    void
+    reconnect()
+    {
+        boost::system::error_code ec;
+        stream_.close(ec);
+        bin_.clear();
+        stream_.connect(ep_);
+        ++reconnects_;
+    }
 
 public:
     explicit JSONRPCClient(Config const& cfg, unsigned rpc_version)
@@ -133,10 +158,30 @@ public:
             req.body() = to_string(jr);
         }
         req.prepare_payload();
-        write(stream_, req);
 
+        // The connection is opened at construction and kept alive, but the
+        // server closes it when the first request takes longer than
+        // BaseHTTPPeer::timeoutSecondsLocal to arrive (test setup on a loaded
+        // machine can), or when it idles past timeoutSeconds between requests.
+        // If the server has closed it, reconnect and send the request once
+        // more.
         response<dynamic_body> res;
-        read(stream_, bin_, res);
+        auto writeAndRead = [&] {
+            write(stream_, req);
+            read(stream_, bin_, res);
+        };
+        try
+        {
+            writeAndRead();
+        }
+        catch (boost::system::system_error const& e)
+        {
+            if (!droppedConnection(e.code()))
+                throw;
+            reconnect();
+            res = {};
+            writeAndRead();
+        }
 
         Json::Reader jr;
         Json::Value jv;
@@ -152,6 +197,12 @@ public:
     version() const override
     {
         return rpc_version_;
+    }
+
+    unsigned
+    reconnects() const override
+    {
+        return reconnects_;
     }
 };
 

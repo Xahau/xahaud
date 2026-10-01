@@ -20,6 +20,7 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/UTF8.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Protocol.h>
@@ -264,7 +265,7 @@ URIToken::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
-        if (!validateUTF8(uri))
+        if (!isValidUTF8(makeSlice(uri)))
         {
             JLOG(ctx.j.warn()) << "Malformed transaction. URI must be a "
                                   "valid utf-8 string.";
