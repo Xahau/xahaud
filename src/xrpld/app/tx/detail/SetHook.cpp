@@ -409,8 +409,9 @@ validateHookSetFields(SetHookCtx& ctx, STObject const& hookSetObj)
         return false;
     }
 
-    // Only hsoCreate was checking this before the Amendment.
-    // This check is executed in validateHookSetEntry hsoCreate
+    // Before featureHookOnV2_1 only hsoCREATE validated HookOn (see the
+    // hsoCREATE case in validateHookSetEntry). With the amendment enabled
+    // every operation that carries HookOn fields is validated here.
     if (ctx.rules.enabled(featureHookOnV2_1) &&
         isHookOnFieldsPresent(hookSetObj) && !validateHookOn(ctx, hookSetObj))
     {
@@ -521,12 +522,16 @@ SetHook::validateHookSetEntry(SetHookCtx& ctx, STObject const& hookSetObj)
                 hookSetObj.begin(), hookSetObj.end(), [](STBase const& b) {
                     return b.getSType() != STI_NOTPRESENT;
                 });
-            if (presentCount != 1 || !hookSetObj.isFieldPresent(sfFlags))
+            // inferOperation guarantees sfCreateCode is present and empty
+            // here, so the only other field allowed is sfFlags
+            if (presentCount != 2 || !hookSetObj.isFieldPresent(sfFlags) ||
+                !hookSetObj.isFieldPresent(sfCreateCode) ||
+                hookSetObj.getFieldVL(sfCreateCode).size() != 0)
             {
                 JLOG(ctx.j.trace())
                     << "HookSet(" << hook::log::DELETE_FIELD << ")[" << HS_ACC()
                     << "]: Malformed transaction: SetHook delete operation "
-                       "should contain only sfCreateCode & sfFlags";
+                       "should contain only empty sfCreateCode & sfFlags";
                 return false;
             }
 
