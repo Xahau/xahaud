@@ -39,6 +39,9 @@ CancelOffer::preflight(PreflightContext const& ctx)
         return temINVALID_FLAG;
     }
 
+    if (!ctx.rules.enabled(featureHooks) && ctx.tx.isFieldPresent(sfOfferID))
+        return temDISABLED;
+
     if ((!ctx.tx.isFieldPresent(sfOfferSequence) &&
          !ctx.tx.isFieldPresent(sfOfferID)) ||
         (ctx.tx.isFieldPresent(sfOfferSequence) &&
@@ -64,12 +67,33 @@ CancelOffer::preclaim(PreclaimContext const& ctx)
         return terNO_ACCOUNT;
 
     auto const offerSequence = ctx.tx[~sfOfferSequence];
+    auto const offerID = ctx.tx[~sfOfferID];
 
     if (offerSequence && (*sle)[sfSequence] <= *offerSequence)
     {
         JLOG(ctx.j.trace()) << "Malformed transaction: "
                             << "Sequence " << *offerSequence << " is invalid.";
         return temBAD_SEQUENCE;
+    }
+
+    if (offerID)
+    {
+        auto const offerkeylet = keylet::unchecked(*offerID);
+        if (auto const sleCancel = ctx.view.read(offerkeylet))
+        {
+            if (sleCancel->getFieldU16(sfLedgerEntryType) != ltOFFER)
+            {
+                JLOG(ctx.j.debug())
+                    << "OfferCancel specified non-offer ledger object";
+                return tecNO_PERMISSION;
+            }
+            else if (sleCancel->getAccountID(sfAccount) != id)
+            {
+                JLOG(ctx.j.debug())
+                    << "OfferCancel specified offer not owned by sender";
+                return tecNO_PERMISSION;
+            }
+        }
     }
 
     return tesSUCCESS;
@@ -100,6 +124,7 @@ CancelOffer::doApply()
         else
             JLOG(j_.debug()) << "Trying to cancel offer #" << *offerSequence;
 
+        // checked in preclaim
         if (sleOffer->getFieldU16(sfLedgerEntryType) != ltOFFER)
         {
             JLOG(j_.debug()) << "OfferCancel specified non-offer ledger object";

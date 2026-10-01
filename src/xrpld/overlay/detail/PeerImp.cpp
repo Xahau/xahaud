@@ -910,7 +910,7 @@ PeerImp::onReadMessage(error_code ec, std::size_t bytes_transferred)
     // advertised version. Before activation, discard oversized legacy dumps
     // without disconnecting; afterward reject at the header, before buffering.
     bool const enforceManifestFrameLimit =
-        app_.getLedgerMaster().getValidatedRules().enabled(fix20261001);
+        app_.getLedgerMaster().getValidatedRules().enabled(fix20260929);
 
     while (read_buffer_.size() > 0)
     {
