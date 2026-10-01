@@ -286,6 +286,8 @@ check_guard(
     int codesec,
     int start_offset,
     int end_offset,
+    std::map<int, std::map<int, std::string>> import_type_map,
+    std::map<int, uint32_t> const& import_cost_map,
     int guard_func_idx,
     int last_import_idx,
     GuardLog guardLog,
@@ -447,9 +449,11 @@ check_guard(
                 // charge them to the loop block itself, where the loop
                 // multiplier applies. instruction_count is deliberately left
                 // untouched: it feeds the 0xFFFF limit and the V1 fee.
+                auto const g = import_cost_map.find(guard_func_idx);
                 current->execution_cost +=
                     hook_api::loop_head_guard_instructions +
-                    hook_api::api_call_cost;
+                    (g != import_cost_map.end() ? g->second
+                                                : hook_api::api_call_cost);
             }
             continue;
         }
@@ -543,8 +547,9 @@ check_guard(
                     GUARD_ERROR("Too many guard calls! Limit is 1024");
             }
 
-            // every import (including _g) is a hook api call
-            current->execution_cost += hook_api::api_call_cost;
+            if (auto const it = import_cost_map.find(callee_idx);
+                it != import_cost_map.end())
+                current->execution_cost += it->second;
 
             continue;
         }
@@ -921,6 +926,10 @@ validateGuards(
         std::map<int /* import index */, std::string /* api name */>>
         import_type_map;
 
+    // api costs must be keyed by function index, which is the index space a
+    // call instruction refers to, not by type index
+    std::map<int /* import func idx */, uint32_t /* cost */> import_cost_map;
+
     // now we check for guards... first check if _g is imported
     int guard_import_number = -1;
     int last_import_number = -1;
@@ -1063,6 +1072,8 @@ validateGuards(
                 int type_idx = parseLeb128(wasm, i, &i);
                 CHECK_SHORT_HOOK();
 
+                uint32_t cost = 0;
+
                 auto it = import_whitelist.find(import_name);
                 auto it_end = import_whitelist.end();
                 bool found_in_whitelist = (it != it_end);
@@ -1070,7 +1081,9 @@ validateGuards(
                 if (import_name == "_g")
                     guard_import_number = func_upto;
 
-                if (!found_in_whitelist)
+                if (found_in_whitelist)
+                    cost = it->second.second;
+                else
                 {
                     GUARDLOG(hook::log::IMPORT_ILLEGAL)
                         << "Malformed transaction. "
@@ -1081,6 +1094,8 @@ validateGuards(
                         << "\n";
                     return {};
                 }
+
+                import_cost_map[func_upto] = cost;
 
                 // add to import map
                 import_type_map[type_idx].emplace(
@@ -1294,7 +1309,7 @@ validateGuards(
                     for (auto const& [import_idx, api_name] : usage->second)
                     {
                         auto const& api_signature =
-                            import_whitelist.find(api_name)->second;
+                            import_whitelist.find(api_name)->second.first;
 
                         if (!first_signature)
                         {
@@ -1533,6 +1548,8 @@ validateGuards(
                     j,
                     i,
                     code_end,
+                    import_type_map,
+                    import_cost_map,
                     guard_import_number,
                     last_import_number,
                     guardLog,

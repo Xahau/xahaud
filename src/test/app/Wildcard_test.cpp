@@ -35,7 +35,8 @@ class Wildcard_test : public beast::unit_test::suite
             config.append(
                 {"reference_fee = 10",
                  "account_reserve = 1000000",
-                 "owner_reserve = 200000"});
+                 "owner_reserve = 200000",
+                 "hook_gas_price = 1000000"});
             auto setup = setup_FeeVote(config);
             cfg->FEES = setup;
             return cfg;

@@ -452,7 +452,10 @@ private:
         hook = Json::objectValue;
         hook[jss::API] = Json::objectValue;
 #pragma push_macro("HOOK_API_DEFINITION")
+#pragma push_macro("HOOK_API_COST")
 #undef HOOK_API_DEFINITION
+#undef HOOK_API_COST
+#define HOOK_API_COST(FUNCTION_NAME, COST, AMENDMENT)
 #define HOOK_API_DEFINITION(                             \
     RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT) \
     addHookApi(                                          \
@@ -462,7 +465,9 @@ private:
         #PARAMS_TUPLE,                                   \
         AMENDMENT);
 #include <xrpl/hook/hook_api.macro>
+#undef HOOK_API_COST
 #undef HOOK_API_DEFINITION
+#pragma pop_macro("HOOK_API_COST")
 #pragma pop_macro("HOOK_API_DEFINITION")
 
         addEnumToJson<hook_api::keylet_code::keylet_code>(

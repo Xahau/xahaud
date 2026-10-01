@@ -8342,7 +8342,9 @@ private:
             BEAST_EXPECT(def->isFieldPresent(sfHookCost));
             BEAST_EXPECT(
                 paymentFee() ==
-                base + hook::hookCostToFee(def->getFieldU64(sfHookCost)));
+                base +
+                    hook::hookCostToFee(
+                        *env.current(), def->getFieldU64(sfHookCost)));
         }
         env(pay(alice, bob, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
         env.close();

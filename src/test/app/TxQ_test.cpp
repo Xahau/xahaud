@@ -5076,7 +5076,8 @@ public:
         // fragile: hardcoded ordering by txID XOR parentHash
         // parentHash < txTree Hash < txMeta < PreviousTxnID
         testTieBreaking(
-            all - fixProvisionalDoubleThreading - fixHookAPI20251128);
+            all - fixProvisionalDoubleThreading - fixHookAPI20251128 -
+            featureHookFeeV3);
         testAcctTxnID(all);
         testMaximum(all);
         testUnexpectedBalanceChange(all);
@@ -5105,7 +5106,8 @@ public:
         // fragile: hardcoded ordering by txID XOR parentHash
         // parentHash < txTree Hash < txMeta < PreviousTxnID
         testFullQueueGapFill(
-            all - fixProvisionalDoubleThreading - fixHookAPI20251128);
+            all - fixProvisionalDoubleThreading - fixHookAPI20251128 -
+            featureHookFeeV3);
         testSignAndSubmitSequence(all);
         testAccountInfo(all);
         testServerInfo(all);

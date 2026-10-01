@@ -37,36 +37,42 @@ class FeeVote_test : public beast::unit_test::suite
             BEAST_EXPECT(setup.reference_fee == defaultSetup.reference_fee);
             BEAST_EXPECT(setup.account_reserve == defaultSetup.account_reserve);
             BEAST_EXPECT(setup.owner_reserve == defaultSetup.owner_reserve);
+            BEAST_EXPECT(setup.hook_gas_price == defaultSetup.hook_gas_price);
         }
         {
             Section config;
             config.append(
                 {"reference_fee = 50",
                  "account_reserve = 1234567",
-                 "owner_reserve = 1234"});
+                 "owner_reserve = 1234",
+                 "hook_gas_price = 12345"});
             auto setup = setup_FeeVote(config);
             BEAST_EXPECT(setup.reference_fee == 50);
             BEAST_EXPECT(setup.account_reserve == 1234567);
             BEAST_EXPECT(setup.owner_reserve == 1234);
+            BEAST_EXPECT(setup.hook_gas_price == 12345);
         }
         {
             Section config;
             config.append(
                 {"reference_fee = blah",
                  "account_reserve = yada",
-                 "owner_reserve = foo"});
+                 "owner_reserve = foo",
+                 "hook_gas_price = baa"});
             // Illegal values are ignored, and the defaults left unchanged
             auto setup = setup_FeeVote(config);
             BEAST_EXPECT(setup.reference_fee == defaultSetup.reference_fee);
             BEAST_EXPECT(setup.account_reserve == defaultSetup.account_reserve);
             BEAST_EXPECT(setup.owner_reserve == defaultSetup.owner_reserve);
+            BEAST_EXPECT(setup.hook_gas_price == defaultSetup.hook_gas_price);
         }
         {
             Section config;
             config.append(
                 {"reference_fee = -50",
                  "account_reserve = -1234567",
-                 "owner_reserve = -1234"});
+                 "owner_reserve = -1234",
+                 "hook_gas_price = -12345"});
             // Illegal values are ignored, and the defaults left unchanged
             auto setup = setup_FeeVote(config);
             BEAST_EXPECT(setup.reference_fee == defaultSetup.reference_fee);
@@ -74,6 +80,8 @@ class FeeVote_test : public beast::unit_test::suite
                 setup.account_reserve == static_cast<std::uint32_t>(-1234567));
             BEAST_EXPECT(
                 setup.owner_reserve == static_cast<std::uint32_t>(-1234));
+            BEAST_EXPECT(
+                setup.hook_gas_price == static_cast<std::uint32_t>(-12345));
         }
         {
             const auto big64 = std::to_string(
@@ -84,12 +92,14 @@ class FeeVote_test : public beast::unit_test::suite
             config.append(
                 {"reference_fee = " + big64,
                  "account_reserve = " + big64,
-                 "owner_reserve = " + big64});
+                 "owner_reserve = " + big64,
+                 "hook_gas_price = " + big64});
             // Illegal values are ignored, and the defaults left unchanged
             auto setup = setup_FeeVote(config);
             BEAST_EXPECT(setup.reference_fee == defaultSetup.reference_fee);
             BEAST_EXPECT(setup.account_reserve == defaultSetup.account_reserve);
             BEAST_EXPECT(setup.owner_reserve == defaultSetup.owner_reserve);
+            BEAST_EXPECT(setup.hook_gas_price == defaultSetup.hook_gas_price);
         }
     }
 

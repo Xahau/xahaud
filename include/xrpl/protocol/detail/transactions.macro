@@ -933,6 +933,8 @@ TRANSACTION(ttFEE, 101, SetFee,
     {sfBaseFeeDrops, soeOPTIONAL},
     {sfReserveBaseDrops, soeOPTIONAL},
     {sfReserveIncrementDrops, soeOPTIONAL},
+    // HookCost
+    {sfHookGasPrice, soeOPTIONAL},
 }))
 
 /** This system-generated transaction type is used to update the network's negative UNL
