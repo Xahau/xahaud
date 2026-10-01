@@ -68,6 +68,40 @@ checkValidity(
     Config const& config,
     ApplyFlags const flags = tapNONE);
 
+/** Ingress fee outcome for a manifest-authorized SetManifest.
+
+    @see checkManifestIngressFee
+*/
+enum class ManifestIngressFee {
+    /// Not a manifest-authorized SetManifest, or the amendment is not
+    /// enabled; checkValidity applies as usual.
+    NotApplicable,
+    /// The Fee is canonical for this node's validated or open ledger.
+    Canonical,
+    /// Drop without verifying the manifest. Not a bad signature: the same
+    /// bytes may be canonical on another node, or here once this node reaches
+    /// the fee setting they were built for.
+    Refused
+};
+
+/** Checks an unsigned SetManifest's Fee before any manifest signature work.
+
+    The canonical Fee follows the voted base fee, so it is a function of
+    ledger state. Ingress accepts exactly the values computed from this node's
+    validated ledger and its open ledger, which differ only across a fee
+    change. A node with no validated ledger, or one that is amendment blocked,
+    has no trustworthy base and refuses.
+
+    Every ingress caller runs this before checkValidity(), which no longer
+    checks the Fee because the transactor engine calls it without a ledger.
+    A Refused result must be dropped without marking the transaction bad or
+    charging for an invalid signature.
+
+    @return the outcome and, if Refused, a reason
+*/
+std::pair<ManifestIngressFee, std::string>
+checkManifestIngressFee(Application& app, STTx const& tx);
+
 /** Sets the validity of a given transaction in the cache.
 
     @warning Use with extreme care.

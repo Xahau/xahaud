@@ -163,7 +163,7 @@ doSubmit(RPC::JsonContext& context)
         auto const hex = makeSetManifestTx(
             makeSlice(*raw),
             context.app.config().NETWORK_ID,
-            view->rules(),
+            view->fees().base,
             context.app.journal("Submit"));
 
         if (!hex)
@@ -197,6 +197,18 @@ doSubmit(RPC::JsonContext& context)
     }
 
     {
+        // Before any manifest signature work. Not a bad signature, so the
+        // transaction is not marked bad.
+        if (auto const [fee, feeReason] =
+                checkManifestIngressFee(context.app, *stTx);
+            fee == ManifestIngressFee::Refused)
+        {
+            jvResult[jss::error] = "invalidTransaction";
+            jvResult[jss::error_exception] = "fails local checks: " + feeReason;
+
+            return jvResult;
+        }
+
         if (!context.app.checkSigs())
             forceValidity(
                 context.app.getHashRouter(),

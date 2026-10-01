@@ -57,26 +57,21 @@ isUnsignedSetManifest(STTx const& tx) noexcept;
 bool
 hasCanonicalUnsignedSetManifestShape(STTx const& tx) noexcept;
 
-/** Return whether an unsigned SetManifest carries its one canonical Fee.
+/** Return the one canonical Fee for a manifest-authorized update.
 
-    Kept separate from the structural shape check so transactor preflight can
-    report temBAD_FEE precisely, while overlay ingress can reject fee variants
-    before either manifest signature is verified.
+    The Fee is `base * (100 + 10 * manifestBytes)`, where `base` is the voted
+    reference fee (`fees().base`) of the ledger the transaction is checked
+    against. Every node reading the same ledger computes the same value, so
+    one manifest maps to one transaction ID per fee setting; local load never
+    enters it. Account-signed SetManifest transactions use ordinary fee
+    calculation instead.
+
+    Returns nullopt when there is no canonical Fee: a zero base, or a product
+    that overflows or is not a legal amount. The function owns serialization
+    so callers cannot disagree about the byte count.
 */
-bool
-hasCanonicalUnsignedSetManifestFee(STTx const& tx, Rules const& rules) noexcept;
-
-/** Return the ruleset-fixed Fee for a manifest-authorized update.
-
-    This is deliberately independent of the current ledger fee schedule: one
-    admitted manifest maps to one transaction ID under one amendment ruleset.
-    A future pricing amendment may select new constants. Account-signed
-    SetManifest transactions continue to use ordinary dynamic fee calculation.
-    The function owns serialization so callers cannot disagree about byte
-    count, and retains the full object for future field-aware pricing.
-*/
-XRPAmount
-canonicalUnsignedSetManifestFee(Rules const& rules, STObject const& manifest);
+std::optional<XRPAmount>
+canonicalUnsignedSetManifestFee(XRPAmount base, STObject const& manifest);
 
 /** Return the current on-ledger sequence for a registered master key.
 
@@ -99,21 +94,22 @@ onLedgerManifestSequence(ReadView const& view, PublicKey const& masterKey);
 
     Returns hex because both callers feed the ordinary tx_blob submission
     path. The manifest is parsed and verified before the shared canonical
-    envelope builder serializes it with the ruleset-fixed Fee.
+    envelope builder serializes it with the canonical Fee for `base`.
 
     @param manifest Serialized manifest
     @param networkID Network the transaction is for
-    @param rules Active amendment rules that select the canonical price
+    @param base Voted reference fee of the open ledger the transaction is
+        submitted to
     @param j Journal
 
     @return the hex-encoded transaction, or nullopt if the manifest does not
-        parse or does not verify
+        parse or does not verify, or there is no canonical Fee for `base`
 */
 std::optional<std::string>
 makeSetManifestTx(
     Slice const& manifest,
     std::uint32_t networkID,
-    Rules const& rules,
+    XRPAmount base,
     beast::Journal j);
 
 class SetManifest : public Transactor

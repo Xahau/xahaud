@@ -17,8 +17,12 @@
 */
 //==============================================================================
 
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
@@ -87,13 +91,10 @@ checkValidity(
                 Validity::SigBad,
                 "Manifest-authorized envelope is not canonical"};
 
-        // Fee is the last otherwise-malleable outer field. Pin it before
-        // verifying either manifest signature so changing eight cheap bytes
-        // cannot mint fresh txids that repeat expensive crypto.
-        if (!hasCanonicalUnsignedSetManifestFee(tx, rules))
-            return {
-                Validity::SigBad,
-                "Manifest-authorized envelope has non-canonical fee"};
+        // Fee is the last otherwise-malleable outer field, but its canonical
+        // value depends on ledger fee state, which this function does not
+        // have. Ingress callers pin it first with checkManifestIngressFee();
+        // the transactor pins it again against the applying view in checkFee.
     }
 
     if (flags & SF_SIGBAD)
@@ -175,6 +176,53 @@ forceValidity(HashRouter& router, uint256 const& txid, Validity validity)
     }
     if (flags)
         router.setFlags(txid, flags);
+}
+
+std::pair<ManifestIngressFee, std::string>
+checkManifestIngressFee(Application& app, STTx const& tx)
+{
+    auto const open = app.openLedger().current();
+    if (!open->rules().enabled(featureOnChainManifests) ||
+        !hasManifestAuthorityMarkers(tx))
+        return {ManifestIngressFee::NotApplicable, {}};
+
+    // An amendment-blocked node's open ledger may sit on history the network
+    // is not validating, and with no validated ledger there is no agreed base
+    // at all. Neither is a reason to spend manifest crypto finding out.
+    if (app.getOPs().isAmendmentBlocked())
+        return {ManifestIngressFee::Refused, "server is amendment blocked"};
+    auto const validated = app.getLedgerMaster().getValidatedLedger();
+    if (!validated)
+        return {ManifestIngressFee::Refused, "no validated ledger"};
+
+    try
+    {
+        auto const fee = tx[sfFee].xrp();
+        auto const& manifest =
+            const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+
+        // Exactly two snapshots: no intermediate fee setting between them and
+        // no remembered earlier ones, so a relayer cannot widen the set of
+        // txids that reach manifest signature checks.
+        for (auto const base : {validated->fees().base, open->fees().base})
+        {
+            if (auto const canonical =
+                    canonicalUnsignedSetManifestFee(base, manifest);
+                canonical && *canonical == fee)
+                return {ManifestIngressFee::Canonical, {}};
+        }
+    }
+    catch (std::exception const&)
+    {
+        // Malformed Fee or manifest: leave it to checkValidity()'s shape
+        // check, which rejects it as a bad envelope.
+        return {ManifestIngressFee::NotApplicable, {}};
+    }
+
+    return {
+        ManifestIngressFee::Refused,
+        "Fee is not the canonical SetManifest fee for this server's "
+        "validated or open ledger"};
 }
 
 ApplyResult

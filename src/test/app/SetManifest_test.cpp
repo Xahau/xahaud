@@ -20,7 +20,9 @@
 #include <test/jtx.h>
 #include <test/jtx/network.h>
 #include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
@@ -181,7 +183,8 @@ struct SetManifest_test : public beast::unit_test::suite
         STObject const manifestObject{mit, sfManifest};
         return build(
             canonicalUnsignedSetManifestFee(
-                env.current()->rules(), manifestObject),
+                env.current()->fees().base, manifestObject)
+                .value_or(XRPAmount{0}),
             true);
     }
 
@@ -440,56 +443,99 @@ struct SetManifest_test : public beast::unit_test::suite
         auto const registration = makeManifest(master, eph1, 1);
         auto const update = makeManifest(master, eph2, 2);
 
-        std::optional<std::string> ordinaryHex;
+        auto const units = [](STObject const& manifestObject) {
+            return 100 +
+                10 *
+                static_cast<std::int64_t>(
+                    manifestObject.getSerializer().getDataLength());
+        };
+
+        // The builder prices against the voted base fee of the open ledger.
+        auto const build = [&](Env& env) -> std::shared_ptr<STTx const> {
+            auto const hex = makeSetManifestTx(
+                makeSlice(update),
+                env.app().config().NETWORK_ID,
+                env.current()->fees().base,
+                env.app().journal("SetManifest_test"));
+            if (!BEAST_EXPECT(hex))
+                return nullptr;
+            auto const bytes = strUnHex(*hex);
+            if (!BEAST_EXPECT(bytes))
+                return nullptr;
+            SerialIter txIter{makeSlice(*bytes)};
+            return std::make_shared<STTx const>(std::ref(txIter));
+        };
+
+        std::shared_ptr<STTx const> ordinaryTx;
         {
             Env ordinary{*this, makeConfig("10"), features};
-            ordinaryHex = makeSetManifestTx(
-                makeSlice(update),
-                ordinary.app().config().NETWORK_ID,
-                ordinary.current()->rules(),
-                ordinary.app().journal("SetManifest_test"));
-            if (!BEAST_EXPECT(ordinaryHex))
+            ordinaryTx = build(ordinary);
+            if (!ordinaryTx)
                 return;
-
-            auto const bytes = strUnHex(*ordinaryHex);
-            if (!BEAST_EXPECT(bytes))
-                return;
-            SerialIter txIter{makeSlice(*bytes)};
-            STTx const tx{std::ref(txIter)};
-            auto const& manifestObject =
-                const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+            auto const& manifestObject = const_cast<STTx&>(*ordinaryTx)
+                                             .getField(sfManifest)
+                                             .downcast<STObject>();
             BEAST_EXPECT(
-                tx[sfFee].xrp() ==
+                (*ordinaryTx)[sfFee].xrp() ==
                 canonicalUnsignedSetManifestFee(
-                    ordinary.current()->rules(), manifestObject));
+                    ordinary.current()->fees().base, manifestObject));
             BEAST_EXPECT(
-                tx[sfFee].xrp().drops() ==
-                1'000 +
-                    100 *
-                        static_cast<std::int64_t>(
-                            manifestObject.getSerializer().getDataLength()));
+                (*ordinaryTx)[sfFee].xrp().drops() ==
+                10 * units(manifestObject));
+
+            // A zero base would make the wrapper free, so there is no
+            // canonical Fee for it at all.
+            BEAST_EXPECT(
+                !canonicalUnsignedSetManifestFee(XRPAmount{0}, manifestObject));
         }
 
-        // The canonical wrapper is independent of the current ledger's voted
-        // reference fee. At a higher minimum the exact same txid waits; the
-        // anti-entropy loop retries it rather than minting fee variants.
+        // The canonical Fee follows the voted base fee. A different fee
+        // setting maps the same manifest to exactly one different txid, and
+        // that wrapper clears the higher minimum.
         Env expensive{*this, makeConfig("100000"), features};
-        auto const expensiveHex = makeSetManifestTx(
-            makeSlice(update),
-            expensive.app().config().NETWORK_ID,
-            expensive.current()->rules(),
-            expensive.app().journal("SetManifest_test"));
-        BEAST_EXPECT(expensiveHex == ordinaryHex);
+        auto const expensiveTx = build(expensive);
+        if (!expensiveTx)
+            return;
+        auto const& expensiveManifest = const_cast<STTx&>(*expensiveTx)
+                                            .getField(sfManifest)
+                                            .downcast<STObject>();
+        BEAST_EXPECT(
+            (*expensiveTx)[sfFee].xrp().drops() ==
+            100'000 * units(expensiveManifest));
+        BEAST_EXPECT(
+            expensiveTx->getTransactionID() != ordinaryTx->getTransactionID());
 
-        expensive.fund(XRP(1000), master);
+        expensive.fund(XRP(10000), master);
         expensive.close();
         BEAST_EXPECT(
             engineResult(submit(
                 expensive, signedEnvelope(expensive, registration, master))) ==
             "tesSUCCESS");
         expensive.close();
+
+        // A wrapper priced for another fee setting is a local miss, not a bad
+        // signature: ingress drops it before manifest crypto without marking
+        // it bad, and preclaim refuses it with a tel result.
         BEAST_EXPECT(
-            engineResult(submit(expensive, update)) == "telINSUF_FEE_P");
+            checkManifestIngressFee(expensive.app(), *ordinaryTx).first ==
+            ManifestIngressFee::Refused);
+        BEAST_EXPECT(
+            submit(expensive, ordinaryTx)[jss::error] == "invalidTransaction");
+        BEAST_EXPECT(
+            (expensive.app().getHashRouter().getFlags(
+                 ordinaryTx->getTransactionID()) &
+             SF_BAD) == 0);
+        BEAST_EXPECT(
+            applyDirect(expensive, ordinaryTx) == telMANIFEST_FEE_MISMATCH);
+
+        BEAST_EXPECT(
+            checkManifestIngressFee(expensive.app(), *expensiveTx).first ==
+            ManifestIngressFee::Canonical);
+        BEAST_EXPECT(engineResult(submit(expensive, update)) == "tesSUCCESS");
+        expensive.close();
+        BEAST_EXPECT(
+            expensive.le(keylet::manifest(master.pk()))
+                ->getFieldU32(sfSequence) == 2);
 
         // Sequence 0 is not permission to jump an escalated open ledger. A
         // canonical rotation is direct-only, pays its fixed canonical Fee,
@@ -525,6 +571,20 @@ struct SetManifest_test : public beast::unit_test::suite
         BEAST_EXPECT(
             escalated.le(keylet::manifest(master.pk()))
                 ->getFieldU32(sfSequence) == 2);
+
+        // An amendment-blocked server has no base fee it can trust, so ingress
+        // refuses even the canonical wrapper rather than verify it.
+        Env blocked{*this, makeConfig("10"), features};
+        auto const blockedTx = build(blocked);
+        if (!blockedTx)
+            return;
+        BEAST_EXPECT(
+            checkManifestIngressFee(blocked.app(), *blockedTx).first ==
+            ManifestIngressFee::Canonical);
+        blocked.app().getOPs().setAmendmentBlocked();
+        BEAST_EXPECT(
+            checkManifestIngressFee(blocked.app(), *blockedTx).first ==
+            ManifestIngressFee::Refused);
     }
 
     void
@@ -1121,30 +1181,31 @@ struct SetManifest_test : public beast::unit_test::suite
                     obj.setFieldU32(sfLastLedgerSequence, env.current()->seq());
                 })) == temMALFORMED);
 
-        // sfFee is mirrored by the shape check and pinned to one ruleset-fixed
-        // base-plus-payload value in checkFee().
+        // sfFee is mirrored by the shape check and pinned to the one value
+        // for the applying view's base fee in checkFee(). Ingress pins it
+        // first, before either manifest signature is verified.
         auto const priced = envelope(env, good, master.id());
         auto const canonicalFee = priced->getFieldAmount(sfFee).xrp();
+        BEAST_EXPECT(
+            checkManifestIngressFee(env.app(), *priced).first ==
+            ManifestIngressFee::Canonical);
 
         auto const nonCanonicalFee =
             envelope(env, good, master.id(), [&](STObject& obj) {
                 obj.setFieldAmount(sfFee, canonicalFee + XRPAmount{1});
             });
-        auto const [feeValidity, feeReason] = checkValidity(
-            env.app().getHashRouter(),
-            *nonCanonicalFee,
-            env.current()->rules(),
-            env.app().config());
-        BEAST_EXPECT(feeValidity == Validity::SigBad);
+        auto const [feeOutcome, feeReason] =
+            checkManifestIngressFee(env.app(), *nonCanonicalFee);
+        BEAST_EXPECT(feeOutcome == ManifestIngressFee::Refused);
+        BEAST_EXPECT(!feeReason.empty());
         BEAST_EXPECT(
-            feeReason == "Manifest-authorized envelope has non-canonical fee");
-        BEAST_EXPECT(applyDirect(env, nonCanonicalFee) == temBAD_FEE);
+            applyDirect(env, nonCanonicalFee) == telMANIFEST_FEE_MISMATCH);
 
         BEAST_EXPECT(
             applyDirect(
                 env, envelope(env, good, master.id(), [&](STObject& obj) {
                     obj.setFieldAmount(sfFee, canonicalFee - XRPAmount{1});
-                })) == temBAD_FEE);
+                })) == telMANIFEST_FEE_MISMATCH);
 
         // At the canonical value exactly, which is what Submit sends.
         BEAST_EXPECT(
