@@ -27,6 +27,7 @@
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Feature.h>
@@ -8376,15 +8377,51 @@ private:
         return std::string(static_cast<char const*>(s.data()), s.size());
     }
 
-    // A manifest transaction carries no account signature, so it cannot be
-    // submitted through env() the way a signed transaction can. Returns the
-    // resulting transaction id so the caller can inspect its metadata.
+    // Submits a SetManifest and returns its transaction id so the caller can
+    // inspect its metadata. Without `signer` this is the canonical unsigned
+    // wrapper the submit RPC builds, whose authority is the manifest's own
+    // signatures; that lane may only update an existing registration. With
+    // `signer` it is an ordinary account-signed transaction, the only lane
+    // that may create the first registration.
     uint256
-    submitManifest(jtx::Env& env, std::string const& manifest)
+    submitManifest(
+        jtx::Env& env,
+        std::string const& manifest,
+        std::optional<jtx::Account> const& signer = std::nullopt)
     {
-        Json::Value params;
-        params[jss::manifest] = strHex(manifest);
-        auto const jrr = env.rpc("json", "submit", to_string(params));
+        Json::Value jrr;
+        if (signer)
+        {
+            auto const build = [&](XRPAmount fee) {
+                auto tx =
+                    std::make_shared<STTx>(ttMANIFEST_SET, [&](STObject& obj) {
+                        obj.setAccountID(sfAccount, signer->id());
+                        obj.setFieldU32(sfSequence, env.seq(*signer));
+                        obj.setFieldU32(
+                            sfNetworkID, env.app().config().NETWORK_ID);
+                        obj.setFieldAmount(sfFee, fee);
+                        obj.setFieldVL(sfSigningPubKey, signer->pk().slice());
+
+                        SerialIter mit{makeSlice(manifest)};
+                        obj.peekFieldObject(sfManifest).set(mit);
+                    });
+                tx->sign(signer->pk(), signer->sk());
+                return tx;
+            };
+
+            auto const probe = build(XRPAmount{0});
+            auto const tx =
+                build(SetManifest::calculateBaseFee(*env.current(), *probe));
+            Serializer s;
+            tx->add(s);
+            jrr = env.rpc("submit", strHex(s.slice()));
+        }
+        else
+        {
+            Json::Value params;
+            params[jss::manifest] = strHex(manifest);
+            jrr = env.rpc("json", "submit", to_string(params));
+        }
 
         auto const& result = jrr[jss::result];
 
@@ -8421,11 +8458,8 @@ private:
         using namespace std::literals;
         testcase("set manifest TSH");
 
-        if (!features[featureOnChainManifests])
-        {
-            pass();
-            return;
-        }
+        // OnChainManifests is not yet Supported::yes, so enable it explicitly.
+        features |= featureOnChainManifests;
 
         // otxn: master
         // tsh: ephemeral
@@ -8433,31 +8467,50 @@ private:
         //
         // The ephemeral account is only named by the manifest, so it may
         // observe the transaction but not rollback it. It therefore fires only
-        // when it has asked to collect.
-        for (bool const testStrong : {true, false})
+        // when it has asked to collect. Both lanes are covered: the
+        // account-signed registration and a canonical unsigned rotation of an
+        // existing registration.
+        for (bool const signedLane : {true, false})
         {
-            test::jtx::Env env{
-                *this,
-                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
-                features};
+            for (bool const testStrong : {true, false})
+            {
+                test::jtx::Env env{
+                    *this,
+                    network::makeNetworkConfig(
+                        21337, "10", "1000000", "200000"),
+                    features};
 
-            auto const master = Account("master", KeyType::ed25519);
-            auto const ephemeral = Account("ephemeral", KeyType::ed25519);
-            env.fund(XRP(1000), master, ephemeral);
-            env.close();
+                auto const master = Account("master", KeyType::ed25519);
+                auto const prior = Account("prior", KeyType::ed25519);
+                auto const ephemeral = Account("ephemeral", KeyType::ed25519);
+                env.fund(XRP(1000), master, ephemeral);
+                env.close();
 
-            if (!testStrong)
-                addWeakTSH(env, ephemeral);
+                if (!testStrong)
+                    addWeakTSH(env, ephemeral);
 
-            setTSHHook(env, ephemeral, testStrong);
+                setTSHHook(env, ephemeral, testStrong);
 
-            auto const txHash =
-                submitManifest(env, makeManifestString(master, ephemeral, 1));
-            env.close();
+                uint256 txHash;
+                if (signedLane)
+                {
+                    txHash = submitManifest(
+                        env, makeManifestString(master, ephemeral, 1), master);
+                }
+                else
+                {
+                    submitManifest(
+                        env, makeManifestString(master, prior, 1), master);
+                    env.close();
+                    txHash = submitManifest(
+                        env, makeManifestString(master, ephemeral, 2));
+                }
+                env.close();
 
-            // A strong hook on a weak stake holder is never reached.
-            auto const expected = testStrong ? tshNONE : tshWEAK;
-            testTSHStrongWeak(env, txHash, expected, __LINE__);
+                // A strong hook on a weak stake holder is never reached.
+                auto const expected = testStrong ? tshNONE : tshWEAK;
+                testTSHStrongWeak(env, txHash, expected, __LINE__);
+            }
         }
 
         // A revocation names no signing key, so there is no ephemeral stake
@@ -8475,6 +8528,12 @@ private:
 
             addWeakTSH(env, ephemeral);
             setTSHHook(env, ephemeral, false);
+
+            // Only an account-signed registration may create the slot that the
+            // unsigned revocation then terminates.
+            submitManifest(
+                env, makeManifestString(master, ephemeral, 1), master);
+            env.close();
 
             auto const txHash = submitManifest(
                 env,
