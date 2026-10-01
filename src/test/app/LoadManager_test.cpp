@@ -19,9 +19,9 @@
 
 #include <test/jtx/Env.h>
 #include <test/jtx/envconfig.h>
-#include <xrpl/beast/unit_test.h>
 #include <xrpld/app/main/LoadManager.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
+#include <xrpl/beast/unit_test.h>
 #include <cstdint>
 
 namespace ripple {
@@ -162,8 +162,8 @@ public:
         // raiseLocalFee() requires two consecutive calls (hysteresis guard).
         // This is the exact sequence LoadManager::run() executes each tick
         // when the job queue is overloaded.
-        BEAST_EXPECT(!feeTrack.raiseLocalFee());   // tick 1: count=1, no change
-        BEAST_EXPECT(feeTrack.raiseLocalFee());    // tick 2: count=2, fee raised
+        BEAST_EXPECT(!feeTrack.raiseLocalFee());  // tick 1: count=1, no change
+        BEAST_EXPECT(feeTrack.raiseLocalFee());   // tick 2: count=2, fee raised
         BEAST_EXPECT(feeTrack.getLocalFee() > kNormalFee);
         BEAST_EXPECT(feeTrack.isLoadedLocal());
 

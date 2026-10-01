@@ -703,7 +703,7 @@ private:
     ServerFeeSummary mLastFeeSummary;  ///< Guarded by mFeeSummaryMutex_.
     std::mutex mFeeSummaryMutex_;      ///< Guards mLastFeeSummary only. Kept
                                        ///< separate from mSubLock to avoid
-                                   ///< lock-ordering hazards with masterMutex.
+    ///< lock-ordering hazards with masterMutex.
 
     JobQueue& m_job_queue;
 
