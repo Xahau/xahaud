@@ -1349,25 +1349,23 @@ public:
     run() override
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
+        // OnChainManifests is not yet Supported::yes, so enable it explicitly
+        // for the on-ledger cases.
+        auto const sa = supported_amendments() | featureOnChainManifests;
 
-        // The on-ledger cases run only while OnChainManifests is supported.
-        if (sa[featureOnChainManifests])
-        {
-            testSubmission(sa);
-            testUpdate(sa);
-            testCanonicalFee(sa);
-            testRevocation(sa);
-            testOwnership(sa);
-            testRetrieval(sa);
-            testListedAfterLedgerRevocation(sa);
-            testListedAfterLedgerRevocation(sa, true);
-            testSigningKeyRetrieval(sa);
-            testMalformed(sa);
-            testEnvelopeRejections(sa);
-            testCorruptLedger(sa);
-            testGossipSelection(sa);
-        }
+        testSubmission(sa);
+        testUpdate(sa);
+        testCanonicalFee(sa);
+        testRevocation(sa);
+        testOwnership(sa);
+        testRetrieval(sa);
+        testListedAfterLedgerRevocation(sa);
+        testListedAfterLedgerRevocation(sa, true);
+        testSigningKeyRetrieval(sa);
+        testMalformed(sa);
+        testEnvelopeRejections(sa);
+        testCorruptLedger(sa);
+        testGossipSelection(sa);
         testDisabled(sa);
     }
 };
