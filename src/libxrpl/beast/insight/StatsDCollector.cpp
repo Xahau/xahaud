@@ -43,6 +43,7 @@
 #include <cstddef>
 #include <deque>
 #include <functional>
+#include <iostream>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -398,7 +399,8 @@ public:
         for (auto const& buffer : buffers)
         {
             std::string const s(
-                buffer.data(), boost::asio::buffer_size(buffer));
+                static_cast<char const*>(buffer.data()),
+                boost::asio::buffer_size(buffer));
             std::cerr << s;
         }
         std::cerr << '\n';

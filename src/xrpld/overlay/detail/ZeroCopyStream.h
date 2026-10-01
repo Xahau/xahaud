@@ -195,7 +195,7 @@ ZeroCopyOutputStream<Streambuf>::Next(void** data, int* size)
         pos_ = buffers_.begin();
     }
 
-    *data = *pos_.data();
+    *data = (*pos_).data();
     *size = boost::asio::buffer_size(*pos_);
     commit_ = *size;
     ++pos_;
