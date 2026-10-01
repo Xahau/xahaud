@@ -56,6 +56,13 @@ public:
     /// Get RPC 1.0 or RPC 2.0
     virtual unsigned
     version() const = 0;
+
+    /// Times invoke() replaced a connection the server had closed.
+    virtual unsigned
+    reconnects() const
+    {
+        return 0;
+    }
 };
 
 }  // namespace test

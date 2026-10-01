@@ -228,6 +228,15 @@ protected:
                              // deduced until after apply i.e. pathing
                              // participants, crossed offers
 
+    // The post-apply pipeline of operator(): tec handling (reset),
+    // invariants, balance rewards, weak hooks and commit.
+    ApplyResult
+    finishApply(
+        TER result,
+        bool hooksEnabled,
+        std::map<AccountID, std::set<uint256>>& aawMap,
+        std::vector<std::pair<AccountID, bool>>& tsh);
+
     ///////////////////////////////////////////////////
 
     TER
