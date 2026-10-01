@@ -1407,7 +1407,8 @@ private:
     {
         using namespace jtx;
         FeatureBitset const all{
-            supported_amendments() | featureAMM | featureAMMClawback};
+            (supported_amendments() | featureAMM | featureAMMClawback) -
+            featureHookFeeV3};
         testRmFundedOffer(all);
         testEnforceNoRipple(all);
         testFillModes(all);
@@ -3217,7 +3218,9 @@ private:
         testcase("RippleState Freeze");
 
         using namespace test::jtx;
-        Env env(*this, features - featureXahauGenesis - featureTouch);
+        Env env(
+            *this,
+            features - featureXahauGenesis - featureTouch - featureHookFeeV3);
 
         Account const G1{"G1"};
         Account const alice{"alice"};
