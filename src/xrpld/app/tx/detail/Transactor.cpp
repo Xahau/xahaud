@@ -342,7 +342,11 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
     XRPAmount hookExecutionFee{0};
     uint64_t burden{1};
-    if (view.rules().enabled(featureHooks))
+    // The unsigned SetManifest lane runs no hooks (see operator()), so none of
+    // their fees enter its floor, which must not exceed the canonical Fee.
+    if (view.rules().enabled(featureHooks) &&
+        !(view.rules().enabled(featureOnChainManifests) &&
+          isUnsignedSetManifest(tx)))
     {
         // if this is a "cleanup" txn we regard it as already paid up
         if (tx.getTxnType() == ttEMIT_FAILURE)
@@ -1969,7 +1973,14 @@ Transactor::operator()()
 
     auto result = ctx_.preclaimResult;
 
-    bool const hooksEnabled = view().rules().enabled(featureHooks);
+    // An unsigned SetManifest carries manifest authority only. Its account
+    // did not sign it, so no hook observes or vetoes it, the originator's
+    // included. A hook rejection would otherwise claim a fee without
+    // advancing the manifest sequence, letting the same public txid charge
+    // again in every later ledger.
+    bool const hooksEnabled = view().rules().enabled(featureHooks) &&
+        !(view().rules().enabled(featureOnChainManifests) &&
+          isUnsignedSetManifest(ctx_.tx));
 
     // AgainAsWeak map stores information about accounts whose strongly executed
     // hooks request an additional weak execution after the otxn has finished

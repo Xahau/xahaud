@@ -1064,6 +1064,29 @@ struct SetManifest_test : public beast::unit_test::suite
                 signedEnvelope(
                     env, makeManifest(ephemeral, other, 1), ephemeral))) ==
             "tecDUPLICATE");
+
+        // On the unsigned lane nobody signed and no Sequence is consumed, so a
+        // claimed signing key must not cost the account anything: otherwise
+        // the same public txid would charge again in every later ledger.
+        auto const otherEph = Account("other-eph", KeyType::ed25519);
+        BEAST_EXPECT(
+            engineResult(submit(
+                env,
+                signedEnvelope(
+                    env, makeManifest(other, otherEph, 1), other))) ==
+            "tesSUCCESS");
+        env.close();
+        auto const balance = env.balance(other);
+        auto const rotation = makeManifest(other, ephemeral, 2);
+        for (int ledger = 0; ledger < 2; ++ledger)
+        {
+            BEAST_EXPECT(
+                engineResult(submit(env, rotation)) ==
+                "tefMANIFEST_KEY_CLAIMED");
+            env.close();
+        }
+        BEAST_EXPECT(env.balance(other) == balance);
+        BEAST_EXPECT(onLedgerManifestSequence(*env.current(), other.pk()) == 1);
     }
 
     void

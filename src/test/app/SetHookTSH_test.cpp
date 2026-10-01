@@ -8467,9 +8467,9 @@ private:
         //
         // The ephemeral account is only named by the manifest, so it may
         // observe the transaction but not rollback it. It therefore fires only
-        // when it has asked to collect. Both lanes are covered: the
-        // account-signed registration and a canonical unsigned rotation of an
-        // existing registration.
+        // when it has asked to collect. That holds on the account-signed
+        // lane. The canonical unsigned lane carries manifest authority only,
+        // so no hook runs on it at all, not even the master's own.
         for (bool const signedLane : {true, false})
         {
             for (bool const testStrong : {true, false})
@@ -8490,6 +8490,8 @@ private:
                     addWeakTSH(env, ephemeral);
 
                 setTSHHook(env, ephemeral, testStrong);
+                if (!signedLane)
+                    setTSHHook(env, master, true);
 
                 uint256 txHash;
                 if (signedLane)
@@ -8507,8 +8509,10 @@ private:
                 }
                 env.close();
 
-                // A strong hook on a weak stake holder is never reached.
-                auto const expected = testStrong ? tshNONE : tshWEAK;
+                // A strong hook on a weak stake holder is never reached, and
+                // the unsigned lane reaches none.
+                auto const expected =
+                    (signedLane && !testStrong) ? tshWEAK : tshNONE;
                 testTSHStrongWeak(env, txHash, expected, __LINE__);
             }
         }

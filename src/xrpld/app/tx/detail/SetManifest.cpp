@@ -267,10 +267,12 @@ SetManifest::preclaim(PreclaimContext const& ctx)
 
     auto const canonical = keylet::manifest(newManifest->masterKey);
     bool const registered = sle->isFieldPresent(sfManifestID);
+    bool const unsignedLane = isUnsignedSetManifest(ctx.tx);
 
     // The AccountRoot pointer and canonical master-key object are one slot.
     // Refuse a half-present or misdirected slot before considering authority.
     std::shared_ptr<SLE const> sleOld;
+    std::shared_ptr<SLE const> occupied;
     if (registered)
     {
         if (sle->getFieldH256(sfManifestID) != canonical.key ||
@@ -278,26 +280,28 @@ SetManifest::preclaim(PreclaimContext const& ctx)
             sleOld->getAccountID(sfAccount) != id)
             return tefBAD_LEDGER;
     }
-    else if (auto const occupied = ctx.view.read(canonical))
-    {
-        // With one namespace for both lookup directions, this master key may
-        // already be another account's active signing key.
-        if (occupied->getAccountID(sfAccount) == id)
-            return tefBAD_LEDGER;
-        return tecDUPLICATE;
-    }
+    else if (
+        (occupied = ctx.view.read(canonical)) &&
+        occupied->getAccountID(sfAccount) == id)
+        return tefBAD_LEDGER;
 
     // Manifest-only authority may rotate or revoke an existing registration,
     // but it cannot create one. Validator operators already provision public
     // identity metadata; an account is comparable one-time setup and supplies
-    // explicit consent plus the fee anchor.
-    if (isUnsignedSetManifest(ctx.tx) && !registered)
+    // explicit consent plus the fee anchor. Checked before anything that can
+    // claim a fee, so an account that never registered is never charged.
+    if (unsignedLane && !registered)
     {
         JLOG(ctx.j.trace())
             << "SetManifest: unsigned envelope cannot create manifest slot. "
             << id;
         return tefBAD_AUTH;
     }
+
+    // With one namespace for both lookup directions, this master key may
+    // already be another account's active signing key.
+    if (occupied)
+        return tecDUPLICATE;
 
     // Replay protection. A byte-identical resubmission is rejected as
     // tefALREADY by checkPriorTxAndLastLedger, but the same manifest can
@@ -339,7 +343,11 @@ SetManifest::preclaim(PreclaimContext const& ctx)
                 << "SetManifest: Signing key is already claimed by another "
                    "manifest. "
                 << id;
-            return tecDUPLICATE;
+            // The unsigned lane consumes no account Sequence, so a claimed
+            // fee would not stop the same txid charging again next ledger.
+            // It may claim a fee only by advancing the manifest sequence.
+            return unsignedLane ? TER{tefMANIFEST_KEY_CLAIMED}
+                                : TER{tecDUPLICATE};
         }
     }
 
