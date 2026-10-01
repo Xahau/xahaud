@@ -740,7 +740,10 @@ struct SetManifest_test : public beast::unit_test::suite
         env.fund(XRP(1000), master);
         env.close();
         BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(master, signing, 1))) ==
+            engineResult(submit(
+                env,
+                signedEnvelope(
+                    env, makeManifest(master, signing, 1), master))) ==
             "tesSUCCESS");
         env.close();
 
@@ -759,8 +762,11 @@ struct SetManifest_test : public beast::unit_test::suite
                     std::numeric_limits<std::uint32_t>::max()))) ==
             "tesSUCCESS");
         env.close();
+        auto const onLedger = env.le(keylet::manifest(master.pk()));
+        if (!BEAST_EXPECT(onLedger))
+            return;
         BEAST_EXPECT(
-            env.le(keylet::manifest(master.pk()))->getFieldU32(sfSequence) ==
+            onLedger->getFieldU32(sfSequence) ==
             std::numeric_limits<std::uint32_t>::max());
         BEAST_EXPECT(!cache.revoked(master.pk()));
 
