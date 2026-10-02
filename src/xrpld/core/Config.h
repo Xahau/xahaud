@@ -377,9 +377,10 @@ public:
         return isMem;
     }
 
-    /** True when this configuration's node store is null RWDB.
+    /** True when [node_db] type=rwdb.
 
-        Null mode keeps nodes through Ledger and SHAMap pointers.
+        The app node store is the existing NullFactory (type=none).
+        Nodes stay alive through Ledger and SHAMap pointers.
         The result is read from this configuration, so two
         applications in one process do not share it.
     */

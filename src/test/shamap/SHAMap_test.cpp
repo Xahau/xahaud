@@ -19,11 +19,15 @@
 
 #include <test/shamap/common.h>
 #include <test/unit_test/SuiteJournal.h>
+#include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/shamap/SHAMap.h>
+#include <xrpld/shamap/SHAMapInnerNode.h>
+#include <xrpld/shamap/SHAMapTreeNode.h>
 #include <xrpl/basics/Blob.h>
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/Serializer.h>
 
 namespace ripple {
 namespace tests {
@@ -122,6 +126,79 @@ public:
 
         run(true, journal);
         run(false, journal);
+        testCanonicalizeMergesInnerChildren(journal);
+    }
+
+    void
+    testCanonicalizeMergesInnerChildren(beast::Journal const& journal)
+    {
+        testcase("canonicalize harvests inner children onto cache winner");
+
+        tests::TestNodeFamily f(journal);
+        SHAMap map{SHAMapType::FREE, f};
+
+        constexpr uint256 h1(
+            "092891fe4ef6cee585fdc6fda0e09eb4d386363158ec3321b8123e5a772c6ca7");
+        constexpr uint256 h2(
+            "436ccbac3347baa1f1e53baeef1f43334da88f1f6d70d963b833afd6dfa289fe");
+        constexpr uint256 h3(
+            "b92891fe4ef6cee585fdc6fda1e09eb4d386363158ec3321b8123e5a772c6ca8");
+        constexpr uint256 h4(
+            "c92891fe4ef6cee585fdc6fda2e09eb4d386363158ec3321b8123e5a772c6ca8");
+
+        BEAST_EXPECT(map.addItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(h1, IntToVUC(1))));
+        BEAST_EXPECT(map.addItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(h2, IntToVUC(2))));
+        BEAST_EXPECT(map.addItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(h3, IntToVUC(3))));
+        BEAST_EXPECT(map.addItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(h4, IntToVUC(4))));
+
+        // getHash() unshares the map (cowid=0), which makes flushDirty a
+        // no-op. Snapshot first so the original stays dirty and still
+        // canonicalizes onto the cache shell.
+        auto snap = map.snapShot(false);
+        auto const rootHash = snap->getHash();
+        Serializer s;
+        snap->serializeRoot(s);
+        auto shell = SHAMapTreeNode::makeFromWire(s.slice());
+        if (!BEAST_EXPECT(
+                shell && shell->isInner() && shell->getHash() == rootHash))
+            return;
+
+        auto innerShell = std::static_pointer_cast<SHAMapInnerNode>(shell);
+        int linkedBefore = 0;
+        for (int b = 0; b < SHAMapInnerNode::branchFactor; ++b)
+        {
+            if (!innerShell->isEmptyBranch(b) && innerShell->getChildPointer(b))
+                ++linkedBefore;
+        }
+        BEAST_EXPECT(linkedBefore == 0);
+
+        f.getTreeNodeCache()->canonicalize_replace_client(
+            rootHash.as_uint256(), shell);
+
+        auto const harvestedBefore = SHAMap::canonicalInnerBranchesHarvested();
+        map.flushDirty(hotTRANSACTION_NODE);
+
+        auto cached = f.getTreeNodeCache()->fetch(rootHash.as_uint256());
+        if (!BEAST_EXPECT(cached && cached->isInner()))
+            return;
+        auto* inner = static_cast<SHAMapInnerNode*>(cached.get());
+        int linkedAfter = 0;
+        for (int b = 0; b < SHAMapInnerNode::branchFactor; ++b)
+        {
+            if (!inner->isEmptyBranch(b) && inner->getChildPointer(b))
+                ++linkedAfter;
+        }
+        BEAST_EXPECT(linkedAfter > 0);
+        BEAST_EXPECT(
+            SHAMap::canonicalInnerBranchesHarvested() > harvestedBefore);
     }
 
     void

@@ -85,8 +85,8 @@ public:
 
     /** True when this family's node store does not persist nodes.
 
-        Null RWDB keeps tree nodes only through in-memory SHAMap
-        pointers. The flag is per family, not process-wide.
+        type=rwdb uses NullFactory. Tree nodes live only through
+        in-memory SHAMap pointers. The flag is per family.
     */
     virtual bool
     isNullBackend() const

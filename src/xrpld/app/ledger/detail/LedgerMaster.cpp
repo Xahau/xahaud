@@ -945,35 +945,9 @@ LedgerMaster::setFullLedger(
     if (isCurrent && ledger_history_ > 0)
     {
         std::lock_guard ml(m_mutex);
-        bool const isFirst = mRetainedLedgers.empty();
         mRetainedLedgers.push_back(ledger);
         while (mRetainedLedgers.size() > ledger_history_)
             mRetainedLedgers.pop_front();
-
-        // Legacy bootstrap for lazy trees. In null mode the ledger has
-        // already been fully wired before it reaches retention, so there is
-        // nothing left to do here.
-        if (isFirst && !ledger->isFullyWired())
-        {
-            try
-            {
-                std::size_t leafCount = 0;
-                for (auto const& item : ledger->stateMap())
-                {
-                    (void)item;
-                    ++leafCount;
-                }
-                JLOG(m_journal.info())
-                    << "Retention: primed state tree for ledger "
-                    << ledger->info().seq << " (" << leafCount << " leaves)";
-            }
-            catch (SHAMapMissingNode const& e)
-            {
-                JLOG(m_journal.warn())
-                    << "Retention: incomplete state tree for ledger "
-                    << ledger->info().seq << ": " << e.what();
-            }
-        }
     }
 
     {
@@ -1891,10 +1865,9 @@ LedgerMaster::getCloseTimeByHash(
     LedgerHash const& ledgerHash,
     std::uint32_t index)
 {
-    // Resident ledgers only. getLedgerByHash loads a cache miss and,
-    // in null mode, walks the whole state tree. Close time is a header
-    // field, so fall through to the node-store header when nothing is
-    // already in memory.
+    // Resident ledgers only. getLedgerByHash loads a cache miss.
+    // Close time is a header field, so fall through to the node-store
+    // header when nothing is already in memory.
     if (auto const cached = mLedgerHistory.getCachedLedger(ledgerHash))
         return cached->info().closeTime;
 
@@ -2059,85 +2032,6 @@ LedgerMaster::getLedgerByHash(uint256 const& hash)
         return ret;
 
     return {};
-}
-
-std::shared_ptr<Ledger const>
-LedgerMaster::getClosestFullyWiredLedger(
-    std::shared_ptr<Ledger const> const& targetLedger)
-{
-    if (!targetLedger)
-        return {};
-
-    std::vector<std::shared_ptr<Ledger const>> candidates;
-    {
-        std::lock_guard lock(m_mutex);
-        candidates.reserve(mRetainedLedgers.size() + 3);
-        for (auto const& ledger : mRetainedLedgers)
-            candidates.push_back(ledger);
-        if (auto const closed = mClosedLedger.get())
-            candidates.push_back(closed);
-        if (auto const valid = mValidLedger.get())
-            candidates.push_back(valid);
-        if (mPubLedger)
-            candidates.push_back(mPubLedger);
-    }
-
-    auto const targetSeq = targetLedger->info().seq;
-    auto const targetHash = targetLedger->info().hash;
-
-    std::shared_ptr<Ledger const> best;
-    auto bestDistance = std::numeric_limits<std::uint32_t>::max();
-
-    for (auto const& candidate : candidates)
-    {
-        if (!candidate || !candidate->isFullyWired())
-            continue;
-
-        if (candidate->info().hash == targetHash)
-            continue;
-
-        bool sameChain = false;
-        try
-        {
-            if (candidate->info().seq < targetSeq)
-            {
-                if (auto const hash = hashOfSeq(
-                        *targetLedger, candidate->info().seq, m_journal);
-                    hash && *hash == candidate->info().hash)
-                {
-                    sameChain = true;
-                }
-            }
-            else if (candidate->info().seq > targetSeq)
-            {
-                if (auto const hash =
-                        hashOfSeq(*candidate, targetSeq, m_journal);
-                    hash && *hash == targetHash)
-                {
-                    sameChain = true;
-                }
-            }
-        }
-        catch (std::exception const&)
-        {
-            sameChain = false;
-        }
-
-        if (!sameChain)
-            continue;
-
-        auto const distance = candidate->info().seq < targetSeq
-            ? targetSeq - candidate->info().seq
-            : candidate->info().seq - targetSeq;
-
-        if (!best || distance < bestDistance)
-        {
-            best = candidate;
-            bestDistance = distance;
-        }
-    }
-
-    return best;
 }
 
 void

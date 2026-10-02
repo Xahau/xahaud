@@ -234,11 +234,13 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
 
     if (isNullBackend_)
     {
-        // Null mode: create a plain (non-rotating) Database with a
-        // single NullBackend.  No DatabaseRotatingImp, no rotation
-        // thread artifacts.  dbRotating_ stays nullptr.
-        // The null key is read by this backend instance only.
-        nscfg.set("null", "1");
+        // Tree-only: use the existing NullFactory (type=none). No
+        // DatabaseRotatingImp, no rotation thread, no object cache.
+        // A cached header would look like a full acquire and cannot
+        // be rebuilt from this backend.
+        nscfg.set("type", "none");
+        nscfg.set("cache_size", "0");
+        nscfg.set("cache_age", "0");
         db = NodeStore::Manager::instance().make_Database(
             megabytes(
                 app_.config().getValueFor(SizedItem::burstSize, std::nullopt)),

@@ -33,6 +33,8 @@
 #include <xrpld/overlay/detail/Tuning.h>
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpld/shamap/Family.h>
+#include <xrpld/shamap/SHAMap.h>
+#include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
 #include <xrpl/basics/UptimeClock.h>
 #include <xrpl/basics/base64.h>
@@ -49,6 +51,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <sstream>
 
 using namespace std::chrono_literals;
@@ -61,6 +64,42 @@ std::chrono::milliseconds constexpr peerHighLatency{300};
 
 /** How often we PING the peer to check for latency and sendq probe */
 std::chrono::seconds constexpr peerTimerInterval{60};
+
+std::shared_ptr<SHAMapTreeNode>
+fetchLinkedTreeNode(
+    Application& app,
+    uint256 const& hash,
+    std::uint32_t seq,
+    std::optional<SHAMapNodeID> const& nodeId)
+{
+    if (!nodeId)
+        return {};
+
+    auto findInMap = [&](SHAMap const& map) -> std::shared_ptr<SHAMapTreeNode> {
+        auto node = map.getLinkedNode(*nodeId);
+        if (node && node->getHash().as_uint256() == hash)
+            return node;
+        return {};
+    };
+
+    auto findInLedger = [&](std::shared_ptr<Ledger const> const& ledger)
+        -> std::shared_ptr<SHAMapTreeNode> {
+        if (!ledger)
+            return {};
+        if (auto node = findInMap(ledger->stateMap()))
+            return node;
+        return findInMap(ledger->txMap());
+    };
+
+    if (seq)
+    {
+        if (auto node = findInLedger(app.getLedgerMaster().getLedgerBySeq(seq)))
+            return node;
+    }
+    if (auto node = findInLedger(app.getLedgerMaster().getClosedLedger()))
+        return node;
+    return findInLedger(app.getLedgerMaster().getValidatedLedger());
+}
 }  // namespace
 
 // TODO: Remove this exclusion once unit tests are added after the hotfix
@@ -2481,8 +2520,20 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMGetObjectByHash> const& m)
                     auto treeNode =
                         app_.getNodeFamily().getTreeNodeCache()->fetch(hash))
                 {
-                    // SHAMap tree node fallback — works for state/tx nodes
-                    // held via the retained Ledgers' SHAMap inner nodes.
+                    Serializer s;
+                    treeNode->serializeWithPrefix(s);
+                    treeBlob = std::move(s.modData());
+                    dataPtr = treeBlob.data();
+                    dataSize = treeBlob.size();
+                }
+                else if (
+                    auto treeNode = fetchLinkedTreeNode(
+                        app_,
+                        hash,
+                        seq,
+                        obj.has_nodeid() ? deserializeSHAMapNodeID(obj.nodeid())
+                                         : std::nullopt))
+                {
                     Serializer s;
                     treeNode->serializeWithPrefix(s);
                     treeBlob = std::move(s.modData());

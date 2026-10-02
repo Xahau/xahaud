@@ -714,7 +714,6 @@ public:
         auto const ledger = env.app().getLedgerMaster().getClosedLedger();
         if (!BEAST_EXPECT(ledger))
             return;
-        BEAST_EXPECT(ledger->isFullyWired());
         BEAST_EXPECT(ledger->read(keylet::account(alice.id())));
 
         auto const closeTime = env.app().getLedgerMaster().getCloseTimeByHash(
@@ -781,6 +780,21 @@ public:
         BEAST_EXPECT(rwdbCfg.nullBackend());
         BEAST_EXPECT(!nudbCfg.nullBackend());
         BEAST_EXPECT(rwdbCfg.nullBackend());
+    }
+
+    void
+    testNullFactoryDropsWrites()
+    {
+        testcase("type=rwdb uses NullFactory and drops node-store writes");
+
+        using namespace jtx;
+        Env env(*this, envconfig(nullBackend));
+
+        auto& db = env.app().getNodeStore();
+        uint256 const hash{2};
+        Blob data(32, 7);
+        db.store(hotACCOUNT_NODE, std::move(data), hash, 1);
+        BEAST_EXPECT(!db.fetchNodeObject(hash, 1));
     }
 
     void
@@ -1070,6 +1084,7 @@ public:
         testNullModeFullHistoryRotation();
         testExplicitOnlineDeleteZero();
         testNullBackendIsPerConfig();
+        testNullFactoryDropsWrites();
         testRotate();
         testPinnedRangeRestoreRequiresPinnedData();
     }

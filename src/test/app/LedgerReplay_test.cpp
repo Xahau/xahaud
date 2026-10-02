@@ -173,12 +173,6 @@ public:
     {
     }
 
-    virtual std::shared_ptr<Ledger const>
-    getClosestFullyWiredLedger(std::shared_ptr<Ledger const> const&) override
-    {
-        return {};
-    }
-
     virtual void
     gotFetchPack() override
     {
