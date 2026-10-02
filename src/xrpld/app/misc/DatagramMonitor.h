@@ -707,10 +707,9 @@ private:
         size_t totalSize = sizeof(ServerInfoHeader) +
             (validRangeCount * sizeof(LgrRange)) + (64 * obj_count_map.size());
 
-        // Allocate buffer and initialize header
+        // Allocate zero-initialized buffer and map the header onto it
         std::vector<uint8_t> buffer(totalSize);
         auto* header = reinterpret_cast<ServerInfoHeader*>(buffer.data());
-        memset(header, 0, sizeof(ServerInfoHeader));
 
         // Set magic number and version
         header->magic = SERVER_INFO_MAGIC;

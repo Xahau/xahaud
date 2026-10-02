@@ -4421,9 +4421,11 @@ private:
                 env,
                 issuer,
                 0,
-                mintFlags | (strongIssuerTSH ? tfStrongTSH : 0));
+                mintFlags | (strongIssuerTSH ? std::uint32_t(tfStrongTSH) : 0));
             env(token::mint(issuer),
-                txflags(mintFlags | (strongIssuerTSH ? tfStrongTSH : 0)));
+                txflags(
+                    mintFlags |
+                    (strongIssuerTSH ? std::uint32_t(tfStrongTSH) : 0)));
             env.close();
 
             auto const offerIndex =

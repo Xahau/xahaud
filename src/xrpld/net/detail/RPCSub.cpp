@@ -164,7 +164,7 @@ private:
     {
         // Process exactly ONE batch per job, then re-queue if more events
         // remain, rather than draining the whole backlog in a single job.
-        // A local io_service's .run() blocks this worker thread for the
+        // A local io_context's .run() blocks this worker thread for the
         // batch (up to the per-request timeout), so re-queueing between
         // batches keeps one slow/hung subscriber from monopolising a
         // job-queue worker and starving consensus/ledger/RPC work.
@@ -173,7 +173,7 @@ private:
         // exit path; if it ever stays set without a job in flight, send()
         // sees mSending == true and never restarts us, stalling the queue
         // forever — the original bug (xrpld issue #6341).
-        boost::asio::io_service io_service;
+        boost::asio::io_context io_context;
         int dispatched = 0;
 
         try
@@ -190,7 +190,7 @@ private:
                     jvEvent["seq"] = seq;
 
                     RPCCall::fromNetwork(
-                        io_service,
+                        io_context,
                         mIp,
                         mPort,
                         mUsername,
@@ -214,7 +214,7 @@ private:
                 JLOG(j_.info()) << "RPCCall::fromNetwork: " << mIp
                                 << " dispatching " << dispatched << " events";
 
-                io_service.run();
+                io_context.run();
             }
         }
         catch (std::exception const& e)
