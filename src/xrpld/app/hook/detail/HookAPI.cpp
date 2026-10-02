@@ -558,9 +558,9 @@ HookAPI::emit(Slice const& txBlob) const
 
     ripple::TxType txType = stpTrans->getTxnType();
 
-    // SetManifest's account-signed lane must consume ordinary account replay
-    // protection, while its manifest-authorized lane is reserved for the
-    // protocol's canonical update envelope. Hook emission is neither.
+    // SetManifest is authorized only by its account's signature. An emitted
+    // transaction carries none, so emitting one would create an unsigned
+    // way to set a manifest.
     if (txType == ttMANIFEST_SET)
     {
         JLOG(j.trace()) << "HookEmit[" << HC_ACC()
