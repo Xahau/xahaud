@@ -1371,6 +1371,31 @@ private:
         return jvRequest;
     }
 
+    // pwa_info [<top>] [reset]   (either order, each at most once)
+    Json::Value
+    parsePWAInfo(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+        for (Json::UInt i = 0; i < jvParams.size(); ++i)
+        {
+            auto const param = jvParams[i].asString();
+            if (param == "reset")
+            {
+                if (jvRequest.isMember(jss::reset))
+                    return rpcError(rpcINVALID_PARAMS);
+                jvRequest[jss::reset] = true;
+                continue;
+            }
+
+            std::uint32_t top = 0;
+            if (jvRequest.isMember(jss::top) ||
+                !beast::lexicalCastChecked(top, param))
+                return rpcError(rpcINVALID_PARAMS);
+            jvRequest[jss::top] = top;
+        }
+        return jvRequest;
+    }
+
     // server_info [counters]
     Json::Value
     parseServerInfo(Json::Value const& jvParams)
@@ -1459,6 +1484,7 @@ public:
             {"peers", &RPCParser::parseAsIs, 0, 0},
             {"ping", &RPCParser::parseAsIs, 0, 0},
             {"print", &RPCParser::parseAsIs, 0, 1},
+            {"pwa_info", &RPCParser::parsePWAInfo, 0, 2},
             //      {   "profile",              &RPCParser::parseProfile, 1,  9
             //      },
             {"random", &RPCParser::parseAsIs, 0, 0},

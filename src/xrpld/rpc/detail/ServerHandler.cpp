@@ -19,6 +19,7 @@
 
 #include <xrpld/rpc/ServerHandler.h>
 
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/ConfigSections.h>
@@ -37,8 +38,11 @@
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/to_string.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
+#include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/resource/Fees.h>
 #include <xrpl/resource/ResourceManager.h>
 #include <xrpl/server/Server.h>
@@ -46,11 +50,18 @@
 #include <xrpl/server/detail/JSONRPCUtil.h>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/asio/ip/address.hpp>
+#include <boost/beast/core/string.hpp>
 #include <boost/beast/http/fields.hpp>
 #include <boost/beast/http/string_body.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <optional>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace ripple {
 
@@ -60,6 +71,32 @@ isStatusRequest(http_request_type const& request)
     return request.version() >= 11 && request.target() == "/" &&
         request.body().size() == 0 &&
         request.method() == boost::beast::http::verb::get;
+}
+
+// A request carrying an Origin header was issued by a browser page. Browsers
+// let any page -- including an AppLoader document served from a pwa port, in
+// an opaque origin -- send form POSTs, no-cors fetches and WebSocket
+// handshakes to any host and port. The JSON-RPC path accepts any
+// Content-Type and neither path checked Origin, so a page could drive an
+// IP-authorised admin port (typically 127.0.0.1) on the visitor's machine.
+// Admin by IP alone is therefore refused to browser requests, unless the
+// port lists the page's origin in admin_origin ("*" lists every origin and
+// restores the old behaviour). admin_user/admin_password credentials are
+// unaffected, since a hostile page cannot know them.
+static bool
+isBrowserRequestForIPAdmin(
+    Port const& port,
+    http_request_type const& request,
+    beast::IP::Endpoint const& remote)
+{
+    auto const origin = request.find(boost::beast::http::field::origin);
+    if (origin == request.end())
+        return false;
+    if (port.admin_origins.count("*") > 0 ||
+        port.admin_origins.count(std::string(origin->value())) > 0)
+        return false;
+    return requestRole(Role::GUEST, port, Json::objectValue, remote, {}) ==
+        Role::ADMIN;
 }
 
 static Handoff
@@ -203,10 +240,24 @@ ServerHandler::onHandoff(
         p.count("ws") > 0 || p.count("ws2") > 0 || p.count("wss") > 0 ||
         p.count("wss2") > 0};
 
+    // PWA ports: no websockets, no peers, no status page. Every request,
+    // upgrade requests included, goes to onRequest and from there to
+    // onPWARequest, so that it meets the proxy rules, is metered and counted,
+    // and is answered without the full version string statusRequestResponse
+    // would put in the Server header.
+    if (p.count("pwa") > 0)
+        return {};
+
     if (websocket::is_upgrade(request))
     {
         if (!is_ws)
             return statusRequestResponse(request, http::status::unauthorized);
+
+        if (isBrowserRequestForIPAdmin(
+                session.port(),
+                request,
+                beast::IPAddressConversion::from_asio(remote_address)))
+            return statusRequestResponse(request, http::status::forbidden);
 
         std::shared_ptr<WSSession> ws;
         try
@@ -293,12 +344,522 @@ buffers_to_string(ConstBufferSequence const& bs)
     return s;
 }
 
+//------------------------------------------------------------------------------
+//
+// PWA ports (protocol = pwa)
+//
+// Serves an account's on-ledger AppLoader document as HTML at GET /<account>.
+// These ports exist only to sit behind a reverse proxy: parse_Ports refuses
+// any other protocol, credential or admin setting on them, and requires
+// secure_gateway. See the "pwa ports" section of xahaud-example.cfg.
+//
+//------------------------------------------------------------------------------
+
+namespace {
+
+// The client address a secure_gateway proxy vouches for: the RIGHTMOST entry
+// of the (last) X-Forwarded-For field. A proxy that appends puts the peer it
+// saw at the end; one that overwrites leaves only that entry. Either way the
+// rightmost value was written by the proxy, whereas everything to its left
+// arrived from the client and is free to be forged -- which is why this does
+// not use forwardedFor(), which takes the leftmost entry and also trusts a
+// client-supplied Forwarded header.
+//
+// An IPv4-mapped IPv6 address is returned as IPv4, so that one client cannot
+// hold two metering budgets by switching notation.
+std::optional<boost::asio::ip::address>
+pwaClientAddress(http_request_type const& request)
+{
+    std::string_view value;
+    bool found = false;
+    for (auto const& field : request)
+    {
+        if (boost::beast::iequals(field.name_string(), "X-Forwarded-For"))
+        {
+            value = {field.value().data(), field.value().size()};
+            found = true;
+        }
+    }
+    if (!found)
+        return std::nullopt;
+
+    if (auto const comma = value.rfind(','); comma != std::string_view::npos)
+        value.remove_prefix(comma + 1);
+
+    auto const isSpace = [](char c) { return c == ' ' || c == '\t'; };
+    while (!value.empty() && isSpace(value.front()))
+        value.remove_prefix(1);
+    while (!value.empty() && isSpace(value.back()))
+        value.remove_suffix(1);
+
+    if (value.empty())
+        return std::nullopt;
+
+    // "[v6]" or "[v6]:port"
+    if (value.front() == '[')
+    {
+        auto const close = value.find(']');
+        if (close == std::string_view::npos)
+            return std::nullopt;
+        auto const rest = value.substr(close + 1);
+        if (!rest.empty() && rest.front() != ':')
+            return std::nullopt;
+        value = value.substr(1, close - 1);
+    }
+    // "v4:port" (a bare v6 address has more than one colon)
+    else if (auto const colon = value.find(':');
+             colon != std::string_view::npos &&
+             value.find(':', colon + 1) == std::string_view::npos)
+    {
+        value = value.substr(0, colon);
+    }
+
+    boost::system::error_code ec;
+    auto addr = boost::asio::ip::make_address(std::string(value), ec);
+    if (ec)
+        return std::nullopt;
+    if (addr.is_v6() && addr.to_v6().is_v4_mapped())
+        addr = boost::asio::ip::make_address_v4(
+            boost::asio::ip::v4_mapped, addr.to_v6());
+    if (addr.is_unspecified())
+        return std::nullopt;
+    return addr;
+}
+
+// The address a request is billed and reported against: the client itself
+// for IPv4, its /64 for IPv6. One subscriber is routinely handed a whole
+// /64 and can rotate through it at will, so metering IPv6 per address would
+// give a single client 2^64 independent budgets.
+boost::asio::ip::address
+pwaBillingAddress(boost::asio::ip::address const& client)
+{
+    if (!client.is_v6())
+        return client;
+    auto bytes = client.to_v6().to_bytes();
+    std::fill(bytes.begin() + 8, bytes.end(), 0);
+    return boost::asio::ip::address_v6(bytes);
+}
+
+// "/<account>", optionally with a single trailing slash and a query string.
+std::optional<AccountID>
+parsePWATarget(boost::beast::string_view target)
+{
+    if (target.empty() || target.front() != '/')
+        return std::nullopt;
+
+    std::string rest{target.substr(1)};
+
+    if (auto const cut = rest.find_first_of("?#"); cut != std::string::npos)
+        rest.erase(cut);
+
+    if (!rest.empty() && rest.back() == '/')
+        rest.pop_back();
+
+    if (rest.empty() || rest.find('/') != std::string::npos)
+        return std::nullopt;
+
+    auto const account = parseBase58<AccountID>(rest);
+    if (!account || account->isZero())
+        return std::nullopt;
+    return account;
+}
+
+// If-None-Match uses the weak comparison function (RFC 9110 13.1.2): "W/"
+// prefixes are ignored, and "*" matches any current representation.
+bool
+pwaETagMatches(std::string_view header, std::string const& etag)
+{
+    while (!header.empty())
+    {
+        auto const comma = header.find(',');
+        auto item = header.substr(0, comma);
+        header = comma == std::string_view::npos ? std::string_view{}
+                                                 : header.substr(comma + 1);
+
+        while (!item.empty() && (item.front() == ' ' || item.front() == '\t'))
+            item.remove_prefix(1);
+        while (!item.empty() && (item.back() == ' ' || item.back() == '\t'))
+            item.remove_suffix(1);
+
+        if (item == "*")
+            return true;
+        if (item.size() > 2 && item[0] == 'W' && item[1] == '/')
+            item.remove_prefix(2);
+        if (item == etag)
+            return true;
+    }
+    return false;
+}
+
+char const*
+pwaReason(int status)
+{
+    switch (status)
+    {
+        case 200:
+            return "OK";
+        case 304:
+            return "Not Modified";
+        case 400:
+            return "Bad Request";
+        case 403:
+            return "Forbidden";
+        case 404:
+            return "Not Found";
+        case 405:
+            return "Method Not Allowed";
+        case 503:
+            return "Service Unavailable";
+        default:
+            return "Error";
+    }
+}
+
+// Headers on every response, including errors.
+std::vector<std::string> const&
+pwaBaseHeaders()
+{
+    static std::vector<std::string> const h{
+        "X-Content-Type-Options: nosniff", "Referrer-Policy: no-referrer"};
+    return h;
+}
+
+// Headers on a served document (200 and 304).
+//
+// "sandbox allow-scripts" without allow-same-origin gives the document an
+// opaque origin: it has no storage and no service worker, and it cannot read
+// responses from any origin that does not opt in with CORS. It CAN still
+// send requests -- form posts, no-cors fetches, WebSocket handshakes -- to
+// any host, including the visitor's own machine; the sandbox is not a
+// substitute for refusing browser-originated requests on admin endpoints.
+std::vector<std::string> const&
+pwaDocumentHeaders()
+{
+    static std::vector<std::string> const h{
+        "Content-Security-Policy: sandbox allow-scripts allow-forms "
+        "allow-popups",
+        "X-Frame-Options: DENY",
+        "Cross-Origin-Resource-Policy: same-origin",
+        "Cross-Origin-Opener-Policy: same-origin",
+        // May be stored, but must be revalidated with the ETag every time.
+        "Cache-Control: no-cache"};
+    return h;
+}
+
+// Write a complete HTTP/1.1 response and close the connection. PWA ports
+// never keep a connection alive: one request, one response, closed. close()
+// is graceful only in that it lets the queued response flush first.
+//
+// A response to HEAD carries the headers the GET would have, including
+// Content-Length, but no body (RFC 9110 9.3.2).
+void
+pwaReply(
+    Session& session,
+    int status,
+    bool head,
+    std::vector<std::string> const& headers = {},
+    std::string const& body = {})
+{
+    std::string out;
+    out.reserve(256 + body.size());
+    out +=
+        "HTTP/1.1 " + std::to_string(status) + " " + pwaReason(status) + "\r\n";
+    out += "Server: " + systemName() + "\r\n";
+    out += "Connection: close\r\n";
+    for (auto const& h : pwaBaseHeaders())
+        out += h + "\r\n";
+    for (auto const& h : headers)
+        out += h + "\r\n";
+
+    // A 304 carries no body and no Content-Length (RFC 9110 15.4.5).
+    bool const hasBody = status != 304;
+    if (hasBody)
+    {
+        if (status != 200)
+            out +=
+                "Content-Type: text/plain; charset=utf-8\r\n"
+                "Cache-Control: no-store\r\n";
+        out += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+    }
+    out += "\r\n";
+    if (hasBody && !head)
+        out += body;
+
+    session.write(out);
+    session.close(true);
+}
+
+void
+pwaError(
+    Session& session,
+    int status,
+    bool head,
+    std::vector<std::string> const& headers = {})
+{
+    pwaReply(
+        session, status, head, headers, std::string(pwaReason(status)) + "\n");
+}
+
+// Holds one of ServerHandler's PWA job slots. The slot is released when the
+// last copy of the job closure is destroyed: after the job has run, or
+// without it ever running if the job queue refused or discarded it.
+class PWAJobSlot
+{
+    std::atomic<std::size_t>& count_;
+
+public:
+    explicit PWAJobSlot(std::atomic<std::size_t>& count) : count_(count)
+    {
+    }
+
+    PWAJobSlot(PWAJobSlot const&) = delete;
+    PWAJobSlot&
+    operator=(PWAJobSlot const&) = delete;
+
+    ~PWAJobSlot()
+    {
+        count_.fetch_sub(1, std::memory_order_relaxed);
+    }
+};
+
+}  // namespace
+
+void
+ServerHandler::onPWARequest(Session& session)
+{
+    using Outcome = PWAStats::Outcome;
+    using boost::beast::http::verb;
+
+    auto const j = app_.journal("PWA");
+    auto const& port = session.port();
+    auto const& request = session.request();
+    auto const remote = session.remoteAddress().at_port(0);
+    bool const head = request.method() == verb::head;
+
+    // Only a configured proxy may talk to this port. parse_Ports guarantees
+    // secure_gateway is set; this is the per-connection half of the rule.
+    if (!ipAllowed(
+            remote.address(),
+            port.secure_gateway_nets_v4,
+            port.secure_gateway_nets_v6))
+    {
+        JLOG(j.debug()) << "refusing direct connection from "
+                        << remote.to_string() << " on " << port.name;
+        pwaStats_.record(Outcome::directConnection);
+        pwaError(session, 403, head);
+        return;
+    }
+
+    // ...and it must say who it is forwarding for.
+    auto const forwarded = pwaClientAddress(request);
+    if (!forwarded)
+    {
+        JLOG(j.debug()) << "missing or unparseable X-Forwarded-For from proxy "
+                        << remote.to_string();
+        pwaStats_.record(Outcome::noForwardedFor);
+        pwaError(session, 400, head);
+        return;
+    }
+
+    // Meter the forwarded client, never the proxy: billing the proxy would
+    // let one visitor throttle the endpoint for everyone behind it.
+    auto const client = pwaBillingAddress(*forwarded);
+    auto usage = m_resourceManager.newInboundEndpoint(
+        beast::IPAddressConversion::from_asio(client));
+    if (usage.disconnect(m_journal))
+    {
+        pwaStats_.record(Outcome::throttled, client);
+        pwaError(session, 503, head);
+        return;
+    }
+    usage.charge(Resource::feeReferenceRPC);
+
+    if (request.method() != verb::get && !head)
+    {
+        usage.charge(Resource::feeMalformedRPC);
+        pwaStats_.record(Outcome::badMethod, client);
+        pwaError(session, 405, head, {"Allow: GET, HEAD"});
+        return;
+    }
+
+    // onHandoff passes upgrade requests through rather than answering them
+    // itself, so that they meet the proxy and X-Forwarded-For rules above
+    // and are metered and counted like anything else. A pwa port never
+    // speaks websockets.
+    if (boost::beast::websocket::is_upgrade(request))
+    {
+        usage.charge(Resource::feeMalformedRPC);
+        pwaStats_.record(Outcome::upgradeRefused, client);
+        pwaError(session, 403, head);
+        return;
+    }
+
+    auto const account = parsePWATarget(request.target());
+    if (!account)
+    {
+        usage.charge(Resource::feeMalformedRPC);
+        pwaStats_.record(Outcome::badTarget, client);
+        pwaError(session, 404, head);
+        return;
+    }
+
+    std::string ifNoneMatch;
+    if (auto const it = request.find(boost::beast::http::field::if_none_match);
+        it != request.end())
+        ifNoneMatch = std::string(it->value().data(), it->value().size());
+
+    // Bound the lookups queued or running at once. jtCLIENT_PWA already
+    // limits how many workers they may occupy; this bounds the queue behind
+    // them, and so the detached connections it holds. Past the cap the
+    // answer is an immediate 503 that the proxy can retry or serve stale.
+    if (pwaJobs_.fetch_add(1, std::memory_order_relaxed) >= maxPWAJobs)
+    {
+        pwaJobs_.fetch_sub(1, std::memory_order_relaxed);
+        JLOG(j.debug()) << "busy: " << maxPWAJobs << " lookups in flight";
+        pwaStats_.record(Outcome::busy, client);
+        pwaError(session, 503, head);
+        return;
+    }
+    auto const slot = std::make_shared<PWAJobSlot>(pwaJobs_);
+
+    // Charge for the ledger lookup before knowing whether it will hit, so
+    // that a miss costs exactly what a hit does: sweeping addresses that
+    // hold no loader must be no cheaper than downloading real ones.
+    usage.charge(Resource::feeMediumBurdenRPC);
+
+    // The ledger read can touch the node store, so it runs on the job queue.
+    // No coroutine: nothing here ever yields.
+    std::shared_ptr<Session> detached = session.detach();
+    if (!m_jobQueue.addJob(
+            jtCLIENT_PWA,
+            "PWA-Client",
+            [this,
+             detached,
+             slot,
+             account = *account,
+             client,
+             head,
+             ifNoneMatch]() {
+                processPWARequest(detached, account, client, head, ifNoneMatch);
+            }))
+    {
+        pwaStats_.record(Outcome::unavailable, client);
+        pwaError(*detached, 503, head);
+    }
+}
+
+void
+ServerHandler::processPWARequest(
+    std::shared_ptr<Session> const& session,
+    AccountID const& account,
+    boost::asio::ip::address const& client,
+    bool head,
+    std::string const& ifNoneMatch)
+{
+    using Outcome = PWAStats::Outcome;
+
+    auto const j = app_.journal("PWA");
+
+    // Work out the whole response before writing any of it. Nothing between
+    // here and Job::doJob catches, and the ledger read can throw (a missing
+    // node raises SHAMapMissingNode), so an escaped exception would take the
+    // process down from an unauthenticated GET. Deciding first means a
+    // failure becomes a clean 503 and can never follow a partial response.
+    Outcome outcome = Outcome::unavailable;
+    int status = 503;
+    std::vector<std::string> headers;
+    std::string body;
+    std::uint32_t seq = 0;
+
+    try
+    {
+        // Only validated state. A closed-but-unvalidated ledger may lose
+        // consensus, and serving it would put content that never reached the
+        // validated chain under this node's name.
+        if (auto const ledger = app_.getLedgerMaster().getValidatedLedger())
+        {
+            auto const sle = ledger->read(keylet::appLoader(account));
+            if (!sle || !sle->isFieldPresent(sfAppLoader))
+            {
+                outcome = Outcome::notFound;
+                status = 404;
+            }
+            else
+            {
+                // Every change to the object is threaded, so the id of the
+                // transaction that last touched it is a strong validator for
+                // its content.
+                std::string const etag =
+                    "\"" + to_string(sle->getFieldH256(sfPreviousTxnID)) + "\"";
+
+                headers = pwaDocumentHeaders();
+                headers.push_back("ETag: " + etag);
+                seq = ledger->seq();
+
+                if (!ifNoneMatch.empty() && pwaETagMatches(ifNoneMatch, etag))
+                {
+                    outcome = Outcome::notModified;
+                    status = 304;
+                }
+                else
+                {
+                    Blob const blob = sle->getFieldVL(sfAppLoader);
+                    body.assign(blob.begin(), blob.end());
+                    headers.push_back("Content-Type: text/html; charset=utf-8");
+                    outcome = Outcome::served;
+                    status = 200;
+                }
+            }
+        }
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.warn()) << "lookup for " << toBase58(account)
+                       << " failed: " << e.what();
+        outcome = Outcome::unavailable;
+        status = 503;
+        headers.clear();
+        body.clear();
+        seq = 0;
+    }
+
+    if (status == 200 || status == 304)
+    {
+        JLOG(j.trace()) << status << " for " << toBase58(account) << " ("
+                        << body.size() << " bytes) from validated ledger "
+                        << seq;
+        pwaStats_.record(outcome, client, account, head ? 0 : body.size(), seq);
+        pwaReply(*session, status, head, headers, body);
+        return;
+    }
+
+    pwaStats_.record(outcome, client);
+    pwaError(*session, status, head);
+}
+
 void
 ServerHandler::onRequest(Session& session)
 {
+    // PWA ports speak nothing else.
+    if (session.port().protocol.count("pwa") > 0)
+    {
+        onPWARequest(session);
+        return;
+    }
+
     // Make sure RPC is enabled on the port
     if (session.port().protocol.count("http") == 0 &&
         session.port().protocol.count("https") == 0)
+    {
+        HTTPReply(403, "Forbidden", makeOutput(session), app_.journal("RPC"));
+        session.close(true);
+        return;
+    }
+
+    if (isBrowserRequestForIPAdmin(
+            session.port(),
+            session.request(),
+            session.remoteAddress().at_port(0)))
     {
         HTTPReply(403, "Forbidden", makeOutput(session), app_.journal("RPC"));
         session.close(true);
@@ -1333,6 +1894,7 @@ to_Port(ParsedPort const& parsed, std::ostream& log)
     p.admin_nets_v6 = parsed.admin_nets_v6;
     p.secure_gateway_nets_v4 = parsed.secure_gateway_nets_v4;
     p.secure_gateway_nets_v6 = parsed.secure_gateway_nets_v6;
+    p.admin_origins = parsed.admin_origins;
 
     return p;
 }
@@ -1369,6 +1931,48 @@ parse_Ports(Config const& config, std::ostream& log)
         ParsedPort parsed = common;
         parse_Port(parsed, config[name], log);
         result.push_back(to_Port(parsed, log));
+    }
+
+    // PWA ports host third-party content and must only ever be reached
+    // through a reverse proxy. Refuse any configuration that would mix them
+    // with RPC, websockets, peers, credentials, admin rights or local TLS.
+    for (auto const& p : result)
+    {
+        if (p.protocol.count("pwa") == 0)
+            continue;
+
+        auto fail = [&](char const* why) {
+            log << "Invalid [" << p.name << "]: pwa port " << why;
+            Throw<std::exception>();
+        };
+
+        if (p.protocol.size() != 1)
+            fail("cannot be combined with any other protocol");
+        if (p.secure_gateway_nets_v4.empty() &&
+            p.secure_gateway_nets_v6.empty())
+            fail(
+                "requires secure_gateway (it may only be used behind a "
+                "reverse proxy)");
+        // 0.0.0.0 and :: are expanded to 0.0.0.0/0 and ::/0. Either would
+        // make every client a trusted proxy, free to write its own
+        // X-Forwarded-For and so choose the address it is billed against.
+        auto const everyAddress = [](auto const& nets) {
+            return std::any_of(nets.begin(), nets.end(), [](auto const& n) {
+                return n.prefix_length() == 0;
+            });
+        };
+        if (everyAddress(p.secure_gateway_nets_v4) ||
+            everyAddress(p.secure_gateway_nets_v6))
+            fail(
+                "secure_gateway cannot cover every address (0.0.0.0, :: or "
+                "a /0 network); list the proxy's own addresses");
+        if (!p.admin_nets_v4.empty() || !p.admin_nets_v6.empty() ||
+            !p.admin_user.empty() || !p.admin_password.empty())
+            fail("cannot have admin, admin_user or admin_password");
+        if (!p.user.empty() || !p.password.empty())
+            fail("cannot have user or password");
+        if (!p.ssl_key.empty() || !p.ssl_cert.empty() || !p.ssl_chain.empty())
+            fail("cannot terminate TLS; do that at the proxy");
     }
 
     if (config.standalone())

@@ -57,6 +57,9 @@ struct Port
     std::vector<boost::asio::ip::network_v6> admin_nets_v6;
     std::vector<boost::asio::ip::network_v4> secure_gateway_nets_v4;
     std::vector<boost::asio::ip::network_v6> secure_gateway_nets_v6;
+    // Browser origins (scheme://host[:port], or "*" for any) whose pages may
+    // use admin rights granted by `admin` IP alone. Empty: none may.
+    std::set<std::string, boost::beast::iless> admin_origins;
     std::string user;
     std::string password;
     std::string admin_user;
@@ -126,6 +129,7 @@ struct ParsedPort
     std::vector<boost::asio::ip::network_v6> admin_nets_v6;
     std::vector<boost::asio::ip::network_v4> secure_gateway_nets_v4;
     std::vector<boost::asio::ip::network_v6> secure_gateway_nets_v6;
+    std::set<std::string, boost::beast::iless> admin_origins;
 };
 
 void
