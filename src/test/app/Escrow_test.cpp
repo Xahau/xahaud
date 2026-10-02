@@ -4938,6 +4938,82 @@ struct Escrow_test : public beast::unit_test::suite
             env.require(balance(alice, USD(5000)));
             env.require(balance(bob, USD(0)));
         }
+
+        {
+            testcase("Destination Cancel: owner hook chain not charged");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, bob, carol);
+            env.close();
+
+            auto const seq = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)),
+                finish_time(env.now() + 1s),
+                cancel_time(env.now() + 2s));
+            env.close();
+            env.close();
+
+            auto const feeFor = [&](Account const& acct) {
+                return calculateBaseFee(
+                    *env.current(), *env.jt(cancel(acct, alice, seq)).stx);
+            };
+
+            XRPAmount const bobBefore = feeFor(bob);
+            XRPAmount const carolBefore = feeFor(carol);
+
+            env(jtx::hook(alice, {{hso(rollbackHook)}}, 0), fee(XRP(2)));
+            env.close();
+
+            // A third party still pays for the owner's (strong) hook chain.
+            BEAST_EXPECT(feeFor(carol) > carolBefore);
+
+            // The destination does too, but only without the amendment.
+            BEAST_EXPECT((feeFor(bob) == bobBefore) == enabled);
+        }
+
+        {
+            // fix1571 is still a live (DefaultYes) amendment on Xahau, so the
+            // legacy CancelAfter check in EscrowCancel remains reachable.
+            testcase("Destination Cancel: without fix1571");
+            Env env{*this, features - fix1571};
+            env.fund(XRP(5000), alice, bob, carol);
+            env.close();
+
+            // No CancelAfter.
+            auto const seq1 = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)), finish_time(env.now() + 100s));
+
+            // CancelAfter in the future.
+            auto const seq2 = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)),
+                finish_time(env.now() + 100s),
+                cancel_time(env.now() + 200s));
+
+            // CancelAfter about to pass.
+            auto const seq3 = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)),
+                finish_time(env.now() + 1s),
+                cancel_time(env.now() + 2s));
+            env.close();
+
+            env(cancel(alice, alice, seq1), ter(tecNO_PERMISSION));
+            env(cancel(carol, alice, seq2), ter(tecNO_PERMISSION));
+            env(cancel(bob, alice, seq1), ter(destResult));
+            env(cancel(bob, alice, seq2), ter(destResult));
+            env.close();
+
+            BEAST_EXPECT(
+                (env.le(keylet::escrow(alice.id(), seq1)) == nullptr) ==
+                enabled);
+            BEAST_EXPECT(
+                (env.le(keylet::escrow(alice.id(), seq2)) == nullptr) ==
+                enabled);
+
+            // Past CancelAfter anyone may cancel, with or without the
+            // amendment.
+            env(cancel(carol, alice, seq3));
+            env.close();
+            BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq3)));
+        }
     }
 
     void
