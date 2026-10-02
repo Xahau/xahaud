@@ -37,6 +37,7 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/JSONTxSignatures.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/UintTypes.h>
@@ -101,6 +102,64 @@ preflight1(PreflightContext const& ctx)
     {
         return temMALFORMED;
     }
+
+    // sfTime and sfJsonTxDelta are common fields, so every transaction type
+    // can carry them the moment this binary ships. A node on an older build
+    // cannot parse them, so accepting one into a ledger before the amendment
+    // activates would split consensus.
+    if (ctx.tx.isFieldPresent(sfTime) || ctx.tx.isFieldPresent(sfJsonTxDelta))
+    {
+        if (!ctx.rules.enabled(featureJsonTx))
+            return temDISABLED;
+
+        // unsanitize_jsontx refuses anything larger, so a bigger delta is
+        // only ever ledger weight that can never verify
+        if (ctx.tx.isFieldPresent(sfJsonTxDelta) &&
+            ctx.tx.getFieldVL(sfJsonTxDelta).size() > jsontx_max_diff)
+            return temMALFORMED;
+
+        // Emitted transactions carry their own replay protection
+        // (sfEmitDetails) and never a signature, so neither field has a
+        // meaning on one.
+        if (ctx.tx.isFieldPresent(sfEmitDetails))
+            return temMALFORMED;
+    }
+
+    if (auto const time = ctx.tx[~sfTime])
+    {
+        // Past this sfTime has no preimage spelling, and nothing in the
+        // validity window is anywhere near it; refusing it here keeps an
+        // absurd Time from being held and retried as terPRE_SEQ.
+        if (*time > jsontx_max_time)
+            return temMALFORMED;
+
+        // These already pin Sequence to 0 for reasons of their own - a first
+        // Import creates its account, a manifest is derived from the
+        // manifest alone - so an sfTime would silently reinterpret them as
+        // time-sequenced.
+        if (ctx.tx.getTxnType() == ttIMPORT ||
+            ctx.tx.getTxnType() == ttMANIFEST_SET)
+            return temMALFORMED;
+    }
+
+    // MPTokenIssuanceCreate and PermissionedDomainSet key the object they
+    // create by the raw sequence value, (sequence, account). Every other
+    // creator goes through seqID(), which falls back to the transaction id
+    // when the SeqProxy is sequence(0) - an emitted or a time-sequenced
+    // transaction - but these two ids are fixed formats with no room for one.
+    // Two such transactions from one account would name the same object,
+    // and inserting over an existing key is a LogicError on every node that
+    // builds the ledger. So they need a real Sequence or a Ticket.
+    //
+    // Time-sequenced transactions are new with featureJsonTx and refused
+    // unconditionally. Refusing the emitted case changes existing behaviour,
+    // so it waits for fix20260929. (Neither feature is supported yet, so
+    // neither case is reachable on a live network today.)
+    if ((ctx.tx.getTxnType() == ttMPTOKEN_ISSUANCE_CREATE ||
+         ctx.tx.getTxnType() == ttPERMISSIONED_DOMAIN_SET) &&
+        ctx.tx.getSeqProxy() == SeqProxy::sequence(0) &&
+        (ctx.tx.isTimeSequenced() || ctx.rules.enabled(fix20260929)))
+        return temBAD_SEQUENCE;
 
     auto const ret = preflight0(ctx);
     if (!isTesSuccess(ret))
@@ -619,6 +678,12 @@ Transactor::checkSeqProxy(
     if (tx.isFieldPresent(sfFirstLedgerSequence))
         return tefINTERNAL;
 
+    // Replay protection comes from sfTime against sfLastTxnTime, which
+    // checkPriorTxAndLastLedger enforces; the account Sequence is neither
+    // checked here nor consumed.
+    if (view.rules().enabled(featureJsonTx) && tx.isTimeSequenced())
+        return tesSUCCESS;
+
     if (t_seqProx.isSeq())
     {
         if (tx.isFieldPresent(sfTicketSequence) &&
@@ -701,6 +766,37 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         (ctx.view.seq() > ctx.tx.getFieldU32(sfLastLedgerSequence)))
         return tefMAX_LEDGER;
 
+    // sfTime stands in for both LastLedgerSequence and, when Sequence is 0,
+    // the account sequence. It applies to every transaction carrying it,
+    // whichever way that transaction is otherwise sequenced.
+    if (auto const time = ctx.tx[~sfTime])
+    {
+        // milliseconds since the ripple epoch, like sfTime
+        std::uint64_t const close =
+            static_cast<std::uint64_t>(
+                ctx.view.parentCloseTime().time_since_epoch().count()) *
+            1000;
+
+        // Expired: from here on this transaction can never apply, exactly as
+        // for a LastLedgerSequence in the past. Written without adding to
+        // *time, which arrives off the wire and could overflow.
+        if (close > *time && close - *time > txTimeMaxAgeMs)
+            return tefMAX_LEDGER;
+
+        // Not valid yet. Retriable, as for a future sequence: a client clock
+        // a little ahead of the network's is the common case.
+        if (*time > close && *time - close > txTimeMaxFutureMs)
+            return terPRE_SEQ;
+
+        // Replay. Strictly greater, so two transactions can never share a
+        // Time, and the Time of every transaction ever applied is at most
+        // sfLastTxnTime. With the window above, a time-sequenced
+        // transaction is applied at most once.
+        if (sle && sle->isFieldPresent(sfLastTxnTime) &&
+            *time <= sle->getFieldU64(sfLastTxnTime))
+            return tefPAST_SEQ;
+    }
+
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
 
@@ -762,6 +858,19 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
     // tec / failed-invariant path.
     if (view().rules().enabled(featureOnChainManifests) &&
         ctx_.tx.getTxnType() == ttMANIFEST_SET)
+        return tesSUCCESS;
+
+    // Recorded whatever else sequences the transaction, so that
+    // checkPriorTxAndLastLedger's replay check covers every Time this account
+    // ever used. This runs in apply() and again in reset(), so a tec result
+    // is covered too.
+    if (auto const time = ctx_.tx[~sfTime])
+        sleAccount->setFieldU64(sfLastTxnTime, *time);
+
+    // A time-sequenced transaction has Sequence 0 and no Ticket. Falling
+    // through would write Sequence = 0 + 1 and make every sequence this
+    // account ever used replayable.
+    if (ctx_.tx.isTimeSequenced())
         return tesSUCCESS;
 
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();

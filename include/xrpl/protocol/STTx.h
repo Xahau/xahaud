@@ -101,6 +101,18 @@ public:
     SeqProxy
     getSeqProxy() const;
 
+    /** True if replay protection comes from sfTime rather than a sequence.
+
+        That is: sfTime is present, Sequence is 0 and there is no
+        TicketSequence. Such a transaction neither checks nor consumes the
+        account's Sequence; it must instead carry a Time strictly greater
+        than the account's sfLastTxnTime, and records its Time there. Its
+        SeqProxy is sequence(0), so anything that derives an object id from
+        the SeqProxy must use seqID() instead.
+    */
+    bool
+    isTimeSequenced() const;
+
     boost::container::flat_set<AccountID>
     getMentionedAccounts() const;
 

@@ -31,7 +31,8 @@ namespace ripple {
 
     "Canonical" refers to the order in which transactions are applied.
 
-    - Puts transactions from the same account in SeqProxy order
+    - Puts transactions from the same account in SeqProxy order, then in
+      sfTime order
 
 */
 // VFALCO TODO rename to SortedTxSet
@@ -41,8 +42,11 @@ private:
     class Key
     {
     public:
-        Key(uint256 const& account, SeqProxy seqProx, uint256 const& id)
-            : account_(account), txId_(id), seqProxy_(seqProx)
+        Key(uint256 const& account,
+            SeqProxy seqProx,
+            std::uint64_t time,
+            uint256 const& id)
+            : account_(account), txId_(id), seqProxy_(seqProx), time_(time)
         {
         }
 
@@ -95,6 +99,11 @@ private:
         uint256 account_;
         uint256 txId_;
         SeqProxy seqProxy_;
+        // sfTime, or 0. Orders time-sequenced transactions from one account
+        // - which all share SeqProxy sequence(0) - oldest first, the only
+        // order in which all of them can apply. Zero for every transaction
+        // without an sfTime, so their order is exactly what it was.
+        std::uint64_t time_;
     };
 
     friend bool

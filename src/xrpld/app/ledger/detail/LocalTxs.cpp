@@ -161,6 +161,18 @@ public:
             if (!sleAcct)
                 return false;
 
+            // A time-sequenced transaction's SeqProxy is sequence(0), which
+            // the sequence test below would call past and sweep at once. It
+            // is spent once the account has recorded its Time or a later one
+            // - applied, or superseded - and otherwise lives out holdLedgers
+            // like anything else (preclaim refuses it once it expires).
+            if (auto const time = txn.getTX()->at(~sfTime);
+                time && txn.getTX()->isTimeSequenced())
+            {
+                auto const last = sleAcct->at(~sfLastTxnTime);
+                return last && *last >= *time;
+            }
+
             SeqProxy const acctSeq =
                 SeqProxy::sequence(sleAcct->getFieldU32(sfSequence));
             SeqProxy const seqProx = txn.getSeqProxy();
