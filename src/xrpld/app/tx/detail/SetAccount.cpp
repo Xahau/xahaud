@@ -224,6 +224,22 @@ SetAccount::preflight(PreflightContext const& ctx)
                                 << appLoader::to_string(result);
                 return temMALFORMED;
             }
+
+            // Before fixHookAPI20251128, etxn_fee_base prices transactions
+            // with Transactor::calculateBaseFee and so omits the per-byte
+            // fee below. A Hook paying what etxn_fee_base quotes would pass
+            // emit()'s fee check and then fail the real one later, and the
+            // loader would silently never be published. Refuse the emission
+            // up front instead: emit() runs preflight, so the Hook sees
+            // EMISSION_FAILURE at once. Removal costs nothing extra and is
+            // unaffected.
+            if (tx.isFieldPresent(sfEmitDetails) &&
+                !ctx.rules.enabled(fixHookAPI20251128))
+            {
+                JLOG(j.trace()) << "Malformed transaction: AppLoader cannot "
+                                   "be emitted before fixHookAPI20251128";
+                return temDISABLED;
+            }
         }
     }
 

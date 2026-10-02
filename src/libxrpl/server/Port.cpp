@@ -21,7 +21,9 @@
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/server/Port.h>
+#include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
 #include <sstream>
 
@@ -307,6 +309,52 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
         log,
         port.secure_gateway_nets_v4,
         port.secure_gateway_nets_v6);
+
+    // Origins are matched exactly (ignoring case) against the browser's
+    // Origin header, which is always scheme://host[:port] with no path.
+    // Like admin and secure_gateway, a port's list adds to [server]'s.
+    if (auto const optResult = section.get("admin_origin"))
+    {
+        // Split by hand: rfc2616::split_commas drops whitespace inside an
+        // entry, which would quietly turn "http://a b" into another origin.
+        std::vector<std::string> origins;
+        boost::algorithm::split(
+            origins, *optResult, boost::algorithm::is_any_of(","));
+        for (auto& origin : origins)
+        {
+            boost::algorithm::trim(origin);
+            if (origin.empty())
+                continue;
+
+            if (boost::iequals(origin, "null"))
+            {
+                // Sandboxed documents (AppLoader pages included), file: and
+                // data: URLs all send "Origin: null"; allowing it would hand
+                // IP-granted admin to exactly the pages this guards against.
+                log << "Invalid value 'null' for key 'admin_origin' in ["
+                    << section.name()
+                    << "]: opaque origins can never be granted admin";
+                Throw<std::exception>();
+            }
+
+            auto const scheme = origin.find("://");
+            bool const valid = origin == "*" ||
+                ((boost::istarts_with(origin, "http://") ||
+                  boost::istarts_with(origin, "https://")) &&
+                 origin.size() > scheme + 3 &&
+                 origin.find_first_of("/?#*@ \t", scheme + 3) ==
+                     std::string::npos);
+            if (!valid)
+            {
+                log << "Invalid value '" << origin
+                    << "' for key 'admin_origin' in [" << section.name()
+                    << "]: expected an origin such as http://localhost:8080, "
+                       "or *";
+                Throw<std::exception>();
+            }
+            port.admin_origins.insert(origin);
+        }
+    }
 
     set(port.user, "user", section);
     set(port.password, "password", section);

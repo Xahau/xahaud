@@ -15782,9 +15782,18 @@ public:
             return execs[0].getFieldU64(sfHookReturnCode);
         };
 
-        for (bool const enabled : {true, false})
+        // {featurePWALoader, fixHookAPI20251128}. Without the fix,
+        // etxn_fee_base cannot see the per-byte fee, so emitting a loader is
+        // refused by emit()'s preflight rather than failing later.
+        std::initializer_list<std::pair<bool, bool>> const cases{
+            {true, true}, {false, true}, {true, false}};
+        for (auto const& c : cases)
         {
-            auto const feats = enabled ? features : features - featurePWALoader;
+            bool const enabled = c.first;
+            bool const fixed = c.second;
+            auto feats = enabled ? features : features - featurePWALoader;
+            if (!fixed)
+                feats = feats - fixHookAPI20251128;
             Env env{*this, feats};
             auto const alice = Account{"alice"};
             auto const bob = Account{"bob"};
@@ -15846,8 +15855,10 @@ public:
                 HSFEE);
             env.close();
             // Enabled: exactly one drop per byte of the 13-byte loader.
-            // Disabled: the field parses but costs nothing extra.
-            BEAST_EXPECT(poke("fee probe") == 10000 + (enabled ? 13 : 0));
+            // Disabled, or before fixHookAPI20251128 (which prices with the
+            // base Transactor): the field parses but costs nothing extra.
+            BEAST_EXPECT(
+                poke("fee probe") == 10000 + (enabled && fixed ? 13 : 0));
 
             // --- a Hook can publish a loader by emitting AccountSet ---
             env(ripple::test::jtx::hook(
@@ -15867,9 +15878,9 @@ public:
                 HSFEE);
             env.close();
 
-            if (!enabled)
+            if (!enabled || !fixed)
             {
-                BEAST_EXPECT(poke("emit disabled") == 2000 + 11);
+                BEAST_EXPECT(poke("emit refused") == 2000 + 11);
                 env.close();
                 BEAST_EXPECT(!env.le(keylet::appLoader(alice.id())));
                 continue;

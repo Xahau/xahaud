@@ -136,7 +136,6 @@ JSS(URI);                      // field.
 JSS(VoteSlots);                // out: AMM Vote
 JSS(aborted);                            // out: InboundLedger
 JSS(accepted);               // out: LedgerToJson, OwnerInfo, SubmitTransaction
-JSS(AppLoader);              // out: ledger entry type
 JSS(accountState);           // out: LedgerToJson
 JSS(accountTreeHash);        // out: ledger/Ledger.cpp
 JSS(account_data);           // out: AccountInfo
@@ -599,12 +598,12 @@ JSS(request);               // RPC
 JSS(requested);             // out: Manifest
 JSS(reservations);          // out: Reservations
 JSS(reserve_base);          // out: NetworkOPs
-JSS(reset);                 // in: PWAInfo
 JSS(reserve_base_xrp);      // out: NetworkOPs
 JSS(reserve_base_native);   // out: NetworkOPs
 JSS(reserve_inc);           // out: NetworkOPs
 JSS(reserve_inc_xrp);       // out: NetworkOPs
 JSS(reserve_inc_native);    // out: NetworkOPs
+JSS(reset);                 // in/out: PWAInfo
 JSS(response);              // websocket
 JSS(result);                // RPC
 JSS(ripple_lines);          // out: NetworkOPs
@@ -679,11 +678,11 @@ JSS(time);
 JSS(timeouts);                // out: InboundLedger
 JSS(time_threshold);          // in/out: Oracle aggregate
 JSS(time_interval);           // out: AMM Auction Slot
+JSS(top);                     // in: PWAInfo
 JSS(track);                   // out: PeerImp
 JSS(traffic);                 // out: Overlay
 JSS(trim);                    // in: get_aggregate_price
 JSS(trimmed_set);             // out: get_aggregate_price
-JSS(top);                     // in: PWAInfo
 JSS(total);                   // out: counters
 JSS(total_bytes_recv);        // out: Peers
 JSS(total_bytes_sent);        // out: Peers

@@ -47,6 +47,7 @@ enum JobType {
     jtCLIENT_FEE_CHANGE,  // Subscription for fee change by a client
     jtCLIENT_CONSENSUS,   // Subscription for consensus state change by a client
     jtCLIENT_ACCT_HIST,   // Subscription for account history by a client
+    jtCLIENT_PWA,         // AppLoader document lookup for a pwa port
     jtCLIENT_RPC,         // Client RPC request
     jtCLIENT_WEBSOCKET,   // Client websocket request
     jtRPC,                // A websocket command from the client

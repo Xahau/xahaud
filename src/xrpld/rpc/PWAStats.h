@@ -27,7 +27,6 @@
 #include <boost/asio/ip/address.hpp>
 
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <mutex>
@@ -47,7 +46,11 @@ namespace ripple {
     sweeping random addresses cannot grow memory without limit. 404s are
     never tracked per account, for the same reason.
 
-    Thread safe. Counters are atomics; the tables share one mutex.
+    Clients are keyed by the address requests are billed against: the
+    IPv4 address, or the IPv6 /64 (shown as "<prefix>::/64").
+
+    Thread safe. Everything, counters included, sits behind one mutex, so
+    a snapshot is always self-consistent and a reset loses no request.
 */
 class PWAStats
 {
@@ -61,7 +64,10 @@ public:
         noForwardedFor,    // 400: proxy sent no usable X-Forwarded-For
         directConnection,  // 403: not from a secure_gateway address
         throttled,         // 503: resource manager said disconnect
-        unavailable,       // 503: no validated ledger, or job queue refused
+        unavailable,       // 503: no validated ledger, job queue refused,
+                           //      or the ledger read failed
+        upgradeRefused,    // 403: websocket upgrade request
+        busy,              // 503: too many lookups already in flight
         count_
     };
 
@@ -74,7 +80,8 @@ public:
     /** Record the outcome of one request.
 
         @param outcome  How the request ended.
-        @param client   The forwarded client address, when one was parsed.
+        @param client   The billing address (IPv4, or IPv6 masked to its
+                        /64), when one was parsed.
         @param account  The loader's owner; only for served / notModified.
         @param bytes    Body bytes written; only for served.
         @param ledgerSeq Validated ledger the answer came from, if any.
@@ -87,9 +94,14 @@ public:
         std::size_t bytes = 0,
         std::uint32_t ledgerSeq = 0);
 
-    /** Snapshot as JSON, with the `top` busiest accounts and clients. */
+    /** Snapshot as JSON, with the `top` busiest accounts and clients.
+
+        With `reset`, everything is zeroed and the collection window
+        restarted under the same lock that took the snapshot, so no
+        request is counted twice or lost between the two.
+    */
     Json::Value
-    getJson(std::size_t top) const;
+    getJson(std::size_t top, bool reset = false);
 
     /** Zero everything and restart the collection window. */
     void
@@ -119,11 +131,13 @@ private:
     static constexpr std::size_t outcomeCount =
         static_cast<std::size_t>(Outcome::count_);
 
-    std::array<std::atomic<std::uint64_t>, outcomeCount> outcomes_{};
-    std::atomic<std::uint64_t> bytesServed_{0};
-    std::atomic<std::uint32_t> lastLedger_{0};
+    void
+    resetLocked();
 
-    mutable std::mutex mutex_;
+    std::mutex mutex_;
+    std::array<std::uint64_t, outcomeCount> outcomes_{};
+    std::uint64_t bytesServed_ = 0;
+    std::uint32_t lastLedger_ = 0;
     std::chrono::system_clock::time_point since_;
     hash_map<AccountID, AccountEntry> accounts_;
     std::unordered_map<std::string, ClientEntry> clients_;

@@ -90,6 +90,9 @@ private:
         add(jtCLIENT_CONSENSUS,  "clientConsensus",      maxLimit,  2000ms,  5000ms);
         add(jtCLIENT_ACCT_HIST,  "clientAccountHistory", maxLimit,  2000ms,  5000ms);
         add(jtCLIENT_RPC,        "clientRPC",            maxLimit,  2000ms,  5000ms);
+        // Web traffic from pwa ports: at most two workers, and no latency
+        // targets, so that it can never move the node's load factor.
+        add(jtCLIENT_PWA,        "clientPWA",                   2,     0ms,     0ms);
         add(jtCLIENT_WEBSOCKET,  "clientWebsocket",      maxLimit,  2000ms,  5000ms);
         add(jtRPC,               "RPC",                  maxLimit,     0ms,     0ms);
         add(jtUPDATE_PF,         "updatePaths",                 1,     0ms,     0ms);

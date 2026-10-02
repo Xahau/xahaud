@@ -34,6 +34,16 @@ epochSeconds(std::chrono::system_clock::time_point t)
         .count();
 }
 
+// Billing addresses arrive already masked; make the IPv6 ones read as the
+// networks they are.
+std::string
+clientKey(boost::asio::ip::address const& client)
+{
+    if (client.is_v6())
+        return client.to_string() + "/64";
+    return client.to_string();
+}
+
 }  // namespace
 
 PWAStats::PWAStats() : since_(std::chrono::system_clock::now())
@@ -63,6 +73,10 @@ PWAStats::to_string(Outcome o)
             return "throttled";
         case Outcome::unavailable:
             return "unavailable";
+        case Outcome::upgradeRefused:
+            return "upgrade_refused";
+        case Outcome::busy:
+            return "busy";
         case Outcome::count_:
             break;
     }
@@ -84,20 +98,19 @@ PWAStats::record(
     bool const ok =
         outcome == Outcome::served || outcome == Outcome::notModified;
 
-    outcomes_[idx].fetch_add(1, std::memory_order_relaxed);
-    if (outcome == Outcome::served)
-        bytesServed_.fetch_add(bytes, std::memory_order_relaxed);
-    if (ledgerSeq)
-        lastLedger_.store(ledgerSeq, std::memory_order_relaxed);
-
     // Per-account rows only for loaders that exist; see the class comment.
     bool const trackAccount = ok && account.has_value();
-    if (!trackAccount && !client)
-        return;
 
     auto const now = epochSeconds(std::chrono::system_clock::now());
 
     std::lock_guard lock(mutex_);
+
+    ++outcomes_[idx];
+    if (outcome == Outcome::served)
+        bytesServed_ += bytes;
+    // Lookups finish out of order on the job queue; keep the newest.
+    if (ledgerSeq > lastLedger_)
+        lastLedger_ = ledgerSeq;
 
     if (trackAccount)
     {
@@ -129,7 +142,7 @@ PWAStats::record(
 
     if (client)
     {
-        auto const key = client->to_string();
+        auto const key = clientKey(*client);
         auto it = clients_.find(key);
         if (it == clients_.end() && clients_.size() < maxTrackedClients)
             it = clients_.emplace(key, ClientEntry{}).first;
@@ -152,27 +165,26 @@ PWAStats::record(
 }
 
 Json::Value
-PWAStats::getJson(std::size_t top) const
+PWAStats::getJson(std::size_t top, bool reset)
 {
     top = std::min(top, maxTop);
 
     Json::Value ret(Json::objectValue);
 
+    std::lock_guard lock(mutex_);
+
     std::uint64_t total = 0;
     Json::Value outcomes(Json::objectValue);
     for (std::size_t i = 0; i < outcomeCount; ++i)
     {
-        auto const n = outcomes_[i].load(std::memory_order_relaxed);
-        total += n;
-        outcomes[to_string(static_cast<Outcome>(i))] = std::to_string(n);
+        total += outcomes_[i];
+        outcomes[to_string(static_cast<Outcome>(i))] =
+            std::to_string(outcomes_[i]);
     }
     ret["requests"] = std::to_string(total);
     ret["outcomes"] = outcomes;
-    ret["bytes_served"] =
-        std::to_string(bytesServed_.load(std::memory_order_relaxed));
-    ret["last_ledger_index"] = lastLedger_.load(std::memory_order_relaxed);
-
-    std::lock_guard lock(mutex_);
+    ret["bytes_served"] = std::to_string(bytesServed_);
+    ret["last_ledger_index"] = lastLedger_;
 
     auto const now = std::chrono::system_clock::now();
     ret["since"] = static_cast<Json::UInt>(epochSeconds(since_));
@@ -250,18 +262,25 @@ PWAStats::getJson(std::size_t top) const
         ret["clients"] = clients;
     }
 
+    if (reset)
+        resetLocked();
+
     return ret;
 }
 
 void
 PWAStats::reset()
 {
-    for (auto& c : outcomes_)
-        c.store(0, std::memory_order_relaxed);
-    bytesServed_.store(0, std::memory_order_relaxed);
-    lastLedger_.store(0, std::memory_order_relaxed);
-
     std::lock_guard lock(mutex_);
+    resetLocked();
+}
+
+void
+PWAStats::resetLocked()
+{
+    outcomes_.fill(0);
+    bytesServed_ = 0;
+    lastLedger_ = 0;
     accounts_.clear();
     clients_.clear();
     untrackedAccountRequests_ = 0;

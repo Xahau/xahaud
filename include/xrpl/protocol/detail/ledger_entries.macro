@@ -142,6 +142,29 @@ LEDGER_ENTRY(ltIMPORT_VLSEQ, 0x0049, ImportVLSequence, import_vlseq, ({
     {sfPreviousTxnLgrSeq,    soeOPTIONAL},
 }))
 
+/** A ledger object holding the bootstrap document of a Progressive Web App.
+
+    There is at most one of these per account, keyed on the owner's AccountID.
+    It is linked directly from the owning AccountRoot via sfAppLoaderID and is
+    deliberately NOT placed in the owner directory: it takes no owner reserve
+    and contributes nothing to OwnerCount, because its storage is paid for by
+    a per-byte fee on the AccountSet that publishes it.
+
+    Two consequences follow from staying out of the directory. It is invisible
+    to account_objects, so it must be reached via sfAppLoaderID (or by
+    recomputing the keylet). And DeleteAccount's directory walk cannot find
+    it, so DeleteAccount erases it explicitly; without that, account deletion
+    would orphan it and trip AccountRootsDeletedClean.
+
+    \sa keylet::appLoader
+ */
+LEDGER_ENTRY(ltAPP_LOADER, 0x004c, AppLoader, app_loader, ({
+    {sfOwner,                soeREQUIRED},
+    {sfAppLoader,            soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** The ledger object which tracks the current negative UNL state.
 
     \note This is a singleton: only one such object exists in the ledger.
@@ -219,29 +242,6 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
     {sfDigest,               soeOPTIONAL},
     {sfAmount,               soeOPTIONAL},
     {sfDestination,          soeOPTIONAL},
-    {sfPreviousTxnID,        soeREQUIRED},
-    {sfPreviousTxnLgrSeq,    soeREQUIRED},
-}))
-
-/** A ledger object holding the bootstrap document of a Progressive Web App.
-
-    There is at most one of these per account, keyed on the owner's AccountID.
-    It is linked directly from the owning AccountRoot via sfAppLoaderID and is
-    deliberately NOT placed in the owner directory: it takes no owner reserve
-    and contributes nothing to OwnerCount, because its storage is paid for by
-    a per-byte fee on the AccountSet that publishes it.
-
-    Two consequences follow from staying out of the directory. It is invisible
-    to account_objects, so it must be reached via sfAppLoaderID (or by
-    recomputing the keylet). And DeleteAccount's directory walk cannot find
-    it, so DeleteAccount erases it explicitly; without that, account deletion
-    would orphan it and trip AccountRootsDeletedClean.
-
-    \sa keylet::appLoader
- */
-LEDGER_ENTRY_DUPLICATE(ltAPP_LOADER, 'L', AppLoader, app_loader, ({
-    {sfOwner,                soeREQUIRED},
-    {sfAppLoader,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))

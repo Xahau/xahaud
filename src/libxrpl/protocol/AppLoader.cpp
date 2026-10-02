@@ -17,9 +17,9 @@
 */
 //==============================================================================
 
+#include <xrpl/basics/UTF8.h>
 #include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Protocol.h>
-#include <xrpl/protocol/UTF8.h>
 
 #include <string_view>
 
@@ -175,10 +175,8 @@ validate(std::uint8_t const* data, std::size_t size)
         }
     }
 
+    // The probe starts at `open`, so any match lies after the start tag.
     if (close == size)
-        return Result::unclosed;
-
-    if (close < open)
         return Result::unclosed;
 
     // Nothing but whitespace may follow the closing tag.

@@ -717,8 +717,15 @@ struct PWALoader_test : public beast::unit_test::suite
         env.close();
 
         auto countNodes = [&](SField const& kind) {
+            // Hold the metadata in a named variable: env.meta() returns the
+            // only owner, and a range-for over a member of the temporary
+            // would iterate freed memory (the temporary dies before the
+            // loop body runs).
+            auto const meta = env.meta();
+            if (!BEAST_EXPECT(meta))
+                return 0;
             int n = 0;
-            for (auto const& node : env.meta()->getFieldArray(sfAffectedNodes))
+            for (auto const& node : meta->getFieldArray(sfAffectedNodes))
                 if (node.getFName() == kind &&
                     node.getFieldU16(sfLedgerEntryType) == ltAPP_LOADER)
                     ++n;

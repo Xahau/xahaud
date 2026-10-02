@@ -28,7 +28,6 @@
 #include <xrpld/rpc/detail/WSInfoSub.h>
 #include <xrpl/json/Output.h>
 #include <xrpl/protocol/AccountID.h>
-#include <xrpl/resource/Consumer.h>
 #include <xrpl/server/Server.h>
 #include <xrpl/server/Session.h>
 #include <xrpl/server/WSSession.h>
@@ -37,6 +36,7 @@
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/utility/string_view.hpp>
 
+#include <atomic>
 #include <condition_variable>
 #include <map>
 #include <mutex>
@@ -103,6 +103,11 @@ private:
     bool stopped_{false};
     std::map<std::reference_wrapper<Port const>, int> count_;
     PWAStats pwaStats_;
+
+    // PWA lookups queued or running on the job queue. Requests past
+    // maxPWAJobs are refused with 503 rather than queued.
+    std::atomic<std::size_t> pwaJobs_{0};
+    static constexpr std::size_t maxPWAJobs = 64;
 
     // A private type used to restrict access to the ServerHandler constructor.
     struct ServerHandlerCreator
@@ -232,21 +237,25 @@ private:
 
         Runs on the I/O thread and does only cheap work: checks that the
         request came through a secure_gateway proxy with X-Forwarded-For,
-        meters it against the forwarded client address, and parses the
-        target. The ledger read is posted to the job queue.
+        meters it against the forwarded client (per IPv4 address, per IPv6
+        /64), and parses the target. The ledger read is posted to the job
+        queue as jtCLIENT_PWA, with at most maxPWAJobs in flight.
     */
     void
     onPWARequest(Session& session);
 
     /** Serve an account's AppLoader document from the validated ledger.
-        Always closes the connection.
+        Runs on the job queue. Always closes the connection.
+
+        @param client The billing address (see onPWARequest), for stats.
+        @param head   The request was HEAD: send headers only.
     */
     void
     processPWARequest(
         std::shared_ptr<Session> const& session,
         AccountID const& account,
         boost::asio::ip::address const& client,
-        Resource::Consumer usage,
+        bool head,
         std::string const& ifNoneMatch);
 
     void

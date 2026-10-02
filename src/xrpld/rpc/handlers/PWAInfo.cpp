@@ -39,7 +39,7 @@ namespace ripple {
           "since", "window_seconds",               // collection window
           "requests", "outcomes": { served, not_modified, not_found,
               bad_target, bad_method, no_forwarded_for, direct_connection,
-              throttled, unavailable },
+              throttled, unavailable, upgrade_refused, busy },
           "bytes_served", "last_ledger_index",
           "accounts": { "tracked", "untracked_requests",
               "top": [ { account, served, not_modified, bytes,
@@ -50,7 +50,9 @@ namespace ripple {
         }
 
     Clients are the rightmost X-Forwarded-For address, i.e. the address
-    requests are billed against. 64-bit counters are strings.
+    requests are billed against: an IPv4 address, or an IPv6 /64 shown as
+    "<prefix>::/64". 64-bit counters are strings. With "reset", the
+    snapshot returned and the reset happen atomically.
 */
 Json::Value
 doPWAInfo(RPC::JsonContext& context)
@@ -60,8 +62,9 @@ doPWAInfo(RPC::JsonContext& context)
     std::size_t top = 20;
     if (params.isMember(jss::top))
     {
+        // isIntegral() also admits booleans, so test the two integer types.
         auto const& v = params[jss::top];
-        if (!v.isIntegral() || (v.isInt() && v.asInt() < 0) ||
+        if (!(v.isInt() || v.isUInt()) || (v.isInt() && v.asInt() < 0) ||
             v.asUInt() > PWAStats::maxTop)
             return RPC::expected_field_error(
                 jss::top, "unsigned integer no greater than 200");
@@ -79,7 +82,7 @@ doPWAInfo(RPC::JsonContext& context)
     auto& handler = context.app.getServerHandler();
     auto& stats = handler.pwaStats();
 
-    Json::Value ret = stats.getJson(top);
+    Json::Value ret = stats.getJson(top, reset);
 
     Json::Value& ports = ret[jss::ports] = Json::arrayValue;
     for (auto const& port : handler.setup().ports)
@@ -93,10 +96,7 @@ doPWAInfo(RPC::JsonContext& context)
     }
 
     if (reset)
-    {
-        stats.reset();
         ret[jss::reset] = true;
-    }
 
     return ret;
 }

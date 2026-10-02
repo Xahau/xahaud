@@ -34,12 +34,17 @@
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/jss.h>
+#include <xrpl/resource/Charge.h>
+#include <xrpl/resource/ResourceManager.h>
+#include <xrpl/resource/detail/Tuning.h>
 
 #include <boost/asio.hpp>
 #include <boost/beast/http.hpp>
 
 #include <array>
+#include <cstdlib>
 #include <functional>
+#include <map>
 #include <random>
 #include <sstream>
 #include <string>
@@ -205,6 +210,48 @@ class PWAServe_test : public beast::unit_test::suite,
         env(jt, fee(XRP(1)));
     }
 
+    // What one lookup that reaches the ledger costs, hit or miss:
+    // feeReferenceRPC + feeMediumBurdenRPC.
+    static constexpr int lookupCost = 20 + 400;
+
+    // Charge the resource consumer for `ip` to `misses` lookups short of the
+    // drop threshold. Driving it there with real requests would take
+    // thousands of them, and the decay window would make the count depend
+    // on how fast they run.
+    static void
+    chargeNearDrop(jtx::Env& env, std::string const& ip, int misses)
+    {
+        auto c = env.app().getResourceManager().newInboundEndpoint(
+            beast::IP::Endpoint::from_string(ip));
+        c.charge(Resource::Charge(
+            Resource::dropThreshold * Resource::decayWindowSeconds -
+                misses * lookupCost,
+            "test"));
+    }
+
+    // Send misses for `xff` until one is throttled. The first must not be:
+    // that is what shows the misses themselves pushed it over. A few more
+    // than `chargeNearDrop` left room for are allowed, since a decay tick
+    // may land in between.
+    bool
+    missesThrottle(
+        jtx::Env& env,
+        std::string const& xff,
+        boost::asio::yield_context& yield)
+    {
+        jtx::Account const nobody{"nobody"};  // never funded: always 404
+        for (int i = 0; i < 200; ++i)
+        {
+            auto const r = get(
+                env, "/" + nobody.human(), yield, {{"X-Forwarded-For", xff}});
+            if (r.result_int() == 503)
+                return i > 0;
+            if (!BEAST_EXPECT(r.result_int() == 404))
+                return false;
+        }
+        return false;
+    }
+
     //--------------------------------------------------------------------------
 
     void
@@ -247,6 +294,38 @@ class PWAServe_test : public beast::unit_test::suite,
             !accepts([](Section& s) { s.set("ssl_key", "/nonexistent"); }));
         BEAST_EXPECT(
             !accepts([](Section& s) { s.set("ssl_cert", "/nonexistent"); }));
+
+        // A gateway covering every address would make every client a proxy,
+        // free to write its own X-Forwarded-For.
+        for (auto const gw : {"0.0.0.0", "::", "0.0.0.0/0", "::/0"})
+            BEAST_EXPECTS(
+                !accepts([gw](Section& s) { s.set("secure_gateway", gw); }),
+                gw);
+        BEAST_EXPECT(
+            accepts([](Section& s) { s.set("secure_gateway", "10.0.0.0/8"); }));
+
+        // admin_origin is parsed for every port.
+        for (auto const bad :
+             {"null",
+              "NULL",
+              "http://",
+              "ftp://tool.example",
+              "localhost:8080",
+              "http://tool.example/",
+              "http://tool.example/path",
+              "http://*.example",
+              "http://user@tool.example",
+              "http://tool example"})
+            BEAST_EXPECTS(
+                !accepts([bad](Section& s) { s.set("admin_origin", bad); }),
+                bad);
+        for (auto const good :
+             {"*",
+              "http://localhost:8080",
+              "https://Tool.Example, http://127.0.0.1:3000"})
+            BEAST_EXPECTS(
+                accepts([good](Section& s) { s.set("admin_origin", good); }),
+                good);
     }
 
     void
@@ -419,7 +498,6 @@ class PWAServe_test : public beast::unit_test::suite,
         for (auto const& t :
              {"/" + a,
               "/" + a + "/",
-              "/" + a + "//",
               "/" + a + "?v=2",
               "/" + a + "/?v=2&x=%2F"})
             BEAST_EXPECTS(servedAsHtml(get(env, t, yield)), t);
@@ -428,6 +506,8 @@ class PWAServe_test : public beast::unit_test::suite,
              {std::string("/"),
               "/pwa/" + a,
               "//" + a,
+              "/" + a + "//",
+              "/" + a + "//?v=2",
               "/" + a + "/extra",
               "/" + a + "/index.html",
               "/" + a.substr(0, a.size() - 1),
@@ -441,7 +521,7 @@ class PWAServe_test : public beast::unit_test::suite,
             BEAST_EXPECTS(r.result_int() == 404, t);
         }
 
-        for (auto const& m : {"POST", "PUT", "DELETE", "HEAD", "OPTIONS"})
+        for (auto const& m : {"POST", "PUT", "DELETE", "OPTIONS"})
         {
             auto const raw = exchange(
                 env,
@@ -451,10 +531,49 @@ class PWAServe_test : public beast::unit_test::suite,
                     m,
                     std::string(m) == "POST" ? R"({"method":"stop"})" : ""),
                 yield);
-            // HEAD responses have no body by definition; parse loosely.
-            BEAST_EXPECTS(raw.rfind("HTTP/1.1 405 ", 0) == 0, m);
-            BEAST_EXPECT(raw.find("\r\nAllow: GET\r\n") != std::string::npos);
-            BEAST_EXPECT(raw.find("<html") == std::string::npos);
+            auto const parsed = parse(raw);
+            if (!BEAST_EXPECTS(parsed, m))
+                continue;
+            auto const& r = *parsed;
+            BEAST_EXPECTS(r.result_int() == 405, m);
+            BEAST_EXPECT(hdr(r, "Allow") == "GET, HEAD");
+            BEAST_EXPECT(r.body().find("<html") == std::string::npos);
+        }
+
+        // HEAD: the GET's status and headers, Content-Length included, and
+        // no body. Responses to HEAD cannot be parsed without knowing the
+        // request, so look at the raw bytes.
+        {
+            bool closed = false;
+            auto const raw = exchange(
+                env,
+                rawGet("/" + a, {{"X-Forwarded-For", "203.0.113.7"}}, "HEAD"),
+                yield,
+                "port_pwa",
+                &closed);
+            BEAST_EXPECT(closed);
+            BEAST_EXPECT(raw.rfind("HTTP/1.1 200 ", 0) == 0);
+            BEAST_EXPECT(
+                raw.find(
+                    "\r\nContent-Length: " + std::to_string(doc().size()) +
+                    "\r\n") != std::string::npos);
+            BEAST_EXPECT(
+                raw.find("\r\nContent-Type: text/html; charset=utf-8\r\n") !=
+                std::string::npos);
+            BEAST_EXPECT(raw.find("\r\nETag: \"") != std::string::npos);
+            auto const end = raw.find("\r\n\r\n");
+            BEAST_EXPECT(end != std::string::npos && end + 4 == raw.size());
+
+            Account const nobody{"nobody"};
+            auto const miss = exchange(
+                env,
+                rawGet(
+                    "/" + nobody.human(),
+                    {{"X-Forwarded-For", "203.0.113.7"}},
+                    "HEAD"),
+                yield);
+            BEAST_EXPECT(miss.rfind("HTTP/1.1 404 ", 0) == 0);
+            BEAST_EXPECT(miss.find("\r\n\r\n") + 4 == miss.size());
         }
 
         // The port is not an RPC endpoint, a status page or a websocket.
@@ -472,6 +591,17 @@ class PWAServe_test : public beast::unit_test::suite,
                 "\r\nX-Forwarded-For: 203.0.113.7\r\n\r\n";
             auto const raw = exchange(env, req, yield);
             BEAST_EXPECT(raw.rfind("HTTP/1.1 403 ", 0) == 0);
+            // Answered by the pwa code, not statusRequestResponse: no
+            // version string, and the proxy rules apply to it.
+            BEAST_EXPECT(
+                raw.find("\r\nServer: " + systemName() + "\r\n") !=
+                std::string::npos);
+            BEAST_EXPECT(
+                exchange(
+                    env,
+                    req.substr(0, req.find("X-Forwarded-For")) + "\r\n",
+                    yield)
+                    .rfind("HTTP/1.1 400 ", 0) == 0);
         }
     }
 
@@ -622,36 +752,102 @@ class PWAServe_test : public beast::unit_test::suite,
         testcase("metered by the rightmost X-Forwarded-For entry");
         using namespace jtx;
         Env env{*this, pwaConfig()};
-        Account const nobody{"nobody"};  // never funded: every hit is a 404
+        Account const alice{"alice"};
+        env.fund(XRP(1000), alice);
+        publish(env, alice, doc());
+        env.close();
 
         // Rotate the client-controlled leftmost entry on every request; the
         // proxy-written rightmost one stays fixed. Throttling must still
-        // happen, and misses must count.
+        // happen, and misses alone must get it there.
+        chargeNearDrop(env, "203.0.113.7", 4);
         std::mt19937 rng{7};
-        bool throttled = false;
-        for (int i = 0; i < 5000 && !throttled; ++i)
-        {
-            auto const spoof = std::to_string(rng() % 223 + 1) + ".0.0." +
-                std::to_string(rng() % 254 + 1);
-            auto const r =
-                get(env,
-                    "/" + nobody.human(),
-                    yield,
-                    {{"X-Forwarded-For", spoof + ", 203.0.113.7"}});
-            if (r.result_int() == 503)
-                throttled = true;
-            else
-                BEAST_EXPECT(r.result_int() == 404);
-        }
-        BEAST_EXPECT(throttled);
+        auto const spoof = std::to_string(rng() % 223 + 1) + ".0.0." +
+            std::to_string(rng() % 254 + 1);
+        BEAST_EXPECT(missesThrottle(env, spoof + ", 203.0.113.7", yield));
+
+        // Throttled for hits too, now.
+        BEAST_EXPECT(get(env, "/" + alice.human(), yield).result_int() == 503);
 
         // Another client behind the same proxy is unaffected.
+        BEAST_EXPECT(servedAsHtml(
+            get(env,
+                "/" + alice.human(),
+                yield,
+                {{"X-Forwarded-For", "198.51.100.9"}})));
+
+        // A miss costs exactly what a hit does.
+        auto& rm = env.app().getResourceManager();
+        auto balance = [&](std::string const& ip) {
+            return rm.newInboundEndpoint(beast::IP::Endpoint::from_string(ip))
+                .balance();
+        };
+        Account const nobody{"nobody"};
+        auto const hit0 = balance("192.0.2.1");
+        BEAST_EXPECT(servedAsHtml(
+            get(env,
+                "/" + alice.human(),
+                yield,
+                {{"X-Forwarded-For", "192.0.2.1"}})));
+        auto const hit = balance("192.0.2.1") - hit0;
+        auto const miss0 = balance("192.0.2.2");
         BEAST_EXPECT(
             get(env,
                 "/" + nobody.human(),
                 yield,
-                {{"X-Forwarded-For", "198.51.100.9"}})
+                {{"X-Forwarded-For", "192.0.2.2"}})
                 .result_int() == 404);
+        auto const miss = balance("192.0.2.2") - miss0;
+        // Balances are the decayed charge over the 32s window, so allow one
+        // unit of rounding; before, a miss cost 1/21 of a hit.
+        BEAST_EXPECTS(
+            miss >= lookupCost / Resource::decayWindowSeconds - 1 &&
+                std::abs(hit - miss) <= 1,
+            std::to_string(hit) + " " + std::to_string(miss));
+    }
+
+    void
+    testIPv6Billing(boost::asio::yield_context& yield)
+    {
+        testcase("IPv6 clients are billed and counted per /64");
+        using namespace jtx;
+        Env env{*this, pwaConfig()};
+        Account const alice{"alice"};
+        env.fund(XRP(1000), alice);
+        publish(env, alice, doc());
+        env.close();
+        auto const t = "/" + alice.human();
+
+        for (auto const xff :
+             {"2001:db8:1:2::1",
+              "[2001:db8:1:2:ffff:ffff:ffff:ffff]:443",
+              "2001:db8:1:3::1",
+              "::ffff:203.0.113.7",
+              "203.0.113.7"})
+            BEAST_EXPECTS(
+                servedAsHtml(get(env, t, yield, {{"X-Forwarded-For", xff}})),
+                xff);
+
+        auto const r = env.rpc("json", "pwa_info", "{}")[jss::result];
+        BEAST_EXPECT(r["clients"]["tracked"] == 3);
+        std::map<std::string, std::string> rows;
+        auto const& top = r["clients"]["top"];
+        for (Json::UInt i = 0; i < top.size(); ++i)
+            rows[top[i]["ip"].asString()] = top[i]["requests"].asString();
+        BEAST_EXPECT(rows["2001:db8:1:2::/64"] == "2");
+        BEAST_EXPECT(rows["2001:db8:1:3::/64"] == "1");
+        // IPv4-mapped IPv6 is the same client as plain IPv4.
+        BEAST_EXPECT(rows["203.0.113.7"] == "2");
+
+        // One budget per /64: addresses across the same /64 are throttled
+        // together, and the neighbouring /64 is not.
+        chargeNearDrop(env, "2001:db8:1:2::", 4);
+        BEAST_EXPECT(missesThrottle(env, "2001:db8:1:2::abcd", yield));
+        BEAST_EXPECT(
+            get(env, t, yield, {{"X-Forwarded-For", "2001:db8:1:2:1:2:3:4"}})
+                .result_int() == 503);
+        BEAST_EXPECT(servedAsHtml(
+            get(env, t, yield, {{"X-Forwarded-For", "2001:db8:1:3::abcd"}})));
     }
 
     void
@@ -706,6 +902,9 @@ class PWAServe_test : public beast::unit_test::suite,
         BEAST_EXPECT(o["no_forwarded_for"] == "1");
         BEAST_EXPECT(o["direct_connection"] == "0");
         BEAST_EXPECT(o["throttled"] == "0");
+        BEAST_EXPECT(o["unavailable"] == "0");
+        BEAST_EXPECT(o["upgrade_refused"] == "0");
+        BEAST_EXPECT(o["busy"] == "0");
         BEAST_EXPECT(r["bytes_served"] == std::to_string(2 * doc().size()));
         BEAST_EXPECT(r["last_ledger_index"] == env.closed()->seq());
 
@@ -736,6 +935,8 @@ class PWAServe_test : public beast::unit_test::suite,
              {R"({"top": 201})",
               R"({"top": -1})",
               R"({"top": "5"})",
+              R"({"top": true})",
+              R"({"top": 1.5})",
               R"({"reset": "yes"})"})
         {
             BEAST_EXPECTS(info(bad)[jss::error] == "invalidParams", bad);
@@ -750,6 +951,36 @@ class PWAServe_test : public beast::unit_test::suite,
             BEAST_EXPECT(after["requests"] == "0");
             BEAST_EXPECT(after["accounts"]["tracked"] == 0);
             BEAST_EXPECT(after["clients"]["tracked"] == 0);
+            BEAST_EXPECT(after["bytes_served"] == "0");
+            BEAST_EXPECT(after["last_ledger_index"] == 0);
+        }
+
+        // Command-line form: pwa_info [<top>] [reset], in either order.
+        {
+            get(env, a, yield, c1);
+            get(env, a, yield, c2);
+            auto const cli = env.rpc("pwa_info", "reset", "1")[jss::result];
+            BEAST_EXPECT(cli[jss::status] == "success");
+            BEAST_EXPECT(cli["requests"] == "2");
+            BEAST_EXPECT(cli["clients"]["top"].size() == 1);
+            BEAST_EXPECT(cli[jss::reset] == true);
+            BEAST_EXPECT(info()["requests"] == "0");
+
+            get(env, a, yield, c1);
+            BEAST_EXPECT(
+                env.rpc("pwa_info", "0")[jss::result]["requests"] == "1");
+            BEAST_EXPECT(
+                env.rpc("pwa_info")[jss::result]["clients"]["top"].size() == 1);
+            // A parse error never reaches the server: it is the top level.
+            BEAST_EXPECT(
+                env.rpc("pwa_info", "x")[jss::error] == "invalidParams");
+            BEAST_EXPECT(
+                env.rpc("pwa_info", "-1")[jss::error] == "invalidParams");
+            BEAST_EXPECT(
+                env.rpc("pwa_info", "reset", "reset")[jss::error] ==
+                "invalidParams");
+            BEAST_EXPECT(
+                env.rpc("pwa_info", "1", "2")[jss::error] == "invalidParams");
         }
 
         // Admin only.
@@ -757,9 +988,9 @@ class PWAServe_test : public beast::unit_test::suite,
             Env env2{*this, jtx::no_admin(pwaConfig())};
             auto const jrc = makeJSONRPCClient(env2.app().config());
             auto const jr = jrc->invoke("pwa_info", Json::objectValue);
-            BEAST_EXPECT(
-                jr[jss::result][jss::error] == "noPermission" ||
-                jr[jss::error] == "noPermission");
+            // A non-admin HTTP call to an admin method is refused with a
+            // plain-text 403, which the client reports as a null result.
+            BEAST_EXPECT(jr[jss::result].isNull());
         }
     }
 
@@ -773,7 +1004,7 @@ class PWAServe_test : public beast::unit_test::suite,
         using namespace jtx;
         Env env{*this};  // envconfig: port_rpc and port_ws are admin by IP
 
-        auto post = [&](Headers const& h, std::string const& ct) {
+        auto postTo = [&](Env& e, Headers const& h, std::string const& ct) {
             std::string const body = R"({"method":"ledger_accept"})";
             std::string r = "POST / HTTP/1.1\r\nHost: node\r\n";
             for (auto const& [k, v] : h)
@@ -781,7 +1012,10 @@ class PWAServe_test : public beast::unit_test::suite,
             r += "Content-Type: " + ct +
                 "\r\nContent-Length: " + std::to_string(body.size()) +
                 "\r\n\r\n" + body;
-            return exchange(env, r, yield, "port_rpc");
+            return exchange(e, r, yield, "port_rpc");
+        };
+        auto post = [&](Headers const& h, std::string const& ct) {
+            return postTo(env, h, ct);
         };
 
         BEAST_EXPECT(
@@ -807,6 +1041,34 @@ class PWAServe_test : public beast::unit_test::suite,
         BEAST_EXPECT(
             exchange(env, upgrade, yield, "port_ws")
                 .rfind("HTTP/1.1 403 ", 0) == 0);
+
+        // admin_origin lets named browser origins through, compared without
+        // regard to case; every other origin is still refused.
+        {
+            auto cfg = jtx::envconfig();
+            (*cfg)["port_rpc"].set(
+                "admin_origin", "http://localhost:8080, https://tool.example");
+            Env env2{*this, std::move(cfg)};
+            auto status = [&](std::string const& origin) {
+                return postTo(env2, {{"Origin", origin}}, "application/json")
+                    .substr(0, 13);
+            };
+            BEAST_EXPECT(status("http://localhost:8080") == "HTTP/1.1 200 ");
+            BEAST_EXPECT(status("https://TOOL.example") == "HTTP/1.1 200 ");
+            BEAST_EXPECT(status("http://localhost:8081") == "HTTP/1.1 403 ");
+            BEAST_EXPECT(status("https://evil.example") == "HTTP/1.1 403 ");
+            BEAST_EXPECT(status("null") == "HTTP/1.1 403 ");
+        }
+
+        // "*" restores the behaviour from before the Origin check.
+        {
+            auto cfg = jtx::envconfig();
+            (*cfg)["port_rpc"].set("admin_origin", "*");
+            Env env2{*this, std::move(cfg)};
+            BEAST_EXPECT(
+                postTo(env2, {{"Origin", "null"}}, "text/plain")
+                    .rfind("HTTP/1.1 200 ", 0) == 0);
+        }
 
         // A non-admin port is unaffected: browsers keep the public API.
         {
@@ -836,6 +1098,7 @@ public:
             testProxyRules(yield);
             testConnectionClose(yield);
             testMetering(yield);
+            testIPv6Billing(yield);
             testPWAInfo(yield);
             testOriginAdmin(yield);
         });

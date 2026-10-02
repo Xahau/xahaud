@@ -71,7 +71,7 @@ enum class Result : std::uint8_t {
     badControlChar,  // disallowed control character
     noDoctype,       // does not open with a doctype or <html tag
     noHtmlElement,   // missing <html ...> start tag
-    unclosed,        // missing </html> end tag, or it precedes <html
+    unclosed,        // no </html> end tag after the <html start tag
     trailingGarbage  // non-whitespace content after </html>
 };
 
