@@ -243,6 +243,7 @@
 #define sfLockingChainDoor ((8U << 16U) + 22U)
 #define sfIssuingChainDoor ((8U << 16U) + 23U)
 #define sfSubject ((8U << 16U) + 24U)
+#define sfTransferFeeRecipient ((8U << 16U) + 98U)
 #define sfInform ((8U << 16U) + 99U)
 #define sfIndexes ((19U << 16U) + 1U)
 #define sfHashes ((19U << 16U) + 2U)
