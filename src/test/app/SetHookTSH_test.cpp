@@ -1962,7 +1962,8 @@ private:
     // |   A   |  A  |    S   |     S      |     S    |    S   |     S
     // |   A   |  D  |    N   |     N      |     S    |    S   |     S
     // |   D   |  D  |    S   |     S      |    N/A   |    S   |     S
-    // |   D   |  A  |    S   |     S      |    N/A   |    S   |     S
+    // |   D   |  A  |    W*  |     W*     |    N/A   |    S   |     S
+    // * S without featureEscrowDestinationCancel
 
     static uint256
     getEscrowIndex(AccountID const& account, std::uint32_t uSequence)
@@ -2117,13 +2118,18 @@ private:
 
         // otxn: dest
         // tsh account
-        // w/s: strong
+        // w/s: weak (strong without featureEscrowDestinationCancel)
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
                 network::makeNetworkConfig(21337, "10", "1000000", "200000"),
                 features};
+
+            bool const withIOUIssuerWeakTSH =
+                env.current()->rules().enabled(featureIOUIssuerWeakTSH);
+            bool const withDestCancel =
+                env.current()->rules().enabled(featureEscrowDestinationCancel);
 
             auto const account = Account("alice");
             auto const dest = Account("bob");
@@ -2154,7 +2160,10 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+            auto const expected = !withDestCancel     ? tshSTRONG
+                : !testStrong && withIOUIssuerWeakTSH ? tshWEAK
+                                                      : tshNONE;
+            testTSHStrongWeak(env, expected, __LINE__);
         }
 
         // otxn: account
@@ -2373,13 +2382,18 @@ private:
 
         // otxn: dest
         // tsh account
-        // w/s: strong
+        // w/s: weak (strong without featureEscrowDestinationCancel)
         for (bool const testStrong : {true, false})
         {
             test::jtx::Env env{
                 *this,
                 network::makeNetworkConfig(21337, "10", "1000000", "200000"),
                 features};
+
+            bool const withIOUIssuerWeakTSH =
+                env.current()->rules().enabled(featureIOUIssuerWeakTSH);
+            bool const withDestCancel =
+                env.current()->rules().enabled(featureEscrowDestinationCancel);
 
             auto const account = Account("alice");
             auto const dest = Account("bob");
@@ -2413,7 +2427,9 @@ private:
             env.close();
 
             // verify tsh hook triggered
-            auto const expected = testStrong ? tshSTRONG : tshSTRONG;
+            auto const expected = !withDestCancel     ? tshSTRONG
+                : !testStrong && withIOUIssuerWeakTSH ? tshWEAK
+                                                      : tshNONE;
             testTSHStrongWeak(env, expected, __LINE__);
         }
 
