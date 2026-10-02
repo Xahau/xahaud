@@ -44,7 +44,6 @@
 #include <xrpld/app/misc/detail/AccountTxPaging.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/app/tx/apply.h>
-#include <xrpld/app/tx/detail/SetManifest.h>  // makeSetManifestTx
 #include <xrpld/consensus/Consensus.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/overlay/Cluster.h>
@@ -316,8 +315,6 @@ private:
     switchLastClosedLedger(std::shared_ptr<Ledger const> const& newLCL);
     bool
     checkLastClosedLedger(const Overlay::PeerSequence&, uint256& networkClosed);
-    void
-    publishNewerManifests(ReadView const& ledger);
 
 public:
     bool
@@ -1136,16 +1133,6 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
 
     try
     {
-        // Not a bad signature: this server may not have reached the fee
-        // setting the wrapper was built for. Drop without marking it bad.
-        if (auto const [fee, feeReason] = checkManifestIngressFee(app_, *trans);
-            fee == ManifestIngressFee::Refused)
-        {
-            JLOG(m_journal.debug())
-                << "Submitted manifest-authorized tx dropped: " << feeReason;
-            return;
-        }
-
         auto const [validity, reason] = checkValidity(
             app_.getHashRouter(),
             *trans,
@@ -1175,73 +1162,6 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
         auto t = tx;
         processTransaction(t, false, false, FailHard::no);
     });
-}
-
-void
-NetworkOPsImp::publishNewerManifests(ReadView const& ledger)
-{
-    for (auto const& pk : app_.validators().getTrustedMasterKeys())
-    {
-        // Only for validators that have opted in by publishing on-ledger
-        // already. Submitting spends the master key account's balance, so an
-        // account that has never used the feature is left alone.
-        auto const ledgerSequence = onLedgerManifestSequence(ledger, pk);
-        if (!ledgerSequence)
-            continue;
-
-        auto const held = app_.validatorManifests().getRawManifest(pk);
-        if (!held || held->first <= *ledgerSequence)
-            continue;
-
-        // Priced against the open ledger it is submitted to, not `ledger`.
-        auto const hex = makeSetManifestTx(
-            makeSlice(held->second),
-            app_.config().NETWORK_ID,
-            app_.openLedger().current()->fees().base,
-            app_.journal("Manifest"));
-
-        auto const blob = hex ? strUnHex(*hex) : std::nullopt;
-        if (!blob || blob->empty())
-            continue;
-
-        std::shared_ptr<STTx const> stTx;
-        std::string reason;
-        std::shared_ptr<Transaction> tx;
-        try
-        {
-            SerialIter sit{makeSlice(*blob)};
-            stTx = std::make_shared<STTx const>(std::ref(sit));
-            tx = std::make_shared<Transaction>(stTx, reason, app_);
-        }
-        catch (std::exception const& e)
-        {
-            JLOG(m_journal.warn())
-                << "publishNewerManifests: " << e.what() << " " << reason;
-            continue;
-        }
-
-        if (tx->getStatus() != NEW)
-            continue;
-
-        // The master key account pays. Skip rather than submit something that
-        // can only fail: this runs every ledger, so an unfunded validator
-        // would otherwise be retried forever.
-        auto const sleAcct = ledger.read(keylet::account(calcAccountID(pk)));
-        if (!sleAcct ||
-            sleAcct->getFieldAmount(sfBalance).xrp() < (*stTx)[sfFee].xrp())
-            continue;
-
-        JLOG(m_journal.info())
-            << "publishNewerManifests: publishing manifest seq " << held->first
-            << " for " << toBase58(TokenType::NodePublic, pk);
-
-        // Submitted from the job queue because this runs on the consensus
-        // thread, which must not block on transaction processing.
-        m_job_queue.addJob(jtTRANSACTION, "publishManifest", [this, tx]() {
-            auto t = tx;
-            processTransaction(t, false, false, FailHard::no);
-        });
-    }
 }
 
 void
@@ -1284,19 +1204,6 @@ NetworkOPsImp::processTransaction(
     // NOTE eahennis - I think this check is redundant,
     // but I'm not 100% sure yet.
     // If so, only cost is looking up HashRouter flags.
-    // Before checkValidity(), which verifies the manifest: a fee miss is local
-    // and must not mark the transaction bad.
-    if (auto const [fee, feeReason] =
-            checkManifestIngressFee(app_, *transaction->getSTransaction());
-        fee == ManifestIngressFee::Refused)
-    {
-        JLOG(m_journal.debug())
-            << "Manifest-authorized tx dropped: " << feeReason;
-        transaction->setStatus(INVALID);
-        transaction->setResult(telMANIFEST_FEE_MISMATCH);
-        return;
-    }
-
     auto const [validity, reason] = checkValidity(
         app_.getHashRouter(),
         *transaction->getSTransaction(),
@@ -2086,12 +1993,6 @@ NetworkOPsImp::beginConsensus(
     {
         app_.validatorManifests().applyLedger(
             *prevLedger, app_.validators().getTrustedMasterKeys());
-
-        // The reverse of applyLedger above. Manifests reach us by peer gossip
-        // and in published validator lists, both of which can arrive before
-        // the validator gets around to publishing on-chain, so the cache may
-        // hold something newer than the ledger does.
-        publishNewerManifests(*prevLedger);
     }
 
     TrustChanges const changes = app_.validators().updateTrusted(

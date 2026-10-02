@@ -25,7 +25,6 @@
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/SetHook.h>
-#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpld/core/Config.h>
@@ -342,11 +341,7 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
 
     XRPAmount hookExecutionFee{0};
     uint64_t burden{1};
-    // The unsigned SetManifest lane runs no hooks (see operator()), so none of
-    // their fees enter its floor, which must not exceed the canonical Fee.
-    if (view.rules().enabled(featureHooks) &&
-        !(view.rules().enabled(featureOnChainManifests) &&
-          isUnsignedSetManifest(tx)))
+    if (view.rules().enabled(featureHooks))
     {
         // if this is a "cleanup" txn we regard it as already paid up
         if (tx.getTxnType() == ttEMIT_FAILURE)
@@ -601,12 +596,6 @@ Transactor::checkSeqProxy(
         return terNO_ACCOUNT;
     }
 
-    // Only the manifest-authorized lane is independent of account sequence.
-    // Account-signed SetManifest transactions use ordinary replay protection.
-    if (view.rules().enabled(featureOnChainManifests) &&
-        isUnsignedSetManifest(tx))
-        return tesSUCCESS;
-
     SeqProxy const a_seq = SeqProxy::sequence((*sle)[sfSequence]);
 
     // pass all emitted tx provided their seq is 0
@@ -757,17 +746,6 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
     if (ctx_.isEmittedTxn())
         return tesSUCCESS;
 
-    // Manifest-authorized txns are pinned to sfSequence 0 and not signed by
-    // the account, so they neither consume nor reset its sequence.
-    // Doing so would be actively harmful -- the write below is
-    // seqProx.value() + 1, which for a seq-0 txn sets the account sequence to
-    // 1 and makes every previously used sequence replayable. Handling it here
-    // rather than in apply() also covers reset(), which re-consumes on the
-    // tec / failed-invariant path.
-    if (view().rules().enabled(featureOnChainManifests) &&
-        isUnsignedSetManifest(ctx_.tx))
-        return tesSUCCESS;
-
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();
     if (seqProx.isSeq())
     {
@@ -909,13 +887,6 @@ Transactor::checkSign(PreclaimContext const& ctx)
     // internal xpop txn
     if (ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT)
-        return tesSUCCESS;
-
-    // The manifest-authorized lane is checked in preflight against the
-    // manifest's internal key logic. Account-signed SetManifest transactions
-    // continue through the ordinary single- or multi-signature path.
-    if (ctx.view.rules().enabled(featureOnChainManifests) &&
-        isUnsignedSetManifest(ctx.tx))
         return tesSUCCESS;
 
     if (ctx.flags & tapDRY_RUN)
@@ -1973,14 +1944,7 @@ Transactor::operator()()
 
     auto result = ctx_.preclaimResult;
 
-    // An unsigned SetManifest carries manifest authority only. Its account
-    // did not sign it, so no hook observes or vetoes it, the originator's
-    // included. A hook rejection would otherwise claim a fee without
-    // advancing the manifest sequence, letting the same public txid charge
-    // again in every later ledger.
-    bool const hooksEnabled = view().rules().enabled(featureHooks) &&
-        !(view().rules().enabled(featureOnChainManifests) &&
-          isUnsignedSetManifest(ctx_.tx));
+    bool const hooksEnabled = view().rules().enabled(featureHooks);
 
     // AgainAsWeak map stores information about accounts whose strongly executed
     // hooks request an additional weak execution after the otxn has finished

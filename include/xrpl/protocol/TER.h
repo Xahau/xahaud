@@ -69,7 +69,6 @@ enum TELcodes : TERUnderlyingType {
     telIMPORT_VL_KEY_NOT_RECOGNISED,
     telCAN_NOT_QUEUE_IMPORT,
     telENV_RPC_FAILED,
-    telMANIFEST_FEE_MISMATCH,
 };
 
 //------------------------------------------------------------------------------
@@ -197,7 +196,6 @@ enum TEFcodes : TERUnderlyingType {
     tefINVALID_LEDGER_FIX_TYPE,
     tefPAST_MANIFEST_SEQ,
     tefREVOKED_MANIFEST,
-    tefMANIFEST_KEY_CLAIMED,
 };
 
 //------------------------------------------------------------------------------

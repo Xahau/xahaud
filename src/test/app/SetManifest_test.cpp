@@ -20,9 +20,7 @@
 #include <test/jtx.h>
 #include <test/jtx/network.h>
 #include <xrpld/app/ledger/OpenLedger.h>
-#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/Manifest.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
@@ -49,14 +47,14 @@
 namespace ripple {
 namespace test {
 
-/** Tests the OnChainManifests amendment: the SetManifest transactor, the
-    submit RPC path that builds its transaction, and reading manifests back out
-    of the ledger into the manifest cache.
+/** Tests the OnChainManifests amendment: the account-signed SetManifest
+    transactor, and reading manifests back out of the ledger into the manifest
+    cache.
 */
 struct SetManifest_test : public beast::unit_test::suite
 {
-    // A network that requires NetworkID (id > 1024), so the canonical unsigned
-    // envelope carries one and the account-signed lane sets it too.
+    // A network that requires NetworkID (id > 1024), so every SetManifest in
+    // these tests carries one.
     static std::unique_ptr<Config>
     makeConfig(std::string fee = "10")
     {
@@ -101,20 +99,6 @@ struct SetManifest_test : public beast::unit_test::suite
         return std::string(static_cast<char const*>(s.data()), s.size());
     }
 
-    /** Submits a manifest through the submit RPC.
-
-        The transaction is unsigned -- authority comes from the manifest's own
-        master and ephemeral signatures -- so it cannot be submitted through
-        env() the way a signed transaction can.
-    */
-    static Json::Value
-    submit(jtx::Env& env, std::string const& manifest)
-    {
-        Json::Value params;
-        params[jss::manifest] = strHex(manifest);
-        return env.rpc("json", "submit", to_string(params))[jss::result];
-    }
-
     /** Submits an already formed SetManifest transaction. */
     static Json::Value
     submit(jtx::Env& env, std::shared_ptr<STTx const> const& tx)
@@ -122,6 +106,16 @@ struct SetManifest_test : public beast::unit_test::suite
         Serializer s;
         tx->add(s);
         return env.rpc("submit", strHex(s.slice()))[jss::result];
+    }
+
+    /** Signs `manifest` into a SetManifest from `account` and submits it. */
+    static Json::Value
+    submit(
+        jtx::Env& env,
+        std::string const& manifest,
+        jtx::Account const& account)
+    {
+        return submit(env, signedEnvelope(env, manifest, account));
     }
 
     static std::string
@@ -146,53 +140,11 @@ struct SetManifest_test : public beast::unit_test::suite
         return std::string(static_cast<char const*>(s.data()), s.size());
     }
 
-    /** The envelope Submit would build for `manifest`, optionally tweaked.
+    /** An account-signed SetManifest transaction.
 
-        makeSetManifestTx() rejects any manifest the transactor would reject,
-        and checkValidity() rejects any envelope whose signatures do not check
-        out, so several of the transactor's own rejections cannot be provoked
-        through the submit RPC at all. Building the envelope here and applying
-        it straight to the open view reaches them.
-    */
-    static std::shared_ptr<STTx const>
-    envelope(
-        jtx::Env& env,
-        std::string const& manifest,
-        AccountID const& account,
-        std::function<void(STObject&)> const& tweak = {})
-    {
-        auto const build = [&](XRPAmount fee, bool tweaked) {
-            return std::make_shared<STTx const>(
-                ttMANIFEST_SET, [&](STObject& obj) {
-                    obj.setAccountID(sfAccount, account);
-                    obj.setFieldU32(sfSequence, 0);
-                    obj.setFieldU32(sfNetworkID, env.app().config().NETWORK_ID);
-                    obj.setFieldAmount(sfFee, fee);
-                    obj.setFieldVL(sfSigningPubKey, Blob{});
-                    obj.setFieldVL(sfTxnSignature, Blob{});
-
-                    SerialIter mit{makeSlice(manifest)};
-                    obj.peekFieldObject(sfManifest).set(mit);
-
-                    if (tweaked && tweak)
-                        tweak(obj);
-                });
-        };
-
-        SerialIter mit{makeSlice(manifest)};
-        STObject const manifestObject{mit, sfManifest};
-        return build(
-            canonicalUnsignedSetManifestFee(
-                env.current()->fees().base, manifestObject)
-                .value_or(XRPAmount{0}),
-            true);
-    }
-
-    /** An ordinary account-signed SetManifest envelope.
-
-        This is the only lane allowed to create an account's first manifest
-        slot. It uses the account's current Sequence unless a test overrides
-        it, and its outer signature authenticates the complete transaction.
+        SetManifest is an ordinary account transaction. This uses the account's
+        current Sequence unless a test overrides it; `tweak` runs before the
+        outer signature, so the result is always correctly signed.
     */
     static std::shared_ptr<STTx const>
     signedEnvelope(
@@ -200,20 +152,24 @@ struct SetManifest_test : public beast::unit_test::suite
         std::string const& manifest,
         jtx::Account const& account,
         std::optional<std::uint32_t> sequence = std::nullopt,
-        std::optional<XRPAmount> fee = std::nullopt)
+        std::optional<XRPAmount> fee = std::nullopt,
+        std::function<void(STObject&)> const& tweak = {})
     {
         auto const build = [&](XRPAmount fee) {
             auto tx =
                 std::make_shared<STTx>(ttMANIFEST_SET, [&](STObject& obj) {
                     obj.setAccountID(sfAccount, account.id());
                     obj.setFieldU32(
-                        sfSequence, sequence.value_or(env.seq(account)));
+                        sfSequence, sequence ? *sequence : env.seq(account));
                     obj.setFieldU32(sfNetworkID, env.app().config().NETWORK_ID);
                     obj.setFieldAmount(sfFee, fee);
                     obj.setFieldVL(sfSigningPubKey, account.pk().slice());
 
                     SerialIter mit{makeSlice(manifest)};
                     obj.peekFieldObject(sfManifest).set(mit);
+
+                    if (tweak)
+                        tweak(obj);
                 });
             tx->sign(account.pk(), account.sk());
             return tx;
@@ -290,25 +246,13 @@ struct SetManifest_test : public beast::unit_test::suite
         env.fund(XRP(1000), master);
         env.close();
 
-        auto const first = makeManifest(master, ephemeral, 1);
-
-        // Possessing a valid manifest does not authorize creation of its
-        // account-backed slot. The refusal claims neither a fee nor Sequence.
-        auto const balanceBefore = env.balance(master);
         auto const sequenceBefore = env.seq(master);
-        BEAST_EXPECT(!onLedgerManifestSequence(*env.current(), master.pk()));
-        BEAST_EXPECT(engineResult(submit(env, first)) == "tefBAD_AUTH");
-        BEAST_EXPECT(!env.le(keylet::manifest(master.pk())));
-        BEAST_EXPECT(!onLedgerManifestSequence(*env.current(), master.pk()));
-        BEAST_EXPECT(env.balance(master) == balanceBefore);
-        BEAST_EXPECT(env.seq(master) == sequenceBefore);
 
-        // First registration is an ordinary account-signed transaction.
+        // Registration is an ordinary account-signed transaction.
         BEAST_EXPECT(
-            engineResult(submit(env, signedEnvelope(env, first, master))) ==
+            engineResult(
+                submit(env, makeManifest(master, ephemeral, 1), master)) ==
             "tesSUCCESS");
-        BEAST_EXPECT(
-            onLedgerManifestSequence(*env.current(), master.pk()) == 1);
         env.close();
 
         // The complete manifest is available in one lookup from either key.
@@ -350,10 +294,6 @@ struct SetManifest_test : public beast::unit_test::suite
             keylet::manifest(master.pk()).key);
         BEAST_EXPECT(sleAcct->getFieldU32(sfOwnerCount) == 1);
 
-        // The ephemeral key's keylet holds this account's signing-key copy.
-        // That is not a registration of the ephemeral key as a master.
-        BEAST_EXPECT(!onLedgerManifestSequence(*env.current(), ephemeral.pk()));
-
         // Account-signed registration consumed exactly one ordinary Sequence.
         BEAST_EXPECT(env.seq(master) == sequenceBefore + 1);
         BEAST_EXPECT(sleAcct->getFieldU32(sfSequence) == env.seq(master));
@@ -383,7 +323,7 @@ struct SetManifest_test : public beast::unit_test::suite
 
         // Rotation rewrites both complete copies while preserving one owner.
         BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(master, eph2, 2))) ==
+            engineResult(submit(env, makeManifest(master, eph2, 2), master)) ==
             "tesSUCCESS");
         env.close();
 
@@ -397,11 +337,11 @@ struct SetManifest_test : public beast::unit_test::suite
             env.le(keylet::manifest(master.pk()))->getFieldU64(sfOwnerNode) ==
             ownerNode);
         BEAST_EXPECT(env.ownerCount(master) == 1);
-        BEAST_EXPECT(env.seq(master) == accountSequence);
+        BEAST_EXPECT(env.seq(master) == accountSequence + 1);
 
-        // The account-signed lane uses ordinary replay protection. A stale
-        // outer Sequence is rejected before the manifest sequence matters;
-        // the correct one both rotates the manifest and advances the account.
+        // Ordinary replay protection: a stale outer Sequence is rejected
+        // before the manifest sequence matters, and the correct one both
+        // rotates the manifest and advances the account.
         BEAST_EXPECT(
             engineResult(submit(
                 env,
@@ -409,7 +349,7 @@ struct SetManifest_test : public beast::unit_test::suite
                     env,
                     makeManifest(master, eph3, 3),
                     master,
-                    accountSequence - 1))) == "tefPAST_SEQ");
+                    accountSequence))) == "tefPAST_SEQ");
         BEAST_EXPECT(!env.le(keylet::manifest(eph3.pk())));
 
         BEAST_EXPECT(
@@ -418,7 +358,7 @@ struct SetManifest_test : public beast::unit_test::suite
                 signedEnvelope(env, makeManifest(master, eph3, 3), master))) ==
             "tesSUCCESS");
         env.close();
-        BEAST_EXPECT(env.seq(master) == accountSequence + 1);
+        BEAST_EXPECT(env.seq(master) == accountSequence + 2);
         BEAST_EXPECT(!env.le(keylet::manifest(eph2.pk())));
         BEAST_EXPECT(env.le(keylet::manifest(eph3.pk())));
         BEAST_EXPECT(
@@ -426,170 +366,14 @@ struct SetManifest_test : public beast::unit_test::suite
             ownerNode);
         BEAST_EXPECT(env.ownerCount(master) == 1);
 
-        // Replaying older manifests through the unsigned lane is rejected by
-        // manifest sequence, independently of the account Sequence.
+        // An older manifest in a fresh, correctly sequenced transaction is
+        // rejected by manifest sequence.
         BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(master, eph2, 2))) ==
+            engineResult(submit(env, makeManifest(master, eph2, 2), master)) ==
             "tefPAST_MANIFEST_SEQ");
         BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(master, eph1, 1))) ==
+            engineResult(submit(env, makeManifest(master, eph1, 1), master)) ==
             "tefPAST_MANIFEST_SEQ");
-    }
-
-    void
-    testCanonicalFee(FeatureBitset features)
-    {
-        testcase("canonical unsigned fee");
-        using namespace jtx;
-
-        auto const master = Account("master", KeyType::ed25519);
-        auto const eph1 = Account("eph1", KeyType::ed25519);
-        auto const eph2 = Account("eph2", KeyType::ed25519);
-        auto const registration = makeManifest(master, eph1, 1);
-        auto const update = makeManifest(master, eph2, 2);
-
-        auto const units = [](STObject const& manifestObject) {
-            return 100 +
-                10 *
-                static_cast<std::int64_t>(
-                    manifestObject.getSerializer().getDataLength());
-        };
-
-        // The builder prices against the voted base fee of the open ledger.
-        auto const build = [&](Env& env) -> std::shared_ptr<STTx const> {
-            auto const hex = makeSetManifestTx(
-                makeSlice(update),
-                env.app().config().NETWORK_ID,
-                env.current()->fees().base,
-                env.app().journal("SetManifest_test"));
-            if (!BEAST_EXPECT(hex))
-                return nullptr;
-            auto const bytes = strUnHex(*hex);
-            if (!BEAST_EXPECT(bytes))
-                return nullptr;
-            SerialIter txIter{makeSlice(*bytes)};
-            return std::make_shared<STTx const>(std::ref(txIter));
-        };
-
-        std::shared_ptr<STTx const> ordinaryTx;
-        {
-            Env ordinary{*this, makeConfig("10"), features};
-            ordinaryTx = build(ordinary);
-            if (!ordinaryTx)
-                return;
-            auto const& manifestObject = const_cast<STTx&>(*ordinaryTx)
-                                             .getField(sfManifest)
-                                             .downcast<STObject>();
-            BEAST_EXPECT(
-                (*ordinaryTx)[sfFee].xrp() ==
-                canonicalUnsignedSetManifestFee(
-                    ordinary.current()->fees().base, manifestObject));
-            BEAST_EXPECT(
-                (*ordinaryTx)[sfFee].xrp().drops() ==
-                10 * units(manifestObject));
-
-            // A zero base would make the wrapper free, so there is no
-            // canonical Fee for it at all.
-            BEAST_EXPECT(
-                !canonicalUnsignedSetManifestFee(XRPAmount{0}, manifestObject));
-        }
-
-        // The canonical Fee follows the voted base fee. A different fee
-        // setting maps the same manifest to exactly one different txid, and
-        // that wrapper clears the higher minimum.
-        Env expensive{*this, makeConfig("100000"), features};
-        auto const expensiveTx = build(expensive);
-        if (!expensiveTx)
-            return;
-        auto const& expensiveManifest = const_cast<STTx&>(*expensiveTx)
-                                            .getField(sfManifest)
-                                            .downcast<STObject>();
-        BEAST_EXPECT(
-            (*expensiveTx)[sfFee].xrp().drops() ==
-            100'000 * units(expensiveManifest));
-        BEAST_EXPECT(
-            expensiveTx->getTransactionID() != ordinaryTx->getTransactionID());
-
-        expensive.fund(XRP(10000), master);
-        expensive.close();
-        BEAST_EXPECT(
-            engineResult(submit(
-                expensive, signedEnvelope(expensive, registration, master))) ==
-            "tesSUCCESS");
-        expensive.close();
-
-        // A wrapper priced for another fee setting is a local miss, not a bad
-        // signature: ingress drops it before manifest crypto without marking
-        // it bad, and preclaim refuses it with a tel result.
-        BEAST_EXPECT(
-            checkManifestIngressFee(expensive.app(), *ordinaryTx).first ==
-            ManifestIngressFee::Refused);
-        BEAST_EXPECT(
-            submit(expensive, ordinaryTx)[jss::error] == "invalidTransaction");
-        BEAST_EXPECT(
-            (expensive.app().getHashRouter().getFlags(
-                 ordinaryTx->getTransactionID()) &
-             SF_BAD) == 0);
-        BEAST_EXPECT(
-            applyDirect(expensive, ordinaryTx) == telMANIFEST_FEE_MISMATCH);
-
-        BEAST_EXPECT(
-            checkManifestIngressFee(expensive.app(), *expensiveTx).first ==
-            ManifestIngressFee::Canonical);
-        BEAST_EXPECT(engineResult(submit(expensive, update)) == "tesSUCCESS");
-        expensive.close();
-        BEAST_EXPECT(
-            expensive.le(keylet::manifest(master.pk()))
-                ->getFieldU32(sfSequence) == 2);
-
-        // Sequence 0 is not permission to jump an escalated open ledger. A
-        // canonical rotation is direct-only, pays its fixed canonical Fee,
-        // and retries with the same txid once ordinary load subsides.
-        auto escalatedConfig = makeConfig("10");
-        escalatedConfig->section("transaction_queue")
-            .set("minimum_txn_in_ledger_standalone", "1");
-        Env escalated{*this, std::move(escalatedConfig), features};
-        escalated.fund(XRP(1000), master);
-        escalated.close();
-        BEAST_EXPECT(
-            engineResult(submit(
-                escalated, signedEnvelope(escalated, registration, master))) ==
-            "tesSUCCESS");
-        escalated.close();
-
-        // High-fee ordinary traffic establishes load without itself queuing.
-        escalated(noop(master), fee(XRP(1)));
-        escalated(noop(master), fee(XRP(1)));
-        escalated(noop(master), fee(XRP(1)));
-        BEAST_EXPECT(
-            engineResult(submit(escalated, update)) == "telINSUF_FEE_P");
-        BEAST_EXPECT(
-            escalated.le(keylet::manifest(master.pk()))
-                ->getFieldU32(sfSequence) == 1);
-        BEAST_EXPECT(
-            escalated.app().getTxQ().getMetrics(*escalated.current()).txCount ==
-            0);
-
-        // Local transaction retention retries this exact txid while opening
-        // the next ledger; no fee variant or TxQ entry is involved.
-        escalated.close();
-        BEAST_EXPECT(
-            escalated.le(keylet::manifest(master.pk()))
-                ->getFieldU32(sfSequence) == 2);
-
-        // An amendment-blocked server has no base fee it can trust, so ingress
-        // refuses even the canonical wrapper rather than verify it.
-        Env blocked{*this, makeConfig("10"), features};
-        auto const blockedTx = build(blocked);
-        if (!blockedTx)
-            return;
-        BEAST_EXPECT(
-            checkManifestIngressFee(blocked.app(), *blockedTx).first ==
-            ManifestIngressFee::Canonical);
-        blocked.app().getOPs().setAmendmentBlocked();
-        BEAST_EXPECT(
-            checkManifestIngressFee(blocked.app(), *blockedTx).first ==
-            ManifestIngressFee::Refused);
     }
 
     void
@@ -616,8 +400,8 @@ struct SetManifest_test : public beast::unit_test::suite
                 makeManifest(
                     master,
                     ephemeral,
-                    std::numeric_limits<std::uint32_t>::max()))) ==
-            "tesSUCCESS");
+                    std::numeric_limits<std::uint32_t>::max()),
+                master)) == "tesSUCCESS");
         env.close();
 
         // A revocation remains owned, but has no active signing-key copy.
@@ -634,7 +418,8 @@ struct SetManifest_test : public beast::unit_test::suite
 
         // Nothing supersedes a revocation.
         BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(master, ephemeral, 2))) ==
+            engineResult(
+                submit(env, makeManifest(master, ephemeral, 2), master)) ==
             "tefREVOKED_MANIFEST");
     }
 
@@ -697,8 +482,8 @@ struct SetManifest_test : public beast::unit_test::suite
                     makeManifest(
                         master,
                         ephemeral,
-                        std::numeric_limits<std::uint32_t>::max()))) ==
-                "tesSUCCESS");
+                        std::numeric_limits<std::uint32_t>::max()),
+                    master)) == "tesSUCCESS");
             env.close();
             BEAST_EXPECT(env.ownerCount(master) == 1);
             BEAST_EXPECT(
@@ -757,7 +542,7 @@ struct SetManifest_test : public beast::unit_test::suite
 
         // A rotation on-ledger is picked up, and the superseded ephemeral key
         // stops resolving.
-        submit(env, makeManifest(master, eph2, 2));
+        submit(env, makeManifest(master, eph2, 2), master);
         env.close();
 
         BEAST_EXPECT(cache.applyLedger(*env.closed(), {master.pk()}) == 1);
@@ -772,7 +557,8 @@ struct SetManifest_test : public beast::unit_test::suite
         submit(
             env,
             makeManifest(
-                master, eph2, std::numeric_limits<std::uint32_t>::max()));
+                master, eph2, std::numeric_limits<std::uint32_t>::max()),
+            master);
         env.close();
 
         BEAST_EXPECT(cache.applyLedger(*env.closed(), {master.pk()}) == 1);
@@ -822,10 +608,8 @@ struct SetManifest_test : public beast::unit_test::suite
             engineResult(submit(
                 env,
                 makeManifest(
-                    master,
-                    signing,
-                    std::numeric_limits<std::uint32_t>::max()))) ==
-            "tesSUCCESS");
+                    master, signing, std::numeric_limits<std::uint32_t>::max()),
+                master)) == "tesSUCCESS");
         env.close();
         auto const onLedger = env.le(keylet::manifest(master.pk()));
         if (!BEAST_EXPECT(onLedger))
@@ -972,7 +756,7 @@ struct SetManifest_test : public beast::unit_test::suite
 
         // A rotation is recovered from the new ephemeral key alone, and the
         // superseded key stops resolving because its object is gone.
-        submit(env, makeManifest(master, eph2, 2));
+        submit(env, makeManifest(master, eph2, 2), master);
         env.close();
 
         BEAST_EXPECT(
@@ -1000,7 +784,8 @@ struct SetManifest_test : public beast::unit_test::suite
         submit(
             env,
             makeManifest(
-                master, eph2, std::numeric_limits<std::uint32_t>::max()));
+                master, eph2, std::numeric_limits<std::uint32_t>::max()),
+            master);
         env.close();
 
         BEAST_EXPECT(!env.le(keylet::manifest(eph2.pk())));
@@ -1024,69 +809,44 @@ struct SetManifest_test : public beast::unit_test::suite
 
         // Not a manifest at all.
         BEAST_EXPECT(
-            submit(env, "not a manifest")[jss::error].asString() ==
-            "invalidManifest");
+            engineResult(submit(env, makeUnparseableManifest(), master)) ==
+            "temMALFORMED");
 
-        // A manifest whose ephemeral signature does not check out.
+        // A manifest whose ephemeral signature does not check out. The
+        // account signature authenticates only the envelope.
         {
             auto blob = makeManifest(master, ephemeral, 1);
             blob[blob.size() - 1] ^= 0xFF;
             BEAST_EXPECT(
-                submit(env, blob)[jss::error].asString() == "invalidManifest");
+                engineResult(submit(env, blob, master)) == "temMALFORMED");
         }
 
-        // The master key's account must exist: it pays the fee and holds the
-        // pointer to the manifest.
+        // The master key's account must exist: it signs, pays the fee, and
+        // holds the pointer to the manifest.
         auto const unfunded = Account("unfunded", KeyType::ed25519);
-        BEAST_EXPECT(
-            engineResult(submit(env, makeManifest(unfunded, ephemeral, 1))) ==
-            "terNO_ACCOUNT");
-
-        // An ephemeral key already claimed by a different account would
-        // collide with -- and clobber -- that account's manifest object.
-        submit(
-            env,
-            signedEnvelope(env, makeManifest(master, ephemeral, 1), master));
-        env.close();
-
         BEAST_EXPECT(
             engineResult(submit(
                 env,
                 signedEnvelope(
-                    env, makeManifest(other, ephemeral, 1), other))) ==
+                    env, makeManifest(unfunded, ephemeral, 1), unfunded, 1))) ==
+            "terNO_ACCOUNT");
+
+        // An ephemeral key already claimed by a different account would
+        // collide with -- and clobber -- that account's manifest object.
+        submit(env, makeManifest(master, ephemeral, 1), master);
+        env.close();
+
+        BEAST_EXPECT(
+            engineResult(
+                submit(env, makeManifest(other, ephemeral, 1), other)) ==
             "tecDUPLICATE");
 
         // The reverse role collision uses the same keylet: an active signing
         // key cannot subsequently enrol as another validator's master key.
         BEAST_EXPECT(
-            engineResult(submit(
-                env,
-                signedEnvelope(
-                    env, makeManifest(ephemeral, other, 1), ephemeral))) ==
+            engineResult(
+                submit(env, makeManifest(ephemeral, other, 1), ephemeral)) ==
             "tecDUPLICATE");
-
-        // On the unsigned lane nobody signed and no Sequence is consumed, so a
-        // claimed signing key must not cost the account anything: otherwise
-        // the same public txid would charge again in every later ledger.
-        auto const otherEph = Account("other-eph", KeyType::ed25519);
-        BEAST_EXPECT(
-            engineResult(submit(
-                env,
-                signedEnvelope(
-                    env, makeManifest(other, otherEph, 1), other))) ==
-            "tesSUCCESS");
-        env.close();
-        auto const balance = env.balance(other);
-        auto const rotation = makeManifest(other, ephemeral, 2);
-        for (int ledger = 0; ledger < 2; ++ledger)
-        {
-            BEAST_EXPECT(
-                engineResult(submit(env, rotation)) ==
-                "tefMANIFEST_KEY_CLAIMED");
-            env.close();
-        }
-        BEAST_EXPECT(env.balance(other) == balance);
-        BEAST_EXPECT(onLedgerManifestSequence(*env.current(), other.pk()) == 1);
     }
 
     void
@@ -1105,187 +865,88 @@ struct SetManifest_test : public beast::unit_test::suite
 
         auto const good = makeManifest(master, ephemeral, 1);
 
-        // Establish the slot through the account-authorized lane so the
-        // unsigned envelopes below exercise update-envelope validation.
+        // Sanity check: the unmodified transaction applies, so every rejection
+        // below is attributable to its change and nothing else.
         BEAST_EXPECT(
-            engineResult(submit(
-                env,
-                signedEnvelope(
-                    env, makeManifest(master, ephemeral, 0), master))) ==
-            "tesSUCCESS");
-        env.close();
-
-        // Sanity check: the unmodified envelope is the one Submit builds, so
-        // every rejection below is attributable to the tweak and nothing else.
-        BEAST_EXPECT(
-            applyDirect(env, envelope(env, good, master.id())) == tesSUCCESS);
+            applyDirect(env, signedEnvelope(env, good, master)) == tesSUCCESS);
 
         // Any bit but tfFullyCanonicalSig (0x80000000), which is tfUniversal
         // and so permitted on every transaction.
         BEAST_EXPECT(
             applyDirect(
-                env, envelope(env, good, master.id(), [](STObject& obj) {
-                    obj.setFieldU32(sfFlags, 0x00000001);
-                })) == temINVALID_FLAG);
+                env,
+                signedEnvelope(
+                    env,
+                    good,
+                    master,
+                    std::nullopt,
+                    std::nullopt,
+                    [](STObject& obj) {
+                        obj.setFieldU32(sfFlags, 0x00000001);
+                    })) == temINVALID_FLAG);
 
-        // The canonical envelope derives its Account from the manifest's master
-        // key, so a manifest without one has no canonical envelope at all and
-        // is malformed before any signature work.
+        // The account signing must be the manifest's master key's account.
         BEAST_EXPECT(
-            applyDirect(
-                env, envelope(env, makeUnparseableManifest(), master.id())) ==
-            temMALFORMED);
+            applyDirect(env, signedEnvelope(env, good, other)) == temMALFORMED);
 
-        // A manifest whose signatures do not check out. Outer authority is
-        // checked before the manifest is otherwise parsed, and an unsigned
-        // envelope delegates that check to the embedded manifest, so this is a
-        // signature failure.
+        // A manifest whose signatures do not check out, including in a dry
+        // run (simulate), which skips the outer signature check.
         {
             auto bad = good;
             bad[bad.size() - 1] ^= 0xFF;
             BEAST_EXPECT(
-                applyDirect(env, envelope(env, bad, master.id())) ==
-                temINVALID);
-
-            // A dry run (simulate) skips preflight2's signature checks, so the
-            // transactor verifies the manifest itself.
-            BEAST_EXPECT(
-                applyDirect(
-                    env, envelope(env, bad, master.id()), {}, tapDRY_RUN) ==
+                applyDirect(env, signedEnvelope(env, bad, master)) ==
                 temMALFORMED);
 
-            // Envelope shape is cheaper than either manifest signature. Even
-            // at RPC/overlay ingress, the same bad manifest plus a Memo is
-            // rejected for its envelope before signature work.
-            auto const badWithMemo =
-                envelope(env, bad, master.id(), [](STObject& obj) {
-                    obj.setFieldArray(sfMemos, STArray(sfMemos, 1));
-                    STObject memo{sfMemo};
-                    memo.setFieldVL(sfMemoData, Blob{0x01});
-                    obj.peekFieldArray(sfMemos).emplace_back(std::move(memo));
-                });
-            auto const [validity, reason] = checkValidity(
-                env.app().getHashRouter(),
-                *badWithMemo,
-                env.current()->rules(),
-                env.app().config());
-            BEAST_EXPECT(validity == Validity::SigBad);
-            BEAST_EXPECT(
-                reason == "Manifest-authorized envelope is not canonical");
-            BEAST_EXPECT(applyDirect(env, badWithMemo) == temMALFORMED);
-        }
-
-        // The envelope's account must be the manifest's master key, and its
-        // NetworkID this server's. Both are derived rather than mirrored, so a
-        // relayer cannot vary either to mint txids that reach manifest crypto:
-        // ingress rejects the variant as a bad envelope before verifying, and
-        // never as a soft fee miss.
-        auto const otherAccount = envelope(env, good, other.id());
-        auto const otherNetwork =
-            envelope(env, good, master.id(), [](STObject& obj) {
-                obj.setFieldU32(sfNetworkID, 21338);
-            });
-        for (auto const& variant : {otherAccount, otherNetwork})
-        {
-            auto const [validity, reason] = checkValidity(
-                env.app().getHashRouter(),
-                *variant,
-                env.current()->rules(),
-                env.app().config());
-            BEAST_EXPECT(validity == Validity::SigBad);
-            BEAST_EXPECT(
-                reason == "Manifest-authorized envelope is not canonical");
-            BEAST_EXPECT(
-                checkManifestIngressFee(env.app(), *variant).first ==
-                ManifestIngressFee::NotApplicable);
-        }
-        BEAST_EXPECT(applyDirect(env, otherAccount) == temMALFORMED);
-
-        // Every envelope field a relayer could otherwise choose is pinned.
-        for (auto const& [name, tweak] : std::vector<
-                 std::pair<char const*, std::function<void(STObject&)>>>{
-                 {"Sequence",
-                  [](STObject& obj) { obj.setFieldU32(sfSequence, 1); }},
-                 {"AccountTxnID",
-                  [](STObject& obj) {
-                      obj.setFieldH256(sfAccountTxnID, uint256{1});
-                  }},
-                 {"Memos",
-                  [](STObject& obj) {
-                      obj.setFieldArray(sfMemos, STArray(sfMemos, 1));
-                      STObject memo{sfMemo};
-                      memo.setFieldVL(sfMemoData, Blob{0x01});
-                      obj.peekFieldArray(sfMemos).emplace_back(std::move(memo));
-                  }},
-                 {"TicketSequence",
-                  [](STObject& obj) { obj.setFieldU32(sfTicketSequence, 1); }}})
-        {
-            BEAST_EXPECTS(
-                applyDirect(env, envelope(env, good, master.id(), tweak)) ==
-                    temMALFORMED,
-                name);
-        }
-
-        // A non-empty signing key changes lanes. Without the corresponding
-        // account signature this is an invalid ordinary signed transaction,
-        // not a canonical unsigned envelope.
-        BEAST_EXPECT(
-            applyDirect(
-                env, envelope(env, good, master.id(), [&](STObject& obj) {
+            // simulate submits the account's key with an empty signature.
+            auto const simulated = std::make_shared<STTx const>(
+                ttMANIFEST_SET, [&](STObject& obj) {
+                    obj.setAccountID(sfAccount, master.id());
+                    obj.setFieldU32(sfSequence, env.seq(master));
+                    obj.setFieldU32(sfNetworkID, env.app().config().NETWORK_ID);
+                    obj.setFieldAmount(sfFee, XRPAmount{100'000});
                     obj.setFieldVL(sfSigningPubKey, master.pk().slice());
-                })) == temINVALID);
+                    obj.setFieldVL(sfTxnSignature, Blob{});
+                    SerialIter mit{makeSlice(bad)};
+                    obj.peekFieldObject(sfManifest).set(mit);
+                });
+            BEAST_EXPECT(
+                applyDirect(env, simulated, {}, tapDRY_RUN) == temMALFORMED);
+        }
 
-        BEAST_EXPECT(
-            applyDirect(
-                env, envelope(env, good, master.id(), [&](STObject& obj) {
-                    obj.setFieldU32(sfLastLedgerSequence, env.current()->seq());
-                })) == temMALFORMED);
-
-        // sfFee is mirrored by the shape check and pinned to the one value
-        // for the applying view's base fee in checkFee(). Ingress pins it
-        // first, before either manifest signature is verified.
-        auto const priced = envelope(env, good, master.id());
-        auto const canonicalFee = priced->getFieldAmount(sfFee).xrp();
-        BEAST_EXPECT(
-            checkManifestIngressFee(env.app(), *priced).first ==
-            ManifestIngressFee::Canonical);
-
-        auto const nonCanonicalFee =
-            envelope(env, good, master.id(), [&](STObject& obj) {
-                obj.setFieldAmount(sfFee, canonicalFee + XRPAmount{1});
+        // There is no manifest-only authority: without the account's signature
+        // a SetManifest is just an unsigned transaction.
+        auto const unsignedTx =
+            std::make_shared<STTx const>(ttMANIFEST_SET, [&](STObject& obj) {
+                obj.setAccountID(sfAccount, master.id());
+                obj.setFieldU32(sfSequence, env.seq(master));
+                obj.setFieldU32(sfNetworkID, env.app().config().NETWORK_ID);
+                obj.setFieldAmount(sfFee, XRPAmount{100'000});
+                obj.setFieldVL(sfSigningPubKey, Blob{});
+                obj.setFieldVL(sfTxnSignature, Blob{});
+                SerialIter mit{makeSlice(good)};
+                obj.peekFieldObject(sfManifest).set(mit);
             });
-        auto const [feeOutcome, feeReason] =
-            checkManifestIngressFee(env.app(), *nonCanonicalFee);
-        BEAST_EXPECT(feeOutcome == ManifestIngressFee::Refused);
-        BEAST_EXPECT(!feeReason.empty());
-        BEAST_EXPECT(
-            applyDirect(env, nonCanonicalFee) == telMANIFEST_FEE_MISMATCH);
+        BEAST_EXPECT(applyDirect(env, unsignedTx) == temINVALID);
 
+        // Fee semantics are ordinary: at least the minimum, and more is fine.
+        auto const priced = signedEnvelope(env, good, master);
+        auto const baseFee = priced->getFieldAmount(sfFee).xrp();
         BEAST_EXPECT(
             applyDirect(
-                env, envelope(env, good, master.id(), [&](STObject& obj) {
-                    obj.setFieldAmount(sfFee, canonicalFee - XRPAmount{1});
-                })) == telMANIFEST_FEE_MISMATCH);
-
-        // At the canonical value exactly, which is what Submit sends.
-        BEAST_EXPECT(
-            applyDirect(
-                env, envelope(env, good, master.id(), [&](STObject& obj) {
-                    obj.setFieldAmount(sfFee, canonicalFee);
-                })) == tesSUCCESS);
-
-        // The account signature authenticates its envelope, so the signed
-        // lane deliberately uses ordinary configurable-fee semantics rather
-        // than the canonical unsigned Fee.
+                env,
+                signedEnvelope(
+                    env, good, master, std::nullopt, baseFee - XRPAmount{1})) ==
+            telINSUF_FEE_P);
         BEAST_EXPECT(
             applyDirect(
                 env,
                 signedEnvelope(
                     env,
-                    makeManifest(master, ephemeral, 2),
+                    good,
                     master,
                     std::nullopt,
-                    canonicalFee + XRPAmount{100})) == tesSUCCESS);
+                    baseFee + XRPAmount{100})) == tesSUCCESS);
     }
 
     void
@@ -1309,8 +970,10 @@ struct SetManifest_test : public beast::unit_test::suite
             "tesSUCCESS");
         env.close();
 
+        // applyDirect() discards every attempt, so the one transaction (and
+        // its account Sequence) can be applied repeatedly.
         auto const update =
-            envelope(env, makeManifest(master, eph2, 2), master.id());
+            signedEnvelope(env, makeManifest(master, eph2, 2), master);
 
         // sfManifestID on the account root points at nothing.
         BEAST_EXPECT(applyDirect(env, update, [&](OpenView& view) {
@@ -1460,13 +1123,10 @@ struct SetManifest_test : public beast::unit_test::suite
         env.fund(XRP(1000), master);
         env.close();
 
-        // The submitted transaction carries no account signature, so with the
-        // amendment off it would otherwise be rejected as unsigned and never
-        // reach preflight's temDISABLED. The RPC therefore refuses it up
-        // front, and says why.
-        auto const result = submit(env, makeManifest(master, ephemeral, 1));
-        BEAST_EXPECT(result[jss::error].asString() == "notEnabled");
-        BEAST_EXPECT(!result.isMember(jss::engine_result));
+        BEAST_EXPECT(
+            engineResult(
+                submit(env, makeManifest(master, ephemeral, 1), master)) ==
+            "temDISABLED");
         env.close();
 
         BEAST_EXPECT(!env.le(keylet::manifest(master.pk())));
@@ -1483,7 +1143,6 @@ public:
 
         testSubmission(sa);
         testUpdate(sa);
-        testCanonicalFee(sa);
         testRevocation(sa);
         testOwnership(sa);
         testRetrieval(sa);

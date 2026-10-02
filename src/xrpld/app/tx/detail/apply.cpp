@@ -17,15 +17,9 @@
 */
 //==============================================================================
 
-#include <xrpld/app/ledger/LedgerMaster.h>
-#include <xrpld/app/ledger/OpenLedger.h>
-#include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/HashRouter.h>
-#include <xrpld/app/misc/Manifest.h>
-#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
-#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 
@@ -79,59 +73,23 @@ checkValidity(
         return {Validity::Valid, ""};
     }
 
-    bool const manifestAuthorized = rules.enabled(featureOnChainManifests) &&
-        hasManifestAuthorityMarkers(tx);
-    if (manifestAuthorized)
-    {
-        // This path runs at RPC/overlay ingress, before transactor preflight.
-        // The DoS ordering is deliberate: structural nonsense must not buy
-        // either manifest-signature checks or attached multisign work.
-        if (!hasCanonicalUnsignedSetManifestShape(tx, config.NETWORK_ID))
-            return {
-                Validity::SigBad,
-                "Manifest-authorized envelope is not canonical"};
-
-        // Fee is the last otherwise-malleable outer field, but its canonical
-        // value depends on ledger fee state, which this function does not
-        // have. Ingress callers pin it first with checkManifestIngressFee();
-        // the transactor pins it again against the applying view in checkFee.
-    }
-
     if (flags & SF_SIGBAD)
         // Signature is known bad
         return {Validity::SigBad, "Transaction has bad signature."};
 
     if (!(flags & SF_SIGGOOD))
     {
-        if (manifestAuthorized)
-        {
-            // The canonical txid makes the ordinary HashRouter signature
-            // receipt safe to reuse when PeerImp hands the same transaction
-            // to NetworkOPs.
-            STObject const& manObj = const_cast<ripple::STTx&>(tx)
-                                         .getField(sfManifest)
-                                         .downcast<STObject>();
-            auto man = deserializeManifest(manObj);
-            if (!man || !man->verify())
-            {
-                router.setFlags(id, SF_SIGBAD);
-                return {Validity::SigBad, "Manifest signature is bad"};
-            }
-        }
-        else
-        {
-            // Don't know signature state. Check it.
-            auto const requireCanonicalSig =
-                rules.enabled(featureRequireFullyCanonicalSig)
-                ? STTx::RequireFullyCanonicalSig::yes
-                : STTx::RequireFullyCanonicalSig::no;
+        // Don't know signature state. Check it.
+        auto const requireCanonicalSig =
+            rules.enabled(featureRequireFullyCanonicalSig)
+            ? STTx::RequireFullyCanonicalSig::yes
+            : STTx::RequireFullyCanonicalSig::no;
 
-            auto const sigVerify = tx.checkSign(requireCanonicalSig, rules);
-            if (!sigVerify)
-            {
-                router.setFlags(id, SF_SIGBAD);
-                return {Validity::SigBad, sigVerify.error()};
-            }
+        auto const sigVerify = tx.checkSign(requireCanonicalSig, rules);
+        if (!sigVerify)
+        {
+            router.setFlags(id, SF_SIGBAD);
+            return {Validity::SigBad, sigVerify.error()};
         }
         router.setFlags(id, SF_SIGGOOD);
     }
@@ -176,58 +134,6 @@ forceValidity(HashRouter& router, uint256 const& txid, Validity validity)
     }
     if (flags)
         router.setFlags(txid, flags);
-}
-
-std::pair<ManifestIngressFee, std::string>
-checkManifestIngressFee(Application& app, STTx const& tx)
-{
-    auto const open = app.openLedger().current();
-    if (!open->rules().enabled(featureOnChainManifests) ||
-        !hasManifestAuthorityMarkers(tx))
-        return {ManifestIngressFee::NotApplicable, {}};
-
-    // A non-canonical shape can never become valid, so it is not a fee miss:
-    // leave it to checkValidity(), which rejects it as a bad envelope.
-    if (!hasCanonicalUnsignedSetManifestShape(tx, app.config().NETWORK_ID))
-        return {ManifestIngressFee::NotApplicable, {}};
-
-    // An amendment-blocked node's open ledger may sit on history the network
-    // is not validating, and with no validated ledger there is no agreed base
-    // at all. Neither is a reason to spend manifest crypto finding out.
-    if (app.getOPs().isAmendmentBlocked())
-        return {ManifestIngressFee::Refused, "server is amendment blocked"};
-    auto const validated = app.getLedgerMaster().getValidatedLedger();
-    if (!validated)
-        return {ManifestIngressFee::Refused, "no validated ledger"};
-
-    try
-    {
-        auto const fee = tx[sfFee].xrp();
-        auto const& manifest =
-            const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
-
-        // A transaction is priced from the parent of the ledger it is applied
-        // to. Here that is the open ledger, whose fees() are its parent's:
-        // exactly what preclaim enforces. A wrapper priced for any other fee
-        // setting cannot apply on this server, so it is not worth verifying,
-        // and no remembered setting widens the set of txids that reach
-        // manifest signature checks.
-        if (auto const canonical =
-                canonicalUnsignedSetManifestFee(open->fees().base, manifest);
-            canonical && *canonical == fee)
-            return {ManifestIngressFee::Canonical, {}};
-    }
-    catch (std::exception const&)
-    {
-        // Malformed Fee or manifest: leave it to checkValidity()'s shape
-        // check, which rejects it as a bad envelope.
-        return {ManifestIngressFee::NotApplicable, {}};
-    }
-
-    return {
-        ManifestIngressFee::Refused,
-        "Fee is not the canonical SetManifest fee for this server's open "
-        "ledger"};
 }
 
 ApplyResult
