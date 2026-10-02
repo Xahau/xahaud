@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpl/beast/core/SemanticVersion.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/BuildInfo.h>
 
@@ -25,6 +26,44 @@ namespace ripple {
 class BuildInfo_test : public beast::unit_test::suite
 {
 public:
+    void
+    testGetVersionString()
+    {
+        testcase("GetVersionString");
+
+        auto const& s = BuildInfo::getVersionString();
+        BEAST_EXPECT(!s.empty());
+
+        // Same reference on every call (static cache).
+        BEAST_EXPECT(&BuildInfo::getVersionString() == &s);
+
+        // Must be strict semver and round-trip unchanged (no leading
+        // zeros, no stray whitespace).
+        beast::SemanticVersion v;
+        BEAST_EXPECT(v.parse(s));
+        BEAST_EXPECT(v.print() == s);
+
+        BEAST_EXPECT(BuildInfo::getFullVersionString() == "xahaud-" + s);
+
+        if (s.find("-CustomBuild") == std::string::npos)
+            return;
+
+        // Version generated from __DATE__ ("Mmm dd yyyy"):
+        //   <year>.<month>.<day>-CustomBuild[+DEBUG]
+        BEAST_EXPECT(v.majorVersion >= 2023 && v.majorVersion <= 9999);
+        BEAST_EXPECT(v.minorVersion >= 1 && v.minorVersion <= 12);
+        BEAST_EXPECT(v.patchVersion >= 1 && v.patchVersion <= 31);
+        BEAST_EXPECT(
+            v.preReleaseIdentifiers ==
+            beast::SemanticVersion::identifier_list{"CustomBuild"});
+#ifdef DEBUG
+        BEAST_EXPECT(
+            v.metaData == beast::SemanticVersion::identifier_list{"DEBUG"});
+#else
+        BEAST_EXPECT(v.metaData.empty());
+#endif
+    }
+
     void
     testEncodeSoftwareVersion()
     {
@@ -119,6 +158,7 @@ public:
     void
     run() override
     {
+        testGetVersionString();
         testEncodeSoftwareVersion();
         testIsRippledVersion();
         testIsNewerVersion();
