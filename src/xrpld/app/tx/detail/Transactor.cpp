@@ -853,9 +853,9 @@ Transactor::apply()
     // that allow zero account. (and ttIMPORT)
     XRPL_ASSERT(
         sle != nullptr || account_ == beast::zero ||
-            view().rules().enabled(featureImport) &&
-                ctx_.tx.getTxnType() == ttIMPORT &&
-                !ctx_.tx.isFieldPresent(sfIssuer),
+            (view().rules().enabled(featureImport) &&
+             ctx_.tx.getTxnType() == ttIMPORT &&
+             !ctx_.tx.isFieldPresent(sfIssuer)),
         "ripple::Transactor::apply : non-null SLE or zero account");
 
     if (sle)

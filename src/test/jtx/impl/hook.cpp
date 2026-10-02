@@ -144,9 +144,11 @@ makeStubHookContext(
                 .foreignStateSetDisabled = result.foreignStateSetDisabled,
                 .executeAgainAsWeak = result.executeAgainAsWeak,
                 .provisionalMeta = result.provisionalMeta,
+                .foreignStateGrantCache = {},
             },
         .emitFailure = stubHookContext.emitFailure,
-        .module = nullptr};
+        .module = nullptr,
+        .api_ = nullptr};
 }
 
 // Original function - WARNING: stateMap reference may become dangling

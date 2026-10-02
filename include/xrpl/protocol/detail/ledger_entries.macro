@@ -22,14 +22,14 @@
 #endif
 
 #ifndef LEDGER_ENTRY_DUPLICATE
-// The EXPAND macro is needed for Windows
+// The LEDGER_ENTRY_EXPAND macro is needed for Windows
 // https://stackoverflow.com/questions/5134523/msvc-doesnt-expand-va-args-correctly
-#define EXPAND(x) x
+#define LEDGER_ENTRY_EXPAND(x) x
 
 // The `LEDGER_ENTRY_DUPLICATE macro is needed to avoid JSS conflicts
 // Since some transactions and ledger entries have the same name (like `DepositPreauth`)
 // The compiler won't accept two instances of `JSS(DepositPreauth)`
-#define LEDGER_ENTRY_DUPLICATE(...) EXPAND(LEDGER_ENTRY(__VA_ARGS__))
+#define LEDGER_ENTRY_DUPLICATE(...) LEDGER_ENTRY_EXPAND(LEDGER_ENTRY(__VA_ARGS__))
 #endif
 
 /**
@@ -613,6 +613,6 @@ LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
     {sfPreviousTxnLgrSeq,   soeREQUIRED},
 }))
 
-#undef EXPAND
+#undef LEDGER_ENTRY_EXPAND
 #undef LEDGER_ENTRY_DUPLICATE
 
