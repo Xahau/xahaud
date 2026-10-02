@@ -145,6 +145,7 @@ struct WasmBlkInf
     uint32_t sanity_check;
     uint32_t iteration_bound;
     uint32_t instruction_count;
+    uint32_t execution_cost;
     WasmBlkInf* parent;
     std::vector<WasmBlkInf*> children;
     uint32_t start_byte;
@@ -159,6 +160,7 @@ struct WasmBlkInf
         : sanity_check(0x1234ABCDU)
         , iteration_bound(iteration_bound_)
         , instruction_count(instruction_count_)
+        , execution_cost(0)
         , parent(parent_)
         , children({})
         , start_byte(start_byte_)
@@ -194,7 +196,7 @@ struct WasmBlkInf
                 level,                                                         \
                 "                                                            " \
                 "                      ",                                      \
-                worst_case_execution,                                          \
+                instruction_count,                                             \
                 blk->start_byte,                                               \
                 blk->instruction_count,                                        \
                 blk->iteration_bound,                                          \
@@ -203,7 +205,7 @@ struct WasmBlkInf
                 &(blk->parent));                                               \
     }
 // compute worst case execution time
-inline uint64_t
+inline std::pair<uint64_t, uint64_t>
 compute_wce(
     const WasmBlkInf* blk,
     int level,
@@ -213,14 +215,14 @@ compute_wce(
     if (level > max_level)
     {
         *recursion_limit_reached = true;
-        return 0;
+        return {0, 0};
     }
 
     if (blk->sanity_check != 0x1234ABCDU)
     {
         printf("!!! sanity check failed\n");
         *recursion_limit_reached = true;
-        return (uint64_t)-1;
+        return {(uint64_t)-1, (uint64_t)-1};
     }
 
     WasmBlkInf const* parent = blk->parent;
@@ -229,23 +231,28 @@ compute_wce(
     {
         printf("!!! parent sanity check failed\n");
         *recursion_limit_reached = true;
-        return (uint64_t)-1;
+        return {(uint64_t)-1, (uint64_t)-1};
     }
 
-    uint64_t worst_case_execution = blk->instruction_count;
+    uint64_t instruction_count = blk->instruction_count;
+    uint64_t execution_cost = blk->execution_cost;
     double multiplier = 1.0;
 
     if (blk->children.size() > 0)
         for (auto const& child : blk->children)
-            worst_case_execution += compute_wce(
+        {
+            auto [child_instruction_count, child_execution_cost] = compute_wce(
                 child, level + 1, max_level, recursion_limit_reached);
+            instruction_count += child_instruction_count;
+            execution_cost += child_execution_cost;
+        }
 
     if (parent == 0 ||
         parent->iteration_bound ==
             0)  // this condtion should never occur [defensively programmed]
     {
         PRINT_WCE(1);
-        return worst_case_execution;
+        return {instruction_count, execution_cost};
     }
 
     // if the block has a parent then the quotient of its guard and its parent's
@@ -254,12 +261,18 @@ compute_wce(
     multiplier =
         ((double)(blk->iteration_bound)) / ((double)(parent->iteration_bound));
 
-    worst_case_execution *= multiplier;
-    if (worst_case_execution < 1.0)
-        worst_case_execution = 1.0;
+    instruction_count *= multiplier;
+    if (instruction_count < 1.0)
+        instruction_count = 1.0;
+
+    // the loop multiplier must apply to the execution cost as well, otherwise
+    // an api call inside a loop is only ever charged for a single iteration
+    execution_cost *= multiplier;
+    if (execution_cost < 1.0)
+        execution_cost = 1.0;
 
     PRINT_WCE(3);
-    return worst_case_execution;
+    return {instruction_count, execution_cost};
 };
 
 // checks the WASM binary for the appropriate required _g guard calls and
@@ -267,7 +280,7 @@ compute_wce(
 // expr under analysis begins and end_offset is where it ends returns {worst
 // case instruction count} if valid or {} if invalid may throw overflow_error,
 // length_error
-inline std::optional<uint64_t>
+inline std::optional<uint64_t>  // count or cost depending on returnCost
 check_guard(
     std::vector<uint8_t> const& wasm,
     int codesec,
@@ -277,6 +290,7 @@ check_guard(
     int last_import_idx,
     GuardLog guardLog,
     std::string guardLogAccStr,
+    bool returnCost,
     /* RH NOTE:
      * rules version is a bit field, so rule update 1 is 0x01, update 2 is 0x02
      * and update 3 is 0x04 ideally at rule version 3 all bits so far are set
@@ -337,6 +351,7 @@ check_guard(
         ADVANCE(1);
 
         current->instruction_count++;
+        current->execution_cost++;
 
         // unreachable and nop instructions
         if (instr == 0x00U ||  // unreachable
@@ -515,6 +530,9 @@ check_guard(
                 if (guard_count++ > MAX_GUARD_CALLS)
                     GUARD_ERROR("Too many guard calls! Limit is 1024");
             }
+
+            // every import (including _g) is a hook api call
+            current->execution_cost += hook_api::api_call_cost;
 
             continue;
         }
@@ -795,7 +813,7 @@ check_guard(
     int max_level = 16;
     if (rulesVersion & hook_api::GuardRuleDepth32)
         max_level = 32;
-    uint64_t wce =
+    auto [instruction_count, execution_cost] =
         compute_wce(&(*root), 0, max_level, &recursion_limit_reached);
     if (recursion_limit_reached)
     {
@@ -807,11 +825,7 @@ check_guard(
         return {};
     }
 
-    GUARDLOG(hook::log::INSTRUCTION_COUNT)
-        << "GuardCheck "
-        << "Total worse-case execution count: " << wce << "\n";
-
-    if (wce >= 0xFFFFU)
+    if (instruction_count >= 0xFFFFU)
     {
         GUARDLOG(hook::log::INSTRUCTION_EXCESS)
             << "GuardCheck "
@@ -821,7 +835,10 @@ check_guard(
             << "\n";
         return {};
     }
-    return wce;
+    if (returnCost)
+        return execution_cost;
+    else
+        return instruction_count;
 }
 
 // RH TODO: reprogram this function to use REQUIRE/ADVANCE
@@ -835,6 +852,7 @@ validateGuards(
     std::vector<uint8_t> const& wasm,
     GuardLog guardLog,
     std::string guardLogAccStr,
+    bool returnCost,
     hook_api::APIWhitelist const import_whitelist,
     /* RH NOTE:
      * rules version is a bit field, so rule update 1 is 0x01, update 2 is 0x02
@@ -883,6 +901,7 @@ validateGuards(
     // this maps function ids to type ids, used for looking up the type of cbak
     // and hook as established inside the wasm binary.
     std::map<int, int> func_type_map;
+    // used to check that every import sharing a type has the same signature
     std::map<
         int /* type idx */,
         std::map<int /* import index */, std::string /* api name */>>
@@ -1035,9 +1054,8 @@ validateGuards(
                 bool found_in_whitelist = (it != it_end);
 
                 if (import_name == "_g")
-                {
                     guard_import_number = func_upto;
-                }
+
                 if (!found_in_whitelist)
                 {
                     GUARDLOG(hook::log::IMPORT_ILLEGAL)
@@ -1051,12 +1069,8 @@ validateGuards(
                 }
 
                 // add to import map
-                if (import_type_map.find(type_idx) == import_type_map.end())
-                    import_type_map[type_idx] = {
-                        {func_upto, std::move(import_name)}};
-                else
-                    import_type_map[type_idx].emplace(
-                        func_upto, std::move(import_name));
+                import_type_map[type_idx].emplace(
+                    func_upto, std::move(import_name));
 
                 func_upto++;
             }
@@ -1505,15 +1519,30 @@ validateGuards(
                     last_import_number,
                     guardLog,
                     guardLogAccStr,
+                    returnCost,
                     rulesVersion);
 
                 if (!valid)
                     return {};
 
                 if (hook_func_idx && *hook_func_idx == j)
+                {
+                    GUARDLOG(hook::log::INSTRUCTION_COUNT)
+                        << "GuardCheck "
+                        << "Total hook worse-case execution "
+                        << (returnCost ? "cost: " : "count: ") << *valid
+                        << "\n";
                     maxInstrCountHook = *valid;
+                }
                 else if (cbak_func_idx && *cbak_func_idx == j)
+                {
+                    GUARDLOG(hook::log::INSTRUCTION_COUNT)
+                        << "GuardCheck "
+                        << "Total cbak worse-case execution "
+                        << (returnCost ? "cost: " : "count: ") << *valid
+                        << "\n";
                     maxInstrCountCbak = *valid;
+                }
                 else
                 {
                     if (DEBUG_GUARD)

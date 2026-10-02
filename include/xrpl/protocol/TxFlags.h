@@ -274,6 +274,12 @@ enum BridgeModifyFlags : uint32_t {
     tfClearAccountCreateAmount = 0x00010000,
 };
 constexpr std::uint32_t tfBridgeModifyMask = ~(tfUniversal | tfClearAccountCreateAmount);
+
+// HookDefinitionUpdate flags:
+enum HookDefinitionUpdateFlags : uint32_t {
+    tfValidateGuards = 0x00000001,
+};
+constexpr std::uint32_t tfHookDefinitionUpdateMask = ~(tfUniversal | tfValidateGuards);
 // clang-format on
 
 }  // namespace ripple
