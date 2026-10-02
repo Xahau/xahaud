@@ -64,7 +64,7 @@ if [ "$(grep certbundle.h src/xrpld/net/detail/RegisterSSLCerts.cpp | wc -l)" -e
     sed -i "s/#include <xrpld\/net\/RegisterSSLCerts.h>/\0\n#include <certs\/certbundle.h>/g" src/xrpld/net/detail/RegisterSSLCerts.cpp
 fi
 # Environment setup moved to Dockerfile in release-builder.sh
-source /opt/rh/gcc-toolset-11/enable
+source /opt/rh/gcc-toolset-13/enable
 export PATH=/usr/local/bin:$PATH
 export CC='/usr/lib64/ccache/gcc' &&
   export CXX='/usr/lib64/ccache/g++' &&
