@@ -15668,6 +15668,9 @@ public:
         run(0);
     }
 
+    // protected rather than private: some of the HASH_WASM_MEMBER names below
+    // are unused, and clang -Wunused-private-field only fires for private
+    // members.
 protected:
     TestHook accept_wasm =  // WASM: 0
         wasm[
