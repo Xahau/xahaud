@@ -78,10 +78,9 @@ public:
         error_code ec;
 
         // Create UDP endpoint from port configuration
-        auto const addr = port_.ip.to_v4();
-        boost::asio::ip::udp::endpoint udp_endpoint(addr, port_.port);
+        boost::asio::ip::udp::endpoint udp_endpoint(port_.ip, port_.port);
 
-        socket_.open(boost::asio::ip::udp::v4(), ec);
+        socket_.open(udp_endpoint.protocol(), ec);
         if (ec)
         {
             JLOG(j_.error()) << "UDP socket open failed: " << ec.message();
@@ -104,7 +103,7 @@ public:
             return;
         }
 
-        JLOG(j_.info()) << "UDP-RPC listening on " << udp_endpoint;
+        JLOG(j_.info()) << "UDP listening on " << udp_endpoint;
     }
 
     endpoint_type
@@ -169,6 +168,7 @@ private:
         handler_.onUDPMessage(
             std::string(recv_buffer_.data(), bytes_transferred),
             tcp_endpoint,
+            port_,
             [this, tcp_endpoint](std::string const& response) {
                 do_send(response, tcp_endpoint);
             });
