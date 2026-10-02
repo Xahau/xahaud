@@ -4282,10 +4282,14 @@ NetworkOPsImp::subServer(
     jvResult[jss::pubkey_node] =
         toBase58(TokenType::NodePublic, app_.nodeIdentity().first);
 
-    std::lock_guard sl(mSubLock);
-    bool const added =
-        mStreamMaps[sServer].emplace(isrListener->getSeq(), isrListener).second;
-    if (added && mStreamMaps[sServer].size() == 1)
+    bool added;
+    bool isFirstSubscriber = false;
+    {
+        std::lock_guard sl(mSubLock);
+        added = mStreamMaps[sServer].emplace(isrListener->getSeq(), isrListener).second;
+        isFirstSubscriber = added && mStreamMaps[sServer].size() == 1;
+    }
+    if (isFirstSubscriber)
     {
         // First subscriber on an otherwise-quiet node: reset mLastFeeSummary
         // so the next reportFeeChange() tick publishes a full serverStatus
