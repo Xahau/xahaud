@@ -37,7 +37,8 @@ makeNetworkConfig(
     uint32_t networkID,
     std::string fee,
     std::string a_res,
-    std::string o_res)
+    std::string o_res,
+    std::string g_res)
 {
     using namespace jtx;
     return envconfig([&](std::unique_ptr<Config> cfg) {
@@ -46,9 +47,11 @@ makeNetworkConfig(
         config.append(
             {"reference_fee = " + fee,
              "account_reserve = " + a_res,
-             "owner_reserve = " + o_res});
+             "owner_reserve = " + o_res,
+             "hook_gas_price = " + g_res});
         auto setup = setup_FeeVote(config);
         cfg->FEES = setup;
+        cfg->section("voting") = config;
         return cfg;
     });
 }
@@ -59,7 +62,8 @@ makeNetworkVLConfig(
     std::vector<std::string> keys,
     std::string fee,
     std::string a_res,
-    std::string o_res)
+    std::string o_res,
+    std::string g_res)
 {
     using namespace jtx;
     return envconfig([&](std::unique_ptr<Config> cfg) {
@@ -68,7 +72,8 @@ makeNetworkVLConfig(
         config.append(
             {"reference_fee = " + fee,
              "account_reserve = " + a_res,
-             "owner_reserve = " + o_res});
+             "owner_reserve = " + o_res,
+             "hook_gas_price = " + g_res});
         auto setup = setup_FeeVote(config);
         cfg->FEES = setup;
 
@@ -98,6 +103,7 @@ makeGenesisConfig(
     std::string fee,
     std::string a_res,
     std::string o_res,
+    std::string g_res,
     uint32_t ledgerID)
 {
     using namespace jtx;
@@ -129,7 +135,8 @@ makeGenesisConfig(
         config.append(
             {"reference_fee = " + fee,
              "account_reserve = " + a_res,
-             "owner_reserve = " + o_res});
+             "owner_reserve = " + o_res,
+             "hook_gas_price = " + g_res});
         auto setup = setup_FeeVote(config);
         cfg->FEES = setup;
 
