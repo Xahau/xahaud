@@ -20,6 +20,7 @@
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <test/jtx/AMM.h>
+#include <test/jtx/CaptureLogs.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -29,7 +30,9 @@
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Import.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 
 #define BEAST_REQUIRE(x)     \
@@ -194,6 +197,35 @@ class Import_test : public beast::unit_test::suite
             env(import::import(alice, tmpXpop), ter(temMALFORMED));
         }
 
+        auto const upperHash =
+            "E000CC0736630D66DAB573A2642E1BD0646DFB13A871B2CCFA6E4226F477D88C";
+        auto const makeList = [](std::string const& hash) {
+            Json::Value proof{Json::arrayValue};
+            for (int i = 0; i < 16; ++i)
+                proof.append(hash);
+            return proof;
+        };
+
+        // XPOP.transaction.proof list should be exactly 16 entries
+        {
+            Json::Value proof = makeList(upperHash);
+            proof.append(upperHash);
+            BEAST_EXPECT(syntaxCheckProof(proof, env.journal) == false);
+        }
+        // XPOP.transaction.proof list entry missing or wrong format
+        // (should be hex string with 64 characters)
+        {
+            Json::Value proof = makeList(upperHash);
+            proof[Json::Value::ArrayIndex{0}] = "wrong format";
+            BEAST_EXPECT(syntaxCheckProof(proof, env.journal) == false);
+        }
+        // XPOP.transaction.proof list entry has wrong format
+        {
+            Json::Value proof = makeList(upperHash);
+            proof[Json::Value::ArrayIndex{0}] = 1234;
+            BEAST_EXPECT(syntaxCheckProof(proof, env.journal) == false);
+        }
+
         // // XPOP.transaction.proof list should be exactly 16 entries
         //  {
         //     Json::Value tmpXpop =
@@ -333,6 +365,58 @@ class Import_test : public beast::unit_test::suite
             tmpProof[jss::children]["3"][jss::children] =
                 tmpProof[jss::children]["3"];
             BEAST_EXPECT(syntaxCheckProof(tmpProof, env.journal) == false);
+        }
+        // XPOP.transaction.proof tree node has wrong format
+        // invalid hash (must be hex)
+        {
+            Json::Value tmpProof = proof;
+            tmpProof[jss::children]["3"][jss::hash] =
+                "ZZ126BA0486ADAE575BBC5335E42E236275A452037CA9A876D1A8CDACA1AE5"
+                "42";
+            BEAST_EXPECT(syntaxCheckProof(tmpProof, env.journal) == false);
+        }
+        // XPOP.transaction.proof tree node has wrong format
+        // invalid key (must be hex)
+        {
+            Json::Value tmpProof = proof;
+            tmpProof[jss::children]["3"][jss::key] =
+                "ZZD6F6AB7D0A827DD1502B7B9571626A2B601DBE5BC786EF8ADD00E0CB7FCE"
+                "B3";
+            BEAST_EXPECT(syntaxCheckProof(tmpProof, env.journal) == false);
+        }
+        // XPOP.transaction.proof tree node has wrong format (root)
+        // invalid root hash (must be hex)
+        {
+            Json::Value tmpProof = proof;
+            tmpProof[jss::hash] =
+                "ZZ9C8D073DDB5AB07FD2CD4F14467A8F3BC8FFBA16A0032D12D823D8511C12"
+                "F4";
+            BEAST_EXPECT(syntaxCheckProof(tmpProof, env.journal) == false);
+        }
+        // XPOP.transaction.proof child node was not 0-F hex nibble
+        // lower case nibble
+        {
+            Json::Value tmpProof = proof;
+            tmpProof[jss::children]["a"] = tmpProof[jss::children]["3"];
+            BEAST_EXPECT(syntaxCheckProof(tmpProof, env.journal) == false);
+        }
+        // success: hash and key values may be upper or lower case hex. Only
+        // child branch keys are constrained to upper case 0-F.
+        {
+            Json::Value tmpProof = proof;
+            tmpProof[jss::hash] =
+                "409c8d073ddb5ab07fd2cd4f14467a8f3bc8ffba16a0032d12d823d8511c12"
+                "f4";
+            tmpProof[jss::key] =
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "00";
+            tmpProof[jss::children]["3"][jss::hash] =
+                "aa126ba0486adae575bbc5335e42e236275a452037ca9a876d1a8cdaca1ae5"
+                "42";
+            tmpProof[jss::children]["3"][jss::key] =
+                "39d6f6ab7d0a827dd1502b7b9571626a2b601dbe5bc786ef8add00e0cb7fce"
+                "b3";
+            BEAST_EXPECT(syntaxCheckProof(tmpProof, env.journal) == true);
         }
         // success
         {
@@ -1484,6 +1568,117 @@ class Import_test : public beast::unit_test::suite
         }
     }
 
+    // Returns the XPOP with its blob/meta pair optionally tampered with
+    // (tamperMeta bumps the metadata's TransactionIndex, so the pair no longer
+    // hashes to any leaf in the proof) and, if plant is set, that pair's leaf
+    // hash written over the declared hash of the proof's nibble 0 child. In
+    // the w_seed fixture that child is an inner node, whose declared hash the
+    // txroot computation ignores.
+    static Json::Value
+    spoofInnerNode(Json::Value xpop, bool tamperMeta, bool plant)
+    {
+        auto& txn = xpop[jss::transaction];
+        auto const rawTx = *strUnHex(txn[jss::blob].asString());
+        auto rawMeta = *strUnHex(txn[jss::meta].asString());
+
+        if (tamperMeta)
+        {
+            STObject meta(
+                SerialIter(rawMeta.data(), rawMeta.size()), sfMetadata);
+            meta.setFieldU32(
+                sfTransactionIndex, meta.getFieldU32(sfTransactionIndex) + 1);
+            Serializer ms;
+            meta.add(ms);
+            rawMeta = ms.peekData();
+            txn[jss::meta] = strHex(rawMeta);
+        }
+
+        if (plant)
+        {
+            // leaf hash exactly as Import::preflight computes it
+            STTx const stx(SerialIter(rawTx.data(), rawTx.size()));
+            Serializer s(rawTx.size() + rawMeta.size() + 40);
+            s.addVL(rawTx);
+            s.addVL(rawMeta);
+            s.addBitString(stx.getTransactionID());
+            txn[jss::proof][jss::children]["0"][jss::hash] =
+                strHex(sha512Half(HashPrefix::txNode, s.slice()));
+        }
+
+        return xpop;
+    }
+
+    void
+    testProofInnerNodeSpoof(FeatureBitset features)
+    {
+        testcase("import proof inner node spoof");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // the spoof relies on nibble 0 being an inner node in this fixture
+        auto const fixture = import::loadXpop(ImportTCAccountSet::w_seed);
+        auto const& nibble0 =
+            fixture[jss::transaction][jss::proof][jss::children]["0"];
+        BEAST_EXPECT(nibble0[jss::children].size() != 0);
+
+        std::string const notContained =
+            "xpop proof did not contain the specified txn hash";
+
+        // import the (possibly spoofed) w_seed XPOP into a fresh account and
+        // return the captured log
+        auto const runImport =
+            [&](bool tamperMeta, bool plant, TER expected) -> std::string {
+            std::string logs;
+            {
+                test::jtx::Env env{
+                    *this,
+                    network::makeNetworkVLConfig(21337, keys),
+                    features,
+                    std::make_unique<CaptureLogs>(&logs),
+                    beast::severities::kWarning};
+
+                // burn 10'000 xrp
+                auto const master = Account("masterpassphrase");
+                env(noop(master), fee(10'000'000'000), ter(tesSUCCESS));
+                env.close();
+
+                auto const alice = Account("alice");
+                env.memoize(alice);
+
+                Json::Value tx = import::import(
+                    alice, spoofInnerNode(fixture, tamperMeta, plant));
+                tx[jss::Sequence] = 0;
+                tx[jss::Fee] = 0;
+                env(tx, alice, ter(expected));
+                env.close();
+
+                auto const [acct, acctSle] =
+                    accountKeyAndSle(*env.current(), alice);
+                BEAST_EXPECT((acctSle != nullptr) == isTesSuccess(expected));
+            }
+            return logs;
+        };
+
+        // control: overwriting the inner node's declared hash alone leaves the
+        // computed txroot unchanged, so the genuine pair still imports
+        BEAST_EXPECT(
+            runImport(false, true, tesSUCCESS).find(notContained) ==
+            std::string::npos);
+
+        // a tampered blob/meta pair is not in the proof
+        BEAST_EXPECT(
+            runImport(true, false, temMALFORMED).find(notContained) !=
+            std::string::npos);
+
+        // spoof: the tampered pair's hash planted on the inner node. The
+        // txroot still verifies (see control), so the containment check is
+        // the only thing that can reject it
+        BEAST_EXPECT(
+            runImport(true, true, temMALFORMED).find(notContained) !=
+            std::string::npos);
+    }
+
     void
     testGetVLInfo(FeatureBitset features)
     {
@@ -1700,6 +1895,12 @@ class Import_test : public beast::unit_test::suite
         env.fund(XRP(1000), alice, bob, carol, dave);
         env.close();
 
+        auto const importWithUnlBlob = [&](std::string const& json) {
+            Json::Value tmpXpop = import::loadXpop(ImportTCAccountSet::w_seed);
+            tmpXpop[jss::validation][jss::unl][jss::blob] = base64_encode(json);
+            env(import::import(alice, tmpXpop), ter(temMALFORMED));
+        };
+
         // temMALFORMED
         // Issuer cannot be the source account.
         {
@@ -1713,7 +1914,7 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tx = import::import(
                 alice, import::loadXpop(ImportTCAccountSet::w_seed));
-            STAmount const& fee = XRP(0);
+            STAmount const fee = XRP(0);
             tx[jss::Fee] = fee.getJson(JsonOptions::none);
             env(tx, ter(telINSUF_FEE_P));
         }
@@ -1732,7 +1933,7 @@ class Import_test : public beast::unit_test::suite
         {
             Json::Value tx = import::import(
                 alice, import::loadXpop(ImportTCAccountSet::w_seed));
-            STAmount const& amount = XRP(-1);
+            STAmount const amount = XRP(-1);
             tx[jss::Amount] = amount.getJson(JsonOptions::none);
             env(tx, ter(temMALFORMED));
         }
@@ -2076,6 +2277,12 @@ class Import_test : public beast::unit_test::suite
                 "WFo3VFFFPSJ9XX0=";
             env(import::import(alice, tmpXpop), ter(temMALFORMED));
         }
+        // temMALFORMED - Import: unl blob json (after base64 decoding) wrong
+        // required field (sequence) and/or types: negative int
+        {
+            importWithUnlBlob(
+                R"({"sequence":-1,"expiration":741398400,"validators":[]})");
+        }
         // temMALFORMED - Import: unl blob json (after base64 decoding)
         // lacked required field (expiration) and/or types
         {
@@ -2127,6 +2334,12 @@ class Import_test : public beast::unit_test::suite
                 "WFo3VFFFPSJ9XX0=";
             env(import::import(alice, tmpXpop), ter(temMALFORMED));
         }
+        // temMALFORMED - Import: unl blob json (after base64 decoding) wrong
+        // required field (expiration) and/or types: negative int
+        {
+            importWithUnlBlob(
+                R"({"sequence":2,"expiration":-1,"validators":[]})");
+        }
         // temMALFORMED - Import: unl blob json (after base64 decoding)
         // lacked required field (effective) and/or types
         {
@@ -2152,6 +2365,13 @@ class Import_test : public beast::unit_test::suite
                 "ZiWHZVVHRkbXQ0TnJ0bGJ4NFZ6dW1UcGZqUllwNGxNb0kvaDQzcFVUanA3VkZv"
                 "WGJuS1dqVmhxTmFHbTU3N0s2SjY5N1haN1RRRT0ifV19";
             env(import::import(alice, tmpXpop), ter(temMALFORMED));
+        }
+        // temMALFORMED - Import: unl blob json (after base64 decoding) wrong
+        // required field (effective) and/or types: negative int
+        {
+            importWithUnlBlob(
+                R"({"sequence":2,"effective":-1,"expiration":741398400,)"
+                R"("validators":[]})");
         }
         // temMALFORMED - Import: unl blob json (after base64 decoding)
         // lacked required field (validators) and/or types
@@ -2201,7 +2421,10 @@ class Import_test : public beast::unit_test::suite
             env(import::import(alice, tmpXpop), ter(temMALFORMED));
         }
 
-        // temMALFORMED - Import: unl blob expired
+        // temMALFORMED - unl blob expired. The window is now checked in
+        // preclaim (see testVLWindowClock). This blob's validator list
+        // does not match the xpop's validations, so preflight rejects it
+        // first.
         {
             Json::Value tmpXpop = import::loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] =
@@ -2231,7 +2454,10 @@ class Import_test : public beast::unit_test::suite
             env(import::import(alice, tmpXpop), ter(temMALFORMED));
         }
 
-        // temMALFORMED - Import: unl blob not yet valid
+        // temMALFORMED - unl blob not yet valid. The window is now checked in
+        // preclaim (see testVLWindowClock). This blob's validator list
+        // does not match the xpop's validations, so preflight rejects it
+        // first.
         {
             Json::Value tmpXpop = import::loadXpop(ImportTCAccountSet::w_seed);
             tmpXpop[jss::validation][jss::unl][jss::blob] =
@@ -6257,6 +6483,162 @@ class Import_test : public beast::unit_test::suite
         }
     }
 
+    void
+    testGetVLWindow(FeatureBitset features)
+    {
+        testcase("import utils - getVLWindow");
+
+        using namespace test::jtx;
+
+        beast::Journal const j{beast::Journal::getNullSink()};
+
+        auto const at = [](std::uint32_t s) {
+            return NetClock::time_point{NetClock::duration{s}};
+        };
+        auto const withBlob = [](std::string const& json) {
+            Json::Value xpop;
+            xpop[jss::validation][jss::unl][jss::blob] = base64_encode(json);
+            return xpop;
+        };
+
+        // effective absent: valid from the epoch
+        {
+            auto const window =
+                getVLWindow(import::loadXpop(ImportTCAccountSet::w_seed), j);
+            BEAST_REQUIRE(window);
+            BEAST_EXPECT(window->first == at(0));
+            BEAST_EXPECT(window->second == at(757349624));
+        }
+
+        // effective present
+        {
+            auto const window = getVLWindow(
+                withBlob(R"({"sequence":1,"effective":3600,)"
+                         R"("expiration":86400,"validators":[]})"),
+                j);
+            BEAST_REQUIRE(window);
+            BEAST_EXPECT(window->first == at(3600));
+            BEAST_EXPECT(window->second == at(86400));
+        }
+
+        // not json, not an object, or missing / ill-typed fields
+        for (std::string const bad :
+             {"badJson",
+              "[1,2,3]",
+              R"({"sequence":1})",
+              R"({"expiration":"86400"})",
+              R"({"expiration":-1})",
+              R"({"effective":"0","expiration":86400})",
+              R"({"effective":-1,"expiration":86400})"})
+            BEAST_EXPECT(!getVLWindow(withBlob(bad), j));
+    }
+
+    void
+    testVLWindowClock(FeatureBitset features)
+    {
+        testcase("import vl window clock");
+
+        using namespace test::jtx;
+
+        auto const at = [](std::uint32_t s) {
+            return NetClock::time_point{NetClock::duration{s}};
+        };
+
+        // expiration of the w_seed unl blob
+        std::uint32_t const expiry = 757349624;
+        auto const before = at(expiry - 1000);
+        auto const after = at(expiry + 1000);
+        auto const closeParentAt = [&](Env& env,
+                                       NetClock::time_point closeTime) {
+            using namespace std::chrono_literals;
+
+            auto const resolution = env.closed()->info().closeTimeResolution;
+            env.close(closeTime - resolution + 1s);
+        };
+
+        auto const alice = Account("alice");
+        auto const importTx = [&alice]() {
+            Json::Value tx = import::import(
+                alice, import::loadXpop(ImportTCAccountSet::w_seed));
+            tx[jss::Sequence] = 0;
+            tx[jss::Fee] = 0;
+            return tx;
+        };
+        // Keep this test focused on the VL clock, not max-supply accounting.
+        // w_seed creates an account and, without ZeroB2M, credits its 1000 XRP
+        // inner fee as valid legacy burn-to-mint.
+        auto const burnMintHeadroom = [&](Env& env) {
+            auto const initCoins = env.current()->info().drops;
+            auto headroom = Import::computeStartingBonus(*env.current());
+            if (!env.current()->rules().enabled(featureZeroB2M))
+                headroom += XRP(1000).value().xrp();
+            auto const master = Account("masterpassphrase");
+            env(noop(master),
+                fee(static_cast<std::uint64_t>(headroom.drops())),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.current()->info().drops == initCoins - headroom);
+        };
+
+        // parent ledger inside the window, node clock past it
+        {
+            Env env{*this, network::makeNetworkVLConfig(21337, keys), features};
+            burnMintHeadroom(env);
+            env.memoize(alice);
+            env.close(before);
+            BEAST_EXPECT(env.current()->parentCloseTime() < at(expiry));
+
+            env.timeKeeper().set(after);
+            env(importTx(), alice, ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.le(alice) != nullptr);
+        }
+
+        // parent ledger past the window, node clock inside it
+        {
+            Env env{*this, network::makeNetworkVLConfig(21337, keys), features};
+            burnMintHeadroom(env);
+            env.memoize(alice);
+            env.close(after);
+            BEAST_EXPECT(env.current()->parentCloseTime() >= at(expiry));
+
+            env.timeKeeper().set(before);
+            env(importTx(), alice, ter(temMALFORMED));
+            BEAST_EXPECT(env.le(alice) == nullptr);
+        }
+
+        // Env::close uses close-time resolution, so the requested expiration
+        // time lands on the closest representable parent close before
+        // expiration for this blob.
+        {
+            Env env{*this, network::makeNetworkVLConfig(21337, keys), features};
+            burnMintHeadroom(env);
+            env.memoize(alice);
+            closeParentAt(env, at(expiry));
+            BEAST_EXPECT(env.current()->parentCloseTime() < at(expiry));
+
+            env(importTx(), alice, ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.le(alice) != nullptr);
+        }
+
+        // accepted into the open ledger, which then closes after the window.
+        // Env::close() sets the node clock to the close time before the
+        // ledger is built, so this also covers the rebuild
+        {
+            Env env{*this, network::makeNetworkVLConfig(21337, keys), features};
+            burnMintHeadroom(env);
+            env.memoize(alice);
+            env.close(before);
+            env(importTx(), alice, ter(tesSUCCESS));
+            BEAST_EXPECT(env.le(alice) != nullptr);
+
+            env.close(after);
+            BEAST_EXPECT(env.closed()->info().parentCloseTime < at(expiry));
+            BEAST_EXPECT(env.le(alice) != nullptr);
+        }
+    }
+
 public:
     void
     run() override
@@ -6278,6 +6660,7 @@ public:
         testSyntaxCheckProofArray(features);
         testSyntaxCheckProofObject(features);
         testSyntaxCheckXPOP(features);
+        testProofInnerNodeSpoof(features);
         testGetVLInfo(features);
         testEnabled(features);
         testInvalidPreflight(features);
@@ -6297,6 +6680,8 @@ public:
         testMinMax(features);
         testHalving(features - featureOwnerPaysFee);
         testBlackhole(features);
+        testGetVLWindow(features);
+        testVLWindowClock(features);
     }
 };
 

@@ -172,8 +172,9 @@ XRPNotCreated::finalize(
 
         auto const result = meta->getFieldU8(sfTransactionResult);
 
-        XRPAmount maxDropsAdded = isTesSuccess(result) ||
-                (result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY)
+        XRPAmount maxDropsAdded = !view.rules().enabled(featureZeroB2M) &&
+                (isTesSuccess(result) ||
+                 (result >= tecCLAIM && result <= tecLAST_POSSIBLE_ENTRY))
             ? inner->getFieldAmount(sfFee).xrp()  // burned in PoB
             : beast::zero;  // if the txn didnt burn a fee we add nothing
 

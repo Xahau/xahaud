@@ -75,6 +75,13 @@ using JSSMap =
     [[maybe_unused]] std::string const x##_hash_str = to_string(x##_hash);     \
     [[maybe_unused]] Keylet const x##_keylet = keylet::hookDefinition(x##_hash);
 
+// Class-scope variant: gcc 11 ignores [[maybe_unused]] on data members
+#define HASH_WASM_MEMBER(x)                                                    \
+    uint256 const x##_hash =                                                   \
+        ripple::sha512Half_s(ripple::Slice(x##_wasm.data(), x##_wasm.size())); \
+    std::string const x##_hash_str = to_string(x##_hash);                      \
+    Keylet const x##_keylet = keylet::hookDefinition(x##_hash);
+
 #define EXPECT_HOOK_FEE(x, fee)                               \
     do                                                        \
     {                                                         \
@@ -2271,9 +2278,9 @@ public:
         // Call named hook with the wrong hook name (size == 0)
         for (auto const fix : {true, false})
         {
-            auto f = features - fix20261001;
+            auto f = features - fix20260929;
             if (fix)
-                f = f | fix20261001;
+                f = f | fix20260929;
             Env env{*this, f};
 
             env.fund(XRP(10000), alice);
@@ -3526,7 +3533,7 @@ public:
         {
             for (auto const& hook_wasm : {accept_oob_wasm, rollback_oob_wasm})
             {
-                Env env{*this, withFix ? features : features - fix20261001};
+                Env env{*this, withFix ? features : features - fix20260929};
 
                 auto const alice = Account{"alice"};
                 auto const bob = Account{"bob"};
@@ -12497,11 +12504,11 @@ public:
             {
                 for (bool const withSType : {true, false})
                 {
-                    auto feats = features - fixHookAPI20251128 - fix20261001;
+                    auto feats = features - fixHookAPI20251128 - fix20260929;
                     if (with20251128)
                         feats = feats | fixHookAPI20251128;
                     if (withSType)
-                        feats = feats | fix20261001;
+                        feats = feats | fix20260929;
 
                     Env env{*this, feats};
                     env.fund(XRP(10000), alice, bob);
@@ -16073,7 +16080,10 @@ public:
         run(0);
     }
 
-private:
+    // protected rather than private: some of the HASH_WASM_MEMBER names below
+    // are unused, and clang -Wunused-private-field only fires for private
+    // members.
+protected:
     TestHook accept_wasm =  // WASM: 0
         wasm[
             R"[test.hook](
@@ -16087,7 +16097,7 @@ private:
             }
         )[test.hook]"];
 
-    HASH_WASM(accept);
+    HASH_WASM_MEMBER(accept);
 
     TestHook rollback_wasm =  // WASM: 1
         wasm[
@@ -16103,7 +16113,7 @@ private:
             }
         )[test.hook]"];
 
-    HASH_WASM(rollback);
+    HASH_WASM_MEMBER(rollback);
 
     TestHook noguard_wasm =  // WASM: 2
         wasm[
@@ -16192,7 +16202,7 @@ private:
             }
         )[test.hook]"];
 
-    HASH_WASM(makestate);
+    HASH_WASM_MEMBER(makestate);
 
     // this is just used as a second small hook with a unique hash
     TestHook accept2_wasm =  // WASM: 6
@@ -16208,7 +16218,7 @@ private:
             }
         )[test.hook]"];
 
-    HASH_WASM(accept2);
+    HASH_WASM_MEMBER(accept2);
 
     // This hook is used to test Callback
     TestHook emit_invoke_wasm =  // WASM: 7
@@ -16300,7 +16310,7 @@ private:
                     }
         )[test.hook]"];
 
-    HASH_WASM(emit_invoke);
+    HASH_WASM_MEMBER(emit_invoke);
 };
 
 #define SETHOOK_TEST(i, last)                      \

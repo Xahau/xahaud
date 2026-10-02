@@ -26,6 +26,8 @@
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/TER.h>
 
+#include <boost/multiprecision/cpp_int.hpp>
+
 #include <cstdint>
 #include <tuple>
 
@@ -116,7 +118,9 @@ public:
  */
 class XRPNotCreated
 {
-    std::int64_t drops_ = 0;
+    // Full-width running total so a wrap of a 64-bit accumulator cannot
+    // hide XRP creation.
+    boost::multiprecision::int128_t drops_ = 0;
     std::uint32_t accountsCreated_ = 0;
 
 public:

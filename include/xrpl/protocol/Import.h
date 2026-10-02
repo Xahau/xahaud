@@ -24,6 +24,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
+#include <xrpl/basics/chrono.h>
 #include <xrpl/json/json_reader.h>
 #include <charconv>
 
@@ -118,8 +119,9 @@ syntaxCheckProof(
         {
             if (!proof["hash"].isString() ||
                 proof["hash"].asString().size() != 64 ||
-                !proof["key"].isString() ||
+                !isHex(proof["hash"].asString()) || !proof["key"].isString() ||
                 proof["key"].asString().size() != 64 ||
+                !isHex(proof["key"].asString()) ||
                 !proof["children"].isObject())
             {
                 JLOG(j.warn()) << "XPOP.transaction.proof tree node has wrong "
@@ -132,7 +134,11 @@ syntaxCheckProof(
 
         for (const auto& branch : proof.getMemberNames())
         {
-            if (branch.size() != 1 || !isHex(branch))
+            // Upper case only: the txroot computation only looks up "0"-"F",
+            // so any other key would be silently ignored.
+            if (branch.size() != 1 ||
+                branch.find_first_not_of("0123456789ABCDEF") !=
+                    std::string::npos)
             {
                 JLOG(j.warn())
                     << "XPOP.transaction.proof child node was not 0-F "
@@ -143,9 +149,9 @@ syntaxCheckProof(
             const auto& node = proof[branch];
             if (!node.isObject() || !node["hash"].isString() ||
                 node["hash"].asString().size() != 64 ||
-                !node["key"].isString() ||
+                !isHex(node["hash"].asString()) || !node["key"].isString() ||
                 node["key"].asString().size() != 64 ||
-                !node["children"].isObject())
+                !isHex(node["key"].asString()) || !node["children"].isObject())
             {
                 JLOG(j.warn())
                     << "XPOP.transaction.proof tree node has wrong format";
@@ -463,6 +469,45 @@ getVLInfo(Json::Value const& xpop, beast::Journal const& j)
         return {};
     }
     return {{sequence, m->masterKey}};
+}
+
+// <effective, expiration> of the unl blob, effective defaulting to the epoch
+inline std::optional<std::pair<NetClock::time_point, NetClock::time_point>>
+getVLWindow(Json::Value const& xpop, beast::Journal const& j)
+{
+    auto const data =
+        base64_decode(xpop[jss::validation][jss::unl][jss::blob].asString());
+    Json::Reader r;
+    Json::Value parsed;
+    if (!r.parse(data, parsed) || !parsed.isObject())
+    {
+        JLOG(j.warn()) << "Import: unl blob was not a json object (after "
+                          "base64 decoding)";
+        return {};
+    }
+
+    // const, so that operator[] does not insert missing members
+    Json::Value const& list = parsed;
+    auto const time = [&list](Json::StaticString const& field)
+        -> std::optional<NetClock::time_point> {
+        auto const& v = list[field];
+        if (!v.isInt() || v.asInt() < 0)
+            return {};
+        return NetClock::time_point{NetClock::duration{v.asUInt()}};
+    };
+
+    auto const validUntil = time(jss::expiration);
+    auto const validFrom = list.isMember(jss::effective)
+        ? time(jss::effective)
+        : std::optional<NetClock::time_point>{NetClock::time_point{}};
+    if (!validUntil || !validFrom)
+    {
+        JLOG(j.warn()) << "Import: unl blob json (after base64 decoding) "
+                          "had missing or invalid effective/expiration";
+        return {};
+    }
+
+    return {{*validFrom, *validUntil}};
 }
 
 }  // namespace ripple
