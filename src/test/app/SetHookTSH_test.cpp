@@ -8423,11 +8423,8 @@ private:
         using namespace std::literals;
         testcase("set manifest TSH");
 
-        if (!features[featureOnChainManifests])
-        {
-            pass();
-            return;
-        }
+        // OnChainManifests is not yet Supported::yes, so enable it explicitly.
+        features = features | featureOnChainManifests;
 
         // otxn: master
         // tsh: ephemeral

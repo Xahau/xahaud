@@ -1136,6 +1136,16 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
 
     try
     {
+        // Not a bad signature: this server may not have reached the fee
+        // setting the transaction was built for. Drop without marking it bad.
+        if (auto const [fee, feeReason] = checkManifestIngressFee(app_, *trans);
+            fee == ManifestIngressFee::Refused)
+        {
+            JLOG(m_journal.debug())
+                << "Submitted manifest-authorized tx dropped: " << feeReason;
+            return;
+        }
+
         auto const [validity, reason] = checkValidity(
             app_.getHashRouter(),
             *trans,
@@ -1273,6 +1283,19 @@ NetworkOPsImp::processTransaction(
     // NOTE eahennis - I think this check is redundant,
     // but I'm not 100% sure yet.
     // If so, only cost is looking up HashRouter flags.
+    // Before checkValidity(), which verifies the manifest: a fee miss is local
+    // and must not mark the transaction bad.
+    if (auto const [fee, feeReason] =
+            checkManifestIngressFee(app_, *transaction->getSTransaction());
+        fee == ManifestIngressFee::Refused)
+    {
+        JLOG(m_journal.debug())
+            << "Manifest-authorized tx dropped: " << feeReason;
+        transaction->setStatus(INVALID);
+        transaction->setResult(telMANIFEST_FEE_MISMATCH);
+        return;
+    }
+
     auto const [validity, reason] = checkValidity(
         app_.getHashRouter(),
         *transaction->getSTransaction(),
@@ -2075,11 +2098,11 @@ NetworkOPsImp::beginConsensus(
         closingInfo.parentCloseTime,
         *this,
         app_.overlay(),
-        app_.getHashRouter());
-
-    // Pin the trusted master keys so they are always offered to a new peer and
-    // cannot be crowded out of the gossip set by more recently used manifests.
-    app_.validatorManifests().pin(app_.validators().getTrustedMasterKeys());
+        app_.getHashRouter(),
+        [this, &prevLedger](hash_set<PublicKey> const& candidates) {
+            if (prevLedger->rules().enabled(featureOnChainManifests))
+                app_.validatorManifests().applyLedger(*prevLedger, candidates);
+        });
 
     if (!changes.added.empty() || !changes.removed.empty())
     {

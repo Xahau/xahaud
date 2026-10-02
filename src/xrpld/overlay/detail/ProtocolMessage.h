@@ -285,7 +285,9 @@ parseMessageContent(MessageHeader const& header, Buffers const& buffers)
         if (payloadSize == 0 || !m->ParseFromArray(payload.data(), payloadSize))
             return {};
     }
-    else if (!m->ParseFromZeroCopyStream(&stream))
+    // Several packets can share one TCP read. Do not parse into the next frame.
+    else if (!m->ParseFromBoundedZeroCopyStream(
+                 &stream, header.payload_wire_size))
         return {};
 
     return m;
@@ -328,6 +330,8 @@ invoke(MessageHeader const& header, Buffers const& buffers, Handler& handler)
     @param handler The handler that will be used to process the message
     @param hint If possible, a hint as to the amount of data to read next. The
                 returned value MAY be zero, which means "no hint"
+    @param enforceManifestFrameLimit Reject oversized manifest frames at the
+                header; otherwise consume and discard legacy cache dumps.
 
     @return The number of bytes consumed, or the error code if any.
 */
@@ -336,7 +340,8 @@ std::pair<std::size_t, boost::system::error_code>
 invokeProtocolMessage(
     Buffers const& buffers,
     Handler& handler,
-    std::size_t& hint)
+    std::size_t& hint,
+    bool enforceManifestFrameLimit)
 {
     std::pair<std::size_t, boost::system::error_code> result = {0, {}};
 
@@ -359,8 +364,13 @@ invokeProtocolMessage(
     // whose size exceeds this may result in the connection being dropped. A
     // larger message size may be supported in the future or negotiated as
     // part of a protocol upgrade.
+    bool const oversizedManifest =
+        header->message_type == protocol::mtMANIFESTS &&
+        (header->payload_wire_size > maxManifestMessageSize ||
+         header->uncompressed_size > maxManifestMessageSize);
     if (header->payload_wire_size > maximiumMessageSize ||
-        header->uncompressed_size > maximiumMessageSize)
+        header->uncompressed_size > maximiumMessageSize ||
+        (enforceManifestFrameLimit && oversizedManifest))
     {
         result.second = make_error_code(boost::system::errc::message_size);
         return result;
@@ -381,6 +391,12 @@ invokeProtocolMessage(
         hint = header->total_wire_size - size;
         return result;
     }
+
+    // Old peers send their cache in one packet. Consume exactly that frame,
+    // without decompression, protobuf parsing or dispatch, and keep the link.
+    // Buffering is still bounded by the generic ceiling checked above.
+    if (oversizedManifest)
+        return {header->total_wire_size, {}};
 
     bool success;
 

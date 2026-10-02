@@ -303,7 +303,6 @@ ManifestCache::getSigningKey(PublicKey const& pk) const
 
     if (iter != map_.end() && !iter->second.revoked())
     {
-        touch(pk);
         return iter->second.signingKey;
     }
 
@@ -318,7 +317,6 @@ ManifestCache::getMasterKey(PublicKey const& pk) const
     if (auto const iter = signingToMasterKeys_.find(pk);
         iter != signingToMasterKeys_.end())
     {
-        touch(iter->second);
         return iter->second;
     }
 
@@ -357,7 +355,6 @@ ManifestCache::getManifest(PublicKey const& pk) const
 
     if (iter != map_.end() && !iter->second.revoked())
     {
-        touch(pk);
         return iter->second.serialized;
     }
 
@@ -372,7 +369,6 @@ ManifestCache::revoked(PublicKey const& pk) const
 
     if (iter != map_.end())
     {
-        touch(pk);
         return iter->second.revoked();
     }
 
@@ -386,7 +382,6 @@ ManifestCache::getRawManifest(PublicKey const& pk) const
 
     if (auto const iter = map_.find(pk); iter != map_.end())
     {
-        touch(pk);
         return std::make_pair(iter->second.sequence, iter->second.serialized);
     }
 
@@ -394,29 +389,70 @@ ManifestCache::getRawManifest(PublicKey const& pk) const
 }
 
 void
-ManifestCache::touch(PublicKey const& masterKey) const
-{
-    // find() rather than operator[]: inserting here would be a structural
-    // modification, and callers hold mutex_ only in shared mode. The entry is
-    // created in applyManifest() alongside the manifest itself, so a lookup
-    // that hit map_ always finds one here too.
-    if (auto const iter = lastUsed_.find(masterKey); iter != lastUsed_.end())
-        iter->second.store(++tick_, std::memory_order_relaxed);
-}
-
-void
 ManifestCache::pin(hash_set<PublicKey> keys)
 {
-    std::lock_guard lock{mutex_};
+    hash_set<PublicKey> added;
+    {
+        std::shared_lock lock{mutex_};
+        for (auto const& key : keys)
+            if (!pinned_.contains(key))
+                added.insert(key);
+    }
+    // Publisher membership arrives after wallet startup. Recover its saved
+    // high waters before exposing the new gossip set or admitting the list's
+    // possibly older embedded manifests. No database lock spans cache writes.
+    restoreListed(added);
 
-    if (keys == pinned_)
-        return;
-
-    pinned_ = std::move(keys);
-
-    // The pinned set is part of what a gossip message contains, so a change to
-    // it has to invalidate any message cached against this sequence.
-    ++seq_;
+    hash_map<PublicKey, Manifest> departing;
+    DatabaseCon* wallet;
+    {
+        std::lock_guard lock{mutex_};
+        if (keys == pinned_ && pendingSave_.empty())
+            return;
+        wallet = wallet_;
+        if (wallet)
+            for (auto const& key : pinned_)
+                if (!keys.contains(key) && !configured_.contains(key))
+                    if (auto const it = map_.find(key); it != map_.end())
+                        pendingSave_.insert_or_assign(key, it->second.sequence);
+        for (auto const& [key, sequence] : pendingSave_)
+            if (auto const it = map_.find(key); it != map_.end())
+                departing.emplace(key, it->second.clone());
+        if (keys != pinned_)
+        {
+            pinned_ = std::move(keys);
+            ++seq_;
+        }
+    }
+    // Capture history as gossip eligibility is withdrawn. Publisher/ledger
+    // updates may not yet have reached SQLite, and shutdown now sees this
+    // identity as unlisted. No cache lock is held during the database write.
+    if (wallet && !departing.empty())
+    {
+        try
+        {
+            auto db = wallet->checkoutDb();
+            compactManifests(
+                *db,
+                "ValidatorManifests",
+                [](PublicKey const&) { return true; },
+                departing,
+                j_);
+        }
+        catch (soci::soci_error const& e)
+        {
+            // List changes also run on consensus jobs. Keep the pending save
+            // for retry instead of letting a wallet write failure escape.
+            JLOG(j_.error())
+                << "Failed to save departing validator manifests: " << e.what();
+            return;
+        }
+        std::lock_guard lock{mutex_};
+        for (auto const& [key, manifest] : departing)
+            if (auto const it = pendingSave_.find(key);
+                it != pendingSave_.end() && it->second <= manifest.sequence)
+                pendingSave_.erase(it);
+    }
 }
 
 namespace {
@@ -487,7 +523,6 @@ ManifestCache::applyLedgerSigningKey(
         if (auto const iter = signingToMasterKeys_.find(signingKey);
             iter != signingToMasterKeys_.end())
         {
-            touch(iter->second);
             return iter->second;
         }
 
@@ -502,19 +537,22 @@ ManifestCache::applyLedgerSigningKey(
     {
         std::lock_guard lock{mutex_};
 
-        if (probed_.size() >= probeLimit)
-            probed_.clear();
-
-        // One read per key per ledger. Reaching here already cost the sender a
-        // signature and this node a verification, so the read is not the
-        // cheapest thing an unknown key can ask for; the cap is to stop
-        // repeating it, not to stop anyone.
         auto const seq = view.info().seq;
-        auto const [iter, inserted] = probed_.try_emplace(signingKey, seq);
-        if (!inserted && iter->second == seq)
+        // A delayed job holding an older view must not reset a newer budget.
+        if (seq < probedLedger_)
             return std::nullopt;
+        if (probedLedger_ != seq)
+        {
+            probed_.clear();
+            probedLedger_ = seq;
+        }
 
-        iter->second = seq;
+        // Do not clear a full negative cache: cycling keys would reset the
+        // budget and allow unlimited reads during the same ledger.
+        if (probed_.size() >= probeLimit)
+            return std::nullopt;
+        if (!probed_.insert(signingKey).second)
+            return std::nullopt;
     }
 
     auto const sle = view.read(keylet::manifest(signingKey));
@@ -537,6 +575,28 @@ ManifestCache::applyLedgerSigningKey(
 ManifestDisposition
 ManifestCache::applyManifest(Manifest m)
 {
+    return applyManifest(std::move(m), Admission::normal);
+}
+
+ManifestDisposition
+ManifestCache::applyGossipManifest(Manifest m)
+{
+    return applyManifest(std::move(m), Admission::gossip);
+}
+
+bool
+ManifestCache::isGossipCandidate(Manifest const& m) const
+{
+    std::shared_lock lock{mutex_};
+    if (!pinned_.contains(m.masterKey) && !configured_.contains(m.masterKey))
+        return false;
+    auto const it = map_.find(m.masterKey);
+    return it == map_.end() || m.sequence > it->second.sequence;
+}
+
+ManifestDisposition
+ManifestCache::applyManifest(Manifest m, Admission admission)
+{
     // Check the manifest against the conditions that do not require a
     // `unique_lock` (write lock) on the `mutex_`. Since the signature can be
     // relatively expensive, the `checkSignature` parameter determines if the
@@ -544,13 +604,22 @@ ManifestCache::applyManifest(Manifest m)
     // comment below), `checkSignature` only needs to be set to true on the
     // first run.
     auto prewriteCheck =
-        [this, &m](auto const& iter, bool checkSignature, auto const& lock)
-        -> std::optional<ManifestDisposition> {
+        [this, &m, admission](
+            auto const& iter,
+            bool checkSignature,
+            auto const& lock) -> std::optional<ManifestDisposition> {
         XRPL_ASSERT(
             lock.owns_lock(),
             "ripple::ManifestCache::applyManifest::prewriteCheck : locked");
         (void)lock;  // not used. parameter is present to ensure the mutex is
                      // locked when the lambda is called.
+        auto const listed =
+            pinned_.contains(m.masterKey) || configured_.contains(m.masterKey);
+        // A cached ledger result is not permission to accept its gossip.
+        // This also rejects unlisted rotations/revocations without crypto.
+        if (admission == Admission::gossip && !listed)
+            return ManifestDisposition::unlisted;
+
         if (iter != map_.end() && m.sequence <= iter->second.sequence)
         {
             // We received a manifest whose sequence number is not strictly
@@ -566,6 +635,12 @@ ManifestCache::applyManifest(Manifest m)
                     iter->second.sequence);
             return ManifestDisposition::stale;
         }
+
+        // Keep admitted history instead of cycling it through an LRU. This
+        // cheap gate runs under both locks, before crypto on the first pass.
+        if (admission != Admission::listedHistory && iter == map_.end() &&
+            map_.size() >= cacheLimit_ && !listed)
+            return ManifestDisposition::full;
 
         if (checkSignature && !m.verify())
         {
@@ -657,8 +732,7 @@ ManifestCache::applyManifest(Manifest m)
         return *d;
 
     bool const revoked = m.revoked();
-    // This is the first manifest we are seeing for a master key. This should
-    // only ever happen once per validator run.
+    // This is the first manifest we are seeing for a master key.
     if (iter == map_.end())
     {
         if (auto stream = j_.info())
@@ -666,10 +740,6 @@ ManifestCache::applyManifest(Manifest m)
 
         if (!revoked)
             signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
-
-        // Kept in step with map_ so touch() never has to insert; see
-        // lastUsed_.
-        lastUsed_.try_emplace(m.masterKey, 0);
 
         auto masterKey = m.masterKey;
         map_.emplace(std::move(masterKey), std::move(m));
@@ -710,19 +780,49 @@ ManifestCache::load(DatabaseCon& dbCon, std::string const& dbTable)
     ripple::getManifests(*db, dbTable, *this, j_);
 }
 
+void
+ManifestCache::loadListed(DatabaseCon& dbCon)
+{
+    hash_set<PublicKey> keys;
+    {
+        std::unique_lock lock{mutex_};
+        wallet_ = &dbCon;
+        keys = pinned_;
+        keys.insert(configured_.begin(), configured_.end());
+    }
+    restoreListed(keys);
+}
+
+void
+ManifestCache::restoreListed(hash_set<PublicKey> const& keys)
+{
+    DatabaseCon* wallet;
+    {
+        std::shared_lock lock{mutex_};
+        wallet = wallet_;
+    }
+    if (!wallet || keys.empty())
+        return;
+
+    // TODO: review wallet I/O error boundaries, including existing job-thread
+    // writes, separately. Unreadable history must not be treated as empty.
+    auto restored = [&]() {
+        auto db = wallet->checkoutDb();
+        return getManifestsForKeys(*db, "ValidatorManifests", keys, j_);
+    }();
+    for (auto& [key, manifest] : restored)
+        applyManifest(std::move(manifest), Admission::listedHistory);
+}
+
 bool
-ManifestCache::load(
-    DatabaseCon& dbCon,
-    std::string const& dbTable,
+ManifestCache::loadConfig(
     std::string const& configManifest,
     std::vector<std::string> const& configRevocation)
 {
-    load(dbCon, dbTable);
-
     if (!configManifest.empty())
     {
         auto mo = deserializeManifest(base64_decode(configManifest));
-        if (!mo)
+        if (!mo || !mo->verify())
         {
             JLOG(j_.error()) << "Malformed validator_token in config";
             return false;
@@ -733,6 +833,11 @@ ManifestCache::load(
             JLOG(j_.warn()) << "Configured manifest revokes public key";
         }
 
+        {
+            std::unique_lock lock{mutex_};
+            if (configured_.insert(mo->masterKey).second)
+                ++seq_;
+        }
         if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
         {
             JLOG(j_.error()) << "Manifest in config was rejected";
@@ -756,12 +861,18 @@ ManifestCache::load(
 
         auto mo = deserializeManifest(base64_decode(revocationStr));
 
-        if (!mo || !mo->revoked() ||
-            applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
+        if (!mo || !mo->revoked() || !mo->verify())
         {
             JLOG(j_.error()) << "Invalid validator key revocation in config";
             return false;
         }
+        {
+            std::unique_lock lock{mutex_};
+            if (configured_.insert(mo->masterKey).second)
+                ++seq_;
+        }
+        if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
+            return false;
     }
 
     return true;
@@ -774,9 +885,33 @@ ManifestCache::save(
     std::function<bool(PublicKey const&)> const& isTrusted)
 {
     std::shared_lock lock{mutex_};
+    if (wallet_)
+        Throw<std::logic_error>(
+            "Use saveListed() for an attached validator wallet");
     auto db = dbCon.checkoutDb();
 
     saveManifests(*db, dbTable, isTrusted, map_, j_);
+}
+
+void
+ManifestCache::saveListed()
+{
+    std::shared_lock lock{mutex_};
+    if (!wallet_)
+        Throw<std::logic_error>("Validator manifest wallet is not attached");
+    auto db = wallet_->checkoutDb();
+
+    compactManifests(
+        *db,
+        "ValidatorManifests",
+        [this](PublicKey const& key) {
+            // Membership is already mirrored here. Do not take ValidatorList's
+            // lock while holding the cache lock (pin() takes them in reverse).
+            return pinned_.contains(key) || configured_.contains(key) ||
+                pendingSave_.contains(key);
+        },
+        map_,
+        j_);
 }
 
 // Clean up macros to avoid namespace pollution

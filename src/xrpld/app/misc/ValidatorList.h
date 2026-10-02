@@ -31,6 +31,7 @@
 #include <boost/iterator/counting_iterator.hpp>
 #include <boost/range/adaptors.hpp>
 #include <boost/thread/shared_mutex.hpp>
+#include <functional>
 #include <mutex>
 #include <numeric>
 #include <shared_mutex>
@@ -474,6 +475,10 @@ public:
         @param seenValidators Set of NodeIDs of validators that have signed
         recently received validations
 
+        @param reconcileCandidates Optional synchronous reconciliation before
+        new trust is published, after pending lists rotate. Called under the
+        list lock; must not re-enter ValidatorList.
+
         @return TrustedKeyChanges instance with newly trusted or untrusted
         node identities.
 
@@ -487,7 +492,9 @@ public:
         NetClock::time_point closeTime,
         NetworkOPs& ops,
         Overlay& overlay,
-        HashRouter& hashRouter);
+        HashRouter& hashRouter,
+        std::function<void(hash_set<PublicKey> const&)> const&
+            reconcileCandidates = {});
 
     /** Get quorum value for current trusted key set
 
@@ -566,6 +573,10 @@ public:
     */
     bool
     trustedPublisher(PublicKey const& identity) const;
+
+    /** Snapshot publisher membership before taking wallet/cache locks. */
+    hash_set<PublicKey>
+    getTrustedPublisherKeys() const;
 
     /** This function returns the local validator public key
      * or a std::nullopt
@@ -715,6 +726,12 @@ public:
         std::vector<std::shared_ptr<STValidation>>&& validations) const;
 
 private:
+    // Called with mutex_ held whenever listed membership changes.
+    void
+    pinManifestKeys(
+        lock_guard const&,
+        hash_map<PublicKey, std::size_t> const& listings);
+
     /** Return the number of configured validator list sites. */
     std::size_t
     count(shared_lock const&) const;

@@ -37,6 +37,7 @@
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Serializer.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
@@ -45,6 +46,7 @@
 #include <boost/beast/core/multi_buffer.hpp>
 #include <boost/endian/conversion.hpp>
 #include <algorithm>
+#include <array>
 
 namespace ripple {
 
@@ -67,6 +69,15 @@ ledgerHash(LedgerInfo const& info)
         std::uint32_t(info.closeTime.time_since_epoch().count()),
         std::uint8_t(info.closeTimeResolution.count()),
         std::uint8_t(info.closeFlags));
+}
+
+// boost::asio::buffer() yields a single buffer, which ZeroCopyInputStream
+// cannot iterate. Present it as a one-element buffer sequence.
+template <class... Args>
+std::array<boost::asio::const_buffer, 1>
+bufferSequence(Args&&... args)
+{
+    return {boost::asio::buffer(std::forward<Args>(args)...)};
 }
 
 class compression_test : public beast::unit_test::suite
@@ -383,6 +394,161 @@ public:
     }
 
     void
+    testManifestFrameLimit(bool enforceManifestFrameLimit)
+    {
+        testcase(
+            enforceManifestFrameLimit ? "strict manifest frame limits"
+                                      : "legacy manifest discard alignment");
+        struct Handler
+        {
+            bool
+            compressionEnabled() const
+            {
+                return true;
+            }
+            void
+            onMessageUnknown(std::uint16_t)
+            {
+            }
+            void
+            onMessageBegin(
+                std::uint16_t,
+                std::shared_ptr<google::protobuf::Message> const&,
+                std::size_t,
+                std::size_t,
+                bool)
+            {
+            }
+            void
+            onMessage(std::shared_ptr<google::protobuf::Message> const&)
+            {
+                ++received;
+            }
+            void
+            onMessageEnd(
+                std::uint16_t,
+                std::shared_ptr<google::protobuf::Message> const&)
+            {
+            }
+            int received = 0;
+        } handler;
+
+        auto check = [&](std::uint32_t wire,
+                         std::uint32_t plain,
+                         bool compressed,
+                         bool reject,
+                         std::uint16_t type = protocol::mtMANIFESTS) {
+            Serializer header;
+            header.add32(wire | (compressed ? 0x90000000u : 0u));
+            header.add16(type);
+            if (compressed)
+                header.add32(plain);
+            std::size_t hint = 0;
+            auto const result = invokeProtocolMessage(
+                bufferSequence(header.data(), header.size()),
+                handler,
+                hint,
+                enforceManifestFrameLimit);
+            BEAST_EXPECT(result.first == 0);
+            BEAST_EXPECT(
+                result.second ==
+                (reject ? make_error_code(boost::system::errc::message_size)
+                        : boost::system::error_code{}));
+            BEAST_EXPECT(handler.received == 0);
+            if (!reject)
+                BEAST_EXPECT(hint == wire);
+            else
+                BEAST_EXPECT(hint == 0);
+        };
+        check(maxManifestMessageSize, maxManifestMessageSize, false, false);
+        check(maxManifestMessageSize + 1, 0, false, enforceManifestFrameLimit);
+        check(1, maxManifestMessageSize + 1, true, enforceManifestFrameLimit);
+        check(maxManifestMessageSize + 1, 1, true, enforceManifestFrameLimit);
+        check(maxManifestMessageSize, maxManifestMessageSize, true, false);
+        // Legacy tolerance never bypasses the generic hard ceiling, even
+        // when only the compressed header (no payload) has arrived.
+        check(1, maximiumMessageSize + 1, true, true);
+        check(1, maximiumMessageSize + 1, true, true, protocol::mtLEDGER_DATA);
+        check(
+            maxManifestMessageSize + 1,
+            0,
+            false,
+            false,
+            protocol::mtLEDGER_DATA);
+
+        auto const msg = buildManifests(1);
+        Message packet{*msg, protocol::mtMANIFESTS};
+        auto const& bytes = packet.getBuffer(Compressed::Off);
+        std::size_t hint = 0;
+        auto const result = invokeProtocolMessage(
+            bufferSequence(bytes), handler, hint, enforceManifestFrameLimit);
+        BEAST_EXPECT(!result.second);
+        BEAST_EXPECT(result.first == bytes.size());
+        BEAST_EXPECT(handler.received == 1);
+        std::vector<std::uint8_t> coalesced(bytes.begin(), bytes.end());
+        coalesced.insert(coalesced.end(), bytes.begin(), bytes.end());
+        auto first = invokeProtocolMessage(
+            bufferSequence(coalesced),
+            handler,
+            hint,
+            enforceManifestFrameLimit);
+        BEAST_EXPECT(!first.second && first.first == bytes.size());
+        auto second = invokeProtocolMessage(
+            bufferSequence(
+                coalesced.data() + first.first, coalesced.size() - first.first),
+            handler,
+            hint,
+            enforceManifestFrameLimit);
+        BEAST_EXPECT(!second.second && second.first == bytes.size());
+        BEAST_EXPECT(handler.received == 3);
+
+        for (bool const compressed : {false, true})
+        {
+            Serializer frame;
+            std::uint32_t const wire =
+                compressed ? 1u : maxManifestMessageSize + 1;
+            frame.add32(wire | (compressed ? 0x90000000u : 0u));
+            frame.add16(protocol::mtMANIFESTS);
+            if (compressed)
+                frame.add32(std::uint32_t(maxManifestMessageSize + 1));
+            // Deliberately invalid protobuf/LZ4. Discard must not decode it,
+            // nor consume the good frame coalesced behind it.
+            frame.addRaw(Blob(wire, 0xff));
+            auto const discardedSize = frame.size();
+            frame.addRaw(bytes.data(), bytes.size());
+            int const received = handler.received;
+            auto discarded = invokeProtocolMessage(
+                bufferSequence(frame.data(), frame.size()),
+                handler,
+                hint,
+                enforceManifestFrameLimit);
+            BEAST_EXPECT(handler.received == received);
+            if (enforceManifestFrameLimit)
+            {
+                BEAST_EXPECT(discarded.first == 0);
+                BEAST_EXPECT(
+                    discarded.second ==
+                    make_error_code(boost::system::errc::message_size));
+            }
+            else
+            {
+                BEAST_EXPECT(!discarded.second);
+                BEAST_EXPECT(discarded.first == discardedSize);
+                auto next = invokeProtocolMessage(
+                    bufferSequence(
+                        reinterpret_cast<std::uint8_t const*>(frame.data()) +
+                            discarded.first,
+                        frame.size() - discarded.first),
+                    handler,
+                    hint,
+                    enforceManifestFrameLimit);
+                BEAST_EXPECT(!next.second && next.first == bytes.size());
+                BEAST_EXPECT(handler.received == received + 1);
+            }
+        }
+    }
+
+    void
     testProtocol()
     {
         auto thresh = beast::severities::Severity::kInfo;
@@ -538,6 +704,20 @@ public:
 };
 
 BEAST_DEFINE_TESTSUITE_MANUAL(compression, ripple_data, ripple);
+
+// Keep the small ingress regression in ordinary CI, independently of the
+// manual suite's large compression fixtures.
+class manifest_frame_test : public compression_test
+{
+    void
+    run() override
+    {
+        for (bool const strict : {false, true})
+            testManifestFrameLimit(strict);
+    }
+};
+
+BEAST_DEFINE_TESTSUITE(manifest_frame, ripple_data, ripple);
 
 }  // namespace test
 }  // namespace ripple

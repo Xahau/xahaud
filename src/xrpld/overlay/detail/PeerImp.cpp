@@ -37,6 +37,7 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -884,7 +885,7 @@ PeerImp::doProtocolStart()
             });
     }
 
-    if (auto m = overlay_.getManifestsMessage())
+    for (auto const& m : overlay_.getManifestsMessages())
         send(m);
 
     setTimer();
@@ -919,6 +920,12 @@ PeerImp::onReadMessage(error_code ec, std::size_t bytes_transferred)
 
     auto hint = Tuning::readBufferBytes;
 
+    // Coordinate strict rejection through amendment activation, not the peer's
+    // advertised version. Before activation, discard oversized legacy dumps
+    // without disconnecting; afterward reject at the header, before buffering.
+    bool const enforceManifestFrameLimit =
+        app_.getLedgerMaster().getValidatedRules().enabled(fix20260929);
+
     while (read_buffer_.size() > 0)
     {
         std::size_t bytes_consumed;
@@ -926,7 +933,11 @@ PeerImp::onReadMessage(error_code ec, std::size_t bytes_transferred)
         using namespace std::chrono_literals;
         std::tie(bytes_consumed, ec) = perf::measureDurationAndLog(
             [&]() {
-                return invokeProtocolMessage(read_buffer_.data(), *this, hint);
+                return invokeProtocolMessage(
+                    read_buffer_.data(),
+                    *this,
+                    hint,
+                    enforceManifestFrameLimit);
             },
             "invokeProtocolMessage",
             350ms,
@@ -1071,12 +1082,49 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
         return;
     }
 
-    if (s > 100)
-        fee_.update(Resource::feeModerateBurdenPeer, "oversize");
+    if (s > maxManifestEntries || m->ByteSizeLong() > maxManifestMessageSize ||
+        std::any_of(m->list().begin(), m->list().end(), [](auto const& item) {
+            return item.stobject().size() > maxManifestSize;
+        }))
+    {
+        fee_.update(Resource::feeInvalidData, "oversized manifests");
+        return;
+    }
 
+    std::vector<Manifest> candidates;
+    int cost = 0;
+    for (auto const& item : m->list())
+    {
+        auto manifest = deserializeManifest(item.stobject());
+        if (!manifest)
+            cost += Resource::feeInvalidData.cost();
+        else if (!app_.validatorManifests().isGossipCandidate(*manifest))
+            cost += Resource::feeUselessData.cost();
+        else
+        {
+            cost += Resource::feeModerateBurdenPeer.cost();
+            candidates.push_back(std::move(*manifest));
+        }
+    }
+    // Pay for requested work before another packet can queue more. dispatch()
+    // is immediate on the receiving strand; cheap rejects never enter a job.
+    boost::asio::dispatch(strand_, [that = shared_from_this(), cost]() {
+        that->charge(Resource::Charge{cost, "manifests"}, "manifest intake");
+    });
+    if (candidates.empty() || detaching_ || gracefulClose_)
+        return;
+    if (app_.getJobQueue().getJobCountTotal(jtMANIFEST) >= maxManifestJobs)
+    {
+        fee_.update(Resource::feeHeavyBurdenPeer, "manifest backlog");
+        return;
+    }
+    auto const batch =
+        std::make_shared<std::vector<Manifest>>(std::move(candidates));
     app_.getJobQueue().addJob(
-        jtMANIFEST, "receiveManifests", [this, that = shared_from_this(), m]() {
-            overlay_.onManifests(m, that);
+        jtMANIFEST,
+        "receiveManifests",
+        [this, that = shared_from_this(), batch]() {
+            overlay_.onManifests(*batch, that);
         });
 }
 
@@ -2876,6 +2924,20 @@ PeerImp::checkTransaction(
 
                 return;
             }
+        }
+
+        // A manifest-authorized SetManifest's Fee follows the voted base fee,
+        // so a miss may be a fee setting this server has not reached yet.
+        // Drop it before any manifest signature work, but do not mark it bad:
+        // the same bytes can become canonical here.
+        if (auto const [fee, feeReason] = checkManifestIngressFee(app_, *stx);
+            fee == ManifestIngressFee::Refused)
+        {
+            JLOG(p_journal_.trace())
+                << "Dropping manifest-authorized tx " << stx->getTransactionID()
+                << ": " << feeReason;
+            charge(Resource::feeUselessData, "manifest fee miss");
+            return;
         }
 
         if (checkSignature)

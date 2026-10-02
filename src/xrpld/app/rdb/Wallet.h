@@ -67,6 +67,16 @@ getManifests(
     ManifestCache& mCache,
     beast::Journal j);
 
+/** Read only the highest valid saved manifest for each requested local key.
+    Unrelated rows are scanned transiently, not retained or signature-checked.
+*/
+hash_map<PublicKey, Manifest>
+getManifestsForKeys(
+    soci::session& session,
+    std::string const& dbTable,
+    hash_set<PublicKey> const& keys,
+    beast::Journal j);
+
 /**
  * @brief saveManifests Saves all given manifests to the database.
  * @param session Session with the database.
@@ -80,6 +90,20 @@ saveManifests(
     soci::session& session,
     std::string const& dbTable,
     std::function<bool(PublicKey const&)> const& isTrusted,
+    hash_map<PublicKey, Manifest> const& map,
+    beast::Journal j);
+
+/** Save selected identities without deleting unrelated wallet history.
+
+    Keep the highest valid cache/disk version per selected master and compact
+    its old rows in one transaction. shouldRetain selects from map; unlike the
+    legacy saveManifests(), this never rewrites the whole table.
+*/
+void
+compactManifests(
+    soci::session& session,
+    std::string const& dbTable,
+    std::function<bool(PublicKey const&)> const& shouldRetain,
     hash_map<PublicKey, Manifest> const& map,
     beast::Journal j);
 
