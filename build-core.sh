@@ -76,6 +76,8 @@ strip -s rippled &&
 mv rippled xahaud &&
 echo "=== Full ldd output ===" &&
 ldd xahaud &&
+echo "=== Running libcheck ===" &&
+libcheck xahaud &&
 echo "=== Checking GLIBC requirement (must be <= 2.28) ===" &&
 GLIBC_MAX=$(objdump -T xahaud | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1) &&
 echo "Max required: $GLIBC_MAX" &&
