@@ -101,7 +101,12 @@ makeStubHookContext(
     hook::HookStateMap& stateMap)
 {
     auto& result = stubHookContext.result;
-    auto hookParams = result.hookParams.value_or(
+    // HookResult::hookParams is a const& that must outlive the returned
+    // context, so a function-local copy would dangle. Same thread_local
+    // workaround as stateMap below: each call resets it.
+    thread_local std::map<std::vector<uint8_t>, std::vector<uint8_t>>
+        hookParams;
+    hookParams = result.hookParams.value_or(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>>{});
     return hook::HookContext{
         .applyCtx = applyCtx,
@@ -144,9 +149,11 @@ makeStubHookContext(
                 .foreignStateSetDisabled = result.foreignStateSetDisabled,
                 .executeAgainAsWeak = result.executeAgainAsWeak,
                 .provisionalMeta = result.provisionalMeta,
+                .foreignStateGrantCache = {},
             },
         .emitFailure = stubHookContext.emitFailure,
-        .module = nullptr};
+        .module = nullptr,
+        .api_ = nullptr};
 }
 
 // Original function - WARNING: stateMap reference may become dangling

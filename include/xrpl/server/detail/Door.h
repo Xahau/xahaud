@@ -401,7 +401,7 @@ Door<Handler>::do_accept(boost::asio::yield_context do_yield)
         {
             create(
                 ssl_,
-                boost::asio::null_buffers{},
+                boost::asio::const_buffer{},
                 std::move(stream),
                 remote_address);
         }

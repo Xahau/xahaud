@@ -87,7 +87,7 @@ parseSignedLeb128(
         }
         *end_offset = i;
         if (shift < 64 && (b & 0x40U))
-            val |= (~0 << shift);
+            val |= (~int64_t{0} << shift);
 
         return val;
     }
