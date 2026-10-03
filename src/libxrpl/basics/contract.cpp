@@ -20,8 +20,13 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/beast/utility/instrumentation.h>
+#ifndef BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED
+#define BOOST_STACKTRACE_GNU_SOURCE_NOT_REQUIRED
+#endif
+#include <boost/stacktrace.hpp>
 #include <cstdlib>
 #include <iostream>
+#include <sstream>
 
 namespace ripple {
 
@@ -41,7 +46,12 @@ accessViolation() noexcept
 void
 LogThrow(std::string const& title)
 {
-    JLOG(debugLog().warn()) << title;
+    std::ostringstream oss;
+    oss << title << '\n' << boost::stacktrace::stacktrace();
+    JLOG(debugLog().warn()) << oss.str();
+    // Also mirror to stderr so uncaught exceptions leave a trace even when
+    // log output is buffered/lost before terminate().
+    std::cerr << oss.str() << std::endl;
 }
 
 [[noreturn]] void

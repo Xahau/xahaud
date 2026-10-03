@@ -36,9 +36,11 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_set>
 #include <utility>
@@ -373,6 +375,21 @@ public:
         // RHNOTE: memory type is not selected for here because it breaks
         // tests
         return isMem;
+    }
+
+    /** True when [node_db] type=rwdb.
+
+        The app node store is the existing NullFactory (type=none).
+        Nodes stay alive through Ledger and SHAMap pointers.
+        The result is read from this configuration, so two
+        applications in one process do not share it.
+    */
+    bool
+    nullBackend() const
+    {
+        auto const& node = section(ConfigSection::nodeDatabase());
+        return !node.empty() &&
+            boost::beast::iequals(get(node, "type"), "rwdb");
     }
 
     bool

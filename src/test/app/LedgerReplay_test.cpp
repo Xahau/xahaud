@@ -169,7 +169,7 @@ public:
     }
 
     virtual void
-    onLedgerFetched() override
+    onLedgerFetched(std::shared_ptr<InboundLedger> const&) override
     {
     }
 

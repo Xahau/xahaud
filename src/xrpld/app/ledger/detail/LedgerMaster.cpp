@@ -757,11 +757,12 @@ LedgerMaster::tryFill(std::shared_ptr<Ledger const> ledger)
             if (it == ledgerHashes.end())
                 break;
 
+            auto const& firstHash = ledgerHashes.begin()->second.ledgerHash;
             if (!nodeStore.fetchNodeObject(
-                    ledgerHashes.begin()->second.ledgerHash,
-                    ledgerHashes.begin()->first))
+                    firstHash, ledgerHashes.begin()->first) &&
+                !getLedgerByHash(firstHash))
             {
-                // The ledger is not backed by the node store
+                // Not in node store and not in memory — genuinely missing
                 JLOG(m_journal.warn()) << "SQL DB ledger sequence " << seq
                                        << " mismatches node store";
                 break;
@@ -935,6 +936,18 @@ LedgerMaster::setFullLedger(
         }
 
         mCompleteLedgers.insert(ledger->info().seq);
+    }
+
+    // Pin a sliding window of recently validated current ledgers so their
+    // SHAMap state trees stay resident via shared_ptr. This tracks the
+    // server's active online band rather than retaining arbitrary historical
+    // backfill ledgers.
+    if (isCurrent && ledger_history_ > 0)
+    {
+        std::lock_guard ml(m_mutex);
+        mRetainedLedgers.push_back(ledger);
+        while (mRetainedLedgers.size() > ledger_history_)
+            mRetainedLedgers.pop_front();
     }
 
     {
@@ -1852,6 +1865,31 @@ LedgerMaster::getCloseTimeByHash(
     LedgerHash const& ledgerHash,
     std::uint32_t index)
 {
+    // Resident ledgers only. getLedgerByHash loads a cache miss.
+    // Close time is a header field, so fall through to the node-store
+    // header when nothing is already in memory.
+    if (auto const cached = mLedgerHistory.getCachedLedger(ledgerHash))
+        return cached->info().closeTime;
+
+    if (auto const closed = mClosedLedger.get();
+        closed && closed->info().hash == ledgerHash)
+        return closed->info().closeTime;
+
+    if (auto const valid = mValidLedger.get();
+        valid && valid->info().hash == ledgerHash)
+        return valid->info().closeTime;
+
+    {
+        std::lock_guard lock(m_mutex);
+        if (mPubLedger && mPubLedger->info().hash == ledgerHash)
+            return mPubLedger->info().closeTime;
+        for (auto const& ledger : mRetainedLedgers)
+        {
+            if (ledger && ledger->info().hash == ledgerHash)
+                return ledger->info().closeTime;
+        }
+    }
+
     auto nodeObject = app_.getNodeStore().fetchNodeObject(ledgerHash, index);
     if (nodeObject && (nodeObject->getData().size() >= 120))
     {

@@ -367,6 +367,18 @@ public:
     void
     invariants() const;
 
+    /** Child pointers copied from a discarded same-hash inner onto the
+        TreeNodeCache winner during canonicalize.
+    */
+    static std::uint64_t
+    canonicalInnerBranchesHarvested();
+
+    /** Return the node at id if every parent on the path already has a
+        child pointer. Does not fetch from the node store.
+    */
+    std::shared_ptr<SHAMapTreeNode>
+    getLinkedNode(SHAMapNodeID const& id) const;
+
 private:
     using SharedPtrNodeStack =
         std::stack<std::pair<std::shared_ptr<SHAMapTreeNode>, SHAMapNodeID>>;

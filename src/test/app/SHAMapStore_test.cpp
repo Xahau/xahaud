@@ -26,10 +26,16 @@
 #include <xrpld/app/misc/detail/OnlineDeleteRanges.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
+#include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
 #include <xrpl/beast/utility/temp_dir.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/filesystem.hpp>
+
+#include <exception>
+#include <limits>
+#include <string>
 
 namespace ripple {
 namespace test {
@@ -572,6 +578,283 @@ public:
         return backend;
     }
 
+    std::unique_ptr<NodeStore::Backend>
+    makeMemoryBackend(
+        jtx::Env& env,
+        NodeStoreScheduler& scheduler,
+        std::string const& name)
+    {
+        Section section;
+        section.set("type", "memory");
+        section.set("path", name);
+        auto backend = NodeStore::Manager::instance().make_Backend(
+            section,
+            megabytes(env.app().config().getValueFor(
+                SizedItem::burstSize, std::nullopt)),
+            scheduler,
+            env.app().logs().journal("NodeStoreTest"));
+        backend->open();
+        return backend;
+    }
+
+    // Ordinary fetch (duplicate == false) must copy an archived object
+    // into the writable backend. The following rotation deletes the
+    // archive. Without that copy, a transaction node read between
+    // rotations disappears while callers can still name it.
+    void
+    testArchiveReadSurvivesRotation()
+    {
+        testcase("archive read survives rotation");
+
+        using namespace jtx;
+        Env env(*this, envconfig(onlineDelete));
+        NodeStoreScheduler scheduler(env.app().getJobQueue());
+
+        Section nscfg;
+        nscfg.set("type", "memory");
+        nscfg.set("path", "rotating");
+
+        auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
+            env.app(),
+            scheduler,
+            1,
+            makeMemoryBackend(env, scheduler, "writable"),
+            makeMemoryBackend(env, scheduler, "archive"),
+            nscfg,
+            env.app().logs().journal("NodeStoreTest"));
+
+        Blob const expected(32, 0xab);
+        auto const hash = sha512Half(makeSlice(expected));
+        {
+            Blob data = expected;
+            dbr->store(hotTRANSACTION_NODE, std::move(data), hash, 1);
+        }
+
+        auto const matches = [&](std::shared_ptr<NodeObject> const& object) {
+            return object && object->getType() == hotTRANSACTION_NODE &&
+                object->getData() == expected;
+        };
+
+        // Public fetch defaults duplicate to false. The private override
+        // is the rotation copy pass.
+        NodeStore::Database& db = *dbr;
+        BEAST_EXPECT(matches(db.fetchNodeObject(hash)));
+
+        auto const nop = [](std::string const&, std::string const&) {};
+        // Writable becomes the archive. The object now lives only there.
+        dbr->rotate(makeMemoryBackend(env, scheduler, "writable-2"), nop);
+
+        BEAST_EXPECT(matches(db.fetchNodeObject(hash)));
+
+        dbr->rotate(makeMemoryBackend(env, scheduler, "writable-3"), nop);
+        BEAST_EXPECT(matches(db.fetchNodeObject(hash)));
+    }
+
+    static auto
+    nullBackend(std::unique_ptr<Config> cfg)
+    {
+        cfg->LEDGER_HISTORY = 8;
+        auto& section = cfg->section(ConfigSection::nodeDatabase());
+        section.set("type", "rwdb");
+        section.set("path", "main");
+        return cfg;
+    }
+
+    static auto
+    nullBackendFullHistory(std::unique_ptr<Config> cfg)
+    {
+        cfg = nullBackend(std::move(cfg));
+        cfg->LEDGER_HISTORY = std::numeric_limits<std::uint32_t>::max();
+        return cfg;
+    }
+
+    static auto
+    nullBackendDeleteOff(std::unique_ptr<Config> cfg)
+    {
+        cfg = nullBackend(std::move(cfg));
+        cfg->LEDGER_HISTORY = 256;
+        cfg->section(ConfigSection::nodeDatabase()).set("online_delete", "0");
+        return cfg;
+    }
+
+    // Payments keep applying after more closes than ledger_history,
+    // with no node-store record of the state tree. Close time comes
+    // from the resident ledger, not a node-store header walk.
+    void
+    testNullModeLedgerProgression()
+    {
+        testcase("null mode ledger progression");
+
+        using namespace jtx;
+        Env env(*this, envconfig(nullBackend));
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        auto const bobBefore = env.balance(bob);
+        constexpr int payments = 12;
+        for (int i = 0; i < payments; ++i)
+        {
+            env(pay(alice, bob, XRP(1)));
+            env.close();
+        }
+
+        BEAST_EXPECT(env.balance(bob) == bobBefore + XRP(payments));
+        BEAST_EXPECT(env.seq(alice) > 1);
+
+        auto const info = env.rpc(
+            "json",
+            "account_info",
+            std::string{"{\"account\": \""} + alice.human() + "\"}");
+        BEAST_EXPECT(
+            info[jss::result].isMember(jss::account_data) &&
+            info[jss::result][jss::account_data][jss::Account] ==
+                alice.human());
+
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        if (!BEAST_EXPECT(ledger))
+            return;
+        BEAST_EXPECT(ledger->read(keylet::account(alice.id())));
+
+        auto const closeTime = env.app().getLedgerMaster().getCloseTimeByHash(
+            ledger->info().hash, ledger->info().seq);
+        BEAST_EXPECT(closeTime && *closeTime == ledger->info().closeTime);
+
+        auto const validated = env.rpc("ledger", "validated");
+        BEAST_EXPECT(goodLedger(
+            env, validated, std::to_string(ledger->info().seq), true));
+    }
+
+    // ledger_history=full must not make the delete interval wrap to
+    // "rotate on every close".
+    void
+    testNullModeFullHistoryRotation()
+    {
+        testcase("null mode full history does not rotate every ledger");
+
+        using namespace jtx;
+        Env env(*this, envconfig(nullBackendFullHistory));
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        auto const balance = env.balance(alice);
+        env.close();
+
+        // Online delete stays off, so the rotation thread never moves
+        // lastRotated. The account is still readable.
+        BEAST_EXPECT(env.app().getSHAMapStore().getLastRotated() == 0);
+        BEAST_EXPECT(env.balance(alice) == balance);
+    }
+
+    // online_delete=0 is an explicit disable. It must not be treated
+    // as a missing key and replaced with ledger_history.
+    void
+    testExplicitOnlineDeleteZero()
+    {
+        testcase("explicit online_delete zero stays off");
+
+        using namespace jtx;
+        Env env(*this, envconfig(nullBackendDeleteOff));
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        auto const balance = env.balance(alice);
+        env.close();
+
+        BEAST_EXPECT(env.app().getSHAMapStore().getLastRotated() == 0);
+        BEAST_EXPECT(env.balance(alice) == balance);
+    }
+
+    void
+    testNullModeRequiresHistory()
+    {
+        testcase("RWDB null mode requires ledger_history > 0");
+
+        using namespace jtx;
+        try
+        {
+            Env env(*this, envconfig([](std::unique_ptr<Config> cfg) {
+                cfg->LEDGER_HISTORY = 0;
+                auto& section = cfg->section(ConfigSection::nodeDatabase());
+                section.set("type", "rwdb");
+                section.set("path", "main");
+                return cfg;
+            }));
+            fail("Env should throw when ledger_history is 0");
+        }
+        catch (std::exception const& e)
+        {
+            BEAST_EXPECT(
+                std::string(e.what()).find("ledger_history") !=
+                std::string::npos);
+        }
+    }
+
+    void
+    testRetainedLedgerCloseTime()
+    {
+        testcase("retained ledger close time survives later closes");
+
+        using namespace jtx;
+        Env env(*this, envconfig(nullBackend));
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const first = env.app().getLedgerMaster().getClosedLedger();
+        if (!BEAST_EXPECT(first))
+            return;
+        auto const firstHash = first->info().hash;
+        auto const firstSeq = first->info().seq;
+        auto const firstClose = first->info().closeTime;
+
+        for (int i = 0; i < 12; ++i)
+        {
+            env(pay(alice, env.master, XRP(1)));
+            env.close();
+        }
+
+        auto const closeTime =
+            env.app().getLedgerMaster().getCloseTimeByHash(firstHash, firstSeq);
+        BEAST_EXPECT(closeTime && *closeTime == firstClose);
+        BEAST_EXPECT(env.balance(alice) < XRP(10000));
+    }
+
+    void
+    testNullBackendIsPerConfig()
+    {
+        testcase("null backend flag is per configuration");
+
+        Config rwdbCfg;
+        Config nudbCfg;
+        rwdbCfg.section(ConfigSection::nodeDatabase()).set("type", "rwdb");
+        nudbCfg.section(ConfigSection::nodeDatabase()).set("type", "NuDB");
+
+        BEAST_EXPECT(rwdbCfg.nullBackend());
+        BEAST_EXPECT(!nudbCfg.nullBackend());
+        BEAST_EXPECT(rwdbCfg.nullBackend());
+    }
+
+    void
+    testNullFactoryDropsWrites()
+    {
+        testcase("type=rwdb uses NullFactory and drops node-store writes");
+
+        using namespace jtx;
+        Env env(*this, envconfig(nullBackend));
+
+        auto& db = env.app().getNodeStore();
+        uint256 const hash{2};
+        Blob data(32, 7);
+        db.store(hotACCOUNT_NODE, std::move(data), hash, 1);
+        BEAST_EXPECT(!db.fetchNodeObject(hash, 1));
+    }
+
     void
     testRotate()
     {
@@ -854,6 +1137,14 @@ public:
         testClear();
         testAutomatic();
         testCanDelete();
+        testArchiveReadSurvivesRotation();
+        testNullModeLedgerProgression();
+        testNullModeFullHistoryRotation();
+        testExplicitOnlineDeleteZero();
+        testNullModeRequiresHistory();
+        testRetainedLedgerCloseTime();
+        testNullBackendIsPerConfig();
+        testNullFactoryDropsWrites();
         testRotate();
         testPinnedRangeRestoreRequiresPinnedData();
     }
