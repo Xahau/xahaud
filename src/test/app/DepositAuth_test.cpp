@@ -301,8 +301,14 @@ struct DepositAuth_test : public beast::unit_test::suite
             Env env(*this, features);
 
             env.fund(XRP(10000), gw1, alice, bob);
-            env(trust(gw1, alice["USD"](10), noRipplePrev ? tfSetNoRipple : 0));
-            env(trust(gw1, bob["USD"](10), noRippleNext ? tfSetNoRipple : 0));
+            env(trust(
+                gw1,
+                alice["USD"](10),
+                noRipplePrev ? std::uint32_t(tfSetNoRipple) : 0));
+            env(trust(
+                gw1,
+                bob["USD"](10),
+                noRippleNext ? std::uint32_t(tfSetNoRipple) : 0));
             env.trust(USD1(10), alice, bob);
 
             env(pay(gw1, alice, USD1(10)));
@@ -324,8 +330,14 @@ struct DepositAuth_test : public beast::unit_test::suite
             Env env(*this, features);
 
             env.fund(XRP(10000), gw1, gw2, alice);
-            env(trust(alice, USD1(10), noRipplePrev ? tfSetNoRipple : 0));
-            env(trust(alice, USD2(10), noRippleNext ? tfSetNoRipple : 0));
+            env(trust(
+                alice,
+                USD1(10),
+                noRipplePrev ? std::uint32_t(tfSetNoRipple) : 0));
+            env(trust(
+                alice,
+                USD2(10),
+                noRippleNext ? std::uint32_t(tfSetNoRipple) : 0));
             env(pay(gw2, alice, USD2(10)));
 
             if (withDepositAuth)

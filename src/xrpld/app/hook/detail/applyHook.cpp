@@ -1072,13 +1072,16 @@ hook::apply(
              .wasmParam = wasmParam,
              .hookChainPosition = hookChainPosition,
              .foreignStateSetDisabled = false,
-             .provisionalMeta = provisionalMeta},
+             .provisionalMeta = provisionalMeta,
+             .foreignStateGrantCache = {}},
         .emitFailure = isCallback && wasmParam & 1
             ? std::optional<ripple::STObject>(
                   (*(applyCtx.view().peek(keylet::emittedTxn(
                        applyCtx.tx.getFieldH256(sfTransactionHash)))))
                       .downcast<STObject>())
-            : std::optional<ripple::STObject>()};
+            : std::optional<ripple::STObject>(),
+        .module = nullptr,
+        .api_ = nullptr};
 
     auto const& j = applyCtx.app.journal("View");
 
