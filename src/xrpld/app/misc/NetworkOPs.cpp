@@ -705,6 +705,7 @@ private:
     std::array<SubMapType, SubTypes::sLastEntry> mStreamMaps;
 
     ServerFeeSummary mLastFeeSummary;  ///< Guarded by mFeeSummaryMutex_.
+    std::atomic<bool> mPubFeePending_{false};  ///< true while a PubFee job is queued
     std::mutex mFeeSummaryMutex_;      ///< Guards mLastFeeSummary only. Kept
                                        ///< separate from mSubLock to avoid
     ///< lock-ordering hazards with masterMutex.
@@ -3229,8 +3230,10 @@ NetworkOPsImp::reportFeeChange()
     else
         return;
 
+    mPubFeePending_.store(true, std::memory_order_relaxed);
     m_job_queue.addJob(
         jtCLIENT_FEE_CHANGE, "reportFeeChange->pubServer", [this]() {
+            mPubFeePending_.store(false, std::memory_order_relaxed);
             pubServer();
         });
 }
@@ -4293,9 +4296,13 @@ NetworkOPsImp::subServer(
     {
         // First subscriber on an otherwise-quiet node: reset mLastFeeSummary
         // so the next reportFeeChange() tick publishes a full serverStatus
-        // with base_fee and load_factor_* fields.
-        std::lock_guard fsl(mFeeSummaryMutex_);
-        mLastFeeSummary = {};
+        // with base_fee and load_factor_* fields. Skip if a PubFee job is
+        // already queued — it will publish to the new subscriber anyway,
+        // and resetting here would cause a duplicate notification.
+        {
+            std::lock_guard fsl(mFeeSummaryMutex_);
+            mLastFeeSummary = {};
+        }
     }
     return added;
 }
