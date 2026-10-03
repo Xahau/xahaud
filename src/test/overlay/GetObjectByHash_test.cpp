@@ -165,7 +165,15 @@ public:
             auto packet = std::make_shared<protocol::TMGetObjectByHash>();
             packet->set_query(true);
             fill(*packet);
+            // Production dispatch resets fee_ in onMessageBegin before
+            // onMessage. Calling onMessage alone leaves a moderate burden
+            // charge in place and Debug XRPL_ASSERT fires on a later
+            // malformed request with a smaller fee.
+            auto const size = packet->ByteSizeLong();
+            peer->onMessageBegin(
+                protocol::mtGET_OBJECTS, packet, size, size, false);
             peer->onMessage(packet);
+            peer->onMessageEnd(protocol::mtGET_OBJECTS, packet);
         };
 
         // TreeNodeCache hit: hash only, no nodeid.
