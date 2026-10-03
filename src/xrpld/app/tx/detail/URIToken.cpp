@@ -20,13 +20,13 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/detail/URIToken.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/UTF8.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxFlags.h>
-#include <xrpl/protocol/UTF8.h>
 
 namespace ripple {
 

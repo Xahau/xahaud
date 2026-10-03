@@ -23,8 +23,65 @@
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
+#include <optional>
 
 namespace ripple {
+
+/** Add two signed 64-bit integers, returning std::nullopt when the exact
+ *  mathematical sum is not representable in std::int64_t.
+ */
+[[nodiscard]] constexpr std::optional<std::int64_t>
+checkedAdd(std::int64_t a, std::int64_t b) noexcept
+{
+    using L = std::numeric_limits<std::int64_t>;
+
+    if ((b > 0 && a > L::max() - b) || (b < 0 && a < L::min() - b))
+        return std::nullopt;
+
+    return a + b;
+}
+
+/** Subtract two signed 64-bit integers, returning std::nullopt when the exact
+ *  mathematical difference is not representable in std::int64_t.
+ */
+[[nodiscard]] constexpr std::optional<std::int64_t>
+checkedSub(std::int64_t a, std::int64_t b) noexcept
+{
+    using L = std::numeric_limits<std::int64_t>;
+
+    if ((b > 0 && a < L::min() + b) || (b < 0 && a > L::max() + b))
+        return std::nullopt;
+
+    return a - b;
+}
+
+namespace detail {
+using i64_limits = std::numeric_limits<std::int64_t>;
+
+static_assert(checkedAdd(0, 0) == 0);
+static_assert(checkedAdd(1, -1) == 0);
+static_assert(checkedAdd(-5, 2) == -3);
+static_assert(!checkedAdd(i64_limits::max(), 1).has_value());
+static_assert(!checkedAdd(i64_limits::min(), -1).has_value());
+static_assert(checkedAdd(i64_limits::max() - 1, 1) == i64_limits::max());
+static_assert(checkedAdd(i64_limits::min(), i64_limits::max()) == -1);
+static_assert(checkedAdd(i64_limits::max(), i64_limits::min()) == -1);
+static_assert(!checkedAdd(i64_limits::max(), i64_limits::max()).has_value());
+static_assert(!checkedAdd(i64_limits::min(), i64_limits::min()).has_value());
+
+static_assert(checkedSub(0, 0) == 0);
+static_assert(checkedSub(1, 1) == 0);
+static_assert(checkedSub(-5, 2) == -7);
+static_assert(checkedSub(-5, -2) == -3);
+static_assert(!checkedSub(i64_limits::min(), 1).has_value());
+static_assert(!checkedSub(i64_limits::max(), -1).has_value());
+static_assert(checkedSub(i64_limits::min() + 1, 1) == i64_limits::min());
+static_assert(checkedSub(-1, i64_limits::max()) == i64_limits::min());
+static_assert(!checkedSub(i64_limits::max(), i64_limits::min()).has_value());
+static_assert(!checkedSub(i64_limits::min(), i64_limits::max()).has_value());
+}  // namespace detail
 
 /** Calculate one number divided by another number in percentage.
  * The result is rounded up to the next integer, and capped in the range [0,100]
