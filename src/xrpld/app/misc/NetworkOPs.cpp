@@ -3233,8 +3233,8 @@ NetworkOPsImp::reportFeeChange()
     mPubFeePending_.store(true, std::memory_order_relaxed);
     m_job_queue.addJob(
         jtCLIENT_FEE_CHANGE, "reportFeeChange->pubServer", [this]() {
-            mPubFeePending_.store(false, std::memory_order_relaxed);
             pubServer();
+            mPubFeePending_.store(false, std::memory_order_relaxed);
         });
 }
 
@@ -4292,17 +4292,16 @@ NetworkOPsImp::subServer(
         added = mStreamMaps[sServer].emplace(isrListener->getSeq(), isrListener).second;
         isFirstSubscriber = added && mStreamMaps[sServer].size() == 1;
     }
-    if (isFirstSubscriber)
+    if (isFirstSubscriber &&
+        !mPubFeePending_.load(std::memory_order_relaxed))
     {
         // First subscriber on an otherwise-quiet node: reset mLastFeeSummary
         // so the next reportFeeChange() tick publishes a full serverStatus
         // with base_fee and load_factor_* fields. Skip if a PubFee job is
         // already queued — it will publish to the new subscriber anyway,
         // and resetting here would cause a duplicate notification.
-        {
-            std::lock_guard fsl(mFeeSummaryMutex_);
-            mLastFeeSummary = {};
-        }
+        std::lock_guard fsl(mFeeSummaryMutex_);
+        mLastFeeSummary = {};
     }
     return added;
 }
