@@ -22,7 +22,7 @@
 
 #include <cerrno>
 #include <pthread.h>
-#include <stdexcept>
+#include <system_error>
 
 namespace ripple {
 
