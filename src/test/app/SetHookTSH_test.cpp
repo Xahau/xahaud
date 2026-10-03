@@ -8533,8 +8533,9 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 2> const feats{
+        static std::array<FeatureBitset, 3> const feats{
             all,
+            all - featureEscrowDestinationCancel,
             all - featureIOUIssuerWeakTSH,
         };
 
@@ -8564,10 +8565,12 @@ public:
         }                                                \
     };
 
-SETHOOKTSH_TEST(1, true)
+SETHOOKTSH_TEST(1, false)
+SETHOOKTSH_TEST(2, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH1, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH2, app, ripple, 2);
 
 }  // namespace test
 }  // namespace ripple

@@ -63,27 +63,6 @@ struct Escrow_test : public beast::unit_test::suite
          0x26, 0x4A, 0x2D, 0x85, 0x7B, 0xE8, 0xA0, 0x9C, 0x1D, 0xFD,
          0x57, 0x0D, 0x15, 0x85, 0x8B, 0xD4, 0x81, 0x01, 0x04}};
 
-    // rollback_wasm from SetHook_test.cpp: rejects every transaction.
-    std::vector<std::uint8_t> const rollbackHook = {
-        0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x13U,
-        0x03U, 0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7FU, 0x60U, 0x03U, 0x7FU,
-        0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x01U, 0x7FU, 0x01U, 0x7EU, 0x02U,
-        0x19U, 0x02U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x02U, 0x5FU, 0x67U, 0x00U,
-        0x00U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x08U, 0x72U, 0x6FU, 0x6CU, 0x6CU,
-        0x62U, 0x61U, 0x63U, 0x6BU, 0x00U, 0x01U, 0x03U, 0x02U, 0x01U, 0x02U,
-        0x05U, 0x03U, 0x01U, 0x00U, 0x02U, 0x06U, 0x21U, 0x05U, 0x7FU, 0x01U,
-        0x41U, 0x90U, 0x88U, 0x04U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0x8EU, 0x08U,
-        0x0BU, 0x7FU, 0x00U, 0x41U, 0x80U, 0x08U, 0x0BU, 0x7FU, 0x00U, 0x41U,
-        0x90U, 0x88U, 0x04U, 0x0BU, 0x7FU, 0x00U, 0x41U, 0x80U, 0x08U, 0x0BU,
-        0x07U, 0x08U, 0x01U, 0x04U, 0x68U, 0x6FU, 0x6FU, 0x6BU, 0x00U, 0x02U,
-        0x0AU, 0xA1U, 0x80U, 0x00U, 0x01U, 0x9DU, 0x80U, 0x00U, 0x00U, 0x41U,
-        0x01U, 0x41U, 0x01U, 0x10U, 0x80U, 0x80U, 0x80U, 0x80U, 0x00U, 0x1AU,
-        0x41U, 0x80U, 0x88U, 0x80U, 0x80U, 0x00U, 0x41U, 0x0EU, 0x42U, 0x00U,
-        0x10U, 0x81U, 0x80U, 0x80U, 0x80U, 0x00U, 0x0BU, 0x0BU, 0x15U, 0x01U,
-        0x00U, 0x41U, 0x80U, 0x08U, 0x0BU, 0x0EU, 0x48U, 0x6FU, 0x6FU, 0x6BU,
-        0x20U, 0x52U, 0x65U, 0x6AU, 0x65U, 0x63U, 0x74U, 0x65U, 0x64U, 0x00U,
-    };
-
     static STAmount
     lockedAmount(
         jtx::Env const& env,
@@ -4785,16 +4764,22 @@ struct Escrow_test : public beast::unit_test::suite
             env(cancel(bob, alice, seq), ter(destResult));
             env.close();
 
-            BEAST_EXPECT(
-                (env.le(keylet::escrow(alice.id(), seq)) == nullptr) ==
-                enabled);
             if (enabled)
             {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
                 // Funds go back to the owner, not the destination.
                 env.require(balance(alice, preAlice + XRP(1000)));
                 BEAST_EXPECT(env.ownerCount(alice) == 0);
                 BEAST_EXPECT(ownerDirEmpty(env, alice));
                 BEAST_EXPECT(ownerDirEmpty(env, bob));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+                // Rejected outright: nothing moves.
+                env.require(balance(alice, preAlice));
+                BEAST_EXPECT(env.ownerCount(alice) == 1);
+                BEAST_EXPECT(!ownerDirEmpty(env, bob));
             }
         }
 
@@ -4813,11 +4798,17 @@ struct Escrow_test : public beast::unit_test::suite
             env(cancel(bob, alice, seq), ter(destResult));
             env.close();
 
-            BEAST_EXPECT(
-                (env.le(keylet::escrow(alice.id(), seq)) == nullptr) ==
-                enabled);
-            if (!enabled)
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
                 env(finish(bob, alice, seq));
+                env.close();
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+            }
         }
 
         {
@@ -4836,9 +4827,14 @@ struct Escrow_test : public beast::unit_test::suite
             env(cancel(bob, alice, seq), ter(destResult));
             env.close();
 
-            BEAST_EXPECT(
-                (env.le(keylet::escrow(alice.id(), seq)) == nullptr) ==
-                enabled);
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+            }
         }
 
         {
@@ -4874,8 +4870,14 @@ struct Escrow_test : public beast::unit_test::suite
             env(cancel(bob, alice), escrow_id(escrowId), ter(destResult));
             env.close();
 
-            BEAST_EXPECT(
-                (env.le(keylet::unchecked(escrowId)) == nullptr) == enabled);
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::unchecked(escrowId)));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::unchecked(escrowId)));
+            }
         }
 
         {
@@ -4892,21 +4894,28 @@ struct Escrow_test : public beast::unit_test::suite
             env.close();
 
             // Past CancelAfter, so only the owner's hook stands in the way.
-            env(jtx::hook(alice, {{hso(rollbackHook)}}, 0), fee(XRP(2)));
+            env(jtx::hook(alice, {{hso(jtx::genesis::RollbackHook)}}, 0),
+                fee(XRP(2)));
             env.close();
 
             // The owner stays a strong tsh when a third party cancels.
             env(cancel(carol, alice, seq), fee(XRP(1)), ter(tecHOOK_REJECTED));
             env.close();
 
-            env(cancel(bob, alice, seq),
-                fee(XRP(1)),
-                ter(enabled ? TER{tesSUCCESS} : TER{tecHOOK_REJECTED}));
-            env.close();
-
-            BEAST_EXPECT(
-                (env.le(keylet::escrow(alice.id(), seq)) == nullptr) ==
-                enabled);
+            if (enabled)
+            {
+                env(cancel(bob, alice, seq), fee(XRP(1)));
+                env.close();
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+            }
+            else
+            {
+                env(cancel(bob, alice, seq),
+                    fee(XRP(1)),
+                    ter(tecHOOK_REJECTED));
+                env.close();
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+            }
         }
 
         {
@@ -4929,14 +4938,52 @@ struct Escrow_test : public beast::unit_test::suite
             env(cancel(bob, alice, seq), ter(destResult));
             env.close();
 
-            BEAST_EXPECT(
-                (env.le(keylet::escrow(alice.id(), seq)) == nullptr) ==
-                enabled);
-            BEAST_EXPECT(
-                -lockedAmount(env, alice, gw, USD) ==
-                (enabled ? USD(0) : USD(1000)));
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+                BEAST_EXPECT(-lockedAmount(env, alice, gw, USD) == USD(0));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+                BEAST_EXPECT(-lockedAmount(env, alice, gw, USD) == USD(1000));
+            }
             env.require(balance(alice, USD(5000)));
             env.require(balance(bob, USD(0)));
+        }
+
+        {
+            testcase("Destination Cancel: issuer-owned IOU");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, gw);
+            env.close();
+            env.trust(USD(10000), alice);
+            env.close();
+
+            // An issuer escrowing its own IOU locks nothing, so the cancel
+            // only has to unwind the escrow itself.
+            auto const seq = env.seq(gw);
+            env(escrow(gw, alice, USD(1000)),
+                finish_time(env.now() + 100s),
+                cancel_time(env.now() + 200s));
+            env.close();
+            BEAST_EXPECT(env.ownerCount(gw) == 1);
+
+            env(cancel(gw, gw, seq), ter(tecNO_PERMISSION));
+            env(cancel(alice, gw, seq), ter(destResult));
+            env.close();
+
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(gw.id(), seq)));
+                BEAST_EXPECT(env.ownerCount(gw) == 0);
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(gw.id(), seq)));
+                BEAST_EXPECT(env.ownerCount(gw) == 1);
+            }
+            env.require(balance(alice, USD(0)));
         }
 
         {
@@ -4960,14 +5007,22 @@ struct Escrow_test : public beast::unit_test::suite
             XRPAmount const bobBefore = feeFor(bob);
             XRPAmount const carolBefore = feeFor(carol);
 
-            env(jtx::hook(alice, {{hso(rollbackHook)}}, 0), fee(XRP(2)));
+            env(jtx::hook(alice, {{hso(jtx::genesis::RollbackHook)}}, 0),
+                fee(XRP(2)));
             env.close();
 
             // A third party still pays for the owner's (strong) hook chain.
             BEAST_EXPECT(feeFor(carol) > carolBefore);
 
             // The destination does too, but only without the amendment.
-            BEAST_EXPECT((feeFor(bob) == bobBefore) == enabled);
+            if (enabled)
+            {
+                BEAST_EXPECT(feeFor(bob) == bobBefore);
+            }
+            else
+            {
+                BEAST_EXPECT(feeFor(bob) > bobBefore);
+            }
         }
 
         {
@@ -5001,12 +5056,16 @@ struct Escrow_test : public beast::unit_test::suite
             env(cancel(bob, alice, seq2), ter(destResult));
             env.close();
 
-            BEAST_EXPECT(
-                (env.le(keylet::escrow(alice.id(), seq1)) == nullptr) ==
-                enabled);
-            BEAST_EXPECT(
-                (env.le(keylet::escrow(alice.id(), seq2)) == nullptr) ==
-                enabled);
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq1)));
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq2)));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq1)));
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq2)));
+            }
 
             // Past CancelAfter anyone may cancel, with or without the
             // amendment.
