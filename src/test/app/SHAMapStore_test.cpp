@@ -33,7 +33,9 @@
 #include <xrpl/protocol/jss.h>
 #include <boost/filesystem.hpp>
 
+#include <exception>
 #include <limits>
+#include <string>
 
 namespace ripple {
 namespace test {
@@ -768,6 +770,62 @@ public:
     }
 
     void
+    testNullModeRequiresHistory()
+    {
+        testcase("RWDB null mode requires ledger_history > 0");
+
+        using namespace jtx;
+        try
+        {
+            Env env(*this, envconfig([](std::unique_ptr<Config> cfg) {
+                cfg->LEDGER_HISTORY = 0;
+                auto& section = cfg->section(ConfigSection::nodeDatabase());
+                section.set("type", "rwdb");
+                section.set("path", "main");
+                return cfg;
+            }));
+            fail("Env should throw when ledger_history is 0");
+        }
+        catch (std::exception const& e)
+        {
+            BEAST_EXPECT(
+                std::string(e.what()).find("ledger_history") !=
+                std::string::npos);
+        }
+    }
+
+    void
+    testRetainedLedgerCloseTime()
+    {
+        testcase("retained ledger close time survives later closes");
+
+        using namespace jtx;
+        Env env(*this, envconfig(nullBackend));
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const first = env.app().getLedgerMaster().getClosedLedger();
+        if (!BEAST_EXPECT(first))
+            return;
+        auto const firstHash = first->info().hash;
+        auto const firstSeq = first->info().seq;
+        auto const firstClose = first->info().closeTime;
+
+        for (int i = 0; i < 12; ++i)
+        {
+            env(pay(alice, env.master, XRP(1)));
+            env.close();
+        }
+
+        auto const closeTime =
+            env.app().getLedgerMaster().getCloseTimeByHash(firstHash, firstSeq);
+        BEAST_EXPECT(closeTime && *closeTime == firstClose);
+        BEAST_EXPECT(env.balance(alice) < XRP(10000));
+    }
+
+    void
     testNullBackendIsPerConfig()
     {
         testcase("null backend flag is per configuration");
@@ -1083,6 +1141,8 @@ public:
         testNullModeLedgerProgression();
         testNullModeFullHistoryRotation();
         testExplicitOnlineDeleteZero();
+        testNullModeRequiresHistory();
+        testRetainedLedgerCloseTime();
         testNullBackendIsPerConfig();
         testNullFactoryDropsWrites();
         testRotate();

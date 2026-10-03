@@ -102,9 +102,6 @@ fetchLinkedTreeNode(
 }
 }  // namespace
 
-// TODO: Remove this exclusion once unit tests are added after the hotfix
-// release.
-
 PeerImp::PeerImp(
     Application& app,
     id_t id,
