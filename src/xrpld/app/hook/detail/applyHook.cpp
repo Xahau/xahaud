@@ -382,9 +382,16 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             AccountID const src = escrow->getAccountID(sfAccount);
             AccountID const dst = escrow->getAccountID(sfDestination);
 
-            // the source account is a strong transacitonal stakeholder for
-            // fin and can
-            ADD_TSH(src, tshSTRONG);
+            // featureEscrowDestinationCancel: an account can always cancel an
+            // escrow destined for it, so when the destination cancels, the
+            // source is only a weak tsh and its hooks cannot roll back.
+            bool const destinationCancel = tt == ttESCROW_CANCEL &&
+                rv.rules().enabled(featureEscrowDestinationCancel) &&
+                *otxnAcc == dst && src != dst;
+
+            // otherwise the source account is a strong transactional
+            // stakeholder for fin and can
+            ADD_TSH(src, destinationCancel ? tshWEAK : tshSTRONG);
 
             // the dest acc is a strong tsh for fin and weak for can
             if (src != dst)
