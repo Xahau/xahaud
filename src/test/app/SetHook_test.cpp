@@ -15850,12 +15850,12 @@ public:
         test_slot_subfield(features);  //
         test_slot_type(features);      //
 
-        test_state(features);                  //
-        test_state_foreign(features);          //
-        test_state_foreign_set(features);      //
-        test_state_foreign_set_max(features);  //
+        test_state(features);                    //
+        test_state_foreign(features);            //
+        test_state_foreign_set(features);        //
+        test_state_foreign_set_max(features);    //
         test_state_foreign_set_touch(features);  //
-        test_state_set(features);              //
+        test_state_set(features);                //
 
         test_sto_emplace(features);   //
         test_sto_erase(features);     //
