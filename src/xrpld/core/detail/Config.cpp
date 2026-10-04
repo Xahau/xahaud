@@ -732,6 +732,9 @@ Config::loadFromString(std::string const& fileContents)
     if (getSingleSection(secConfig, SECTION_LEDGER_REPLAY, strTemp, j_))
         LEDGER_REPLAY = beast::lexicalCastThrow<bool>(strTemp);
 
+    if (getSingleSection(secConfig, SECTION_LIGHT_PEERS, strTemp, j_))
+        LIGHT_PEERS_MAX = beast::lexicalCastThrow<std::size_t>(strTemp);
+
     if (exists(SECTION_REDUCE_RELAY))
     {
         auto sec = section(SECTION_REDUCE_RELAY);

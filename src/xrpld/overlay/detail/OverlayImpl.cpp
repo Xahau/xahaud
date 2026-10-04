@@ -241,6 +241,17 @@ OverlayImpl::onHandoff(
         return handoff;
     }
 
+    if (featureEnabled(request, FEATURE_LIGHT) &&
+        lightPeerCount() >= app_.config().LIGHT_PEERS_MAX)
+    {
+        m_peerFinder->on_closed(slot);
+        handoff.moved = false;
+        handoff.response = makeErrorResponse(
+            slot, request, remote_endpoint.address(), "Light peer slots full");
+        handoff.keep_alive = false;
+        return handoff;
+    }
+
     auto const sharedValue = makeSharedValue(*stream_ptr, journal);
     if (!sharedValue)
     {
@@ -1060,6 +1071,17 @@ OverlayImpl::getActivePeers() const
     return ret;
 }
 
+std::size_t
+OverlayImpl::lightPeerCount() const
+{
+    std::lock_guard lock(mutex_);
+    std::size_t n = 0;
+    for (auto const& [id, w] : ids_)
+        if (auto const p = w.lock(); p && p->isLight())
+            ++n;
+    return n;
+}
+
 Overlay::PeerSequence
 OverlayImpl::getActivePeers(
     std::set<Peer::id_t> const& toSkip,
@@ -1080,6 +1102,11 @@ OverlayImpl::getActivePeers(
     {
         if (p = w.lock(); p != nullptr)
         {
+            if (p->isLight())
+            {
+                --active;
+                continue;
+            }
             bool const reduceRelayEnabled = p->txReduceRelayEnabled();
             // tx reduced relay feature disabled
             if (!reduceRelayEnabled)

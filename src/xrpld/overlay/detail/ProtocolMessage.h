@@ -311,6 +311,14 @@ invoke(MessageHeader const& header, Buffers const& buffers, Handler& handler)
         header.payload_wire_size,
         header.uncompressed_size,
         header.algorithm != Algorithm::None);
+    if constexpr (requires { handler.dropMessage(); })
+    {
+        if (handler.dropMessage())
+        {
+            handler.onMessageEnd(header.message_type, m);
+            return true;
+        }
+    }
     handler.onMessage(m);
     handler.onMessageEnd(header.message_type, m);
 

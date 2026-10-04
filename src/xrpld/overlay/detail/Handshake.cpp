@@ -93,9 +93,12 @@ makeFeaturesResponseHeader(
     bool comprEnabled,
     bool ledgerReplayEnabled,
     bool txReduceRelayEnabled,
-    bool vpReduceRelayEnabled)
+    bool vpReduceRelayEnabled,
+    bool lightEnabled)
 {
     std::stringstream str;
+    if (lightEnabled && featureEnabled(headers, FEATURE_LIGHT))
+        str << FEATURE_LIGHT << "=1" << DELIM_FEATURE;
     if (comprEnabled && isFeatureValue(headers, FEATURE_COMPR, "lz4"))
         str << FEATURE_COMPR << "=lz4" << DELIM_FEATURE;
     if (ledgerReplayEnabled && featureEnabled(headers, FEATURE_LEDGER_REPLAY))
@@ -414,7 +417,8 @@ makeResponse(
             app.config().COMPRESSION,
             app.config().LEDGER_REPLAY,
             app.config().TX_REDUCE_RELAY_ENABLE,
-            app.config().VP_REDUCE_RELAY_ENABLE));
+            app.config().VP_REDUCE_RELAY_ENABLE,
+            app.config().LIGHT_PEERS_MAX > 0));
 
     buildHandshake(resp, sharedValue, networkID, public_ip, remote_ip, app);
 

@@ -74,6 +74,8 @@ PeerSetImpl::addPeers(
     pairs.reserve(overlay.size());
 
     overlay.foreach([&](auto const& peer) {
+        if (peer->isLight())
+            return;
         auto const score = peer->getScore(hasItem(peer));
         pairs.emplace_back(score, std::move(peer));
     });

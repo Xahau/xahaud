@@ -28,6 +28,7 @@ Message::Message(
     int type,
     std::optional<PublicKey> const& validator)
     : category_(TrafficCount::categorize(message, type, false))
+    , type_(type)
     , validatorKey_(validator)
 {
     using namespace ripple::compression;

@@ -194,6 +194,10 @@ private:
     // on the peer.
     bool vpReduceRelayEnabled_ = false;
     bool ledgerReplayEnabled_ = false;
+    // true if this inbound peer negotiated light mode (FEATURE_LIGHT)
+    bool light_ = false;
+    // set in onMessageBegin when a light peer sent a disallowed message
+    bool dropCurrent_ = false;
     LedgerReplayMsgHandler ledgerReplayMsgHandler_;
 
     friend class OverlayImpl;
@@ -440,6 +444,19 @@ public:
     txReduceRelayEnabled() const override
     {
         return txReduceRelayEnabled_;
+    }
+
+    bool
+    isLight() const override
+    {
+        return light_;
+    }
+
+    /** Consulted by invokeProtocolMessage after onMessageBegin. */
+    bool
+    dropMessage() const
+    {
+        return dropCurrent_;
     }
 
 private:

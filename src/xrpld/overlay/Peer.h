@@ -133,6 +133,14 @@ public:
 
     virtual bool
     txReduceRelayEnabled() const = 0;
+
+    /** A light peer (X-Protocol-Ctl: light=1): never used to acquire data,
+        never sent proposals or transactions. */
+    virtual bool
+    isLight() const
+    {
+        return false;
+    }
 };
 
 }  // namespace ripple

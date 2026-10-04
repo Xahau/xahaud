@@ -146,6 +146,9 @@ static constexpr char FEATURE_VPRR[] = "vprr";
 static constexpr char FEATURE_TXRR[] = "txrr";
 // ledger replay
 static constexpr char FEATURE_LEDGER_REPLAY[] = "ledgerreplay";
+// light peer: receives validations, manifests, validator lists, ledger data,
+// status and endpoints only; may only ping, request ledger data and submit
+static constexpr char FEATURE_LIGHT[] = "light";
 static constexpr char DELIM_FEATURE[] = ";";
 static constexpr char DELIM_VALUE[] = ",";
 
@@ -252,7 +255,8 @@ makeFeaturesResponseHeader(
     bool comprEnabled,
     bool ledgerReplayEnabled,
     bool txReduceRelayEnabled,
-    bool vpReduceRelayEnabled);
+    bool vpReduceRelayEnabled,
+    bool lightEnabled = false);
 
 }  // namespace ripple
 

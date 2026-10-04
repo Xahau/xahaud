@@ -59,6 +59,7 @@ struct ConfigSection
 #define SECTION_IPS_FIXED "ips_fixed"
 #define SECTION_LEDGER_HISTORY "ledger_history"
 #define SECTION_LEDGER_REPLAY "ledger_replay"
+#define SECTION_LIGHT_PEERS "light_peers"
 #define SECTION_MAX_TRANSACTIONS "max_transactions"
 #define SECTION_NETWORK_ID "network_id"
 #define SECTION_NETWORK_QUORUM "network_quorum"

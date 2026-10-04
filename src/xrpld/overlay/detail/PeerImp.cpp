@@ -63,6 +63,49 @@ std::chrono::seconds constexpr peerTimerInterval{60};
 // TODO: Remove this exclusion once unit tests are added after the hotfix
 // release.
 
+namespace {
+
+// What a light peer may be sent: enough to follow validated ledgers and
+// learn other hubs. Never proposals, transactions or tx-set traffic.
+bool
+lightMayReceive(int type)
+{
+    using namespace protocol;
+    switch (type)
+    {
+        case mtPING:
+        case mtMANIFESTS:
+        case mtVALIDATION:
+        case mtVALIDATORLIST:
+        case mtVALIDATORLISTCOLLECTION:
+        case mtLEDGER_DATA:
+        case mtSTATUS_CHANGE:
+        case mtENDPOINTS:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// What a light peer may send us.
+bool
+lightMaySend(int type)
+{
+    using namespace protocol;
+    switch (type)
+    {
+        case mtPING:
+        case mtGET_LEDGER:
+        case mtTRANSACTION:
+        case mtLEDGER_DATA:
+            return true;
+        default:
+            return false;
+    }
+}
+
+}  // namespace
+
 PeerImp::PeerImp(
     Application& app,
     id_t id,
@@ -120,6 +163,10 @@ PeerImp::PeerImp(
           headers_,
           FEATURE_LEDGER_REPLAY,
           app_.config().LEDGER_REPLAY))
+    , light_(peerFeatureEnabled(
+          headers_,
+          FEATURE_LIGHT,
+          app_.config().LIGHT_PEERS_MAX > 0))
     , ledgerReplayMsgHandler_(app, app.getLedgerReplayer())
 {
     JLOG(journal_.info()) << "compression enabled "
@@ -245,6 +292,9 @@ PeerImp::send(std::shared_ptr<Message> const& m)
     if (gracefulClose_)
         return;
     if (detaching_)
+        return;
+
+    if (light_ && !lightMayReceive(m->getType()))
         return;
 
     auto validator = m->getValidatorKey();
@@ -386,6 +436,9 @@ PeerImp::json()
 
     if (inbound_)
         ret[jss::inbound] = true;
+
+    if (light_)
+        ret["light"] = true;
 
     if (cluster())
     {
@@ -1028,6 +1081,10 @@ PeerImp::onMessageBegin(
     auto const name = protocolMessageName(type);
     load_event_ = app_.getJobQueue().makeLoadEvent(jtPEER, name);
     fee_ = {Resource::feeTrivialPeer, name};
+    dropCurrent_ = light_ && !lightMaySend(type);
+    if (dropCurrent_)
+        fee_ = {
+            Resource::feeMalformedRequest, "light peer: disallowed message"};
     auto const category = TrafficCount::categorize(*m, type, true);
     overlay_.reportTraffic(category, true, static_cast<int>(size));
     using namespace protocol;
@@ -3252,8 +3309,9 @@ PeerImp::getTxSet(std::shared_ptr<protocol::TMGetLedger> const& m) const
 void
 PeerImp::processLedgerRequest(std::shared_ptr<protocol::TMGetLedger> const& m)
 {
-    // Do not resource charge a peer responding to a relay
-    if (!m->has_requestcookie())
+    // Do not resource charge a peer responding to a relay. Light peers never
+    // relay, so a cookie from one buys nothing.
+    if (!m->has_requestcookie() || light_)
         charge(
             Resource::feeModerateBurdenPeer, "received a get ledger request");
 

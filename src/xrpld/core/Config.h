@@ -244,6 +244,9 @@ public:
     // Enable the experimental Ledger Replay functionality
     bool LEDGER_REPLAY = false;
 
+    // Maximum inbound light peers ([light_peers]); 0 disables light mode
+    std::size_t LIGHT_PEERS_MAX = 0;
+
     // Work queue limits
     int MAX_TRANSACTIONS = 1000;
     static constexpr int MAX_JOB_QUEUE_TX = 1000;

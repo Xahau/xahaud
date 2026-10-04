@@ -197,6 +197,10 @@ public:
     PeerSequence
     getActivePeers() const override;
 
+    /** Number of connected light peers. */
+    std::size_t
+    lightPeerCount() const;
+
     /** Get active peers excluding peers in toSkip.
        @param toSkip peers to skip
        @param active a number of active peers

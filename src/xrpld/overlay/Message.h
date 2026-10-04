@@ -93,6 +93,13 @@ public:
         return category_;
     }
 
+    /** Get the protocol message type */
+    int
+    getType() const
+    {
+        return type_;
+    }
+
     /** Get the validator's key */
     std::optional<PublicKey> const&
     getValidatorKey() const
@@ -104,6 +111,7 @@ private:
     std::vector<uint8_t> buffer_;
     std::vector<uint8_t> bufferCompressed_;
     std::size_t category_;
+    int type_;
     std::once_flag once_flag_;
     std::optional<PublicKey> validatorKey_;
 
