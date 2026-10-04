@@ -10958,6 +10958,240 @@ public:
     }
 
     void
+    test_state_foreign_set_touch(FeatureBitset features)
+    {
+        testcase("Test state_foreign_set touches the grantor");
+        using namespace jtx;
+
+        if (!features[featureTouch])
+            return;
+
+        for (bool const withFix : {false, true})
+        {
+            Env env{
+                *this,
+                withFix ? features | fix20260929 : features - fix20260929};
+
+            auto const cho = Account{"cho"};      // invoker
+            auto const bob = Account{"bob"};      // grantee
+            auto const alice = Account{"alice"};  // grantor
+            env.fund(XRP(10000), alice);
+            env.fund(XRP(10000), bob);
+            env.fund(XRP(10000), cho);
+
+            // Same hooks as test_state_foreign_set (byte-identical sources, so
+            // SetHook_wasm.h needs no regeneration): bob's hook writes the
+            // current txn id under key 1, namespace 0, of the account named
+            // in the InvoiceID; alice grants bob's hook that right.
+            TestHook grantee_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            #define sfInvoiceID ((5U << 16U) + 17U)
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t state_foreign (
+                uint32_t, uint32_t, uint32_t, uint32_t,
+                uint32_t, uint32_t, uint32_t, uint32_t
+            );
+            extern int64_t state_foreign_set (
+                uint32_t, uint32_t, uint32_t, uint32_t,
+                uint32_t, uint32_t, uint32_t, uint32_t
+            );
+            extern int64_t otxn_id(uint32_t, uint32_t, uint32_t);
+            extern int64_t otxn_field(uint32_t, uint32_t, uint32_t);
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), __LINE__);
+
+            #define TOO_BIG (-3)
+            #define TOO_SMALL (-4)
+            #define OUT_OF_BOUNDS (-1)
+            #define DOESNT_EXIST (-5)
+            #define INVALID_ARGUMENT (-7)
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+
+                // bounds tests
+                int64_t y;
+                ASSERT((y=state_foreign_set(1111111, 32, 1, 32, 1, 32, 1, 20)) == OUT_OF_BOUNDS);
+                ASSERT((y=state_foreign_set(1, 1111111, 1, 32, 1, 32, 1,  20)) == OUT_OF_BOUNDS);
+                ASSERT((y=state_foreign_set(1, 32, 1111111, 32, 1, 32, 1, 20)) == OUT_OF_BOUNDS);
+                ASSERT((y=state_foreign_set(1, 32, 1, 1111111, 1, 32, 1,  20)) == TOO_BIG);
+                ASSERT((y=state_foreign_set(1, 32, 1, 32, 1111111, 32, 1, 20)) == OUT_OF_BOUNDS);
+                ASSERT((y=state_foreign_set(1, 32, 1, 32, 1, 1111111, 1,  20)) == INVALID_ARGUMENT);
+                ASSERT((y=state_foreign_set(1, 32, 1, 32, 1, 32, 1111111, 20)) == OUT_OF_BOUNDS);
+                ASSERT((y=state_foreign_set(1, 32, 1, 32, 1, 32, 1, 1111111)) == INVALID_ARGUMENT);
+
+                // get this transaction id
+                uint8_t txn[32];
+                ASSERT(otxn_id(SBUF(txn), 0) == 32);
+
+                // get the invoice id, which contains the grantor account
+                uint8_t grantor[32];
+                ASSERT(otxn_field(SBUF(grantor), sfInvoiceID) == 32);
+
+                // set the current txn id on the grantor's state under key 1, namespace 0
+                uint8_t one[32]; one[31] = 1U;
+                uint8_t zero[32];
+                ASSERT(state_foreign_set(SBUF(txn), SBUF(one), SBUF(zero), grantor + 12, 20) == 32);
+               
+                return accept(0,0,0);
+            }
+        )[test.hook]"];
+
+            HASH_WASM(grantee);
+
+            TestHook grantor_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t otxn_field (uint32_t, uint32_t, uint32_t);
+            extern int64_t hook_account(uint32_t write_ptr, uint32_t write_len);
+            extern int64_t state_foreign_set (
+                uint32_t, uint32_t, uint32_t, uint32_t,
+                uint32_t, uint32_t, uint32_t, uint32_t
+            );
+            #define DOESNT_EXIST (-5)
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), __LINE__);
+
+            #define BUFFER_EQUAL_20(buf1, buf2)\
+                (\
+                    *(((uint64_t*)(buf1)) + 0) == *(((uint64_t*)(buf2)) + 0) &&\
+                    *(((uint64_t*)(buf1)) + 1) == *(((uint64_t*)(buf2)) + 1) &&\
+                    *(((uint32_t*)(buf1)) + 4) == *(((uint32_t*)(buf2)) + 4))
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+
+            #define sfAccount ((8U << 16U) + 1U)
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+                uint8_t otxnacc[20];
+                ASSERT(otxn_field(SBUF(otxnacc), sfAccount) == 20);
+
+                uint8_t hookacc[20];
+                ASSERT(hook_account(SBUF(hookacc)) == 20);
+
+                if (BUFFER_EQUAL_20(otxnacc, hookacc))
+                {
+                    // outgoin txn, delete the state
+                    uint8_t one[32]; one[31] = 1U;
+                    uint8_t zero[32];
+                    // we can use state_foreign_set to do the deletion, a concise way to test this functionality too
+                    int64_t y = state_foreign_set(0,0, SBUF(one), SBUF(zero), SBUF(hookacc));
+                    ASSERT(y == 0 || y == DOESNT_EXIST);
+                }
+                
+
+                return accept(0,0,0);
+            }
+        )[test.hook]"];
+
+            HASH_WASM(grantor);
+
+            {
+                Json::Value grants{Json::arrayValue};
+                grants[0U][jss::HookGrant] = Json::Value{};
+                grants[0U][jss::HookGrant][jss::HookHash] = grantee_hash_str;
+                grants[0U][jss::HookGrant][jss::Authorize] = bob.human();
+
+                Json::Value json = ripple::test::jtx::hook(
+                    alice, {{hso(grantor_wasm, overrideFlag)}}, 0);
+                json[jss::Hooks][0U][jss::Hook][jss::HookGrants] = grants;
+                env(json, M("touch: set grantor"), HSFEE);
+                env.close();
+            }
+            {
+                Json::Value json = ripple::test::jtx::hook(
+                    bob, {{hso(grantee_wasm, overrideFlag)}}, 0);
+                env(json, M("touch: set grantee"), HSFEE);
+                env.close();
+            }
+
+            auto const aliceKey = keylet::account(alice.id()).key;
+            std::string const invid = std::string(24, '0') + strHex(alice.id());
+
+            auto const touchCount = [&]() -> std::uint64_t {
+                auto const sle = env.le(alice);
+                return sle->isFieldPresent(sfTouchCount)
+                    ? sle->getFieldU64(sfTouchCount)
+                    : 0;
+            };
+
+            // env.meta() closes the ledger, so call it before reading state
+            auto const aliceInMeta = [&]() -> bool {
+                auto const meta = env.meta();
+                if (!meta)
+                    return false;
+                for (auto const& node : meta->getFieldArray(sfAffectedNodes))
+                    if (node.getFieldH256(sfLedgerIndex) == aliceKey)
+                        return true;
+                return false;
+            };
+
+            // 1. first write creates key 1: HookStateCount changes, so alice's
+            //    root is modified either way; only the fix also touches it
+            {
+                auto const before = touchCount();
+                Json::Value json = pay(cho, bob, XRP(1));
+                json[jss::InvoiceID] = invid;
+                env(json, fee(XRP(1)), M("touch: create"), ter(tesSUCCESS));
+                BEAST_EXPECT(aliceInMeta());
+                BEAST_EXPECT(touchCount() == before + (withFix ? 1 : 0));
+            }
+
+            // 2. overwrite of the existing key: alice is not a stakeholder,
+            //    so without the fix her root is untouched and unthreaded
+            {
+                auto const before = touchCount();
+                auto const prevTxnID =
+                    env.le(alice)->getFieldH256(sfPreviousTxnID);
+                Json::Value json = pay(cho, bob, XRP(1));
+                json[jss::InvoiceID] = invid;
+                env(json, fee(XRP(1)), M("touch: overwrite"), ter(tesSUCCESS));
+                auto const txid = env.tx()->getTransactionID();
+                BEAST_EXPECT(aliceInMeta() == withFix);
+                BEAST_EXPECT(touchCount() == before + (withFix ? 1 : 0));
+                BEAST_EXPECT(
+                    env.le(alice)->getFieldH256(sfPreviousTxnID) ==
+                    (withFix ? txid : prevTxnID));
+            }
+
+            // 3. alice is also a strong stakeholder (payment destination) and
+            //    bob's outgoing hook writes her state: touched exactly once
+            {
+                auto const before = touchCount();
+                Json::Value json = pay(bob, alice, XRP(1));
+                json[jss::InvoiceID] = invid;
+                env(json, fee(XRP(1)), M("touch: tsh"), ter(tesSUCCESS));
+                BEAST_EXPECT(aliceInMeta());
+                BEAST_EXPECT(touchCount() == before + 1);
+            }
+
+            // 4. a rejected invocation writes nothing and touches nothing
+            {
+                auto const before = touchCount();
+                Json::Value json = pay(cho, bob, XRP(1));
+                json[jss::InvoiceID] =
+                    "0000000000000000000000000000000000000000000000000000000000"
+                    "000001";
+                env(json,
+                    fee(XRP(1)),
+                    M("touch: rejected"),
+                    ter(tecHOOK_REJECTED));
+                BEAST_EXPECT(!aliceInMeta());
+                BEAST_EXPECT(touchCount() == before);
+            }
+        }
+    }
+
+    void
     test_state_set(FeatureBitset features)
     {
         testcase("Test state_set");
@@ -15620,6 +15854,7 @@ public:
         test_state_foreign(features);          //
         test_state_foreign_set(features);      //
         test_state_foreign_set_max(features);  //
+        test_state_foreign_set_touch(features);  //
         test_state_set(features);              //
 
         test_sto_emplace(features);   //

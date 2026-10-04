@@ -1368,7 +1368,8 @@ ripple::TER
 hook::finalizeHookState(
     HookStateMap const& stateMap,
     ripple::ApplyContext& applyCtx,
-    ripple::uint256 const& txnID)
+    ripple::uint256 const& txnID,
+    std::set<ripple::AccountID>* written)
 {
     auto const& j = applyCtx.app.journal("View");
     uint16_t changeCount = 0;
@@ -1411,6 +1412,9 @@ hook::finalizeHookState(
                         return result;
                     }
                     // ^ should not fail... checks were done before map insert
+
+                    if (written)
+                        written->insert(acc);
                 }
             }
         }

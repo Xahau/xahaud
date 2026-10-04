@@ -218,6 +218,11 @@ protected:
     void
     addWeakTSHFromBalanceChanges(detail::ApplyViewBase const& pv);
 
+    // fix20260929: touch every account whose hook state was written by
+    // finalizeHookState, at most once per transaction
+    void
+    touchHookStateOwners(std::set<AccountID> const& written);
+
     // hooks amendment fields, these are unpopulated and unused unless
     // featureHooks is enabled
     int executedHookCount_ =
@@ -227,6 +232,9 @@ protected:
                              // end of the transactor, who isn't able to be
                              // deduced until after apply i.e. pathing
                              // participants, crossed offers
+    std::set<AccountID>
+        touched_;  // accounts touched (featureTouch) in the current view;
+                   // consulted only under fix20260929, cleared on discard
 
     // The post-apply pipeline of operator(): tec handling (reset),
     // invariants, balance rewards, weak hooks and commit.
