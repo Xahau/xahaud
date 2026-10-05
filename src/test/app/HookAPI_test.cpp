@@ -2222,22 +2222,19 @@ public:
             BEAST_EXPECT(api.hook_param(Bytes(33, 1)).error() == TOO_BIG);
         }
 
-        // {
-        //     // Hook params map
-        //     Bytes const name{'k'};
-        //     Bytes const value{1, 2, 3};
-        //     StubHookContext stubCtx{
-        //         .result = {
-        //             .hookParams = {{{name, value}}},
-        //         }};
-        //     auto hookCtx =
-        //         makeStubHookContext(applyCtx, alice.id(), alice.id(),
-        //         stubCtx);
-        //     hook::HookAPI api(hookCtx);
-        //     auto const result = api.hook_param(name);
-        //     BEAST_EXPECT(result.has_value());
-        //     BEAST_EXPECT(result.value() == value);
-        // }
+        {
+            // Hook params map
+            Bytes const name{'k'};
+            Bytes const value{1, 2, 3};
+            StubHookContext stubCtx{};
+            stubCtx.result.hookParams = std::map<Bytes, Bytes>{{name, value}};
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), stubCtx);
+            auto& api = hookCtx.api();
+            auto const result = api.hook_param(name);
+            BEAST_EXPECT(result.has_value());
+            BEAST_EXPECT(result.value() == value);
+        }
 
         {
             // Override deletion wins

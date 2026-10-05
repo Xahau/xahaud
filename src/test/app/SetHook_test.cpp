@@ -75,6 +75,13 @@ using JSSMap =
     [[maybe_unused]] std::string const x##_hash_str = to_string(x##_hash);     \
     [[maybe_unused]] Keylet const x##_keylet = keylet::hookDefinition(x##_hash);
 
+// Class-scope variant: gcc 11 ignores [[maybe_unused]] on data members
+#define HASH_WASM_MEMBER(x)                                                    \
+    uint256 const x##_hash =                                                   \
+        ripple::sha512Half_s(ripple::Slice(x##_wasm.data(), x##_wasm.size())); \
+    std::string const x##_hash_str = to_string(x##_hash);                      \
+    Keylet const x##_keylet = keylet::hookDefinition(x##_hash);
+
 #define EXPECT_HOOK_FEE(x, fee)                               \
     do                                                        \
     {                                                         \
@@ -15661,7 +15668,10 @@ public:
         run(0);
     }
 
-private:
+    // protected rather than private: some of the HASH_WASM_MEMBER names below
+    // are unused, and clang -Wunused-private-field only fires for private
+    // members.
+protected:
     TestHook accept_wasm =  // WASM: 0
         wasm[
             R"[test.hook](
@@ -15675,7 +15685,7 @@ private:
             }
         )[test.hook]"];
 
-    HASH_WASM(accept);
+    HASH_WASM_MEMBER(accept);
 
     TestHook rollback_wasm =  // WASM: 1
         wasm[
@@ -15691,7 +15701,7 @@ private:
             }
         )[test.hook]"];
 
-    HASH_WASM(rollback);
+    HASH_WASM_MEMBER(rollback);
 
     TestHook noguard_wasm =  // WASM: 2
         wasm[
@@ -15780,7 +15790,7 @@ private:
             }
         )[test.hook]"];
 
-    HASH_WASM(makestate);
+    HASH_WASM_MEMBER(makestate);
 
     // this is just used as a second small hook with a unique hash
     TestHook accept2_wasm =  // WASM: 6
@@ -15796,7 +15806,7 @@ private:
             }
         )[test.hook]"];
 
-    HASH_WASM(accept2);
+    HASH_WASM_MEMBER(accept2);
 
     // This hook is used to test Callback
     TestHook emit_invoke_wasm =  // WASM: 7
@@ -15888,7 +15898,7 @@ private:
                     }
         )[test.hook]"];
 
-    HASH_WASM(emit_invoke);
+    HASH_WASM_MEMBER(emit_invoke);
 };
 
 #define SETHOOK_TEST(i, last)                      \
