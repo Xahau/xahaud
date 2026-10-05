@@ -443,8 +443,9 @@ InboundLedger::done()
     touch();
 
     // The state map arrived whole before the early walk in trigger() finished,
-    // as it does when most of it is already held locally. Read the manifests
-    // from the whole map instead.
+    // as it does when most of it is already held locally, or the early walk is
+    // turned off by [early_manifest_sync]. Read the manifests from the whole
+    // map instead.
     if (complete_ && !failed_ && !mManifestsSynced && wantManifests())
         syncManifests();
 
@@ -651,7 +652,8 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
             // first: just the nodes on the paths to the manifest directory and
             // the objects it lists, which can be read and ingested long before
             // the rest of the state map arrives.
-            if (!mManifestsSynced && wantManifests())
+            if (!mManifestsSynced && app_.config().EARLY_MANIFEST_SYNC &&
+                wantManifests())
             {
                 sl.unlock();
                 auto nodes =

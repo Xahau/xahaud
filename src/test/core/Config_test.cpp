@@ -422,6 +422,39 @@ port_wss_admin
     }
 
     void
+    testEarlyManifestSync()
+    {
+        testcase("early_manifest_sync");
+
+        // On unless turned off.
+        {
+            Config c;
+            c.loadFromString("");
+            BEAST_EXPECT(c.EARLY_MANIFEST_SYNC);
+        }
+
+        std::vector<std::pair<std::string, bool>> const values{
+            {"0", false}, {"false", false}, {"1", true}, {"TRUE", true}};
+        for (auto const& [value, expected] : values)
+        {
+            Config c;
+            c.loadFromString("[early_manifest_sync]\n" + value + "\n");
+            BEAST_EXPECT(c.EARLY_MANIFEST_SYNC == expected);
+        }
+
+        try
+        {
+            Config c;
+            c.loadFromString("[early_manifest_sync]\nsometimes\n");
+            fail();
+        }
+        catch (std::exception const&)
+        {
+            pass();
+        }
+    }
+
+    void
     testNetworkID()
     {
         testcase("network id");
@@ -1734,6 +1767,7 @@ r.ripple.com:51235
         testDatabasePinnedValidation();
         testOverlay();
         testNetworkID();
+        testEarlyManifestSync();
     }
 };
 

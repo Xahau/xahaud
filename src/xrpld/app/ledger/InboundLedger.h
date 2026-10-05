@@ -176,8 +176,9 @@ private:
 
     std::shared_ptr<Ledger> mLedger;
 
-    /** Partial sync: whether the state map is to be read for manifests
-        before the rest of it is fetched. */
+    /** Whether this ledger is to be read for manifests as soon as it can be:
+        early, before the rest of the state map, if [early_manifest_sync]
+        allows, and otherwise once it is complete. */
     bool
     wantManifests();
 
