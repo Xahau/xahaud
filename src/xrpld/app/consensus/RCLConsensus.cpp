@@ -38,7 +38,6 @@
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
-#include <xrpld/app/tx/apply.h>
 #include <xrpld/consensus/Consensus.h>
 #include <xrpld/consensus/LedgerTiming.h>
 #include <xrpld/overlay/Overlay.h>
@@ -425,13 +424,11 @@ RCLConsensus::Adaptor::onClose(
             // previous ledger was a voting ledger,
             // so the current consensus session is for a flag ledger,
             // add negative UNL pseudo-transactions
-            //@@start negative-unl-vote-trusted-denominator
             nUnlVote_.doVoting(
                 prevLedger,
                 app_.validators().getTrustedMasterKeys(),
                 app_.getValidations(),
                 initialSet);
-            //@@end negative-unl-vote-trusted-denominator
         }
     }
 

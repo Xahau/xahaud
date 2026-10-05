@@ -95,8 +95,8 @@ struct ConsensusParms
      *  round (e.g. restarting after a crash) enters as proposing=false
      *  and cannot generate commitments until consensus promotes it to
      *  proposing — which takes at least one full round of observing.
-     *  Waiting the full 10s just delays the inevitable non-zero Tier-1
-     *  fallback and slows recovery for the restarting node (it can't
+     *  Waiting out ledgerMAX_CONSENSUS just delays the inevitable non-zero
+     *  Tier-1 fallback and slows recovery for the restarting node (it can't
      *  catch up until the survivors close a ledger).
      *
      *  3s is long enough for commits to propagate on any reasonable

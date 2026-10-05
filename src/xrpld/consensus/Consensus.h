@@ -571,7 +571,6 @@ private:
     Adaptor& adaptor_;
 
     ConsensusPhase phase_{ConsensusPhase::accepted};
-    // Extension sub-state members owned by ConsensusExtensions
     MonitoredMode mode_{ConsensusMode::observing};
     bool firstRound_ = true;
     bool haveCloseTimeConsensus_ = false;
