@@ -68,11 +68,13 @@ getManifests(
     beast::Journal j);
 
 /**
- * @brief saveManifests Saves all given manifests to the database.
+ * @brief saveManifests Replaces the table's contents with the given
+ *        manifests: every revocation, and every other manifest whose master
+ *        key is trusted.
  * @param session Session with the database.
  * @param dbTable Name of the database table that will store the manifest.
  * @param isTrusted Callback that returns true if the key is trusted.
- * @param map Maps public keys to manifests.
+ * @param manifests Manifests to consider.
  * @param j Journal.
  */
 void
@@ -80,7 +82,7 @@ saveManifests(
     soci::session& session,
     std::string const& dbTable,
     std::function<bool(PublicKey const&)> const& isTrusted,
-    hash_map<PublicKey, Manifest> const& map,
+    std::vector<Manifest> const& manifests,
     beast::Journal j);
 
 /**

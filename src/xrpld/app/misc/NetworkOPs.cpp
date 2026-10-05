@@ -2055,13 +2055,13 @@ NetworkOPsImp::beginConsensus(
         app_.validators().setNegativeUNL(prevLedger->negativeUNL());
     // Pull in any manifests published on-ledger before the trusted set is
     // recomputed, so a validator that rotated its ephemeral key on-chain is
-    // resolved to the new signing key in this same round. The master keys come
-    // from the published lists, so this needs no bootstrap: only the ephemeral
-    // half of the mapping ever comes from a manifest.
+    // resolved to the new signing key in this same round. Every master key the
+    // cache holds or pins is probed, not only the trusted ones: a revocation is
+    // published on-ledger by master key alone, and a master key whose ephemeral
+    // key the cache already resolves would otherwise never be looked up again.
     if (prevLedger->rules().enabled(featureOnChainManifests))
     {
-        app_.validatorManifests().applyLedger(
-            *prevLedger, app_.validators().getTrustedMasterKeys());
+        app_.validatorManifests().applyLedger(*prevLedger);
 
         // The reverse of applyLedger above. Manifests reach us by peer gossip
         // and in published validator lists, both of which can arrive before
@@ -2077,8 +2077,8 @@ NetworkOPsImp::beginConsensus(
         app_.overlay(),
         app_.getHashRouter());
 
-    // Pin the trusted master keys so they are always offered to a new peer and
-    // cannot be crowded out of the gossip set by more recently used manifests.
+    // Pin the trusted master keys: their manifests are retained in the list
+    // tier and offered to every new peer, whichever source delivered them.
     app_.validatorManifests().pin(app_.validators().getTrustedMasterKeys());
 
     if (!changes.added.empty() || !changes.removed.empty())

@@ -21,8 +21,10 @@
 #include <xrpld/app/ledger/InboundLedger.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/ManifestSync.h>
 #include <xrpld/app/ledger/TransactionStateSF.h>
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/overlay/Overlay.h>
@@ -440,6 +442,12 @@ InboundLedger::done()
     mSignaled = true;
     touch();
 
+    // The state map arrived whole before the early walk in trigger() finished,
+    // as it does when most of it is already held locally. Read the manifests
+    // from the whole map instead.
+    if (complete_ && !failed_ && !mManifestsSynced && wantManifests())
+        syncManifests();
+
     JLOG(journal_.debug()) << "Acquire " << hash_ << (failed_ ? " fail " : " ")
                            << ((timeouts_ == 0)
                                    ? std::string()
@@ -636,6 +644,49 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
         }
         else
         {
+            // Partial sync. A node that has not yet validated a ledger cannot
+            // tell which validations to trust until it knows each trusted
+            // validator's current ephemeral key, and on-ledger is where a
+            // rotation or a revocation is published. So the manifests come
+            // first: just the nodes on the paths to the manifest directory and
+            // the objects it lists, which can be read and ingested long before
+            // the rest of the state map arrives.
+            if (!mManifestsSynced && wantManifests())
+            {
+                sl.unlock();
+                auto nodes =
+                    missingManifestNodes(mLedger->stateMap(), missingNodesFind);
+                sl.lock();
+
+                if (!failed_ && !complete_ && !mHaveState && !mManifestsSynced)
+                {
+                    if (nodes.empty())
+                    {
+                        syncManifests();
+                    }
+                    else
+                    {
+                        filterNodes(nodes, reason);
+
+                        // All recently asked for: fall through to the rest of
+                        // the map rather than wait on them.
+                        if (!nodes.empty())
+                        {
+                            tmGL.set_itype(protocol::liAS_NODE);
+                            for (auto const& id : nodes)
+                                *(tmGL.add_nodeids()) = id.first.getRawString();
+
+                            JLOG(journal_.trace())
+                                << "Sending manifest node request ("
+                                << nodes.size() << ") to "
+                                << (peer ? "selected peer" : "all peers");
+                            mPeerSet->sendRequest(tmGL, peer);
+                            return;
+                        }
+                    }
+                }
+            }
+
             AccountStateSF filter(
                 mLedger->stateMap().family().db(), app_.getLedgerMaster());
 
@@ -762,6 +813,44 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
         sl.unlock();
         done();
     }
+}
+
+bool
+InboundLedger::wantManifests()
+{
+    // Not for history, and not once a ledger has been validated: from then on
+    // the manifests are kept current from each new ledger as it closes.
+    return mReason != Reason::HISTORY &&
+        !app_.getLedgerMaster().haveValidated();
+}
+
+void
+InboundLedger::syncManifests()
+{
+    mManifestsSynced = true;
+
+    // Reading verifies a signature per manifest, so it runs as its own job.
+    // The ledger is held by shared_ptr, and reading a map while nodes are
+    // still being added to it is what getMissingNodes() already does.
+    app_.getJobQueue().addJob(
+        jtMANIFEST,
+        "InboundLedger::syncManifests",
+        [ledger = mLedger, &app = app_, j = journal_]() {
+            try
+            {
+                auto const accepted =
+                    app.validatorManifests().applyLedgerDirectory(*ledger);
+                JLOG(j.info())
+                    << "Read manifests from ledger " << ledger->info().seq
+                    << " during sync: " << accepted << " accepted";
+            }
+            catch (std::exception const& e)
+            {
+                JLOG(j.warn())
+                    << "Could not read manifests from ledger "
+                    << ledger->info().seq << " during sync: " << e.what();
+            }
+        });
 }
 
 void

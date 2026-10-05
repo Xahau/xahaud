@@ -21,6 +21,7 @@
 #include <test/jtx/network.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/misc/ManifestLedger.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/core/Config.h>
@@ -725,6 +726,11 @@ struct SetManifest_test : public beast::unit_test::suite
 
         BEAST_EXPECT(cache.applyLedger(*env.closed(), all) == 4);
 
+        // Read from the ledger and pinned by nothing, all four are held as
+        // ledger lookup cache entries.
+        for (auto const& m : masters)
+            BEAST_EXPECT(cache.getTier(m.pk()) == ManifestSource::ledger);
+
         // The raw form is what a republishing node needs: the exact bytes the
         // master key signed, plus the sequence to compare against the ledger.
         auto const raw = cache.getRawManifest(masters[0].pk());
@@ -740,33 +746,237 @@ struct SetManifest_test : public beast::unit_test::suite
         auto const seq = cache.sequence();
         cache.pin({masters[0].pk(), masters[1].pk()});
         BEAST_EXPECT(cache.sequence() > seq);
+        BEAST_EXPECT(cache.getTier(masters[0].pk()) == ManifestSource::list);
 
         auto const seq2 = cache.sequence();
         cache.pin({masters[0].pk(), masters[1].pk()});
         BEAST_EXPECT(cache.sequence() == seq2);
 
-        // Everything is offered: two pinned plus two under the gossip limit.
+        // Only the pinned two are offered. The other two are on the ledger,
+        // where any peer that is not amendment blocked can read them.
         std::size_t reserved = 0;
         std::vector<PublicKey> offered;
         cache.for_each_gossip_manifest(
             [&](std::size_t n) { reserved = n; },
             [&](Manifest const& m) { offered.push_back(m.masterKey); });
 
-        BEAST_EXPECT(reserved == 4);
-        BEAST_EXPECT(offered.size() == 4);
+        BEAST_EXPECT(reserved == 2);
         BEAST_EXPECT(
-            hash_set<PublicKey>(offered.begin(), offered.end()) == all);
+            hash_set<PublicKey>(offered.begin(), offered.end()) ==
+            hash_set<PublicKey>({masters[0].pk(), masters[1].pk()}));
 
-        // A pinned key with no manifest is counted in the reservation but not
-        // offered, since the reservation is only an upper bound.
+        // Unpinned, a master key falls back to the lookup cache. A pinned key
+        // with no manifest is neither offered nor counted.
         cache.pin({masters[0].pk(), ephemeral.pk()});
+        BEAST_EXPECT(cache.getTier(masters[1].pk()) == ManifestSource::ledger);
         offered.clear();
         cache.for_each_gossip_manifest(
             [&](std::size_t n) { reserved = n; },
             [&](Manifest const& m) { offered.push_back(m.masterKey); });
 
-        BEAST_EXPECT(reserved == 5);
-        BEAST_EXPECT(offered.size() == 4);
+        BEAST_EXPECT(reserved == 1);
+        BEAST_EXPECT(offered.size() == 1);
+    }
+
+    void
+    testLedgerOutranksGossip(FeatureBitset features)
+    {
+        testcase("ledger outranks gossip");
+        using namespace jtx;
+
+        Env env{*this, makeConfig(), features};
+
+        auto const master = Account("master", KeyType::ed25519);
+        auto const eph1 = Account("eph1", KeyType::ed25519);
+        auto const eph2 = Account("eph2", KeyType::ed25519);
+        env.fund(XRP(1000), master);
+        env.close();
+
+        submit(env, makeManifest(master, eph1, 1));
+        env.close();
+
+        auto const fromPeer = [](std::string const& s) {
+            auto mo = deserializeManifest(s);
+            return std::move(*mo);
+        };
+        auto const gossip = ManifestSource::gossip;
+
+        {
+            // Gossip repeating what the ledger holds is stale, and it is the
+            // ledger's copy that is kept, as a lookup cache entry.
+            TestStopwatch clock;
+            ManifestCache cache{env.journal, clock};
+            cache.noteValidation(eph1.pk());
+            BEAST_EXPECT(
+                cache.applyManifest(
+                    fromPeer(makeManifest(master, eph1, 1)),
+                    gossip,
+                    env.closed().get()) == ManifestDisposition::stale);
+            BEAST_EXPECT(cache.getTier(master.pk()) == ManifestSource::ledger);
+            BEAST_EXPECT(cache.getMasterKey(eph1.pk()) == master.pk());
+        }
+
+        submit(
+            env,
+            makeManifest(
+                master, eph1, std::numeric_limits<std::uint32_t>::max()));
+        env.close();
+
+        {
+            // Revoked on-ledger, a master key cannot come back by gossip with
+            // a fresh ephemeral key, even one seen validating, and even in a
+            // cache that never held it.
+            TestStopwatch clock;
+            ManifestCache cache{env.journal, clock};
+            cache.noteValidation(eph2.pk());
+            BEAST_EXPECT(
+                cache.applyManifest(
+                    fromPeer(makeManifest(master, eph2, 5)),
+                    gossip,
+                    env.closed().get()) == ManifestDisposition::stale);
+            BEAST_EXPECT(cache.revoked(master.pk()));
+            BEAST_EXPECT(cache.getTier(master.pk()) == ManifestSource::ledger);
+            BEAST_EXPECT(cache.getMasterKey(eph2.pk()) == eph2.pk());
+        }
+
+        {
+            // A cache that took the gossip without a ledger to check it
+            // against learns of the revocation at its next refresh, though it
+            // never misses on the ephemeral key.
+            TestStopwatch clock;
+            ManifestCache cache{env.journal, clock};
+            cache.noteValidation(eph2.pk());
+            BEAST_EXPECT(
+                cache.applyManifest(
+                    fromPeer(makeManifest(master, eph2, 5)), gossip) ==
+                ManifestDisposition::accepted);
+            BEAST_EXPECT(cache.getMasterKey(eph2.pk()) == master.pk());
+            BEAST_EXPECT(cache.applyLedger(*env.closed()) == 1);
+            BEAST_EXPECT(cache.revoked(master.pk()));
+            BEAST_EXPECT(cache.getMasterKey(eph2.pk()) == eph2.pk());
+        }
+    }
+
+    void
+    testDirectory(FeatureBitset features)
+    {
+        testcase("manifest directory");
+        using namespace jtx;
+
+        Env env{*this, makeConfig(), features};
+        auto const revoke = std::numeric_limits<std::uint32_t>::max();
+
+        std::vector<Account> masters;
+        std::vector<Account> ephs;
+        for (int i = 0; i < 40; ++i)
+        {
+            masters.emplace_back("dm" + std::to_string(i), KeyType::ed25519);
+            ephs.emplace_back("de" + std::to_string(i), KeyType::ed25519);
+            env.fund(XRP(1000), masters.back());
+        }
+        env.close();
+
+        for (int i = 0; i < 40; ++i)
+            BEAST_EXPECT(
+                engineResult(
+                    submit(env, makeManifest(masters[i], ephs[i], 1))) ==
+                "tesSUCCESS");
+        env.close();
+
+        auto const listed = [&]() {
+            std::map<PublicKey, std::uint32_t> out;
+            forEachLedgerManifest(
+                *env.closed(), [&](std::shared_ptr<SLE const> const& sle) {
+                    out.emplace(
+                        PublicKey{makeSlice(sle->getFieldVL(sfPublicKey))},
+                        sle->getFieldU32(sfSequence));
+                });
+            return out;
+        };
+
+        auto const pageOf = [&](Account const& a) {
+            auto const sle = env.le(keylet::manifest(a.pk()));
+            return sle && sle->isFieldPresent(sfOwnerNode)
+                ? std::optional<std::uint64_t>{sle->getFieldU64(sfOwnerNode)}
+                : std::nullopt;
+        };
+
+        // Each master object listed once, on the page it records; the
+        // ephemeral copies are not listed.
+        {
+            auto const all = listed();
+            BEAST_EXPECT(all.size() == 40);
+            for (auto const& m : masters)
+                BEAST_EXPECT(all.count(m.pk()) && all.at(m.pk()) == 1);
+            for (auto const& e : ephs)
+            {
+                auto const sle = env.le(keylet::manifest(e.pk()));
+                BEAST_EXPECT(sle && !sle->isFieldPresent(sfOwnerNode));
+            }
+        }
+
+        std::vector<std::optional<std::uint64_t>> pages;
+        for (auto const& m : masters)
+        {
+            pages.push_back(pageOf(m));
+            BEAST_EXPECT(pages.back());
+        }
+
+        // Rotated to a new ephemeral key...
+        std::vector<Account> rotated;
+        for (int i = 0; i < 10; ++i)
+        {
+            rotated.emplace_back("dr" + std::to_string(i), KeyType::ed25519);
+            BEAST_EXPECT(
+                engineResult(
+                    submit(env, makeManifest(masters[i], rotated.back(), 2))) ==
+                "tesSUCCESS");
+        }
+        env.close();
+
+        // ...revoked...
+        for (int i = 10; i < 15; ++i)
+            BEAST_EXPECT(
+                engineResult(
+                    submit(env, makeManifest(masters[i], ephs[i], revoke))) ==
+                "tesSUCCESS");
+        env.close();
+
+        // ...or replaced unsuccessfully, which changes nothing.
+        BEAST_EXPECT(
+            engineResult(
+                submit(env, makeManifest(masters[0], rotated[0], 2))) ==
+            "tefPAST_MANIFEST_SEQ");
+        env.close();
+
+        // Still each master key once, at its latest, on the same page.
+        auto const all = listed();
+        BEAST_EXPECT(all.size() == 40);
+        for (int i = 0; i < 40; ++i)
+        {
+            auto const expected = i < 10 ? 2u : i < 15 ? revoke : 1u;
+            BEAST_EXPECT(
+                all.count(masters[i].pk()) &&
+                all.at(masters[i].pk()) == expected);
+            BEAST_EXPECT(pageOf(masters[i]) == pages[i]);
+        }
+        for (int i = 0; i < 10; ++i)
+        {
+            BEAST_EXPECT(!env.le(keylet::manifest(ephs[i].pk())));
+            BEAST_EXPECT(env.le(keylet::manifest(rotated[i].pk())));
+        }
+        for (int i = 10; i < 15; ++i)
+            BEAST_EXPECT(!env.le(keylet::manifest(ephs[i].pk())));
+
+        // Read from the directory alone, with no key to start from.
+        TestStopwatch clock;
+        ManifestCache cache{env.journal, clock};
+        BEAST_EXPECT(cache.applyLedgerDirectory(*env.closed()) == 40);
+        BEAST_EXPECT(cache.getMasterKey(rotated[0].pk()) == masters[0].pk());
+        BEAST_EXPECT(cache.getMasterKey(ephs[0].pk()) == ephs[0].pk());
+        BEAST_EXPECT(cache.getMasterKey(ephs[20].pk()) == masters[20].pk());
+        BEAST_EXPECT(cache.revoked(masters[10].pk()));
+        BEAST_EXPECT(cache.applyLedgerDirectory(*env.closed()) == 0);
     }
 
     void
@@ -811,6 +1021,8 @@ public:
                 testEnvelopeRejections(sa);
                 testCorruptLedger(sa);
                 testGossipSelection(sa);
+                testLedgerOutranksGossip(sa);
+                testDirectory(sa);
                 testDisabled(sa);
         */
     }

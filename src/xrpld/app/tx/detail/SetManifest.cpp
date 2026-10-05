@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/misc/ManifestLedger.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/View.h>
@@ -205,94 +206,9 @@ SetManifest::doApply()
     if (!manifest || calcAccountID(manifest->masterKey) != account_)
         return tefINTERNAL;
 
-    // A manifest is stored twice so it can be found from either key:
-    //   keylet::manifest(masterKey)  -> obj1, sfManifestID -> obj2
-    //   keylet::manifest(signingKey) -> obj2, sfManifestID -> obj1
-    // A revoked manifest has no signing key, so it exists only as obj1 with no
-    // sfManifestID. Both copies are erased and rewritten on every update so
-    // they can never drift apart.
-    if (sle->isFieldPresent(sfManifestID))
-    {
-        uint256 const firstID = sle->getFieldH256(sfManifestID);
-        auto const sleMan1 = view().peek(Keylet{ltMANIFEST, firstID});
-        if (!sleMan1 || sleMan1->getAccountID(sfAccount) != account_)
-        {
-            JLOG(j_.error()) << "SetManifest: Old manifest object missing or "
-                                "misowned (ID1) !! "
-                             << strHex(firstID);
-            return tefBAD_LEDGER;
-        }
-
-        // Absent when the previous manifest was a revocation.
-        if (sleMan1->isFieldPresent(sfManifestID))
-        {
-            uint256 const secondID = sleMan1->getFieldH256(sfManifestID);
-            auto const sleMan2 = view().peek(Keylet{ltMANIFEST, secondID});
-            if (secondID == firstID || !sleMan2 ||
-                sleMan2->getAccountID(sfAccount) != account_)
-            {
-                JLOG(j_.error())
-                    << "SetManifest: Old manifest object missing, misowned or "
-                       "self-referential (ID2) !! "
-                    << strHex(secondID);
-                return tefBAD_LEDGER;
-            }
-            view().erase(sleMan2);
-        }
-
-        view().erase(sleMan1);
-    }
-
-    Keylet const klMan1 = keylet::manifest(manifest->masterKey);
-    std::optional<Keylet> klMan2;
-    if (!manifest->revoked() && manifest->signingKey)
-        klMan2 = keylet::manifest(*manifest->signingKey);
-
-    // Neither key may still be occupied: preclaim rejects an ephemeral key held
-    // by another account, and the block above cleared this account's own
-    // copies.
-    if (view().exists(klMan1) || (klMan2 && view().exists(*klMan2)))
-    {
-        JLOG(j_.error()) << "SetManifest: Manifest keylet already occupied !! "
-                         << strHex(klMan1.key);
-        return tefBAD_LEDGER;
-    }
-
-    // Mirror the manifest losslessly, signatures included, so any node can
-    // reconstruct and independently verify it (ManifestCache::applyLedger).
-    // Field *presence* is copied faithfully: sfVersion is soeDEFAULT in the
-    // manifest format, so materialising an absent one would alter the signed
-    // payload and break verification.
-    auto const write = [&](Keylet const& kl,
-                           std::optional<uint256> const& other) {
-        auto sleMan = std::make_shared<SLE>(kl);
-        sleMan->setAccountID(sfAccount, account_);
-        sleMan->setFieldU32(sfSequence, obj.getFieldU32(sfSequence));
-        sleMan->setFieldVL(sfPublicKey, obj.getFieldVL(sfPublicKey));
-        sleMan->setFieldVL(
-            sfMasterSignature, obj.getFieldVL(sfMasterSignature));
-        if (obj.isFieldPresent(sfVersion))
-            sleMan->setFieldU16(sfVersion, obj.getFieldU16(sfVersion));
-        if (obj.isFieldPresent(sfSigningPubKey))
-            sleMan->setFieldVL(
-                sfSigningPubKey, obj.getFieldVL(sfSigningPubKey));
-        if (obj.isFieldPresent(sfSignature))
-            sleMan->setFieldVL(sfSignature, obj.getFieldVL(sfSignature));
-        if (obj.isFieldPresent(sfDomain))
-            sleMan->setFieldVL(sfDomain, obj.getFieldVL(sfDomain));
-        if (other)
-            sleMan->setFieldH256(sfManifestID, *other);
-        view().insert(sleMan);
-    };
-
-    write(klMan1, klMan2 ? std::optional<uint256>{klMan2->key} : std::nullopt);
-    if (klMan2)
-        write(*klMan2, klMan1.key);
-
-    sle->setFieldH256(sfManifestID, klMan1.key);
-    view().update(sle);
-
-    return tesSUCCESS;
+    // The objects, and the manifest directory entry, are maintained in one
+    // place; see writeManifestObjects.
+    return writeManifestObjects(view(), sle, obj, *manifest, j_);
 }
 
 XRPAmount

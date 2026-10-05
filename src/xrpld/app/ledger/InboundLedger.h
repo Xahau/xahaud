@@ -175,6 +175,19 @@ private:
     clock_type::time_point mLastAction;
 
     std::shared_ptr<Ledger> mLedger;
+
+    /** Partial sync: whether the state map is to be read for manifests
+        before the rest of it is fetched. */
+    bool
+    wantManifests();
+
+    /** Read the manifests from the ledger, now that they can be. */
+    void
+    syncManifests();
+
+    /** The manifests have been read, or are being, from this ledger. */
+    bool mManifestsSynced = false;
+
     bool mHaveHeader;
     bool mHaveState;
     bool mHaveTransactions;
