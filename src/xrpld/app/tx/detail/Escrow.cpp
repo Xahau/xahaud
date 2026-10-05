@@ -756,28 +756,39 @@ EscrowCancel::doApply()
     if (slep->getFieldU16(sfLedgerEntryType) != ltESCROW)
         return tecINTERNAL;
 
-    if (ctx_.view().rules().enabled(fix1571))
-    {
-        auto const now = ctx_.view().info().parentCloseTime;
-
-        // No cancel time specified: can't execute at all.
-        if (!(*slep)[~sfCancelAfter])
-            return tecNO_PERMISSION;
-
-        // Too soon: can't execute before the cancel time.
-        if (!after(now, (*slep)[sfCancelAfter]))
-            return tecNO_PERMISSION;
-    }
-    else
-    {
-        // Too soon?
-        if (!(*slep)[~sfCancelAfter] ||
-            ctx_.view().info().parentCloseTime.time_since_epoch().count() <=
-                (*slep)[sfCancelAfter])
-            return tecNO_PERMISSION;
-    }
-
     AccountID const account = (*slep)[sfAccount];
+
+    // The destination of an escrow may decline it at any time, returning the
+    // funds to the owner. Self-escrows are excluded so that a timelock on
+    // one's own funds remains binding.
+    bool const destinationCancel =
+        ctx_.view().rules().enabled(featureEscrowDestinationCancel) &&
+        account_ == slep->getAccountID(sfDestination) && account_ != account;
+
+    if (!destinationCancel)
+    {
+        if (ctx_.view().rules().enabled(fix1571))
+        {
+            auto const now = ctx_.view().info().parentCloseTime;
+
+            // No cancel time specified: can't execute at all.
+            if (!(*slep)[~sfCancelAfter])
+                return tecNO_PERMISSION;
+
+            // Too soon: can't execute before the cancel time.
+            if (!after(now, (*slep)[sfCancelAfter]))
+                return tecNO_PERMISSION;
+        }
+        else
+        {
+            // Too soon?
+            if (!(*slep)[~sfCancelAfter] ||
+                ctx_.view().info().parentCloseTime.time_since_epoch().count() <=
+                    (*slep)[sfCancelAfter])
+                return tecNO_PERMISSION;
+        }
+    }
+
     auto const sle = ctx_.view().peek(keylet::account(account));
     auto const amount = slep->getFieldAmount(sfAmount);
     bool const isIssuer = amount.getIssuer() == account;
