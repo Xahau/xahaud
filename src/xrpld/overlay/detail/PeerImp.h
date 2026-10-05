@@ -445,9 +445,6 @@ public:
 
 private:
     void
-    sendDirect(std::shared_ptr<Message> const& m);
-
-    void
     close();
 
     void

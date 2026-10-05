@@ -26,7 +26,6 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
@@ -49,7 +48,6 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
-#include <random>
 #include <sstream>
 #include <vector>
 
@@ -260,60 +258,6 @@ PeerImp::send(std::shared_ptr<Message> const& m)
     if (validator && !squelch_.expireSquelch(*validator))
         return;
 
-    //@@start runtime-peer-fault-config
-    // RuntimeConfig: artificial delay/drop for testing
-    auto& rc = app_.getRuntimeConfig();
-    if (rc.active())
-    {
-        auto const cfg = rc.getPeerFaultConfig(remote_address_.to_string());
-        if (cfg && cfg->active() && cfg->appliesTo(m->getCategory()))
-        {
-            auto const dropPct = cfg->sendDropPctX100.value_or(0);
-            auto const delayMs = cfg->sendDelayMs.value_or(0);
-            auto const jitterMs = cfg->sendDelayJitterMs.value_or(0);
-
-            // Packet drop
-            if (dropPct > 0)
-            {
-                static thread_local std::mt19937 rng{std::random_device{}()};
-                if (std::uniform_int_distribution<int>{0, 9999}(rng) < dropPct)
-                    return;  // silently dropped
-            }
-
-            // Artificial delay
-            if (delayMs > 0 || jitterMs > 0)
-            {
-                int totalMs = delayMs;
-                if (jitterMs > 0)
-                {
-                    static thread_local std::mt19937 rng{
-                        std::random_device{}()};
-                    totalMs +=
-                        std::uniform_int_distribution<int>{0, jitterMs}(rng);
-                }
-
-                auto self = shared_from_this();
-                auto timer = std::make_shared<waitable_timer>(
-                    strand_, std::chrono::milliseconds{totalMs});
-                timer->async_wait(bind_executor(
-                    strand_,
-                    [this, self, m, timer](
-                        boost::system::error_code const& ec) {
-                        if (!ec && !gracefulClose_ && !detaching_)
-                            sendDirect(m);
-                    }));
-                return;
-            }
-        }
-    }
-    //@@end runtime-peer-fault-config
-
-    sendDirect(m);
-}
-
-void
-PeerImp::sendDirect(std::shared_ptr<Message> const& m)
-{
     overlay_.reportTraffic(
         safe_cast<TrafficCount::category>(m->getCategory()),
         false,
