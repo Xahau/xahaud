@@ -4913,9 +4913,11 @@ private:
             env.close(std::chrono::seconds(300));
             Oracle oracle(
                 env,
-                {.owner = account,
-                 .series = {{"XRP", "USD", 740, 1}},
-                 .fee = 10000});
+                {
+                    .owner = account,
+                    .series = {{"XRP", "USD", 740, 1}},
+                    .fee = 1'000'000,
+                });
 
             // verify tsh hook triggered
             testTSHStrongWeak(env, tshSTRONG, __LINE__);
@@ -4952,6 +4954,7 @@ private:
                 {
                     .owner = account,
                     .series = {{"XRP", "USD", 740, 1}},
+                    .fee = 1'000'000,
                 });
 
             // set tsh collect
@@ -4964,7 +4967,7 @@ private:
             // delete oracle
             oracle.remove(oracle::RemoveArg{
                 .documentID = oracle.documentID(),
-                .fee = 10000,
+                .fee = 1'000'000,
             });
 
             // verify tsh hook triggered
@@ -8248,6 +8251,15 @@ private:
             testTSHStrongWeak(env, tx->getTransactionID(), expected, __LINE__);
         }
     }
+
+    void
+    testHookDefinitionUpdateTSH(FeatureBitset features)
+    {
+        testcase("hook definition update tsh");
+        // TODO
+        BEAST_EXPECT(true);
+    }
+
     void
     testEmissionOrdering(FeatureBitset features)
     {
@@ -8535,9 +8547,10 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 3> const feats{
+        static std::array<FeatureBitset, 4> const feats{
             all,
             all - featureEscrowDestinationCancel,
+            all - featureHookFeeV2,
             all - featureIOUIssuerWeakTSH,
         };
 
@@ -8568,11 +8581,13 @@ public:
     };
 
 SETHOOKTSH_TEST(1, false)
-SETHOOKTSH_TEST(2, true)
+SETHOOKTSH_TEST(2, false)
+SETHOOKTSH_TEST(3, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH1, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH2, app, ripple, 2);
+BEAST_DEFINE_TESTSUITE_PRIO(SetHookTSH3, app, ripple, 2);
 
 }  // namespace test
 }  // namespace ripple
