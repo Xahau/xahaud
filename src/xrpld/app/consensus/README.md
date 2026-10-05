@@ -11,9 +11,8 @@ rippled-specific instance of consensus.
     `Consensus` class by connecting to the rest of the `rippled`
     application.
 
-Xahau-specific proposal sidecars, ConsensusEntropy/RNG, and export signature
-convergence follow the invariants in
-[`ConsensusExtensionsDesign.md`](ConsensusExtensionsDesign.md),
-[`ConsensusEntropyIntent.md`](ConsensusEntropyIntent.md), and
-[`ExportIntent.md`](ExportIntent.md). Read those notes before changing extension
-quorum, local sidecar snapshots, fallback behavior, or replay witnesses.
+Xahau-specific proposal sidecars and ConsensusEntropy/RNG follow the
+invariants in [`ConsensusExtensionsDesign.md`](ConsensusExtensionsDesign.md)
+and [`ConsensusEntropyIntent.md`](ConsensusEntropyIntent.md). Read those notes
+before changing extension quorum, local sidecar snapshots, fallback behavior,
+or replay witnesses.

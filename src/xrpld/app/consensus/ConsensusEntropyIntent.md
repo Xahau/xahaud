@@ -124,18 +124,19 @@ All thresholds are computed over the **fixed parent-ledger UNLReport active-view
 size** (tier-2 over the *original* pre-NegativeUNL size). No node-local
 observation may grow or shrink that denominator `N`. This is load-bearing for
 tier-2 equivocation-uniqueness (`2t − N > f`).
-When either `featureConsensusEntropy` or `featureExport` is enabled in the
-parent ledger's rules, NegativeUNL disable voting uses that parent's UNLReport
-active count as its cap denominator when available. This producer/consumer
-alignment is part of activating either feature; it requires no separate
-amendment or activation ordering. With neither feature enabled, or without a
-usable parent UNLReport, voting retains the legacy trusted-UNL denominator.
+When `featureConsensusEntropy` is enabled in the parent ledger's rules,
+NegativeUNL disable voting uses that parent's UNLReport active count as its cap
+denominator when available. This producer/consumer alignment is part of
+activating ConsensusEntropy; it requires no separate amendment or activation
+ordering. With ConsensusEntropy disabled, or without a usable parent
+UNLReport, voting retains the configured trusted-UNL denominator.
 The consumer-side active-view builder still caps raw ledger NegativeUNL
 subtraction defensively against `originalViewSize`.
 *Enforced:* `quorumThreshold` / `tier2Threshold` over `activeValidatorView`; the
-alignment-counting universe is filtered to the active view; amended
-`NegativeUNLVote` uses the same UNLReport active count for its disable cap when
-either feature is parent-enabled and the report is available. *Anti-pattern:*
+alignment-counting universe is filtered to the active view;
+`NegativeUNLVote` uses the same UNLReport active count for its disable cap
+(`negativeUNLActiveViewCapDenominator`) when ConsensusEntropy is
+parent-enabled and the report is available. *Anti-pattern:*
 counting "valid/observed proposals" as the denominator — that lets a withholder
 shrink `N` and is also node-local (split).
 
@@ -202,17 +203,17 @@ or non-deterministic value. The tier-1 fallback is a pure function of
 *already-agreed* inputs: `H(entropyFallback, parentLedgerHash, buildTxSetHash,
 seq)` — and must **never** depend on the post-injection tx set (no circular
 dependency on the set that carries the pseudo-tx). `buildTxSetHash` is the raw
-agreed set after removing only supplied ConsensusEntropy and Export synthetic
-transactions; legacy protocol pseudos remain included.
+agreed set after removing only supplied ConsensusEntropy transactions; legacy
+protocol pseudos remain included.
 *Enforced:* `makeLiveBuildTxSet` before ordering and `selectEntropy` fallback;
 the original consensus-set hash remains separate bookkeeping.
 
 Live transaction-set membership grants no authority to write extension state.
-Live-set preparation removes every supplied `ttCONSENSUS_ENTROPY` and
-`ttEXPORT_SIGNATURES` before computing the build-set hash or ordering salt, and
-`onPreBuild` removes them again before local derivation. Only accepted extension
-evidence may synthesize the live extension stream. Historical replay follows
-the opposite rule: it consumes persisted ordered bytes and never sanitizes or
+Live-set preparation removes every supplied `ttCONSENSUS_ENTROPY` before
+computing the build-set hash or ordering salt, and `onPreBuild` removes them
+again before local derivation. Only the local deterministic selector may
+synthesize the live entropy pseudo-transaction. Historical replay follows the
+opposite rule: it consumes persisted ordered bytes and never sanitizes or
 re-derives them.
 
 **INV-6 — Bounded, opt-in entropy quality.**
@@ -311,24 +312,26 @@ high-tier seed during closed execution.
 
 **INV-7 — Inert when un-amended.**
 With `featureConsensusEntropy` off, no RNG sidecar state is consensus-visible and
-CE itself adds no proposal bytes. Export may independently use the same extended
-proposal envelope when `featureExport` is active.
+CE adds no proposal bytes.
 The `entropy_cr_dice`, `entropy_cr_random`, and `entropy_cr_status` Hook imports are independently gated
 by `featureConsensusEntropy`; they are unavailable before that amendment rule is
 enabled even if a host view retains entropy from an amended parent.
 *Enforced:* the CE per-round enable latch is snapshotted from the *parent
 ledger's* rules; `ExtendedPosition` serializes to exactly the legacy 32-byte
-tx-set hash only when neither feature has populated a sidecar field.
+tx-set hash only when no sidecar field is populated.
 
-**Rollout note:** enabling `featureConsensusEntropy` or `featureExport` switches
-the network to extension-aware proposal semantics. An individual proposal with
-no populated sidecar fields still serializes to the legacy 32-byte tx-set hash,
-but live proposals may instead carry a serialized `ExtendedPosition` in the
-legacy `currenttxhash` protobuf field. This is a proposal wire-format dependency,
-not a sidecar-fetch dependency. Older binaries that only accept a 32-byte
+**Rollout note:** enabling `featureConsensusEntropy` switches the network to
+extension-aware proposal semantics. An individual proposal with no populated
+sidecar fields still serializes to the legacy 32-byte tx-set hash, but live
+proposals may instead carry a serialized `ExtendedPosition` in the legacy
+`currenttxhash` protobuf field. This is a proposal wire-format dependency, not
+a sidecar-fetch dependency. Older binaries that only accept a 32-byte
 `currenttxhash` are not compatible proposal participants after activation;
-operators must upgrade the proposal-processing network first, or add explicit
-version/capability negotiation before attempting a heterogeneous rollout.
+operators must upgrade the proposal-processing network first. Once the
+amendment is active, the peer-protocol gate in
+[Amendment-gated peer protocol features](../../overlay/ProtocolFeatureRequirements.md)
+disconnects sessions that did not negotiate the matching capability; it does
+not make a heterogeneous rollout compatible.
 
 **INV-8 — No unbounded liveness dependency.**
 CE may deliberately hold accept while its bounded sub-state is open, but no
