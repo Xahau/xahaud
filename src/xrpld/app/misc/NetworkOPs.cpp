@@ -409,11 +409,6 @@ public:
         TER result) override;
     void
     pubValidation(std::shared_ptr<STValidation> const& val) override;
-    void
-    pubExportSignature(
-        ExportShare const& share,
-        LedgerIndex validatedLedgerSeq,
-        uint256 const& validatedLedgerHash) override;
 
     //--------------------------------------------------------------------------
     //
@@ -495,11 +490,6 @@ public:
     subValidations(InfoSub::ref ispListener) override;
     bool
     unsubValidations(std::uint64_t uListener) override;
-
-    bool
-    subExportSignatures(InfoSub::ref ispListener) override;
-    bool
-    unsubExportSignatures(std::uint64_t uListener) override;
 
     bool
     subPeerStatus(InfoSub::ref ispListener) override;
@@ -709,17 +699,16 @@ private:
 
     //@@start subscription-stream-map-precedent
     enum SubTypes {
-        sLedger,            // Accepted ledgers.
-        sManifests,         // Received validator manifests.
-        sServer,            // When server changes connectivity state.
-        sTransactions,      // All accepted transactions.
-        sRTTransactions,    // All proposed and accepted transactions.
-        sValidations,       // Received validations.
-        sExportSignatures,  // Admitted post-validation Export signatures.
-        sPeerStatus,        // Peer status changes.
-        sConsensusPhase,    // Consensus phase
-        sBookChanges,       // Per-ledger order book changes
-        sLastEntry          // Any new entry must be ADDED ABOVE this one
+        sLedger,          // Accepted ledgers.
+        sManifests,       // Received validator manifests.
+        sServer,          // When server changes connectivity state.
+        sTransactions,    // All accepted transactions.
+        sRTTransactions,  // All proposed and accepted transactions.
+        sValidations,     // Received validations.
+        sPeerStatus,      // Peer status changes.
+        sConsensusPhase,  // Consensus phase
+        sBookChanges,     // Per-ledger order book changes
+        sLastEntry        // Any new entry must be ADDED ABOVE this one
     };
 
     std::array<SubMapType, SubTypes::sLastEntry> mStreamMaps;
@@ -2112,8 +2101,6 @@ NetworkOPsImp::beginConsensus(
     if (prevLedger->rules().enabled(featureConsensusEntropy))
         app_.overlay().requireProtocolFeature(
             ProtocolFeature::ConsensusEntropy);
-    if (prevLedger->rules().enabled(featureExport))
-        app_.overlay().requireProtocolFeature(ProtocolFeature::ExportShares);
     // Pull in any manifests published on-ledger before the trusted set is
     // recomputed, so a validator that rotated its ephemeral key on-chain is
     // resolved to the new signing key in this same round. The master keys come
@@ -2572,59 +2559,6 @@ NetworkOPsImp::pubValidation(std::shared_ptr<STValidation> const& val)
             }
         }
     }
-}
-
-void
-NetworkOPsImp::pubExportSignature(
-    ExportShare const& share,
-    LedgerIndex const validatedLedgerSeq,
-    uint256 const& validatedLedgerHash)
-{
-    std::vector<InfoSub::pointer> subscribers;
-    {
-        std::lock_guard sl(mSubLock);
-        auto& stream = mStreamMaps[sExportSignatures];
-        subscribers.reserve(stream.size());
-        for (auto it = stream.begin(); it != stream.end();)
-        {
-            if (auto subscriber = it->second.lock())
-            {
-                subscribers.push_back(std::move(subscriber));
-                ++it;
-            }
-            else
-            {
-                it = stream.erase(it);
-            }
-        }
-    }
-
-    JLOG(m_journal.trace()) << "ExportShare: subscriber dispatch"
-                            << " origin=" << share.originTxn
-                            << " position=" << unsigned(share.committeePosition)
-                            << " wire=" << share.wireHash()
-                            << " validatedSeq=" << validatedLedgerSeq
-                            << " subscribers=" << subscribers.size();
-    if (subscribers.empty())
-        return;
-
-    Json::Value event(Json::objectValue);
-    event[jss::stream] = "export_signatures";
-    event[jss::type] = "exportSignatureReceived";
-    event[jss::version] = Json::UInt(share.version);
-    event[jss::ledger_index] = Json::UInt(validatedLedgerSeq);
-    event[jss::ledger_hash] = to_string(validatedLedgerHash);
-    event[jss::owner] = toBase58(share.owner);
-    event[jss::origin_txid] = to_string(share.originTxn);
-    event[jss::origin_ledger_seq] = Json::UInt(share.originLedgerSeq);
-    event[jss::origin_ledger_hash] = to_string(share.originLedgerHash);
-    event[jss::committee_position] = Json::UInt(share.committeePosition);
-    event[jss::signing_key] = toBase58(TokenType::NodePublic, share.signingKey);
-    event[jss::signature] =
-        strHex(Slice{share.signature.data(), share.signature.size()});
-
-    for (auto const& subscriber : subscribers)
-        subscriber->send(event, true);
 }
 
 void
@@ -4491,24 +4425,6 @@ NetworkOPsImp::unsubValidations(std::uint64_t uSeq)
 {
     std::lock_guard sl(mSubLock);
     return mStreamMaps[sValidations].erase(uSeq);
-}
-
-// <-- bool: true=added, false=already there
-bool
-NetworkOPsImp::subExportSignatures(InfoSub::ref isrListener)
-{
-    std::lock_guard sl(mSubLock);
-    return mStreamMaps[sExportSignatures]
-        .emplace(isrListener->getSeq(), isrListener)
-        .second;
-}
-
-// <-- bool: true=erased, false=was not there
-bool
-NetworkOPsImp::unsubExportSignatures(std::uint64_t uSeq)
-{
-    std::lock_guard sl(mSubLock);
-    return mStreamMaps[sExportSignatures].erase(uSeq);
 }
 
 // <-- bool: true=added, false=already there

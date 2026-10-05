@@ -94,11 +94,6 @@ struct ConsensusTestConfig
     // RNG poll interval in ms.  Controls how fast the heartbeat timer
     // ticks during RNG sub-state transitions.  Minimum 50ms.  Default 250ms.
     std::optional<int> rngPollMs;
-    // Disable export signature attachment (testing sub-quorum scenarios).
-    std::optional<bool> noExportSig;
-    // Withhold exportSigSetHash publication while still attaching export
-    // signatures (testing no-veto missing-observation scenarios).
-    std::optional<bool> noExportSigHash;
     // Standalone-only entropy selection overrides for hook API tests.
     std::optional<int> standaloneEntropyTier;
     std::optional<int> standaloneEntropyCount;
@@ -110,16 +105,15 @@ struct ConsensusTestConfig
         return (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0) ||
             (rngRevealDropPctX100 && *rngRevealDropPctX100 > 0) ||
             (bootstrapFastStart && *bootstrapFastStart) || rngPollMs ||
-            (noExportSig && *noExportSig) ||
-            (noExportSigHash && *noExportSigHash) || standaloneEntropyTier ||
-            standaloneEntropyCount || standaloneEntropyDenominator;
+            standaloneEntropyTier || standaloneEntropyCount ||
+            standaloneEntropyDenominator;
     }
 };
 
 /** Runtime test / fault-injection parameters.
 
     Public keys:
-    - "global"         — daemon-wide consensus/export test knobs
+    - "global"         — daemon-wide consensus test knobs
     - "peer_defaults"  — default send fault config for all peers
     - "peer:ip:port"   — per-peer send fault override
 
@@ -155,11 +149,11 @@ public:
     std::optional<PeerFaultConfig>
     getPeerFaultConfig(std::string const& peerAddress) const;
 
-    /** Return global consensus/export test config if set. */
+    /** Return global consensus test config if set. */
     std::optional<ConsensusTestConfig>
     getConsensusTestConfig() const;
 
-    /** Set daemon-wide consensus/export test config.
+    /** Set daemon-wide consensus test config.
 
         Direct setters are for in-process tests and test harnesses. External
         env/RPC mutation is compile-gated; production code should not call

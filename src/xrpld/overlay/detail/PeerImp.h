@@ -195,7 +195,6 @@ private:
     bool vpReduceRelayEnabled_ = false;
     bool ledgerReplayEnabled_ = false;
     bool consensusEntropyCapable_ = false;
-    bool exportSharesCapable_ = false;
     LedgerReplayMsgHandler ledgerReplayMsgHandler_;
 
     friend class OverlayImpl;
@@ -596,8 +595,6 @@ public:
     onMessage(std::shared_ptr<protocol::TMReplayDeltaRequest> const& m);
     void
     onMessage(std::shared_ptr<protocol::TMReplayDeltaResponse> const& m);
-    void
-    onMessage(std::shared_ptr<protocol::TMExportShares> const& m);
 
 private:
     //--------------------------------------------------------------------------
@@ -722,8 +719,6 @@ PeerImp::PeerImp(
           app_.config().LEDGER_REPLAY))
     , consensusEntropyCapable_(
           peerFeatureEnabled(headers_, FEATURE_CONSENSUS_ENTROPY, true))
-    , exportSharesCapable_(
-          peerFeatureEnabled(headers_, FEATURE_EXPORT_SHARES, true))
     , ledgerReplayMsgHandler_(app, app.getLedgerReplayer())
 {
     read_buffer_.commit(boost::asio::buffer_copy(
@@ -735,10 +730,8 @@ PeerImp::PeerImp(
                           << " tx reduce-relay enabled "
                           << txReduceRelayEnabled_
                           << " consensus entropy capability negotiated "
-                          << consensusEntropyCapable_
-                          << " export shares capability negotiated "
-                          << exportSharesCapable_ << " on " << remote_address_
-                          << " " << id_;
+                          << consensusEntropyCapable_ << " on "
+                          << remote_address_ << " " << id_;
 }
 
 template <class FwdIt, class>

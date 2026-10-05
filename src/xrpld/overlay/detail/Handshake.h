@@ -148,8 +148,6 @@ static constexpr char FEATURE_TXRR[] = "txrr";
 static constexpr char FEATURE_LEDGER_REPLAY[] = "ledgerreplay";
 // Xahau Consensus Entropy proposal extensions
 static constexpr char FEATURE_CONSENSUS_ENTROPY[] = "xahau-consensus-entropy";
-// Xahau Export share batches
-static constexpr char FEATURE_EXPORT_SHARES[] = "xahau-export-shares";
 static constexpr char DELIM_FEATURE[] = ";";
 static constexpr char DELIM_VALUE[] = ",";
 
@@ -227,8 +225,7 @@ peerFeatureEnabled(
    enabled
    @param vpReduceRelayEnabled if true then validation/proposal reduce-relay
    feature is enabled
-   Consensus Entropy and Export Shares support are always advertised by
-   capable builds.
+   Consensus Entropy support is always advertised by capable builds.
    @return X-Protocol-Ctl header value
  */
 std::string
@@ -250,8 +247,7 @@ makeFeaturesRequestHeader(
    @param vpReduceRelayEnabled if true then validation/proposal reduce-relay
    feature is enabled
    @param vpReduceRelayEnabled if true then reduce-relay feature is enabled
-   Consensus Entropy and Export Shares are enabled only when the request
-   advertises them.
+   Consensus Entropy is enabled only when the request advertises it.
    @return X-Protocol-Ctl header value
  */
 std::string

@@ -879,30 +879,14 @@ Consensus<Adaptor>::peerProposalInternal(
     // Notify extensions of the new peer proposal
     if constexpr (requires(Adaptor& a) { a.ce(); })
     {
-        auto& ce = adaptor_.ce();
-        if constexpr (requires { newPeerPos.exportSignatures(); })
-        {
-            ce.onTrustedPeerProposal(
-                peerID,
-                newPeerPos.publicKey(),
-                newPeerProp.position(),
-                newPeerProp.proposeSeq(),
-                newPeerProp.closeTime(),
-                newPeerProp.prevLedger(),
-                newPeerPos.signature(),
-                newPeerPos.exportSignatures());
-        }
-        else
-        {
-            ce.onTrustedPeerProposal(
-                peerID,
-                newPeerPos.publicKey(),
-                newPeerProp.position(),
-                newPeerProp.proposeSeq(),
-                newPeerProp.closeTime(),
-                newPeerProp.prevLedger(),
-                newPeerPos.signature());
-        }
+        adaptor_.ce().onTrustedPeerProposal(
+            peerID,
+            newPeerPos.publicKey(),
+            newPeerProp.position(),
+            newPeerProp.proposeSeq(),
+            newPeerProp.closeTime(),
+            newPeerProp.prevLedger(),
+            newPeerPos.signature());
     }
 
     if (newPeerProp.isInitial())

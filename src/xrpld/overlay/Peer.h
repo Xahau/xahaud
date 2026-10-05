@@ -40,7 +40,6 @@ enum class ProtocolFeature {
     ValidatorList2Propagation,
     LedgerReplay,
     ConsensusEntropy,
-    ExportShares,
 };
 
 inline constexpr std::array allProtocolFeatures = {
@@ -48,7 +47,6 @@ inline constexpr std::array allProtocolFeatures = {
     ProtocolFeature::ValidatorList2Propagation,
     ProtocolFeature::LedgerReplay,
     ProtocolFeature::ConsensusEntropy,
-    ProtocolFeature::ExportShares,
 };
 
 /** Stable diagnostic name for a negotiated peer-protocol feature. */
@@ -65,8 +63,6 @@ protocolFeatureName(ProtocolFeature feature)
             return "ledger-replay";
         case ProtocolFeature::ConsensusEntropy:
             return "xahau-consensus-entropy";
-        case ProtocolFeature::ExportShares:
-            return "xahau-export-shares";
     }
     return "unknown";
 }

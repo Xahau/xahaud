@@ -132,9 +132,6 @@ private:
     // Protects the message and the sequence list of manifests
     std::mutex manifestLock_;
 
-    ExportShareHandler exportShareHandler_;
-    std::mutex exportShareHandlerLock_;
-
     //--------------------------------------------------------------------------
 
 public:
@@ -233,20 +230,6 @@ public:
     void
     broadcast(protocol::TMValidation& m) override;
 
-    void
-    broadcast(protocol::TMExportShares& m) override;
-
-    void
-    relay(protocol::TMExportShares& m) override;
-
-    void
-    setExportShareHandler(ExportShareHandler handler) override;
-
-    ExportShareAdmission
-    acceptExportShare(
-        ExportShare const& share,
-        ExportShareChargeHandler deferredCharge) override;
-
     std::set<Peer::id_t>
     relay(
         protocol::TMProposeSet& m,
@@ -304,10 +287,6 @@ public:
                 case ProtocolFeature::ConsensusEntropy:
                     supported = peerFeatureEnabled(
                         headers, FEATURE_CONSENSUS_ENTROPY, true);
-                    break;
-                case ProtocolFeature::ExportShares:
-                    supported = peerFeatureEnabled(
-                        headers, FEATURE_EXPORT_SHARES, true);
                     break;
             }
             if (!supported)

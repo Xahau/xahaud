@@ -100,7 +100,7 @@ class RCLConsensus
         RCLCensorshipDetector<TxID, LedgerIndex> censorshipDetector_;
         NegativeUNLVote nUnlVote_;
 
-        // RNG/Export state has moved to ConsensusExtensions
+        // RNG state has moved to ConsensusExtensions
         // (owned by Application, accessible via app_.getConsensusExtensions())
 
     public:
@@ -555,10 +555,8 @@ public:
 
 private:
     // Guards mutable consensus state and accept-job round-state access.
-    // Atomic-only status polls and the extension's independently synchronized
-    // cross-thread APIs are exempt. Constructed before adaptor_.
-    // Lock order: C before LedgerMaster, never the reverse; C before busyMu_
-    // before the collector.
+    // Atomic-only status polls are exempt. Constructed before adaptor_.
+    // Lock order: C before LedgerMaster, never the reverse.
     mutable std::recursive_mutex mutex_;
 
     Adaptor adaptor_;

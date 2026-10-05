@@ -44,8 +44,9 @@ struct CategoryAlias
 
 namespace traffic_category {
 // Keep RuntimeConfig independent from xrpld.overlay. These values mirror
-// TrafficCount::category; RuntimeConfig_test compares aliases against the real
-// enum so drift is caught without creating an app.misc -> overlay dependency.
+// TrafficCount::category; RuntimeConfig_test compares aliases and the unknown
+// boundary (testPeerFaultConfigMergeAndCategories) against the real enum so
+// drift is caught without creating an app.misc -> overlay dependency.
 enum : std::size_t {
     base = 0,
     cluster = 1,
@@ -244,8 +245,7 @@ bool
 isGlobalField(std::string const& name)
 {
     return name == "rng_claim_drop_pct" || name == "bootstrap_fast_start" ||
-        name == "rng_reveal_drop_pct" || name == "rng_poll_ms" ||
-        name == "no_export_sig" || name == "no_export_sig_hash";
+        name == "rng_reveal_drop_pct" || name == "rng_poll_ms";
 }
 
 bool
@@ -438,20 +438,6 @@ parseConsensusTestConfig(Json::Value const& v, std::string& error)
                 return std::nullopt;
             cfg.rngPollMs = std::max(50, parsed);
         }
-        else if (name == "no_export_sig")
-        {
-            bool parsed = false;
-            if (!parseBool(v[name], name, parsed, error))
-                return std::nullopt;
-            cfg.noExportSig = parsed;
-        }
-        else if (name == "no_export_sig_hash")
-        {
-            bool parsed = false;
-            if (!parseBool(v[name], name, parsed, error))
-                return std::nullopt;
-            cfg.noExportSigHash = parsed;
-        }
     }
     return cfg;
 }
@@ -522,10 +508,6 @@ consensusTestConfigJson(ConsensusTestConfig const& cfg)
         entry["bootstrap_fast_start"] = *cfg.bootstrapFastStart;
     if (cfg.rngPollMs)
         entry["rng_poll_ms"] = *cfg.rngPollMs;
-    if (cfg.noExportSig.has_value())
-        entry["no_export_sig"] = *cfg.noExportSig;
-    if (cfg.noExportSigHash.has_value())
-        entry["no_export_sig_hash"] = *cfg.noExportSigHash;
     return entry;
 }
 }  // namespace

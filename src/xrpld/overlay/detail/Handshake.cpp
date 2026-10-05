@@ -85,7 +85,6 @@ makeFeaturesRequestHeader(
     if (vpReduceRelayEnabled)
         str << FEATURE_VPRR << "=1" << DELIM_FEATURE;
     str << FEATURE_CONSENSUS_ENTROPY << "=1" << DELIM_FEATURE;
-    str << FEATURE_EXPORT_SHARES << "=1" << DELIM_FEATURE;
     return str.str();
 }
 
@@ -108,8 +107,6 @@ makeFeaturesResponseHeader(
         str << FEATURE_VPRR << "=1" << DELIM_FEATURE;
     if (featureEnabled(headers, FEATURE_CONSENSUS_ENTROPY))
         str << FEATURE_CONSENSUS_ENTROPY << "=1" << DELIM_FEATURE;
-    if (featureEnabled(headers, FEATURE_EXPORT_SHARES))
-        str << FEATURE_EXPORT_SHARES << "=1" << DELIM_FEATURE;
     return str.str();
 }
 

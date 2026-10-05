@@ -5,27 +5,18 @@
 #include <xrpld/app/consensus/RCLCxLedger.h>
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/consensus/RCLCxTx.h>
-#include <xrpld/app/misc/ExportSigCollector.h>
-#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/consensus/ConsensusParms.h>
 #include <xrpld/consensus/ConsensusTypes.h>
-#include <xrpld/overlay/ExportShareAdmission.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/EntropyTier.h>
-#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/PublicKey.h>
-#include <atomic>
 #include <chrono>
-#include <condition_variable>
-#include <map>
 #include <memory>
-#include <mutex>
 #include <optional>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -35,7 +26,6 @@ namespace ripple {
 class Application;
 class CanonicalTXSet;
 class Ledger;
-class STTx;
 
 namespace test {
 class ConsensusExtensions_test;
@@ -44,9 +34,9 @@ class ConsensusExtensions_test;
 /// Concrete alias for the consensus tick context.
 using TickContext = ConsensusTick<ExtendedPosition, RCLCxPeerPos, RCLTxSet>;
 
-/// Concrete Xahau-owned manager for consensus extensions (RNG + Export).
+/// Concrete Xahau-owned manager for consensus extensions (RNG).
 ///
-/// Owns all RNG/Export state that was previously scattered across
+/// Owns all RNG state that was previously scattered across
 /// RCLCxAdaptor and Consensus.h. Lifecycle hooks are grouped by
 /// caller/threading context.
 class ConsensusExtensions
@@ -54,69 +44,12 @@ class ConsensusExtensions
     friend class test::ConsensusExtensions_test;
 
     Application& app_;
-    ExportSigCollector postValidationExportSigCollector_;
-    std::mutex exportStreamMutex_;
-    LedgerIndex exportStreamEmissionSeq_{0};
-    std::set<std::pair<uint256, ExportSigCollector::Position>>
-        exportStreamEmittedShares_;
-    std::set<std::pair<uint256, ExportSigCollector::Position>>
-        proposalPublishedExportShares_;
-    std::atomic<bool> exportShareServiceStarted_{false};
-    std::atomic<LedgerIndex> lastExportReplaySeq_{0};
-
-    struct DeferredExportShare
-    {
-        ExportShare share;
-        ExportShareChargeHandler charge;
-        std::size_t serializedBytes;
-    };
-
-    static constexpr std::size_t maxDeferredExportShareOrigins_ =
-        ExportLimits::maxLiveExportLatches;
-    static constexpr std::size_t maxDeferredExportShares_ =
-        ExportLimits::maxLiveExportLatches * ExportLimits::maxCommitteeMembers;
-    static constexpr std::size_t maxDeferredExportShareBytes_ =
-        maxDeferredExportShares_ * ExportLimits::maxSerializedExportShareBytes;
-    static constexpr LedgerIndex maxDeferredExportShareFutureLedgers_ = 8;
-
-    std::mutex deferredExportSharesMutex_;
-    std::map<uint256, DeferredExportShare> deferredExportShares_;
-    std::map<uint256, std::size_t> deferredExportShareOrigins_;
-    std::size_t deferredExportShareBytes_{0};
-    LedgerIndex deferredExportShareRetrySeq_{0};
-    std::size_t deferredExportShareRetriesInFlight_{0};
-    std::condition_variable deferredExportShareRetriesDone_;
-
-    bool
-    publishExportShareLocked(
-        ExportShare const& share,
-        LedgerIndex validatedLedgerSeq,
-        uint256 const& validatedLedgerHash);
-
-    ExportShareAdmission
-    admitExportShare(
-        ExportShare const& share,
-        ExportShareChargeHandler deferredCharge,
-        bool allowDeferral);
-
-    ExportShareAdmission
-    deferExportShare(
-        ExportShare const& share,
-        ExportShareChargeHandler deferredCharge,
-        LedgerIndex validatedLedgerSeq);
-
-    void
-    retryDeferredExportShares(LedgerIndex validatedLedgerSeq);
-
-    void
-    clearDeferredExportShares();
 
 public:
     struct LiveBuildTxSet
     {
         RCLTxSet txns;
         std::size_t suppliedEntropy;
-        std::size_t suppliedExportWitnesses;
     };
 
     beast::Journal j_;  // public: accessed by extensionsTick template
@@ -135,10 +68,6 @@ public:
 
     using ActiveValidatorView = ripple::ActiveValidatorView;
     using ActiveValidatorViewPtr = std::shared_ptr<ActiveValidatorView const>;
-    struct ExportWitnessMaterial
-    {
-        ExportResultBuilder::PositionedSignatureSnapshot signatures;
-    };
 
 private:
     enum class RngContributionKind : uint8_t { commit, reveal };
@@ -153,35 +82,23 @@ private:
     uint256 myEntropySecret_;
     bool entropyFailed_ = false;
     bool commitSetFrozen_ = false;
-    // Proposal ingress can harvest export signatures outside the consensus
-    // mutex, so round-enable latches are atomic snapshots of the parent-ledger
-    // amendment state. Ordering is not used to publish any other data.
-    std::atomic<bool> rngEnabledThisRound_{false};
-    std::atomic<bool> exportEnabledThisRound_{false};
+    // Round-enable latch: the parent ledger's amendment state, read and
+    // written under the consensus mutex.
+    bool rngEnabledThisRound_{false};
 
     // Real SHAMaps for the current round (unbacked, ephemeral)
     std::shared_ptr<SHAMap> commitSetMap_;
     std::shared_ptr<SHAMap> entropySetMap_;
-    std::shared_ptr<SHAMap> exportSigSetMap_;
     // Candidate entropy maps are local snapshots until the gate accepts the
     // exact root. This hash is set only after the alignment/observation checks
     // pass.
     std::optional<uint256> acceptedEntropySetHash_;
-    // Export signature maps are also built from local collector state before
-    // accept. Closed-ledger export apply may only consume the map root the
-    // sidecar gate accepted for this round.
-    std::optional<uint256> acceptedExportSigSetHash_;
-    std::optional<LedgerIndex> buildingLedgerSeq_;
     // Consensus parent ledger hash, pinned at round start. Input to the
     // Tier 1 consensus_fallback entropy digest.
     uint256 roundPrevLedgerHash_;
-    // Immutable execution parent for this round. Export candidacy must not
-    // follow the asynchronously advancing validated-ledger cursor.
-    std::shared_ptr<Ledger const> roundParentLedger_;
-    // Parent-ledger validator view used by RNG and Export quorum logic.
+    // Parent-ledger validator view used by RNG quorum logic.
     ActiveValidatorViewPtr activeValidatorView_ =
         std::make_shared<ActiveValidatorView const>();
-    mutable std::mutex activeValidatorViewMutex_;
 
     // Recent proposers intersected with the active UNL (liveness hint)
     hash_set<NodeID> likelyParticipants_;
@@ -199,17 +116,8 @@ public:
     std::chrono::steady_clock::time_point commitHashConflictStart_{};
     bool entropySetPublished_{false};
     std::chrono::steady_clock::time_point entropyPublishStart_{};
-    bool exportSigGateStarted_{false};
-    std::chrono::steady_clock::time_point exportSigGateStart_{};
-    bool exportSigConvergenceFailed_{false};
 
 private:
-    std::map<uint256, std::shared_ptr<SLE const>>
-    pendingRoundExports(LedgerIndex candidateSeq) const;
-
-    void
-    clearRngStatePreservingExport();
-
     bool
     hasProofedCommit(NodeID const& nodeId) const;
 
@@ -236,37 +144,6 @@ private:
 public:
     ConsensusExtensions(Application& app, beast::Journal j);
 
-    ExportSigCollector&
-    postValidationExportSigCollector()
-    {
-        return postValidationExportSigCollector_;
-    }
-
-    /** Admit one post-validation Export share from any transport.
-
-        Structural parsing happens at the transport boundary. This method
-        binds the frame to validated ledger state, the intent-selected
-        committee position, the live manifest, and the destination multisign
-        payload before admitting it to the sidecar union.
-    */
-    bool
-    onExportShare(ExportShare const& share);
-
-    ExportShareAdmission
-    onExportShare(
-        ExportShare const& share,
-        ExportShareChargeHandler deferredCharge);
-
-    /** Release local shares unlocked by an exact network-validated ledger. */
-    void
-    onValidatedLedger(LedgerIndex seq, uint256 const& hash) noexcept;
-
-    void
-    startExportShareService();
-
-    void
-    stopExportShareService() noexcept;
-
     /// Set the current consensus mode (called by adaptor).
     void
     setMode(ConsensusMode m)
@@ -278,12 +155,6 @@ public:
 
     std::size_t
     quorumThreshold() const;
-
-    std::size_t
-    exportRootAlignmentThreshold() const;
-
-    static std::size_t
-    exportRootAlignmentThreshold(ActiveValidatorView const& validatorView);
 
     /// Tier 2 (participant_aligned) alignment floor: the smallest cohort whose
     /// pairwise intersection exceeds the tolerated Byzantine count (~0.6 of the
@@ -386,18 +257,6 @@ public:
     rngEnabled() const;
 
     bool
-    exportEnabled() const;
-
-    /// Whether Export may use the current round's validator view to align and
-    /// materialize a witness. Standalone is deterministic locally; networked
-    /// operation requires the view to come from the parent UNLReport.
-    bool
-    exportFinalizationViewAnchored() const;
-
-    bool
-    testSuppressExportSigSetHash() const;
-
-    bool
     testBootstrapFastStartEnabled() const;
 
     uint256
@@ -405,34 +264,6 @@ public:
 
     uint256
     buildEntropySet(LedgerIndex seq);
-
-    uint256
-    buildExportSigSet(LedgerIndex seq);
-
-    bool
-    hasPendingExportSigs() const;
-
-    bool
-    hasEligiblePendingExports() const;
-
-    void
-    setExportSigConvergenceFailed();
-
-    bool
-    exportSigConvergenceFailed() const;
-
-    void
-    acceptExportSigSet(uint256 const& hash);
-
-    void
-    clearAcceptedExportSigSet();
-
-    std::optional<ExportWitnessMaterial>
-    agreedExportWitness(
-        STTx const& exportSigningPayload,
-        uint256 const& origin,
-        std::size_t committeeSize,
-        std::size_t threshold) const;
 
     ActiveValidatorViewPtr
     activeValidatorView() const;
@@ -483,7 +314,7 @@ public:
 
     // True only when THIS node's own validator key is in the active view. Used
     // to gate our own +1 in the sidecar alignment count to the same universe as
-    // the peer-membership filter and the entropy/export thresholds.
+    // the peer-membership filter and the entropy thresholds.
     bool
     localIsActiveValidator() const;
 
@@ -580,24 +411,7 @@ public:
         std::uint32_t proposeSeq,
         NetClock::time_point closeTime,
         uint256 const& prevLedger,
-        Slice const& signature,
-        std::vector<std::string> const& exportSignatures = {});
-
-    /** Harvest proposal-carried export signatures after the proposal payload is
-        known to be signed by `publicKey`. */
-    std::size_t
-    harvestExportSignatures(
-        PublicKey const& publicKey,
-        uint256 const& prevLedger,
-        std::vector<std::string> const& exportSignatures,
-        char const* source);
-
-    /** Extract export signatures from the raw protobuf wire message.
-        Called from PeerImp overlay ingress (outside consensus mutex).
-        Reads only atomic round latches before touching the independently
-        synchronized ExportSigCollector. */
-    void
-    onTrustedPeerMessage(::protocol::TMProposeSet const& wireMsg);
+        Slice const& signature);
 
     /** Attach RNG commitment to the initial proposal position.
         Called from onClose BEFORE signing. Affects proposal identity.
@@ -607,14 +421,6 @@ public:
         ExtendedPosition& pos,
         std::shared_ptr<Ledger const> const& prevLedger,
         bool proposing);
-
-    /** Attach export signatures before proposal signing.
-        The caller hashes the resulting blobs into ExtendedPosition so the
-        proposal signature authenticates the side-channel protobuf field. */
-    void
-    attachExportSignatures(
-        protocol::TMProposeSet& prop,
-        RCLCxPeerPos::Proposal const& proposal);
 
     /** Record post-signature RNG state for the outgoing protobuf.
         Self-seeds own reveal and stores proposal proofs. */
@@ -633,94 +439,26 @@ public:
     void
     setRngEnabledThisRound(bool v)
     {
-        rngEnabledThisRound_.store(v, std::memory_order_relaxed);
+        rngEnabledThisRound_ = v;
     }
 
-    void
-    setExportEnabledThisRound(bool v)
-    {
-        exportEnabledThisRound_.store(v, std::memory_order_relaxed);
-        publishBusy();
-    }
-
-    // Heartbeat reads only this atomic. The predicate lives in computeBusy();
-    // every writer of a contributing input calls publishBusy().
+    // Whether an RNG sub-state is in progress, so the heartbeat polls faster.
+    // The caller holds the consensus mutex.
     bool
     extensionsBusy() const
     {
-        return busyPublished_.load(std::memory_order_relaxed);
-    }
-
-    void
-    publishBusy()
-    {
-        publishBusyAfter([] {});
-    }
-
-    // Phase changes happen in the tick, which is not a member. The store and
-    // the publish share busyMu_ so a job-thread publish cannot race them.
-    void
-    publishEstState(EstablishState state)
-    {
-        std::lock_guard lock(busyMu_);
-        estState_ = state;
-        busyPublished_.store(computeBusyUnlocked(), std::memory_order_relaxed);
-    }
-
-    void
-    publishExportSigGateStarted()
-    {
-        std::lock_guard lock(busyMu_);
-        exportSigGateStarted_ = true;
-        busyPublished_.store(computeBusyUnlocked(), std::memory_order_relaxed);
+        return estState_ != EstablishState::ConvergingTx;
     }
 
     void
     resetSubState()
     {
-        std::lock_guard lock(busyMu_);
         estState_ = EstablishState::ConvergingTx;
         revealPhaseStart_ = {};
         commitHashConflictStart_ = {};
         entropySetPublished_ = false;
         entropyPublishStart_ = {};
-        exportSigGateStarted_ = false;
-        exportSigGateStart_ = {};
-        exportSigConvergenceFailed_ = false;
-        busyPublished_.store(computeBusyUnlocked(), std::memory_order_relaxed);
     }
-
-private:
-    // Compute and store the busy flag under one busyMu_ critical section.
-    // afterCompute runs between the two, on the publishing thread, with
-    // busyMu_ held; tests use it to hold a computed value before its store.
-    template <class AfterCompute>
-    void
-    publishBusyAfter(AfterCompute&& afterCompute)
-    {
-        std::lock_guard lock(busyMu_);
-        auto const busy = computeBusyUnlocked();
-        afterCompute();
-        busyPublished_.store(busy, std::memory_order_relaxed);
-    }
-
-    bool
-    computeBusyUnlocked() const
-    {
-        return estState_ != EstablishState::ConvergingTx ||
-            (exportEnabled() &&
-             (exportSigGateStarted_ || hasPendingExportSigs()));
-    }
-
-    bool
-    computeBusy() const
-    {
-        std::lock_guard lock(busyMu_);
-        return computeBusyUnlocked();
-    }
-
-    mutable std::recursive_mutex busyMu_;
-    std::atomic<bool> busyPublished_{false};
 };
 
 }  // namespace ripple

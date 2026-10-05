@@ -97,6 +97,14 @@ class RuntimeConfig_test : public beast::unit_test::suite
         inactive.messageCategories =
             std::set<std::size_t>{TrafficCount::category::proposal};
         BEAST_EXPECT(!inactive.active());
+
+        // The numeric message-type path accepts exactly the categories the
+        // real TrafficCount enum defines.
+        std::string error;
+        BEAST_EXPECT(runtimeConfigMessageCategoriesFromNames(
+            {std::to_string(TrafficCount::category::unknown)}, error));
+        BEAST_EXPECT(!runtimeConfigMessageCategoriesFromNames(
+            {std::to_string(TrafficCount::category::unknown + 1)}, error));
     }
 
     void
@@ -161,8 +169,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
             "XAHAUD_RUNTIME_TEST_CONFIG",
             R"({"set":{"global":{"rng_claim_drop_pct":3.5,)"
             R"("rng_reveal_drop_pct":4.5,)"
-            R"("bootstrap_fast_start":false,"rng_poll_ms":5,)"
-            R"("no_export_sig":true,"no_export_sig_hash":true},)"
+            R"("bootstrap_fast_start":false,"rng_poll_ms":5},)"
             R"("peer_defaults":{"send_delay_ms":100,)"
             R"("send_delay_jitter_ms":20,"send_drop_pct":1.25,)"
             R"("message_types":["proposal"]},)"
@@ -178,10 +185,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         BEAST_EXPECT(global->bootstrapFastStart.has_value());
         BEAST_EXPECT(*global->bootstrapFastStart == false);
         BEAST_EXPECT(global->rngPollMs == 50);
-        BEAST_EXPECT(global->noExportSig.has_value());
-        BEAST_EXPECT(*global->noExportSig == true);
-        BEAST_EXPECT(global->noExportSigHash.has_value());
-        BEAST_EXPECT(*global->noExportSigHash == true);
 
         auto defaults = rc.getPeerFaultConfig("10.0.0.6:51235");
         if (!BEAST_EXPECT(defaults.has_value()))
@@ -209,7 +212,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
 
         EnvVarGuard runtimeJson{
             "XAHAUD_RUNTIME_TEST_CONFIG",
-            R"({"set":{"global":{"no_export_sig":true}}})"};
+            R"({"set":{"global":{"bootstrap_fast_start":true}}})"};
 
         RuntimeConfig rc;
         BEAST_EXPECT(!rc.active());
@@ -221,7 +224,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
         Json::Value params;
         params["set"] = Json::objectValue;
         params["set"]["global"] = Json::objectValue;
-        params["set"]["global"]["no_export_sig"] = true;
+        params["set"]["global"]["bootstrap_fast_start"] = true;
         auto result = runtimeConfig(env, params);
         BEAST_EXPECT(result.isMember("error"));
         BEAST_EXPECT(result["error"].asString() == "invalidParams");
@@ -265,8 +268,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         params["set"] = Json::objectValue;
         params["set"]["global"] = Json::objectValue;
         params["set"]["global"]["rng_poll_ms"] = 5;
-        params["set"]["global"]["no_export_sig"] = true;
-        params["set"]["global"]["no_export_sig_hash"] = true;
         params["set"]["peer_defaults"] = Json::objectValue;
         params["set"]["peer_defaults"]["send_delay_ms"] = 100;
         params["set"]["peer_defaults"]["send_drop_pct"] = 10.0;
@@ -279,8 +280,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         auto const& configs = result["configs"];
         BEAST_EXPECT(configs.isMember("global"));
         BEAST_EXPECT(configs["global"]["rng_poll_ms"].asInt() == 50);
-        BEAST_EXPECT(configs["global"]["no_export_sig"].asBool() == true);
-        BEAST_EXPECT(configs["global"]["no_export_sig_hash"].asBool() == true);
         BEAST_EXPECT(configs.isMember("peer_defaults"));
         BEAST_EXPECT(configs.isMember("peer:10.0.0.2:51235"));
 
@@ -288,10 +287,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
         auto global = rc.getConsensusTestConfig();
         BEAST_EXPECT(global.has_value());
         BEAST_EXPECT(global->rngPollMs == 50);
-        BEAST_EXPECT(global->noExportSig.has_value());
-        BEAST_EXPECT(*global->noExportSig == true);
-        BEAST_EXPECT(global->noExportSigHash.has_value());
-        BEAST_EXPECT(*global->noExportSigHash == true);
 
         auto peerCfg = rc.getPeerFaultConfig("10.0.0.2:51235");
         if (!BEAST_EXPECT(peerCfg.has_value()))
@@ -344,7 +339,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
             Json::Value params;
             params["set"] = Json::objectValue;
             params["set"]["global"] = Json::objectValue;
-            params["set"]["global"]["no_export_sig"] = true;
+            params["set"]["global"]["bootstrap_fast_start"] = true;
             params["set"]["peer_defaults"] = Json::objectValue;
             params["set"]["peer_defaults"]["send_delay_ms"] = 50;
             params["set"]["peer:10.0.0.2:51235"] = Json::objectValue;
@@ -379,7 +374,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
         Json::Value params;
         params["set"] = Json::objectValue;
         params["set"]["global"] = Json::objectValue;
-        params["set"]["global"]["no_export_sig"] = true;
+        params["set"]["global"]["bootstrap_fast_start"] = true;
         params["set"]["peer_defaults"] = Json::objectValue;
         params["set"]["peer_defaults"]["send_drop_pct"] = 50.0;
         runtimeConfig(env, params);
@@ -451,7 +446,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
             Json::Value params;
             params["set"] = Json::objectValue;
             params["set"]["peer:10.0.0.2:51235"] = Json::objectValue;
-            params["set"]["peer:10.0.0.2:51235"]["no_export_sig_hash"] = true;
+            params["set"]["peer:10.0.0.2:51235"]["bootstrap_fast_start"] = true;
             expectInvalid(params);
         }
 

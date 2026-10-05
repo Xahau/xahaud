@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/consensus/ProposalPrecheck.h>
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
@@ -33,7 +32,6 @@
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/overlay/Cluster.h>
-#include <xrpld/overlay/detail/ExportShareJob.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/overlay/detail/Tuning.h>
 #include <xrpld/perflog/PerfLog.h>
@@ -66,21 +64,6 @@ std::chrono::milliseconds constexpr peerHighLatency{300};
 
 /** How often we PING the peer to check for latency and sendq probe */
 std::chrono::seconds constexpr peerTimerInterval{60};
-
-Resource::Charge const*
-exportShareFee(ExportShareCharge const charge)
-{
-    switch (charge)
-    {
-        case ExportShareCharge::none:
-            return nullptr;
-        case ExportShareCharge::invalidData:
-            return &Resource::feeInvalidData;
-        case ExportShareCharge::invalidSignature:
-            return &Resource::feeInvalidSignature;
-    }
-    return nullptr;
-}
 }  // namespace
 
 // TODO: Remove this exclusion once unit tests are added after the hotfix
@@ -145,8 +128,6 @@ PeerImp::PeerImp(
           app_.config().LEDGER_REPLAY))
     , consensusEntropyCapable_(
           peerFeatureEnabled(headers_, FEATURE_CONSENSUS_ENTROPY, true))
-    , exportSharesCapable_(
-          peerFeatureEnabled(headers_, FEATURE_EXPORT_SHARES, true))
     , ledgerReplayMsgHandler_(app, app.getLedgerReplayer())
 {
     JLOG(journal_.info()) << "compression enabled "
@@ -156,10 +137,8 @@ PeerImp::PeerImp(
                           << " tx reduce-relay enabled "
                           << txReduceRelayEnabled_
                           << " consensus entropy capability negotiated "
-                          << consensusEntropyCapable_
-                          << " export shares capability negotiated "
-                          << exportSharesCapable_ << " on " << remote_address_
-                          << " " << id_;
+                          << consensusEntropyCapable_ << " on "
+                          << remote_address_ << " " << id_;
 }
 
 PeerImp::~PeerImp()
@@ -494,7 +473,6 @@ PeerImp::json()
 
     ret[jss::protocol] = to_string(protocol_);
     ret["capabilities"][FEATURE_CONSENSUS_ENTROPY] = consensusEntropyCapable_;
-    ret["capabilities"][FEATURE_EXPORT_SHARES] = exportSharesCapable_;
 
     {
         std::lock_guard sl(recentLock_);
@@ -594,8 +572,6 @@ PeerImp::supportsFeature(ProtocolFeature f) const
             return ledgerReplayEnabled_;
         case ProtocolFeature::ConsensusEntropy:
             return consensusEntropyCapable_;
-        case ProtocolFeature::ExportShares:
-            return exportSharesCapable_;
     }
     return false;
 }
@@ -1155,95 +1131,6 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMManifests> const& m)
     app_.getJobQueue().addJob(
         jtMANIFEST, "receiveManifests", [this, that = shared_from_this(), m]() {
             overlay_.onManifests(m, that);
-        });
-}
-
-void
-PeerImp::onMessage(std::shared_ptr<protocol::TMExportShares> const& m)
-{
-    auto shares = detail::parseExportShareBatch(*m);
-    if (!shares)
-    {
-        fee_.update(Resource::feeMalformedRequest, "malformed export shares");
-        return;
-    }
-
-    std::vector<std::size_t> fresh;
-    fresh.reserve(shares->size());
-    auto const validatedSeq = app_.getLedgerMaster().getValidLedgerIndex();
-    for (std::size_t i = 0; i < shares->size(); ++i)
-    {
-        // Admission depends on the validated chain and signing-key attribution.
-        // An unknown key may become attributable when its manifest arrives,
-        // even while validation is unchanged. Scope retries to this key's
-        // resolved identity, so unrelated manifest churn does not reopen them.
-        auto const resolvedMaster =
-            app_.validatorManifests().getMasterKey((*shares)[i].signingKey);
-        auto const admissionKey =
-            sha512Half((*shares)[i].wireHash(), validatedSeq, resolvedMaster);
-        bool const freshForState =
-            app_.getHashRouter().addSuppressionPeer(admissionKey, id_);
-        JLOG(journal_.trace())
-            << "ExportShare: wire received"
-            << " peer=" << id_ << " origin=" << (*shares)[i].originTxn
-            << " position=" << unsigned((*shares)[i].committeePosition)
-            << " wire=" << (*shares)[i].wireHash()
-            << " suppressionSeq=" << validatedSeq << " suppressionMaster="
-            << toBase58(TokenType::NodePublic, resolvedMaster)
-            << " fresh=" << freshForState;
-        if (freshForState)
-            fresh.push_back(i);
-    }
-
-    if (fresh.empty())
-        return;
-
-    std::weak_ptr<PeerImp> weak = shared_from_this();
-    detail::postExportShareJob(
-        app_.getJobQueue(),
-        [weak, m, shares = std::move(*shares), fresh = std::move(fresh)]() {
-            auto const peer = weak.lock();
-            if (!peer)
-                return;
-
-            protocol::TMExportShares accepted;
-            accepted.mutable_shares()->Reserve(fresh.size());
-            for (auto const index : fresh)
-            {
-                auto const chargeDeferred =
-                    [weak](ExportShareCharge const charge) {
-                        auto const peer = weak.lock();
-                        auto const fee = exportShareFee(charge);
-                        if (peer && fee)
-                            peer->charge(*fee, "deferred export share");
-                    };
-                auto const admission = peer->overlay_.acceptExportShare(
-                    shares[index], chargeDeferred);
-                JLOG(peer->journal_.trace())
-                    << "ExportShare: wire admission result"
-                    << " peer=" << peer->id_
-                    << " origin=" << shares[index].originTxn
-                    << " wire=" << shares[index].wireHash() << " disposition="
-                    << static_cast<unsigned>(admission.disposition);
-                if (admission.isAccepted())
-                {
-                    // Stable raw-wire routing begins only after semantic
-                    // admission; an early state-relative rejection must not
-                    // poison later relay of the same bytes.
-                    peer->app_.getHashRouter().addSuppressionPeer(
-                        shares[index].wireHash(), peer->id_);
-                    accepted.add_shares(m->shares(index));
-                }
-                else if (auto const fee = exportShareFee(admission.charge))
-                {
-                    peer->charge(*fee, "export share");
-                }
-            }
-
-            // Structural validity is insufficient: only application-admitted
-            // frames are eligible for relay.
-            if (accepted.shares_size() != 0)
-                peer->overlay_.relay(accepted);
         });
 }
 
@@ -1881,9 +1768,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
         return !proposalParent || proposalParent->rules().enabled(feature);
     };
     auto const precheck = detail::checkProposalExtensions(
-        set,
-        [&] { return featureEnabled(featureConsensusEntropy); },
-        [&] { return featureEnabled(featureExport); });
+        set, [&] { return featureEnabled(featureConsensusEntropy); });
     if (auto const rejection =
             detail::proposalPrecheckRejection(precheck.result))
     {
@@ -1937,16 +1822,6 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
     JLOG(p_journal_.trace())
         << "Proposal: " << (isTrusted ? "trusted" : "untrusted");
 
-    // Export sig harvesting moved to checkPropose(), after checkSign()
-    // verifies the proposal's cryptographic signature. Harvesting here
-    // (before async sig verification) would allow any peer to inject
-    // forged export sigs by spoofing nodepubkey to a trusted validator.
-
-    std::vector<std::string> exportSignatures;
-    exportSignatures.reserve(set.exportsignatures_size());
-    for (int i = 0; i < set.exportsignatures_size(); ++i)
-        exportSignatures.push_back(set.exportsignatures(i));
-
     auto proposal = RCLCxPeerPos(
         publicKey,
         sig,
@@ -1957,8 +1832,7 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
             parsedPosition,
             closeTime,
             app_.timeKeeper().closeTime(),
-            calcNodeID(app_.validatorManifests().getMasterKey(publicKey))},
-        std::move(exportSignatures));
+            calcNodeID(app_.validatorManifests().getMasterKey(publicKey))});
 
     std::weak_ptr<PeerImp> weak = shared_from_this();
     app_.getJobQueue().addJob(
@@ -3171,13 +3045,6 @@ PeerImp::checkPropose(
         return;
     }
     //@@end peer-proposal-authentication
-
-    //@@start peer-harvest-export-sigs
-    // Harvest export sigs AFTER checkSign() so only cryptographically
-    // verified proposals can contribute signatures to the collector.
-    if (isTrusted && sigValid)
-        app_.getConsensusExtensions().onTrustedPeerMessage(*packet);
-    //@@end peer-harvest-export-sigs
 
     bool relay;
 

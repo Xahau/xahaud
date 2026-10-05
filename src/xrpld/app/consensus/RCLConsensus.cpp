@@ -226,9 +226,6 @@ RCLConsensus::Adaptor::share(RCLCxPeerPos const& peerPos)
     auto const sig = peerPos.signature();
     prop.set_signature(sig.data(), sig.size());
 
-    for (auto const& exportSig : peerPos.exportSignatures())
-        prop.add_exportsignatures(exportSig.data(), exportSig.size());
-
     app_.overlay().relay(prop, peerPos.suppressionID(), peerPos.publicKey());
 }
 
@@ -273,16 +270,11 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
 
     auto wirePosition = proposal.position();
 
-    ce().attachExportSignatures(prop, proposal);
-    if (prop.exportsignatures_size() > 0)
-        wirePosition.exportSignaturesHash =
-            proposalExportSignaturesHash(prop.exportsignatures());
-
     ce().attachParticipantDiagnostics(wirePosition);
 
     //@@start local-proposal-position-payload
-    // Serialize full ExtendedPosition (includes RNG leaves, export signature
-    // digest, and signed diagnostics)
+    // Serialize full ExtendedPosition (includes RNG leaves and signed
+    // diagnostics)
     Serializer positionData;
     wirePosition.add(positionData);
     auto const posSlice = positionData.slice();
@@ -598,9 +590,7 @@ RCLConsensus::Adaptor::doAccept(
     auto const& buildTxs = liveBuild ? liveBuild->txns : result.txns;
     auto const buildTxSetHash = buildTxs.id();
 
-    if (liveBuild &&
-        (liveBuild->suppliedEntropy != 0 ||
-         liveBuild->suppliedExportWitnesses != 0))
+    if (liveBuild && liveBuild->suppliedEntropy != 0)
     {
         JLOG(j_.error())
             << "ConsensusExtensions: excluded supplied synthetic txs from "
@@ -608,8 +598,7 @@ RCLConsensus::Adaptor::doAccept(
             << " seq=" << (prevLedger.seq() + 1)
             << " consensusSet=" << consensusTxSetHash
             << " buildSet=" << buildTxSetHash
-            << " entropy=" << liveBuild->suppliedEntropy
-            << " exportWitnesses=" << liveBuild->suppliedExportWitnesses;
+            << " entropy=" << liveBuild->suppliedEntropy;
     }
 
     // We want to put transactions in an unpredictable but deterministic order.
@@ -645,9 +634,8 @@ RCLConsensus::Adaptor::doAccept(
     //@@end txn-ordering-salt-build-inputs
 
     //@@start auxiliary-pre-build-injection
-    // Inject extension pseudo-transactions only for a live build. Entropy and
-    // Export witness injection are independently gated inside onPreBuild;
-    // export-only rounds still need this hook even when RNG is off.
+    // Inject extension pseudo-transactions only for a live build. Entropy
+    // injection is gated inside onPreBuild.
     //@@start accept-time-cleanup-disabled
     {
         // Match consensus-side readers/writers. Never extend this scope across
@@ -657,7 +645,7 @@ RCLConsensus::Adaptor::doAccept(
         {
             ce().onReplayBuild();
         }
-        else if (ce().rngEnabled() || ce().exportEnabled())
+        else if (ce().rngEnabled())
         {
             ce().onPreBuild(retriableTxs, buildSeq, buildTxSetHash);
         }
@@ -691,8 +679,6 @@ RCLConsensus::Adaptor::doAccept(
     if (built.ledger_->rules().enabled(featureConsensusEntropy))
         app_.overlay().requireProtocolFeature(
             ProtocolFeature::ConsensusEntropy);
-    if (built.ledger_->rules().enabled(featureExport))
-        app_.overlay().requireProtocolFeature(ProtocolFeature::ExportShares);
 
     // Tell directly connected peers that we have a new LCL
     notify(protocol::neACCEPTED_LEDGER, built, haveCorrectLCL);
@@ -1099,9 +1085,10 @@ RCLConsensus::phase() const
 bool
 RCLConsensus::extensionsBusy() const
 {
-    // The heartbeat reads only the published atomic. It does not take
-    // mutex_: the accept job and the share jobs do not hold that lock,
-    // and the atomic is the synchronization boundary for this poll.
+    // ConsensusExtensions state is mutated by timer, peer-proposal and
+    // local sidecar snapshot paths under this mutex. Busy polling observes
+    // the same state, so it must share the same synchronization boundary.
+    std::lock_guard _{mutex_};
     return consensus_->extensionsBusy();
 }
 
@@ -1190,16 +1177,12 @@ RCLConsensus::Adaptor::preStartRound(
     //@@start pre-start-round-extension-latches
     ce().setRngEnabledThisRound(
         prevLgr.ledger_->rules().enabled(featureConsensusEntropy));
-    ce().setExportEnabledThisRound(
-        prevLgr.ledger_->rules().enabled(featureExport));
     //@@end pre-start-round-extension-latches
 
     JLOG(j_.trace()) << "RNGGATE: preStartRound"
                      << " prevSeq=" << prevLgr.seq()
                      << " buildSeq=" << (prevLgr.seq() + 1)
-                     << " rngEnabled=" << (ce().rngEnabled() ? "yes" : "no")
-                     << " exportEnabled="
-                     << (ce().exportEnabled() ? "yes" : "no");
+                     << " rngEnabled=" << (ce().rngEnabled() ? "yes" : "no");
 
     // We have a key, we do not want out of sync validations after a restart
     // and are not amendment blocked.

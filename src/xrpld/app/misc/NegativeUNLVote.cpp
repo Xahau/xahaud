@@ -33,11 +33,9 @@ std::optional<std::size_t>
 negativeUNLActiveViewCapDenominator(
     std::shared_ptr<Ledger const> const& prevLedger)
 {
-    // The features consuming the active view also enable the matching
-    // producer-side cap, using the same parent-ledger rules.
-    if (!prevLedger ||
-        (!prevLedger->rules().enabled(featureConsensusEntropy) &&
-         !prevLedger->rules().enabled(featureExport)))
+    // ConsensusEntropy consumes the active view, so it also enables the
+    // matching producer-side cap, using the same parent-ledger rules.
+    if (!prevLedger || !prevLedger->rules().enabled(featureConsensusEntropy))
     {
         return std::nullopt;
     }

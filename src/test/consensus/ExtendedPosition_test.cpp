@@ -67,39 +67,30 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(!deserialized->myReveal);
             BEAST_EXPECT(!deserialized->commitSetHash);
             BEAST_EXPECT(!deserialized->entropySetHash);
-            BEAST_EXPECT(!deserialized->exportSigSetHash);
-            BEAST_EXPECT(!deserialized->exportSignaturesHash);
             BEAST_EXPECT(!deserialized->observedParticipantsHash);
         }
         //@@end test-extended-position-legacy-compat
 
-        //@@start test-extended-position-export-root-wire-bit
-        // Pin the existing Export root allocation independently of the
-        // all-fields fixture: byte 32 is flags, and bit 0x10 carries exactly
-        // one following uint256 exportSigSetHash.
+        // Flag bits 0x10 and 0x20 carry no position field: a payload that
+        // sets either is rejected, with or without matching bytes.
         {
-            auto const txSet = makeHash("txset-export-root-wire");
-            auto const exportRoot = makeHash("export-root-wire");
-            ExtendedPosition pos{txSet};
-            pos.exportSigSetHash = exportRoot;
-
-            Serializer s;
-            pos.add(s);
-            BEAST_EXPECT(s.getDataLength() == 65);
-            BEAST_EXPECT(s.peekData()[32] == 0x10);
-
-            SerialIter sit(s.slice());
-            auto const deserialized =
-                ExtendedPosition::fromSerialIter(sit, s.getDataLength());
-            BEAST_EXPECT(deserialized);
-            if (deserialized)
-            {
-                BEAST_EXPECT(deserialized->txSetHash == txSet);
-                BEAST_EXPECT(deserialized->exportSigSetHash == exportRoot);
-                BEAST_EXPECT(!deserialized->exportSignaturesHash);
-            }
+            auto const txSet = makeHash("txset-unknown-bits");
+            auto const rejected = [&](std::uint8_t flags,
+                                      std::size_t payloadFields) {
+                Serializer s;
+                s.addBitString(txSet);
+                s.add8(flags);
+                for (std::size_t i = 0; i < payloadFields; ++i)
+                    s.addBitString(makeHash("unknown-bit-payload"));
+                SerialIter sit(s.slice());
+                return !ExtendedPosition::fromSerialIter(
+                    sit, s.getDataLength());
+            };
+            BEAST_EXPECT(rejected(0x10, 1));  // 65 bytes
+            BEAST_EXPECT(rejected(0x20, 1));  // 65 bytes
+            BEAST_EXPECT(rejected(0x30, 2));  // 97 bytes
+            BEAST_EXPECT(rejected(0x10, 0));  // 33 bytes
         }
-        //@@end test-extended-position-export-root-wire-bit
 
         // Position with commitment
         {
@@ -160,8 +151,6 @@ class ExtendedPosition_test : public beast::unit_test::suite
             auto const txSet = makeHash("txset-c");
             auto const commitSet = makeHash("commitset-c");
             auto const entropySet = makeHash("entropyset-c");
-            auto const exportSigSet = makeHash("exportsigset-c");
-            auto const exportSigs = makeHash("exportsigs-c");
             auto const participants = makeHash("participants-c");
             auto const commit = makeHash("commit-c");
             auto const reveal = makeHash("reveal-c");
@@ -169,8 +158,6 @@ class ExtendedPosition_test : public beast::unit_test::suite
             ExtendedPosition pos{txSet};
             pos.commitSetHash = commitSet;
             pos.entropySetHash = entropySet;
-            pos.exportSigSetHash = exportSigSet;
-            pos.exportSignaturesHash = exportSigs;
             pos.observedParticipantsHash = participants;
             pos.myCommitment = commit;
             pos.myReveal = reveal;
@@ -178,8 +165,8 @@ class ExtendedPosition_test : public beast::unit_test::suite
             Serializer s;
             pos.add(s);
 
-            // 32 + 1 + 7*32 = 257
-            BEAST_EXPECT(s.getDataLength() == 257);
+            // 32 + 1 + 5*32 = 193
+            BEAST_EXPECT(s.getDataLength() == 193);
 
             SerialIter sit(s.slice());
             auto deserialized =
@@ -191,8 +178,6 @@ class ExtendedPosition_test : public beast::unit_test::suite
             BEAST_EXPECT(deserialized->txSetHash == txSet);
             BEAST_EXPECT(deserialized->commitSetHash == commitSet);
             BEAST_EXPECT(deserialized->entropySetHash == entropySet);
-            BEAST_EXPECT(deserialized->exportSigSetHash == exportSigSet);
-            BEAST_EXPECT(deserialized->exportSignaturesHash == exportSigs);
             BEAST_EXPECT(
                 deserialized->observedParticipantsHash == participants);
             BEAST_EXPECT(deserialized->myCommitment == commit);
@@ -383,8 +368,6 @@ class ExtendedPosition_test : public beast::unit_test::suite
         ExtendedPosition pos{makeHash("txset-peer")};
         pos.commitSetHash = makeHash("commitset-peer");
         pos.entropySetHash = makeHash("entropyset-peer");
-        pos.exportSigSetHash = makeHash("exportsigset-peer");
-        pos.exportSignaturesHash = makeHash("exportsigs-peer");
         pos.observedParticipantsHash = makeHash("participants-peer");
         pos.myCommitment = makeHash("commitment-peer");
         pos.myReveal = makeHash("reveal-peer");
@@ -401,8 +384,6 @@ class ExtendedPosition_test : public beast::unit_test::suite
         auto const sig = signDigest(pk, sk, prop.signingHash());
         auto const suppression = proposalUniqueId(
             pos, prevLedger, prop.proposeSeq(), closeTime, pk, sig);
-        std::vector<std::string> exportSignatures{
-            "export-sig-a", "export-sig-b"};
 
         RCLCxPeerPos peer{
             pk,
@@ -414,15 +395,13 @@ class ExtendedPosition_test : public beast::unit_test::suite
                 pos,
                 closeTime,
                 NetClock::time_point{},
-                nodeId},
-            exportSignatures};
+                nodeId}};
 
         BEAST_EXPECT(peer.checkSign());
         BEAST_EXPECT(peer.publicKey() == pk);
         BEAST_EXPECT(peer.signature().size() == sig.size());
         BEAST_EXPECT(peer.suppressionID() == suppression);
         BEAST_EXPECT(peer.proposal().position().txSetHash == pos.txSetHash);
-        BEAST_EXPECT(peer.exportSignatures() == exportSignatures);
         BEAST_EXPECT(!peer.render().empty());
 
         auto const json = peer.getJson();
@@ -454,8 +433,7 @@ class ExtendedPosition_test : public beast::unit_test::suite
             suppression);
 
         mutated = pos;
-        //@@start test-extended-position-export-root-binds-proposal
-        mutated.exportSigSetHash = makeHash("exportsigset-peer-mutated");
+        mutated.entropySetHash = makeHash("entropyset-peer-mutated");
         BEAST_EXPECT(
             proposalUniqueId(
                 mutated, prevLedger, prop.proposeSeq(), closeTime, pk, sig) !=
@@ -470,14 +448,6 @@ class ExtendedPosition_test : public beast::unit_test::suite
         BEAST_EXPECT(mutatedRootProposal.signingHash() != prop.signingHash());
         BEAST_EXPECT(
             !verifyDigest(pk, mutatedRootProposal.signingHash(), sig, false));
-        //@@end test-extended-position-export-root-binds-proposal
-
-        mutated = pos;
-        mutated.exportSignaturesHash = makeHash("exportsigs-peer-mutated");
-        BEAST_EXPECT(
-            proposalUniqueId(
-                mutated, prevLedger, prop.proposeSeq(), closeTime, pk, sig) !=
-            suppression);
 
         BEAST_EXPECT(
             proposalUniqueId(
@@ -659,10 +629,6 @@ class ExtendedPosition_test : public beast::unit_test::suite
         b.entropySetHash = makeHash("es-eq");
         BEAST_EXPECT(positionTxSetID(a) == positionTxSetID(b));
 
-        // Same txSetHash, different export signature digest -> same tx-set key
-        b.exportSignaturesHash = makeHash("export-sigs-eq");
-        BEAST_EXPECT(positionTxSetID(a) == positionTxSetID(b));
-
         // Same txSetHash, different participant diagnostics -> same tx-set key
         b.observedParticipantsHash = makeHash("participants-eq");
         BEAST_EXPECT(positionTxSetID(a) == positionTxSetID(b));
@@ -680,29 +646,6 @@ class ExtendedPosition_test : public beast::unit_test::suite
     }
 
     void
-    testExportSignatureDigest()
-    {
-        testcase("Export signature digest");
-
-        //@@start test-extended-position-export-signature-digest
-        std::vector<std::string> blobs;
-        blobs.emplace_back("txhash-pubkey-sig-a");
-        blobs.emplace_back("txhash-pubkey-sig-b");
-
-        auto const digest = proposalExportSignaturesHash(blobs);
-        BEAST_EXPECT(digest == proposalExportSignaturesHash(blobs));
-
-        auto reordered = blobs;
-        std::swap(reordered[0], reordered[1]);
-        BEAST_EXPECT(digest != proposalExportSignaturesHash(reordered));
-
-        auto mutated = blobs;
-        mutated[1].push_back('x');
-        BEAST_EXPECT(digest != proposalExportSignaturesHash(mutated));
-        //@@end test-extended-position-export-signature-digest
-    }
-
-    void
     testStringJsonAndHash()
     {
         testcase("String, JSON, and hash helpers");
@@ -710,15 +653,11 @@ class ExtendedPosition_test : public beast::unit_test::suite
         auto const txSet = makeHash("txset-json");
         auto const commitSet = makeHash("commitset-json");
         auto const entropySet = makeHash("entropyset-json");
-        auto const exportSigSet = makeHash("exportsigset-json");
-        auto const exportSigs = makeHash("exportsigs-json");
         auto const participants = makeHash("participants-json");
 
         ExtendedPosition pos{txSet};
         pos.commitSetHash = commitSet;
         pos.entropySetHash = entropySet;
-        pos.exportSigSetHash = exportSigSet;
-        pos.exportSignaturesHash = exportSigs;
         pos.observedParticipantsHash = participants;
 
         BEAST_EXPECT(to_string(pos) == to_string(txSet));
@@ -731,10 +670,6 @@ class ExtendedPosition_test : public beast::unit_test::suite
         BEAST_EXPECT(json["tx_set"].asString() == to_string(txSet));
         BEAST_EXPECT(json["commit_set"].asString() == to_string(commitSet));
         BEAST_EXPECT(json["entropy_set"].asString() == to_string(entropySet));
-        BEAST_EXPECT(
-            json["export_sig_set"].asString() == to_string(exportSigSet));
-        BEAST_EXPECT(
-            json["export_signatures"].asString() == to_string(exportSigs));
         BEAST_EXPECT(
             json["observed_participants"].asString() ==
             to_string(participants));
@@ -761,7 +696,6 @@ public:
         testPeerPosition();
         testMalformedPayload();
         testTxSetIdentity();
-        testExportSignatureDigest();
         testStringJsonAndHash();
     }
 };

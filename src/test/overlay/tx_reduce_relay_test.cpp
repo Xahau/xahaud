@@ -25,7 +25,6 @@
 #include <xrpld/peerfinder/detail/SlotImp.h>
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/beast/unit_test.h>
-#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/Sign.h>
 
@@ -384,13 +383,10 @@ private:
         testcase("active ledger installs protocol feature gate");
         auto config = jtx::envconfig();
         config->features.insert(featureConsensusEntropy);
-        config->features.insert(featureExport);
         jtx::Env env(*this, std::move(config));
         auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
         BEAST_EXPECT(overlay.isProtocolFeatureRequired(
             ProtocolFeature::ConsensusEntropy));
-        BEAST_EXPECT(
-            overlay.isProtocolFeatureRequired(ProtocolFeature::ExportShares));
     }
 
     void
@@ -405,12 +401,13 @@ private:
         boost::beast::http::fields capable;
         capable.set("X-Protocol-Ctl", capableCtl);
 
-        overlay.requireProtocolFeature(ProtocolFeature::ExportShares);
-        BEAST_EXPECT(
-            overlay.isProtocolFeatureRequired(ProtocolFeature::ExportShares));
+        overlay.requireProtocolFeature(ProtocolFeature::ConsensusEntropy);
+        BEAST_EXPECT(overlay.isProtocolFeatureRequired(
+            ProtocolFeature::ConsensusEntropy));
         BEAST_EXPECT(
             overlay.missingRequiredProtocolFeatureInHandshake(
-                empty, make_protocol(2, 2)) == ProtocolFeature::ExportShares);
+                empty, make_protocol(2, 2)) ==
+            ProtocolFeature::ConsensusEntropy);
         BEAST_EXPECT(!overlay.missingRequiredProtocolFeatureInHandshake(
             capable, make_protocol(2, 2)));
 
@@ -434,52 +431,6 @@ private:
             withReplay, make_protocol(2, 2)));
     }
 
-    static protocol::TMExportShares
-    makeExportShareBatch(uint256 const& sidecarHash)
-    {
-        auto const [key, secret] = randomKeyPair(KeyType::secp256k1);
-        auto const signature = sign(key, secret, Slice{"export-share", 12});
-        ExportShare const share{
-            ExportShare::currentVersion,
-            calcAccountID(key),
-            sidecarHash,
-            4'200'000,
-            uint256{2},
-            17,
-            key,
-            signature};
-        auto const encoded = share.serialize();
-        protocol::TMExportShares batch;
-        batch.add_shares(encoded.data(), encoded.size());
-        return batch;
-    }
-
-    void
-    testExportSharesRelayCutoff()
-    {
-        testcase("export share relay respects protocol feature gate");
-        jtx::Env env(*this);
-        auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
-        std::vector<std::shared_ptr<PeerTest>> peers;
-        PeerTest::init();
-        lid_ = 0;
-        rid_ = 1;
-
-        std::uint16_t disabled = 1;
-        addPeer(env, peers, disabled);
-        overlay.requireProtocolFeature(ProtocolFeature::ExportShares);
-
-        auto legacyBatch = makeExportShareBatch(uint256{1});
-        overlay.relay(legacyBatch);
-        BEAST_EXPECT(PeerTest::sendTx_ == 0);
-
-        disabled = 0;
-        addPeer(env, peers, disabled);
-        auto capableBatch = makeExportShareBatch(uint256{3});
-        overlay.relay(capableBatch);
-        BEAST_EXPECT(PeerTest::sendTx_ == 1);
-    }
-
     void
     run() override
     {
@@ -490,7 +441,6 @@ private:
         testProtocolFeatureGate();
         testProtocolFeatureGateFromLedger();
         testGenericProtocolFeatureAdmission();
-        testExportSharesRelayCutoff();
         // relay to all peers, no hash queue
         testRelay("feature disabled", false, 10, 0, 10, 25, 10, 0);
         // relay to nPeers - skip (10-5=5)

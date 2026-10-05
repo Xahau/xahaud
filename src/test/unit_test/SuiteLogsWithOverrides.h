@@ -85,7 +85,7 @@ public:
  *          std::make_unique<SuiteLogsWithOverrides>(
  *              *this,
  *              SuiteLogsWithOverrides::Overrides{
- *                  {"Export",  Sev::kTrace},
+ *                  {"ConsensusExtensions",  Sev::kTrace},
  *                  {"TxQ",    Sev::kInfo},
  *                  {"View",   Sev::kDebug},
  *              })};

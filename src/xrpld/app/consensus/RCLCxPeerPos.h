@@ -57,8 +57,6 @@ struct ExtendedPosition
     // === Set Hashes (sub-state quorum, not core tx-set identity) ===
     std::optional<uint256> commitSetHash;
     std::optional<uint256> entropySetHash;
-    std::optional<uint256> exportSigSetHash;
-    std::optional<uint256> exportSignaturesHash;
     // Signed diagnostic only: not a quorum input and not part of tx-set
     // identity.
     std::optional<uint256> observedParticipantsHash;
@@ -116,7 +114,7 @@ struct ExtendedPosition
     //   payload with consensus-extension sidecars.
     // - Older binaries that only understand a raw uint256 proposal position
     //   will reject extended payloads as malformed.
-    // - Therefore enabling ConsensusEntropy or Export requires an all-upgraded
+    // - Therefore enabling ConsensusEntropy requires an all-upgraded
     //   validator set; this format is backward-compatible, not
     //   forward-compatible.
     //@@start rng-extended-position-serialize
@@ -127,8 +125,7 @@ struct ExtendedPosition
 
         // Wire compatibility: if no extensions, emit exactly 32 bytes
         // so legacy nodes that expect a plain uint256 work unchanged.
-        if (!commitSetHash && !entropySetHash && !exportSigSetHash &&
-            !exportSignaturesHash && !observedParticipantsHash &&
+        if (!commitSetHash && !entropySetHash && !observedParticipantsHash &&
             !myCommitment && !myReveal)
             return;
 
@@ -141,10 +138,6 @@ struct ExtendedPosition
             flags |= 0x04;
         if (myReveal)
             flags |= 0x08;
-        if (exportSigSetHash)
-            flags |= 0x10;
-        if (exportSignaturesHash)
-            flags |= 0x20;
         if (observedParticipantsHash)
             flags |= 0x40;
         s.add8(flags);
@@ -157,10 +150,6 @@ struct ExtendedPosition
             s.addBitString(*myCommitment);
         if (myReveal)
             s.addBitString(*myReveal);
-        if (exportSigSetHash)
-            s.addBitString(*exportSigSetHash);
-        if (exportSignaturesHash)
-            s.addBitString(*exportSignaturesHash);
         if (observedParticipantsHash)
             s.addBitString(*observedParticipantsHash);
     }
@@ -175,10 +164,6 @@ struct ExtendedPosition
             ret["commit_set"] = to_string(*commitSetHash);
         if (entropySetHash)
             ret["entropy_set"] = to_string(*entropySetHash);
-        if (exportSigSetHash)
-            ret["export_sig_set"] = to_string(*exportSigSetHash);
-        if (exportSignaturesHash)
-            ret["export_signatures"] = to_string(*exportSignaturesHash);
         if (observedParticipantsHash)
             ret["observed_participants"] = to_string(*observedParticipantsHash);
         return ret;
@@ -214,7 +199,8 @@ struct ExtendedPosition
             return std::nullopt;
 
         // Reject unknown flag bits (reduces wire malleability)
-        if (flags & 0x80)
+        constexpr std::uint8_t knownFlags = 0x01 | 0x02 | 0x04 | 0x08 | 0x40;
+        if ((flags & ~knownFlags) != 0)
             return std::nullopt;
 
         // Validate exact byte count for the flagged fields.
@@ -235,10 +221,6 @@ struct ExtendedPosition
             pos.myCommitment = sit.get256();
         if (flags & 0x08)
             pos.myReveal = sit.get256();
-        if (flags & 0x10)
-            pos.exportSigSetHash = sit.get256();
-        if (flags & 0x20)
-            pos.exportSignaturesHash = sit.get256();
         if (flags & 0x40)
             pos.observedParticipantsHash = sit.get256();
 
@@ -260,26 +242,6 @@ operator<<(std::ostream& os, ExtendedPosition const& pos)
 {
     return os << pos.txSetHash;
 }
-
-/** Hash the raw export-signature blobs carried alongside a proposal.
-
-    The resulting digest is embedded in ExtendedPosition and therefore covered
-    by the normal proposal signature. The raw protobuf field remains outside
-    core tx-set identity, but stripping or mutating it invalidates the signed
-    digest before duplicate suppression.
-*/
-//@@start proposal-export-signatures-hash
-template <class ExportSignatures>
-uint256
-proposalExportSignaturesHash(ExportSignatures const& exportSignatures)
-{
-    Serializer s(512);
-    s.add32(static_cast<std::uint32_t>(exportSignatures.size()));
-    for (auto const& blob : exportSignatures)
-        s.addVL(Slice(blob.data(), blob.size()));
-    return s.getSHA512Half();
-}
-//@@end proposal-export-signatures-hash
 
 // For hash_append (used in sha512Half and similar)
 //@@start extended-position-hash-append
@@ -321,8 +283,7 @@ public:
         PublicKey const& publicKey,
         Slice const& signature,
         uint256 const& suppress,
-        Proposal&& proposal,
-        std::vector<std::string> exportSignatures = {});
+        Proposal&& proposal);
 
     //! Verify the signing hash of the proposal
     bool
@@ -355,12 +316,6 @@ public:
         return proposal_;
     }
 
-    std::vector<std::string> const&
-    exportSignatures() const
-    {
-        return exportSignatures_;
-    }
-
     //! JSON representation of proposal
     Json::Value
     getJson() const;
@@ -375,7 +330,6 @@ private:
     PublicKey publicKey_;
     uint256 suppression_;
     Proposal proposal_;
-    std::vector<std::string> exportSignatures_;
     boost::container::static_vector<std::uint8_t, 72> signature_;
 
     template <class Hasher>

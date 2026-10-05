@@ -99,7 +99,7 @@ inspectTxConvergedSidecarPeers(
         return state;
 
     // The alignment-counting universe must be the active validator view, the
-    // same denominator the entropy/export thresholds use (quorumThreshold /
+    // same denominator the entropy thresholds use (quorumThreshold /
     // tier2Threshold are computed over that view). A trusted-but-non-active
     // proposer can tx-converge and advertise a sidecar hash, but it must NOT
     // pad alignedParticipants(): counting outside the active view inflates the
@@ -137,10 +137,10 @@ inspectTxConvergedSidecarPeers(
     return state;
 }
 
-/// Advance RNG without deciding whether the other extension is ready.
-template <class Ext, class Ctx, class Propose>
+/// Advance the RNG commit/reveal sub-states.
+template <class Ext, class Ctx>
 ExtensionTickResult
-rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
+rngTick(Ext& ext, Ctx const& ctx)
 {
     // --- RNG Sub-state Checkpoints ---
     // These sub-states use union convergence (not avalanche).
@@ -210,10 +210,6 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                 << " entropySetHash="
                 << (ourPos.entropySetHash ? to_string(*ourPos.entropySetHash)
                                           : std::string{"none"})
-                << " exportSigSetHash="
-                << (ourPos.exportSigSetHash
-                        ? to_string(*ourPos.exportSigSetHash)
-                        : std::string{"none"})
                 << " myCommitment=" << (ourPos.myCommitment ? "yes" : "no")
                 << " myReveal=" << (ourPos.myReveal ? "yes" : "no");
 
@@ -264,7 +260,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                         ctx.updatePosition(newPos);
 
                         if (ctx.mode == ConsensusMode::proposing)
-                            requestProposal();
+                            ctx.propose();
                     }
 
                     JLOG(ext.j_.debug())
@@ -298,7 +294,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
             // still publish to create an additional delivery window for
             // entropySetHash observation.
             if (ctx.mode == ConsensusMode::proposing)
-                requestProposal();
+                ctx.propose();
 
             JLOG(ext.j_.debug())
                 << "RNG: published entropySet"
@@ -333,9 +329,9 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                 ctx.updatePosition(newPos);
 
                 if (ctx.mode == ConsensusMode::proposing)
-                    requestProposal();
+                    ctx.propose();
 
-                ext.publishEstState(EstablishState::ConvergingCommit);
+                ext.estState_ = EstablishState::ConvergingCommit;
                 ext.commitHashConflictStart_ = {};
                 JLOG(ext.j_.debug()) << "RNG: transitioned to ConvergingCommit"
                                      << " buildSeq=" << buildSeq
@@ -384,8 +380,8 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                 newPos.commitSetHash = commitSetHash;
                 ctx.updatePosition(newPos);
                 if (ctx.mode == ConsensusMode::proposing)
-                    requestProposal();
-                ext.publishEstState(EstablishState::ConvergingCommit);
+                    ctx.propose();
+                ext.estState_ = EstablishState::ConvergingCommit;
                 ext.commitHashConflictStart_ = {};
                 JLOG(ext.j_.debug())
                     << "RNG: transitioned to ConvergingCommit"
@@ -455,7 +451,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                     ctx.updatePosition(pos);
 
                     if (ctx.mode == ConsensusMode::proposing)
-                        requestProposal();
+                        ctx.propose();
 
                     JLOG(ext.j_.debug())
                         << "RNG: refreshed commitSetHash"
@@ -535,9 +531,9 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
             ctx.updatePosition(newPos);
 
             if (ctx.mode == ConsensusMode::proposing)
-                requestProposal();
+                ctx.propose();
 
-            ext.publishEstState(EstablishState::ConvergingReveal);
+            ext.estState_ = EstablishState::ConvergingReveal;
             //@@end rng-reveal-transition
             ext.revealPhaseStart_ = ctx.nowSteady;
             JLOG(ext.j_.debug()) << "RNG: transitioned to ConvergingReveal"
@@ -636,8 +632,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
             //   2. Subsequent ticks: check for conflict and rebuild if needed,
             //      bounded by deadline.
             //
-            // Same pattern as commitSetHash conflict handling (line ~308)
-            // and exportSigSetHash convergence gate (line ~674).
+            // Same pattern as commitSetHash conflict handling (line ~308).
             {
                 auto const ourPos = ctx.getPosition();
                 if (ourPos.entropySetHash)
@@ -694,7 +689,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                         failedPos.entropySetHash.reset();
                         ctx.updatePosition(failedPos);
                         if (ctx.mode == ConsensusMode::proposing)
-                            requestProposal();
+                            ctx.propose();
                     };
                     //@@end rng-entropy-observation-state
 
@@ -710,7 +705,7 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
                             newPos.entropySetHash = refreshedHash;
                             ctx.updatePosition(newPos);
                             if (ctx.mode == ConsensusMode::proposing)
-                                requestProposal();
+                                ctx.propose();
                             JLOG(ext.j_.debug())
                                 << "RNG: refreshed entropySetHash"
                                 << " reason=local-refresh"
@@ -882,394 +877,24 @@ rngTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
     return {.readyForAccept = true};
 }
 
-/// Advance Export alignment independently of RNG's wait/accept decision.
-template <class Ext, class Ctx, class Propose>
-ExtensionTickResult
-exportTick(Ext& ext, Ctx const& ctx, Propose const& requestProposal)
-{
-    auto const toMs = [](auto duration) {
-        return std::chrono::duration_cast<std::chrono::milliseconds>(duration)
-            .count();
-    };
-
-    // Export sig convergence gate: advances when Export has
-    // verified signatures to publish or when tx-converged peers advertise
-    // exportSigSetHash roots we can locally materialize. This is a bounded
-    // safety coordination window, not a wait-for-Export-success mechanism.
-    if constexpr (requires { ctx.getPosition().exportSigSetHash; })
-    {
-        if (!ext.exportEnabled())
-            return {.readyForAccept = true};
-
-        // Expiry is terminal for this round. Later material or peer support
-        // must not reopen a decision that already proceeded without a witness.
-        if (ext.exportSigConvergenceFailed_)
-            return {.readyForAccept = true};
-
-        // Export admission already requires a nonempty parent UNLReport, and
-        // current ledger rules never erase or empty that report afterward, so
-        // this should be unreachable while an admitted latch is live. Keep the
-        // finalization boundary fail-closed in case report expiry or clearing
-        // semantics are introduced later: a config-derived view is node-local
-        // and cannot safely align a ledger-defining Export witness.
-        if (!ext.exportFinalizationViewAnchored())
-        {
-            ext.clearAcceptedExportSigSet();
-            JLOG(ext.j_.warn()) << "Export: skipping signature-set alignment"
-                                << " reason=no-unl-report"
-                                << " buildSeq=" << ctx.buildSeq;
-            return {.readyForAccept = true};
-        }
-
-        auto startExportSigGate = [&]() -> bool {
-            if (ext.exportSigGateStarted_)
-                return false;
-            ext.publishExportSigGateStarted();
-            ext.exportSigGateStart_ = ctx.nowSteady;
-            return true;
-        };
-
-        auto observedPeerExportSigSets = [&](auto const& pos) {
-            std::size_t peerSets = 0;
-            for (auto const& [_, peerPos] : ctx.peerPositions)
-            {
-                auto const& pp = peerPos.proposal().position();
-                if (positionTxSetID(pp) != positionTxSetID(pos))
-                    continue;  // not tx-converged
-                if (!pp.exportSigSetHash)
-                    continue;
-
-                ++peerSets;
-            }
-            return peerSets;
-        };
-
-        bool hasLocalExportSigs = ext.hasPendingExportSigs();
-        //@@start export-sigset-material-wait
-        if (!hasLocalExportSigs && ext.hasEligiblePendingExports())
-        {
-            auto const peerSets = observedPeerExportSigSets(ctx.getPosition());
-            if (peerSets > 0)
-            {
-                startExportSigGate();
-                hasLocalExportSigs = ext.hasPendingExportSigs();
-                if (!hasLocalExportSigs)
-                {
-                    auto const elapsed =
-                        ctx.nowSteady - ext.exportSigGateStart_;
-                    auto const deadline =
-                        detail::sidecarConvergenceTimeout(ctx.parms);
-                    if (elapsed <= deadline)
-                    {
-                        JLOG(ext.j_.debug())
-                            << "Export: bounded wait for advertised "
-                               "exportSigSet local material"
-                            << " buildSeq=" << ctx.buildSeq
-                            << " peerSets=" << peerSets
-                            << " elapsedMs=" << toMs(elapsed)
-                            << " deadlineMs=" << toMs(deadline);
-                        return {};
-                    }
-
-                    ext.setExportSigConvergenceFailed();
-                    ext.clearAcceptedExportSigSet();
-                    JLOG(ext.j_.warn())
-                        << "Export: advertised exportSigSet material timeout"
-                        << " buildSeq=" << ctx.buildSeq
-                        << " peerSets=" << peerSets
-                        << " elapsedMs=" << toMs(elapsed)
-                        << " deadlineMs=" << toMs(deadline)
-                        << " action=wait-or-expire";
-                }
-            }
-            else
-            {
-                // A pending Export latch with no local sig material gets one
-                // short observation window so proposal-carried signatures can
-                // arrive. If nothing appears in time, this ledger injects no
-                // witness and the latch remains pending.
-                startExportSigGate();
-                auto const elapsed = ctx.nowSteady - ext.exportSigGateStart_;
-                auto const deadline =
-                    detail::sidecarConvergenceTimeout(ctx.parms);
-                if (elapsed <= deadline)
-                {
-                    JLOG(ext.j_.debug())
-                        << "Export: bounded wait for exportSigSet "
-                           "advertisement"
-                        << " buildSeq=" << ctx.buildSeq
-                        << " elapsedMs=" << toMs(elapsed)
-                        << " deadlineMs=" << toMs(deadline)
-                        << " candidateExportTxns=yes";
-                    return {};
-                }
-
-                ext.setExportSigConvergenceFailed();
-                ext.clearAcceptedExportSigSet();
-                JLOG(ext.j_.warn())
-                    << "Export: exportSigSet advertisement timeout"
-                    << " buildSeq=" << ctx.buildSeq
-                    << " elapsedMs=" << toMs(elapsed)
-                    << " deadlineMs=" << toMs(deadline)
-                    << " action=wait-or-expire";
-            }
-        }
-        //@@end export-sigset-material-wait
-
-        if (hasLocalExportSigs)
-        {
-            //@@start export-publish-sigset-hash
-            auto const buildSeqExport = ctx.buildSeq;
-            auto const exportHash = ext.buildExportSigSet(buildSeqExport);
-
-            auto currentPos = ctx.getPosition();
-            bool publishedNewHash = false;
-            if (ext.testSuppressExportSigSetHash())
-            {
-                if (currentPos.exportSigSetHash)
-                {
-                    currentPos.exportSigSetHash.reset();
-                    ctx.updatePosition(currentPos);
-
-                    if (ctx.mode == ConsensusMode::proposing)
-                        requestProposal();
-                }
-
-                JLOG(ext.j_.debug())
-                    << "Export: withholding exportSigSetHash"
-                    << " reason=runtime-config-noExportSigHash"
-                    << " buildSeq=" << buildSeqExport << " hash=" << exportHash;
-            }
-            else
-            {
-                publishedNewHash = !currentPos.exportSigSetHash ||
-                    *currentPos.exportSigSetHash != exportHash;
-                if (publishedNewHash)
-                {
-                    // Publishing a different root needs another observation
-                    // tick. Do not let root churn, or late first material,
-                    // extend an already-started coordination window. The
-                    // boundary remains inclusive, matching the other waits.
-                    auto const elapsed =
-                        ctx.nowSteady - ext.exportSigGateStart_;
-                    auto const deadline =
-                        detail::sidecarConvergenceTimeout(ctx.parms);
-                    if (ext.exportSigGateStarted_ && elapsed > deadline)
-                    {
-                        ext.setExportSigConvergenceFailed();
-                        ext.clearAcceptedExportSigSet();
-                        JLOG(ext.j_.warn())
-                            << "Export: signature-set publication timeout"
-                            << " buildSeq=" << buildSeqExport
-                            << " elapsedMs=" << toMs(elapsed)
-                            << " deadlineMs=" << toMs(deadline)
-                            << " action=omit-witness";
-                        return {.readyForAccept = true};
-                    }
-                    currentPos.exportSigSetHash = exportHash;
-                    ctx.updatePosition(currentPos);
-
-                    if (ctx.mode == ConsensusMode::proposing)
-                        requestProposal();
-
-                    JLOG(ext.j_.debug()) << "Export: published exportSigSetHash"
-                                         << " buildSeq=" << buildSeqExport
-                                         << " hash=" << exportHash;
-                }
-            }
-            //@@end export-publish-sigset-hash
-
-            //@@start export-sigset-conflict-wait
-            // Check quorum agreement on exportSigSetHash. Like RNG entropy,
-            // Export success is an accept-time derived effect outside tx-set
-            // equality. A local-only quorum must not succeed unless enough
-            // tx-converged peers advertise the same export sig sidecar hash.
-            {
-                if (startExportSigGate() || publishedNewHash)
-                {
-                    JLOG(ext.j_.debug()) << "Export: exportSigSet published"
-                                         << " buildSeq=" << buildSeqExport
-                                         << " hash=" << exportHash
-                                         << " action=wait-for-peer-observation";
-                    return {};
-                }
-
-                auto inspectExportPeers = [&](auto const& pos) {
-                    return detail::inspectTxConvergedSidecarPeers(
-                        ctx.peerPositions,
-                        pos,
-                        ext.localIsActiveValidator(),
-                        ctx.mode == ConsensusMode::proposing,
-                        [](auto const& position) {
-                            return position.exportSigSetHash;
-                        },
-                        [&ext](auto const& nodeId) {
-                            return ext.isUNLReportMember(nodeId);
-                        },
-                        [](auto const&) {});
-                };
-
-                auto exportState = inspectExportPeers(ctx.getPosition());
-                auto const exportQuorum = ext.exportRootAlignmentThreshold();
-                auto quorumAligned = [&] {
-                    return exportState.quorumAligned(exportQuorum);
-                };
-                bool acceptedExportSigHash = false;
-                //@@start export-sigset-alignment-check
-                if (exportState.conflict && !quorumAligned())
-                {
-                    auto const refreshedHash =
-                        ext.buildExportSigSet(buildSeqExport);
-                    auto current = ctx.getPosition();
-                    if (!current.exportSigSetHash ||
-                        *current.exportSigSetHash != refreshedHash)
-                    {
-                        auto const oldHash = current.exportSigSetHash;
-                        current.exportSigSetHash = refreshedHash;
-                        ctx.updatePosition(current);
-                        if (ctx.mode == ConsensusMode::proposing)
-                            requestProposal();
-                        JLOG(ext.j_.debug())
-                            << "Export: refreshed exportSigSetHash"
-                            << " reason=local-refresh"
-                            << " buildSeq=" << buildSeqExport << " oldHash="
-                            << (oldHash ? to_string(*oldHash)
-                                        : std::string{"none"})
-                            << " newHash=" << refreshedHash;
-                    }
-
-                    exportState = inspectExportPeers(ctx.getPosition());
-                }
-                //@@end export-sigset-alignment-check
-
-                //@@start export-no-veto-quorum-branches
-                if (exportState.conflict && quorumAligned())
-                {
-                    // Export sidecar roots are signed through ExtendedPosition
-                    // whenever featureExport is active. A quorum-aligned hash
-                    // is therefore enough to proceed; requiring every
-                    // tx-converged active peer to publish an exportSigSetHash
-                    // would let a missing minority sidecar suppress witness
-                    // injection despite an aligned quorum.
-                    JLOG(ext.j_.info())
-                        << "Export: exportSigSetHash conflict ignored"
-                        << " reason=quorum-aligned"
-                        << " buildSeq=" << buildSeqExport
-                        << " alignedParticipants="
-                        << exportState.alignedParticipants()
-                        << " quorum=" << exportQuorum
-                        << " peersSeen=" << exportState.peersSeen
-                        << " txConverged=" << exportState.txConverged;
-                    acceptedExportSigHash = true;
-                }
-                else if (quorumAligned() && !exportState.fullObservation())
-                {
-                    JLOG(ext.j_.info())
-                        << "Export: missing exportSigSetHash observation "
-                           "ignored"
-                        << " reason=quorum-aligned"
-                        << " buildSeq=" << buildSeqExport
-                        << " alignedParticipants="
-                        << exportState.alignedParticipants()
-                        << " quorum=" << exportQuorum
-                        << " peersSeen=" << exportState.peersSeen
-                        << " txConverged=" << exportState.txConverged;
-                    acceptedExportSigHash = true;
-                }
-                //@@end export-no-veto-quorum-branches
-                else if (exportState.conflict || !quorumAligned())
-                {
-                    auto const elapsed =
-                        ctx.nowSteady - ext.exportSigGateStart_;
-                    auto const deadline =
-                        detail::sidecarConvergenceTimeout(ctx.parms);
-                    if (elapsed <= deadline)
-                    {
-                        JLOG(ext.j_.debug())
-                            << "Export: waiting for exportSigSet quorum "
-                               "alignment"
-                            << " buildSeq=" << buildSeqExport
-                            << " alignedParticipants="
-                            << exportState.alignedParticipants()
-                            << " quorum=" << exportQuorum
-                            << " peersSeen=" << exportState.peersSeen
-                            << " txConverged=" << exportState.txConverged
-                            << " conflict="
-                            << (exportState.conflict ? "yes" : "no")
-                            << " elapsedMs=" << toMs(elapsed)
-                            << " deadlineMs=" << toMs(deadline);
-                        return {};
-                    }
-
-                    ext.setExportSigConvergenceFailed();
-                    ext.clearAcceptedExportSigSet();
-                    JLOG(ext.j_.warn())
-                        << "Export: exportSigSet quorum alignment timeout"
-                        << " buildSeq=" << buildSeqExport
-                        << " action=wait-or-expire"
-                        << " alignedParticipants="
-                        << exportState.alignedParticipants()
-                        << " quorum=" << exportQuorum
-                        << " peersSeen=" << exportState.peersSeen
-                        << " txConverged=" << exportState.txConverged
-                        << " conflict=" << (exportState.conflict ? "yes" : "no")
-                        << " elapsedMs=" << toMs(elapsed)
-                        << " deadlineMs=" << toMs(deadline);
-                }
-                else
-                {
-                    acceptedExportSigHash = true;
-                }
-
-                if (acceptedExportSigHash)
-                {
-                    // Apply must consume exactly the sidecar root that passed
-                    // the export gate. Local collector state may continue to
-                    // grow after this point, but it is not part of the agreed
-                    // closed-ledger export material.
-                    if (auto const accepted =
-                            ctx.getPosition().exportSigSetHash)
-                    {
-                        ext.acceptExportSigSet(*accepted);
-                        JLOG(ext.j_.debug())
-                            << "Export: accepted exportSigSet root"
-                            << " buildSeq=" << buildSeqExport
-                            << " root=" << *accepted
-                            << " mode=" << to_string(ctx.mode)
-                            << " alignedParticipants="
-                            << exportState.alignedParticipants()
-                            << " quorum=" << exportQuorum;
-                    }
-                }
-            }
-            //@@end export-sigset-conflict-wait
-        }
-    }
-
-    return {.readyForAccept = true};
-}
-
 }  // namespace detail
 
-/// Advance both enabled gates on each eligible establish tick.
+/// Advance the RNG gate on each eligible establish tick.
 /// Production and CSF use the same coordination with different leaf methods.
 template <class Ext, class Ctx>
 ExtensionTickResult
 extensionsTick(Ext& ext, Ctx const& ctx)
 {
     bool const isRngEnabled = ext.rngEnabled();
-    bool const isExportEnabled = ext.exportEnabled();
     JLOG(ext.j_.trace()) << "RNGGATE: phaseEstablish"
                          << " buildSeq=" << ctx.buildSeq << " prevSeq="
                          << (static_cast<std::uint32_t>(ctx.buildSeq) - 1)
                          << " rngEnabled=" << (isRngEnabled ? "yes" : "no")
-                         << " exportEnabled="
-                         << (isExportEnabled ? "yes" : "no")
                          << " estState=" << static_cast<int>(ext.estState_)
                          << " mode=" << to_string(ctx.mode)
                          << " roundMs=" << ctx.roundTime.count();
 
-    if (isRngEnabled || isExportEnabled)
+    if (isRngEnabled)
     {
         if constexpr (requires {
                           ext.recordParticipantDiagnostics(
@@ -1281,26 +906,7 @@ extensionsTick(Ext& ext, Ctx const& ctx)
         }
     }
 
-    // Each gate updates the current position through the shared context.
-    // With both enabled, publish their combined updates once at the end of
-    // this tick. Preserve the existing single-feature proposal timing.
-    bool proposalPending = false;
-    auto const requestProposal = [&] {
-        if (isRngEnabled && isExportEnabled)
-            proposalPending = true;
-        else
-            ctx.propose();
-    };
-
-    // Do not short-circuit: a wait in either gate must not prevent the other
-    // from collecting alignment evidence or making its bounded decision.
-    // Re-evaluate both against current peer positions each tick; a cached
-    // ready flag could retain support from an earlier ordinary tx set.
-    auto const rng = detail::rngTick(ext, ctx, requestProposal);
-    auto const exports = detail::exportTick(ext, ctx, requestProposal);
-    if (proposalPending)
-        ctx.propose();
-    return {.readyForAccept = rng.readyForAccept && exports.readyForAccept};
+    return detail::rngTick(ext, ctx);
 }
 
 }  // namespace ripple

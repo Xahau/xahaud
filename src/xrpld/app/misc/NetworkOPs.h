@@ -26,7 +26,6 @@
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/net/InfoSub.h>
-#include <xrpl/protocol/ExportShare.h>
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/messages.h>
 #include <boost/asio.hpp>
@@ -247,13 +246,6 @@ public:
         TER result) = 0;
     virtual void
     pubValidation(std::shared_ptr<STValidation> const& val) = 0;
-
-    /** Publish an admitted Export share at a validated observation cursor. */
-    virtual void
-    pubExportSignature(
-        ExportShare const& share,
-        LedgerIndex validatedLedgerSeq,
-        uint256 const& validatedLedgerHash) = 0;
 
     virtual void
     stateAccounting(Json::Value& obj) = 0;

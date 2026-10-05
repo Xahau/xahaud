@@ -1758,35 +1758,26 @@ class NegativeUNLVoteMaxListed_test : public beast::unit_test::suite
     void
     testActiveViewCap()
     {
-        auto const legacyFeatures = (jtx::supported_amendments() -
-                                     featureConsensusEntropy - featureExport) |
+        auto const legacyFeatures =
+            (jtx::supported_amendments() - featureConsensusEntropy) |
             featureNegativeUNL;
 
         for (bool const entropy : {false, true})
         {
-            for (bool const exportEnabled : {false, true})
-            {
-                testcase(
-                    std::string("Active-view cap: CE=") +
-                    (entropy ? "on" : "off") +
-                    ", Export=" + (exportEnabled ? "on" : "off"));
-                auto features = legacyFeatures;
-                if (entropy)
-                    features.set(featureConsensusEntropy);
-                if (exportEnabled)
-                    features.set(featureExport);
+            testcase(
+                std::string("Active-view cap: CE=") + (entropy ? "on" : "off"));
+            auto features = legacyFeatures;
+            if (entropy)
+                features.set(featureConsensusEntropy);
 
-                // Three validators are already disabled. A 20-validator
-                // trusted UNL permits a fourth disable vote, whereas the
-                // parent report's 10 active validators cap the list at three.
-                BEAST_EXPECT(
-                    voteCountWithUNLReport(features) ==
-                    (entropy || exportEnabled ? 0 : 1));
+            // Three validators are already disabled. A 20-validator trusted
+            // UNL permits a fourth disable vote, whereas the parent report's
+            // 10 active validators cap the list at three.
+            BEAST_EXPECT(voteCountWithUNLReport(features) == (entropy ? 0 : 1));
 
-                // Without a parent report, all four feature combinations
-                // retain the trusted-UNL denominator.
-                BEAST_EXPECT(voteCountWithUNLReport(features, false) == 1);
-            }
+            // Without a parent report, both feature states retain the
+            // trusted-UNL denominator.
+            BEAST_EXPECT(voteCountWithUNLReport(features, false) == 1);
         }
     }
 

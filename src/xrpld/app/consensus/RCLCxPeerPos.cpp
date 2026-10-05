@@ -31,12 +31,10 @@ RCLCxPeerPos::RCLCxPeerPos(
     PublicKey const& publicKey,
     Slice const& signature,
     uint256 const& suppression,
-    Proposal&& proposal,
-    std::vector<std::string> exportSignatures)
+    Proposal&& proposal)
     : publicKey_(publicKey)
     , suppression_(suppression)
     , proposal_(std::move(proposal))
-    , exportSignatures_(std::move(exportSignatures))
 {
     // The maximum allowed size of a signature is 72 bytes; we verify
     // this elsewhere, but we want to be extra careful here:

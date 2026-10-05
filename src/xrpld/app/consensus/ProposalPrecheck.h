@@ -3,7 +3,6 @@
 
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpl/basics/base_uint.h>
-#include <xrpl/protocol/ExportLimits.h>
 #include <xrpl/protocol/messages.h>
 
 #include <optional>
@@ -16,13 +15,7 @@ enum class ProposalPrecheckResult {
     badHashes,
     badPosition,
     extensionDiagnosticsDisabled,
-    entropyDisabled,
-    exportDisabled,
-    tooManyExportSignatures,
-    oversizedExportSignature,
-    unsignedExportSignatures,
-    exportSignaturesHashMismatch,
-    missingExportSignatures
+    entropyDisabled
 };
 
 struct ProposalPrecheck
@@ -78,37 +71,15 @@ proposalPrecheckRejection(ProposalPrecheckResult result)
                 "Proposal: entropy fields while featureConsensusEntropy "
                 "disabled",
                 "entropy fields disabled"};
-        case ProposalPrecheckResult::exportDisabled:
-            return ProposalPrecheckRejection{
-                "Proposal: export fields while featureExport disabled",
-                "export fields disabled"};
-        case ProposalPrecheckResult::tooManyExportSignatures:
-            return ProposalPrecheckRejection{
-                "Proposal: too many export signatures", "too many export sigs"};
-        case ProposalPrecheckResult::oversizedExportSignature:
-            return ProposalPrecheckRejection{
-                "Proposal: oversized export signature", "oversized export sig"};
-        case ProposalPrecheckResult::unsignedExportSignatures:
-            return ProposalPrecheckRejection{
-                "Proposal: unsigned export signatures", "unsigned export sigs"};
-        case ProposalPrecheckResult::exportSignaturesHashMismatch:
-            return ProposalPrecheckRejection{
-                "Proposal: export signatures hash mismatch",
-                "export sig hash mismatch"};
-        case ProposalPrecheckResult::missingExportSignatures:
-            return ProposalPrecheckRejection{
-                "Proposal: missing signed export signatures",
-                "missing export sigs"};
     }
     return std::nullopt;
 }
 
-template <class IsEntropyEnabled, class IsExportEnabled>
+template <class IsEntropyEnabled>
 inline ProposalPrecheck
 checkProposalExtensions(
     protocol::TMProposeSet const& set,
-    IsEntropyEnabled isEntropyEnabled,
-    IsExportEnabled isExportEnabled)
+    IsEntropyEnabled isEntropyEnabled)
 {
     //@@start proposal-extension-precheck
     if (proposalHasMalformedHashes(set))
@@ -128,67 +99,22 @@ checkProposalExtensions(
         parsedPosition->myReveal;
     bool const hasExtensionDiagnostics =
         parsedPosition->observedParticipantsHash.has_value();
-    bool const hasExportMaterial = parsedPosition->exportSigSetHash ||
-        parsedPosition->exportSignaturesHash || set.exportsignatures_size() > 0;
     if (hasEntropyMaterial && !isEntropyEnabled())
         return {ProposalPrecheckResult::entropyDisabled, parsedPosition};
-    if (hasExportMaterial && !isExportEnabled())
-        return {ProposalPrecheckResult::exportDisabled, parsedPosition};
-    if (hasExtensionDiagnostics && !isEntropyEnabled() && !isExportEnabled())
+    if (hasExtensionDiagnostics && !isEntropyEnabled())
         return {
             ProposalPrecheckResult::extensionDiagnosticsDisabled,
             parsedPosition};
-
-    if (set.exportsignatures_size() > ExportLimits::maxExportSharesPerRelay)
-        return {
-            ProposalPrecheckResult::tooManyExportSignatures, parsedPosition};
-
-    // Reject oversized blobs BEFORE proposalExportSignaturesHash() hashes them.
-    // This runs before the proposal signature is verified, so an unbounded blob
-    // would otherwise let an unauthenticated peer force a large SHA512/copy.
-    for (auto const& blob : set.exportsignatures())
-    {
-        if (blob.size() > ExportLimits::maxSerializedExportShareBytes)
-            return {
-                ProposalPrecheckResult::oversizedExportSignature,
-                parsedPosition};
-    }
-
-    if (set.exportsignatures_size() > 0)
-    {
-        if (!parsedPosition->exportSignaturesHash)
-            return {
-                ProposalPrecheckResult::unsignedExportSignatures,
-                parsedPosition};
-
-        if (proposalExportSignaturesHash(set.exportsignatures()) !=
-            *parsedPosition->exportSignaturesHash)
-        {
-            return {
-                ProposalPrecheckResult::exportSignaturesHashMismatch,
-                parsedPosition};
-        }
-    }
-    else if (parsedPosition->exportSignaturesHash)
-    {
-        return {
-            ProposalPrecheckResult::missingExportSignatures, parsedPosition};
-    }
 
     return {ProposalPrecheckResult::ok, parsedPosition};
     //@@end proposal-extension-precheck
 }
 
 inline ProposalPrecheck
-checkProposalExtensions(
-    protocol::TMProposeSet const& set,
-    bool entropyEnabled,
-    bool exportEnabled)
+checkProposalExtensions(protocol::TMProposeSet const& set, bool entropyEnabled)
 {
     return checkProposalExtensions(
-        set,
-        [entropyEnabled] { return entropyEnabled; },
-        [exportEnabled] { return exportEnabled; });
+        set, [entropyEnabled] { return entropyEnabled; });
 }
 
 }  // namespace detail
