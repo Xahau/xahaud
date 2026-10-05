@@ -4309,7 +4309,9 @@ NetworkOPsImp::subServer(
     bool isFirstSubscriber = false;
     {
         std::lock_guard sl(mSubLock);
-        added = mStreamMaps[sServer].emplace(isrListener->getSeq(), isrListener).second;
+        added = mStreamMaps[sServer]
+                    .emplace(isrListener->getSeq(), isrListener)
+                    .second;
         isFirstSubscriber = added && mStreamMaps[sServer].size() == 1;
     }
     if (isFirstSubscriber)
