@@ -142,10 +142,6 @@ public:
     static NotTEC
     checkSign(PreclaimContext const& ctx);
 
-    // Standard account signing policy without transaction-type exemptions.
-    static NotTEC
-    checkAccountSign(PreclaimContext const& ctx);
-
     // Returns the fee in fee units, not scaled for load.
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
@@ -251,13 +247,6 @@ protected:
 
     virtual TER
     doApply() = 0;
-
-    // Some explicit permissions cover a successful state transition only.
-    virtual bool
-    allowsFeeOnlyClaim() const
-    {
-        return true;
-    }
 
     /** Compute the minimum fee required to process a transaction
         with a given baseFee based on the current server load.

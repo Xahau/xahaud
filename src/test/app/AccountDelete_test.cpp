@@ -18,7 +18,6 @@
 //==============================================================================
 
 #include <test/jtx.h>
-#include <xrpl/protocol/ExportCommittee.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
 
@@ -468,40 +467,6 @@ public:
         env(acctdelete(alice, gw), fee(acctDelFee));
         verifyDeliveredAmount(env, aliceBalance - acctDelFee);
         env.close();
-    }
-
-    void
-    testExportCommitteeCleanup(FeatureBitset features)
-    {
-        using namespace jtx;
-
-        testcase("Export committee cleanup");
-
-        Env env{*this, features | featureExport};
-        Account const alice("alice");
-        Account const becky("becky");
-        env.fund(XRP(10000), alice, becky);
-        env.close();
-
-        auto const roster = serializeExportCommittee({alice.pk()});
-        auto const digest = exportCommitteeHash(makeSlice(roster));
-        Json::Value setup;
-        setup[jss::TransactionType] = "Export";
-        setup[jss::Account] = alice.human();
-        setup[sfExportCommittee.jsonName] = strHex(roster);
-        env(setup);
-        env.close();
-
-        auto const committeeKey = keylet::exportCommittee(alice.id(), digest);
-        BEAST_EXPECT(env.closed()->exists(committeeKey));
-
-        incLgrSeqForAccDel(env, alice);
-        auto const acctDelFee{drops(env.current()->fees().increment)};
-        env(acctdelete(alice, becky), fee(acctDelFee));
-        env.close();
-
-        BEAST_EXPECT(!env.closed()->exists(keylet::account(alice.id())));
-        BEAST_EXPECT(!env.closed()->exists(committeeKey));
     }
 
     void
@@ -1314,7 +1279,6 @@ public:
             testBasics(features);
             testDirectories(features);
             testOwnedTypes(features);
-            testExportCommitteeCleanup(features);
             testResurrection(features);
             testAmendmentEnable(features);
             testTooManyOffers(features);

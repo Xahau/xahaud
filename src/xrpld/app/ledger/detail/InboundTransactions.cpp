@@ -46,7 +46,7 @@ namespace {
 bool
 isConsensusExtensionPseudo(TxType txType)
 {
-    return txType == ttCONSENSUS_ENTROPY || txType == ttEXPORT_SIGNATURES;
+    return txType == ttCONSENSUS_ENTROPY;
 }
 
 //@@start acquired-ce-pseudo-scan
@@ -247,8 +247,8 @@ public:
     {
         // Peer proposals carry only a candidate tx-set hash. This is the first
         // point where acquired transaction bytes are known, so enforce the
-        // consensus-extension invariant here: entropy/export witness pseudos
-        // are local post-agreement material, not votable network-set members.
+        // consensus-extension invariant here: entropy pseudos are local
+        // post-agreement material, not votable network-set members.
         // Legacy fee/amendment/nUNL pseudos remain allowed in base consensus.
         //@@start acquired-ce-pseudo-reject
         if (fromAcquire && hasAcquiredConsensusExtensionPseudo(*set, hash, j_))

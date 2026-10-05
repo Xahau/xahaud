@@ -127,8 +127,7 @@ apply(
     OpenView& view,
     STTx const& tx,
     ApplyFlags flags,
-    beast::Journal journal,
-    ApplyOptions const& options = {});
+    beast::Journal journal);
 
 /** Enum class for return value from `applyTransaction`
 
@@ -157,8 +156,7 @@ applyTransaction(
     STTx const& tx,
     bool retryAssured,
     ApplyFlags flags,
-    beast::Journal journal,
-    ApplyOptions const& options = {});
+    beast::Journal journal);
 
 }  // namespace ripple
 

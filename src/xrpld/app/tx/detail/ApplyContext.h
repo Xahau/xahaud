@@ -21,7 +21,6 @@
 #define RIPPLE_TX_APPLYCONTEXT_H_INCLUDED
 
 #include <xrpld/app/main/Application.h>
-#include <xrpld/app/tx/applySteps.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/beast/utility/Journal.h>
@@ -32,8 +31,6 @@
 #include <utility>
 
 namespace ripple {
-
-class Ledger;
 
 /** State information when applying a tx. */
 class ApplyContext
@@ -46,8 +43,7 @@ public:
         TER preclaimResult,
         XRPAmount baseFee,
         ApplyFlags flags,
-        beast::Journal = beast::Journal{beast::Journal::getNullSink()},
-        std::shared_ptr<Ledger const> replayParentLedger = nullptr);
+        beast::Journal = beast::Journal{beast::Journal::getNullSink()});
 
     Application& app;
     STTx const& tx;
@@ -133,19 +129,10 @@ public:
     TER
     checkInvariants(TER const result, XRPAmount const fee);
 
-    TER
-    checkExportEmissionLimit(TER const result);
-
     bool
     isEmittedTxn()
     {
         return tx.isFieldPresent(sfEmitDetails);
-    }
-
-    std::shared_ptr<Ledger const>
-    replayParentLedger() const
-    {
-        return replayParentLedger_;
     }
 
     ApplyFlags const&
@@ -168,7 +155,6 @@ private:
     OpenView& base_;
     ApplyFlags flags_;
     std::optional<ApplyViewImpl> view_;
-    std::shared_ptr<Ledger const> replayParentLedger_;
     std::shared_ptr<STTx const> pendingEntropy_;
 };
 

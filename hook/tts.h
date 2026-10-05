@@ -61,7 +61,6 @@
 #define ttNFTOKEN_MODIFY 70
 #define ttPERMISSIONED_DOMAIN_SET 71
 #define ttPERMISSIONED_DOMAIN_DELETE 72
-#define ttEXPORT 90
 #define ttMANIFEST_SET 91
 #define ttCRON 92
 #define ttCRON_SET 93
@@ -77,4 +76,3 @@
 #define ttEMIT_FAILURE 103
 #define ttUNL_REPORT 104
 #define ttCONSENSUS_ENTROPY 105
-#define ttEXPORT_SIGNATURES 106

@@ -60,7 +60,6 @@ MAGIC_ENUM_FLAG(ripple::PaymentChannelClaimFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenMintFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenCreateOfferFlags);
 MAGIC_ENUM_FLAG(ripple::ClaimRewardFlags);
-MAGIC_ENUM_FLAG(ripple::ExportFlags);
 MAGIC_ENUM_16(ripple::AccountFlags);
 
 namespace ripple {
@@ -190,10 +189,6 @@ private:
         {
             ret[jss::LEDGER_ENTRY_TYPES][f.getName()] = f.getType();
         }
-        // The committee keylet uses a protocol-defined value above the
-        // bounded reflection range used for the legacy ledger types.
-        ret[jss::LEDGER_ENTRY_TYPES]["ExportCommittee"] =
-            static_cast<int32_t>(ltEXPORT_COMMITTEE);
 
         ret[jss::FIELDS] = Json::arrayValue;
 
@@ -340,7 +335,6 @@ private:
         addFlagsToJson<MPTokenAuthorizeFlags>(ret, "MPTokenAuthorize");
         addFlagsToJson<MPTokenIssuanceSetFlags>(ret, "MPTokenIssuanceSet");
         addFlagsToJson<AMMClawbackFlags>(ret, "AMMClawback");
-        addFlagsToJson<ExportFlags>(ret, "Export");
         struct FlagData
         {
             std::string name;

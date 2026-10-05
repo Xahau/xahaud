@@ -23,12 +23,9 @@
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/beast/utility/Journal.h>
 
-#include <memory>
-
 namespace ripple {
 
 class Application;
-class Ledger;
 class STTx;
 class TxQ;
 
@@ -42,14 +39,6 @@ struct ApplyResult
         : ter(t), applied(a), metadata(std::move(m))
     {
     }
-};
-
-struct ApplyOptions
-{
-    // LedgerReplay can build consecutive ledgers before the rebuilt parent is
-    // visible through LedgerMaster. Export apply needs the exact replay parent
-    // to rebuild the historical validator view.
-    std::shared_ptr<Ledger const> replayParentLedger;
 };
 
 /** Return true if the transaction can claim a fee (tec),
@@ -357,11 +346,7 @@ calculateDefaultBaseFee(ReadView const& view, STTx const& tx);
     whether or not the transaction was applied.
 */
 ApplyResult
-doApply(
-    PreclaimResult const& preclaimResult,
-    Application& app,
-    OpenView& view,
-    ApplyOptions const& options = {});
+doApply(PreclaimResult const& preclaimResult, Application& app, OpenView& view);
 
 XRPAmount
 invoke_calculateBaseFee(ReadView const& view, STTx const& tx);

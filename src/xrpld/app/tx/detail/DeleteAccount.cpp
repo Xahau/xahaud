@@ -230,8 +230,6 @@ nonObligationDeleter(LedgerEntryType t)
             return removeNFTokenOfferFromLedger;
         case ltURI_TOKEN:
             return removeGeneric;
-        case ltEXPORT_COMMITTEE:
-            return removeGeneric;
         case ltDID:
             return removeDIDFromLedger;
         case ltORACLE:

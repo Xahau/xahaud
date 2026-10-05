@@ -20,13 +20,11 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
-#include <xrpld/app/tx/detail/ExportResultBuilder.h>
 #include <xrpld/ledger/PaymentSandbox.h>
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STAccount.h>
-#include <xrpl/protocol/Sign.h>
 #include <string>
 #include <vector>
 
@@ -87,24 +85,6 @@ struct PseudoTx_test : public beast::unit_test::suite
 
         res.emplace_back(consensusEntropyTx(
             seq, entropyTierValidatorQuorum, 1, 1, Blob{0x01}));
-
-        auto const secret = generateSecretKey(KeyType::secp256k1, randomSeed());
-        auto const publicKey = derivePublicKey(KeyType::secp256k1, secret);
-        ExportResultBuilder::PositionedSignatureSnapshot signatures;
-        std::uint8_t const signatureBytes[] = {1, 2, 3};
-        signatures.emplace(
-            0,
-            ExportResultBuilder::PositionedSignature{
-                publicKey, Buffer{signatureBytes, sizeof(signatureBytes)}});
-        auto const releaseTarget = STTx(ttPAYMENT, [&](auto& obj) {
-            obj.setAccountID(sfAccount, AccountID(1));
-            obj.setAccountID(sfDestination, AccountID(2));
-            obj.setFieldU32(sfSequence, 0);
-            obj.setFieldAmount(sfFee, STAmount{});
-            obj.setFieldVL(sfSigningPubKey, Blob{});
-        });
-        res.emplace_back(ExportResultBuilder::buildSignatureWitness(
-            uint256(4), releaseTarget, signatures, 1, seq));
 
         return res;
     }

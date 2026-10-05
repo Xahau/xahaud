@@ -22,12 +22,9 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/TxQ.h>
-#include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/tx/apply.h>
-#include <xrpld/app/tx/detail/ExportLedgerOps.h>
 #include <xrpl/basics/mulDiv.h>
 #include <xrpl/protocol/Feature.h>
-#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/protocol/st.h>
 #include <algorithm>
@@ -1711,23 +1708,6 @@ TxQ::accept(Application& app, OpenView& view)
                     // set
                     if (fls >= view.info().seq)
                     {
-                        if (ExportLedgerOps::isPendingExportWorkTxn(*stpTrans))
-                        {
-                            auto const pending =
-                                ExportLedgerOps::exportTxnCount(view);
-                            if (pending >= ExportLimits::maxPendingExports)
-                            {
-                                JLOG(j_.info())
-                                    << "Holding emitted export "
-                                    << stpTrans->getTransactionID()
-                                    << " because export open-ledger limit is "
-                                       "reached pending="
-                                    << pending << " max="
-                                    << +ExportLimits::maxPendingExports;
-                                continue;
-                            }
-                        }
-
                         app.getHashRouter().setFlags(txnHash, SF_PRIVATE2);
                         view.rawTxInsert(
                             stpTrans->getTransactionID(),

@@ -23,7 +23,6 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/tx/apply.h>
-#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
@@ -934,11 +933,11 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getFieldU32(sfNetworkID) == 65535)
         return tesSUCCESS;
 
-    // Import distinguishes B2M proof authorization from callback account
-    // authorization or an explicit per-intent callback fee allowance.
+    // pass ttIMPORTs, their signatures are checked at the preflight against the
+    // internal xpop txn
     if (ctx.view.rules().enabled(featureImport) &&
         ctx.tx.getTxnType() == ttIMPORT)
-        return Import::checkImportSign(ctx);
+        return tesSUCCESS;
 
     // pass ttMANIFEST_SETs, their signatures are checked in preflight against
     // the manifest's internal key logic
@@ -946,12 +945,6 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
-    return checkAccountSign(ctx);
-}
-
-NotTEC
-Transactor::checkAccountSign(PreclaimContext const& ctx)
-{
     if (ctx.flags & tapDRY_RUN)
     {
         // This code must be different for `simulate`
@@ -2506,39 +2499,6 @@ Transactor::operator()()
 
         if (ctx_.size() > oversizeMetaDataCap)
             result = tecOVERSIZE;
-    }
-
-    if (applied && isTesSuccess(result))
-    {
-        auto const limitResult = ctx_.checkExportEmissionLimit(result);
-        if (!isTesSuccess(limitResult))
-        {
-            result = limitResult;
-
-            auto const resetResult = reset(fee);
-            if (!isTesSuccess(resetResult.first))
-            {
-                result = resetResult.first;
-                applied = false;
-            }
-            else
-            {
-                fee = resetResult.second;
-                result = ctx_.checkInvariants(result, fee);
-                applied = isTesSuccess(result) || isTecClaim(result);
-            }
-        }
-    }
-
-    // An opt-in callback allowance does not authorize repeated fee-only
-    // attempts when a Hook or later apply check rejects the callback.
-    if (isTecClaim(result) && !allowsFeeOnlyClaim())
-    {
-        JLOG(j_.debug()) << "Callback allowance does not cover fee-only result "
-                         << transToken(result);
-        ctx_.discard();
-        result = tefBAD_AUTH;
-        applied = false;
     }
 
     std::optional<TxMeta> metadata;
