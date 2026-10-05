@@ -176,6 +176,7 @@ private:
     std::optional<STAmount> mDelivered;
     std::optional<STArray> mHookExecutions;
     std::optional<STArray> mHookEmissions;
+
     STArray mNodes;
 };
 

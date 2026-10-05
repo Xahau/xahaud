@@ -390,3 +390,4 @@ message TMHaveTransactions
 {
     repeated bytes hashes = 1;
 }
+

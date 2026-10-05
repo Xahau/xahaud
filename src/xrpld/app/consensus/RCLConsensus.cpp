@@ -34,7 +34,6 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
@@ -46,22 +45,14 @@
 #include <xrpld/overlay/predicates.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/beast/core/LexicalCast.h>
-#include <xrpl/crypto/csprng.h>
-#include <xrpl/protocol/AccountID.h>
+#include <xrpl/beast/utility/instrumentation.h>
 #include <xrpl/protocol/BuildInfo.h>
 #include <xrpl/protocol/Feature.h>
-#include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/SecretKey.h>
-#include <xrpl/protocol/Sign.h>
-#include <xrpl/protocol/TxFlags.h>
-#include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/digest.h>
 
-#include <boost/algorithm/string.hpp>
 #include <algorithm>
-#include <cstring>
+#include <iomanip>
 #include <mutex>
-#include <random>
 
 namespace ripple {
 
@@ -1039,7 +1030,7 @@ RCLConsensus::Adaptor::validate(
 
     handleNewValidation(app_, v, "local");
 
-    // Broadcast validation to all peers.
+    // Broadcast to all our peers:
     protocol::TMValidation val;
     val.set_validation(serialized.data(), serialized.size());
     app_.overlay().broadcast(val);
@@ -1215,10 +1206,8 @@ RCLConsensus::Adaptor::preStartRound(
         !nowTrusted.empty())
         nUnlVote_.newValidators(prevLgr.seq() + 1, nowTrusted);
 
-    bool const proposing = validating_ && synced;
-
     // propose only if we're in sync with the network (and validating)
-    return proposing;
+    return validating_ && synced;
 }
 //@@end pre-start-round
 
@@ -1258,9 +1247,7 @@ void
 RCLConsensus::Adaptor::updateOperatingMode(std::size_t const positions) const
 {
     if (!positions && app_.getOPs().isFull())
-    {
         app_.getOPs().setMode(OperatingMode::CONNECTED);
-    }
 }
 
 void
@@ -1303,18 +1290,11 @@ RclConsensusLogger::~RclConsensusLogger()
         return;
     auto const duration = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start_);
-    ss_->seekg(0, std::ios::beg);
-
-    std::string line;
-    while (std::getline(*ss_, line, '.'))
-    {
-        boost::algorithm::trim(line);
-        if (!line.empty())
-        {
-            JLOG(j_.debug()) << header_ << line << ".";
-        }
-    }
-    JLOG(j_.debug()) << header_ << "Total duration: " << duration.count()
-                     << "ms.";
+    std::stringstream outSs;
+    outSs << header_ << "duration " << (duration.count() / 1000) << '.'
+          << std::setw(3) << std::setfill('0') << (duration.count() % 1000)
+          << "s. " << ss_->str();
+    j_.sink().writeAlways(beast::severities::kInfo, outSs.str());
 }
+
 }  // namespace ripple

@@ -379,8 +379,7 @@ public:
     getLedgerFetchInfo() override;
     std::uint32_t
     acceptLedger(
-        std::optional<std::chrono::milliseconds> consensusDelay,
-        std::string const& caller = "unknown") override;
+        std::optional<std::chrono::milliseconds> consensusDelay) override;
     void
     reportFeeChange() override;
     void
@@ -4208,8 +4207,7 @@ NetworkOPsImp::unsubBook(std::uint64_t uSeq, Book const& book)
 
 std::uint32_t
 NetworkOPsImp::acceptLedger(
-    std::optional<std::chrono::milliseconds> consensusDelay,
-    std::string const& caller)
+    std::optional<std::chrono::milliseconds> consensusDelay)
 {
     // This code-path is exclusively used when the server is in standalone
     // mode via `ledger_accept`
@@ -4224,7 +4222,6 @@ NetworkOPsImp::acceptLedger(
     // API in Consensus?
     beginConsensus(m_ledgerMaster.getClosedLedger()->info().hash, {});
     mConsensus.simulate(app_.timeKeeper().closeTime(), consensusDelay);
-
     return m_ledgerMaster.getCurrentLedger()->info().seq;
 }
 

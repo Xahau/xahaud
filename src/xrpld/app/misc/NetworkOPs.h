@@ -32,7 +32,6 @@
 #include <deque>
 #include <memory>
 #include <tuple>
-#include <vector>
 
 namespace ripple {
 
@@ -222,8 +221,8 @@ public:
     */
     virtual std::uint32_t
     acceptLedger(
-        std::optional<std::chrono::milliseconds> consensusDelay = std::nullopt,
-        std::string const& caller = "unknown") = 0;
+        std::optional<std::chrono::milliseconds> consensusDelay =
+            std::nullopt) = 0;
 
     virtual void
     reportFeeChange() = 0;

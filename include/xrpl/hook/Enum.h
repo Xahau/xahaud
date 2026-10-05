@@ -445,6 +445,10 @@ getImportWhitelist(Rules const& rules)
     return whitelist;
 }
 
+#undef HOOK_API_DEFINITION
+#undef I32
+#undef I64
+
 enum GuardRulesVersion : uint64_t {
     GuardRuleFix20250131 = 0x00000001,
     GuardRuleDepth32 = 0x00000002,

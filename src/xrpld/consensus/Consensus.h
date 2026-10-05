@@ -36,7 +36,6 @@
 #include <deque>
 #include <optional>
 #include <sstream>
-#include <type_traits>
 
 namespace ripple {
 
@@ -786,6 +785,8 @@ Consensus<Adaptor>::peerProposalInternal(
 
     if (newPeerProp.prevLedger() != prevLedgerID_)
     {
+        JLOG(j_.debug()) << "Got proposal for " << newPeerProp.prevLedger()
+                         << " but we are on " << prevLedgerID_;
         return false;
     }
 
@@ -826,13 +827,9 @@ Consensus<Adaptor>::peerProposalInternal(
         }
 
         if (peerPosIt != currPeerPositions_.end())
-        {
             peerPosIt->second = newPeerPos;
-        }
         else
-        {
             currPeerPositions_.emplace(peerID, newPeerPos);
-        }
     }
 
     // Notify extensions of the new peer proposal
@@ -1297,8 +1294,7 @@ Consensus<Adaptor>::shouldPause(
          << "roundTime: " << result_->roundTime.read().count() << ", "
          << "max consensus time: " << parms.ledgerMAX_CONSENSUS.count() << ", "
          << "validators: " << totalValidators << ", "
-         << "laggards: " << laggards << ", "
-         << "offline: " << offline << ", "
+         << "laggards: " << laggards << ", " << "offline: " << offline << ", "
          << "quorum: " << quorum << ")";
 
     if (!ahead || !laggards || !totalValidators || !adaptor_.validator() ||
@@ -1432,13 +1428,9 @@ Consensus<Adaptor>::phaseEstablish(
     //@@start consensus-ordinary-check-before-extension
     updateOurPositions(clog);
 
-    bool const paused = shouldPause(clog);
-    bool const txConsensus = paused ? false : haveConsensus(clog);
     // Nothing to do if too many laggards or we don't have consensus.
-    if (paused || !txConsensus)
-    {
+    if (shouldPause(clog) || !haveConsensus(clog))
         return;
-    }
 
     if (!haveCloseTimeConsensus_)
     {
@@ -1717,8 +1709,8 @@ Consensus<Adaptor>::updateOurPositions(
         if (!haveCloseTimeConsensus_)
         {
             JLOG(j_.debug())
-                << "No CT consensus:"
-                << " Proposers:" << currPeerPositions_.size()
+                << "No CT consensus:" << " Proposers:"
+                << currPeerPositions_.size()
                 << " Mode:" << to_string(mode_.get())
                 << " Thresh:" << threshConsensus
                 << " Pos:" << consensusCloseTime.time_since_epoch().count();
@@ -1816,6 +1808,9 @@ Consensus<Adaptor>::haveConsensus(
     }
     auto currentFinished =
         adaptor_.proposersFinished(previousLedger_, prevLedgerID_);
+
+    JLOG(j_.debug()) << "Checking for TX consensus: agree=" << agree
+                     << ", disagree=" << disagree;
 
     if constexpr (requires(Adaptor& a) { a.ce(); })
         adaptor_.ce().logPosition(ourPosition, j_);
