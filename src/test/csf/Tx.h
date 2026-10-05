@@ -48,7 +48,7 @@ public:
     {
     }
 
-    ID const&
+    ID
     id() const
     {
         return id_;

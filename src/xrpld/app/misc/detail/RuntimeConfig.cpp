@@ -244,8 +244,8 @@ isPeerField(std::string const& name)
 bool
 isGlobalField(std::string const& name)
 {
-    return name == "rng_claim_drop_pct" || name == "bootstrap_fast_start" ||
-        name == "rng_reveal_drop_pct" || name == "rng_poll_ms";
+    return name == "rng_claim_drop_pct" || name == "rng_reveal_drop_pct" ||
+        name == "rng_poll_ms";
 }
 
 bool
@@ -261,22 +261,6 @@ parseInt(
         return false;
     }
     out = value.asInt();
-    return true;
-}
-
-bool
-parseBool(
-    Json::Value const& value,
-    std::string const& field,
-    bool& out,
-    std::string& error)
-{
-    if (!value.isBool())
-    {
-        error = field + " must be a boolean";
-        return false;
-    }
-    out = value.asBool();
     return true;
 }
 
@@ -424,13 +408,6 @@ parseConsensusTestConfig(Json::Value const& v, std::string& error)
                 return std::nullopt;
             cfg.rngRevealDropPctX100 = parsed;
         }
-        else if (name == "bootstrap_fast_start")
-        {
-            bool parsed = false;
-            if (!parseBool(v[name], name, parsed, error))
-                return std::nullopt;
-            cfg.bootstrapFastStart = parsed;
-        }
         else if (name == "rng_poll_ms")
         {
             int parsed = 0;
@@ -504,8 +481,6 @@ consensusTestConfigJson(ConsensusTestConfig const& cfg)
         entry["rng_claim_drop_pct"] = *cfg.rngClaimDropPctX100 / 100.0;
     if (cfg.rngRevealDropPctX100)
         entry["rng_reveal_drop_pct"] = *cfg.rngRevealDropPctX100 / 100.0;
-    if (cfg.bootstrapFastStart.has_value())
-        entry["bootstrap_fast_start"] = *cfg.bootstrapFastStart;
     if (cfg.rngPollMs)
         entry["rng_poll_ms"] = *cfg.rngPollMs;
     return entry;

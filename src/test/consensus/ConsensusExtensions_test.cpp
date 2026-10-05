@@ -1244,28 +1244,6 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
-    testRuntimeConfigPolicyAccessors()
-    {
-        testcase("runtime config policy accessors");
-
-        using namespace jtx;
-        Env env{
-            *this, envconfig(validator, ""), supported_amendments(), nullptr};
-        ConsensusExtensions ce{env.app(), activeNoopJournal()};
-
-        BEAST_EXPECT(!ce.testBootstrapFastStartEnabled());
-
-        ConsensusTestConfig cfg;
-        cfg.bootstrapFastStart = true;
-        env.app().getRuntimeConfig().setGlobalConfig(cfg);
-        BEAST_EXPECT(ce.testBootstrapFastStartEnabled());
-
-        cfg.bootstrapFastStart = false;
-        env.app().getRuntimeConfig().setGlobalConfig(cfg);
-        BEAST_EXPECT(!ce.testBootstrapFastStartEnabled());
-    }
-
-    void
     testOnRoundStartRefreshesFeatureLatches()
     {
         testcase("onRoundStart refreshes extension feature latches");
@@ -3641,7 +3619,6 @@ public:
         testActiveValidatorViewNullSourceAndExpectedProposers();
         testParticipantThreshold();
         testThresholdPolicyHelpers();
-        testRuntimeConfigPolicyAccessors();
         testOnRoundStartRefreshesFeatureLatches();
         testDecoratePositionGeneratesCommitment();
         testOnPreBuildInjectsZeroEntropyFallback();

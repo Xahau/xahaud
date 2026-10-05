@@ -116,14 +116,13 @@ class RuntimeConfig_test : public beast::unit_test::suite
         rc.clearAllConfigs();
 
         ConsensusTestConfig global;
-        global.bootstrapFastStart = true;
+        global.rngPollMs = 100;
         rc.setGlobalConfig(global);
 
         auto globalCfg = rc.getConsensusTestConfig();
         if (!BEAST_EXPECT(globalCfg.has_value()))
             return;
-        BEAST_EXPECT(globalCfg->bootstrapFastStart.has_value());
-        BEAST_EXPECT(*globalCfg->bootstrapFastStart == true);
+        BEAST_EXPECT(globalCfg->rngPollMs == 100);
 
         PeerFaultConfig defaults;
         defaults.sendDelayMs = 100;
@@ -169,7 +168,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
             "XAHAUD_RUNTIME_TEST_CONFIG",
             R"({"set":{"global":{"rng_claim_drop_pct":3.5,)"
             R"("rng_reveal_drop_pct":4.5,)"
-            R"("bootstrap_fast_start":false,"rng_poll_ms":5},)"
+            R"("rng_poll_ms":5},)"
             R"("peer_defaults":{"send_delay_ms":100,)"
             R"("send_delay_jitter_ms":20,"send_drop_pct":1.25,)"
             R"("message_types":["proposal"]},)"
@@ -182,8 +181,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
             return;
         BEAST_EXPECT(global->rngClaimDropPctX100 == 350);
         BEAST_EXPECT(global->rngRevealDropPctX100 == 450);
-        BEAST_EXPECT(global->bootstrapFastStart.has_value());
-        BEAST_EXPECT(*global->bootstrapFastStart == false);
         BEAST_EXPECT(global->rngPollMs == 50);
 
         auto defaults = rc.getPeerFaultConfig("10.0.0.6:51235");
@@ -212,7 +209,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
 
         EnvVarGuard runtimeJson{
             "XAHAUD_RUNTIME_TEST_CONFIG",
-            R"({"set":{"global":{"bootstrap_fast_start":true}}})"};
+            R"({"set":{"global":{"rng_poll_ms":100}}})"};
 
         RuntimeConfig rc;
         BEAST_EXPECT(!rc.active());
@@ -224,7 +221,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
         Json::Value params;
         params["set"] = Json::objectValue;
         params["set"]["global"] = Json::objectValue;
-        params["set"]["global"]["bootstrap_fast_start"] = true;
+        params["set"]["global"]["rng_poll_ms"] = 100;
         auto result = runtimeConfig(env, params);
         BEAST_EXPECT(result.isMember("error"));
         BEAST_EXPECT(result["error"].asString() == "invalidParams");
@@ -339,7 +336,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
             Json::Value params;
             params["set"] = Json::objectValue;
             params["set"]["global"] = Json::objectValue;
-            params["set"]["global"]["bootstrap_fast_start"] = true;
+            params["set"]["global"]["rng_poll_ms"] = 100;
             params["set"]["peer_defaults"] = Json::objectValue;
             params["set"]["peer_defaults"]["send_delay_ms"] = 50;
             params["set"]["peer:10.0.0.2:51235"] = Json::objectValue;
@@ -374,7 +371,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
         Json::Value params;
         params["set"] = Json::objectValue;
         params["set"]["global"] = Json::objectValue;
-        params["set"]["global"]["bootstrap_fast_start"] = true;
+        params["set"]["global"]["rng_poll_ms"] = 100;
         params["set"]["peer_defaults"] = Json::objectValue;
         params["set"]["peer_defaults"]["send_drop_pct"] = 50.0;
         runtimeConfig(env, params);
@@ -446,7 +443,7 @@ class RuntimeConfig_test : public beast::unit_test::suite
             Json::Value params;
             params["set"] = Json::objectValue;
             params["set"]["peer:10.0.0.2:51235"] = Json::objectValue;
-            params["set"]["peer:10.0.0.2:51235"]["bootstrap_fast_start"] = true;
+            params["set"]["peer:10.0.0.2:51235"]["rng_poll_ms"] = 100;
             expectInvalid(params);
         }
 
@@ -463,14 +460,6 @@ class RuntimeConfig_test : public beast::unit_test::suite
             params["set"] = Json::objectValue;
             params["set"]["peer_defaults"] = Json::objectValue;
             params["set"]["peer_defaults"]["message_types"] = "proposal";
-            expectInvalid(params);
-        }
-
-        {
-            Json::Value params;
-            params["set"] = Json::objectValue;
-            params["set"]["global"] = Json::objectValue;
-            params["set"]["global"]["bootstrap_fast_start"] = "true";
             expectInvalid(params);
         }
 

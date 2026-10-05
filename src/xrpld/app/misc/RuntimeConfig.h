@@ -88,9 +88,6 @@ struct ConsensusTestConfig
 {
     std::optional<int> rngClaimDropPctX100;   // 0-10000 (pct * 100)
     std::optional<int> rngRevealDropPctX100;  // 0-10000 (pct * 100)
-    // Bootstrap fast start: seed prevRoundTime_ to 3s instead of 15s on first
-    // round, auto-disables after stable quorum is observed.
-    std::optional<bool> bootstrapFastStart;
     // RNG poll interval in ms.  Controls how fast the heartbeat timer
     // ticks during RNG sub-state transitions.  Minimum 50ms.  Default 250ms.
     std::optional<int> rngPollMs;
@@ -103,8 +100,7 @@ struct ConsensusTestConfig
     active() const
     {
         return (rngClaimDropPctX100 && *rngClaimDropPctX100 > 0) ||
-            (rngRevealDropPctX100 && *rngRevealDropPctX100 > 0) ||
-            (bootstrapFastStart && *bootstrapFastStart) || rngPollMs ||
+            (rngRevealDropPctX100 && *rngRevealDropPctX100 > 0) || rngPollMs ||
             standaloneEntropyTier || standaloneEntropyCount ||
             standaloneEntropyDenominator;
     }

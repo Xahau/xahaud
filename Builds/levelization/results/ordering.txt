@@ -45,7 +45,6 @@ test.consensus > xrpld.core
 test.consensus > xrpld.ledger
 test.consensus > xrpld.overlay
 test.consensus > xrpld.shamap
-test.consensus > xrpl.json
 test.consensus > xrpl.protocol
 test.core > test.jtx
 test.core > test.toplevel

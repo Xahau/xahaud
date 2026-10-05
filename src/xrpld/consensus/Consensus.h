@@ -32,7 +32,6 @@
 #include <xrpl/protocol/digest.h>
 #include <boost/logic/tribool.hpp>
 
-#include <algorithm>
 #include <chrono>
 #include <deque>
 #include <optional>
@@ -84,12 +83,6 @@ shouldCloseLedger(
                              last ledger
     @param currentAgreeTime how long, in milliseconds, we've been trying to
                             agree
-    // MERGE NOTE (upstream 86ef16dbeb): "should be rare" wording is from the
-    // bugfix. Upstream sync-2.5.0 has "will cause" instead. Keep ours.
-    @param stalled the network appears to be stalled, where
-           neither we nor our peers have changed their vote on any disputes in a
-           while. This is undesirable, and should be rare, and will cause us to
-           end consensus without 80% agreement.
     @param parms            Consensus constant parameters
     @param proposing        whether we should count ourselves
     @param j                journal for logging
@@ -103,7 +96,6 @@ checkConsensus(
     std::size_t currentFinished,
     std::chrono::milliseconds previousAgreeTime,
     std::chrono::milliseconds currentAgreeTime,
-    bool stalled,
     ConsensusParms const& parms,
     bool proposing,
     beast::Journal j,
@@ -583,12 +575,6 @@ private:
     // Extension sub-state members owned by ConsensusExtensions
     MonitoredMode mode_{ConsensusMode::observing};
     bool firstRound_ = true;
-    // Bootstrap fast-start is a separate Xahau feature that accelerates
-    // initial round timing. It lives here (not in ConsensusExtensions)
-    // because it modifies generic consensus timing parameters (prevRoundTime,
-    // idleInterval, ledgerMAX_CONSENSUS) rather than extension-specific state.
-    bool bootstrapFastStart_ = false;
-    std::size_t consecutiveStableRounds_ = 0;
     bool haveCloseTimeConsensus_ = false;
 
     clock_type const& clock_;
@@ -601,9 +587,6 @@ private:
     ConsensusTimer openTime_;
 
     NetClock::duration closeResolution_ = ledgerDefaultTimeResolution;
-
-    ConsensusParms::AvalancheState closeTimeAvalancheState_ =
-        ConsensusParms::init;
 
     // Time it took for the last consensus round to converge
     std::chrono::milliseconds prevRoundTime_;
@@ -629,13 +612,6 @@ private:
 
     std::optional<Result> result_;
     ConsensusCloseTimes rawCloseTimes_;
-
-    // The number of calls to phaseEstablish where none of our peers
-    // have changed any votes on disputed transactions.
-    std::size_t peerUnchangedCounter_ = 0;
-
-    // The total number of times we have called phaseEstablish
-    std::size_t establishCounter_ = 0;
 
     //-------------------------------------------------------------------------
     // Peer related consensus data
@@ -679,26 +655,10 @@ Consensus<Adaptor>::startRound(
 {
     if (firstRound_)
     {
-        // Check bootstrap fast start on first round entry.  This reads the
-        // adaptor once (startup config / env var), not on every round.
-        if constexpr (requires(Adaptor const& a) { a.ce(); })
-        {
-            bootstrapFastStart_ = adaptor_.ce().testBootstrapFastStartEnabled();
-        }
-
         // take our initial view of closeTime_ from the seed ledger
-        prevRoundTime_ = bootstrapFastStart_
-            ? adaptor_.parms().bootstrapRoundTimeSeed
-            : adaptor_.parms().ledgerIDLE_INTERVAL;
+        prevRoundTime_ = adaptor_.parms().ledgerIDLE_INTERVAL;
         prevCloseTime_ = prevLedger.closeTime();
         firstRound_ = false;
-        if (bootstrapFastStart_)
-        {
-            JLOG(j_.info())
-                << "Bootstrap fast start ENABLED — seeded prevRoundTime to "
-                << prevRoundTime_.count() << "ms instead of "
-                << adaptor_.parms().ledgerIDLE_INTERVAL.count() << "ms";
-        }
     }
     else
     {
@@ -750,7 +710,6 @@ Consensus<Adaptor>::startRoundInternal(
     previousLedger_ = prevLedger;
     result_.reset();
     convergePercent_ = 0;
-    closeTimeAvalancheState_ = ConsensusParms::init;
     haveCloseTimeConsensus_ = false;
     openTime_.reset(clock_.now());
 
@@ -1069,12 +1028,6 @@ Consensus<Adaptor>::getJson(bool full) const
         ret["have_time_consensus"] = haveCloseTimeConsensus_;
         ret["previous_proposers"] = static_cast<Int>(prevProposers_);
         ret["previous_mseconds"] = static_cast<Int>(prevRoundTime_.count());
-        if (bootstrapFastStart_)
-        {
-            ret["bootstrap_fast_start"] = true;
-            ret["bootstrap_stable_rounds"] =
-                static_cast<Int>(consecutiveStableRounds_);
-        }
 
         if (!currPeerPositions_.empty())
         {
@@ -1291,41 +1244,15 @@ Consensus<Adaptor>::phaseOpen(std::unique_ptr<std::stringstream> const& clog)
                    << ", since close: " << sinceClose.count() << ". ";
     }
 
-    auto idleInterval = std::max<milliseconds>(
+    auto const idleInterval = std::max<milliseconds>(
         adaptor_.parms().ledgerIDLE_INTERVAL,
         2 * previousLedger_.closeTimeResolution());
-    if (bootstrapFastStart_)
-    {
-        // During bootstrap, override idle interval entirely.  The normal
-        // formula includes 2 * closeTimeResolution (10-30s on early ledgers)
-        // which dominates and defeats the bootstrap cap.
-        idleInterval = adaptor_.parms().bootstrapRoundTimeSeed;
-    }
     CLOG(clog) << "idle interval set to " << idleInterval.count()
                << "ms based on "
                << "ledgerIDLE_INTERVAL: "
                << adaptor_.parms().ledgerIDLE_INTERVAL.count()
                << ", previous ledger close time resolution: "
-               << previousLedger_.closeTimeResolution().count() << "ms"
-               << (bootstrapFastStart_ ? " (bootstrap fast start active)" : "")
-               << ". ";
-
-    if (bootstrapFastStart_)
-    {
-        JLOG(j_.debug()) << "BOOTSTRAP: phaseOpen tick"
-                         << " prevSeq=" << previousLedger_.seq()
-                         << " sinceClose=" << sinceClose.count() << "ms"
-                         << " openTime=" << openTime_.read().count() << "ms"
-                         << " idleInterval=" << idleInterval.count() << "ms"
-                         << " prevRoundTime=" << prevRoundTime_.count() << "ms"
-                         << " closeTimeRes="
-                         << previousLedger_.closeTimeResolution().count() << "s"
-                         << " txns=" << (anyTransactions ? "yes" : "no")
-                         << " prevProposers=" << prevProposers_
-                         << " peersClosed=" << proposersClosed
-                         << " peersValidated=" << proposersValidated
-                         << " mode=" << to_string(mode_.get());
-    }
+               << previousLedger_.closeTimeResolution().count() << "ms. ";
 
     // Decide if we should close the ledger
     if (shouldCloseLedger(
@@ -1478,9 +1405,6 @@ Consensus<Adaptor>::phaseEstablish(
     // can only establish consensus if we already took a stance
     XRPL_ASSERT(result_, "ripple::Consensus::phaseEstablish : result is set");
 
-    ++peerUnchangedCounter_;
-    ++establishCounter_;
-
     using namespace std::chrono;
     ConsensusParms const& parms = adaptor_.parms();
 
@@ -1575,67 +1499,6 @@ Consensus<Adaptor>::phaseEstablish(
     CLOG(clog) << "Converge cutoff (" << currPeerPositions_.size()
                << " participants). Transitioned to ConsensusPhase::accepted. ";
     adaptor_.updateOperatingMode(currPeerPositions_.size());
-
-    // Bootstrap fast start auto-disable.  Uses the real UNL quorum from
-    // getQuorumKeys(), not a count derived from current participants.
-    //
-    // Validators: only count rounds where this node was actively proposing
-    // AND UNL quorum was met — prevents burning the bootstrap window while
-    // still syncing/observing before the node starts proposing.
-    //
-    // Non-validators (tracking/observer): count rounds where UNL quorum
-    // participation is observed from peers — prevents bootstrap staying on
-    // indefinitely for nodes that never propose.
-    if (bootstrapFastStart_)
-    {
-        auto const [unlQuorum, trustedKeys] = adaptor_.getQuorumKeys();
-        auto const isProposing = mode_.get() == ConsensusMode::proposing;
-        // totalParticipants includes self when proposing
-        auto const totalParticipants =
-            currPeerPositions_.size() + (isProposing ? 1 : 0);
-
-        bool stable;
-        if (adaptor_.validator())
-        {
-            // Validator: must be proposing AND meet quorum
-            stable = isProposing && totalParticipants >= unlQuorum;
-        }
-        else
-        {
-            // Non-validator: network quorum observed from peers suffices
-            stable = currPeerPositions_.size() >= unlQuorum;
-        }
-
-        if (stable)
-            ++consecutiveStableRounds_;
-        else
-            consecutiveStableRounds_ = 0;
-
-        if (consecutiveStableRounds_ >=
-            adaptor_.parms().bootstrapStableRoundsRequired)
-        {
-            bootstrapFastStart_ = false;
-            consecutiveStableRounds_ = 0;
-            JLOG(j_.info())
-                << "Bootstrap fast start DISABLED — stable quorum reached"
-                   " after "
-                << adaptor_.parms().bootstrapStableRoundsRequired
-                << " consecutive rounds";
-        }
-        else
-        {
-            JLOG(j_.debug())
-                << "Bootstrap fast start: stable round "
-                << consecutiveStableRounds_ << "/"
-                << adaptor_.parms().bootstrapStableRoundsRequired
-                << " (validator=" << (adaptor_.validator() ? "yes" : "no")
-                << " proposing=" << (isProposing ? "yes" : "no")
-                << " participants=" << totalParticipants
-                << " unlQuorum=" << unlQuorum
-                << " unlSize=" << trustedKeys.size() << ")";
-        }
-    }
-
     //@@start consensus-accept-handoff
     prevProposers_ = currPeerPositions_.size();
     prevRoundTime_ = result_->roundTime.read();
@@ -1664,8 +1527,6 @@ Consensus<Adaptor>::closeLedger(std::unique_ptr<std::stringstream> const& clog)
         adaptor_.ce().resetSubState();
     JLOG(j_.debug()) << "transitioned to ConsensusPhase::establish";
     rawCloseTimes_.self = now_;
-    peerUnchangedCounter_ = 0;
-    establishCounter_ = 0;
 
     result_.emplace(adaptor_.onClose(previousLedger_, now_, mode_.get()));
     result_->roundTime.reset(clock_.now());
@@ -1801,11 +1662,16 @@ Consensus<Adaptor>::updateOurPositions(
     }
     else
     {
-        // We don't track rounds for close time, so just pass 0s
-        auto const [neededWeight, newState] = getNeededWeight(
-            parms, closeTimeAvalancheState_, convergePercent_, 0, 0);
-        if (newState)
-            closeTimeAvalancheState_ = *newState;
+        int neededWeight;
+
+        if (convergePercent_ < parms.avMID_CONSENSUS_TIME)
+            neededWeight = parms.avINIT_CONSENSUS_PCT;
+        else if (convergePercent_ < parms.avLATE_CONSENSUS_TIME)
+            neededWeight = parms.avMID_CONSENSUS_PCT;
+        else if (convergePercent_ < parms.avSTUCK_CONSENSUS_TIME)
+            neededWeight = parms.avLATE_CONSENSUS_PCT;
+        else
+            neededWeight = parms.avSTUCK_CONSENSUS_PCT;
         CLOG(clog) << "neededWeight " << neededWeight << ". ";
 
         int participants = currPeerPositions_.size();
@@ -1944,8 +1810,7 @@ Consensus<Adaptor>::haveConsensus(
         }
         else
         {
-            JLOG(j_.debug()) << "Proposal disagreement: Peer " << nodeId
-                             << " has " << peerProp.position();
+            JLOG(j_.debug()) << nodeId << " has " << peerProp.position();
             ++disagree;
         }
     }
@@ -1955,52 +1820,6 @@ Consensus<Adaptor>::haveConsensus(
     if constexpr (requires(Adaptor& a) { a.ce(); })
         adaptor_.ce().logPosition(ourPosition, j_);
 
-    // MERGE NOTE (sync-2.5.0): upstream replaces adaptor_.parms() with a local
-    // `parms` ref and adds `stalled` bool + peerUnchangedCounter_ tracking.
-    // We already have all of that below. Keep effectiveParms for bootstrap
-    // override AND the stalled/parms logic. Pass both stalled and
-    // effectiveParms to checkConsensus.
-    //
-    // During bootstrap fast start, cap ledgerMAX_CONSENSUS at 5s so the
-    // "alone with zero peers" establish path exits faster.  5s is the
-    // sweet spot: long enough for peers to exchange proposals and agree
-    // naturally, short enough to not waste time waiting.  Shorter values
-    // (e.g. 3.75s) cause nodes to hit reachedMax before peers converge,
-    // leading to disagreement that cascades into slower subsequent rounds.
-    // All nodes share the same bootstrap config, so they advance in lockstep.
-    auto effectiveParms = adaptor_.parms();
-    if (bootstrapFastStart_)
-        effectiveParms.ledgerMAX_CONSENSUS = std::chrono::seconds{5};
-
-    ConsensusParms const& parms = adaptor_.parms();
-    // MERGE NOTE (upstream 86ef16dbeb): the !result_->disputes.empty() guard,
-    // j_/clog capture in the lambda, and the stalled-logging block below are
-    // all from the bugfix. Upstream sync-2.5.0 does NOT have them yet.
-    // When 86ef16dbeb arrives, keep our version — it's already applied.
-    // Stalling is BAD. It means that we have a consensus on the close time, so
-    // peers are talking, but we have disputed transactions that peers are
-    // unable or unwilling to come to agreement on one way or the other.
-    bool const stalled = haveCloseTimeConsensus_ &&
-        !result_->disputes.empty() &&
-        std::ranges::all_of(result_->disputes,
-                            [this, &parms, &clog](auto const& dispute) {
-                                return dispute.second.stalled(
-                                    parms,
-                                    mode_.get() == ConsensusMode::proposing,
-                                    peerUnchangedCounter_,
-                                    j_,
-                                    clog);
-                            });
-    if (stalled)
-    {
-        std::stringstream ss;
-        ss << "Consensus detects as stalled with " << (agree + disagree) << "/"
-           << prevProposers_ << " proposers, and " << result_->disputes.size()
-           << " stalled disputed transactions.";
-        JLOG(j_.error()) << ss.str();
-        CLOG(clog) << ss.str();
-    }
-
     // Determine if we actually have consensus or not
     result_->state = checkConsensus(
         prevProposers_,
@@ -2009,8 +1828,7 @@ Consensus<Adaptor>::haveConsensus(
         currentFinished,
         prevRoundTime_,
         result_->roundTime.read(),
-        stalled,
-        effectiveParms,
+        adaptor_.parms(),
         mode_.get() == ConsensusMode::proposing,
         j_,
         clog);
@@ -2021,33 +1839,6 @@ Consensus<Adaptor>::haveConsensus(
         return false;
     }
 
-    // Consensus has taken far too long. Drop out of the round.
-    if (result_->state == ConsensusState::Expired)
-    {
-        static auto const minimumCounter =
-            parms.avalancheCutoffs.size() * parms.avMIN_ROUNDS;
-        std::stringstream ss;
-        if (establishCounter_ < minimumCounter)
-        {
-            // If each round of phaseEstablish takes a very long time, we may
-            // "expire" before we've given consensus enough time at each
-            // avalanche level to actually come to a consensus. In that case,
-            // keep trying. This should only happen if there are an extremely
-            // large number of disputes such that each round takes an inordinate
-            // amount of time.
-
-            ss << "Consensus time has expired in round " << establishCounter_
-               << "; continue until round " << minimumCounter << ". "
-               << Json::Compact{getJson(false)};
-            JLOG(j_.error()) << ss.str();
-            CLOG(clog) << ss.str() << ". ";
-            return false;
-        }
-        ss << "Consensus expired. " << Json::Compact{getJson(true)};
-        JLOG(j_.error()) << ss.str();
-        CLOG(clog) << ss.str() << ". ";
-        leaveConsensus(clog);
-    }
     // There is consensus, but we need to track if the network moved on
     // without us.
     if (result_->state == ConsensusState::MovedOn)
@@ -2142,9 +1933,8 @@ Consensus<Adaptor>::createDisputes(
             Proposal_t const& peerProp = peerPos.proposal();
             auto const cit =
                 acquired_.find(positionTxSetID(peerProp.position()));
-            if (cit != acquired_.end() &&
-                dtx.setVote(nodeId, cit->second.exists(txID)))
-                peerUnchangedCounter_ = 0;
+            if (cit != acquired_.end())
+                dtx.setVote(nodeId, cit->second.exists(txID));
         }
         adaptor_.share(dtx.tx());
 
@@ -2170,8 +1960,7 @@ Consensus<Adaptor>::updateDisputes(NodeID_t const& node, TxSet_t const& other)
     for (auto& it : result_->disputes)
     {
         auto& d = it.second;
-        if (d.setVote(node, other.exists(d.tx().id())))
-            peerUnchangedCounter_ = 0;
+        d.setVote(node, other.exists(d.tx().id()));
     }
 }
 

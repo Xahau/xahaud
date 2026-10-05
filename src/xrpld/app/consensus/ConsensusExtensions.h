@@ -256,9 +256,6 @@ public:
     bool
     rngEnabled() const;
 
-    bool
-    testBootstrapFastStartEnabled() const;
-
     uint256
     buildCommitSet(LedgerIndex seq);
 

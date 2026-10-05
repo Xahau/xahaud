@@ -374,9 +374,6 @@ struct Peer
         // Optional test hook: drop reveals from specific peers
         // (simulates asymmetric reveal delivery / packet loss)
         hash_set<PeerID> dropRevealFrom_;
-        // Optional test hook: exercise generic Consensus bootstrap timing
-        // without making the CSF runtime-config aware.
-        bool testBootstrapFastStartEnabled_ = false;
 
         explicit Extensions(Peer& p) : peer(p), j_(p.j)
         {
@@ -905,12 +902,6 @@ struct Peer
         {
         }
 
-        // --- Stubs for features CSF doesn't model ---
-        bool
-        testBootstrapFastStartEnabled() const
-        {
-            return testBootstrapFastStartEnabled_;
-        }
         // --- Sub-state accessors ---
         bool
         extensionsBusy() const

@@ -930,15 +930,6 @@ ConsensusExtensions::txnOrderingSalt(
         selection.denominator);
 }
 
-bool
-ConsensusExtensions::testBootstrapFastStartEnabled() const
-{
-    auto const cfg = app_.getRuntimeConfig().getConsensusTestConfig();
-    if (cfg && cfg->bootstrapFastStart.has_value())
-        return *cfg->bootstrapFastStart;
-    return false;
-}
-
 uint256
 ConsensusExtensions::buildCommitSet(LedgerIndex seq)
 {
