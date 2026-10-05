@@ -419,6 +419,74 @@ class ConsensusEntropy_test : public beast::unit_test::suite
     }
 
     void
+    testRandomGoldenBytes()
+    {
+        testcase("Hook entropy_cr_random() golden bytes");
+        using namespace jtx;
+
+        // Fixed account, transactions, ledger sequence and named amendments:
+        // the drawn bytes are a byte-exact known answer for the draw path.
+        Env env{
+            *this,
+            envconfig(),
+            FeatureBitset{featureHooks, featureConsensusEntropy},
+            nullptr};
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        BEAST_REQUIRE(recordedEntropy(env));
+
+        TestHook hook = consensusentropy_test_wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t flags);
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                uint8_t buf[32];
+                int64_t result = entropy_cr_random((uint32_t)buf, 32, 3, 0);
+                if (result != 32)
+                    rollback(0, 0, result);
+
+                // return the drawn bytes as the hook return string
+                return accept((uint32_t)buf, 32, 0);
+            }
+        )[test.hook]"];
+        BEAST_REQUIRE(!hook.empty());
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook, overrideFlag)}}, 0),
+            M("set entropy_cr_random golden hook"),
+            HSFEE);
+        env.close();
+
+        Json::Value invoke;
+        invoke[jss::TransactionType] = "Invoke";
+        invoke[jss::Account] = alice.human();
+        env(invoke, M("draw entropy_cr_random golden bytes"), fee(XRP(1)));
+
+        auto meta = env.meta();
+        BEAST_REQUIRE(meta);
+        BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+        auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+        BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+
+        // Captured by running the pre-extraction binary.
+        auto const drawn = strHex(hookReturnString(hookExecutions[0]));
+        BEAST_EXPECTS(
+            drawn ==
+                "A1F1A3BEC9654E85DFE4BB4B01FF53B8D08312FA95C9AF47BBA2C70B71A3B2"
+                "75",
+            "drawn " + drawn);
+    }
+
+    void
     testDiceConsecutiveCallsDiffer()
     {
         testcase(
@@ -2560,6 +2628,7 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         testAccountOwnerHookOrdering();
         testEntropyDrawDoesNotBlockWeakAgainAsWeak();
         testRandom();
+        testRandomGoldenBytes();
         testDiceConsecutiveCallsDiffer();
     }
 };

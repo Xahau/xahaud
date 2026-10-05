@@ -142,6 +142,53 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
             extern int32_t _g(uint32_t, uint32_t);
             extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t entropy_cr_random(uint32_t write_ptr, uint32_t write_len, uint32_t min_tier, uint32_t flags);
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                uint8_t buf[32];
+                int64_t result = entropy_cr_random((uint32_t)buf, 32, 3, 0);
+                if (result != 32)
+                    rollback(0, 0, result);
+
+                // return the drawn bytes as the hook return string
+                return accept((uint32_t)buf, 32, 0);
+            }
+        )[test.hook]",
+         {
+             0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U,
+             0x1BU, 0x04U, 0x60U, 0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU,
+             0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7FU, 0x60U, 0x04U, 0x7FU,
+             0x7FU, 0x7FU, 0x7FU, 0x01U, 0x7EU, 0x60U, 0x01U, 0x7FU, 0x01U,
+             0x7EU, 0x02U, 0x3EU, 0x04U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x02U,
+             0x5FU, 0x67U, 0x00U, 0x01U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x11U,
+             0x65U, 0x6EU, 0x74U, 0x72U, 0x6FU, 0x70U, 0x79U, 0x5FU, 0x63U,
+             0x72U, 0x5FU, 0x72U, 0x61U, 0x6EU, 0x64U, 0x6FU, 0x6DU, 0x00U,
+             0x02U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x08U, 0x72U, 0x6FU, 0x6CU,
+             0x6CU, 0x62U, 0x61U, 0x63U, 0x6BU, 0x00U, 0x00U, 0x03U, 0x65U,
+             0x6EU, 0x76U, 0x06U, 0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U,
+             0x00U, 0x00U, 0x03U, 0x02U, 0x01U, 0x03U, 0x05U, 0x03U, 0x01U,
+             0x00U, 0x01U, 0x06U, 0x08U, 0x01U, 0x7FU, 0x01U, 0x41U, 0x80U,
+             0x80U, 0x04U, 0x0BU, 0x07U, 0x08U, 0x01U, 0x04U, 0x68U, 0x6FU,
+             0x6FU, 0x6BU, 0x00U, 0x04U, 0x0AU, 0x44U, 0x01U, 0x42U, 0x01U,
+             0x01U, 0x7EU, 0x23U, 0x00U, 0x41U, 0x20U, 0x6BU, 0x22U, 0x00U,
+             0x24U, 0x00U, 0x41U, 0x01U, 0x41U, 0x01U, 0x10U, 0x00U, 0x1AU,
+             0x20U, 0x00U, 0x41U, 0x20U, 0x41U, 0x03U, 0x41U, 0x00U, 0x10U,
+             0x01U, 0x22U, 0x01U, 0x42U, 0x20U, 0x52U, 0x04U, 0x40U, 0x41U,
+             0x00U, 0x41U, 0x00U, 0x20U, 0x01U, 0x10U, 0x02U, 0x1AU, 0x0BU,
+             0x20U, 0x00U, 0x41U, 0x20U, 0x42U, 0x00U, 0x10U, 0x03U, 0x21U,
+             0x01U, 0x20U, 0x00U, 0x41U, 0x20U, 0x6AU, 0x24U, 0x00U, 0x20U,
+             0x01U, 0x0BU,
+         }},
+
+        /* ==== WASM: 3 ==== */
+        {R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g(uint32_t, uint32_t);
+            extern int64_t accept(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback(uint32_t read_ptr, uint32_t read_len, int64_t error_code);
             extern int64_t entropy_cr_dice(uint32_t sides, uint32_t min_tier, uint32_t flags);
 
             int64_t hook(uint32_t r)
@@ -190,7 +237,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x0BU,
          }},
 
-        /* ==== WASM: 3 ==== */
+        /* ==== WASM: 4 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -223,7 +270,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x10U, 0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 4 ==== */
+        /* ==== WASM: 5 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -283,7 +330,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 5 ==== */
+        /* ==== WASM: 6 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -345,7 +392,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x03U, 0x0BU,
          }},
 
-        /* ==== WASM: 6 ==== */
+        /* ==== WASM: 7 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -439,7 +486,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x41U, 0x20U, 0x6AU, 0x24U, 0x00U, 0x20U, 0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 7 ==== */
+        /* ==== WASM: 8 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -471,7 +518,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x10U, 0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 8 ==== */
+        /* ==== WASM: 9 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -502,7 +549,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x10U, 0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 9 ==== */
+        /* ==== WASM: 10 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -538,7 +585,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x00U, 0x20U, 0x01U, 0x0BU,
          }},
 
-        /* ==== WASM: 10 ==== */
+        /* ==== WASM: 11 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -568,7 +615,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x10U, 0x01U, 0x10U, 0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 11 ==== */
+        /* ==== WASM: 12 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -597,7 +644,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x41U, 0x03U, 0x10U, 0x01U, 0x10U, 0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 12 ==== */
+        /* ==== WASM: 13 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -631,7 +678,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x41U, 0x20U, 0x6AU, 0x24U, 0x00U, 0x20U, 0x01U, 0x0BU,
          }},
 
-        /* ==== WASM: 13 ==== */
+        /* ==== WASM: 14 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -661,7 +708,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 14 ==== */
+        /* ==== WASM: 15 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -739,7 +786,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 15 ==== */
+        /* ==== WASM: 16 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -839,7 +886,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x00U, 0x41U, 0x20U, 0x6AU, 0x24U, 0x00U, 0x20U, 0x01U, 0x0BU,
          }},
 
-        /* ==== WASM: 16 ==== */
+        /* ==== WASM: 17 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -916,7 +963,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x74U, 0x6FU,
          }},
 
-        /* ==== WASM: 17 ==== */
+        /* ==== WASM: 18 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -973,7 +1020,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x67U, 0x2DU, 0x76U, 0x65U, 0x74U, 0x6FU,
          }},
 
-        /* ==== WASM: 18 ==== */
+        /* ==== WASM: 19 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1083,7 +1130,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x73U, 0x75U, 0x65U, 0x72U, 0x20U, 0x76U, 0x65U, 0x74U, 0x6FU,
          }},
 
-        /* ==== WASM: 19 ==== */
+        /* ==== WASM: 20 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1151,7 +1198,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x63U, 0x68U, 0x61U, 0x69U, 0x6EU,
          }},
 
-        /* ==== WASM: 20 ==== */
+        /* ==== WASM: 21 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1221,7 +1268,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x68U, 0x61U, 0x69U, 0x6EU, 0x20U, 0x76U, 0x65U, 0x74U, 0x6FU,
          }},
 
-        /* ==== WASM: 21 ==== */
+        /* ==== WASM: 22 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1387,7 +1434,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0xD0U, 0x00U, 0x6AU, 0x24U, 0x00U, 0x20U, 0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 22 ==== */
+        /* ==== WASM: 23 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1425,7 +1472,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x00U, 0x10U, 0x03U, 0x0BU,
          }},
 
-        /* ==== WASM: 23 ==== */
+        /* ==== WASM: 24 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1471,7 +1518,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x00U, 0x41U, 0x20U, 0x6AU, 0x24U, 0x00U, 0x20U, 0x01U, 0x0BU,
          }},
 
-        /* ==== WASM: 24 ==== */
+        /* ==== WASM: 25 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1529,7 +1576,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x66U, 0x61U, 0x69U, 0x6CU, 0x65U, 0x64U,
          }},
 
-        /* ==== WASM: 25 ==== */
+        /* ==== WASM: 26 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1686,7 +1733,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x00U, 0x20U, 0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 26 ==== */
+        /* ==== WASM: 27 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1715,7 +1762,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x41U, 0x06U, 0x41U, 0x03U, 0x10U, 0x01U, 0x10U, 0x02U, 0x0BU,
          }},
 
-        /* ==== WASM: 27 ==== */
+        /* ==== WASM: 28 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1750,7 +1797,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x0BU,
          }},
 
-        /* ==== WASM: 28 ==== */
+        /* ==== WASM: 29 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1847,7 +1894,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x04U, 0x0BU,
          }},
 
-        /* ==== WASM: 29 ==== */
+        /* ==== WASM: 30 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1923,7 +1970,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x72U,
          }},
 
-        /* ==== WASM: 30 ==== */
+        /* ==== WASM: 31 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
@@ -1999,7 +2046,7 @@ inline std::map<std::string, std::vector<uint8_t>> consensusentropy_test_wasm =
              0x0BU, 0x06U, 0x74U, 0x61U, 0x69U, 0x6CU, 0x00U, 0x56U,
          }},
 
-        /* ==== WASM: 31 ==== */
+        /* ==== WASM: 32 ==== */
         {R"[test.hook](
             #include <stdint.h>
             extern int32_t _g(uint32_t, uint32_t);
