@@ -62,7 +62,6 @@
 #include <cstring>
 #include <mutex>
 #include <random>
-#include <stdexcept>
 
 namespace ripple {
 
@@ -926,17 +925,7 @@ RCLConsensus::Adaptor::buildLCL(
             XRPL_ASSERT(
                 replayData->parent()->info().hash == previousLedger.id(),
                 "ripple::RCLConsensus::Adaptor::buildLCL : parent hash match");
-            auto built = buildLedger(*replayData, tapNONE, app_, j_);
-            auto const expectedHash = replayData->replay()->info().hash;
-            if (!built || built->info().hash != expectedHash)
-            {
-                JLOG(j_.error()) << "Replay build produced wrong ledger"
-                                 << " expected=" << expectedHash << " actual="
-                                 << (built ? to_string(built->info().hash)
-                                           : std::string{"none"});
-                Throw<std::runtime_error>("Cannot replay ledger");
-            }
-            return built;
+            return buildLedger(*replayData, tapNONE, app_, j_);
         }
         return buildLedger(
             previousLedger.ledger_,
@@ -969,14 +958,6 @@ RCLConsensus::Adaptor::validate(
     RCLTxSet const& txns,
     bool proposing)
 {
-    if (!validatorKeys_.keys)
-    {
-        // preStartRound normally prevents this path. Keep validate() itself
-        // fail-closed so future call sites cannot dereference an observer key.
-        JLOG(j_.warn()) << "Skipping validation without validator keys";
-        return;
-    }
-
     using namespace std::chrono_literals;
 
     auto validationTime = app_.timeKeeper().closeTime();
@@ -984,10 +965,19 @@ RCLConsensus::Adaptor::validate(
         validationTime = lastValidationTime_ + 1s;
     lastValidationTime_ = validationTime;
 
+    if (!validatorKeys_.keys)
+    {
+        JLOG(j_.warn()) << "RCLConsensus::Adaptor::validate: ValidatorKeys "
+                           "not set\n";
+        return;
+    }
+
+    auto const& keys = *validatorKeys_.keys;
+
     auto v = std::make_shared<STValidation>(
         lastValidationTime_,
-        validatorKeys_.keys->publicKey,
-        validatorKeys_.keys->secretKey,
+        keys.publicKey,
+        keys.secretKey,
         validatorKeys_.nodeID,
         [&](STValidation& v) {
             v.setFieldH256(sfLedgerHash, ledger.id());
@@ -1078,7 +1068,6 @@ RCLConsensus::Adaptor::onModeChange(ConsensusMode before, ConsensusMode after)
 ConsensusPhase
 RCLConsensus::phase() const
 {
-    std::lock_guard _{mutex_};
     return consensus_->phase();
 }
 
