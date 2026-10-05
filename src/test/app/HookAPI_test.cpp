@@ -3281,21 +3281,30 @@ public:
         using namespace hook_api;
 
         auto const alice = Account{"alice"};
-        Env env{*this, features};
-        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
-        OpenView ov{*env.current()};
-        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
-        auto hookCtx =
-            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-        auto& api = hookCtx.api();
+        for (bool const withFix : {true, false})
+        {
+            Env env{*this, withFix ? features : features - fix20261005};
+            STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+            OpenView ov{*env.current()};
+            ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
 
-        // Invalid argument (wrong size)
-        BEAST_EXPECT(
-            api.slot_set(Bytes{1, 2, 3}, 0).error() == INVALID_ARGUMENT);
-        // Invalid argument (slot_no beyond max)
-        BEAST_EXPECT(
-            api.slot_set(Bytes(32, 0), hook_api::max_slots + 1).error() ==
-            INVALID_ARGUMENT);
+            // Invalid argument (wrong size)
+            BEAST_EXPECT(
+                api.slot_set(Bytes{1, 2, 3}, 0).error() == INVALID_ARGUMENT);
+            // Invalid argument (slot_no beyond max)
+            BEAST_EXPECT(
+                api.slot_set(Bytes(32, 0), hook_api::max_slots + 1).error() ==
+                INVALID_ARGUMENT);
+
+            // 32-byte txn hash: rejected with fix20261005, looked up (and
+            // not found here) without it
+            BEAST_EXPECT(
+                api.slot_set(Bytes(32, 0), 1).error() ==
+                (withFix ? INVALID_ARGUMENT : DOESNT_EXIST));
+        }
     }
 
     void

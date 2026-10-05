@@ -2145,6 +2145,9 @@ HookAPI::slot_set(Bytes const& data, uint32_t slot_no) const
     }
     else if (data.size() == 32)
     {
+        if (hookCtx.applyCtx.view().rules().enabled(fix20261005))
+            return Unexpected(INVALID_ARGUMENT);
+
         uint256 hash = uint256::fromVoid(data.data());
 
         ripple::error_code_i ec{ripple::error_code_i::rpcUNKNOWN};
