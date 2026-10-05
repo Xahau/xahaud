@@ -18,8 +18,6 @@
 
 #include <xrpld/app/consensus/ProposalPrecheck.h>
 #include <xrpl/beast/unit_test.h>
-#include <xrpl/protocol/SecretKey.h>
-#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/digest.h>
 
 #include <cstring>

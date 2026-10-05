@@ -17,32 +17,22 @@
 //==============================================================================
 
 #include <test/jtx.h>
-#include <test/jtx/WSClient.h>
 #include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
-#include <xrpld/app/consensus/ProposalPrecheck.h>
-#include <xrpld/app/ledger/BuildLedger.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/detail/TransactionAcquire.h>
 #include <xrpld/app/main/CollectorManager.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
-#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
 #include <xrpld/consensus/ConsensusProposal.h>
-#include <xrpld/ledger/Sandbox.h>
 #include <xrpld/overlay/PeerSet.h>
-#include <xrpld/overlay/detail/Handshake.h>
-#include <xrpld/overlay/detail/OverlayImpl.h>
-#include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/shamap/SHAMapSidecarLeafNode.h>
 #include <xrpl/basics/StringUtilities.h>
-#include <xrpl/basics/make_SSLContext.h>
-#include <xrpl/basics/scope.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/EntropyTier.h>
 #include <xrpl/protocol/Feature.h>
@@ -60,10 +50,8 @@
 #include <array>
 #include <cstring>
 #include <deque>
-#include <future>
 #include <limits>
 #include <string>
-#include <thread>
 #include <tuple>
 
 namespace ripple {
@@ -3432,6 +3420,15 @@ class ConsensusExtensions_test : public beast::unit_test::suite
         Serializer serialized;
         position.add(serialized);
         BEAST_EXPECT(serialized.size() == 32);
+
+        // With RNG on the same recorded hash attaches.
+        ce.setRngEnabledThisRound(true);
+        ce.attachParticipantDiagnostics(position);
+        BEAST_EXPECT(
+            position.observedParticipantsHash == ce.observedParticipantsHash());
+        Serializer extended;
+        position.add(extended);
+        BEAST_EXPECT(extended.size() > 32);
     }
 
     void
@@ -3491,7 +3488,7 @@ class ConsensusExtensions_test : public beast::unit_test::suite
 
         ConsensusExtensions ce{env.app(), activeNoopJournal()};
         ce.onRoundStart(RCLCxLedger{ledger}, {});
-        ce.setRngEnabledThisRound(true);
+        BEAST_EXPECT(ce.rngEnabled());
         BEAST_EXPECT(!ce.extensionsBusy());
 
         ce.estState_ = EstablishState::ConvergingCommit;

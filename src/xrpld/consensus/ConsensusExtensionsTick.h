@@ -632,7 +632,8 @@ rngTick(Ext& ext, Ctx const& ctx)
             //   2. Subsequent ticks: check for conflict and rebuild if needed,
             //      bounded by deadline.
             //
-            // Same pattern as commitSetHash conflict handling (line ~308).
+            // Same pattern as the commitSetHash conflict wait above
+            // (commitHashConflictStart_).
             {
                 auto const ourPos = ctx.getPosition();
                 if (ourPos.entropySetHash)
