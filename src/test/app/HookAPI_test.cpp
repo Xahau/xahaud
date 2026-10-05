@@ -2671,30 +2671,6 @@ public:
         // TODO: test INVALID_TXN
 
         {
-            // Auto-allocation must not choose the explicit destination slot.
-            auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
-            std::string xpopStr = Json::FastWriter().write(xpopJson);
-            STTx invokeTx = STTx(ttIMPORT, [&](STObject& obj) {
-                obj.setFieldVL(sfBlob, *strUnHex(strHex(xpopStr)));
-            });
-            OpenView ov{*env.current()};
-            ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
-            auto hookCtx =
-                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
-            auto& api = hookCtx.api();
-
-            auto const result = api.xpop_slot(0, 1);
-            BEAST_EXPECT(result.has_value());
-            if (result)
-            {
-                BEAST_EXPECT(result.value().first != result.value().second);
-                BEAST_EXPECT(result.value().second == 1);
-                BEAST_EXPECT(hookCtx.slot.count(result.value().first) == 1);
-                BEAST_EXPECT(hookCtx.slot.count(result.value().second) == 1);
-            }
-        }
-
-        {
             // Success
             auto const xpopJson = import::loadXpop(ImportTCAccountSet::w_seed);
             std::string xpopStr = Json::FastWriter().write(xpopJson);

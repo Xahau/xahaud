@@ -868,15 +868,14 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         std::unique_ptr<STTx const> stpTrans =
             std::make_unique<STTx const>(std::ref(sitTrans));
 
-        // Determinism: emitted transaction fees must be computed against the
-        // ledger being applied. app.openLedger().current() is process-local
-        // mutable state, so using it here would make emitted transaction
-        // hashes depend on each node's live open ledger.
         if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
-            return Transactor::calculateBaseFee(applyCtx.view(), *stpTrans)
+            return Transactor::calculateBaseFee(
+                       *(applyCtx.app.openLedger().current()), *stpTrans)
                 .drops();
 
-        return invoke_calculateBaseFee(applyCtx.view(), *stpTrans).drops();
+        return invoke_calculateBaseFee(
+                   *(applyCtx.app.openLedger().current()), *stpTrans)
+            .drops();
     }
     catch (std::exception const& e)
     {
@@ -2448,36 +2447,26 @@ HookAPI::xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const
         slot_into_meta > hook_api::max_slots)
         return Unexpected(INVALID_ARGUMENT);
 
+    size_t free_count = hook_api::max_slots - hookCtx.slot.size();
+
+    size_t needed_count = slot_into_tx == 0 && slot_into_meta == 0 ? 2
+        : slot_into_tx != 0 && slot_into_meta != 0                 ? 0
+                                                                   : 1;
+
+    if (free_count < needed_count)
+        return Unexpected(NO_FREE_SLOTS);
+
     // if they supply the same slot number for both (other than 0)
     // they will produce a collision
-    if (slot_into_tx != 0 && slot_into_tx == slot_into_meta)
+    if (needed_count == 0 && slot_into_tx == slot_into_meta)
         return Unexpected(INVALID_ARGUMENT);
-
-    auto getFreeSlotExcept = [&](uint32_t reserved) -> std::optional<uint32_t> {
-        for (uint32_t slot = 1; slot <= hook_api::max_slots; ++slot)
-        {
-            if (slot == reserved ||
-                hookCtx.slot.find(slot) != hookCtx.slot.end())
-                continue;
-
-            std::queue<uint32_t> kept;
-            while (!hookCtx.slot_free.empty())
-            {
-                auto const freed = hookCtx.slot_free.front();
-                hookCtx.slot_free.pop();
-                if (freed != slot &&
-                    hookCtx.slot.find(freed) == hookCtx.slot.end())
-                    kept.push(freed);
-            }
-            hookCtx.slot_free = std::move(kept);
-            return slot;
-        }
-        return {};
-    };
 
     if (slot_into_tx == 0)
     {
-        if (auto found = getFreeSlotExcept(slot_into_meta); found)
+        if (no_free_slots())
+            return Unexpected(NO_FREE_SLOTS);
+
+        if (auto found = get_free_slot(); found)
             slot_into_tx = *found;
         else
             return Unexpected(NO_FREE_SLOTS);
@@ -2485,35 +2474,28 @@ HookAPI::xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const
 
     if (slot_into_meta == 0)
     {
-        if (auto found = getFreeSlotExcept(slot_into_tx); found)
+        if (no_free_slots())
+            return Unexpected(NO_FREE_SLOTS);
+
+        if (auto found = get_free_slot(); found)
             slot_into_meta = *found;
         else
             return Unexpected(NO_FREE_SLOTS);
     }
 
-    if (slot_into_tx == slot_into_meta)
-        return Unexpected(INVALID_ARGUMENT);
+    auto [tx, meta] =
+        Import::getInnerTxn(hookCtx.applyCtx.tx, hookCtx.applyCtx.journal);
 
-    if (!hookCtx.xpopSlotCache)
-    {
-        auto [tx, meta] =
-            Import::getInnerTxn(hookCtx.applyCtx.tx, hookCtx.applyCtx.journal);
-
-        if (!tx || !meta)
-            return Unexpected(INVALID_TXN);
-
-        hookCtx.xpopSlotCache.emplace(
-            std::shared_ptr<STObject const>{std::move(tx)},
-            std::shared_ptr<STObject const>{std::move(meta)});
-    }
+    if (!tx || !meta)
+        return Unexpected(INVALID_TXN);
 
     hookCtx.slot[slot_into_tx] =
-        hook::SlotEntry{.storage = hookCtx.xpopSlotCache->first, .entry = 0};
+        hook::SlotEntry{.storage = std::move(tx), .entry = 0};
 
     hookCtx.slot[slot_into_tx].entry = &(*hookCtx.slot[slot_into_tx].storage);
 
     hookCtx.slot[slot_into_meta] =
-        hook::SlotEntry{.storage = hookCtx.xpopSlotCache->second, .entry = 0};
+        hook::SlotEntry{.storage = std::move(meta), .entry = 0};
 
     hookCtx.slot[slot_into_meta].entry =
         &(*hookCtx.slot[slot_into_meta].storage);
