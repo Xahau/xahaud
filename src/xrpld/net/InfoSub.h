@@ -166,11 +166,6 @@ public:
         unsubValidations(std::uint64_t uListener) = 0;
 
         virtual bool
-        subExportSignatures(ref ispListener) = 0;
-        virtual bool
-        unsubExportSignatures(std::uint64_t uListener) = 0;
-
-        virtual bool
         subPeerStatus(ref ispListener) = 0;
         virtual bool
         unsubPeerStatus(std::uint64_t uListener) = 0;

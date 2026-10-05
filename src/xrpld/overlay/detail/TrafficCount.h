@@ -157,9 +157,6 @@ public:
         // TMTransactions
         requested_transactions,
 
-        // TMExportShares
-        export_shares,
-
         unknown  // must be last
     };
 
@@ -252,7 +249,6 @@ protected:
         {"replay_delta_response"},   // category::replay_delta_response
         {"have_transactions"},       // category::have_transactions
         {"requested_transactions"},  // category::transactions
-        {"export_shares"},           // category::export_shares
         {"unknown"}                  // category::unknown
     }};
 };

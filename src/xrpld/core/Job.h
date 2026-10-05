@@ -52,7 +52,6 @@ enum JobType {
     jtRPC,                // A websocket command from the client
     jtSWEEP,              // Sweep for stale structures
     jtVALIDATION_ut,      // A validation from an untrusted source
-    jtEXPORT_SHARES,      // Verify an Export contribution batch
     jtMANIFEST,           // A validator's manifest
     jtUPDATE_PF,          // Update pathfinding requests
     jtTRANSACTION_l,      // A local transaction

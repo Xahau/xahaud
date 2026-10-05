@@ -459,8 +459,11 @@ class ConsensusEntropyGolden_test : public beast::unit_test::suite
             if (viewLedger)
                 ce.cacheUNLReport(viewLedger);
             ce.setRngEnabledThisRound(true);
+            // One key in either view: the fallback below can then come only
+            // from the UNLReport gates, not from the participant threshold.
             auto const view = ce.activeValidatorView();
             BEAST_EXPECT(view->fromUNLReport == (viewLedger != nullptr));
+            BEAST_EXPECT(view->size() == 1);
             BEAST_EXPECT(view->containsNode(valKeys.nodeID));
             goldenHarvestCommitReveal(
                 ce,

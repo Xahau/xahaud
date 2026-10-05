@@ -155,8 +155,7 @@ public:
         @param jobHandler Lambda with signature void (Job&).  Called when the
        job is executed.
 
-        @return true if jobHandler added to queue. Measurement-only job types
-        are rejected; use makeLoadEvent for their accounting instead.
+        @return true if jobHandler added to queue.
     */
     template <
         typename JobHandler,

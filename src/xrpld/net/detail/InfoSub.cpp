@@ -50,7 +50,6 @@ InfoSub::~InfoSub()
     m_source.unsubManifests(mSeq);
     m_source.unsubServer(mSeq);
     m_source.unsubValidations(mSeq);
-    m_source.unsubExportSignatures(mSeq);
     m_source.unsubPeerStatus(mSeq);
     m_source.unsubConsensus(mSeq);
 
