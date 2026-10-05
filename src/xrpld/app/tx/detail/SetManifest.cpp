@@ -116,31 +116,32 @@ hasCanonicalSetManifestShape(STTx const& tx, std::uint32_t networkID) noexcept
 std::optional<XRPAmount>
 canonicalSetManifestFee(XRPAmount base, STObject const& manifest)
 {
-    // Canonicality requires every relayer to produce the same Fee. The voted
-    // reference fee is ledger state that every node reading the same ledger
-    // agrees on, so the price follows fee votes without admitting local load.
+    // Every relayer must compute the same Fee, so it depends only on the voted
+    // reference fee (ledger state, never local load) and the manifest's size.
     // Only the multipliers are fixed; a fee vote changes the canonical txid
     // once.
     constexpr std::int64_t baseUnits = 100;
     constexpr std::int64_t unitsPerByte = 10;
-    constexpr auto maxValue = std::numeric_limits<std::int64_t>::max();
+    constexpr auto maxDrops = std::numeric_limits<std::int64_t>::max();
 
-    // A zero base would make the transaction free. Refuse rather than treat
-    // that product as canonical.
-    if (base <= beast::zero)
+    // Largest size for which baseUnits + bytes * unitsPerByte cannot overflow.
+    constexpr std::uint64_t maxBytes = (maxDrops - baseUnits) / unitsPerByte;
+
+    auto const bytes = manifest.getSerializer().getDataLength();
+
+    // A non-positive base would make the transaction free.
+    if (base <= beast::zero || bytes == 0 || bytes > maxBytes)
         return std::nullopt;
 
-    auto const manifestBytes = manifest.getSerializer().getDataLength();
-    if (manifestBytes >
-        static_cast<std::size_t>((maxValue - baseUnits) / unitsPerByte))
-        return std::nullopt;
     auto const units =
-        baseUnits + static_cast<std::int64_t>(manifestBytes) * unitsPerByte;
-    if (units > maxValue / base.drops())
+        baseUnits + static_cast<std::int64_t>(bytes) * unitsPerByte;
+
+    // base is positive, so this is an exact test for units * base overflowing.
+    if (units > maxDrops / base.drops())
         return std::nullopt;
 
     XRPAmount const fee{base.drops() * units};
-    if (!isLegalAmount(fee))
+    if (!isLegalAmount(fee) || fee <= beast::zero)
         return std::nullopt;
     return fee;
 }
