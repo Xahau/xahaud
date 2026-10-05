@@ -1008,23 +1008,20 @@ public:
     void
     run() override
     {
-        // RH TODO: re-add these when the amendment is ready for supported::yes
-        /*
-                using namespace test::jtx;
-                auto const sa = supported_amendments();
-                testSubmission(sa);
-                testUpdate(sa);
-                testRevocation(sa);
-                testRetrieval(sa);
-                testSigningKeyRetrieval(sa);
-                testMalformed(sa);
-                testEnvelopeRejections(sa);
-                testCorruptLedger(sa);
-                testGossipSelection(sa);
-                testLedgerOutranksGossip(sa);
-                testDirectory(sa);
-                testDisabled(sa);
-        */
+        using namespace test::jtx;
+        auto const sa = supported_amendments();
+        testSubmission(sa);
+        testUpdate(sa);
+        testRevocation(sa);
+        testRetrieval(sa);
+        testSigningKeyRetrieval(sa);
+        testMalformed(sa);
+        testEnvelopeRejections(sa);
+        testCorruptLedger(sa);
+        testGossipSelection(sa);
+        testLedgerOutranksGossip(sa);
+        testDirectory(sa);        
+        testDisabled(sa);
     }
 };
 
