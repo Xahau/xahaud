@@ -120,9 +120,7 @@ OpenLedger::accept(
         f(*next, j_);
     // Apply local tx
     for (auto const& item : locals)
-    {
         app.getTxQ().apply(app, *next, item.second, flags, j_);
-    }
 
     // If we didn't relay this transaction recently, relay it to all peers
     for (auto const& txpair : next->txs)
