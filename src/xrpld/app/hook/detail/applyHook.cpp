@@ -1504,7 +1504,6 @@ hook::finalizeHookResult(
     // directory) if we are allowed to
     std::vector<std::pair<uint256 /* txnid */, uint256 /* emit nonce */>>
         emission_txnid;
-    std::vector<uint256 /* txnid */> exported_txnid;
 
     if (doEmit)
     {
@@ -1529,12 +1528,8 @@ hook::finalizeHookResult(
                                               .getField(sfEmitDetails)
                                               .downcast<STObject>();
 
-                if (ptr->getTxnType() == ttEXPORT)
-                    exported_txnid.emplace_back(id);
-                else
-                    emission_txnid.emplace_back(
-                        id, emitDetails.getFieldH256(sfEmitNonce));
-
+                emission_txnid.emplace_back(
+                    id, emitDetails.getFieldH256(sfEmitNonce));
                 sleEmitted = std::make_shared<SLE>(emittedId);
 
                 // RH TODO: add a new constructor to STObject to avoid this
@@ -1565,12 +1560,6 @@ hook::finalizeHookResult(
                 }
             }
         }
-
-        // Exported txns now flow through the emitted txn path above
-        // (xport() pushes a ttEXPORT wrapper onto emittedTxn).
-        // The export backlog cap is enforced after hook finalization by
-        // ApplyContext::checkExportEmissionLimit(), so strong and weak hook
-        // emissions use the same fee-only reset path.
     }
 
     // add a metadata entry for this hook execution result
@@ -1597,10 +1586,6 @@ hook::finalizeHookResult(
         meta.setFieldU16(
             sfHookEmitCount,
             emission_txnid.size());  // this will never wrap, hard limit
-        if (applyCtx.view().rules().enabled(featureExport))
-        {
-            meta.setFieldU16(sfHookExportCount, exported_txnid.size());
-        }
         meta.setFieldU16(sfHookExecutionIndex, exec_index);
         meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount);
         meta.setFieldH256(sfHookHash, hookResult.hookHash);
@@ -2917,42 +2902,6 @@ DEFINE_HOOK_FUNCTION(int64_t, etxn_reserve, uint32_t count)
     HOOK_TEARDOWN();
 }
 
-DEFINE_HOOK_FUNCTION(int64_t, xport_reserve, uint32_t count)
-{
-    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
-                   // hookCtx on current stack
-
-    auto const result = api.xport_reserve(count);
-    if (!result)
-        return result.error();
-    return result.value();
-
-    HOOK_TEARDOWN();
-}
-
-DEFINE_HOOK_FUNCTION(
-    int64_t,
-    xport_cancel,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t flags)
-{
-    HOOK_SETUP();
-
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
-    if (read_len != uint256::bytes)
-        return INVALID_ARGUMENT;
-
-    auto const result =
-        api.xport_cancel(uint256::fromVoid(memory + read_ptr), flags);
-    if (!result)
-        return result.error();
-    return result.value();
-
-    HOOK_TEARDOWN();
-}
-
 // Compute the burden of an emitted transaction based on a number of factors
 DEFINE_HOOK_FUNCTION(int64_t, etxn_burden)
 {
@@ -4019,65 +3968,6 @@ DEFINE_HOOK_FUNCTION(
 
     HOOK_TEARDOWN();
 }
-
-//@@start xport-impl
-DEFINE_HOOK_FUNCTION(
-    int64_t,
-    xport,
-    uint32_t write_ptr,
-    uint32_t write_len,
-    uint32_t read_ptr,
-    uint32_t read_len,
-    uint32_t committee_hash_ptr,
-    uint32_t committee_hash_len,
-    uint64_t callback_fee_drops)
-{
-    HOOK_SETUP();
-
-    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (NOT_IN_BOUNDS(committee_hash_ptr, committee_hash_len, memory_length))
-        return OUT_OF_BOUNDS;
-
-    if (write_len < 32)
-        return TOO_SMALL;
-    if (committee_hash_len != uint256::bytes)
-        return INVALID_ARGUMENT;
-
-    // Delegate to decoupled HookAPI for xport logic
-    ripple::Slice txBlob{
-        reinterpret_cast<const void*>(memory + read_ptr), read_len};
-
-    auto const res = api.xport(
-        txBlob,
-        uint256::fromVoid(memory + committee_hash_ptr),
-        callback_fee_drops);
-
-    if (!res)
-        return res.error();
-
-    auto const& wrapperTxHash = *res;
-
-    if (wrapperTxHash.size() > write_len)
-        return TOO_SMALL;
-
-    if (NOT_IN_BOUNDS(write_ptr, wrapperTxHash.size(), memory_length))
-        return OUT_OF_BOUNDS;
-
-    WRITE_WASM_MEMORY_AND_RETURN(
-        write_ptr,
-        wrapperTxHash.size(),
-        wrapperTxHash.data(),
-        wrapperTxHash.size(),
-        memory,
-        memory_length);
-    HOOK_TEARDOWN();
-}
-//@@end xport-impl
 
 inline bool
 invalidEntropyRequirement(uint32_t minTier)
