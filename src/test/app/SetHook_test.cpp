@@ -9493,12 +9493,9 @@ public:
     {
         testcase("Test slot_set");
         using namespace jtx;
-        Env env{*this, features};
 
         Account const alice{"alice"};
         Account const bob{"bob"};
-        env.fund(XRP(10000), alice);
-        env.fund(XRP(10000), bob);
 
         TestHook hook_wasm = wasm[R"[test.hook](
             #include <stdint.h>
@@ -9572,32 +9569,49 @@ public:
                 for (uint32_t i = 2; GUARD(257), i < 256; ++i)
                     ASSERT(s == slot_size(i));
 
-                // slot a txn
+                // slot a txn by hash. With fix20261005 a 32 byte argument is
+                // rejected outright, without it the otxn is slotted.
+                // The result is reported as the accept code.
 
                 uint8_t txn[32];
                 ASSERT(otxn_id(SBUF(txn), 0) == 32);
-                ASSERT(slot_set(SBUF(txn), 1) == 1);
+                int64_t r = slot_set(SBUF(txn), 1);
 
-                uint32_t s2 = slot_size(1);
-               
-                // ensure it's not the same object that was there before 
-                ASSERT(s != s2 && s2 > 0);
+                // ensure it's not the same object that was there before
+                if (r == 1)
+                    ASSERT(s != slot_size(1) && slot_size(1) > 0);
 
                 // done!
-                accept(0,0,0);
+                accept(0,0,r);
             }
         )[test.hook]"];
         HASH_WASM(hook);
 
-        // install the hook on alice
-        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
-            M("set slot_set"),
-            HSFEE);
-        env.close();
-        EXPECT_HOOK_FEE(hook, 11653);
+        for (bool const withFix : {true, false})
+        {
+            Env env{*this, withFix ? features : features - fix20261005};
+            env.fund(XRP(10000), alice, bob);
 
-        // invoke the hook
-        env(pay(bob, alice, XRP(1)), M("test slot_set"), fee(XRP(1)));
+            // install the hook on alice
+            env(ripple::test::jtx::hook(alice, {{hso(hook_wasm)}}, 0),
+                M("set slot_set"),
+                HSFEE);
+            env.close();
+            EXPECT_HOOK_FEE(hook, 11645);
+
+            // invoke the hook
+            env(pay(bob, alice, XRP(1)), M("test slot_set"), fee(XRP(1)));
+            env.close();
+
+            auto const meta = env.meta();
+            BEAST_REQUIRE(meta && meta->isFieldPresent(sfHookExecutions));
+            auto const& execs = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(execs.size() == 1);
+            BEAST_EXPECT(
+                execs[0].getFieldU64(sfHookReturnCode) ==
+                (withFix ? 0x8000000000000007ULL /* INVALID_ARGUMENT */
+                         : 1ULL));
+        }
     }
 
     void

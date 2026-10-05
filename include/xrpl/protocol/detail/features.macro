@@ -34,9 +34,11 @@
 // If you add an amendment here, then do not forget to increment `numFeatures`
 // in include/xrpl/protocol/Feature.h.
 
+XRPL_FIX    (20261005,                   Supported::yes, VoteBehavior::DefaultYes)
+XRPL_FEATURE(EscrowDestinationCancel,    Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (20260929,                   Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(HookOnV2_1,                 Supported::yes, VoteBehavior::DefaultNo)
-XRPL_FEATURE(OnChainManifests,           Supported::no,  VoteBehavior::DefaultNo)
+XRPL_FEATURE(OnChainManifests,           Supported::yes,  VoteBehavior::DefaultNo)
 XRPL_FIX    (HookMap,                    Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (GuardDepth32,               Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(NamedHooks,                 Supported::yes, VoteBehavior::DefaultNo)
