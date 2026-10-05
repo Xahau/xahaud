@@ -21,9 +21,11 @@
 #define RIPPLE_APP_MISC_MANIFESTLEDGER_H_INCLUDED
 
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STLedgerEntry.h>
 #include <xrpl/protocol/TER.h>
 
+#include <cstdint>
 #include <functional>
 #include <memory>
 
@@ -84,11 +86,15 @@ writeManifestObjects(
 
     @param view View to read from
     @param f Called with each master manifest object
+    @param maxPages Most directory pages to read, the root page included.
+        Pages are only ever appended, so this reads the oldest entries. A
+        partial view need hold no more pages than this.
 */
 void
 forEachLedgerManifest(
     ReadView const& view,
-    std::function<void(std::shared_ptr<SLE const> const&)> const& f);
+    std::function<void(std::shared_ptr<SLE const> const&)> const& f,
+    std::uint64_t maxPages = dirNodeMaxPages);
 
 }  // namespace ripple
 

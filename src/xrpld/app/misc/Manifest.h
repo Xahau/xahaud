@@ -32,6 +32,7 @@
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -821,6 +822,10 @@ public:
         as from any other source, and the cache only ever moves forward, so
         the worst an unvalidated ledger can do is leave something out.
 
+        @param view Ledger to read from
+        @param maxPages Most directory pages to read; see
+            forEachLedgerManifest()
+
         @return the number of manifests newly accepted
 
         @par Thread Safety
@@ -828,7 +833,9 @@ public:
         May be called concurrently
     */
     std::size_t
-    applyLedgerDirectory(ReadView const& view);
+    applyLedgerDirectory(
+        ReadView const& view,
+        std::uint64_t maxPages = std::numeric_limits<std::uint64_t>::max());
 
     /** Populate manifest cache with manifests in database and config.
 

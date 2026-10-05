@@ -26,11 +26,13 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/HashPrefix.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/Fees.h>
 
@@ -40,6 +42,16 @@
 #include <random>
 
 namespace ripple {
+
+/** Master keys on any of this node's validator lists, trusted or not. */
+static hash_set<PublicKey>
+listedMasterKeys(Application& app)
+{
+    hash_set<PublicKey> keys;
+    app.validators().for_each_listed(
+        [&keys](PublicKey const& pk, bool) { keys.insert(pk); });
+    return keys;
+}
 
 using namespace std::chrono_literals;
 
@@ -447,7 +459,7 @@ InboundLedger::done()
     // turned off by [early_manifest_sync]. Read the manifests from the whole
     // map instead.
     if (complete_ && !failed_ && !mManifestsSynced && wantManifests())
-        syncManifests();
+        syncManifests(listedMasterKeys(app_), dirNodeMaxPages);
 
     JLOG(journal_.debug()) << "Acquire " << hash_ << (failed_ ? " fail " : " ")
                            << ((timeouts_ == 0)
@@ -652,19 +664,32 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
             // first: just the nodes on the paths to the manifest directory and
             // the objects it lists, which can be read and ingested long before
             // the rest of the state map arrives.
+            //
+            // The master keys on this node's validator lists are fetched by
+            // key as well as through the directory. They are what a node with
+            // no manifests at all needs, and reading them by key does not
+            // depend on how long the directory has grown.
             if (!mManifestsSynced && app_.config().EARLY_MANIFEST_SYNC &&
                 wantManifests())
             {
                 sl.unlock();
-                auto nodes =
-                    missingManifestNodes(mLedger->stateMap(), missingNodesFind);
+                auto listed = listedMasterKeys(app_);
+                std::vector<uint256> targets;
+                targets.reserve(listed.size());
+                for (auto const& pk : listed)
+                    targets.push_back(keylet::manifest(pk).key);
+                auto nodes = missingManifestNodes(
+                    mLedger->stateMap(),
+                    missingNodesFind,
+                    targets,
+                    manifestSyncPages);
                 sl.lock();
 
                 if (!failed_ && !complete_ && !mHaveState && !mManifestsSynced)
                 {
                     if (nodes.empty())
                     {
-                        syncManifests();
+                        syncManifests(std::move(listed), manifestSyncPages);
                     }
                     else
                     {
@@ -827,9 +852,10 @@ InboundLedger::wantManifests()
 }
 
 void
-InboundLedger::syncManifests()
+InboundLedger::syncManifests(hash_set<PublicKey> keys, std::uint64_t maxPages)
 {
-    mManifestsSynced = true;
+    if (mManifestsSynced.exchange(true))
+        return;
 
     // Reading verifies a signature per manifest, so it runs as its own job.
     // The ledger is held by shared_ptr, and reading a map while nodes are
@@ -837,21 +863,45 @@ InboundLedger::syncManifests()
     app_.getJobQueue().addJob(
         jtMANIFEST,
         "InboundLedger::syncManifests",
-        [ledger = mLedger, &app = app_, j = journal_]() {
+        [ledger = mLedger,
+         keys = std::move(keys),
+         maxPages,
+         &app = app_,
+         j = journal_]() {
+            auto& cache = app.validatorManifests();
+            std::size_t accepted = 0;
+            std::size_t unreadable = 0;
+
+            // By key first, one at a time: on a partial map a key whose path
+            // is not held throws, and must not cost the keys after it. One
+            // can be missing if the lists changed after the nodes were found.
+            for (auto const& pk : keys)
+            {
+                try
+                {
+                    accepted += cache.applyLedger(*ledger, {pk});
+                }
+                catch (std::exception const&)
+                {
+                    ++unreadable;
+                }
+            }
+
             try
             {
-                auto const accepted =
-                    app.validatorManifests().applyLedgerDirectory(*ledger);
-                JLOG(j.info())
-                    << "Read manifests from ledger " << ledger->info().seq
-                    << " during sync: " << accepted << " accepted";
+                accepted += cache.applyLedgerDirectory(*ledger, maxPages);
             }
             catch (std::exception const& e)
             {
                 JLOG(j.warn())
-                    << "Could not read manifests from ledger "
+                    << "Could not read the manifest directory of ledger "
                     << ledger->info().seq << " during sync: " << e.what();
             }
+
+            JLOG(j.info()) << "Read manifests from ledger "
+                           << ledger->info().seq << " during sync: " << accepted
+                           << " accepted, " << keys.size() << " listed, "
+                           << unreadable << " not yet readable";
         });
 }
 

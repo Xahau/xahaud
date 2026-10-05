@@ -18,19 +18,29 @@
 //==============================================================================
 
 #include <xrpld/app/ledger/ManifestSync.h>
+#include <xrpld/app/misc/Manifest.h>
 #include <xrpl/basics/UnorderedContainers.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/STLedgerEntry.h>
 
+#include <algorithm>
 #include <limits>
 #include <optional>
 
 namespace ripple {
 
+static_assert(
+    manifestSyncPages * dirNodeMaxEntries >= ManifestCache::ledgerCapacity,
+    "the early read must be able to fill the ledger tier");
+
 std::vector<std::pair<SHAMapNodeID, uint256>>
-missingManifestNodes(SHAMap const& stateMap, std::size_t max)
+missingManifestNodes(
+    SHAMap const& stateMap,
+    std::size_t max,
+    std::vector<uint256> const& keys,
+    std::uint64_t maxPages)
 {
     std::vector<std::pair<SHAMapNodeID, uint256>> missing;
 
@@ -39,7 +49,13 @@ missingManifestNodes(SHAMap const& stateMap, std::size_t max)
     hash_set<uint256> visited;
 
     auto const& root = keylet::manifestDir();
+
+    // A stack, so the keys asked for by name go last and are read first: they
+    // are the ones that decide whether this node can trust a validation.
     std::vector<uint256> pending{root.key};
+    pending.insert(pending.end(), keys.rbegin(), keys.rend());
+
+    maxPages = std::clamp<std::uint64_t>(maxPages, 1, dirNodeMaxPages);
 
     while (!pending.empty() && missing.size() < max)
     {
@@ -86,7 +102,7 @@ missingManifestNodes(SHAMap const& stateMap, std::size_t max)
             if (key == root.key)
             {
                 auto const last = std::min<std::uint64_t>(
-                    sle->getFieldU64(sfIndexPrevious), dirNodeMaxPages - 1);
+                    sle->getFieldU64(sfIndexPrevious), maxPages - 1);
                 for (std::uint64_t i = 1; i <= last; ++i)
                     pending.push_back(keylet::page(root, i).key);
             }
@@ -105,6 +121,46 @@ missingManifestNodes(SHAMap const& stateMap, std::size_t max)
     }
 
     return missing;
+}
+
+std::vector<uint256>
+pickManifestCandidates(
+    std::vector<uint256> const& reported,
+    hash_set<uint256> const& skip,
+    std::size_t max)
+{
+    hash_map<uint256, std::size_t> counts;
+    for (auto const& hash : reported)
+        if (hash.isNonZero() && !skip.contains(hash))
+            ++counts[hash];
+
+    std::vector<std::pair<std::size_t, uint256>> ranked;
+    ranked.reserve(counts.size());
+    for (auto const& [hash, count] : counts)
+        ranked.emplace_back(count, hash);
+
+    auto const keep = std::min(max, ranked.size());
+    std::partial_sort(
+        ranked.begin(),
+        ranked.begin() + keep,
+        ranked.end(),
+        [](auto const& a, auto const& b) { return a > b; });
+
+    std::vector<uint256> picked;
+    picked.reserve(keep);
+    for (std::size_t i = 0; i < keep; ++i)
+        picked.push_back(ranked[i].second);
+    return picked;
+}
+
+std::size_t
+manifestQuorum(std::size_t validators, bool trusted, std::size_t quorum)
+{
+    if (trusted)
+        return std::min(quorum, validators);
+
+    // ceil(0.8 * validators), in integers.
+    return (validators * 4 + 4) / 5;
 }
 
 }  // namespace ripple

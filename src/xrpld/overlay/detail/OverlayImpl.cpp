@@ -685,6 +685,15 @@ OverlayImpl::onManifests(
                     addValidatorManifest(*db, serialized);
                 }
             }
+            else if (result == ManifestDisposition::unseen)
+            {
+                // Held until its ephemeral key is seen validating, and then
+                // relayed from there; see handleNewValidation(). Note who
+                // sent it, so it is not sent back.
+                if (auto const held = deserializeManifest(serialized))
+                    app_.getHashRouter().addSuppressionPeer(
+                        held->hash(), from->id());
+            }
         }
         else
         {

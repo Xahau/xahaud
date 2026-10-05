@@ -173,21 +173,27 @@ RCLValidationsAdaptor::acquire(LedgerHash const& hash)
 
 namespace {
 
-/** Announce a manifest the cache accepted other than from peer gossip. */
+/** Announce a manifest the cache accepted other than from peer gossip.
+
+    Not to the peers it was held back from: OverlayImpl::onManifests records
+    each of them against the manifest's hash.
+*/
 void
 relayManifest(Application& app, Manifest const& manifest)
 {
     app.getOPs().pubManifest(manifest);
 
-    if (!app.getHashRouter().shouldRelay(manifest.hash()))
+    auto const toSkip = app.getHashRouter().shouldRelay(manifest.hash());
+    if (!toSkip)
         return;
 
     protocol::TMManifests tm;
     tm.add_list()->set_stobject(
         manifest.serialized.data(), manifest.serialized.size());
 
-    app.overlay().foreach(
-        send_always(std::make_shared<Message>(tm, protocol::mtMANIFESTS)));
+    app.overlay().foreach(send_if_not(
+        std::make_shared<Message>(tm, protocol::mtMANIFESTS),
+        peer_in_set(*toSkip)));
 }
 
 }  // namespace

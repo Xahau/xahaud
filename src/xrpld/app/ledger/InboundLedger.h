@@ -25,6 +25,9 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/overlay/PeerSet.h>
 #include <xrpl/basics/CountedObject.h>
+#include <xrpl/basics/UnorderedContainers.h>
+#include <xrpl/protocol/PublicKey.h>
+#include <atomic>
 #include <mutex>
 #include <set>
 #include <utility>
@@ -182,12 +185,24 @@ private:
     bool
     wantManifests();
 
-    /** Read the manifests from the ledger, now that they can be. */
-    void
-    syncManifests();
+    /** Read the manifests from the ledger, now that they can be.
 
-    /** The manifests have been read, or are being, from this ledger. */
-    bool mManifestsSynced = false;
+        Dispatches the read at most once per ledger, however many paths reach
+        here.
+
+        @param keys Master keys to read by key, whether or not the part of
+            the directory read lists them
+        @param maxPages Most manifest directory pages to read
+    */
+    void
+    syncManifests(hash_set<PublicKey> keys, std::uint64_t maxPages);
+
+    /** The manifests have been read, or are being, from this ledger.
+
+        Atomic because done() can be reached from trigger() after it has
+        released mtx_.
+    */
+    std::atomic<bool> mManifestsSynced{false};
 
     bool mHaveHeader;
     bool mHaveState;

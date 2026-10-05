@@ -30,6 +30,7 @@
 #include <xrpl/basics/contract.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/digest.h>
@@ -403,13 +404,18 @@ class ManifestDirectory_test : public beast::unit_test::suite
         until it asks for nothing more.
     */
     SyncStats
-    syncManifests(SHAMap const& source, SHAMap& destination)
+    syncManifests(
+        SHAMap const& source,
+        SHAMap& destination,
+        std::vector<uint256> const& keys = {},
+        std::uint64_t maxPages = dirNodeMaxPages)
     {
         SyncStats stats;
 
         for (;;)
         {
-            auto const missing = missingManifestNodes(destination, 256);
+            auto const missing =
+                missingManifestNodes(destination, 256, keys, maxPages);
             if (missing.empty())
                 return stats;
 
@@ -999,6 +1005,245 @@ class ManifestDirectory_test : public beast::unit_test::suite
         BEAST_EXPECT(cache.applyLedgerDirectory(view) == 0);
     }
 
+    void
+    testPartialSyncByKey()
+    {
+        testcase("partial sync by key");
+
+        SuiteJournal journal("ManifestDirectory_test", *this);
+
+        // Manifests on-ledger with no directory listing them: the directory
+        // pages are dropped. A node that knows its validators' master keys
+        // needs no directory to find their manifests.
+        MemoryState state;
+        std::vector<Validator> vs;
+        for (int i = 0; i < 40; ++i)
+        {
+            vs.push_back(makeValidator());
+            BEAST_EXPECT(isTesSuccess(publish(state, vs.back(), 1)));
+        }
+        for (int i = 0; i < 5; ++i)
+        {
+            vs[i] = rotate(vs[i]);
+            BEAST_EXPECT(isTesSuccess(publish(state, vs[i], 2)));
+        }
+        BEAST_EXPECT(isTesSuccess(publish(state, vs[5], revocation)));
+
+        for (std::uint64_t i = 0; i < 4; ++i)
+            if (auto const page =
+                    state.read(keylet::page(keylet::manifestDir(), i)))
+                state.rawErase(std::make_shared<SLE>(*page));
+        BEAST_EXPECT(walked(state).empty());
+
+        // Only the first ten are on this node's lists.
+        std::vector<uint256> keys;
+        hash_set<PublicKey> listed;
+        for (int i = 0; i < 10; ++i)
+        {
+            keys.push_back(keylet::manifest(vs[i].master).key);
+            listed.insert(vs[i].master);
+        }
+        // And one more key that has no manifest at all.
+        auto const absent = makeValidator();
+        keys.push_back(keylet::manifest(absent.master).key);
+        listed.insert(absent.master);
+
+        tests::TestNodeFamily sf{journal};
+        tests::TestNodeFamily df{journal};
+        auto const source = toMap(state, sf, 20000);
+        auto const destination = rootOnly(*source, df);
+
+        auto const stats = syncManifests(*source, *destination, keys);
+        log << "partial sync by key: " << stats.rounds << " rounds, "
+            << stats.nodes << " of " << nodeCount(*source) << " nodes"
+            << std::endl;
+        BEAST_EXPECT(stats.rounds <= 16);
+        BEAST_EXPECT(stats.nodes * 10 < nodeCount(*source));
+        BEAST_EXPECT(missingManifestNodes(*destination, 256, keys).empty());
+
+        // Read the way InboundLedger reads them, through the cache.
+        MapState view{*destination};
+        TestStopwatch clock;
+        ManifestCache cache{
+            beast::Journal{beast::Journal::getNullSink()}, clock};
+        BEAST_EXPECT(cache.applyLedger(view, listed) == 10);
+        for (int i = 0; i < 10; ++i)
+        {
+            if (i == 5)
+                BEAST_EXPECT(cache.revoked(vs[i].master));
+            else
+                BEAST_EXPECT(cache.getMasterKey(vs[i].signing) == vs[i].master);
+        }
+        BEAST_EXPECT(!cache.getTier(absent.master));
+
+        // Their ephemeral copies were fetched as well, so the miss path works.
+        TestStopwatch clock2;
+        ManifestCache cold{
+            beast::Journal{beast::Journal::getNullSink()}, clock2};
+        BEAST_EXPECT(
+            cold.applyLedgerSigningKey(view, vs[7].signing) == vs[7].master);
+
+        // Keys not asked for were not fetched.
+        bool threw = false;
+        try
+        {
+            view.read(keylet::manifest(vs[30].master));
+        }
+        catch (SHAMapMissingNode const&)
+        {
+            threw = true;
+        }
+        BEAST_EXPECT(threw);
+    }
+
+    void
+    testPartialSyncPageCap()
+    {
+        testcase("partial sync page cap");
+
+        SuiteJournal journal("ManifestDirectory_test", *this);
+
+        MemoryState state;
+        std::vector<Validator> vs;
+        for (int i = 0; i < 150; ++i)
+        {
+            vs.push_back(makeValidator());
+            BEAST_EXPECT(isTesSuccess(publish(state, vs.back(), 1)));
+        }
+        BEAST_EXPECT(
+            state.read(keylet::manifestDir())->getFieldU64(sfIndexPrevious) ==
+            4);
+
+        // The order the directory lists them in, page by page.
+        std::vector<PublicKey> order;
+        forEachLedgerManifest(
+            state, [&](std::shared_ptr<SLE const> const& sle) {
+                order.emplace_back(makeSlice(sle->getFieldVL(sfPublicKey)));
+            });
+        BEAST_EXPECT(order.size() == vs.size());
+
+        std::uint64_t const pages = 2;
+        std::size_t const capped = pages * dirNodeMaxEntries;
+
+        // Capped walks see the first pages only.
+        std::size_t seen = 0;
+        forEachLedgerManifest(
+            state, [&](std::shared_ptr<SLE const> const&) { ++seen; }, pages);
+        BEAST_EXPECT(seen == capped);
+        seen = 0;
+        forEachLedgerManifest(
+            state, [&](std::shared_ptr<SLE const> const&) { ++seen; }, 1);
+        BEAST_EXPECT(seen == dirNodeMaxEntries);
+
+        // One key listed far past the cap is still fetched, by key.
+        auto const& late = order.back();
+        std::vector<uint256> keys{keylet::manifest(late).key};
+
+        tests::TestNodeFamily sf{journal};
+        tests::TestNodeFamily df{journal};
+        auto const source = toMap(state, sf, 20000);
+        auto const destination = rootOnly(*source, df);
+
+        auto const full = [&] {
+            tests::TestNodeFamily ff{journal};
+            auto const map = rootOnly(*source, ff);
+            return syncManifests(*source, *map);
+        }();
+        auto const stats = syncManifests(*source, *destination, keys, pages);
+        BEAST_EXPECT(stats.nodes < full.nodes);
+        BEAST_EXPECT(
+            missingManifestNodes(*destination, 256, keys, pages).empty());
+
+        MapState view{*destination};
+        TestStopwatch clock;
+        ManifestCache cache{
+            beast::Journal{beast::Journal::getNullSink()}, clock};
+        BEAST_EXPECT(cache.applyLedger(view, {late}) == 1);
+        BEAST_EXPECT(cache.applyLedgerDirectory(view, pages) == capped);
+        for (std::size_t i = 0; i < capped; ++i)
+            BEAST_EXPECT(cache.getTier(order[i]) == ManifestSource::ledger);
+        BEAST_EXPECT(!cache.getTier(order[capped]));
+
+        // Uncapped, the walk needs pages this map does not hold.
+        bool threw = false;
+        try
+        {
+            forEachLedgerManifest(
+                view, [](std::shared_ptr<SLE const> const&) {});
+        }
+        catch (SHAMapMissingNode const&)
+        {
+            threw = true;
+        }
+        BEAST_EXPECT(threw);
+    }
+
+    void
+    testCandidates()
+    {
+        testcase("candidate ledgers");
+
+        auto const h = [](std::uint64_t i) {
+            return sha512Half(std::string("ledger"), i);
+        };
+
+        // Most reported first; zero ignored.
+        std::vector<uint256> reported{
+            h(1), h(2), h(2), h(3), h(3), h(3), uint256{}, uint256{}};
+        hash_set<uint256> skip;
+        auto picked = pickManifestCandidates(reported, skip, 3);
+        if (BEAST_EXPECT(picked.size() == 3))
+        {
+            BEAST_EXPECT(picked[0] == h(3));
+            BEAST_EXPECT(picked[1] == h(2));
+            BEAST_EXPECT(picked[2] == h(1));
+        }
+
+        // Bounded.
+        picked = pickManifestCandidates(reported, skip, 1);
+        BEAST_EXPECT(picked.size() == 1 && picked[0] == h(3));
+        BEAST_EXPECT(pickManifestCandidates(reported, skip, 0).empty());
+
+        // Skipped ones make way for the rest.
+        skip.insert(h(3));
+        picked = pickManifestCandidates(reported, skip, 3);
+        BEAST_EXPECT(picked.size() == 2 && picked[0] == h(2));
+
+        // Ties go to the larger hash, as NetworkOPs picks by peer count.
+        auto const a = h(10), b = h(11);
+        picked = pickManifestCandidates({a, b}, {}, 2);
+        if (BEAST_EXPECT(picked.size() == 2))
+            BEAST_EXPECT(picked[0] == std::max(a, b));
+
+        // Nothing reported, nothing picked.
+        BEAST_EXPECT(pickManifestCandidates({}, {}, 3).empty());
+        BEAST_EXPECT(pickManifestCandidates({uint256{}}, {}, 3).empty());
+    }
+
+    void
+    testQuorum()
+    {
+        testcase("manifest quorum");
+
+        // Before the trusted set exists: 80% of those listed, rounded up.
+        BEAST_EXPECT(manifestQuorum(0, false, 1) == 0);
+        BEAST_EXPECT(manifestQuorum(1, false, 1) == 1);
+        BEAST_EXPECT(manifestQuorum(4, false, 1) == 4);
+        BEAST_EXPECT(manifestQuorum(5, false, 1) == 4);
+        BEAST_EXPECT(manifestQuorum(10, false, 1) == 8);
+        BEAST_EXPECT(manifestQuorum(11, false, 1) == 9);
+        BEAST_EXPECT(manifestQuorum(35, false, 1) == 28);
+
+        // After: the quorum ValidatorList worked out, which a negative UNL
+        // can lower, never more than there are validators.
+        BEAST_EXPECT(manifestQuorum(35, true, 28) == 28);
+        BEAST_EXPECT(manifestQuorum(35, true, 21) == 21);
+        BEAST_EXPECT(manifestQuorum(3, true, 5) == 3);
+        BEAST_EXPECT(
+            manifestQuorum(3, true, std::numeric_limits<std::size_t>::max()) ==
+            3);
+    }
+
 public:
     void
     run() override
@@ -1010,6 +1255,10 @@ public:
         testPartialLookup();
         testPartialSync();
         testPartialSyncNoDirectory();
+        testPartialSyncByKey();
+        testPartialSyncPageCap();
+        testCandidates();
+        testQuorum();
     }
 };
 

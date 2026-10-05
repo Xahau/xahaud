@@ -922,11 +922,13 @@ ManifestCache::applyLedgerSigningKey(
 }
 
 std::size_t
-ManifestCache::applyLedgerDirectory(ReadView const& view)
+ManifestCache::applyLedgerDirectory(
+    ReadView const& view,
+    std::uint64_t maxPages)
 {
     std::size_t accepted = 0;
 
-    forEachLedgerManifest(view, [&](std::shared_ptr<SLE const> const& sle) {
+    auto const visit = [&](std::shared_ptr<SLE const> const& sle) {
         auto const raw = sle->getFieldVL(sfPublicKey);
         if (!publicKeyType(makeSlice(raw)))
             return;
@@ -965,7 +967,9 @@ ManifestCache::applyLedgerDirectory(ReadView const& view)
             applyManifest(std::move(*mo), ManifestSource::ledger) ==
                 ManifestDisposition::accepted)
             ++accepted;
-    });
+    };
+
+    forEachLedgerManifest(view, visit, maxPages);
 
     return accepted;
 }

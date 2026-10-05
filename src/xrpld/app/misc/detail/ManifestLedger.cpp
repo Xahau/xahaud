@@ -26,6 +26,7 @@
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STObject.h>
 
+#include <algorithm>
 #include <optional>
 
 namespace ripple {
@@ -155,20 +156,22 @@ writeManifestObjects(
 void
 forEachLedgerManifest(
     ReadView const& view,
-    std::function<void(std::shared_ptr<SLE const> const&)> const& f)
+    std::function<void(std::shared_ptr<SLE const> const&)> const& f,
+    std::uint64_t maxPages)
 {
     auto const& root = keylet::manifestDir();
     auto page = view.read(root);
 
-    // Bounds the walk should a corrupt ledger link the pages in a cycle.
-    for (std::uint64_t pages = 0; page && pages < dirNodeMaxPages; ++pages)
+    // Also bounds the walk should a corrupt ledger link the pages in a cycle.
+    maxPages = std::min(maxPages, dirNodeMaxPages);
+    for (std::uint64_t pages = 0; page && pages < maxPages; ++pages)
     {
         for (auto const& key : page->getFieldV256(sfIndexes))
             if (auto const sle = view.read(Keylet{ltMANIFEST, key}))
                 f(sle);
 
         auto const next = page->getFieldU64(sfIndexNext);
-        if (next == 0)
+        if (next == 0 || pages + 1 >= maxPages)
             break;
 
         page = view.read(keylet::page(root, next));
