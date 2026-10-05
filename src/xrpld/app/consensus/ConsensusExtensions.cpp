@@ -638,15 +638,15 @@ ConsensusExtensions::hasQuorumOfCommits() const
 bool
 ConsensusExtensions::hasMinimumReveals() const
 {
-    // Wait for reveals from ALL committers, not just 80%.  The commit
-    // set is deterministic (SHAMap agreed), so we know exactly which
-    // validators should reveal.  Waiting for all of them ensures every
-    // node builds the same entropy set.  rngPIPELINE_TIMEOUT in
-    // Consensus.h is the safety valve for nodes that crash/partition
-    // between commit and reveal.
-    // Reveal quorum targets the commit sidecar set, not every later proposal
-    // commitment we heard. That keeps proofless late commits from extending
-    // the reveal wait after they were excluded from buildCommitSet().
+    // Wait for reveals from ALL expected committers, not just 80%. The
+    // expected set is every active proofed committer admitted before
+    // freezeRngCommitSet() at the reveal transition, so it is fixed once
+    // reveals begin. Waiting for all of them ensures every node builds the
+    // same entropy set. rngREVEAL_TIMEOUT in ConsensusParms.h, measured from
+    // ConvergingReveal entry, is the safety valve for nodes that
+    // crash/partition between commit and reveal.
+    // Only proofed commits count, the same filter buildCommitSet() applies,
+    // so proofless commitments never extend the reveal wait.
     auto const expected = proofedCommitCount();
     auto const revealCount = proofedRevealCount();
     auto const activeValidators = activeValidatorView()->size();

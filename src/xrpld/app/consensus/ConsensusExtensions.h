@@ -36,9 +36,9 @@ using TickContext = ConsensusTick<ExtendedPosition, RCLCxPeerPos, RCLTxSet>;
 
 /// Concrete Xahau-owned manager for consensus extensions (RNG).
 ///
-/// Owns all RNG state that was previously scattered across
-/// RCLCxAdaptor and Consensus.h. Lifecycle hooks are grouped by
-/// caller/threading context.
+/// Owns the round's RNG state: commit/reveal collection, sidecar snapshots,
+/// the accepted entropy root and the establish sub-state. Lifecycle hooks are
+/// grouped by caller/threading context.
 class ConsensusExtensions
 {
     friend class test::ConsensusExtensions_test;
@@ -239,7 +239,8 @@ public:
 
     /// Deterministically choose the entropy to inject for this round from the
     /// entropy sidecar accepted by the tick gate (never local pendingReveals_),
-    /// labelled by agreed participant count: validator_quorum (>=
+    /// labelled by the accepted set's leaf count: validator_full (every
+    /// validator in the non-empty effective view), validator_quorum (>=
     /// quorumThreshold), participant_aligned (>= tier2Threshold) or
     /// consensus_fallback. In non-standalone mode, non-fallback labels require
     /// an UNLReport-backed active view; the trusted-fallback view is local

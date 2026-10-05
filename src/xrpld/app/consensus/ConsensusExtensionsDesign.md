@@ -2,7 +2,8 @@
 
 This note captures the principles behind the Xahau consensus extension
 framework (signed proposal sidecars, local sidecar snapshots, bounded gates,
-and transaction-stream replay witnesses) and its one extension,
+and a transaction-stream replay witness, which for RNG is the
+`ttCONSENSUS_ENTROPY` pseudo-transaction) and its one extension,
 ConsensusEntropy/RNG. Read this before changing `ConsensusExtensions`,
 `ConsensusExtensionsTick`, `ExtendedPosition`, sidecar SHAMap handling, or the
 related CSF tests.
@@ -23,8 +24,8 @@ rather than blocking core consensus.
 ## Fallback Semantics
 
 RNG closes with a deterministic consensus-bound fallback digest (Tier 1) in
-either of two cases: (1) when peers cannot establish an accepted
-participant_aligned or validator_quorum entropy set in time, or (2)
+either of two cases: (1) when the round does not accept an entropy set that
+earns a non-fallback tier (participant_aligned or better) in time, or (2)
 whenever the round's active validator view is not UNLReport-backed — no on-ledger
 `UNLReport`, e.g. early ledgers or config-trusted non-standalone test networks —
 regardless of how well peers aligned, because a config-derived view can differ
@@ -96,11 +97,10 @@ sidecar gate has had its bounded chance to use proofed/quorum material.
 
    Commit and reveal entries are `STObject(sfGeneric)` leaves in ephemeral
    `SHAMapType::SIDECAR` maps. They use `sfSidecarType` to distinguish
-   payloads and `HashPrefix::sidecar` for item hashes. Current
-   same-round consensus does not advertise, fetch, serve, or merge these maps
-   from peers. The maps are local immutable snapshots used to materialize the
-   root a node signed into its proposal and, if accepted, to build the
-   ledger-visible pseudo/witness.
+   payloads and `HashPrefix::sidecar` for item hashes. The maps are local
+   immutable snapshots; they are never advertised, served, or acquired from
+   peers. A node uses them to materialize the root it signed into its proposal
+   and, if that root is accepted, to build the ledger-visible pseudo/witness.
 
 6. Proposal-visible or validation-visible extension data must be signed.
 
@@ -110,7 +110,7 @@ sidecar gate has had its bounded chance to use proofed/quorum material.
    signed payload and by the identity used for duplicate suppression/replay
    checks on that path.
 
-   Today ConsensusExtensions uses signed proposal sidecars, not validation
+   ConsensusExtensions uses signed proposal sidecars, not validation
    sidecars. If a future design carries extension material through
    validations, the same rule applies: the behavior-changing data, or a digest
    of it, must be inside the signed validation payload and bound to the
@@ -202,7 +202,7 @@ are not. A node that joins or falls behind mid-round normally observes for a few
 ticks/rounds until the relayed proposal stream is coherent enough to participate.
 
 RNG adds a stricter requirement on top of that proposal stream: its sidecar
-roots are accepted by absolute quorum over a fixed parent-ledger validator
+roots are accepted by absolute thresholds over a fixed parent-ledger validator
 denominator, not by percentages over whichever proposers this node happens to
 observe. That fixed denominator is intentional. It gives the
 sidecar gates deterministic, intersection-safe semantics: two quorum-aligned
@@ -211,48 +211,46 @@ same active-view assumptions. The cost is that missed proposal-borne material
 does not shrink the target the way observed-proposer percentages do; it leaves
 the node short of the fixed quorum.
 
-There is no same-round sidecar reconciliation for that gap. Sidecar roots are
-signed into proposals, but the backing `SHAMapType::SIDECAR` maps are local
-snapshots only. They are not advertised, served, fetched, or merged from peers,
-and generic transaction-set acquisition must reject them. A node that missed
-proposal-carried material may therefore be unable to materialize the quorum
-root this round. For RNG it falls back to the explicit Tier 1 consensus digest
-or accepts a lower locally materialized tier. If a quorum of validators did
-materialize and validate a richer synthetic ledger, a missing-material validator
-follows that ledger through the normal validation/LCL path after the round, just
-as it would after failing to build any other majority ledger.
+Sidecar roots are signed into proposals, but the backing `SHAMapType::SIDECAR`
+maps are local snapshots: generic transaction-set advertisement, serving, and
+acquisition skip or refuse them. A node that missed proposal-carried material
+may therefore be unable to materialize the quorum root this round. For RNG it
+falls back to the explicit Tier 1 consensus digest or accepts a lower locally
+materialized tier. If a quorum of validators did materialize and validate a
+richer synthetic ledger, a missing-material validator follows that ledger
+through the normal validation/LCL path after the round, just as it would after
+failing to build any other majority ledger.
 
-That is the deliberate tradeoff. Reconciliation would help only in a narrow
-topology: a validator is up and proposes, its proposal-carried material fails
-to push-relay to some cohort before the deadline, another reachable peer
-advertises a root covering it, and a content-addressed pull completes quickly
-enough to cross a tier boundary. That is an edge of an already unhealthy
-overlay; if the cut is severe enough to matter for sidecar fetch, validations
-and ordinary proposal relay are also under stress. A fetch path would need
-aggressive same-round acquisition to help in time, which makes the protocol
-chatty and adds a second semantic ingress path for the same validator
-material, and dual-ingress surfaces drift. An extension therefore takes its
-validator material through one ingress path, the signed proposal stream: the
-design counts what the proposal round actually delivered and makes degradation
-explicit.
+An extension takes its validator material through one ingress path, the signed
+proposal stream: the design counts what the proposal round actually delivered
+and makes degradation explicit.
 
 ## RNG Commit/Reveal Principles
 
 RNG proceeds through establish sub-states:
 
 1. `ConvergingTx`: ordinary transaction-set convergence while harvesting
-   commitments.
-2. `ConvergingCommit`: after proofed commit quorum, publish the commit sidecar
-   hash and reveal the same secret that produced the original commitment.
+   commitments. On proofed commit quorum (or, once `rngPIPELINE_TIMEOUT` has
+   passed, a proofed cohort at the entropy gate) publish the commit sidecar
+   hash and advance.
+2. `ConvergingCommit`: check tx-converged positions for conflicting commit
+   sidecar hashes, then freeze commit admission and reveal the same secret that
+   produced the original commitment.
 3. `ConvergingReveal`: collect reveals, publish the entropy sidecar hash, and
    wait for sidecar agreement or deterministic fallback.
 
 These sub-states are sequential gates, not sequential collection phases.
 Commitments ride on the initial proposal and are usually already harvested
 during `ConvergingTx`; in a healthy round `ConvergingCommit` is often just a
-one-tick commit-set publication/checkpoint before reveals begin. The bounded
-waits there are for late quorum or conflicting commit-set hashes, not the normal
-commit transport path.
+one-tick checkpoint between commit-set publication and reveal. The
+`ConvergingTx` wait covers late commit quorum, bounded by
+`rngPIPELINE_TIMEOUT`. The `ConvergingCommit` wait covers only conflicting
+commit-set hashes, bounded by `rngREVEAL_TIMEOUT` from the first observed
+conflict. Neither wait is the normal commit transport path.
+
+Commit-root conflict detection is not filtered by the active view: it compares
+the commit-set hash of every trusted, tx-converged peer position. It feeds no
+count; a conflict only opens the bounded `ConvergingCommit` wait.
 
 Commit quorum counts only proofed commits from active validators. A commit that
 cannot be emitted as a verifiable sidecar leaf does not count.
@@ -266,20 +264,25 @@ commitment accompanied by a self-contained serialized signed `ExtendedPosition`
 whose signature and attribution both verify; a bare digest is not a proofed
 commitment.
 
-Reveal collection targets all known committers, because the commit sidecar set
-defines who is expected to reveal. The reveal wait is still bounded. A node
-that crashes, withholds, or partitions after committing must not stop the
-ledger forever.
+Reveal collection targets every active proofed committer admitted before the
+commit freeze at the reveal transition: `hasMinimumReveals()` compares proofed
+reveals with `proofedCommitCount()`, and commits harvested after the commit
+sidecar hash was published but before the freeze are included. The published
+commit-set root is used only for conflict detection; it does not define the
+expected revealers. The reveal wait is bounded. A node that crashes, withholds,
+or partitions after committing must not stop the ledger forever.
 
 Final entropy is computed from the agreed entropy sidecar SHAMap, not from a
 node's opportunistic local `pendingReveals_` map. This prevents different
 local reveal subsets at timeout boundaries from producing different entropy.
-The accepted-hash latch is provisional until live injection: a later bounded
-gate deadline may clear it, after which selection falls back instead of reading
-a local candidate map. That does not make accept-vs-timeout decisions global;
-it makes any non-fallback injection depend only on a matching root that remains
-accepted at injection, with ordinary validation quorum resolving boundary
-timing.
+The gate sets the accepted-hash latch only on the tick that returns
+`readyForAccept`, and consensus enters the accepted phase on that same tick, so
+an accepted root is final for the round. The bounded gate deadlines run before
+acceptance: they clear the published root, the round proceeds to accept with
+no accepted root, and selection falls back instead of reading a local
+candidate map. That does not make accept-vs-timeout decisions global; it makes
+any non-fallback injection depend only on the accepted root and its matching
+local map, with ordinary validation quorum resolving boundary timing.
 
 ## Entropy Alignment Rules
 
@@ -298,7 +301,8 @@ The **alignment (gate) count** decides whether the round proceeds with the agree
 entropy set or falls back. It is taken over the active validator view:
 
 ```
-(our published entropySetHash, counted only if this node is itself an active validator)
+(our entropySetHash, counted only if this node is an active validator in
+ proposing mode, i.e. it published the root in a signed proposal)
   + active-view, tx-converged peers advertising the same entropySetHash
 ```
 
@@ -312,8 +316,10 @@ relayed copy of this node's own proposal re-signed in a non-canonical form
 
 Trusted-but-non-active proposers are NOT counted even when tx-converged and
 aligned (peers are filtered through the active view via `isUNLReportMember`), and
-a non-active local node does not add its own +1 (gated on
-`localIsActiveValidator()`). This mirrors the `buildEntropySet`/`hasQuorumOfCommits`
+the local node adds its own +1 only when it is an active validator
+(`localIsActiveValidator()`) in proposing mode. An observing node still writes
+the root into its local position, but it sends no proposal and does not count
+itself. This mirrors the `buildEntropySet`/`hasQuorumOfCommits`
 membership filter and keeps the counting universe from inflating above the
 active-view size, preserving the Tier-2 intersection margin (`2t - n`) and
 equivocation uniqueness. On the clean path, the round proceeds when this count
@@ -360,24 +366,33 @@ validation chooses the ledger; that residual is bounded and tracked, not a
 license for extra local gates.
 
 Examples with six active validators on a UNLReport-anchored view (validator_quorum
-threshold five, participant_aligned threshold four; six is the smallest view with
-a non-empty Tier 2 band and non-zero tolerated Byzantine count; at five validators
-quorum and participant_aligned coincide at four, leaving no band). On a
+threshold five, participant_aligned threshold four, so the proceed gate is four;
+six is the smallest view with a non-empty Tier 2 band and non-zero tolerated
+Byzantine count; at five validators quorum and participant_aligned coincide at
+four, leaving no band). Each example gives both counts: alignment decides
+proceed-vs-fallback, and the accepted set's leaf count decides the label. On a
 non-UNLReport (config-fallback) view, every case below instead mints
 `consensus_fallback`:
 
-- Six honest validators align on one entropy hash: proceed with validator_full
-  entropy (`EntropyCount == EntropyDenominator`) so hooks that demand full
-  active-validator participation can fail closed on any withholding.
-- Five honest validators align on one entropy hash and one validator advertises
-  a bogus hash: proceed with validator_quorum entropy for the honest quorum.
-- Four validators align on the honest hash and two advertise different bogus
-  hashes: proceed with participant_aligned (Tier 2) entropy — the aligned
-  cohort is below the 80% quorum but at or above the intersection-safe floor,
-  and its overlap (2*4 - 6 = 2 > floor(6/5) = 1) still shares an honest
-  validator between any two such cohorts.
-- Three validators align on the honest hash and three fail to align: fall back
-  to the Tier 1 digest.
+- All six validators reveal and align on the root of that six-leaf set: proceed
+  with validator_full entropy (`EntropyCount == EntropyDenominator`) so hooks
+  that demand full active-validator participation can fail closed on any
+  withholding.
+- Five validators reveal and align on the root of that five-leaf set; the sixth
+  withholds its reveal and advertises a bogus hash: proceed (five aligned) with
+  validator_quorum entropy (five leaves). If the sixth validator's reveal had
+  reached the honest nodes before they built the set, the set would hold six
+  leaves and earn validator_full despite the bogus advertisement: the label
+  counts reveals, not aligned advertisers.
+- Four validators reveal and align on the root of that four-leaf set; the other
+  two withhold their reveals and advertise different bogus hashes: proceed
+  (four aligned) with participant_aligned (Tier 2) entropy (four leaves). Four
+  is below the 80% quorum but at the intersection-safe floor, and the overlap
+  of any two aligned cohorts (2*4 - 6 = 2 > floor(6/5) = 1) still contains an
+  honest validator.
+- Three validators align on the honest hash and three fail to align: the
+  alignment count stays below four, so the round falls back to the Tier 1
+  digest at the bounded deadline, whatever the set's leaf count.
 - No peer entropy hash is observed in time: fall back to the Tier 1 digest.
 
 The fallback pseudo-transaction is deterministic — every node derives the same
@@ -405,7 +420,7 @@ fallback-grade randomness must do so explicitly at the call site. Valid
 `INVALID_ARGUMENT`, while valid-but-unmet requirements return
 `TOO_LITTLE_ENTROPY`.
 
-The pre-activation draw signatures are `entropy_cr_dice(sides, min_tier, flags)`
+The draw signatures are `entropy_cr_dice(sides, min_tier, flags)`
 and `entropy_cr_random(write_ptr, write_len, min_tier, flags)`. `flags = 0`
 requires terminal strong execution. A later eligible strong Hook, even in the
 same account's chain, causes `LATER_STRONG_HOOK` (-49) at the API call before
@@ -432,10 +447,9 @@ earlier commitment and a fixed outcome across retries.
 Negative values remain Hook API errors. This lets Hook code implement policies
 such as one-absent tolerance,
 proportional participation, or an absolute floor without embedding those
-participation policies in each draw call. The pre-activation Hook API remains
-under design. Status exposes no digest. Callers must classify tier before count or
-denominator arithmetic because fallback deliberately reports tier 1 and
-`0/0`.
+participation policies in each draw call. Status exposes no digest. Callers
+must classify tier before count or denominator arithmetic because fallback
+deliberately reports tier 1 and `0/0`.
 Status remains metadata-only, independent of the per-call composition flags.
 
 Open-ledger hook execution is provisional. During speculative open-ledger
@@ -463,7 +477,8 @@ Sidecar SHAMaps are local immutable snapshots:
 - RNG entries must have been harvested from trusted signed proposals.
 - Snapshot roots may be signed into `ExtendedPosition` for peer observation.
 - Peer-advertised roots are alignment evidence, not payload availability.
-- Nodes never fetch, advertise, serve, or merge sidecar maps from peers.
+- Sidecar maps stay local: they are never advertised or served to peers, and
+  transaction-set acquisition refuses them.
 - If a quorum root cannot be materialized locally before the bounded deadline,
   RNG degrades or falls back.
 
@@ -471,9 +486,12 @@ Do not use avalanche-style transaction inclusion logic for sidecar inputs.
 For RNG sidecars, the disagreement to resolve is usually timing or delivery,
 not whether a valid contribution should be included.
 
-The entropy sidecar gate always gives peers at least one observation tick after
-publishing `entropySetHash`. Publishing and accepting in the same tick can hide
-conflicts and produce asymmetric synthetic outcomes. A quorum-aligned root can
+The entropy sidecar gate waits one observation tick after the round's first
+publication of `entropySetHash`, because publishing and accepting in the same
+tick can hide conflicts and produce asymmetric synthetic outcomes. The wait
+applies once per round: a root refreshed later in the round, by the conflict
+rebuild or by re-publication on a later reveal tick, is evaluated in the tick it
+is published, against the peer roots already observed. A quorum-aligned root can
 proceed without full observation, because one silent active validator must not
 get a free RNG off-switch; however, a validator that cannot locally materialize
 that quorum root will not build the richer synthetic ledger in that round.
@@ -486,13 +504,13 @@ read from the consensus parent ledger's rules.
 Rollout invariant: enabling `featureConsensusEntropy` switches the network to
 extension-aware proposal semantics. An individual proposal with no populated
 sidecar fields still serializes to the legacy 32-byte tx-set hash, but live
-proposal messages may instead use the legacy `currenttxhash` protobuf field to
-carry a serialized `ExtendedPosition`. This is a proposal wire-format change,
-not a sidecar-reconciliation detail. The absence of sidecar fetch does not
-restore compatibility with older binaries that require `currenttxhash` to be
-exactly 32 bytes. A network that activates ConsensusEntropy therefore needs
-every binary expected to process live proposals to understand the extended
-position format. Once the amendment is active, the peer-protocol gate in
+proposal messages may instead use the `TMProposeSet` protobuf field
+`currentTxHash` (C++ accessor `currenttxhash()`) to carry a serialized
+`ExtendedPosition`. This is a proposal wire-format change: older binaries that
+require `currentTxHash` to be exactly 32 bytes cannot process these proposals.
+A network that activates ConsensusEntropy therefore needs every binary expected
+to process live proposals to understand the extended position format. Once the
+amendment is active, the peer-protocol gate in
 [Amendment-gated peer protocol features](../../overlay/ProtocolFeatureRequirements.md)
 disconnects sessions that did not negotiate the matching capability; it does
 not make older binaries compatible.
@@ -503,18 +521,22 @@ When changing consensus extension code, check these questions:
 
 - Does this preserve transaction-set identity as the core consensus identity?
 - Does every extension wait have a bounded fallback?
-- Does validator_quorum entropy require active-validator quorum alignment?
+- Does the proceed gate require the alignment count to reach
+  `entropyGateThreshold()` (= min(quorumThreshold(), tier2Threshold())), and is
+  the tier label (validator_full / validator_quorum / participant_aligned)
+  derived only from the accepted set's leaf count, never from the alignment
+  count?
 - Can one bad validator deny entropy to an honest quorum? It must not.
 - Can a sub-quorum set produce participant_aligned entropy only after reaching
   the intersection-safe tier2Threshold()?
 - Are quorum calculations using the active validator view, not recent
   proposers as the denominator?
-- Do non-fallback tier labels (validator_quorum / participant_aligned) require a
-  UNLReport-anchored active view, falling back to `consensus_fallback` when the
-  view is config-derived (`!fromUNLReport`)?
+- Do non-fallback tier labels (validator_full / validator_quorum /
+  participant_aligned) require a UNLReport-anchored active view, falling back to
+  `consensus_fallback` when the view is config-derived (`!fromUNLReport`)?
 - Is the alignment-count *universe* itself — not just the quorum denominator —
-  the active validator view (non-active proposers and a non-active local node
-  excluded from the count)?
+  the active validator view (non-active proposers, and a local node that is not
+  an active validator in proposing mode, excluded from the count)?
 - Are sidecar entries typed as sidecars, not pseudo-transactions?
 - Are proposal-visible or validation-visible sidecar fields covered by the
   relevant signature and duplicate/replay identity?

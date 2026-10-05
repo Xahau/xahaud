@@ -15,4 +15,4 @@ Xahau-specific proposal sidecars and ConsensusEntropy/RNG follow the
 invariants in [`ConsensusExtensionsDesign.md`](ConsensusExtensionsDesign.md)
 and [`ConsensusEntropyIntent.md`](ConsensusEntropyIntent.md). Read those notes
 before changing extension quorum, local sidecar snapshots, fallback behavior,
-or replay witnesses.
+or the replay witness (the `ttCONSENSUS_ENTROPY` pseudo-transaction).

@@ -627,8 +627,9 @@ rngTick(Ext& ext, Ctx const& ctx)
             // and a ledger fork.
             //
             // The gate works in two phases:
-            //   1. First tick after publishing: always wait (return {})
-            //      to give proposals time to propagate.
+            //   1. First tick after the round's first publication: wait
+            //      (return {}) to give proposals time to propagate. A root
+            //      refreshed later is evaluated in the tick it is published.
             //   2. Subsequent ticks: check for conflict and rebuild if needed,
             //      bounded by deadline.
             //

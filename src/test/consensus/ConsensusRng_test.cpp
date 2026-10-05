@@ -1007,7 +1007,7 @@ public:
 
         testcase("RNG missing proposal material does not block quorum cohort");
 
-        // Same-round sidecar reconciliation is intentionally gone. If peer 0's
+        // Sidecar roots are not reconciled within a round. If peer 0's
         // proposal-carried reveal is missed by the rest of the active view, the
         // quorum cohort should still be able to build the 4/5 entropy set while
         // peer 0 cannot materialize that accepted root locally and falls back.

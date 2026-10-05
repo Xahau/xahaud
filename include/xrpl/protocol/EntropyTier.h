@@ -5,15 +5,19 @@
 
 namespace ripple {
 
-/// Which gate the ledger's entropy passed. Stored in sfEntropyTier (UINT8)
+/// Quality label of the ledger's entropy. Stored in sfEntropyTier (UINT8)
 /// on the ttCONSENSUS_ENTROPY pseudo-transaction.
 ///
 /// EntropyCount says how many validators contributed; EntropyDenominator says
 /// how many active validators were in the ledger-anchored view for that
-/// non-fallback result; EntropyTier says which gate the result passed. Fallback
-/// entropy carries count=0/denominator=0 because no validator-derived
-/// denominator was accepted. Tier values are strength-ordered so consumers can
-/// gate with a numeric comparison (tier >= required).
+/// non-fallback result; EntropyTier labels the result. Non-fallback labels are
+/// derived from the leaf count of the accepted reveal set. The proceed gate
+/// (an alignment count over the active view reaching entropyGateThreshold())
+/// is a separate check: it decides whether a reveal root is accepted at all,
+/// not which tier it earns. Fallback entropy carries count=0/denominator=0
+/// because no validator-derived denominator was accepted. Tier values are
+/// strength-ordered so consumers can gate with a numeric comparison
+/// (tier >= required).
 ///
 /// RESIDUAL BIAS — applies to fallback, participant_aligned, and
 /// validator_quorum. This is a commit/reveal scheme: a validator can withhold
@@ -32,21 +36,23 @@ enum EntropyTier : std::uint8_t {
 
     /// Consensus-bound deterministic fallback: derived from already-agreed
     /// round inputs (parent ledger hash, base tx set hash, sequence) under
-    /// HashPrefix::entropyFallback when no agreed reveal set reaches either
-    /// participant_aligned or validator_quorum. Unpredictable in practice but
+    /// HashPrefix::entropyFallback when the round has no accepted, well-formed
+    /// reveal set with enough leaves for participant_aligned, or its active
+    /// view is not UNLReport-backed. Unpredictable in practice but
     /// user-influenceable via transaction submission — never suitable for
     /// value-bearing outcomes.
     entropyTierConsensusFallback = 1,
 
-    /// Participant-aligned sub-quorum entropy: the agreed reveal set aligned at
-    /// the tier-2 participant threshold — below the 80% validator quorum but at
-    /// or above the equivocation-intersection floor over the original
-    /// (pre-nUNL)
-    /// view. Weaker than validator_quorum; opt-in for hooks via min_tier.
+    /// Participant-aligned sub-quorum entropy: the accepted reveal set holds
+    /// fewer leaves than the 80% validator quorum but at least the
+    /// equivocation-intersection floor (tier2Threshold) over the original
+    /// (pre-nUNL) view. Weaker than validator_quorum; opt-in for hooks via
+    /// min_tier.
     entropyTierParticipantAligned = 2,
 
-    /// Validator commit/reveal entropy whose sidecar set passed the
-    /// active-validator-view quorum alignment gate.
+    /// Validator commit/reveal entropy whose accepted reveal set holds at
+    /// least the 80% quorum (quorumThreshold) of the effective active view,
+    /// but not every validator in it.
     entropyTierValidatorQuorum = 3,
 
     /// Validator commit/reveal entropy with reveals from every validator in

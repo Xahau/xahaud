@@ -2,17 +2,13 @@
 
 This is the **normative** intent for `featureConsensusEntropy`: the invariants that
 must hold regardless of how the implementation is refactored. It is deliberately
-short. The verbose mechanics live in `ConsensusExtensionsDesign.md`; the
-reviewer-facing walkthrough lives in the PR description. **Both defer to this
-file.**
+short. The verbose mechanics live in `ConsensusExtensionsDesign.md`, which
+**defers to this file.**
 
 How to use it: if code contradicts an invariant below, the *code* is wrong — or
 the invariant is being changed and **this file must be consciously edited in the
 same change, with the rationale**. A plausible-sounding comment added next to
-drifted code is not a design decision. (This document exists because the intent
-once lived only in a maintainer's head; an agent tightened past it and wrote a
-rationale that made the drift look deliberate. Git, not the docs, preserved the
-truth. Don't rely on that twice.)
+drifted code is not a design decision.
 
 ## Purpose (one line)
 
@@ -42,11 +38,12 @@ the contributor bitmap. This is semantic separation, not a downgrade in
 consensus risk: once the bitmap is written into the pseudo-transaction, any
 disagreement on it is already a ledger-byte disagreement. The salt uses the
 entropy value and quality labels; the bitmap remains the accountability label.
-Root acceptance is provisional deliberation state until live injection. A
-bounded post-accept deadline may withdraw that root before selection; after
-selection receives a still-accepted matching root, local timeout or diagnostic
-state such as `entropyFailed_` must not override it. The deterministic selector
-may still reject an empty, malformed, or below-tier accepted map. A node with no
+The gate accepts a root only on the tick that hands the round to accept, so an
+accepted root is final for the round. The bounded gate deadlines run before
+acceptance and clear the published root instead of accepting it. Once selection
+receives an accepted matching root, local timeout or diagnostic state such as
+`entropyFailed_` must not override it. The deterministic selector may still
+reject an empty, malformed, or below-tier accepted map. A node with no
 accepted root at injection falls back through the normal missing-accepted-root
 path.
 
@@ -73,7 +70,8 @@ Apply rejects a `ttCONSENSUS_ENTROPY` whose `sfLedgerSequence` does not equal
 the ledger being built; persisted metadata therefore cannot claim a different
 source ledger than the transaction that wrote it.
 *Enforced:* `selectEntropy`, the `acceptedEntropySetHash_` gate, and the
-accepted-root authority test. *Anti-pattern:* reading live
+`ConsensusExtensions_test` case "onPreBuild accepted entropy set overrides
+local failure flag". *Anti-pattern:* reading live
 `pendingReveals_`/collector state at injection time, re-evaluating contributor
 identity through live manifests, or letting local timeout flags override an
 accepted root.
@@ -86,24 +84,25 @@ Local signals such as previous proposers, currently visible peer positions, or
 "quorum seems impossible from here" may influence logging, diagnostics, and
 bounded waits, but they must not short-circuit the gate while enough proofed
 sidecar material exists to continue toward non-fallback entropy.
-A node that cannot retain the entropy root through the bounded gate may inject
+A node whose root does not pass the bounded gate may inject
 `consensus_fallback` while the aligned quorum injects validator entropy. This is
 an accepted, validation-resolved lagging-node close result, not a selector
-determinism defect: a matching root still accepted at injection is the sole
-non-fallback candidate, while a root withdrawn before injection is absent. The
-selector may still fall back deterministically when that candidate fails its
-map-shape or tier checks. This residual can occur even when the node otherwise
-agreed on the pre-injection transaction set: CE is appended after base
-transaction-set consensus, so missing CE proposal material is its own close-time
-boundary.
-This is a theoretical/reproduced-in-lab boundary, not a behavior observed on
-healthy testnets. CE reveal material rides the same proposal messages as the
-base transaction-set positions, so a node healthy enough to align on the tx set
-is expected to receive the CE material within the bounded CE window. Reaching
+determinism defect: the accepted matching root is the sole non-fallback
+candidate, and a node whose gate deadline cleared its root before acceptance
+has none. The selector may still fall back deterministically when that
+candidate fails its map-shape or tier checks. This residual can occur even when
+the node otherwise agreed on the pre-injection transaction set: CE is appended
+after base transaction-set consensus, so missing CE proposal material is its
+own close-time boundary.
+CE reveal material rides the same proposal messages as the base
+transaction-set positions, so a node healthy enough to align on the tx set is
+expected to receive the CE material within the bounded CE window. Reaching
 this state requires a persistent, specific CE-material miss, or a stall at the
 CE sub-state boundary, after base tx-set agreement.
-*Enforced:* the same accepted-hash boundary as INV-1, plus tests that compare
-nodes with asymmetric local observation. *Anti-pattern:* a bootstrap or
+*Enforced:* the same accepted-hash boundary as INV-1, plus the
+`ConsensusRng_test` case "RNG missing proposal material does not block quorum
+cohort" and the `ConsensusExtensions_test` case "RNG previous proposer
+under-observation does not suppress commit quorum". *Anti-pattern:* an
 "impossible quorum" shortcut that falls through to close with fallback from
 `prevProposers` or visible `peerPositions` while the proofed commit set already
 meets the entropy gate.
@@ -112,12 +111,14 @@ meets the entropy gate.
 Entropy mints on **quorum, not unanimity**. A minority withholding reveals or
 sidecar-hash advertisements must not, by silence alone, force fallback or stall
 while the remaining fixed-denominator cohort still reaches the entropy gate. On
-timeout the round uses the revealed/quorum-aligned set it has when that set still
-meets the gate; it downgrades only when the remaining set is below threshold or
-conflicted/unresolved.
+reveal timeout the node publishes the reveal set it has; that root proceeds when
+its alignment count still meets the gate, and its label follows the set's leaf
+count. The round downgrades only when that leaf count is below a tier
+threshold, and falls back when the root is below the gate or its conflict is
+unresolved at the deadline.
 *Enforced:* the clean (no-conflict) gate path accepts on `quorumAligned()` alone.
 *Anti-pattern:* requiring `peersSeen == txConverged` (full observation) on the
-clean path (this was the M6 over-correction).
+clean path.
 
 **INV-3 — Anchored denominator.**
 All thresholds are computed over the **fixed parent-ledger UNLReport active-view
@@ -161,7 +162,10 @@ alignment, its captured master `NodeID` must belong to the active view. Before i
 may contribute a commitment or reveal, ingress additionally verifies that its
 signing key resolves to that active-view master. These authenticated,
 active-view-filtered cohorts are the only universes alignment and contribution
-counts may observe.
+counts may observe. Commit-root conflict detection is not a count and is not
+active-view filtered: it compares the commit-set hash of every trusted,
+tx-converged peer position, and an observed conflict only opens the bounded
+`rngREVEAL_TIMEOUT` wait before reveal publication (INV-8).
 
 In this document, a *proofed commitment* is a commitment from proposal sequence
 zero accompanied by a self-contained serialized `ExtendedPosition` whose
@@ -267,15 +271,20 @@ initialized by its own pseudo. An open preview instead inherits its parent's
 input. A cold-loaded closed ledger recovers its context from its own successful
 pseudo in the transaction tree, once, for subsequent previews and host reads.
 
-There is no entropy state-tree object or keylet. Hooks use caller-bound draws
-and metadata-only status. The seed-bearing pseudo is still excluded from
-transaction-ID `slot_set` lookups with `NOT_AUTHORIZED`; rejection does not
-allocate or overwrite a slot. Published historical seeds remain public.
+Entropy lives in the pseudo-transaction and its host-only execution context.
+Hooks reach it through caller-bound draws and metadata-only status. The
+seed-bearing pseudo is excluded from transaction-ID `slot_set` lookups with
+`NOT_AUTHORIZED`; rejection does not allocate or overwrite a slot. Published
+historical seeds remain public.
 
 The live proceed gate and the stored tier label are separate calculations. The
-pipeline may proceed once the accepted reveal set reaches
-`min(ceil(0.8 * effectiveViewSize), participantThreshold(originalViewSize))`.
-The selector then labels the agreed count, in strict order: `validator_full`
+pipeline may proceed once the *alignment count* for this node's published
+reveal root (this node itself if it is an active validator in proposing mode,
+plus active-view, tx-converged peers advertising the same root) reaches
+`entropyGateThreshold() = min(safeQuorumThreshold(effectiveViewSize),
+safeParticipantThreshold(originalViewSize))`, where `safeQuorumThreshold` is
+`ceil(0.8 * n)` and both helpers floor an empty view to one. The selector then
+labels the accepted set's leaf count, in strict order: `validator_full`
 when it equals the non-empty effective view; otherwise `validator_quorum` when
 it reaches the 80% effective-view threshold; otherwise `participant_aligned`
 when it reaches the intersection-safe threshold over the original pre-nUNL
@@ -323,11 +332,11 @@ tx-set hash only when no sidecar field is populated.
 **Rollout note:** enabling `featureConsensusEntropy` switches the network to
 extension-aware proposal semantics. An individual proposal with no populated
 sidecar fields still serializes to the legacy 32-byte tx-set hash, but live
-proposals may instead carry a serialized `ExtendedPosition` in the legacy
-`currenttxhash` protobuf field. This is a proposal wire-format dependency, not
-a sidecar-fetch dependency. Older binaries that only accept a 32-byte
-`currenttxhash` are not compatible proposal participants after activation;
-operators must upgrade the proposal-processing network first. Once the
+proposals may instead carry a serialized `ExtendedPosition` in the
+`TMProposeSet` protobuf field `currentTxHash` (C++ accessor `currenttxhash()`).
+This is a proposal wire-format dependency. Older binaries that only accept a
+32-byte `currentTxHash` are not compatible proposal participants after
+activation; operators must upgrade the proposal-processing network first. Once the
 amendment is active, the peer-protocol gate in
 [Amendment-gated peer protocol features](../../overlay/ProtocolFeatureRequirements.md)
 disconnects sessions that did not negotiate the matching capability; it does
@@ -337,16 +346,19 @@ not make a heterogeneous rollout compatible.
 CE may deliberately hold accept while its bounded sub-state is open, but no
 sidecar wait is unbounded. Deadline predicates remain open through exact
 equality and transition on the first later tick. Commit collection compares
-total round time with `rngPIPELINE_TIMEOUT`; after that boundary it advances
-with a proofed cohort that meets the entropy gate or degrades toward fallback.
-An observed commit-root conflict uses its own timestamp and
-`rngREVEAL_TIMEOUT` before reveal publication proceeds. Reveal collection uses
-`rngREVEAL_TIMEOUT` from entry into the reveal phase. After publishing a reveal
-root, the first tick is always an observation window; unresolved root conflict
-or insufficient positive alignment then has a `2 * rngREVEAL_TIMEOUT` window
-before the accepted root is cleared and selection falls back. These deadlines
-may add bounded close latency, but CE must not convert any of them into an
-indefinite wait or a dependency on unanimity.
+establish-phase elapsed time (`roundTime`, reset when the ledger closes) with
+`rngPIPELINE_TIMEOUT`; after that boundary it advances with a proofed cohort
+that meets the entropy gate or degrades toward fallback. An observed
+commit-root conflict uses its own timestamp and `rngREVEAL_TIMEOUT` before
+reveal publication proceeds. Reveal collection uses `rngREVEAL_TIMEOUT` from
+entry into the reveal phase. The round's first publication of a reveal root is
+followed by one observation tick; a root refreshed later in the round is
+evaluated in the tick it is published. Unresolved root conflict or
+insufficient positive alignment then has a `2 * rngREVEAL_TIMEOUT` window,
+measured from that first publication, after which the node clears its
+published root and proceeds to accept with no accepted root, so selection
+falls back. These deadlines may add bounded close latency, but CE must not
+convert any of them into an indefinite wait or a dependency on unanimity.
 *Enforced:* the fixed deadlines and fallback transitions in `extensionsTick`.
 
 **INV-9 — Live construction owns cardinality and first application.**

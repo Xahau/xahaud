@@ -33,13 +33,18 @@ state.
 
 ## Activation boundary
 
-For the observed rollout, the relevant ledgers are:
+The boundary is the first accepted ledger whose resulting rules enable CE; the
+gate does not depend on particular sequence numbers. Enabling an amendment
+takes two flag-ledger voting rounds: an earlier `EnableAmendment` records that
+it gained majority, and a later one, after the majority has held for the
+network's majority time, enables it. The example below assumes that hold has
+already elapsed by flag ledger 256:
 
 | Ledger | Meaning | Overlay rule |
 |---:|---|---|
 | 255 | validators advertise `VOTE` | capability optional |
 | 256 | flag ledger (`seq % 256 == 0`) | capability optional |
-| 257 | contains `EnableAmendment`; its resulting rules enable CE | install the required-capability gate |
+| 257 | contains the enabling `EnableAmendment`; its resulting rules enable CE | install the required-capability gate |
 | 258 | first consensus round built with CE active | only capable sessions may participate |
 
 As soon as the accepted consensus result has built ledger 257, `doAccept`
@@ -96,14 +101,18 @@ dropping extended proposals or returning incomplete ledger JSON. That is a
 misleading zombie state, not interoperability. Disconnecting makes the failure
 explicit and prevents incompatible proposal bytes from crossing the boundary.
 
+The overlay also filters: once a feature is required, proposal broadcast and
+relay (`OverlayImpl::broadcast` and `OverlayImpl::relay` for `TMProposeSet`)
+skip every peer that lacks it, so no proposal reaches a non-capable peer while
+its session is being closed.
+
 ## Rollout window
 
 Operators may use an earlier `activation - window` point to drain or alert on
 legacy sessions. That is an operational policy, not the correctness boundary.
 The hard gate is the accepted enable-amendment ledger, because it is the first
 deterministic point at which every honest node knows the rules for the next
-round. This implementation adds the hard gate; it does not add a configurable
-pre-activation drain window.
+round. There is no configurable pre-activation drain window.
 
 ## Non-goals
 
