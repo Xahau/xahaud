@@ -641,8 +641,10 @@ ConsensusExtensions::hasMinimumReveals() const
     // Wait for reveals from ALL expected committers, not just 80%. The
     // expected set is every active proofed committer admitted before
     // freezeRngCommitSet() at the reveal transition, so it is fixed once
-    // reveals begin. Waiting for all of them ensures every node builds the
-    // same entropy set. rngREVEAL_TIMEOUT in ConsensusParms.h, measured from
+    // reveals begin. Waiting for all of them completes this node's local
+    // reveal set before root alignment; whether nodes end up with the same
+    // set is decided by the entropy-root alignment check that follows.
+    // rngREVEAL_TIMEOUT in ConsensusParms.h, measured from
     // ConvergingReveal entry, is the safety valve for nodes that
     // crash/partition between commit and reveal.
     // Only proofed commits count, the same filter buildCommitSet() applies,

@@ -111,7 +111,8 @@ meets the entropy gate.
 Entropy mints on **quorum, not unanimity**. A minority withholding reveals or
 sidecar-hash advertisements must not, by silence alone, force fallback or stall
 while the remaining fixed-denominator cohort still reaches the entropy gate. On
-reveal timeout the node publishes the reveal set it has; that root proceeds when
+reveal timeout the node publishes the reveal set it has (with no reveals at all
+it marks entropy failed and falls back instead); that root proceeds when
 its alignment count still meets the gate, and its label follows the set's leaf
 count. The round downgrades only when that leaf count is below a tier
 threshold, and falls back when the root is below the gate or its conflict is
@@ -164,8 +165,9 @@ signing key resolves to that active-view master. These authenticated,
 active-view-filtered cohorts are the only universes alignment and contribution
 counts may observe. Commit-root conflict detection is not a count and is not
 active-view filtered: it compares the commit-set hash of every trusted,
-tx-converged peer position, and an observed conflict only opens the bounded
-`rngREVEAL_TIMEOUT` wait before reveal publication (INV-8).
+tx-converged peer position. On a conflict the node first rebuilds its commit
+set and re-proposes if its hash changed; if the conflict persists it opens the
+bounded `rngREVEAL_TIMEOUT` wait before reveal publication (INV-8).
 
 In this document, a *proofed commitment* is a commitment from proposal sequence
 zero accompanied by a self-contained serialized `ExtendedPosition` whose

@@ -37,8 +37,9 @@ enum EntropyTier : std::uint8_t {
     /// Consensus-bound deterministic fallback: derived from already-agreed
     /// round inputs (parent ledger hash, base tx set hash, sequence) under
     /// HashPrefix::entropyFallback when the round has no accepted, well-formed
-    /// reveal set with enough leaves for participant_aligned, or its active
-    /// view is not UNLReport-backed. Unpredictable in practice but
+    /// reveal set that earns a non-fallback tier (its leaf count meets neither
+    /// the participant nor the quorum threshold), or its active view is not
+    /// UNLReport-backed. Unpredictable in practice but
     /// user-influenceable via transaction submission — never suitable for
     /// value-bearing outcomes.
     entropyTierConsensusFallback = 1,

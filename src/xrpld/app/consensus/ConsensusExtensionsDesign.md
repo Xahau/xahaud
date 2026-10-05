@@ -250,7 +250,9 @@ conflict. Neither wait is the normal commit transport path.
 
 Commit-root conflict detection is not filtered by the active view: it compares
 the commit-set hash of every trusted, tx-converged peer position. It feeds no
-count; a conflict only opens the bounded `ConvergingCommit` wait.
+count. On a conflict the node rebuilds its commit set and re-proposes if its
+hash changed; a conflict that persists opens the bounded `ConvergingCommit`
+wait.
 
 Commit quorum counts only proofed commits from active validators. A commit that
 cannot be emitted as a verifiable sidecar leaf does not count.
