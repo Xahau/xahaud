@@ -636,7 +636,9 @@ ManifestCache::addPending(Manifest m)
         // newer manifest for a key already waiting replaces it in place.
         if (entry.manifest && entry.manifest->signingKey == m.signingKey)
         {
-            if (entry.manifest->sequence < m.sequence)
+            // Only a manifest that verifies may displace one already waiting:
+            // the ephemeral key is public, so anyone can name it.
+            if (entry.manifest->sequence < m.sequence && m.verify())
                 entry.manifest = std::move(m);
             return;
         }
