@@ -954,10 +954,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        // OnChainManifests is not yet Supported::yes, so enable it explicitly
-        // for the on-ledger cases.
-        auto const sa = supported_amendments() | featureOnChainManifests;
-
+        auto const sa = supported_amendments();
         testSubmission(sa);
         testUpdate(sa);
         testRevocation(sa);
