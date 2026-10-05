@@ -696,7 +696,6 @@ private:
 
     SubAccountHistoryMapType mSubAccountHistory;
 
-    //@@start subscription-stream-map-precedent
     enum SubTypes {
         sLedger,          // Accepted ledgers.
         sManifests,       // Received validator manifests.
@@ -711,7 +710,6 @@ private:
     };
 
     std::array<SubMapType, SubTypes::sLastEntry> mStreamMaps;
-    //@@end subscription-stream-map-precedent
 
     ServerFeeSummary mLastFeeSummary;
 
@@ -1526,7 +1524,6 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 
             bool addLocal = e.local;
 
-            //@@start txn-result-status-mapping
             if (isTesSuccess(e.result))
             {
                 JLOG(m_journal.debug())
@@ -1582,12 +1579,10 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     << "Status other than success " << e.result;
                 e.transaction->setStatus(INVALID);
             }
-            //@@end txn-result-status-mapping
 
             auto const enforceFailHard =
                 e.failType == FailHard::yes && !isTesSuccess(e.result);
 
-            //@@start txn-local-retry
             if (addLocal && !enforceFailHard)
             {
                 m_localTX->push_back(
@@ -1595,9 +1590,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     e.transaction->getSTransaction());
                 e.transaction->setKept();
             }
-            //@@end txn-local-retry
 
-            //@@start txn-relay-condition
             if ((e.applied ||
                  ((mMode != OperatingMode::FULL) &&
                   (e.failType != FailHard::yes) && e.local) ||
@@ -1626,7 +1619,6 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                     e.transaction->setBroadcast();
                 }
             }
-            //@@end txn-relay-condition
 
             if (validatedLedgerIndex)
             {
@@ -3165,7 +3157,6 @@ NetworkOPsImp::pubProposedTransaction(
 void
 NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
 {
-    //@@start validated-ledger-publication-boundary
     // Ledgers are published only when they acquire sufficient validations
     // Holes are filled across connection loss or other catastrophe
 
@@ -3276,7 +3267,6 @@ NetworkOPsImp::pubLedger(std::shared_ptr<ReadView const> const& lpAccepted)
         pubValidatedTransaction(
             lpAccepted, *accTx, accTx == *(--alpAccepted->end()));
     }
-    //@@end validated-ledger-publication-boundary
 }
 
 void

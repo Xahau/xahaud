@@ -36,7 +36,6 @@ enum MessageType
 //------------------------------------------------------------------------------
 
 /* Provides the current ephemeral key for a validator. */
-//@@start opaque-self-verifying-overlay-artifact-precedent
 message TMManifest
 {
     // A Manifest object in the Ripple serialization format.
@@ -50,7 +49,6 @@ message TMManifests
     // The manifests sent when a peer first connects to another peer are `history`.
     optional bool history = 2 [deprecated=true];
 }
-//@@end opaque-self-verifying-overlay-artifact-precedent
 
 //------------------------------------------------------------------------------
 
