@@ -259,7 +259,8 @@ finalizeHookResult(
 
 // write state map to ledger
 // if `written` is supplied, every account whose hook state was successfully
-// written is inserted into it (own and foreign namespaces alike)
+// written is inserted into it (own and foreign namespaces alike); deleting an
+// entry that does not exist is not a write
 ripple::TER
 finalizeHookState(
     HookStateMap const&,

@@ -1401,6 +1401,12 @@ hook::finalizeHookState(
                     // this entry isn't just cached, it was actually modified
                     auto slice = Slice(blob.data(), blob.size());
 
+                    // deleting an entry that does not exist leaves the
+                    // ledger unchanged, so it does not count as a write
+                    bool const changesLedger = !written || !blob.empty() ||
+                        applyCtx.view().exists(
+                            ripple::keylet::hookState(acc, key, ns));
+
                     TER result = setHookState(applyCtx, acc, ns, key, slice);
 
                     if (!isTesSuccess(result))
@@ -1413,7 +1419,7 @@ hook::finalizeHookState(
                     }
                     // ^ should not fail... checks were done before map insert
 
-                    if (written)
+                    if (written && changesLedger)
                         written->insert(acc);
                 }
             }

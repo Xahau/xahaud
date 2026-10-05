@@ -10960,7 +10960,7 @@ public:
     void
     test_state_foreign_set_touch(FeatureBitset features)
     {
-        testcase("Test state_foreign_set touches the grantor");
+        testcase("Test hook state writes touch the state owner");
         using namespace jtx;
 
         if (!features[featureTouch])
@@ -10970,19 +10970,19 @@ public:
         {
             Env env{
                 *this,
-                withFix ? features | fix20260929 : features - fix20260929};
+                withFix ? features | fix20261005 : features - fix20261005};
 
-            auto const cho = Account{"cho"};      // invoker
-            auto const bob = Account{"bob"};      // grantee
             auto const alice = Account{"alice"};  // grantor
-            env.fund(XRP(10000), alice);
-            env.fund(XRP(10000), bob);
-            env.fund(XRP(10000), cho);
+            auto const bob = Account{"bob"};      // strong grantee
+            auto const cho = Account{"cho"};      // invoker
+            auto const dan = Account{"dan"};      // weak grantee
+            auto const eve = Account{"eve"};      // callback grantee
+            env.fund(XRP(10000), alice, bob, cho, dan, eve);
 
-            // Same hooks as test_state_foreign_set (byte-identical sources, so
-            // SetHook_wasm.h needs no regeneration): bob's hook writes the
+            // Same hooks as test_state_foreign_set: bob's hook writes the
             // current txn id under key 1, namespace 0, of the account named
-            // in the InvoiceID; alice grants bob's hook that right.
+            // in the InvoiceID; alice's hook deletes that key whenever alice
+            // sends a txn.
             TestHook grantee_wasm = wasm[R"[test.hook](
             #include <stdint.h>
             #define sfInvoiceID ((5U << 16U) + 17U)
@@ -11095,27 +11095,220 @@ public:
 
             HASH_WASM(grantor);
 
+            // dan's hook writes nothing when executed strongly, it only asks
+            // to be executed again weakly. Then it writes the txn id under key
+            // 2, namespace 0, of the account named in the InvoiceID or, if the
+            // txn carries the parameter D, deletes key 4 there instead.
+            TestHook weak_grantee_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t hook_again (void);
+            extern int64_t otxn_id (uint32_t, uint32_t, uint32_t);
+            extern int64_t otxn_field (uint32_t, uint32_t, uint32_t);
+            extern int64_t otxn_param (uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t state_foreign_set (
+                uint32_t, uint32_t, uint32_t, uint32_t,
+                uint32_t, uint32_t, uint32_t, uint32_t
+            );
+            #define sfInvoiceID ((5U << 16U) + 17U)
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), __LINE__);
+
+            uint8_t ns[32];
+            uint8_t write_key[32] = { [31] = 2U };
+            uint8_t delete_key[32] = { [31] = 4U };
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                // strong execution: write nothing, ask to be executed again weakly
+                if (r == 0)
+                {
+                    ASSERT(hook_again() == 1);
+                    return accept(0,0,0);
+                }
+
+                // the grantor is the account in the low 20 bytes of the InvoiceID
+                uint8_t grantor[32];
+                ASSERT(otxn_field(SBUF(grantor), sfInvoiceID) == 32);
+
+                // with otxn parameter D, delete a key the grantor does not have
+                uint8_t d[1];
+                if (otxn_param(SBUF(d), (uint32_t)"D", 1) == 1)
+                {
+                    ASSERT(state_foreign_set(0, 0, SBUF(delete_key), SBUF(ns), (uint32_t)(grantor + 12), 20) == 0);
+                    return accept(0,0,0);
+                }
+
+                // otherwise write the otxn id under key 2
+                uint8_t txn[32];
+                ASSERT(otxn_id(SBUF(txn), 0) == 32);
+                ASSERT(state_foreign_set(SBUF(txn), SBUF(write_key), SBUF(ns), (uint32_t)(grantor + 12), 20) == 32);
+
+                return accept(0,0,0);
+            }
+        )[test.hook]"];
+
+            HASH_WASM(weak_grantee);
+
+            // eve's hook emits an Invoke. Its callback, which runs when that
+            // Invoke is applied, writes the Invoke's id under key 3, namespace
+            // 0, of the account in the hook parameter G.
+            TestHook cbak_grantee_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t emit     (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+            extern int64_t hook_account (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t hook_param (uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t etxn_reserve (uint32_t);
+            extern int64_t etxn_fee_base (uint32_t read_ptr, uint32_t read_len);
+            extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t ledger_seq (void);
+            extern int64_t otxn_id (uint32_t, uint32_t, uint32_t);
+            extern int64_t state_foreign_set (
+                uint32_t, uint32_t, uint32_t, uint32_t,
+                uint32_t, uint32_t, uint32_t, uint32_t
+            );
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), __LINE__);
+
+            uint8_t ns[32];
+            uint8_t write_key[32] = { [31] = 3U };
+
+            // an Invoke from the hook account, emitted so its callback runs
+            uint8_t txn[229] =
+            {
+                /* size, upto, field name               */
+                /*    3,    0, tt = Invoke              */   0x12U, 0x00U, 0x63U,
+                /*    5,    3, flags                    */   0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*  138,   91, emit details             */
+                /*    0,  229,                          */
+            };
+            #define FLS_OUT (txn + 15U)
+            #define LLS_OUT (txn + 21U)
+            #define FEE_OUT (txn + 26U)
+            #define ACCOUNT_OUT (txn + 71U)
+            #define EMIT_OUT (txn + 91U)
+            #define SET_UINT32(ptr, value)\
+                {\
+                    uint32_t v = (value);\
+                    (ptr)[0] = v >> 24U; (ptr)[1] = v >> 16U; (ptr)[2] = v >> 8U; (ptr)[3] = v;\
+                }
+            #define SET_NATIVE_AMOUNT(ptr, amount)\
+                {\
+                    uint64_t a = (amount);\
+                    (ptr)[0] = 0x40U + ((a >> 56U) & 0x3FU);\
+                    (ptr)[1] = a >> 48U; (ptr)[2] = a >> 40U; (ptr)[3] = a >> 32U;\
+                    (ptr)[4] = a >> 24U; (ptr)[5] = a >> 16U; (ptr)[6] = a >> 8U; (ptr)[7] = a;\
+                }
+
+            int64_t cbak(uint32_t r)
+            {
+                _g(1,1);
+
+                // the grantor is the hook parameter G
+                uint8_t grantor[20];
+                ASSERT(hook_param(SBUF(grantor), (uint32_t)"G", 1) == 20);
+
+                // in a callback the otxn is the emitted txn: write its id under key 3
+                uint8_t id[32];
+                ASSERT(otxn_id(SBUF(id), 0) == 32);
+                ASSERT(state_foreign_set(SBUF(id), SBUF(write_key), SBUF(ns), SBUF(grantor)) == 32);
+
+                return accept(0,0,0);
+            }
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                ASSERT(etxn_reserve(1) == 1);
+                uint32_t fls = (uint32_t)ledger_seq() + 1;
+                SET_UINT32(FLS_OUT, fls);
+                SET_UINT32(LLS_OUT, fls + 4);
+                ASSERT(hook_account(ACCOUNT_OUT, 20) == 20);
+                ASSERT(etxn_details(EMIT_OUT, 138U) == 138);
+                int64_t fee = etxn_fee_base(SBUF(txn));
+                ASSERT(fee > 0);
+                SET_NATIVE_AMOUNT(FEE_OUT, fee);
+
+                uint8_t emithash[32];
+                ASSERT(emit(SBUF(emithash), SBUF(txn)) == 32);
+
+                return accept(0,0,0);
+            }
+        )[test.hook]"];
+
+            HASH_WASM(cbak_grantee);
+
+            // alice grants each grantee hook the right to write her state
             {
                 Json::Value grants{Json::arrayValue};
-                grants[0U][jss::HookGrant] = Json::Value{};
-                grants[0U][jss::HookGrant][jss::HookHash] = grantee_hash_str;
-                grants[0U][jss::HookGrant][jss::Authorize] = bob.human();
+                auto const grant = [&](std::string const& hash,
+                                       Account const& grantee) {
+                    Json::Value g;
+                    g[jss::HookGrant][jss::HookHash] = hash;
+                    g[jss::HookGrant][jss::Authorize] = grantee.human();
+                    grants.append(g);
+                };
+                grant(grantee_hash_str, bob);
+                grant(weak_grantee_hash_str, dan);
+                grant(cbak_grantee_hash_str, eve);
 
                 Json::Value json = ripple::test::jtx::hook(
                     alice, {{hso(grantor_wasm, overrideFlag)}}, 0);
                 json[jss::Hooks][0U][jss::Hook][jss::HookGrants] = grants;
                 env(json, M("touch: set grantor"), HSFEE);
-                env.close();
             }
+            env(ripple::test::jtx::hook(
+                    bob, {{hso(grantee_wasm, overrideFlag)}}, 0),
+                M("touch: set grantee"),
+                HSFEE);
+            env(ripple::test::jtx::hook(
+                    dan, {{hso(weak_grantee_wasm, overrideFlag)}}, 0),
+                M("touch: set weak grantee"),
+                HSFEE);
             {
-                Json::Value json = ripple::test::jtx::hook(
-                    bob, {{hso(grantee_wasm, overrideFlag)}}, 0);
-                env(json, M("touch: set grantee"), HSFEE);
-                env.close();
-            }
+                Json::Value params{Json::arrayValue};
+                params[0U][jss::HookParameter][jss::HookParameterName] =
+                    strHex(std::string("G"));
+                params[0U][jss::HookParameter][jss::HookParameterValue] =
+                    strHex(alice.id());
 
-            auto const aliceKey = keylet::account(alice.id()).key;
-            std::string const invid = std::string(24, '0') + strHex(alice.id());
+                Json::Value json = ripple::test::jtx::hook(
+                    eve, {{hso(cbak_grantee_wasm, overrideFlag)}}, 0);
+                json[jss::Hooks][0U][jss::Hook][jss::HookParameters] = params;
+                env(json, M("touch: set callback grantee"), HSFEE);
+            }
+            env.close();
+
+            uint256 const ns{beast::zero};
+            auto const aliceState = [&](std::uint8_t n) {
+                uint256 key;
+                key.data()[31] = n;
+                return env.le(keylet::hookState(alice.id(), key, ns));
+            };
+            auto const stateIs = [&](std::uint8_t n, uint256 const& txid) {
+                auto const sle = aliceState(n);
+                return sle &&
+                    sle->getFieldVL(sfHookStateData) ==
+                    Blob(txid.begin(), txid.end());
+            };
 
             auto const touchCount = [&]() -> std::uint64_t {
                 auto const sle = env.le(alice);
@@ -11123,10 +11316,13 @@ public:
                     ? sle->getFieldU64(sfTouchCount)
                     : 0;
             };
+            auto const prevTxnID = [&]() {
+                return env.le(alice)->getFieldH256(sfPreviousTxnID);
+            };
 
-            // env.meta() closes the ledger, so call it before reading state
-            auto const aliceInMeta = [&]() -> bool {
-                auto const meta = env.meta();
+            auto const aliceKey = keylet::account(alice.id()).key;
+            auto const inMeta =
+                [&](std::shared_ptr<STObject const> const& meta) -> bool {
                 if (!meta)
                     return false;
                 for (auto const& node : meta->getFieldArray(sfAffectedNodes))
@@ -11134,42 +11330,59 @@ public:
                         return true;
                 return false;
             };
+            // env.meta() closes the ledger, so call it before reading state
+            auto const aliceInMeta = [&]() -> bool {
+                return inMeta(env.meta());
+            };
 
-            // 1. first write creates key 1: HookStateCount changes, so alice's
-            //    root is modified either way; only the fix also touches it
+            std::string const invid = std::string(24, '0') + strHex(alice.id());
+            auto const payTo = [&](Account const& from,
+                                   Account const& to,
+                                   PrettyAmount const& amount) {
+                Json::Value json = pay(from, to, amount);
+                json[jss::InvoiceID] = invid;
+                return json;
+            };
+
+            // 1. strong pass, first write creates key 1: HookStateCount
+            //    changes, so alice's root is modified either way; only the
+            //    fix also touches it
             {
                 auto const before = touchCount();
-                Json::Value json = pay(cho, bob, XRP(1));
-                json[jss::InvoiceID] = invid;
-                env(json, fee(XRP(1)), M("touch: create"), ter(tesSUCCESS));
+                env(payTo(cho, bob, XRP(1)),
+                    fee(XRP(1)),
+                    M("touch: create"),
+                    ter(tesSUCCESS));
+                auto const txid = env.tx()->getTransactionID();
                 BEAST_EXPECT(aliceInMeta());
                 BEAST_EXPECT(touchCount() == before + (withFix ? 1 : 0));
+                BEAST_EXPECT(stateIs(1, txid));
             }
 
             // 2. overwrite of the existing key: alice is not a stakeholder,
             //    so without the fix her root is untouched and unthreaded
             {
                 auto const before = touchCount();
-                auto const prevTxnID =
-                    env.le(alice)->getFieldH256(sfPreviousTxnID);
-                Json::Value json = pay(cho, bob, XRP(1));
-                json[jss::InvoiceID] = invid;
-                env(json, fee(XRP(1)), M("touch: overwrite"), ter(tesSUCCESS));
+                auto const prev = prevTxnID();
+                env(payTo(cho, bob, XRP(1)),
+                    fee(XRP(1)),
+                    M("touch: overwrite"),
+                    ter(tesSUCCESS));
                 auto const txid = env.tx()->getTransactionID();
                 BEAST_EXPECT(aliceInMeta() == withFix);
                 BEAST_EXPECT(touchCount() == before + (withFix ? 1 : 0));
-                BEAST_EXPECT(
-                    env.le(alice)->getFieldH256(sfPreviousTxnID) ==
-                    (withFix ? txid : prevTxnID));
+                BEAST_EXPECT(prevTxnID() == (withFix ? txid : prev));
+                BEAST_EXPECT(stateIs(1, txid));
             }
 
             // 3. alice is also a strong stakeholder (payment destination) and
             //    bob's outgoing hook writes her state: touched exactly once
             {
                 auto const before = touchCount();
-                Json::Value json = pay(bob, alice, XRP(1));
-                json[jss::InvoiceID] = invid;
-                env(json, fee(XRP(1)), M("touch: tsh"), ter(tesSUCCESS));
+                env(payTo(bob, alice, XRP(1)),
+                    fee(XRP(1)),
+                    M("touch: tsh"),
+                    ter(tesSUCCESS));
                 BEAST_EXPECT(aliceInMeta());
                 BEAST_EXPECT(touchCount() == before + 1);
             }
@@ -11187,6 +11400,140 @@ public:
                     ter(tecHOOK_REJECTED));
                 BEAST_EXPECT(!aliceInMeta());
                 BEAST_EXPECT(touchCount() == before);
+            }
+
+            // the otxn account is a weak stakeholder under fixHookAPI20251128
+            bool const senderTouched =
+                env.current()->rules().enabled(fixHookAPI20251128);
+
+            // 5. alice sends to bob: bob's strong hook overwrites her key 1
+            //    before the weak pass touches her as the sender. Under the fix
+            //    that write has already touched her, so the weak pass must
+            //    not touch her again.
+            {
+                auto const before = touchCount();
+                env(payTo(alice, bob, XRP(1)),
+                    fee(XRP(1)),
+                    M("touch: foreign write, then weak tsh"),
+                    ter(tesSUCCESS));
+                auto const txid = env.tx()->getTransactionID();
+                BEAST_EXPECT(aliceInMeta());
+                BEAST_EXPECT(
+                    touchCount() ==
+                    before + ((withFix || senderTouched) ? 1 : 0));
+                BEAST_EXPECT(stateIs(1, txid));
+            }
+
+            // 6. as 5, but the payment fails after the strong pass. The reset
+            //    discards the strong pass' state write and touch, so the weak
+            //    pass must touch alice afresh.
+            {
+                auto const before = touchCount();
+                auto const sle = aliceState(1);
+                BEAST_REQUIRE(sle);
+                auto const value = sle->getFieldVL(sfHookStateData);
+                env(payTo(alice, bob, XRP(100000)),
+                    fee(XRP(1)),
+                    M("touch: reset"),
+                    ter(tecUNFUNDED_PAYMENT));
+                BEAST_EXPECT(aliceInMeta());
+                BEAST_EXPECT(touchCount() == before + (senderTouched ? 1 : 0));
+                auto const after = aliceState(1);
+                BEAST_EXPECT(
+                    after && after->getFieldVL(sfHookStateData) == value);
+            }
+
+            // every execution of the last txn's hooks accepted
+            auto const allAccepted =
+                [&](std::shared_ptr<STObject const> const& meta,
+                    std::size_t count) -> bool {
+                if (!meta || !meta->isFieldPresent(sfHookExecutions))
+                    return false;
+                auto const& executions = meta->getFieldArray(sfHookExecutions);
+                if (executions.size() != count)
+                    return false;
+                for (auto const& execution : executions)
+                    if (execution.getFieldU8(sfHookResult) !=
+                        static_cast<std::uint8_t>(hook_api::ExitType::ACCEPT))
+                        return false;
+                return true;
+            };
+
+            // 7. weak pass: dan's hook writes key 2 only when it is executed
+            //    again as weak, after the payment has applied. The first
+            //    write creates the key and so modifies alice's root either
+            //    way; the second only overwrites it.
+            for (bool const create : {true, false})
+            {
+                auto const before = touchCount();
+                auto const prev = prevTxnID();
+                env(payTo(cho, dan, XRP(1)),
+                    fee(XRP(1)),
+                    M(create ? "touch: weak create" : "touch: weak overwrite"),
+                    ter(tesSUCCESS));
+                auto const txid = env.tx()->getTransactionID();
+                auto const meta = env.meta();
+                BEAST_EXPECT(allAccepted(meta, 2));
+                BEAST_EXPECT(inMeta(meta) == (create || withFix));
+                BEAST_EXPECT(touchCount() == before + (withFix ? 1 : 0));
+                BEAST_EXPECT(
+                    prevTxnID() == ((create || withFix) ? txid : prev));
+                BEAST_EXPECT(stateIs(2, txid));
+            }
+
+            // 8. dan's weak execution deletes key 4, which alice never had.
+            //    Nothing of hers changes, so nothing touches her.
+            {
+                auto const before = touchCount();
+                auto const prev = prevTxnID();
+                Json::Value params{Json::arrayValue};
+                params[0U][jss::HookParameter][jss::HookParameterName] =
+                    strHex(std::string("D"));
+                params[0U][jss::HookParameter][jss::HookParameterValue] = "01";
+                Json::Value json = payTo(cho, dan, XRP(1));
+                json[jss::HookParameters] = params;
+                env(json,
+                    fee(XRP(1)),
+                    M("touch: weak delete of a missing key"),
+                    ter(tesSUCCESS));
+                auto const meta = env.meta();
+                BEAST_EXPECT(allAccepted(meta, 2));
+                BEAST_EXPECT(!inMeta(meta));
+                BEAST_EXPECT(touchCount() == before);
+                BEAST_EXPECT(prevTxnID() == prev);
+                BEAST_EXPECT(!aliceState(4));
+            }
+
+            // 9. callback: eve's hook emits an Invoke, whose callback writes
+            //    key 3 when the Invoke is applied in the following ledger.
+            //    Again the first write creates the key, the second overwrites.
+            for (bool const create : {true, false})
+            {
+                auto const before = touchCount();
+                auto const prev = prevTxnID();
+                env(invoke::invoke(eve),
+                    fee(XRP(1)),
+                    M(create ? "touch: callback create"
+                             : "touch: callback overwrite"),
+                    ter(tesSUCCESS));
+                env.close();
+
+                auto const meta = env.meta();
+                BEAST_REQUIRE(meta && meta->isFieldPresent(sfHookEmissions));
+                auto const etxn =
+                    meta->getFieldArray(sfHookEmissions)[0u].getFieldH256(
+                        sfEmittedTxnID);
+
+                // the emitted txn, and with it the callback, applies here
+                env.close();
+                auto const emitted = env.closed()->txRead(etxn);
+                BEAST_REQUIRE(emitted.first && emitted.second);
+                BEAST_EXPECT(allAccepted(emitted.second, 1));
+                BEAST_EXPECT(inMeta(emitted.second) == (create || withFix));
+                BEAST_EXPECT(touchCount() == before + (withFix ? 1 : 0));
+                BEAST_EXPECT(
+                    prevTxnID() == ((create || withFix) ? etxn : prev));
+                BEAST_EXPECT(stateIs(3, etxn));
             }
         }
     }
