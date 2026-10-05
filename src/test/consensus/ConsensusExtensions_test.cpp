@@ -17,6 +17,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/CaptureLogs.h>
 #include <xrpld/app/consensus/ActiveValidatorView.h>
 #include <xrpld/app/consensus/ConsensusExtensions.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
@@ -26,6 +27,7 @@
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/RuntimeConfig.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/consensus/ConsensusExtensionsTick.h>
@@ -3452,6 +3454,59 @@ class ConsensusExtensions_test : public beast::unit_test::suite
     }
 
     void
+    testTrustedProposalSignedWithOwnKeyDropped()
+    {
+        testcase("trusted proposal signed with our own key is dropped");
+
+        // Sidecar alignment counts every active-view NodeID in the peer
+        // position map and adds this node separately, so a relayed or
+        // re-signed copy of our own proposal must never enter that map.
+        using namespace jtx;
+        std::string logs;
+        Env env{
+            *this,
+            envconfig(validator, ""),
+            supported_amendments() | featureConsensusEntropy,
+            std::make_unique<CaptureLogs>(&logs),
+            beast::severities::kError};
+        auto const& valKeys = env.app().getValidatorKeys();
+        if (!BEAST_EXPECT(valKeys.keys))
+            return;
+
+        auto const prevLedger = env.closed()->info().hash;
+        auto const closeTime = env.app().timeKeeper().closeTime();
+        auto peerPos = [&](PublicKey const& pk, SecretKey const& sk) {
+            ExtendedPosition position{makeHash("own-key-proposal")};
+            auto const sig =
+                signPosition(pk, sk, position, 0, closeTime, prevLedger);
+            RCLCxPeerPos::Proposal proposal{
+                prevLedger, 0, position, closeTime, closeTime, calcNodeID(pk)};
+            auto const suppress = proposalUniqueId(
+                position,
+                prevLedger,
+                0,
+                closeTime,
+                pk.slice(),
+                Slice{sig.data(), sig.size()});
+            return RCLCxPeerPos{
+                pk,
+                Slice{sig.data(), sig.size()},
+                suppress,
+                std::move(proposal)};
+        };
+        std::string const ownKeyLog = "signed with my key";
+
+        auto const other = randomKeyPair(KeyType::secp256k1);
+        env.app().getOPs().processTrustedProposal(
+            peerPos(other.first, other.second));
+        BEAST_EXPECT(logs.find(ownKeyLog) == std::string::npos);
+
+        BEAST_EXPECT(!env.app().getOPs().processTrustedProposal(
+            peerPos(valKeys.keys->publicKey, valKeys.keys->secretKey)));
+        BEAST_EXPECT(logs.find(ownKeyLog) != std::string::npos);
+    }
+
+    void
     testBusyFollowsEstablishStateAndReset()
     {
         testcase("Busy flag follows establish state and round reset");
@@ -3663,6 +3718,7 @@ public:
         testRngEntropyConflictIgnoredWithQuorumAlignment();
         testParticipantDiagnosticsOnlyWhenExtensionEnabled();
         testValidatorKeylessAuthoringNoops();
+        testTrustedProposalSignedWithOwnKeyDropped();
         testBusyFollowsEstablishStateAndReset();
         testPublicHookNoopAndFailureBranches();
         testDecorateMessageStoresSelfProofs();

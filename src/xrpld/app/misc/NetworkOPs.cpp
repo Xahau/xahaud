@@ -187,6 +187,12 @@ public:
               beast::get_abstract_clock<std::chrono::steady_clock>(),
               validatorKeys,
               app_.logs().journal("LedgerConsensus"))
+        , validatorPK_(
+              validatorKeys.keys ? validatorKeys.keys->publicKey
+                                 : decltype(validatorPK_){})
+        , validatorMasterPK_(
+              validatorKeys.keys ? validatorKeys.keys->masterPublicKey
+                                 : decltype(validatorMasterPK_){})
         , m_ledgerMaster(ledgerMaster)
         , m_job_queue(job_queue)
         , m_standalone(standalone)
@@ -675,6 +681,9 @@ private:
     boost::asio::steady_timer accountHistoryTxTimer_;
 
     RCLConsensus mConsensus;
+
+    std::optional<PublicKey> const validatorPK_;
+    std::optional<PublicKey> const validatorMasterPK_;
 
     ConsensusPhase mLastConsensusPhase;
 
@@ -2149,6 +2158,18 @@ NetworkOPsImp::beginConsensus(
 bool
 NetworkOPsImp::processTrustedProposal(RCLCxPeerPos peerPos)
 {
+    auto const& peerKey = peerPos.publicKey();
+    if (validatorPK_ == peerKey || validatorMasterPK_ == peerKey)
+    {
+        // Usually an operator has duplicated this validator key on another
+        // server. Treat it as severe local/network misconfiguration, not an
+        // internal invariant violation: assert-enabled builds should still
+        // drop the proposal instead of aborting.
+        JLOG(m_journal.error())
+            << "Received a TRUSTED proposal signed with my key from a peer";
+        return false;
+    }
+
     return mConsensus.peerProposal(app_.timeKeeper().closeTime(), peerPos);
 }
 
