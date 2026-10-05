@@ -477,7 +477,32 @@ class ConsensusEntropy_test : public beast::unit_test::suite
         BEAST_REQUIRE(hookExecutions.size() == 1);
         BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
 
-        // Captured by running the pre-extraction binary.
+        // Captured by running the code. The draw inputs come first so a change
+        // in the test environment is told apart from a change in the draw.
+        auto const entropy = recordedEntropy(env);
+        BEAST_REQUIRE(entropy);
+        auto const drawSeq = entropy->getFieldU32(sfLedgerSequence);
+        auto const digest = to_string(entropy->getFieldH256(sfDigest));
+        auto const txId = to_string(env.tx()->getTransactionID());
+        auto const hookHash =
+            to_string(hookExecutions[0].getFieldH256(sfHookHash));
+        BEAST_EXPECTS(drawSeq == 5, "seq " + std::to_string(drawSeq));
+        BEAST_EXPECTS(
+            digest ==
+                "C67F2670EF1E184AF98729B183FAA3B53115F2394B543F88B1F9B06A8B0E68"
+                "C1",
+            "digest " + digest);
+        BEAST_EXPECTS(
+            txId ==
+                "B918B5643FB9ECCE260E5AF3B894C97C4C7847D3EE625512A22813AE9A349E"
+                "5B",
+            "tx " + txId);
+        BEAST_EXPECTS(
+            hookHash ==
+                "B58E1A97E5E5AC81B3A5C930B2CED704C5AE8C4E6081FF80F2668855E5C2EF"
+                "32",
+            "hook " + hookHash);
+
         auto const drawn = strHex(hookReturnString(hookExecutions[0]));
         BEAST_EXPECTS(
             drawn ==

@@ -24,6 +24,7 @@
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
+#include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/consensus/ConsensusProposal.h>
 #include <xrpld/ledger/OpenView.h>
 #include <xrpld/shamap/SHAMap.h>
@@ -240,8 +241,8 @@ goldenSingleTx(CanonicalTXSet const& txs)
 
 class ConsensusEntropyGolden_test : public beast::unit_test::suite
 {
-    // Every expected value was captured by running the pre-extraction binary;
-    // a mismatch reports the computed value.
+    // Every expected value was captured by running the code; a mismatch
+    // reports the computed value.
     void
     pin(std::string const& name,
         std::string const& actual,
@@ -360,9 +361,6 @@ class ConsensusEntropyGolden_test : public beast::unit_test::suite
         pin("full anchor ledger",
             anchor->info().hash,
             "CCC3B3E88CCAC17F1BE6B4A648A55999411F19E3FE55EB721960EB0DF28EDDA5");
-        pin("full view ledger",
-            viewLedger->info().hash,
-            "3020EB9E7BE24EF7D7A060CB051583EC117384636D1781AFB5B87F3E348DA48A");
         pin("full view state",
             viewLedger->stateMap().getHash().as_uint256(),
             "A66AE6AF77B5E9E35D9F89CFF6111F3D63EA8B1D83AE6E71114602F9A377343A");
@@ -427,15 +425,75 @@ class ConsensusEntropyGolden_test : public beast::unit_test::suite
             "119A1D5D17A7448C08D2B814C1DA709A46401A5C01F36840000000000000007300"
             "7021010F8114000000000000000000000000000000000000000000101504",
             "654C06DF6A5A31CDBAE14F2441DFE19E2D1A7CBF17591574DBC52D7C765FB113");
+    }
 
-        // The same accepted set under a view that is not UNLReport-backed
-        // mints only the consensus fallback.
-        ce.cacheUNLReport(anchor);
-        auto const unanchored = ce.selectEntropy(txSetHash, seq);
-        BEAST_EXPECT(unanchored.tier == entropyTierConsensusFallback);
-        pin("unanchored selection",
-            goldenSelection(unanchored),
-            "D093850339881AEF099AB6C4F6BBFF34DFB8A842B1D5A1899206926CFBC1D770/"
+    void
+    testViewAnchoringDecidesTier()
+    {
+        testcase(
+            "UNLReport anchoring decides the tier of the same contribution");
+
+        using namespace jtx;
+        Env env{*this, envconfig(validator, ""), goldenFeatures(), nullptr};
+        goldenForceNonStandalone(env.app());
+        BEAST_EXPECT(!env.app().config().standalone());
+
+        // A view built from local trusted config holds only this node's key,
+        // so this node's own contribution is the one both views admit.
+        auto const& valKeys = env.app().getValidatorKeys();
+        BEAST_EXPECT(valKeys.keys);
+        if (!valKeys.keys)
+            return;
+        std::pair<PublicKey, SecretKey> const local{
+            valKeys.keys->publicKey, valKeys.keys->secretKey};
+        BEAST_EXPECT(valKeys.nodeID == calcNodeID(local.first));
+
+        auto const anchor = env.app().getLedgerMaster().getClosedLedger();
+        auto const seq = anchor->info().seq + 1;
+        auto const closeTime = NetClock::time_point{NetClock::duration{1003}};
+        auto const txSetHash = goldenHash("golden-local-txset");
+
+        auto runWith = [&](std::shared_ptr<Ledger const> const& viewLedger) {
+            ConsensusExtensions ce{env.app(), env.journal};
+            ce.onRoundStart(RCLCxLedger{anchor}, {});
+            if (viewLedger)
+                ce.cacheUNLReport(viewLedger);
+            ce.setRngEnabledThisRound(true);
+            auto const view = ce.activeValidatorView();
+            BEAST_EXPECT(view->fromUNLReport == (viewLedger != nullptr));
+            BEAST_EXPECT(view->containsNode(valKeys.nodeID));
+            goldenHarvestCommitReveal(
+                ce,
+                local,
+                txSetHash,
+                seq,
+                closeTime,
+                anchor->info().hash,
+                goldenHash("golden-local-reveal"));
+            auto const root = ce.buildEntropySet(seq);
+            ce.acceptEntropySet(root);
+            return std::make_pair(root, ce.selectEntropy(txSetHash, seq));
+        };
+
+        auto const anchored =
+            runWith(goldenUNLReportLedger(env, {local.first}));
+        BEAST_EXPECT(anchored.second.tier == entropyTierValidatorFull);
+        pin("anchored local root",
+            anchored.first,
+            "91CD6652C4C4B9FEE0B31C8A78D7F5D193DEC1997C8288AEE7551B6EFCCC62B3");
+        pin("anchored local selection",
+            goldenSelection(anchored.second),
+            "964DDFA830613F09A8A9525B9DC5CD8588674651BD7B62DF9B18935DF1CAB1C7/"
+            "4/1/1/01");
+
+        // The same accepted set under the trusted-config view mints only the
+        // consensus fallback.
+        auto const unanchored = runWith(nullptr);
+        BEAST_EXPECT(unanchored.first == anchored.first);
+        BEAST_EXPECT(unanchored.second.tier == entropyTierConsensusFallback);
+        pin("unanchored local selection",
+            goldenSelection(unanchored.second),
+            "7CA6F3323698FB999F07EA269E837934F256527D5D5A7866AD165AB1E55A6BD9/"
             "1/0/0/");
     }
 
@@ -714,6 +772,7 @@ public:
     {
         testPositionAndProposalIdentity();
         testFullTierRound();
+        testViewAnchoringDecidesTier();
         testValidatorQuorumRound();
         testParticipantAlignedUnderNegativeUNL();
         testFallback();
