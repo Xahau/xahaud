@@ -1176,7 +1176,7 @@ public:
         testCorruptLedger(sa);
         testGossipSelection(sa);
         testLedgerOutranksGossip(sa);
-        testDirectory(sa);        
+        testDirectory(sa);
         testDisabled(sa);
     }
 };
