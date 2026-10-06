@@ -206,6 +206,26 @@ private:
      * @return the built scoreTable or empty optional if table could not be
      * built
      */
+    /**
+     * Count trusted full validations per UNL validator over the last
+     * FLAG_LEDGER_INTERVAL ledgers. Fails only on insufficient ledger
+     * history; does not apply the local reliability gate.
+     */
+    std::optional<hash_map<NodeID, std::uint32_t>>
+    buildRawScoreTable(
+        std::shared_ptr<Ledger const> const& prevLedger,
+        hash_set<NodeID> const& unl,
+        RCLValidations& validations);
+
+    /**
+     * True if the local node issued enough validations in the score table
+     * to be trusted to vote on N-UNL changes.
+     */
+    bool
+    localNodeReliableForNUNL(
+        hash_map<NodeID, std::uint32_t> const& scoreTable,
+        LedgerIndex seq) const;
+
     std::optional<hash_map<NodeID, std::uint32_t>>
     buildScoreTable(
         std::shared_ptr<Ledger const> const& prevLedger,
