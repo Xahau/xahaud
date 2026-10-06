@@ -48,13 +48,9 @@ enum ApplyFlags : std::uint32_t {
     // Signatures shouldn't be checked
     tapDRY_RUN = 0x1000,
 
-    // emit_atomic inner txn applied inside its parent's application. Only
-    // ever set by Transactor::applyAtomicEmissions.
+    // emit_atomic inner txn applied into its parent's subledger. Only ever
+    // set by ApplyContext::applyToSubledger.
     tapATOMIC_EMIT = 0x2000,
-
-    // With tapATOMIC_EMIT: the group failed, applied fee-only as
-    // tecHOOK_EMIT_FAILED. Only ever set by applyFailedAtomicEmissions.
-    tapATOMIC_EMIT_FAILED = 0x4000,
 };
 
 constexpr ApplyFlags

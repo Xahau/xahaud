@@ -50,9 +50,10 @@ extern open_ledger_t const open_ledger;
 
     A view constructed with this tag sits on top of another OpenView
     and is always treated as a closed ledger, regardless of the base.
-    It is used to apply an atomically emitted hook transaction
-    (emit_atomic) together with its parent, so that the whole group can
-    be committed or discarded as a unit. See Transactor::operator().
+    It is used to apply one atomically emitted hook transaction
+    (emit_atomic) on top of a subledger, so that the transaction can be
+    checked before it is merged into the subledger or thrown away.
+    See ApplyContext::applyToSubledger.
 */
 struct closed_view_t
 {
@@ -60,6 +61,21 @@ struct closed_view_t
 };
 
 extern closed_view_t const closed_view;
+
+/** Subledger construction tag.
+
+    A view constructed with this tag is the subledger of a transaction
+    whose hooks emitted transactions atomically (emit_atomic). It sits on
+    top of the view that transaction is being applied to and reports the
+    same open() as that view. Its own transactions are numbered from zero
+    and txExists() also consults the base. See ApplyContext.
+*/
+struct subledger_view_t
+{
+    explicit subledger_view_t() = default;
+};
+
+extern subledger_view_t const subledger_view;
 
 //------------------------------------------------------------------------------
 
@@ -113,9 +129,10 @@ private:
     std::shared_ptr<void const> hold_;
     bool open_ = true;
 
-    // closed_view only: number of transactions already in the base chain
-    // (so TransactionIndex continues from the base) and the base OpenView
-    // for txExists() delegation. Zero / nullptr for every other view.
+    // closed_view: number of transactions already in the base chain (so
+    // TransactionIndex continues from the base). closed_view and
+    // subledger_view: the base OpenView for txExists() delegation.
+    // Zero / nullptr for every other view.
     std::size_t baseTxCount_ = 0;
     OpenView const* baseTxs_ = nullptr;
 
@@ -208,6 +225,20 @@ public:
     */
     OpenView(closed_view_t, OpenView const& base);
 
+    /** Construct a subledger on top of another OpenView.
+
+        Effects:
+
+            The LedgerInfo, rules and open() are copied from the base
+            (the sequence is NOT incremented).
+
+            txCount() counts only this view's own transactions, so the
+            transactions applied into it are numbered from zero.
+
+            txExists() also consults the base.
+    */
+    OpenView(subledger_view_t, OpenView const& base);
+
     /** Returns true if this reflects an open ledger. */
     bool
     open() const override
@@ -231,9 +262,9 @@ public:
 
         Also forwards the XRP destroyed in this view
         (RawStateTable::apply calls to.rawDestroyXRP).
-        Used when committing a closed_view into an open ledger,
-        whose transaction list must not receive the inner
-        transactions.
+        Used to fold a subledger into the transaction that owns
+        it: the subledger's transactions are recorded in that
+        transaction's metadata, not in the ledger's tx list.
     */
     void
     applyState(RawView& to) const;

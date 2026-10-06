@@ -79,6 +79,10 @@ public:
     void
     apply(RawView& to) const;
 
+    /** Forget every buffered change, cached entry and destroyed drop. */
+    void
+    clear();
+
     std::pair<TxMeta, Mods>
     generateTxMeta(
         OpenView const& to,
@@ -86,6 +90,7 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
+        std::vector<STObject> const& subledger,
         beast::Journal j,
         bool isProvisional = false);
 
@@ -97,6 +102,7 @@ public:
         std::optional<STAmount> const& deliver,
         std::vector<STObject> const& hookExecution,
         std::vector<STObject> const& hookEmission,
+        std::vector<STObject> const& subledger,
         bool isDryRun,
         beast::Journal j);
 

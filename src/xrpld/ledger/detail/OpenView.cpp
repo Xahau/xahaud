@@ -24,6 +24,7 @@ namespace ripple {
 
 open_ledger_t const open_ledger{};
 closed_view_t const closed_view{};
+subledger_view_t const subledger_view{};
 
 class OpenView::txs_iter_impl : public txs_type::iter_base
 {
@@ -133,6 +134,14 @@ OpenView::OpenView(closed_view_t, OpenView const& base) : OpenView(&base)
     baseTxs_ = &base;
 }
 
+OpenView::OpenView(subledger_view_t, OpenView const& base) : OpenView(&base)
+{
+    // open() is inherited from the base: the transaction that owns the
+    // subledger is applied on top of it and keeps its own semantics. The
+    // subledger's transactions are numbered from zero.
+    baseTxs_ = &base;
+}
+
 std::size_t
 OpenView::txCount() const
 {
@@ -228,9 +237,9 @@ OpenView::txExists(key_type const& key) const
 {
     if (txs_.find(key) != txs_.end())
         return true;
-    // closed_view: a duplicate of a transaction already in the base view
-    // must be detected here (tefALREADY) rather than in rawTxInsert
-    // (LogicError) when the sandbox is committed.
+    // closed_view / subledger_view: a duplicate of a transaction already in
+    // the base view must be detected here (tefALREADY) rather than in
+    // rawTxInsert (LogicError) when the view is applied to its base.
     return baseTxs_ != nullptr && baseTxs_->txExists(key);
 }
 

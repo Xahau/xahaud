@@ -59,8 +59,9 @@ checkValidity(
         }
         else if (applyFlags & tapATOMIC_EMIT)
         {
-            // pass, this is an emit_atomic inner txn being applied by its
-            // parent (preflight2 reaches here for every non-dry-run txn)
+            // pass, this is an emit_atomic inner txn being applied into its
+            // parent's subledger (preflight2 reaches here for every non-dry-run
+            // txn)
         }
         else if (flags & SF_EMITTED)
         {

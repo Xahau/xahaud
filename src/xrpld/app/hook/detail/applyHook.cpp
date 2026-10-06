@@ -1565,19 +1565,10 @@ hook::finalizeHookResult(
             }
         }
 
-        // emit_atomic txns are NOT written to the emitted directory: the
-        // Transactor applies them inside this transaction (see
-        // Transactor::applyAtomicEmissions). Only record them in the
-        // metadata here; the vector is left intact for the Transactor.
-        for (auto const& tpTrans : hookResult.emittedAtomicTxn)
-        {
-            auto const& stx = *tpTrans->getSTransaction();
-            auto const& emitDetails = const_cast<ripple::STTx&>(stx)
-                                          .getField(sfEmitDetails)
-                                          .downcast<STObject>();
-            emission_txnid.emplace_back(
-                stx.getTransactionID(), emitDetails.getFieldH256(sfEmitNonce));
-        }
+        // emit_atomic txns were already executed in the subledger, which the
+        // transaction's metadata records (Subledger). They are not written
+        // to the emitted directory and not listed in HookEmissions, which
+        // only lists txns that appear in later ledgers.
     }
 
     // add a metadata entry for this hook execution result
@@ -2778,6 +2769,16 @@ emit_txn(
     if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
         return OUT_OF_BOUNDS;
 
+    if (atomic)
+    {
+        // Execute it now, in the subledger. The attempt (which may run the
+        // inner txn's hooks) is spent whatever its outcome.
+        api.recordEmission(tpTrans, true);
+        if (auto const applied = api.apply_atomic(tpTrans); !applied)
+            return applied.error();
+        hookCtx.result.emittedAtomicTxn.push_back(tpTrans);
+    }
+
     auto const write_txid =
         [&]() -> std::variant<uint64_t, hook_api::hook_return_code> {
         WRITE_WASM_MEMORY_AND_RETURN(
@@ -2794,13 +2795,10 @@ emit_txn(
         return std::get<hook_api::hook_return_code>(result);
 
     auto const value = std::get<uint64_t>(result);
-    if (value == 32)
+    if (value == 32 && !atomic)
     {
-        if (atomic)
-            hookCtx.result.emittedAtomicTxn.push_back(tpTrans);
-        else
-            hookCtx.result.emittedTxn.push(tpTrans);
-        api.recordEmission(tpTrans, atomic);
+        hookCtx.result.emittedTxn.push(tpTrans);
+        api.recordEmission(tpTrans, false);
     }
 
     return value;
@@ -2834,12 +2832,22 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-/* Emit a transaction that is applied atomically with the transaction this
- * hook is executing for: the emitted txn is applied inside the parent's
- * application, right after the parent, and if it fails the parent fails with
- * tecHOOK_EMIT_FAILED. Same blob format and rules as emit(), plus: strong
- * execution only, no nesting, at most hook_api::max_atomic_emit per parent
- * transaction. */
+/* Emit a transaction atomically with the transaction this hook is executing
+ * for. The emitted txn is executed immediately, in that transaction's
+ * subledger, before this call returns: it sees (and its effects are seen by)
+ * the ledger as this hook sees it. The subledger is committed as part of the
+ * transaction if the transaction succeeds, and abandoned if a hook rolls back
+ * or the transaction fails in any other way.
+ *
+ * Returns 32 (the txid, written to write_ptr) iff the txn was applied to the
+ * subledger, with tesSUCCESS or with a tec code (fee claimed only). Use
+ * subledger_slot() to inspect its result and metadata, and rollback() if the
+ * outcome is not acceptable. Returns EMISSION_FAILURE if it was invalid or not
+ * applied (tem/tef/tel/ter), and ALREADY_IN_SUBLEDGER when called by a hook
+ * that is itself executing inside a subledger. Same blob format and rules as
+ * emit(), plus: strong execution only, FirstLedgerSequence ==
+ * LastLedgerSequence == the current ledger, at most hook_api::max_atomic_emit
+ * attempts per transaction. */
 DEFINE_HOOK_FUNCTION(
     int64_t,
     emit_atomic,
@@ -4079,6 +4087,45 @@ DEFINE_HOOK_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
     HOOK_SETUP();
 
     auto const result = api.meta_slot(slot_into);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+/* Slot a SubledgerTransaction { EmittedTxnID, EmittedTxn, TransactionMetaData }
+ * from the subledger of the transaction this hook is executing for: the one
+ * whose txid is the 32 bytes at read_ptr, or, when read_len is 0, the one at
+ * index read_ptr (application order, 0 based). */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    subledger_slot,
+    uint32_t slot_into,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();
+
+    // the host function is registered regardless of the amendment
+    if (!applyCtx.view().rules().enabled(featureAtomicEmit))
+        return NOT_IMPLEMENTED;  // LCOV_EXCL_LINE
+
+    std::optional<ripple::uint256> txid;
+    uint32_t index = 0;
+    if (read_len == 32)
+    {
+        if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+            return OUT_OF_BOUNDS;
+        txid = ripple::uint256::fromVoid(memory + read_ptr);
+    }
+    else if (read_len == 0)
+        index = read_ptr;
+    else
+        return INVALID_ARGUMENT;
+
+    auto const result = api.subledger_slot(slot_into, txid, index);
     if (!result)
         return result.error();
 
