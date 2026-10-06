@@ -193,6 +193,11 @@ public:
 
     // True to ask peers not to relay current IP.
     bool PEER_PRIVATE = false;
+
+    // True to enable the Xahau UDP Superhighway (XUSH): a best-effort UDP
+    // transport on the peer port used to fan transactions out to other
+    // highway-enabled servers in addition to the normal peer relay.
+    bool UDP_HIGHWAY = false;
     // peers_max is a legacy configuration, which is going to be replaced
     // with individual inbound peers peers_in_max and outbound peers
     // peers_out_max configuration. for now we support both the legacy and

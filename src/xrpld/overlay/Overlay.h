@@ -235,6 +235,24 @@ public:
      */
     virtual Json::Value
     txMetrics() const = 0;
+
+    /** Process a datagram received on the UDP Superhighway (XUSH).
+
+        Datagrams arrive on the peer port. They are unauthenticated and are
+        accounted for against the sender's IP address.
+    */
+    virtual void
+    processXUSH(
+        std::string const& message,
+        boost::asio::ip::tcp::endpoint const& remoteEndpoint) = 0;
+
+    /** Send a serialized transaction to UDP Superhighway (XUSH) peers.
+
+        Does nothing unless the highway is enabled. Callers must relay each
+        transaction at most once (see HashRouter::shouldRelay).
+    */
+    virtual void
+    publishTxXUSH(Slice const& tx, uint256 const& txid) = 0;
 };
 
 }  // namespace ripple

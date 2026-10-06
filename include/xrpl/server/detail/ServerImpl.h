@@ -208,6 +208,16 @@ ServerImpl<Handler>::ports(std::vector<Port> const& ports)
 
                 sp->run();
             }
+
+            // UDP Superhighway (XUSH) datagrams arrive on the peer port
+            // number. TCP and UDP port numbers are independent, so this
+            // needs no socket sharing with the TCP door.
+            if (internalPort.has_peer() && internalPort.udp_highway)
+            {
+                if (auto sp = ios_.emplace<UDPDoor<Handler>>(
+                        handler_, io_service_, internalPort, j_))
+                    sp->run();
+            }
         }
     }
     return eps;
