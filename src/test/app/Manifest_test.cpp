@@ -1131,6 +1131,47 @@ public:
     }
 
     void
+    testPendingSubstitution()
+    {
+        testcase("pending ring: forged replacement");
+
+        using D = ManifestDisposition;
+        auto const gossip = ManifestSource::gossip;
+
+        // Same master and signing key, higher sequence, bad master signature.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 2, true), gossip) ==
+                D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->sequence == 1);
+            BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
+        }
+
+        // Different master claiming the same signing key, bad master signature.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(
+                    manifestFor(impostor(v), 2, true), gossip) == D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->masterKey == v.master);
+            BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
+        }
+    }
+
+    void
     testGossipCapacity()
     {
         testcase("gossip capacity and decay");
@@ -1359,6 +1400,7 @@ public:
     {
         testGossipAdmission();
         testGossipCapacity();
+        testPendingSubstitution();
         testPinning();
         testPrecedence();
         testPending();
