@@ -545,7 +545,7 @@ b58_to_b256_be(std::string_view input, std::span<std::uint8_t> out)
     XRPL_ASSERT(
         num_b_58_10_coeffs <= b_58_10_coeff.size(),
         "ripple::b58_fast::detail::b58_to_b256_be : maximum coeff");
-    for (auto c : input.substr(0, partial_coeff_len))
+    for (unsigned char const c : input.substr(0, partial_coeff_len))
     {
         auto cur_val = ::ripple::alphabetReverse[c];
         if (cur_val < 0)
@@ -559,7 +559,7 @@ b58_to_b256_be(std::string_view input, std::span<std::uint8_t> out)
     {
         for (int j = 0; j < num_full_coeffs; ++j)
         {
-            auto c = input[partial_coeff_len + j * 10 + i];
+            unsigned char const c = input[partial_coeff_len + j * 10 + i];
             auto cur_val = ::ripple::alphabetReverse[c];
             if (cur_val < 0)
             {
