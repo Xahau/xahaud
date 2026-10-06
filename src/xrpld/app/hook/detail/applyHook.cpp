@@ -1368,7 +1368,8 @@ ripple::TER
 hook::finalizeHookState(
     HookStateMap const& stateMap,
     ripple::ApplyContext& applyCtx,
-    ripple::uint256 const& txnID)
+    ripple::uint256 const& txnID,
+    std::set<ripple::AccountID>* written)
 {
     auto const& j = applyCtx.app.journal("View");
     uint16_t changeCount = 0;
@@ -1400,6 +1401,12 @@ hook::finalizeHookState(
                     // this entry isn't just cached, it was actually modified
                     auto slice = Slice(blob.data(), blob.size());
 
+                    // deleting an entry that does not exist leaves the
+                    // ledger unchanged, so it does not count as a write
+                    bool const changesLedger = !written || !blob.empty() ||
+                        applyCtx.view().exists(
+                            ripple::keylet::hookState(acc, key, ns));
+
                     TER result = setHookState(applyCtx, acc, ns, key, slice);
 
                     if (!isTesSuccess(result))
@@ -1411,6 +1418,9 @@ hook::finalizeHookState(
                         return result;
                     }
                     // ^ should not fail... checks were done before map insert
+
+                    if (written && changesLedger)
+                        written->insert(acc);
                 }
             }
         }
