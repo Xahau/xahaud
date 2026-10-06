@@ -626,20 +626,39 @@ ManifestCache::retier(Slot& slot, ManifestSource tier)
 }
 
 void
-ManifestCache::addPending(Manifest m)
+ManifestCache::addPending(Manifest m, bool verified)
 {
     Pending* target = nullptr;
 
     for (auto& entry : pending_)
     {
-        // Keyed by ephemeral key, since that is what a validation names. A
-        // newer manifest for a key already waiting replaces it in place.
+        // Keyed by ephemeral key, since that is what a validation names.
         if (entry.manifest && entry.manifest->signingKey == m.signingKey)
         {
             // Only a manifest that verifies may displace one already waiting:
-            // the ephemeral key is public, so anyone can name it.
-            if (entry.manifest->sequence < m.sequence && m.verify())
-                entry.manifest = std::move(m);
+            // the ephemeral key is public, so anyone can name it. The caller
+            // checks m, outside the lock, when it sees something waiting; one
+            // that raced in unchecked is dropped.
+            if (!verified)
+                return;
+
+            // What is waiting was never checked, so its sequence means
+            // nothing yet: a forgery that arrived first must not keep out the
+            // genuine manifest. It stays only if it is genuine, for the same
+            // master key, and no older. Only the holder of the ephemeral key
+            // can produce a verified m, so only it can cause this check.
+            auto const& waiting = *entry.manifest;
+            if (waiting.masterKey == m.masterKey &&
+                waiting.sequence >= m.sequence)
+            {
+                if (!entry.verified)
+                    entry.verified = waiting.verify();
+                if (entry.verified)
+                    return;
+            }
+
+            entry.manifest = std::move(m);
+            entry.verified = true;
             return;
         }
 
@@ -654,6 +673,7 @@ ManifestCache::addPending(Manifest m)
 
     target->order = ++pendingOrder_;
     target->manifest = std::move(m);
+    target->verified = verified;
 }
 
 bool
@@ -1170,11 +1190,27 @@ ManifestCache::applyManifest(
 
     // Gossip held back by the filter waits for its ephemeral key, unverified:
     // checking it now would let anyone spend this node's time on keys that
-    // never validate.
-    auto const held = [this, source](Manifest& mm) {
-        if (source == ManifestSource::gossip && mm.signingKey && !mm.revoked())
-            addPending(std::move(mm));
+    // never validate. Only when something already waits for the same
+    // ephemeral key, which it might displace, is it checked, and then with
+    // no lock held: called unlocked, with `rival` as read under the lock it
+    // was last checked under.
+    auto const held = [this, source](Manifest& mm, bool rival) {
+        if (source != ManifestSource::gossip || !mm.signingKey || mm.revoked())
+            return ManifestDisposition::unseen;
+
+        bool const verified = rival && mm.verify();
+        if (rival && !verified)
+            return ManifestDisposition::unseen;
+
+        std::lock_guard lock{mutex_};
+        addPending(std::move(mm), verified);
         return ManifestDisposition::unseen;
+    };
+
+    // Whether gossip held back would meet something already waiting for its
+    // ephemeral key. @pre mutex_ held.
+    auto const rivalFor = [this](Manifest const& mm) {
+        return mm.signingKey && hasPending(*mm.signingKey);
     };
 
     {
@@ -1183,13 +1219,11 @@ ManifestCache::applyManifest(
         std::shared_lock sl{mutex_};
         if (auto const d = check(false, sl, admission, evict))
         {
+            bool const rival = *d == ManifestDisposition::unseen && rivalFor(m);
             sl.unlock();
 
             if (*d == ManifestDisposition::unseen)
-            {
-                std::lock_guard lock{mutex_};
-                return held(m);
-            }
+                return held(m, rival);
 
             // The ledger confirming verbatim what gossip delivered earlier.
             if (*d == ManifestDisposition::stale &&
@@ -1231,12 +1265,10 @@ ManifestCache::applyManifest(
         std::shared_lock sl{mutex_};
         if (auto const d = check(true, sl, admission, evict))
         {
+            bool const rival = *d == ManifestDisposition::unseen && rivalFor(m);
             sl.unlock();
             if (*d == ManifestDisposition::unseen)
-            {
-                std::lock_guard lock{mutex_};
-                return held(m);
-            }
+                return held(m, rival);
             return *d;
         }
     }
@@ -1255,8 +1287,11 @@ ManifestCache::applyManifest(
     std::vector<PublicKey> evict;
     if (auto const d = check(false, sl, admission, evict))
     {
-        if (*d == ManifestDisposition::unseen)
-            return held(m);
+        // The second check verified m, so it may displace whatever is
+        // waiting for its ephemeral key without another look.
+        if (*d == ManifestDisposition::unseen &&
+            source == ManifestSource::gossip && m.signingKey && !m.revoked())
+            addPending(std::move(m), true);
         return *d;
     }
 

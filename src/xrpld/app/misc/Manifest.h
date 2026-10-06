@@ -446,6 +446,8 @@ private:
         /// Arrival order; the lowest is replaced first.
         std::uint64_t order = 0;
         std::optional<Manifest> manifest;
+        /// manifest has been checked with Manifest::verify(), and passed.
+        bool verified = false;
     };
 
     beast::Journal j_;
@@ -549,10 +551,14 @@ private:
 
     /** Hold gossip until its ephemeral key is seen.
 
+        @param verified m has already been checked with Manifest::verify().
+            Only a verified manifest may displace one already waiting for
+            the same ephemeral key.
+
         @pre mutex_ held exclusively; m names an ephemeral key.
     */
     void
-    addPending(Manifest m);
+    addPending(Manifest m, bool verified);
 
     /** @pre mutex_ held. */
     bool

@@ -1169,6 +1169,53 @@ public:
             BEAST_EXPECT(released && released->masterKey == v.master);
             BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
         }
+
+        // A forgery that arrives first, for the same master key with a
+        // higher sequence, does not keep out the genuine manifest.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 2, true), gossip) ==
+                D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->sequence == 1);
+            BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
+        }
+
+        // Nor does one that arrives first for another master key.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(
+                    manifestFor(impostor(v), 2, true), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->masterKey == v.master);
+            BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
+        }
+
+        // A genuine manifest waiting is not displaced by an older genuine one.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 2), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->sequence == 2);
+        }
     }
 
     void

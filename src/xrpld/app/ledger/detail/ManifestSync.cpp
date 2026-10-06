@@ -50,6 +50,12 @@ missingManifestNodes(
 
     auto const& root = keylet::manifestDir();
 
+    // The manifest directory's own pages: the only directory nodes whose
+    // entries are followed. The ledger walked is not validated, and one a
+    // peer made up could otherwise lead the walk from directory to directory
+    // through as much of the map as it cared to serve.
+    hash_set<uint256> pages{root.key};
+
     // A stack, so the keys asked for by name go last and are read first: they
     // are the ones that decide whether this node can trust a validation.
     std::vector<uint256> pending{root.key};
@@ -92,6 +98,9 @@ missingManifestNodes(
 
         if (sle->getType() == ltDIR_NODE)
         {
+            if (!pages.contains(key))
+                continue;
+
             for (auto const& k : sle->getFieldV256(sfIndexes))
                 pending.push_back(k);
 
@@ -104,7 +113,11 @@ missingManifestNodes(
                 auto const last = std::min<std::uint64_t>(
                     sle->getFieldU64(sfIndexPrevious), maxPages - 1);
                 for (std::uint64_t i = 1; i <= last; ++i)
-                    pending.push_back(keylet::page(root, i).key);
+                {
+                    auto const pageKey = keylet::page(root, i).key;
+                    pages.insert(pageKey);
+                    pending.push_back(pageKey);
+                }
             }
         }
         else if (

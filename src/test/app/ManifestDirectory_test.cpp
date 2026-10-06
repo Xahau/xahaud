@@ -1006,6 +1006,71 @@ class ManifestDirectory_test : public beast::unit_test::suite
     }
 
     void
+    testPartialSyncForeignDirectory()
+    {
+        testcase("partial sync ignores foreign directories");
+
+        SuiteJournal journal("ManifestDirectory_test", *this);
+
+        MemoryState state;
+        std::vector<Validator> vs;
+        for (int i = 0; i < 3; ++i)
+        {
+            vs.push_back(makeValidator());
+            BEAST_EXPECT(isTesSuccess(publish(state, vs.back(), 1)));
+        }
+
+        // A made-up ledger, as a peer could report: the manifest directory
+        // lists another directory, which lists items unrelated to manifests.
+        std::uint64_t const filler = 20000;
+        uint256 const foreign = sha512Half(std::string("foreign"));
+        STVector256 listed;
+        for (std::uint64_t i = 0; i < 32; ++i)
+            listed.push_back(fillerKey(i * 613));
+        {
+            auto const dir = std::make_shared<SLE>(Keylet{ltDIR_NODE, foreign});
+            dir->setFieldH256(sfRootIndex, foreign);
+            dir->setFieldV256(sfIndexes, listed);
+            state.rawInsert(dir);
+
+            auto const root =
+                std::make_shared<SLE>(*state.read(keylet::manifestDir()));
+            auto indexes = root->getFieldV256(sfIndexes);
+            indexes.push_back(foreign);
+            root->setFieldV256(sfIndexes, indexes);
+            state.rawReplace(root);
+        }
+
+        tests::TestNodeFamily sf{journal};
+        tests::TestNodeFamily df{journal};
+        auto const source = toMap(state, sf, filler);
+        auto const destination = rootOnly(*source, df);
+
+        auto const stats = syncManifests(*source, *destination);
+        log << "foreign directory: " << stats.rounds << " rounds, "
+            << stats.nodes << " nodes" << std::endl;
+        BEAST_EXPECT(missingManifestNodes(*destination, 256).empty());
+
+        // Nothing the foreign directory lists was asked for.
+        std::size_t held = 0;
+        std::optional<std::pair<SHAMapNodeID, uint256>> missing;
+        for (auto const& key : listed)
+            if (destination->peekItemPartial(key, missing))
+                ++held;
+        BEAST_EXPECT(held * 4 < listed.size());
+
+        // The manifests are all read; the foreign entry is skipped, as any
+        // entry that is not a manifest is.
+        MapState view{*destination};
+        TestStopwatch clock;
+        ManifestCache cache{
+            beast::Journal{beast::Journal::getNullSink()}, clock};
+        BEAST_EXPECT(cache.applyLedgerDirectory(view) == vs.size());
+        for (auto const& v : vs)
+            BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
+    }
+
+    void
     testPartialSyncByKey()
     {
         testcase("partial sync by key");
@@ -1257,6 +1322,7 @@ public:
         testPartialSyncNoDirectory();
         testPartialSyncByKey();
         testPartialSyncPageCap();
+        testPartialSyncForeignDirectory();
         testCandidates();
         testQuorum();
     }

@@ -280,6 +280,22 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     // account, but keylet::manifest(signingKey) is not: without this, a
     // manifest naming another validator's key as its ephemeral key would
     // collide with -- and clobber -- that validator's object.
+    //
+    // The two kinds of keylet share one namespace, so the master key's own
+    // keylet can be held as well: by another account's ephemeral copy, when
+    // this master key is that account's ephemeral key. Left to doApply, that
+    // would be reported as a corrupt ledger.
+    if (auto const sleMaster =
+            ctx.view.read(keylet::manifest(newManifest->masterKey));
+        sleMaster && sleMaster->getAccountID(sfAccount) != id)
+    {
+        JLOG(ctx.j.warn())
+            << "SetManifest: Master key already claimed as an ephemeral key "
+               "by another account. "
+            << id;
+        return tecDUPLICATE;
+    }
+
     if (newManifest->signingKey)
     {
         auto const sleEph =

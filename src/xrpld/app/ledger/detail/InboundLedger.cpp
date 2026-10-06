@@ -454,13 +454,6 @@ InboundLedger::done()
     mSignaled = true;
     touch();
 
-    // The state map arrived whole before the early walk in trigger() finished,
-    // as it does when most of it is already held locally, or the early walk is
-    // turned off by [early_manifest_sync]. Read the manifests from the whole
-    // map instead.
-    if (complete_ && !failed_ && !mManifestsSynced && wantManifests())
-        syncManifests(listedMasterKeys(app_), dirNodeMaxPages);
-
     JLOG(journal_.debug()) << "Acquire " << hash_ << (failed_ ? " fail " : " ")
                            << ((timeouts_ == 0)
                                    ? std::string()
@@ -478,6 +471,17 @@ InboundLedger::done()
             mLedger->read(keylet::fees()),
             "ripple::InboundLedger::done : valid ledger fees");
         mLedger->setImmutable();
+
+        // The state map arrived whole before the early walk in trigger()
+        // finished, as it does when most of it is held locally already, or
+        // when [early_manifest_sync] turns the early walk off. Read the
+        // manifests from the whole map instead, now that it is immutable.
+        // Only as many directory pages as the early walk reads: past those
+        // the ledger tier is full, and the listed master keys are read by
+        // key whatever the directory holds.
+        if (!mManifestsSynced && wantManifests())
+            syncManifests(listedMasterKeys(app_), manifestSyncPages);
+
         switch (mReason)
         {
             case Reason::HISTORY:
