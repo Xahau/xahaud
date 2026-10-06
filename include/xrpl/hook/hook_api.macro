@@ -382,3 +382,8 @@ HOOK_API_DEFINITION(
 HOOK_API_DEFINITION(
   int64_t, prepare_atomic, (uint32_t, uint32_t, uint32_t, uint32_t),
   featureAtomicEmit)
+
+// int64_t subledger_slot(uint32_t slot_into, uint32_t read_ptr, uint32_t read_len);
+HOOK_API_DEFINITION(
+  int64_t, subledger_slot, (uint32_t, uint32_t, uint32_t),
+  featureAtomicEmit)

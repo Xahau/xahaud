@@ -19,6 +19,7 @@
 
 #include <xrpld/ledger/detail/ApplyViewBase.h>
 #include <xrpl/basics/contract.h>
+#include <xrpl/beast/utility/instrumentation.h>
 #include <xrpl/protocol/STAccount.h>
 
 namespace ripple {
@@ -173,6 +174,24 @@ void
 ApplyViewBase::rawDestroyXRP(XRPAmount const& fee)
 {
     items_.destroyXRP(fee);
+}
+
+void
+ApplyViewBase::flush(RawView& to)
+{
+    items_.apply(to);
+    items_.clear();
+}
+
+void
+ApplyViewBase::rebase(ReadView const* base)
+{
+    XRPL_ASSERT(
+        items_.size() == 0,
+        "ripple::detail::ApplyViewBase::rebase : nothing buffered");
+    // drops entries that were only cached by read-only peek() calls
+    items_.clear();
+    base_ = base;
 }
 
 std::map<std::tuple<AccountID, AccountID, Currency>, STAmount>

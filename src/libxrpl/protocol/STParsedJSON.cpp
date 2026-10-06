@@ -223,8 +223,7 @@ parseLeaf(
                     if (!strValue.empty() &&
                         ((strValue[0] < '0') || (strValue[0] > '9')))
                     {
-                        if (field == sfTransactionResult ||
-                            field == sfHookEmittedTransactionResult)
+                        if (field == sfTransactionResult)
                         {
                             auto ter = transCode(strValue);
 
