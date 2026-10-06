@@ -100,8 +100,8 @@ class PWAServe_test : public beast::unit_test::suite,
             *env.app().config()[section].get<std::uint16_t>("port");
 
         boost::system::error_code ec;
-        io_service& ios = get_io_service();
-        ip::tcp::socket sock{ios};
+        io_context& ioc = get_io_context();
+        ip::tcp::socket sock{ioc};
         sock.async_connect(
             ip::tcp::endpoint{ip::make_address(ip), port}, yield[ec]);
         if (!BEAST_EXPECT(!ec))
@@ -111,7 +111,7 @@ class PWAServe_test : public beast::unit_test::suite,
         if (!BEAST_EXPECT(!ec))
             return {};
 
-        steady_timer timer{ios};
+        steady_timer timer{ioc};
         bool timedOut = false;
         timer.expires_after(std::chrono::seconds(5));
         timer.async_wait([&](boost::system::error_code const& e) {
