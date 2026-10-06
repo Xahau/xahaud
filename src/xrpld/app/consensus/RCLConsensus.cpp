@@ -511,6 +511,19 @@ RCLConsensus::Adaptor::forcedTxOwner(
         if (!publicKeyType(makeSlice(pk)))
             return std::nullopt;
 
+        // Only the exact bytes makeEntropyTx would build, so an owner cannot
+        // force extra fields (memos and the like) in with its contribution.
+        STTx const canonical(ttENTROPY, [&](auto& obj) {
+            obj.setFieldU32(sfLedgerSequence, prevLedger.seq() + 1);
+            obj.setFieldVL(sfPublicKey, pk);
+            obj.setFieldH256(
+                sfNextRandomDigest, stx.getFieldH256(sfNextRandomDigest));
+            if (stx.isFieldPresent(sfRandomData))
+                obj.setFieldH256(sfRandomData, stx.getFieldH256(sfRandomData));
+        });
+        if (canonical.getTransactionID() != tx.id())
+            return std::nullopt;
+
         return calcNodeID(PublicKey(makeSlice(pk)));
     }
     catch (std::exception const&)

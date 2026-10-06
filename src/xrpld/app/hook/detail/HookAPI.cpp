@@ -2019,7 +2019,7 @@ HookAPI::util_random(uint32_t len) const
     {
         auto const n = std::min<std::size_t>(32, len - out.size());
         out.insert(out.end(), b.data(), b.data() + n);
-        if (out.size() == len)
+        if (out.size() >= len)
             break;
         b = ripple::sha512Half(b);
     }

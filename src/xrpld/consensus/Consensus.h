@@ -34,6 +34,7 @@
 #include <chrono>
 #include <concepts>
 #include <deque>
+#include <map>
 #include <optional>
 #include <sstream>
 
@@ -541,16 +542,31 @@ private:
         can name a node that a transaction belongs to (featureRNG uses this
         for each validator's entropy contribution). During the opening
         window of the establish phase such a transaction is voted yes iff its
-        owner's own position contains it. Afterwards it is voted on like any
-        other disputed transaction, so an owner publishing late cannot force
-        churn. Adaptors without the hook are unaffected.
+        owner's own position contains it, but at most one per owner per round
+        (see forcedTxs_). Afterwards it is voted on like any other disputed
+        transaction, so an owner publishing late cannot force churn. Adaptors
+        without the hook are unaffected.
     */
     bool
     forcedInclusion(typename Result::Dispute_t const& dispute) const;
 
+    /** The owner the adaptor names for a disputed transaction while the
+        forced-inclusion window is open. Always unseated for an adaptor
+        without the forcedTxOwner hook.
+    */
+    std::optional<NodeID_t>
+    forcedOwner(typename Result::Dispute_t const& dispute) const;
+
     /** Add any forced-inclusion transactions to our position. */
     void
     mergeForcedTxs(std::unique_ptr<std::stringstream> const& clog);
+
+    /** The one transaction each owner may force into our position this
+        round, chosen by mergeForcedTxs the first time the owner's position
+        offers one. An owner whose position carries several cannot make us
+        carry them all. Cleared when we close.
+    */
+    std::map<NodeID_t, typename Tx_t::ID> forcedTxs_;
 
     bool
     haveConsensus(std::unique_ptr<std::stringstream> const& clog);
@@ -1440,6 +1456,7 @@ Consensus<Adaptor>::closeLedger(std::unique_ptr<std::stringstream> const& clog)
     phase_ = ConsensusPhase::establish;
     JLOG(j_.debug()) << "transitioned to ConsensusPhase::establish";
     rawCloseTimes_.self = now_;
+    forcedTxs_.clear();
 
     result_.emplace(adaptor_.onClose(previousLedger_, now_, mode_.get()));
     result_->roundTime.reset(clock_.now());
@@ -1686,9 +1703,8 @@ Consensus<Adaptor>::updateOurPositions(
 }
 
 template <class Adaptor>
-bool
-Consensus<Adaptor>::forcedInclusion(
-    typename Result::Dispute_t const& dispute) const
+std::optional<typename Consensus<Adaptor>::NodeID_t>
+Consensus<Adaptor>::forcedOwner(typename Result::Dispute_t const& dispute) const
 {
     if constexpr (requires(Adaptor& a, Tx_t const& tx, Ledger_t const& l) {
                       {
@@ -1697,28 +1713,40 @@ Consensus<Adaptor>::forcedInclusion(
                   })
     {
         if (!result_)
-            return false;
+            return std::nullopt;
 
         ConsensusParms const& parms = adaptor_.parms();
         if (result_->roundTime.read() >=
             parms.ledgerMIN_CONSENSUS + parms.ledgerGRANULARITY)
-            return false;
+            return std::nullopt;
 
-        std::optional<NodeID_t> const owner =
-            adaptor_.forcedTxOwner(dispute.tx(), previousLedger_);
-        if (!owner)
-            return false;
-
-        // our own contribution: keep it while the window is open
-        if (*owner == result_->position.nodeID())
-            return result_->txns.exists(dispute.tx().id());
-
-        return dispute.getVote(*owner).value_or(false);
+        return adaptor_.forcedTxOwner(dispute.tx(), previousLedger_);
     }
     else
     {
-        return false;
+        return std::nullopt;
     }
+}
+
+template <class Adaptor>
+bool
+Consensus<Adaptor>::forcedInclusion(
+    typename Result::Dispute_t const& dispute) const
+{
+    std::optional<NodeID_t> const owner = forcedOwner(dispute);
+    if (!owner)
+        return false;
+
+    // our own contribution: keep it while the window is open
+    if (*owner == result_->position.nodeID())
+        return result_->txns.exists(dispute.tx().id());
+
+    // otherwise only the one transaction chosen for this owner this round
+    auto const it = forcedTxs_.find(*owner);
+    if (it == forcedTxs_.end() || it->second != dispute.tx().id())
+        return false;
+
+    return dispute.getVote(*owner).value_or(false);
 }
 
 template <class Adaptor>
@@ -1727,6 +1755,24 @@ Consensus<Adaptor>::mergeForcedTxs(
     std::unique_ptr<std::stringstream> const& clog)
 {
     XRPL_ASSERT(result_, "ripple::Consensus::mergeForcedTxs : result is set");
+
+    // Choose the one transaction each owner may force this round: the lowest
+    // ID its position offers the first time it offers any. Nodes that see the
+    // same position make the same choice.
+    NodeID_t const& self = result_->position.nodeID();
+    std::map<NodeID_t, typename Tx_t::ID> chosen;
+    for (auto const& [txId, dispute] : result_->disputes)
+    {
+        std::optional<NodeID_t> const owner = forcedOwner(dispute);
+        if (!owner || *owner == self || forcedTxs_.count(*owner) != 0 ||
+            !dispute.getVote(*owner).value_or(false))
+            continue;
+
+        auto const [it, inserted] = chosen.emplace(*owner, txId);
+        if (!inserted && txId < it->second)
+            it->second = txId;
+    }
+    forcedTxs_.merge(chosen);
 
     std::optional<typename TxSet_t::MutableTxSet> mutableSet;
     for (auto& [txId, dispute] : result_->disputes)
