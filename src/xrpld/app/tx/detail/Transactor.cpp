@@ -1284,7 +1284,7 @@ Transactor::reset(XRPAmount fee)
     std::vector<STObject> executions;
     std::vector<STObject> emissions;
     avi.copyHookMetaData(executions, emissions);
-    ctx_.discard();
+    ctx_.discard();  // keeps any RNG advance (featureRNG)
     ApplyViewImpl& avi2 = dynamic_cast<ApplyViewImpl&>(ctx_.view());
     avi2.setHookMetaData(std::move(executions), std::move(emissions));
 

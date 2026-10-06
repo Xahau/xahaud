@@ -106,6 +106,41 @@ applyTransactions(
     bool certainRetry = true;
     std::size_t count = 0;
 
+    // featureRNG: validator entropy contributions are applied before anything
+    // else, so this ledger's seed is final before any Hook can draw from it.
+    // Pseudo-transactions otherwise sort to an arbitrary position. Each is
+    // attempted exactly once; one that fails is never retried later, where it
+    // could change the seed after Hooks had drawn from it.
+    if (view.rules().enabled(featureRNG))
+    {
+        for (auto it = txns.begin(); it != txns.end();)
+        {
+            if (it->second->getTxnType() != ttENTROPY)
+            {
+                ++it;
+                continue;
+            }
+
+            auto const txid = it->first.getTXID();
+            try
+            {
+                if (applyTransaction(
+                        app, view, *it->second, false, tapNONE, j) ==
+                    ApplyTransactionResult::Success)
+                    ++count;
+                else
+                    failed.insert(txid);
+            }
+            catch (std::exception const& ex)
+            {
+                JLOG(j.warn())
+                    << "Transaction " << txid << " throws: " << ex.what();
+                failed.insert(txid);
+            }
+            it = txns.erase(it);
+        }
+    }
+
     // Attempt to apply all of the retriable transactions
     for (int pass = 0; pass < LEDGER_TOTAL_PASSES; ++pass)
     {

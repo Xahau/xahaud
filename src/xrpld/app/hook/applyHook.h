@@ -206,6 +206,7 @@ struct HookContext
     uint16_t emit_nonce_counter{
         0};  // incremented whenever nonce is called to ensure unique nonces
     uint16_t ledger_nonce_counter{0};
+    uint16_t rng_draws{0};  // featureRNG: dice/random calls this execution
     int64_t expected_etxn_count{-1};  // make this a 64bit int so the uint32
                                       // from the hookapi cant overflow it
     std::map<ripple::uint256, bool> nonce_used{};

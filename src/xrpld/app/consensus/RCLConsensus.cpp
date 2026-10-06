@@ -41,8 +41,11 @@
 #include <xrpl/basics/random.h>
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/beast/utility/instrumentation.h>
+#include <xrpl/beast/utility/rngfill.h>
+#include <xrpl/crypto/csprng.h>
 #include <xrpl/protocol/BuildInfo.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/digest.h>
 
 #include <algorithm>
@@ -348,6 +351,10 @@ RCLConsensus::Adaptor::onClose(
             make_shamapitem(tx.first->getTransactionID(), s.slice()));
     }
 
+    // featureRNG: our entropy contribution, if we add one. It is not tracked
+    // by the censorship detector: it is only valid for this ledger.
+    std::optional<uint256> entropyTxID;
+
     // Add pseudo-transactions to the set
     if (app_.config().standalone() || (proposing && !wrongLCL))
     {
@@ -378,6 +385,26 @@ RCLConsensus::Adaptor::onClose(
                 app_.getValidations(),
                 initialSet);
         }
+
+        // featureRNG: our entropy contribution goes into our own initial
+        // position, never the open ledger, so it only becomes public once our
+        // transaction set for this ledger is fixed.
+        if (prevLedger->rules().enabled(featureRNG))
+        {
+            if (auto const entropyTx = makeEntropyTx(prevLedger))
+            {
+                Serializer s;
+                entropyTx->add(s);
+                entropyTxID = entropyTx->getTransactionID();
+                if (!initialSet->addItem(
+                        SHAMapNodeType::tnTRANSACTION_NM,
+                        make_shamapitem(*entropyTxID, s.slice())))
+                {
+                    entropyTxID.reset();
+                    JLOG(j_.warn()) << "RNG: failed to add entropy txn";
+                }
+            }
+        }
     }
 
     // Now we need an immutable snapshot
@@ -389,9 +416,10 @@ RCLConsensus::Adaptor::onClose(
         RCLCensorshipDetector<TxID, LedgerIndex>::TxIDSeqVec proposed;
 
         initialSet->visitLeaves(
-            [&proposed,
-             seq](boost::intrusive_ptr<SHAMapItem const> const& item) {
-                proposed.emplace_back(item->key(), seq);
+            [&proposed, &entropyTxID, seq](
+                boost::intrusive_ptr<SHAMapItem const> const& item) {
+                if (item->key() != entropyTxID)
+                    proposed.emplace_back(item->key(), seq);
             });
 
         censorshipDetector_.propose(std::move(proposed));
@@ -409,6 +437,86 @@ RCLConsensus::Adaptor::onClose(
             closeTime,
             app_.timeKeeper().closeTime(),
             validatorKeys_.nodeID}};
+}
+
+std::optional<STTx>
+RCLConsensus::Adaptor::makeEntropyTx(
+    std::shared_ptr<Ledger const> const& prevLedger)
+{
+    if (!validatorKeys_.keys)
+        return std::nullopt;
+
+    auto const& masterKey = validatorKeys_.keys->masterPublicKey;
+
+    // The commitment the ledger currently holds for us, if any.
+    std::optional<uint256> commitment;
+    if (auto const sle = prevLedger->read(keylet::random()))
+    {
+        for (auto const& entry : sle->getFieldArray(sfRandomDigests))
+        {
+            if (makeSlice(entry.getFieldVL(sfPublicKey)) == masterKey.slice())
+            {
+                commitment = entry.getFieldH256(sfNextRandomDigest);
+                break;
+            }
+        }
+    }
+
+    // We only ever hold the secret from our last contribution, which has
+    // never been published. Reveal it iff the ledger holds its commitment.
+    // Otherwise (first contribution, restart, or our last contribution was
+    // not included) we only commit this time, and our previous secret,
+    // whatever became of it, is never used again.
+    std::optional<uint256> reveal;
+    if (commitment && rngSecret_ && rngSecret_->first == *commitment)
+        reveal = rngSecret_->second;
+
+    uint256 secret;
+    beast::rngfill(secret.begin(), secret.size(), crypto_prng());
+    uint256 const nextCommitment = sha512Half(secret);
+    rngSecret_.emplace(nextCommitment, secret);
+
+    auto const seq = prevLedger->info().seq + 1;
+
+    JLOG(j_.debug()) << "RNG: entropy txn for ledger " << seq
+                     << (reveal ? " (reveal and commit)" : " (commit only)");
+
+    return STTx(ttENTROPY, [&](auto& obj) {
+        obj.setFieldU32(sfLedgerSequence, seq);
+        obj.setFieldVL(sfPublicKey, masterKey.slice());
+        obj.setFieldH256(sfNextRandomDigest, nextCommitment);
+        if (reveal)
+            obj.setFieldH256(sfRandomData, *reveal);
+    });
+}
+
+std::optional<NodeID>
+RCLConsensus::Adaptor::forcedTxOwner(
+    RCLCxTx const& tx,
+    RCLCxLedger const& prevLedger) const
+{
+    if (!prevLedger.ledger_ || !prevLedger.ledger_->rules().enabled(featureRNG))
+        return std::nullopt;
+
+    try
+    {
+        SerialIter sit(tx.tx_->slice());
+        STTx const stx(sit);
+
+        if (stx.getTxnType() != ttENTROPY ||
+            stx.getFieldU32(sfLedgerSequence) != prevLedger.seq() + 1)
+            return std::nullopt;
+
+        auto const pk = stx.getFieldVL(sfPublicKey);
+        if (!publicKeyType(makeSlice(pk)))
+            return std::nullopt;
+
+        return calcNodeID(PublicKey(makeSlice(pk)));
+    }
+    catch (std::exception const&)
+    {
+        return std::nullopt;
+    }
 }
 
 void

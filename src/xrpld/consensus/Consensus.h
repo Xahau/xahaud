@@ -32,6 +32,7 @@
 #include <boost/logic/tribool.hpp>
 
 #include <chrono>
+#include <concepts>
 #include <deque>
 #include <optional>
 #include <sstream>
@@ -531,6 +532,25 @@ private:
     // Adjust our positions to try to agree with other validators.
     void
     updateOurPositions(std::unique_ptr<std::stringstream> const& clog);
+
+    /** Whether a disputed transaction must be in our position regardless of
+        its vote count.
+
+        Optional adaptor hook: an adaptor that provides
+        `std::optional<NodeID_t> forcedTxOwner(Tx_t const&, Ledger_t const&)`
+        can name a node that a transaction belongs to (featureRNG uses this
+        for each validator's entropy contribution). During the opening
+        window of the establish phase such a transaction is voted yes iff its
+        owner's own position contains it. Afterwards it is voted on like any
+        other disputed transaction, so an owner publishing late cannot force
+        churn. Adaptors without the hook are unaffected.
+    */
+    bool
+    forcedInclusion(typename Result::Dispute_t const& dispute) const;
+
+    /** Add any forced-inclusion transactions to our position. */
+    void
+    mergeForcedTxs(std::unique_ptr<std::stringstream> const& clog);
 
     bool
     haveConsensus(std::unique_ptr<std::stringstream> const& clog);
@@ -1368,6 +1388,8 @@ Consensus<Adaptor>::phaseEstablish(
                << "avMIN_CONSENSUS_TIME: " << parms.avMIN_CONSENSUS_TIME.count()
                << "ms. ";
 
+    mergeForcedTxs(clog);
+
     // Give everyone a chance to take an initial position
     if (result_->roundTime.read() < parms.ledgerMIN_CONSENSUS)
     {
@@ -1513,6 +1535,10 @@ Consensus<Adaptor>::updateOurPositions(
         std::optional<typename TxSet_t::MutableTxSet> mutableSet;
         for (auto& [txId, dispute] : result_->disputes)
         {
+            // Already merged into our position by mergeForcedTxs.
+            if (forcedInclusion(dispute))
+                continue;
+
             // Because the threshold for inclusion increases,
             //  time can change our position on a dispute
             if (dispute.updateVote(
@@ -1657,6 +1683,91 @@ Consensus<Adaptor>::updateOurPositions(
             (mode_.get() == ConsensusMode::proposing))
             adaptor_.propose(result_->position);
     }
+}
+
+template <class Adaptor>
+bool
+Consensus<Adaptor>::forcedInclusion(
+    typename Result::Dispute_t const& dispute) const
+{
+    if constexpr (requires(Adaptor& a, Tx_t const& tx, Ledger_t const& l) {
+                      {
+                          a.forcedTxOwner(tx, l)
+                      } -> std::convertible_to<std::optional<NodeID_t>>;
+                  })
+    {
+        if (!result_)
+            return false;
+
+        ConsensusParms const& parms = adaptor_.parms();
+        if (result_->roundTime.read() >=
+            parms.ledgerMIN_CONSENSUS + parms.ledgerGRANULARITY)
+            return false;
+
+        std::optional<NodeID_t> const owner =
+            adaptor_.forcedTxOwner(dispute.tx(), previousLedger_);
+        if (!owner)
+            return false;
+
+        // our own contribution: keep it while the window is open
+        if (*owner == result_->position.nodeID())
+            return result_->txns.exists(dispute.tx().id());
+
+        return dispute.getVote(*owner).value_or(false);
+    }
+    else
+    {
+        return false;
+    }
+}
+
+template <class Adaptor>
+void
+Consensus<Adaptor>::mergeForcedTxs(
+    std::unique_ptr<std::stringstream> const& clog)
+{
+    XRPL_ASSERT(result_, "ripple::Consensus::mergeForcedTxs : result is set");
+
+    std::optional<typename TxSet_t::MutableTxSet> mutableSet;
+    for (auto& [txId, dispute] : result_->disputes)
+    {
+        if (dispute.getOurVote() || !forcedInclusion(dispute))
+            continue;
+
+        dispute.setOurVote(true);
+        if (!mutableSet)
+            mutableSet.emplace(result_->txns);
+        mutableSet->insert(dispute.tx());
+    }
+
+    if (!mutableSet)
+        return;
+
+    TxSet_t newSet{std::move(*mutableSet)};
+    auto const newID = newSet.id();
+    result_->txns = std::move(newSet);
+
+    JLOG(j_.info()) << "Position change: forced inclusion, tx " << newID;
+    CLOG(clog) << "Position change: forced inclusion, tx " << newID << ". ";
+
+    result_->position.changePosition(
+        newID, result_->position.closeTime(), now_);
+
+    if (acquired_.emplace(newID, result_->txns).second)
+    {
+        if (!result_->position.isBowOut())
+            adaptor_.share(result_->txns);
+
+        for (auto const& [nodeId, peerPos] : currPeerPositions_)
+        {
+            if (peerPos.proposal().position() == newID)
+                updateDisputes(nodeId, result_->txns);
+        }
+    }
+
+    if (!result_->position.isBowOut() &&
+        (mode_.get() == ConsensusMode::proposing))
+        adaptor_.propose(result_->position);
 }
 
 template <class Adaptor>

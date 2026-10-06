@@ -37,7 +37,15 @@ ApplyViewImpl::apply(
     beast::Journal j)
 {
     return items_.apply(
-        to, tx, ter, deliver_, hookExecution_, hookEmission_, isDryRun, j);
+        to,
+        tx,
+        ter,
+        deliver_,
+        hookExecution_,
+        hookEmission_,
+        randomData_,
+        isDryRun,
+        j);
 }
 
 TxMeta

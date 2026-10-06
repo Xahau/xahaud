@@ -128,6 +128,21 @@ public:
         return hookExecution_.size();
     }
 
+    /** featureRNG: record the RNG state seen by this transaction's first Hook
+        draw. Later calls are ignored. Written only to the final metadata. */
+    void
+    setRandomData(uint256 const& randomData)
+    {
+        if (!randomData_)
+            randomData_ = randomData;
+    }
+
+    std::optional<uint256> const&
+    getRandomData() const
+    {
+        return randomData_;
+    }
+
     /** Get the number of modified entries
      */
     std::size_t
@@ -148,6 +163,7 @@ private:
     std::optional<STAmount> deliver_;
     std::vector<STObject> hookExecution_;
     std::vector<STObject> hookEmission_;
+    std::optional<uint256> randomData_;
 };
 
 }  // namespace ripple
