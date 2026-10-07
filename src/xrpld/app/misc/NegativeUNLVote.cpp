@@ -58,9 +58,19 @@ NegativeUNLVote::doVoting(
         unlNodeIDs.emplace(nid);
     }
 
-    // Build a reliability score table of validators
-    if (std::optional<hash_map<NodeID, std::uint32_t>> scoreTable =
-            buildScoreTable(prevLedger, unlNodeIDs, validations))
+    // Build a reliability score table of validators. This only fails if
+    // there isn't enough ledger history; it does NOT apply the local
+    // reliability gate (that is N-UNL specific, see below).
+    auto const scoreTable =
+        buildRawScoreTable(prevLedger, unlNodeIDs, validations);
+    if (!scoreTable)
+        return;
+
+    auto const seq = prevLedger->info().seq + 1;
+
+    // N-UNL voting: only vote to disable/re-enable others if we ourselves
+    // have been reliable over the last flag ledger interval.
+    if (localNodeReliableForNUNL(*scoreTable, seq))
     {
         // build next negUnl
         auto negUnlKeys = prevLedger->negativeUNL();
@@ -82,7 +92,6 @@ NegativeUNLVote::doVoting(
             }
         }
 
-        auto const seq = prevLedger->info().seq + 1;
         purgeNewValidators(seq);
 
         // Process the table and find all candidates to disable or to re-enable
@@ -109,13 +118,32 @@ NegativeUNLVote::doVoting(
                 "ripple::NegativeUNLVote::doVoting : found node to enable");
             addTx(seq, nidToKeyMap.at(n), ToReEnable, initialSet);
         }
+    }
 
-        // do reporting when enabled
-        if (prevLedger->rules().enabled(featureXahauGenesis) &&
-            scoreTable->size() > 0)
+    // UNLReport. Previously this sat behind the N-UNL local reliability gate
+    // (>= 90% of our own validations on-chain in the last 256 ledgers). Every
+    // ttUNL_REPORT is its own deterministic txn and is voted on individually
+    // in consensus, so one proposer's skewed view can't change the outcome;
+    // but gating the whole batch per-proposer made the reports all-or-nothing:
+    // whenever fewer than ~half the UNL cleared the 90% bar the entire report
+    // lost the dispute and the flag ledger carried no UNLReport at all.
+    // Use the same bar the report itself uses for "active".
+    if (prevLedger->rules().enabled(featureXahauGenesis) &&
+        !scoreTable->empty())
+    {
+        auto const it = scoreTable->find(myId_);
+        auto const myScore = it == scoreTable->end() ? 0u : it->second;
+        if (myScore > (FLAG_LEDGER_INTERVAL >> 1))
         {
             addReportingTx(seq, *scoreTable, nidToKeyMap, initialSet);
             addImportVLTx(seq, initialSet);
+        }
+        else
+        {
+            JLOG(j_.debug())
+                << "R-UNL: ledger " << seq << ". Local node only issued "
+                << myScore << " validations in last " << FLAG_LEDGER_INTERVAL
+                << " ledgers, not proposing UNLReport.";
         }
     }
 }
@@ -277,7 +305,7 @@ NegativeUNLVote::choose(
 }
 
 std::optional<hash_map<NodeID, std::uint32_t>>
-NegativeUNLVote::buildScoreTable(
+NegativeUNLVote::buildRawScoreTable(
     std::shared_ptr<Ledger const> const& prevLedger,
     hash_set<NodeID> const& unl,
     RCLValidations& validations)
@@ -327,6 +355,14 @@ NegativeUNLVote::buildScoreTable(
         }
     }
 
+    return scoreTable;
+}
+
+bool
+NegativeUNLVote::localNodeReliableForNUNL(
+    hash_map<NodeID, std::uint32_t> const& scoreTable,
+    LedgerIndex seq) const
+{
     // Return false if the validation message history or local node's
     // participation in the history is not good.
     auto const myValidationCount = [&]() -> std::uint32_t {
@@ -341,23 +377,33 @@ NegativeUNLVote::buildScoreTable(
                          << " validations in last " << FLAG_LEDGER_INTERVAL
                          << " ledgers."
                          << " The reliability measurement could be wrong.";
-        return {};
+        return false;
     }
-    else if (
-        myValidationCount > negativeUNLMinLocalValsToVote &&
-        myValidationCount <= FLAG_LEDGER_INTERVAL)
-    {
-        return scoreTable;
-    }
-    else
+    if (myValidationCount > FLAG_LEDGER_INTERVAL)
     {
         // cannot happen because validations.getTrustedForLedger does not
         // return multiple validations of the same ledger from a validator.
         JLOG(j_.error()) << "N-UNL: ledger " << seq << ". Local node issued "
                          << myValidationCount << " validations in last "
                          << FLAG_LEDGER_INTERVAL << " ledgers. Too many!";
-        return {};
+        return false;
     }
+    // NB: the old code used `>` here, so exactly 230 fell through to the
+    // "Too many!" branch.
+    return true;
+}
+
+std::optional<hash_map<NodeID, std::uint32_t>>
+NegativeUNLVote::buildScoreTable(
+    std::shared_ptr<Ledger const> const& prevLedger,
+    hash_set<NodeID> const& unl,
+    RCLValidations& validations)
+{
+    auto scoreTable = buildRawScoreTable(prevLedger, unl, validations);
+    if (scoreTable &&
+        !localNodeReliableForNUNL(*scoreTable, prevLedger->info().seq + 1))
+        return {};
+    return scoreTable;
 }
 
 NegativeUNLVote::Candidates const
