@@ -727,26 +727,25 @@ public:
             env, validated, std::to_string(ledger->info().seq), true));
     }
 
-    // ledger_history=full must not make the delete interval wrap to
-    // "rotate on every close".
+    // ledger_history=full would make the retained-ledger window grow
+    // without bound, since nothing else can drop a null-mode tree.
     void
-    testNullModeFullHistoryRotation()
+    testNullModeRejectsFullHistory()
     {
-        testcase("null mode full history does not rotate every ledger");
+        testcase("RWDB null mode rejects ledger_history=full");
 
         using namespace jtx;
-        Env env(*this, envconfig(nullBackendFullHistory));
-
-        Account const alice{"alice"};
-        env.fund(XRP(10000), alice);
-        env.close();
-        auto const balance = env.balance(alice);
-        env.close();
-
-        // Online delete stays off, so the rotation thread never moves
-        // lastRotated. The account is still readable.
-        BEAST_EXPECT(env.app().getSHAMapStore().getLastRotated() == 0);
-        BEAST_EXPECT(env.balance(alice) == balance);
+        try
+        {
+            Env env(*this, envconfig(nullBackendFullHistory));
+            fail("Env should throw when ledger_history is full");
+        }
+        catch (std::exception const& e)
+        {
+            BEAST_EXPECT(
+                std::string(e.what()).find("ledger_history") !=
+                std::string::npos);
+        }
     }
 
     // online_delete=0 is an explicit disable. It must not be treated
@@ -831,13 +830,58 @@ public:
         testcase("null backend flag is per configuration");
 
         Config rwdbCfg;
+        Config upperCfg;
         Config nudbCfg;
+        Config emptyCfg;
         rwdbCfg.section(ConfigSection::nodeDatabase()).set("type", "rwdb");
+        upperCfg.section(ConfigSection::nodeDatabase()).set("type", "RWDB");
         nudbCfg.section(ConfigSection::nodeDatabase()).set("type", "NuDB");
 
+        // Evaluated per Config object, not latched process-wide.
         BEAST_EXPECT(rwdbCfg.nullBackend());
+        BEAST_EXPECT(upperCfg.nullBackend());
         BEAST_EXPECT(!nudbCfg.nullBackend());
+        BEAST_EXPECT(!emptyCfg.nullBackend());
         BEAST_EXPECT(rwdbCfg.nullBackend());
+    }
+
+    // Resident lookups are used with peer-supplied values. They must find
+    // in-memory ledgers but never load or edit the complete-ledger set.
+    void
+    testResidentLedgerLookup()
+    {
+        testcase("resident ledger lookup does not load or clear");
+
+        using namespace jtx;
+        Env env(*this, envconfig(nullBackend));
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        for (int i = 0; i < 4; ++i)
+            env.close();
+
+        auto& lm = env.app().getLedgerMaster();
+        auto const closed = lm.getClosedLedger();
+        if (!BEAST_EXPECT(closed))
+            return;
+
+        auto const complete = lm.getCompleteLedgers();
+
+        auto const bySeq = lm.getResidentLedgerBySeq(closed->info().seq);
+        BEAST_EXPECT(bySeq && bySeq->info().hash == closed->info().hash);
+
+        auto const byHash = lm.getResidentLedgerByHash(closed->info().hash);
+        BEAST_EXPECT(byHash && byHash->info().seq == closed->info().seq);
+
+        // A recent ledger still inside the retained window.
+        auto const prior = lm.getResidentLedgerBySeq(closed->info().seq - 2);
+        BEAST_EXPECT(prior && prior->info().seq == closed->info().seq - 2);
+
+        BEAST_EXPECT(!lm.getResidentLedgerByHash(uint256{12345}));
+        BEAST_EXPECT(!lm.getResidentLedgerBySeq(closed->info().seq + 1000));
+
+        BEAST_EXPECT(lm.getCompleteLedgers() == complete);
     }
 
     void
@@ -1139,11 +1183,12 @@ public:
         testCanDelete();
         testArchiveReadSurvivesRotation();
         testNullModeLedgerProgression();
-        testNullModeFullHistoryRotation();
+        testNullModeRejectsFullHistory();
         testExplicitOnlineDeleteZero();
         testNullModeRequiresHistory();
         testRetainedLedgerCloseTime();
         testNullBackendIsPerConfig();
+        testResidentLedgerLookup();
         testNullFactoryDropsWrites();
         testRotate();
         testPinnedRangeRestoreRequiresPinnedData();

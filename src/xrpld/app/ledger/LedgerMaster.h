@@ -187,6 +187,21 @@ public:
     std::shared_ptr<Ledger const>
     getLedgerByHash(uint256 const& hash);
 
+    /** Return a ledger that is already resident in memory.
+
+        Looks in the ledger history cache, the closed and validated
+        ledgers and the null-mode retained window. Unlike getLedgerByHash
+        and getLedgerBySeq this never loads from SQL or the node store and
+        never edits the complete-ledger set, so it is safe to call with
+        values supplied by a peer.
+    */
+    std::shared_ptr<Ledger const>
+    getResidentLedgerByHash(uint256 const& hash);
+
+    /** Sequence-number form of getResidentLedgerByHash. */
+    std::shared_ptr<Ledger const>
+    getResidentLedgerBySeq(std::uint32_t seq);
+
     void
     setLedgerRangePresent(
         std::uint32_t minV,
@@ -355,10 +370,12 @@ private:
     // The last ledger we handled fetching history
     std::shared_ptr<Ledger const> mHistLedger;
 
-    // Sliding window of recently validated ledgers pinned in memory so their
-    // SHAMap state trees remain reachable via shared_ptr. Required when the
-    // node store does not persist state nodes (e.g. RWDB with
-    // XAHAU_RWDB_DISCARD_HOT_ACCOUNT_NODE). Guarded by m_mutex.
+    // Sliding window of the last ledger_history published ledgers, pinned
+    // so their SHAMaps stay reachable via shared_ptr. Only populated when
+    // [node_db] type=rwdb (null node store), where nothing else can bring
+    // a dropped tree back. Has its own lock so peer requests that consult
+    // it do not contend on m_mutex.
+    std::mutex mutable mRetainedLock;
     std::deque<std::shared_ptr<Ledger const>> mRetainedLedgers;
 
     // Fully validated ledger, whether or not we have the ledger resident.
@@ -407,6 +424,10 @@ private:
 
     // How much history do we want to keep
     std::uint32_t const ledger_history_;
+
+    // [node_db] type=rwdb: the node store keeps nothing, so recent
+    // ledgers are retained in memory (see mRetainedLedgers).
+    bool const nullBackend_;
 
     std::uint32_t const ledger_fetch_size_;
 

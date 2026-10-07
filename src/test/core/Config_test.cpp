@@ -1611,7 +1611,33 @@ r.ripple.com:51235
             }
         }
 
-        // Test 5: pinned_type without online_delete (should throw)
+        // Test 5: type=rwdb with pinned_type (should throw, even in
+        // standalone). The rwdb node store is tree-only, so pinned data
+        // would be accepted and then dropped.
+        for (bool const standalone : {false, true})
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=rwdb\n"
+                "online_delete=256\n"
+                "pinned_type=NuDB\n"
+                "pinned_path=pinned\n";
+            c.setupControl(true, true, standalone);
+            try
+            {
+                c.loadFromString(toLoad);
+                fail("Expected exception for pinned_type with type=rwdb");
+            }
+            catch (std::runtime_error const& e)
+            {
+                BEAST_EXPECT(
+                    std::string(e.what()).find("type=rwdb") !=
+                    std::string::npos);
+            }
+        }
+
+        // Test 6: pinned_type without online_delete (should throw)
         {
             Config c;
             std::string toLoad =

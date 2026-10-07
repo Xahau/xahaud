@@ -24,7 +24,6 @@
 #include <xrpld/app/ledger/TransactionStateSF.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpld/core/Config.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
@@ -36,7 +35,6 @@
 #include <boost/iterator/function_output_iterator.hpp>
 
 #include <algorithm>
-#include <limits>
 #include <random>
 
 namespace ripple {
@@ -128,10 +126,7 @@ InboundLedger::init(ScopedLockType& collectionLock)
     mLedger->setImmutable();
 
     if (mReason == Reason::HISTORY)
-    {
-        app_.getInboundLedgers().onLedgerFetched(shared_from_this());
         return;
-    }
 
     app_.getLedgerMaster().storeLedger(mLedger);
 
@@ -356,6 +351,10 @@ InboundLedger::tryDB(NodeStore::Database& srcDB)
     {
         JLOG(journal_.debug()) << "Had everything locally";
         complete_ = true;
+        XRPL_ASSERT(
+            mLedger->read(keylet::fees()),
+            "ripple::InboundLedger::tryDB : valid ledger fees");
+        mLedger->setImmutable();
     }
 }
 
@@ -458,11 +457,10 @@ InboundLedger::done()
             mLedger->read(keylet::fees()),
             "ripple::InboundLedger::done : valid ledger fees");
         mLedger->setImmutable();
-
         switch (mReason)
         {
             case Reason::HISTORY:
-                app_.getInboundLedgers().onLedgerFetched(shared_from_this());
+                app_.getInboundLedgers().onLedgerFetched();
                 break;
             default:
                 app_.getLedgerMaster().storeLedger(mLedger);
@@ -475,43 +473,6 @@ InboundLedger::done()
         jtLEDGER_DATA, "AcquisitionDone", [self = shared_from_this()]() {
             if (self->complete_ && !self->failed_)
             {
-                if (!self->app_.config().nullBackend() &&
-                    self->mReason != Reason::HISTORY)
-                {
-                    // Prime the state tree BEFORE checkAccept so consensus
-                    // never sees a lazy tree. Runs off any inbound lock —
-                    // this job is dispatched without mtx_ held.
-                    // visitDifferences against prior validated walks only
-                    // the delta; canonicalization means shared subtrees are
-                    // the same inner objects (already wired). Gated on
-                    // non-HISTORY to avoid paying on historical backfills.
-                    auto const prior =
-                        self->app_.getLedgerMaster().getValidatedLedger();
-                    SHAMap const* have = prior ? &prior->stateMap() : nullptr;
-
-                    try
-                    {
-                        std::size_t walked = 0;
-                        self->mLedger->stateMap().visitDifferences(
-                            have, [&walked](SHAMapTreeNode const&) {
-                                ++walked;
-                                return true;
-                            });
-                        JLOG(self->journal_.info())
-                            << "Inbound prime: ledger "
-                            << self->mLedger->info().seq << " wired " << walked
-                            << (have ? " delta nodes vs prior validated"
-                                     : " nodes (first full walk)");
-                    }
-                    catch (SHAMapMissingNode const& e)
-                    {
-                        JLOG(self->journal_.warn())
-                            << "Inbound prime: incomplete state tree for "
-                            << "ledger " << self->mLedger->info().seq << ": "
-                            << e.what();
-                    }
-                }
-
                 self->app_.getLedgerMaster().checkAccept(self->getLedger());
                 self->app_.getLedgerMaster().tryAdvance();
             }

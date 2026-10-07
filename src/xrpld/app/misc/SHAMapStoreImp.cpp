@@ -139,14 +139,18 @@ SHAMapStoreImp::SHAMapStoreImp(
     bool const onlineDeleteConfigured = section.exists("online_delete");
     if (onlineDeleteConfigured)
         get_if_exists(section, "online_delete", deleteInterval_);
-    isNullBackend_ = boost::iequals(get(section, "type"), "rwdb");
+    isNullBackend_ = config.nullBackend();
 
     if (isNullBackend_)
     {
-        if (config.LEDGER_HISTORY == 0)
+        // Ledgers stay resident through LedgerMaster's retained window,
+        // which is ledger_history long. Zero keeps nothing alive, and
+        // "full" (uint32 max) never trims, so memory grows without bound.
+        if (config.LEDGER_HISTORY == 0 ||
+            config.LEDGER_HISTORY == std::numeric_limits<std::uint32_t>::max())
         {
             Throw<std::runtime_error>(
-                "RWDB null mode requires ledger_history > 0");
+                "RWDB null mode requires a finite ledger_history > 0");
         }
         JLOG(journal_.info())
             << "RWDB null mode: node store is ephemeral, " << "retaining "
@@ -156,11 +160,7 @@ SHAMapStoreImp::SHAMapStoreImp(
     // For RWDB, default online_delete to ledger_history only when the
     // key is absent.  Clamp to the minimum so an implicit value never
     // triggers the "online_delete must be at least …" throw.
-    // ledger_history=full is uint32 max. A finite interval is rejected
-    // because it is less than that history, and the max itself wraps
-    // lastRotated + deleteInterval_. Leave online delete off.
-    if (isNullBackend_ && !onlineDeleteConfigured &&
-        config.LEDGER_HISTORY != std::numeric_limits<std::uint32_t>::max())
+    if (isNullBackend_ && !onlineDeleteConfigured)
     {
         auto const minInterval = config.standalone()
             ? minimumDeletionIntervalSA_
@@ -494,19 +494,18 @@ SHAMapStoreImp::run()
 
             if (isNullBackend_)
             {
-                // In null mode the backend never stores anything.
-                // Skip clearCaches / makeBackendRotating / rotate
-                // entirely — the TreeNodeCache IS the node store and
-                // evicting it causes irrecoverable SHAMapMissingNode.
-                // Only sqlite cleanup (clearPrior above) is needed.
-                JLOG(journal_.info()) << "RWDB null: skipping rotation, "
-                                         "updating lastRotated to "
-                                      << validatedSeq;
+                // In null mode the backend never stores anything, so
+                // there is nothing to copy or rotate. Resident trees are
+                // kept alive by LedgerMaster's retained window. Only the
+                // SQL cleanup (clearPrior above) applies.
+                JLOG(journal_.debug()) << "RWDB null: skipping rotation, "
+                                          "updating lastRotated to "
+                                       << validatedSeq;
 
                 lastRotated = validatedSeq;
                 state_db_.setLastRotated(lastRotated);
 
-                JLOG(journal_.warn())
+                JLOG(journal_.info())
                     << "finished null-mode cleanup " << validatedSeq;
             }
             else
@@ -739,15 +738,6 @@ void
 SHAMapStoreImp::clearCaches(LedgerIndex validatedSeq)
 {
     ledgerMaster_->clearLedgerCachePrior(validatedSeq);
-
-    if (isNullBackend_)
-    {
-        // In null mode the TreeNodeCache is the only node store.
-        // Do NOT clear FullBelowCache or freshen TreeNodeCache —
-        // evicted entries are irrecoverable without a real backend.
-        return;
-    }
-
     fullBelowCache_->clear();
 }
 

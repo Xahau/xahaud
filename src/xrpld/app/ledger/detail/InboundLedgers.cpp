@@ -22,7 +22,6 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/JobQueue.h>
-#include <xrpld/ledger/View.h>
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpl/basics/DecayingSample.h>
 #include <xrpl/basics/Log.h>
@@ -307,14 +306,11 @@ public:
         return 60 * fetchRate_.value(m_clock.now());
     }
 
-    // Should only be called with a complete inbound ledger that has
-    // a reason of history.
+    // Should only be called with an inboundledger that has
+    // a reason of history
     void
-    onLedgerFetched(std::shared_ptr<InboundLedger> const& inbound) override
+    onLedgerFetched() override
     {
-        if (!inbound)
-            return;
-
         std::lock_guard lock(fetchRateMutex_);
         fetchRate_.add(1, m_clock.now());
     }

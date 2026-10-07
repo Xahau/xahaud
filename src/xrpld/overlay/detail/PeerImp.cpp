@@ -65,6 +65,10 @@ std::chrono::milliseconds constexpr peerHighLatency{300};
 /** How often we PING the peer to check for latency and sendq probe */
 std::chrono::seconds constexpr peerTimerInterval{60};
 
+// Null node store (type=rwdb) only: find a requested tree node by walking
+// the child links of resident ledgers. Uses resident-only lookups, since
+// seq and hash come from the peer and must not trigger SQL / node-store
+// loads or edit the complete-ledger set.
 std::shared_ptr<SHAMapTreeNode>
 fetchLinkedTreeNode(
     Application& app,
@@ -72,7 +76,7 @@ fetchLinkedTreeNode(
     std::uint32_t seq,
     std::optional<SHAMapNodeID> const& nodeId)
 {
-    if (!nodeId)
+    if (!nodeId || !app.getNodeFamily().isNullBackend())
         return {};
 
     auto findInMap = [&](SHAMap const& map) -> std::shared_ptr<SHAMapTreeNode> {
@@ -93,7 +97,8 @@ fetchLinkedTreeNode(
 
     if (seq)
     {
-        if (auto node = findInLedger(app.getLedgerMaster().getLedgerBySeq(seq)))
+        if (auto node =
+                findInLedger(app.getLedgerMaster().getResidentLedgerBySeq(seq)))
             return node;
     }
     if (auto node = findInLedger(app.getLedgerMaster().getClosedLedger()))
@@ -2551,13 +2556,16 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMGetObjectByHash> const& m)
                     dataPtr = treeBlob.data();
                     dataSize = treeBlob.size();
                 }
-                else if (packet.type() == protocol::TMGetObjectByHash::otLEDGER)
+                else if (
+                    packet.type() == protocol::TMGetObjectByHash::otLEDGER &&
+                    app_.getNodeFamily().isNullBackend())
                 {
-                    // Ledger header fallback — look up by hash in the
-                    // in-memory ledger set and serialize the header in the
-                    // same wire format used by the node store.
+                    // Null node store: serve the header of a resident
+                    // ledger in the same wire format the node store uses.
+                    // Resident-only, so a peer cannot trigger a load.
                     if (auto ledger =
-                            app_.getLedgerMaster().getLedgerByHash(hash))
+                            app_.getLedgerMaster().getResidentLedgerByHash(
+                                hash))
                     {
                         Serializer s(sizeof(LedgerInfo) + 4);
                         s.add32(HashPrefix::ledgerMaster);

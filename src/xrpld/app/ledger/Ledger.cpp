@@ -1140,7 +1140,10 @@ loadLedgerHelper(LedgerInfo const& info, Application& app, bool acquire)
 }
 
 static void
-finishLoadByIndexOrHash(std::shared_ptr<Ledger>& ledger, beast::Journal j)
+finishLoadByIndexOrHash(
+    std::shared_ptr<Ledger> const& ledger,
+    Config const& config,
+    beast::Journal j)
 {
     if (!ledger)
         return;
@@ -1162,8 +1165,7 @@ getLatestLedger(Application& app)
         app.getRelationalDatabase().getNewestLedgerInfo();
     if (!info)
         return {std::shared_ptr<Ledger>(), {}, {}};
-    auto ledger = loadLedgerHelper(*info, app, true);
-    return {ledger, info->seq, info->hash};
+    return {loadLedgerHelper(*info, app, true), info->seq, info->hash};
 }
 
 std::shared_ptr<Ledger>
@@ -1173,7 +1175,7 @@ loadByIndex(std::uint32_t ledgerIndex, Application& app, bool acquire)
             app.getRelationalDatabase().getLedgerInfoByIndex(ledgerIndex))
     {
         std::shared_ptr<Ledger> ledger = loadLedgerHelper(*info, app, acquire);
-        finishLoadByIndexOrHash(ledger, app.journal("Ledger"));
+        finishLoadByIndexOrHash(ledger, app.config(), app.journal("Ledger"));
         return ledger;
     }
     return {};
@@ -1186,7 +1188,7 @@ loadByHash(uint256 const& ledgerHash, Application& app, bool acquire)
             app.getRelationalDatabase().getLedgerInfoByHash(ledgerHash))
     {
         std::shared_ptr<Ledger> ledger = loadLedgerHelper(*info, app, acquire);
-        finishLoadByIndexOrHash(ledger, app.journal("Ledger"));
+        finishLoadByIndexOrHash(ledger, app.config(), app.journal("Ledger"));
         XRPL_ASSERT(
             !ledger || ledger->info().hash == ledgerHash,
             "ripple::loadByHash : ledger hash match if loaded");
