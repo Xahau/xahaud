@@ -193,20 +193,6 @@ private:
     choose(uint256 const& randomPadData, std::vector<NodeID> const& candidates);
 
     /**
-     * Build a reliability measurement score table of validators' validation
-     * messages in the last flag ledger period.
-     *
-     * @param prevLedger the parent ledger
-     * @param unl the trusted master keys
-     * @param validations the validation container
-     * @note validations is an in/out parameter. It contains validation messages
-     * that will be deleted when no longer needed by other consensus logic. This
-     * function asks it to keep the validation messages long enough for this
-     * function to use.
-     * @return the built scoreTable or empty optional if table could not be
-     * built
-     */
-    /**
      * Count trusted full validations per UNL validator over the last
      * FLAG_LEDGER_INTERVAL ledgers. Fails only on insufficient ledger
      * history; does not apply the local reliability gate.
@@ -226,6 +212,20 @@ private:
         hash_map<NodeID, std::uint32_t> const& scoreTable,
         LedgerIndex seq) const;
 
+    /**
+     * Build a reliability measurement score table of validators' validation
+     * messages in the last flag ledger period.
+     *
+     * @param prevLedger the parent ledger
+     * @param unl the trusted master keys
+     * @param validations the validation container
+     * @note validations is an in/out parameter. It contains validation messages
+     * that will be deleted when no longer needed by other consensus logic. This
+     * function asks it to keep the validation messages long enough for this
+     * function to use.
+     * @return the built scoreTable or empty optional if table could not be
+     * built
+     */
     std::optional<hash_map<NodeID, std::uint32_t>>
     buildScoreTable(
         std::shared_ptr<Ledger const> const& prevLedger,
