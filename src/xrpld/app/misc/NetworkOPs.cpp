@@ -704,7 +704,10 @@ private:
 
     std::array<SubMapType, SubTypes::sLastEntry> mStreamMaps;
 
-    ServerFeeSummary mLastFeeSummary;
+    ServerFeeSummary mLastFeeSummary;  ///< Guarded by mFeeSummaryMutex_.
+    std::mutex mFeeSummaryMutex_;      ///< Guards mLastFeeSummary only. Kept
+                                       ///< separate from mSubLock to avoid
+    ///< lock-ordering hazards with masterMutex.
 
     JobQueue& m_job_queue;
 
@@ -1136,6 +1139,16 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
 
     try
     {
+        // Not a bad signature: this server may not have reached the fee
+        // setting the transaction was built for. Drop without marking it bad.
+        if (auto const [fee, feeReason] = checkManifestIngressFee(app_, *trans);
+            fee == ManifestIngressFee::Refused)
+        {
+            JLOG(m_journal.debug())
+                << "Submitted manifest-authorized tx dropped: " << feeReason;
+            return;
+        }
+
         auto const [validity, reason] = checkValidity(
             app_.getHashRouter(),
             *trans,
@@ -1273,6 +1286,19 @@ NetworkOPsImp::processTransaction(
     // NOTE eahennis - I think this check is redundant,
     // but I'm not 100% sure yet.
     // If so, only cost is looking up HashRouter flags.
+    // Before checkValidity(), which verifies the manifest: a fee miss is local
+    // and must not mark the transaction bad.
+    if (auto const [fee, feeReason] =
+            checkManifestIngressFee(app_, *transaction->getSTransaction());
+        fee == ManifestIngressFee::Refused)
+    {
+        JLOG(m_journal.debug())
+            << "Manifest-authorized tx dropped: " << feeReason;
+        transaction->setStatus(INVALID);
+        transaction->setResult(telMANIFEST_FEE_MISMATCH);
+        return;
+    }
+
     auto const [validity, reason] = checkValidity(
         app_.getHashRouter(),
         *transaction->getSTransaction(),
@@ -2325,7 +2351,10 @@ NetworkOPsImp::pubServer()
         else
             jvObj[jss::load_factor] = f.loadFactorServer;
 
-        mLastFeeSummary = f;
+        {
+            std::lock_guard fsl(mFeeSummaryMutex_);
+            mLastFeeSummary = f;
+        }
 
         for (auto i = mStreamMaps[sServer].begin();
              i != mStreamMaps[sServer].end();)
@@ -3210,14 +3239,23 @@ NetworkOPsImp::reportFeeChange()
         app_.getTxQ().getMetrics(*app_.openLedger().current()),
         app_.getFeeTrack()};
 
-    // only schedule the job if something has changed
-    if (f != mLastFeeSummary)
-    {
-        m_job_queue.addJob(
-            jtCLIENT_FEE_CHANGE, "reportFeeChange->pubServer", [this]() {
-                pubServer();
-            });
-    }
+    // Guard mLastFeeSummary under mFeeSummaryMutex_ to prevent concurrent
+    // threads from simultaneously passing the check and queuing duplicate
+    // jtCLIENT_FEE_CHANGE jobs (data race fix).
+    // Also fixes the no-subscriber case where mLastFeeSummary was
+    // never updated by pubServer(), causing endless job queuing.
+    // mFeeSummaryMutex_ is used instead of mSubLock to avoid a
+    // lock-ordering hazard: reportFeeChange() is called with masterMutex
+    // held, and pubServer() holds mSubLock across the subscriber fan-out.
+    if (std::lock_guard sl(mFeeSummaryMutex_); f != mLastFeeSummary)
+        mLastFeeSummary = f;
+    else
+        return;
+
+    m_job_queue.addJob(
+        jtCLIENT_FEE_CHANGE, "reportFeeChange->pubServer", [this]() {
+            pubServer();
+        });
 }
 
 void
@@ -4267,10 +4305,26 @@ NetworkOPsImp::subServer(
     jvResult[jss::pubkey_node] =
         toBase58(TokenType::NodePublic, app_.nodeIdentity().first);
 
-    std::lock_guard sl(mSubLock);
-    return mStreamMaps[sServer]
-        .emplace(isrListener->getSeq(), isrListener)
-        .second;
+    bool added;
+    bool isFirstSubscriber = false;
+    {
+        std::lock_guard sl(mSubLock);
+        added = mStreamMaps[sServer]
+                    .emplace(isrListener->getSeq(), isrListener)
+                    .second;
+        isFirstSubscriber = added && mStreamMaps[sServer].size() == 1;
+    }
+    if (isFirstSubscriber)
+    {
+        // First subscriber on an otherwise-quiet node: reset mLastFeeSummary
+        // so the next reportFeeChange() tick publishes a full serverStatus
+        // with base_fee and load_factor_* fields. Skip if a PubFee job is
+        // already queued — it will publish to the new subscriber anyway,
+        // and resetting here would cause a duplicate notification.
+        std::lock_guard fsl(mFeeSummaryMutex_);
+        mLastFeeSummary = {};
+    }
+    return added;
 }
 
 // <-- bool: true=erased, false=was not there

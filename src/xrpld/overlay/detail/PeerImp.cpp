@@ -2966,6 +2966,20 @@ PeerImp::checkTransaction(
             }
         }
 
+        // A manifest-authorized SetManifest's Fee follows the voted base fee,
+        // so a miss may be a fee setting this server has not reached yet.
+        // Drop it before any manifest signature work, but do not mark it bad:
+        // the same bytes can become canonical here.
+        if (auto const [fee, feeReason] = checkManifestIngressFee(app_, *stx);
+            fee == ManifestIngressFee::Refused)
+        {
+            JLOG(p_journal_.trace())
+                << "Dropping manifest-authorized tx " << stx->getTransactionID()
+                << ": " << feeReason;
+            charge(Resource::feeUselessData, "manifest fee miss");
+            return;
+        }
+
         if (checkSignature)
         {
             // Check the signature before handing off to the job queue.
