@@ -1307,6 +1307,46 @@ touchAccount(ApplyView& view, AccountID const& id)
     view.update(sle);
 }
 
+void
+Transactor::touchOnce(AccountID const& id)
+{
+    auto& view = ctx_.view();
+
+    // before fix20261005 every request touches, and touched_ stays empty
+    if (!view.rules().enabled(fix20261005))
+    {
+        touchAccount(view, id);
+        return;
+    }
+
+    if (touched_.insert(id).second)
+        touchAccount(view, id);
+}
+
+void
+Transactor::touchHookStateOwners(std::set<AccountID> const& written)
+{
+    if (!view().rules().enabled(fix20261005))
+        return;
+
+    // A hook may write into another account's namespace (state_foreign_set
+    // under a HookGrant) without that account being a transactional
+    // stakeholder. Touch it so the transaction threads to its AccountRoot.
+    for (auto const& acc : written)
+        touchOnce(acc);
+}
+
+void
+Transactor::discardView()
+{
+    ctx_.discard();
+
+    // The touches touched_ records were discarded with the view. touched_ is
+    // only populated under fix20261005, so before the fix this is a no-op and
+    // needs no amendment guard.
+    touched_.clear();
+}
+
 static void
 removeUnfundedOffers(
     ApplyView& view,
@@ -1393,7 +1433,7 @@ Transactor::reset(XRPAmount fee)
     std::vector<STObject> executions;
     std::vector<STObject> emissions;
     avi.copyHookMetaData(executions, emissions);
-    ctx_.discard();
+    discardView();
     ApplyViewImpl& avi2 = dynamic_cast<ApplyViewImpl&>(ctx_.view());
     avi2.setHookMetaData(std::move(executions), std::move(emissions));
 
@@ -1704,8 +1744,12 @@ Transactor::doHookCallback(
 
             // write any state changes if cbak resulted in accept()
             if (success)
+            {
+                std::set<AccountID> written;
                 hook::finalizeHookState(
-                    stateMap, ctx_, ctx_.tx.getTransactionID());
+                    stateMap, ctx_, ctx_.tx.getTransactionID(), &written);
+                touchHookStateOwners(written);
+            }
 
             // write the final result
             ripple::TER result =
@@ -1816,7 +1860,10 @@ Transactor::doTSH(
         if ((!canRollback && strong) || (canRollback && !strong))
             continue;
 
-        touchAccount(view, tshAccountID);
+        // under fix20261005 an account is touched at most once per
+        // transaction (a foreign state write in the strong pass or a callback
+        // may already have touched an account that is a weak TSH)
+        touchOnce(tshAccountID);
 
         if (view.rules().enabled(fixHookAPI20251128))
         {
@@ -2126,7 +2173,12 @@ Transactor::operator()()
 
         // write state if all chains executed successfully
         if (isTesSuccess(result))
-            hook::finalizeHookState(stateMap, ctx_, ctx_.tx.getTransactionID());
+        {
+            std::set<AccountID> written;
+            hook::finalizeHookState(
+                stateMap, ctx_, ctx_.tx.getTransactionID(), &written);
+            touchHookStateOwners(written);
+        }
 
         // write hook results
         // this happens irrespective of whether final result was a tesSUCCESS
@@ -2180,7 +2232,7 @@ Transactor::finishApply(
     {
         // If the tapFAIL_HARD flag is set, a tec result
         // must not do anything
-        ctx_.discard();
+        discardView();
         applied = false;
     }
     else if (
@@ -2516,7 +2568,12 @@ Transactor::finishApply(
             doAgainAsWeak(accID, hookHashes, stateMap, weakResults, proMeta);
 
         // write hook results
-        hook::finalizeHookState(stateMap, ctx_, ctx_.tx.getTransactionID());
+        {
+            std::set<AccountID> written;
+            hook::finalizeHookState(
+                stateMap, ctx_, ctx_.tx.getTransactionID(), &written);
+            touchHookStateOwners(written);
+        }
         for (auto& weakResult : weakResults)
             hook::finalizeHookResult(weakResult, ctx_, isTesSuccess(result));
 

@@ -69,6 +69,7 @@ enum TELcodes : TERUnderlyingType {
     telIMPORT_VL_KEY_NOT_RECOGNISED,
     telCAN_NOT_QUEUE_IMPORT,
     telENV_RPC_FAILED,
+    telMANIFEST_FEE_MISMATCH,
 };
 
 //------------------------------------------------------------------------------
