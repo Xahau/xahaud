@@ -153,8 +153,8 @@ OverlayImpl::OverlayImpl(
     , next_id_(1)
     , timer_count_(0)
     , slots_(app.logs(), *this)
-    , xushSocket4_(io_service_)
-    , xushSocket6_(io_service_)
+    , xushSocket4_(io_context_)
+    , xushSocket6_(io_context_)
     , m_stats(
           std::bind(&OverlayImpl::collect_metrics, this),
           collector,

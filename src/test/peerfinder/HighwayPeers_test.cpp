@@ -27,7 +27,7 @@
 #include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/beast/unit_test.h>
 
-#include <boost/asio/io_service.hpp>
+#include <boost/asio/io_context.hpp>
 
 #include <memory>
 #include <set>
@@ -44,7 +44,7 @@ class HighwayPeers_test : public beast::unit_test::suite
 
     struct Fixture
     {
-        boost::asio::io_service io;
+        boost::asio::io_context io;
         TestStopwatch clock;
         BasicConfig basicConfig;
         std::unique_ptr<Manager> manager;
