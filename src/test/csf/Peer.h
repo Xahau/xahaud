@@ -33,6 +33,8 @@
 #include <boost/container/flat_map.hpp>
 #include <boost/container/flat_set.hpp>
 #include <algorithm>
+#include <functional>
+#include <optional>
 
 namespace ripple {
 namespace test {
@@ -256,6 +258,11 @@ struct Peer
 
     // Simulation parameters
     ConsensusParms consensusParms;
+
+    //! Names the peer a transaction belongs to, for Consensus forced
+    //! inclusion (as featureRNG uses for entropy contributions). Unset, it
+    //! behaves exactly like an adaptor without the forcedTxOwner hook.
+    std::function<std::optional<PeerID>(Tx const&)> txOwner;
 
     //! The collectors to report events to
     CollectorRefs& collectors;
@@ -653,6 +660,14 @@ struct Peer
     parms() const
     {
         return consensusParms;
+    }
+
+    std::optional<PeerID>
+    forcedTxOwner(Tx const& tx, Ledger const&) const
+    {
+        if (!txOwner)
+            return std::nullopt;
+        return txOwner(tx);
     }
 
     // Not interested in tracking consensus mode changes for now

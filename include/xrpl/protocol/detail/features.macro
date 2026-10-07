@@ -34,6 +34,7 @@
 // If you add an amendment here, then do not forget to increment `numFeatures`
 // in include/xrpl/protocol/Feature.h.
 
+XRPL_FEATURE(RNG,                        Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (20261005,                   Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(EscrowDestinationCancel,    Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (20260929,                   Supported::yes, VoteBehavior::DefaultNo)

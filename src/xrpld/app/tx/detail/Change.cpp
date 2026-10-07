@@ -34,6 +34,8 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/digest.h>
+#include <algorithm>
 #include <string_view>
 
 namespace ripple {
@@ -98,6 +100,21 @@ Change::preflight(PreflightContext const& ctx)
         }
     }
 
+    if (ctx.tx.getTxnType() == ttENTROPY)
+    {
+        if (!ctx.rules.enabled(featureRNG))
+        {
+            JLOG(ctx.j.warn()) << "Change: RNG is not enabled.";
+            return temDISABLED;
+        }
+
+        if (!publicKeyType(makeSlice(ctx.tx.getFieldVL(sfPublicKey))))
+        {
+            JLOG(ctx.j.warn()) << "Change: Entropy has an invalid PublicKey.";
+            return temMALFORMED;
+        }
+    }
+
     return tesSUCCESS;
 }
 
@@ -157,6 +174,29 @@ Change::preclaim(PreclaimContext const& ctx)
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
             return tesSUCCESS;
+        case ttENTROPY: {
+            if (ctx.tx.getFieldU32(sfLedgerSequence) != ctx.view.seq())
+            {
+                JLOG(ctx.j.warn()) << "Change: Entropy for wrong ledger.";
+                return tefFAILURE;
+            }
+
+            // Only validators on the UNLReport may contribute, when there is
+            // one. Without a UNLReport (new networks, standalone, unit tests)
+            // inclusion by consensus is the only gate.
+            auto const unlRep = ctx.view.read(keylet::UNLReport());
+            if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
+                return tesSUCCESS;
+
+            auto const pk = ctx.tx.getFieldVL(sfPublicKey);
+            for (auto const& av : unlRep->getFieldArray(sfActiveValidators))
+                if (av.getFieldVL(sfPublicKey) == pk)
+                    return tesSUCCESS;
+
+            JLOG(ctx.j.warn()) << "Change: Entropy from a validator that is "
+                                  "not on the UNLReport.";
+            return tefFAILURE;
+        }
         case ttUNL_REPORT: {
             if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
                 ctx.app.config().IMPORT_VL_KEYS.empty())
@@ -211,10 +251,140 @@ Change::doApply()
             return applyEmitFailure();
         case ttUNL_REPORT:
             return applyUNLReport();
+        case ttENTROPY:
+            return applyEntropy();
         default:
             UNREACHABLE("ripple::Change::doApply : invalid transaction type");
             return tefFAILURE;
     }
+}
+
+// featureRNG
+//
+// The Random object holds one commitment per validator: the hash of the
+// secret that validator will reveal next. A ttENTROPY reveals the secret for
+// the stored commitment (if it has one) and replaces the commitment with a new
+// one. A reveal that matches is mixed into sfRandomData and counted. Anything
+// else (no commitment yet, a lost secret, a mismatch) just re-registers, which
+// is no different from the validator having withheld.
+//
+// The first ttENTROPY of each ledger restarts sfRandomData. All of them are
+// applied before any other transaction (see BuildLedger), so by the time Hooks
+// run, sfRandomData is the seed for this ledger. The Hook API then iterates it
+// on every draw.
+TER
+Change::applyEntropy()
+{
+    // Commitments not refreshed within this many ledgers are forgotten.
+    static constexpr std::uint32_t maxCommitmentAge = 8;
+
+    // domain separators for the two hashes computed here
+    static constexpr std::uint32_t rngSeedTag = 0x524E4753;        // 'RNGS'
+    static constexpr std::uint32_t rngAccumulateTag = 0x524E4741;  // 'RNGA'
+
+    auto const seq = view().seq();
+    auto const& tx = ctx_.tx;
+    auto const pk = tx.getFieldVL(sfPublicKey);
+
+    auto sle = view().peek(keylet::random());
+    bool const created = !sle;
+
+    // find this validator's commitment, if it has one
+    std::optional<STObject> commitment;
+    if (!created)
+    {
+        for (auto const& entry : sle->getFieldArray(sfRandomDigests))
+        {
+            if (entry.getFieldVL(sfPublicKey) == pk)
+            {
+                commitment = entry;
+                break;
+            }
+        }
+    }
+
+    // one contribution per validator per ledger
+    if (commitment && commitment->getFieldU32(sfLedgerSequence) == seq)
+    {
+        JLOG(j_.warn()) << "Change: second Entropy from one validator in "
+                        << "ledger " << seq;
+        return tefFAILURE;
+    }
+
+    if (created)
+        sle = std::make_shared<SLE>(keylet::random());
+
+    // the first ttENTROPY applied in this ledger restarts the accumulator
+    if (created || sle->getFieldU32(sfLedgerSequence) != seq)
+    {
+        std::size_t denominator = 0;
+        if (auto const unlRep = view().read(keylet::UNLReport());
+            unlRep && unlRep->isFieldPresent(sfActiveValidators))
+            denominator = unlRep->getFieldArray(sfActiveValidators).size();
+
+        sle->setFieldU32(sfLedgerSequence, seq);
+        sle->setFieldU16(sfEntropyCount, 0);
+        sle->setFieldU16(
+            sfEntropyDenominator,
+            static_cast<std::uint16_t>(
+                std::min<std::size_t>(denominator, 0xFFFFU)));
+        sle->setFieldH256(
+            sfRandomData,
+            sha512Half(rngSeedTag, seq, view().info().parentHash));
+    }
+
+    // mix in the reveal if it matches the validator's commitment
+    if (commitment && tx.isFieldPresent(sfRandomData))
+    {
+        auto const reveal = tx.getFieldH256(sfRandomData);
+        if (sha512Half(reveal) == commitment->getFieldH256(sfNextRandomDigest))
+        {
+            sle->setFieldH256(
+                sfRandomData,
+                sha512Half(
+                    rngAccumulateTag,
+                    sle->getFieldH256(sfRandomData),
+                    makeSlice(pk),
+                    reveal));
+            sle->setFieldU16(
+                sfEntropyCount, sle->getFieldU16(sfEntropyCount) + 1);
+        }
+        else
+        {
+            JLOG(j_.warn()) << "Change: Entropy reveal does not match the "
+                            << "validator's commitment, ignoring it.";
+        }
+    }
+
+    // store the new commitment, dropping stale ones
+    STArray digests(sfRandomDigests);
+    for (auto const& entry : sle->getFieldArray(sfRandomDigests))
+    {
+        if (entry.getFieldVL(sfPublicKey) == pk)
+            continue;
+        if (entry.getFieldU32(sfLedgerSequence) + maxCommitmentAge < seq)
+            continue;
+        digests.push_back(entry);
+    }
+
+    STObject entry(sfRandomDigestEntry);
+    entry.setFieldVL(sfPublicKey, pk);
+    entry.setFieldH256(sfNextRandomDigest, tx.getFieldH256(sfNextRandomDigest));
+    entry.setFieldU32(sfLedgerSequence, seq);
+    digests.push_back(std::move(entry));
+
+    digests.sort([](STObject const& a, STObject const& b) {
+        return a.getFieldVL(sfPublicKey) < b.getFieldVL(sfPublicKey);
+    });
+
+    sle->setFieldArray(sfRandomDigests, digests);
+
+    if (created)
+        view().insert(sle);
+    else
+        view().update(sle);
+
+    return tesSUCCESS;
 }
 
 TER

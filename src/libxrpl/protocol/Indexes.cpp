@@ -92,6 +92,7 @@ enum class LedgerNameSpace : std::uint16_t {
     MANIFEST = 'M',
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
+    RANDOM = 0x526E,  // Rn
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -273,6 +274,13 @@ UNLReport() noexcept
 {
     static Keylet const ret{
         ltUNL_REPORT, indexHash(LedgerNameSpace::UNL_REPORT)};
+    return ret;
+}
+
+Keylet const&
+random() noexcept
+{
+    static Keylet const ret{ltRANDOM, indexHash(LedgerNameSpace::RANDOM)};
     return ret;
 }
 

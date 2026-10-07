@@ -558,7 +558,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttFEE:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
-        case ttUNL_REPORT: {
+        case ttUNL_REPORT:
+        case ttENTROPY: {
             break;
         }
         default: {
@@ -2849,6 +2850,49 @@ DEFINE_HOOK_FUNCTION(
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, 32, hash.data(), 32, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+// featureRNG: a uniform integer in [0, sides)
+DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides)
+{
+    HOOK_SETUP();
+
+    auto const result = api.dice(sides);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+// featureRNG: write_len (1 to 512) random bytes
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_random,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const result = api.util_random(write_len);
+    if (!result)
+        return result.error();
+
+    auto const& bytes = result.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        write_len,
+        bytes.data(),
+        bytes.size(),
+        memory,
+        memory_length);
 
     HOOK_TEARDOWN();
 }

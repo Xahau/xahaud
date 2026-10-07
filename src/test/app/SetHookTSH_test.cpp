@@ -6146,6 +6146,15 @@ private:
         pass();
     }
 
+    void
+    testEntropyTSH(FeatureBitset features)
+    {
+        testcase("entropy tsh");
+
+        // pseudo transaction
+        pass();
+    }
+
     // | otxn | tfBurnable | tsh |   mint |  burn  |  buy  |  sell  | cancel
     // |   O  |    false   |  O  |   N/A  |   S    |  N/A  |   S    |   S
     // |   O  |    false   |  I  |   N/A  |   N    |  N/A  |   W    |   N/A

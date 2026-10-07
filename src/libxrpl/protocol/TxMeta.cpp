@@ -49,6 +49,9 @@ TxMeta::TxMeta(
 
     if (obj.isFieldPresent(sfHookEmissions))
         setHookEmissions(obj.getFieldArray(sfHookEmissions));
+
+    if (obj.isFieldPresent(sfRandomData))
+        setRandomData(obj.getFieldH256(sfRandomData));
 }
 
 TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, STObject const& obj)
@@ -75,6 +78,9 @@ TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, STObject const& obj)
 
     if (obj.isFieldPresent(sfHookEmissions))
         setHookEmissions(obj.getFieldArray(sfHookEmissions));
+
+    if (obj.isFieldPresent(sfRandomData))
+        setRandomData(obj.getFieldH256(sfRandomData));
 }
 
 TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, Blob const& vec)
@@ -244,6 +250,9 @@ TxMeta::getAsObject() const
 
     if (hasHookEmissions())
         metaData.setFieldArray(sfHookEmissions, getHookEmissions());
+
+    if (hasRandomData())
+        metaData.setFieldH256(sfRandomData, getRandomData());
 
     return metaData;
 }

@@ -180,6 +180,24 @@ LEDGER_ENTRY_DUPLICATE(ltUNL_REPORT, 0x0052, UNLReport, unl_report, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
+/** featureRNG: the consensus random number generator.
+
+    A singleton. sfRandomData is seeded from validator reveals by the
+    ttENTROPY transactions applied at the start of each ledger, and then
+    iterated by every Hook API draw for the rest of that ledger.
+    sfRandomData and sfRandomDigests are never written to metadata, and
+    Hooks cannot load this object.
+
+    \sa keylet::random
+ */
+LEDGER_ENTRY(ltRANDOM, 0x526E, Random, rng, ({
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfRandomData,           soeREQUIRED},
+    {sfEntropyCount,         soeREQUIRED},
+    {sfEntropyDenominator,   soeREQUIRED},
+    {sfRandomDigests,        soeREQUIRED},
+}))
+
 /** A ledger object which contains a signer list for an account.
 
     \sa keylet::signers

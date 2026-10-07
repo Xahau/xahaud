@@ -152,6 +152,26 @@ public:
         return static_cast<bool>(mHookEmissions);
     }
 
+    /** featureRNG: the RNG state this transaction's first Hook draw saw.
+        Every value the transaction's Hooks drew is derived from it. */
+    void
+    setRandomData(uint256 const& randomData)
+    {
+        mRandomData = randomData;
+    }
+
+    bool
+    hasRandomData() const
+    {
+        return static_cast<bool>(mRandomData);
+    }
+
+    uint256 const&
+    getRandomData() const
+    {
+        return *mRandomData;
+    }
+
     STAmount
     getDeliveredAmount() const
     {
@@ -176,6 +196,7 @@ private:
     std::optional<STAmount> mDelivered;
     std::optional<STArray> mHookExecutions;
     std::optional<STArray> mHookEmissions;
+    std::optional<uint256> mRandomData;
 
     STArray mNodes;
 };

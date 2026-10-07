@@ -118,6 +118,10 @@ negativeUNL() noexcept;
 Keylet const&
 UNLReport() noexcept;
 
+/** The (fixed) index of the featureRNG random number generator object. */
+Keylet const&
+random() noexcept;
+
 /** The beginning of an order book */
 struct book_t
 {

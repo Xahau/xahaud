@@ -500,6 +500,22 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
+/** featureRNG: a validator's entropy contribution for one ledger.
+
+    Each proposing UNLReport validator places exactly one of these in its own
+    initial position when it closes the ledger. It reveals the secret behind
+    the validator's commitment currently stored in the Random object (if any)
+    and commits to the secret it will reveal next time. It never enters the
+    open ledger, so a reveal only becomes public after the revealing
+    validator's transaction set is locked.
+ */
+TRANSACTION(ttENTROPY, 89, Entropy, ({
+    {sfLedgerSequence, soeREQUIRED},
+    {sfPublicKey, soeREQUIRED},
+    {sfNextRandomDigest, soeREQUIRED},
+    {sfRandomData, soeOPTIONAL},
+}))
+
 /* sfAccount is supplied by TxFormats::commonFields; listing it here as well
    makes the SOTemplate reject the format at construction. */
 TRANSACTION(ttMANIFEST_SET, 91, SetManifest, ({

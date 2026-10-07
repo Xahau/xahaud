@@ -4,7 +4,10 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/Import.h>
+#include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/protocol/STParsedJSON.h>
+#include <algorithm>
+#include <limits>
 
 namespace hook {
 
@@ -1883,6 +1886,146 @@ HookAPI::ledger_nonce() const
     return hash;
 }
 
+// featureRNG
+//
+// The ledger's RNG state lives in the Random object. The ttENTROPY
+// transactions applied at the start of the ledger seed it from validator
+// reveals; after that every draw from any Hook replaces it with
+// H(step, state). So the state iterates between API calls, between Hook
+// executions and between transactions, including transactions that end in a
+// tec: ApplyContext::discard keeps the advance, so a rollback cannot preserve
+// an RNG state for whatever executes next.
+//
+// No Hook can read the state, so none can work out what a later draw will
+// return, even one that ran earlier in the same transaction: slot_set and
+// ledger_keylet refuse the Random object, slot_set refuses ttENTROPY
+// transactions, the object is left out of provisional metadata (meta_slot),
+// and its state and commitment fields are never written to any metadata.
+//
+// Each draw returns H(output, state, txid, hook account, hook hash, chain
+// position, strong, callback, wasm param). Those extra inputs keep outputs
+// distinct for different executions even if they somehow saw the same state.
+//
+// The state the transaction's first draw saw is written to the transaction's
+// final metadata (sfRandomData), never its provisional metadata.
+Expected<uint256, HookReturnCode>
+HookAPI::rng_next() const
+{
+    static constexpr std::uint32_t rngOutputTag = 0x524E474F;  // 'RNGO'
+    static constexpr std::uint32_t rngStepTag = 0x524E4749;    // 'RNGI'
+
+    auto& applyCtx = hookCtx.applyCtx;
+    auto& view = applyCtx.view();
+
+    if (!view.rules().enabled(featureRNG))
+        return Unexpected(TOO_LITTLE_ENTROPY);
+
+    if (hookCtx.rng_draws >= hook_api::max_rng_draws)
+        return Unexpected(TOO_MANY_NONCES);
+
+    auto sle = view.peek(keylet::random());
+    if (!sle)
+        return Unexpected(TOO_LITTLE_ENTROPY);
+
+    // A closed ledger may only draw on its own seed. Open ledger application
+    // is a preview, so it may run on the last closed ledger's state; the
+    // final result is decided when the ledger closes.
+    auto const seq = view.seq();
+    auto const seededFor = sle->getFieldU32(sfLedgerSequence);
+    if (seededFor != seq && !(view.open() && seededFor + 1 == seq))
+        return Unexpected(TOO_LITTLE_ENTROPY);
+
+    // At least 80% of the UNLReport must have contributed (at least one
+    // validator if there is no UNLReport).
+    std::uint32_t const count = sle->getFieldU16(sfEntropyCount);
+    std::uint32_t const denominator = sle->getFieldU16(sfEntropyDenominator);
+    if (count == 0 || count * 5 < denominator * 4)
+        return Unexpected(TOO_LITTLE_ENTROPY);
+
+    uint256 const state = sle->getFieldH256(sfRandomData);
+
+    if (auto* avi = dynamic_cast<ApplyViewImpl*>(&view))
+        avi->setRandomData(state);
+
+    auto const& hr = hookCtx.result;
+    uint256 const out = ripple::sha512Half(
+        rngOutputTag,
+        state,
+        applyCtx.tx.getTransactionID(),
+        hr.account,
+        hr.hookHash,
+        static_cast<std::uint8_t>(hr.hookChainPosition),
+        static_cast<std::uint8_t>(hr.isStrong ? 1 : 0),
+        static_cast<std::uint8_t>(hr.isCallback ? 1 : 0),
+        hr.wasmParam);
+
+    sle->setFieldH256(sfRandomData, ripple::sha512Half(rngStepTag, state));
+    view.update(sle);
+
+    ++hookCtx.rng_draws;
+    return out;
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::dice(uint32_t sides) const
+{
+    if (sides == 0)
+        return Unexpected(INVALID_ARGUMENT);
+
+    auto block = rng_next();
+    if (!block)
+        return Unexpected(block.error());
+
+    // Rejection sampling over big-endian 64-bit words, so every side is
+    // exactly equally likely. A word is rejected with probability below
+    // 2^-32, so the bound on blocks is never reached in practice; it only
+    // keeps the loop finite.
+    std::uint64_t const max = std::numeric_limits<std::uint64_t>::max();
+    std::uint64_t const excess = (max % sides + 1) % sides;  // 2^64 mod sides
+    std::uint64_t word = 0;
+    uint256 b = *block;
+    for (int i = 0; i < 16; ++i)
+    {
+        for (std::size_t w = 0; w < 4; ++w)
+        {
+            word = 0;
+            for (std::size_t k = 0; k < 8; ++k)
+                word = (word << 8) | b.data()[w * 8 + k];
+            if (word <= max - excess)
+                return word % sides;
+        }
+        b = ripple::sha512Half(b);
+    }
+    return word % sides;
+}
+
+Expected<Bytes, HookReturnCode>
+HookAPI::util_random(uint32_t len) const
+{
+    if (len == 0)
+        return Unexpected(TOO_SMALL);
+
+    if (len > 512)
+        return Unexpected(TOO_BIG);
+
+    auto block = rng_next();
+    if (!block)
+        return Unexpected(block.error());
+
+    Bytes out;
+    out.reserve(len);
+    uint256 b = *block;
+    while (true)
+    {
+        auto const n = std::min<std::size_t>(32, len - out.size());
+        out.insert(out.end(), b.data(), b.data() + n);
+        if (out.size() >= len)
+            break;
+        b = ripple::sha512Half(b);
+    }
+    return out;
+}
+
 Expected<Keylet, HookReturnCode>
 HookAPI::ledger_keylet(Keylet const& klLo, Keylet const& klHi) const
 {
@@ -1892,6 +2035,10 @@ HookAPI::ledger_keylet(Keylet const& klLo, Keylet const& klHi) const
 
     std::optional<ripple::uint256> found =
         hookCtx.applyCtx.view().succ(klLo.key, klHi.key.next());
+
+    // featureRNG: the RNG object is invisible to Hooks, even by key.
+    if (found && *found == keylet::random().key)
+        found = hookCtx.applyCtx.view().succ(*found, klHi.key.next());
 
     if (!found)
         return Unexpected(DOESNT_EXIST);
@@ -2137,6 +2284,12 @@ HookAPI::slot_set(Bytes const& data, uint32_t slot_no) const
         if (kl->key == beast::zero)
             return Unexpected(DOESNT_EXIST);
 
+        // featureRNG: the RNG state must never be readable by a Hook, or an
+        // earlier Hook could compute what later draws will return. Matched on
+        // the key because a Hook-supplied keylet type can be ltANY.
+        if (kl->key == keylet::random().key)
+            return Unexpected(DOESNT_EXIST);
+
         auto const sle = hookCtx.applyCtx.view().read(*kl);
         if (!sle)
             return Unexpected(DOESNT_EXIST);
@@ -2159,6 +2312,11 @@ HookAPI::slot_set(Bytes const& data, uint32_t slot_no) const
                 std::shared_ptr<ripple::TxMeta>>>(&hTx))
             slot_value = p->first->getSTransaction();
         else
+            return Unexpected(DOESNT_EXIST);
+
+        // featureRNG: validator reveals are never readable by Hooks.
+        if (*slot_value &&
+            (*slot_value)->getFieldU16(sfTransactionType) == ttENTROPY)
             return Unexpected(DOESNT_EXIST);
     }
     else
