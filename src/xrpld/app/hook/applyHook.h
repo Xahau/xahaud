@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <queue>
+#include <set>
 #include <utility>
 #include <vector>
 #include <wasmedge/wasmedge.h>
@@ -269,11 +270,15 @@ finalizeHookResult(
     bool doEmit);
 
 // write state map to ledger
+// if `written` is supplied, every account whose hook state was successfully
+// written is inserted into it (own and foreign namespaces alike); deleting an
+// entry that does not exist is not a write
 ripple::TER
 finalizeHookState(
     HookStateMap const&,
     ripple::ApplyContext&,
-    ripple::uint256 const&);
+    ripple::uint256 const&,
+    std::set<ripple::AccountID>* written = nullptr);
 
 // if the txn being executed was an emitted txn then this removes it from the
 // emission directory
