@@ -103,6 +103,39 @@ public:
                 BEAST_EXPECT(fieldNames.insert(name).second);
             }
         }
+
+        // hook api, keylet types, compare modes and return codes
+        {
+            auto const& defs = result[jss::result];
+            BEAST_EXPECT(defs.isMember(jss::HOOK_API));
+            BEAST_EXPECT(defs.isMember(jss::HOOK_KEYLET_TYPES));
+            BEAST_EXPECT(defs.isMember(jss::HOOK_COMPARE_MODES));
+            BEAST_EXPECT(defs.isMember(jss::HOOK_RETURN_CODES));
+
+            auto const& accept = defs[jss::HOOK_API]["accept"];
+            BEAST_EXPECT(accept["return"] == "int64_t");
+            BEAST_EXPECT(accept["params"].size() == 3);
+            BEAST_EXPECT(accept["params"][0u][jss::type] == "uint32_t");
+            BEAST_EXPECT(accept["params"][0u][jss::name] == "read_ptr");
+            BEAST_EXPECT(accept["params"][2u][jss::type] == "int64_t");
+            BEAST_EXPECT(accept["params"][2u][jss::name] == "error_code");
+            BEAST_EXPECT(!accept.isMember("amendment"));
+
+            auto const& burden = defs[jss::HOOK_API]["etxn_burden"];
+            BEAST_EXPECT(burden["params"].size() == 0);
+
+            auto const& xpop = defs[jss::HOOK_API]["xpop_slot"];
+            BEAST_EXPECT(xpop["amendment"] == "HooksUpdate1");
+
+            BEAST_EXPECT(defs[jss::HOOK_KEYLET_TYPES]["HOOK"] == 1);
+            BEAST_EXPECT(defs[jss::HOOK_KEYLET_TYPES]["MANIFEST"] == 37);
+            BEAST_EXPECT(defs[jss::HOOK_COMPARE_MODES]["GREATER"] == 4);
+            BEAST_EXPECT(defs[jss::HOOK_RETURN_CODES]["SUCCESS"] == 0);
+            BEAST_EXPECT(
+                defs[jss::HOOK_RETURN_CODES]["INVALID_FLOAT"] == -10024);
+            BEAST_EXPECT(
+                defs[jss::HOOK_RETURN_CODES]["TOO_MANY_NAMESPACES"] == -45);
+        }
     }
 
     void
@@ -132,6 +165,7 @@ public:
             BEAST_EXPECT(
                 !result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(!result[jss::result].isMember(jss::TYPES));
+            BEAST_EXPECT(!result[jss::result].isMember(jss::HOOK_API));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }
 
@@ -156,6 +190,7 @@ public:
             BEAST_EXPECT(
                 result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
+            BEAST_EXPECT(result[jss::result].isMember(jss::HOOK_API));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }
     }

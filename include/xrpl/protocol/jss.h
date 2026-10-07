@@ -68,6 +68,10 @@ JSS(Destination);      // in: TransactionSign; field.
 JSS(EPrice);           // in: AMM Deposit option
 JSS(Fee);              // in/out: TransactionSign; field.
 JSS(FIELDS);           // out: RPC server_definitions
+JSS(HOOK_API);           // out: RPC server_definitions
+JSS(HOOK_COMPARE_MODES); // out: RPC server_definitions
+JSS(HOOK_KEYLET_TYPES);  // out: RPC server_definitions
+JSS(HOOK_RETURN_CODES);  // out: RPC server_definitions
 JSS(Flags);            // in/out: TransactionSign; field.
 JSS(GenesisMints);
 JSS(GovernanceMarks);
