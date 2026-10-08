@@ -463,10 +463,101 @@ class base58_test : public beast::unit_test::suite
     }
 
     void
+    testDecodeInvalidChars()
+    {
+        testcase("decode_invalid_chars");
+
+        // Every byte outside the base58 alphabet, including bytes >= 0x80
+        // (negative when char is signed), must be rejected at any position.
+        // The fast decoder reads the leading `size % 10` characters and the
+        // remaining characters in two separate loops; varying the length and
+        // the position of the bad byte exercises both.
+        constexpr std::string_view alphabet =
+            "rpshnaf39wBUDNEGHJKLM4PQRST7VWXYZ2bcdeCg65jkm8oFqi1tuvAxyz";
+        std::array<bool, 256> inAlphabet{};
+        for (unsigned char const c : alphabet)
+            inAlphabet[c] = true;
+
+        auto const invalidCode =
+            make_error_code(TokenCodecErrc::invalidEncodingChar);
+
+        // 52 is the longest input the fast decoder accepts
+        for (std::size_t len = 1; len <= 52; ++len)
+        {
+            std::string base;
+            for (std::size_t i = 0; i < len; ++i)
+                base.push_back(alphabet[(i * 7 + len) % alphabet.size()]);
+
+            for (std::size_t pos = 0; pos < len; ++pos)
+            {
+                for (int b = 0; b < 256; ++b)
+                {
+                    if (inAlphabet[b])
+                        continue;
+
+                    std::string s = base;
+                    s[pos] = static_cast<char>(b);
+
+                    std::array<std::uint8_t, 64> outBuf;
+                    auto const r = b58_fast::detail::b58_to_b256_be(s, outBuf);
+                    BEAST_EXPECT(!r && r.error() == invalidCode);
+                    BEAST_EXPECT(b58_ref::detail::decodeBase58(s).empty());
+                }
+            }
+        }
+
+        // Same through the token API, using a valid AccountID as the base
+        constexpr TokenType tokType = TokenType::AccountID;
+        std::string const addr = "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh";
+        BEAST_EXPECT(!decodeBase58Token(addr, tokType).empty());
+        for (std::size_t pos = 0; pos < addr.size(); ++pos)
+        {
+            for (int b = 0; b < 256; ++b)
+            {
+                if (inAlphabet[b])
+                    continue;
+
+                std::string s = addr;
+                s[pos] = static_cast<char>(b);
+
+                std::array<std::uint8_t, 64> outBuf;
+                auto const r = b58_fast::decodeBase58Token(tokType, s, outBuf);
+                BEAST_EXPECT(!r && r.error() == invalidCode);
+                BEAST_EXPECT(b58_ref::decodeBase58Token(s, tokType).empty());
+                BEAST_EXPECT(decodeBase58Token(s, tokType).empty());
+            }
+        }
+    }
+
+    void
+    testDecodeMaxValue()
+    {
+        testcase("decode_max_value");
+
+        // The largest value of every accepted length ('z' is digit 57) must
+        // decode identically in both implementations. At 52 chars this is the
+        // widest intermediate the fast decoder's bigint ever has to hold.
+        for (std::size_t len = 1; len <= 52; ++len)
+        {
+            std::string const s(len, 'z');
+
+            std::array<std::uint8_t, 64> outBuf;
+            auto const r = b58_fast::detail::b58_to_b256_be(s, outBuf);
+            std::string const ref = b58_ref::detail::decodeBase58(s);
+            if (!BEAST_EXPECT(r))
+                continue;
+            BEAST_EXPECT(
+                std::string(r.value().begin(), r.value().end()) == ref);
+        }
+    }
+
+    void
     run() override
     {
         testMultiprecision();
         testFastMatchesRef();
+        testDecodeInvalidChars();
+        testDecodeMaxValue();
     }
 };
 
