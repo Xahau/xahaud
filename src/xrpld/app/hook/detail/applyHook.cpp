@@ -1546,7 +1546,20 @@ hook::finalizeHookResult(
                 ptr->add(s);
                 SerialIter sit(s.slice());
 
-                sleEmitted->emplace_back(ripple::STObject(sit, sfEmittedTxn));
+                ripple::STObject emittedTxn(sit, sfEmittedTxn);
+
+                // ltEMITTED_TXN has an SOTemplate, so the new SLE already
+                // holds a non-present sfEmittedTxn slot. emplace_back()
+                // appends a second entry behind it, and lookups (which go
+                // through the template index) keep reporting the field as
+                // absent until the SLE is serialized and re-read. set()
+                // replaces the template slot. The serialized entry is the
+                // same either way, but a hook slotting the entry later in
+                // the same ledger can observe the difference, so gate it.
+                if (applyCtx.view().rules().enabled(fix20261005))
+                    sleEmitted->set(std::move(emittedTxn));
+                else
+                    sleEmitted->emplace_back(std::move(emittedTxn));
                 auto page = applyCtx.view().dirInsert(
                     keylet::emittedDir(), emittedId, [&](SLE::ref sle) {
                         (*sle)[sfFlags] = lsfEmittedDir;
