@@ -583,6 +583,12 @@ public:
         return validatorKeys_.keys->publicKey;
     }
 
+    ValidatorKeys const&
+    getValidatorKeys() const override
+    {
+        return validatorKeys_;
+    }
+
     NetworkOPs&
     getOPs() override
     {

@@ -500,6 +500,27 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
+/** Emitted by a hook: have the UNL multisign sfExportedTxn, a transaction for
+    another network from the hook's account. See Export.h. */
+TRANSACTION(ttEXPORT, 88, Export, ({
+    {sfExportedTxn, soeREQUIRED},
+}))
+
+/** A UNL validator's multisignature over a pending export. Deliberately not a
+    pseudo-txn: disputed pseudo-txns are discarded, these are retried. */
+TRANSACTION(ttEXPORT_SIGN, 89, ExportSign, ({
+    {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionHash, soeREQUIRED},
+    {sfSigner, soeREQUIRED},
+}))
+
+/** A pseudo-txn closing an export's signing window. */
+TRANSACTION(ttEXPORT_FINAL, 90, ExportFinal, ({
+    {sfOwner, soeREQUIRED},
+    {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionHash, soeREQUIRED},
+}))
+
 /* sfAccount is supplied by TxFormats::commonFields; listing it here as well
    makes the SOTemplate reject the format at construction. */
 TRANSACTION(ttMANIFEST_SET, 91, SetManifest, ({

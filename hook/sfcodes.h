@@ -289,6 +289,7 @@
 #define sfXChainCreateAccountAttestationCollectionElement ((14U << 16U) + 31U)
 #define sfPriceData ((14U << 16U) + 32U)
 #define sfCredential ((14U << 16U) + 33U)
+#define sfExportedTxn ((14U << 16U) + 89U)
 #define sfManifest ((14U << 16U) + 90U)
 #define sfAmountEntry ((14U << 16U) + 91U)
 #define sfMintURIToken ((14U << 16U) + 92U)

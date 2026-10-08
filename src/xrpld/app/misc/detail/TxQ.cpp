@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpl/basics/mulDiv.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
@@ -1558,6 +1559,8 @@ TxQ::accept(Application& app, OpenView& view)
             ledgerChanged = true;
         }
     }
+
+    ledgerChanged |= Export::accept(app, view, j_);
 
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))

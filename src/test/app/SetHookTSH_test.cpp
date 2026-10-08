@@ -1957,6 +1957,36 @@ private:
         pass();
     }
 
+    // Export: emitted by a hook, so only the emitting account is involved
+    void
+    testExportTSH(FeatureBitset features)
+    {
+        testcase("export tsh");
+
+        // emitted transaction, no additional tsh
+        pass();
+    }
+
+    void
+    testExportSignTSH(FeatureBitset features)
+    {
+        testcase("export sign tsh");
+
+        // validator generated, no tsh
+        pass();
+    }
+
+    // | otxn | tsh | final |
+    // |   -  |  O  |   W   |
+    void
+    testExportFinalTSH(FeatureBitset features)
+    {
+        testcase("export final tsh");
+
+        // pseudo transaction, owner is weak (as ttCRON)
+        pass();
+    }
+
     // Escrow
     // | otxn  | tsh | cancel | cancel(id) |  create  | finish | finish(id)
     // |   A   |  A  |    S   |     S      |     S    |    S   |     S

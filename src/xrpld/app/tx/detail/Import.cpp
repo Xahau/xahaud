@@ -17,7 +17,9 @@
 */
 //==============================================================================
 
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/ledger/View.h>
@@ -197,7 +199,11 @@ Import::preflight(PreflightContext const& ctx)
     if (!stpTrans || !meta)
         return temMALFORMED;
 
-    if (stpTrans->isFieldPresent(sfTicketSequence))
+    // A ticketed XPOP can only be an exported txn coming back. It is
+    // authorised by its shadow ticket (preclaim), not by the outer signature:
+    // nobody could co-sign it with the UNL's keys, so anyone may relay it.
+    bool const shadow = stpTrans->isFieldPresent(sfTicketSequence);
+    if (shadow && !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Import: cannot use TicketSequence XPOP.";
         return temMALFORMED;
@@ -280,6 +286,7 @@ Import::preflight(PreflightContext const& ctx)
 
     // check if the inner transaction is signed using the same keying as the
     // outer txn
+    if (!shadow)
     {
         auto outer = tx.getSigningPubKey();
         auto inner = stpTrans->getSigningPubKey();
@@ -988,7 +995,16 @@ Import::preclaim(PreclaimContext const& ctx)
         } while (0);
     }
 
-    if (sle && sle->isFieldPresent(sfImportSequence))
+    if (auto const t = (*stpTrans)[~sfTicketSequence])
+    {
+        if (!ctx.view.exists(shadowTicket(ctx.tx[sfAccount], *t)))
+            return tefNO_TICKET;
+
+        // the relayer spends the account's XAH, so it gets no say in the fee
+        if (ctx.tx[sfFee].xrp() != calculateBaseFee(ctx.view, ctx.tx))
+            return temBAD_FEE;
+    }
+    else if (sle && sle->isFieldPresent(sfImportSequence))
     {
         uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
 
@@ -1301,8 +1317,9 @@ Import::doApply()
     uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
     auto const id = ctx_.tx[sfAccount];
     auto sle = view().peek(keylet::account(id));
+    auto const ticket = (*stpTrans)[~sfTicketSequence];
 
-    if (sle && sle->getFieldU32(sfImportSequence) >= importSequence)
+    if (!ticket && sle && sle->getFieldU32(sfImportSequence) >= importSequence)
     {
         // make double sure import seq hasn't passed
         JLOG(ctx_.journal.warn()) << "Import: ImportSequence passed";
@@ -1390,7 +1407,8 @@ Import::doApply()
         }
     }
 
-    sle->setFieldU32(sfImportSequence, importSequence);
+    if (!ticket)
+        sle->setFieldU32(sfImportSequence, importSequence);
     sle->setFieldAmount(sfBalance, finalBal);
 
     if (create)
@@ -1402,11 +1420,21 @@ Import::doApply()
     else
         view().update(sle);
 
+    // each exported txn comes back at most once
+    if (ticket)
+    {
+        if (auto const ter = hook::setHookState(
+                ctx_, id, shadowTicketNS, uint256(*ticket), {});
+            !isTesSuccess(ter))
+            return ter;
+    }
+
     //
     // Handle any key imports, but only if a tes code
     // these functions update the sle on their own
+    // (never for exports: that would hand the UNL's keys the account here)
     //
-    if (isTesSuccess(meta->getFieldU8(sfTransactionResult)))
+    if (!ticket && isTesSuccess(meta->getFieldU8(sfTransactionResult)))
     {
         auto const tt = stpTrans->getTxnType();
         if (tt == ttSIGNER_LIST_SET)

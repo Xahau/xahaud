@@ -614,6 +614,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltCREDENTIAL:
             case ltPERMISSIONED_DOMAIN:
             case ltMANIFEST:
+            case ltEXPORTED_TXN:
                 break;
             default:
                 invalidTypeAdded_ = true;
