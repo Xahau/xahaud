@@ -82,6 +82,35 @@ public:
             }
         }
 
+        if (type == "rwdb")
+        {
+            std::unique_ptr<Backend> backend = Manager::instance().make_Backend(
+                params, megabytes(4), scheduler, journal);
+            backend->open();
+            try
+            {
+                backend->open();
+                fail("rwdb open twice should throw");
+            }
+            catch (std::exception const&)
+            {
+                pass();
+            }
+
+            storeBatch(*backend, batch);
+            backend->close();
+            BEAST_EXPECT(!backend->isOpen());
+
+            std::shared_ptr<NodeObject> fetched;
+            BEAST_EXPECT(
+                backend->fetch(batch.front()->getHash().data(), &fetched) ==
+                notFound);
+            backend->store(batch.front());
+            int visited = 0;
+            backend->for_each([&visited](auto const&) { ++visited; });
+            BEAST_EXPECT(visited == 0);
+        }
+
         // rwdb backend does not keep table/data after close
         if (type != "rwdb")
         {

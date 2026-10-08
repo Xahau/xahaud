@@ -87,8 +87,15 @@ public:
         acquire(hash, seq);
     }
 
+    bool
+    isNullBackend() const override
+    {
+        return nullBackend_;
+    }
+
 private:
     Application& app_;
+    bool const nullBackend_;
     NodeStore::Database& db_;
     beast::Journal const j_;
 

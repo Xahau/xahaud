@@ -32,11 +32,16 @@
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/overlay/detail/Tuning.h>
 #include <xrpld/perflog/PerfLog.h>
+#include <xrpld/shamap/Family.h>
+#include <xrpld/shamap/SHAMap.h>
+#include <xrpld/shamap/SHAMapNodeID.h>
+#include <xrpld/shamap/SHAMapTreeNode.h>
 #include <xrpl/basics/UptimeClock.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/digest.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -46,6 +51,7 @@
 #include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <sstream>
 
 using namespace std::chrono_literals;
@@ -58,10 +64,48 @@ std::chrono::milliseconds constexpr peerHighLatency{300};
 
 /** How often we PING the peer to check for latency and sendq probe */
 std::chrono::seconds constexpr peerTimerInterval{60};
-}  // namespace
 
-// TODO: Remove this exclusion once unit tests are added after the hotfix
-// release.
+// Null node store (type=rwdb) only: find a requested tree node by walking
+// the child links of resident ledgers. Uses resident-only lookups, since
+// seq and hash come from the peer and must not trigger SQL / node-store
+// loads or edit the complete-ledger set.
+std::shared_ptr<SHAMapTreeNode>
+fetchLinkedTreeNode(
+    Application& app,
+    uint256 const& hash,
+    std::uint32_t seq,
+    std::optional<SHAMapNodeID> const& nodeId)
+{
+    if (!nodeId || !app.getNodeFamily().isNullBackend())
+        return {};
+
+    auto findInMap = [&](SHAMap const& map) -> std::shared_ptr<SHAMapTreeNode> {
+        auto node = map.getLinkedNode(*nodeId);
+        if (node && node->getHash().as_uint256() == hash)
+            return node;
+        return {};
+    };
+
+    auto findInLedger = [&](std::shared_ptr<Ledger const> const& ledger)
+        -> std::shared_ptr<SHAMapTreeNode> {
+        if (!ledger)
+            return {};
+        if (auto node = findInMap(ledger->stateMap()))
+            return node;
+        return findInMap(ledger->txMap());
+    };
+
+    if (seq)
+    {
+        if (auto node =
+                findInLedger(app.getLedgerMaster().getResidentLedgerBySeq(seq)))
+            return node;
+    }
+    if (auto node = findInLedger(app.getLedgerMaster().getClosedLedger()))
+        return node;
+    return findInLedger(app.getLedgerMaster().getValidatedLedger());
+}
+}  // namespace
 
 PeerImp::PeerImp(
     Application& app,
@@ -2478,13 +2522,65 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMGetObjectByHash> const& m)
                 //             need to inject the NodeStore interfaces.
                 std::uint32_t seq{obj.has_ledgerseq() ? obj.ledgerseq() : 0};
                 auto nodeObject{app_.getNodeStore().fetchNodeObject(hash, seq)};
+
+                void const* dataPtr = nullptr;
+                std::size_t dataSize = 0;
+                Blob treeBlob;
+
                 if (nodeObject)
+                {
+                    dataPtr = nodeObject->getData().data();
+                    dataSize = nodeObject->getData().size();
+                }
+                else if (
+                    auto treeNode =
+                        app_.getNodeFamily().getTreeNodeCache()->fetch(hash))
+                {
+                    Serializer s;
+                    treeNode->serializeWithPrefix(s);
+                    treeBlob = std::move(s.modData());
+                    dataPtr = treeBlob.data();
+                    dataSize = treeBlob.size();
+                }
+                else if (
+                    auto treeNode = fetchLinkedTreeNode(
+                        app_,
+                        hash,
+                        seq,
+                        obj.has_nodeid() ? deserializeSHAMapNodeID(obj.nodeid())
+                                         : std::nullopt))
+                {
+                    Serializer s;
+                    treeNode->serializeWithPrefix(s);
+                    treeBlob = std::move(s.modData());
+                    dataPtr = treeBlob.data();
+                    dataSize = treeBlob.size();
+                }
+                else if (
+                    packet.type() == protocol::TMGetObjectByHash::otLEDGER &&
+                    app_.getNodeFamily().isNullBackend())
+                {
+                    // Null node store: serve the header of a resident
+                    // ledger in the same wire format the node store uses.
+                    // Resident-only, so a peer cannot trigger a load.
+                    if (auto ledger =
+                            app_.getLedgerMaster().getResidentLedgerByHash(
+                                hash))
+                    {
+                        Serializer s(sizeof(LedgerInfo) + 4);
+                        s.add32(HashPrefix::ledgerMaster);
+                        addRaw(ledger->info(), s);
+                        treeBlob = std::move(s.modData());
+                        dataPtr = treeBlob.data();
+                        dataSize = treeBlob.size();
+                    }
+                }
+
+                if (dataPtr)
                 {
                     protocol::TMIndexedObject& newObj = *reply.add_objects();
                     newObj.set_hash(hash.begin(), hash.size());
-                    newObj.set_data(
-                        &nodeObject->getData().front(),
-                        nodeObject->getData().size());
+                    newObj.set_data(dataPtr, dataSize);
 
                     if (obj.has_nodeid())
                         newObj.set_index(obj.nodeid());

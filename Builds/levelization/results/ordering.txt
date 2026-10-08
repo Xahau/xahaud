@@ -96,6 +96,7 @@ test.overlay > test.toplevel
 test.overlay > test.unit_test
 test.overlay > xrpl.basics
 test.overlay > xrpld.app
+test.overlay > xrpld.core
 test.overlay > xrpld.overlay
 test.overlay > xrpld.peerfinder
 test.overlay > xrpld.shamap
@@ -191,6 +192,7 @@ xrpld.overlay > xrpl.basics
 xrpld.overlay > xrpld.core
 xrpld.overlay > xrpld.peerfinder
 xrpld.overlay > xrpld.perflog
+xrpld.overlay > xrpld.shamap
 xrpld.overlay > xrpl.json
 xrpld.overlay > xrpl.protocol
 xrpld.overlay > xrpl.resource

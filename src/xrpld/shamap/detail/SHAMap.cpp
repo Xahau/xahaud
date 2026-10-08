@@ -19,13 +19,52 @@
 
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpld/shamap/SHAMapAccountStateLeafNode.h>
+#include <xrpld/shamap/SHAMapInnerNode.h>
 #include <xrpld/shamap/SHAMapNodeID.h>
 #include <xrpld/shamap/SHAMapSyncFilter.h>
 #include <xrpld/shamap/SHAMapTxLeafNode.h>
 #include <xrpld/shamap/SHAMapTxPlusMetaLeafNode.h>
 #include <xrpl/basics/contract.h>
 
+#include <atomic>
+
 namespace ripple {
+
+namespace {
+
+std::atomic<std::uint64_t> canonicalInnerBranchesHarvested_{0};
+
+/** Join linked children from a discarded same-hash inner onto the cache winner.
+
+    Same-hash inners have identical branch masks and child hashes. Installing a
+    child the winner lacks can only add linkage; it cannot change content.
+*/
+void
+mergeCanonicalInner(
+    std::shared_ptr<SHAMapTreeNode> const& canonical,
+    std::shared_ptr<SHAMapTreeNode> const& incoming)
+{
+    // Same hash implies same node type, so checking one side suffices.
+    if (!canonical->isInner())
+        return;
+
+    auto* cached = static_cast<SHAMapInnerNode*>(canonical.get());
+    auto* other = static_cast<SHAMapInnerNode*>(incoming.get());
+
+    for (int branch = 0; branch < SHAMapInnerNode::branchFactor; ++branch)
+    {
+        if (cached->isEmptyBranch(branch) || cached->getChildPointer(branch))
+            continue;
+        auto child = other->getChild(branch);
+        if (!child)
+            continue;
+        cached->canonicalizeChild(branch, std::move(child));
+        canonicalInnerBranchesHarvested_.fetch_add(
+            1, std::memory_order_relaxed);
+    }
+}
+
+}  // namespace
 
 [[nodiscard]] std::shared_ptr<SHAMapLeafNode>
 makeTypedLeaf(
@@ -1279,7 +1318,35 @@ SHAMap::canonicalize(
         node->getHash() == hash,
         "ripple::SHAMap::canonicalize : node hash do match");
 
+    auto incoming = node;
     f_.getTreeNodeCache()->canonicalize_replace_client(hash.as_uint256(), node);
+    if (node != incoming)
+        mergeCanonicalInner(node, incoming);
+}
+
+std::uint64_t
+SHAMap::canonicalInnerBranchesHarvested()
+{
+    return canonicalInnerBranchesHarvested_.load(std::memory_order_relaxed);
+}
+
+std::shared_ptr<SHAMapTreeNode>
+SHAMap::getLinkedNode(SHAMapNodeID const& id) const
+{
+    auto node = root_;
+    SHAMapNodeID current;
+    while (node && current.getDepth() < id.getDepth())
+    {
+        if (!node->isInner())
+            return {};
+        auto* inner = static_cast<SHAMapInnerNode*>(node.get());
+        auto const branch = selectBranch(current, id.getNodeID());
+        if (inner->isEmptyBranch(branch))
+            return {};
+        node = inner->getChild(branch);
+        current = current.getChildNodeID(branch);
+    }
+    return node;
 }
 
 void
