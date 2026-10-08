@@ -20,11 +20,13 @@
 #include <test/shamap/common.h>
 #include <test/unit_test/SuiteJournal.h>
 #include <xrpld/shamap/SHAMap.h>
+#include <xrpld/shamap/SHAMapInnerNode.h>
 #include <xrpld/shamap/SHAMapItem.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/beast/xor_shift_engine.h>
+#include <xrpl/protocol/Serializer.h>
 
 namespace ripple {
 namespace tests {
@@ -85,10 +87,51 @@ public:
     }
 
     void
+    testNullBackendIgnoresFullBelow(beast::Journal const& journal)
+    {
+        testcase("null backend does not skip children via FullBelowCache");
+
+        TestNodeFamily sourceFamily(journal);
+        TestNodeFamily destFamily(journal);
+        destFamily.setNullBackend(true);
+
+        SHAMap source(SHAMapType::FREE, sourceFamily);
+        for (int i = 0; i < 32; ++i)
+            source.addItem(SHAMapNodeType::tnACCOUNT_STATE, makeRandomAS());
+        source.setImmutable();
+        auto const rootHash = source.getHash();
+
+        auto const root = source.getLinkedNode(SHAMapNodeID{});
+        if (!BEAST_EXPECT(root && root->isInner()))
+            return;
+        auto* inner = static_cast<SHAMapInnerNode*>(root.get());
+        for (int b = 0; b < SHAMapInnerNode::branchFactor; ++b)
+        {
+            if (!inner->isEmptyBranch(b))
+            {
+                destFamily.getFullBelowCache()->insert(
+                    inner->getChildHash(b).as_uint256());
+            }
+        }
+
+        SHAMap destination(SHAMapType::FREE, destFamily);
+        destination.setSynching();
+        Serializer s;
+        source.serializeRoot(s);
+        BEAST_EXPECT(
+            destination.addRootNode(rootHash, s.slice(), nullptr).isGood());
+
+        auto const missing = destination.getMissingNodes(2048, nullptr);
+        BEAST_EXPECT(!missing.empty());
+    }
+
+    void
     run() override
     {
         using namespace beast::severities;
         test::SuiteJournal journal("SHAMapSync_test", *this);
+
+        testNullBackendIgnoresFullBelow(journal);
 
         TestNodeFamily f(journal), f2(journal);
         SHAMap source(SHAMapType::FREE, f);
