@@ -59,6 +59,17 @@ public:
         testUnHexFailure("123X");
         testUnHexFailure("V");
         testUnHexFailure("XAH");
+
+        // Bytes >= 0x80 (negative when char is signed) must be rejected, not
+        // used to index the lookup table out of bounds
+        for (int b = 0x80; b <= 0xff; ++b)
+        {
+            std::string const c(1, static_cast<char>(b));
+            testUnHexFailure(c);
+            testUnHexFailure("0" + c);
+            testUnHexFailure(c + "0");
+            testUnHexFailure("00" + c + "00");
+        }
     }
 
     void

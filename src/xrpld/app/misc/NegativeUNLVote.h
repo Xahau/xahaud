@@ -193,6 +193,26 @@ private:
     choose(uint256 const& randomPadData, std::vector<NodeID> const& candidates);
 
     /**
+     * Count trusted full validations per UNL validator over the last
+     * FLAG_LEDGER_INTERVAL ledgers. Fails only on insufficient ledger
+     * history; does not apply the local reliability gate.
+     */
+    std::optional<hash_map<NodeID, std::uint32_t>>
+    buildRawScoreTable(
+        std::shared_ptr<Ledger const> const& prevLedger,
+        hash_set<NodeID> const& unl,
+        RCLValidations& validations);
+
+    /**
+     * True if the local node issued enough validations in the score table
+     * to be trusted to vote on N-UNL changes.
+     */
+    bool
+    localNodeReliableForNUNL(
+        hash_map<NodeID, std::uint32_t> const& scoreTable,
+        LedgerIndex seq) const;
+
+    /**
      * Build a reliability measurement score table of validators' validation
      * messages in the last flag ledger period.
      *
