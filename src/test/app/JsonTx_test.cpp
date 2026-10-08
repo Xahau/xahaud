@@ -726,34 +726,41 @@ struct JsonTx_test : public beast::unit_test::suite
         env.fund(XRP(10000), alice, bob);
         env.close();
 
-        // a sequence-sequenced transaction with a Time consumes the sequence
-        // and records the Time, so it takes part in the replay ordering
+        // On a transaction with a Sequence, a Time is only the validity
+        // window. The Sequence is its replay protection, so it neither checks
+        // nor records sfLastTxnTime: a Time older than sfLastTxnTime, or one
+        // already used, is no obstacle.
         auto const t = nowMs(env);
         auto const s = env.seq(alice);
+        env(withTime(noop(alice), t + 5), seq(0));
+        BEAST_EXPECT(lastTxnTime(env, alice) == t + 5);
         env(withTime(noop(alice), t));
-        BEAST_EXPECT(env.seq(alice) == s + 1);
-        BEAST_EXPECT(lastTxnTime(env, alice) == t);
-        env(withTime(noop(alice), t), seq(0), ter(tefPAST_SEQ));
-        env(withTime(noop(alice), t), ter(tefPAST_SEQ));
+        env(withTime(noop(alice), t));
+        BEAST_EXPECT(env.seq(alice) == s + 2);
+        BEAST_EXPECT(lastTxnTime(env, alice) == t + 5);
 
-        // ... and still needs the right sequence
+        // ... while a time-sequenced one is still held to it
+        env(withTime(noop(alice), t + 5), seq(0), ter(tefPAST_SEQ));
+
+        // ... and it still needs the right sequence
         env(withTime(noop(alice), t + 1), seq(s), ter(tefPAST_SEQ));
-        env(withTime(noop(alice), t + 1), seq(s + 5), ter(terPRE_SEQ));
+        env(withTime(noop(alice), t + 1), seq(s + 50), ter(terPRE_SEQ));
 
-        // a Ticket with a Time consumes the Ticket and records the Time
+        // the same for a Ticket: it consumes the Ticket, and its Time is only
+        // a window
         std::uint32_t const tkt = env.seq(alice) + 1;
         env(ticket::create(alice, 1));
         env.close();
         env(withTime(noop(alice), t + 2), ticket::use(tkt));
         env.close();
         BEAST_EXPECT(!env.le(keylet::ticket(alice, tkt)));
-        BEAST_EXPECT(lastTxnTime(env, alice) == t + 2);
+        BEAST_EXPECT(lastTxnTime(env, alice) == t + 5);
 
         // time-sequenced TicketCreate: tickets start at the (unconsumed)
         // account sequence, and the sequence moves past them
         {
             auto const before = env.seq(alice);
-            env(withTime(ticket::create(alice, 2), t + 3), seq(0));
+            env(withTime(ticket::create(alice, 2), t + 6), seq(0));
             env.close();
             BEAST_EXPECT(env.le(keylet::ticket(alice, before)));
             BEAST_EXPECT(env.le(keylet::ticket(alice, before + 1)));
@@ -775,6 +782,10 @@ struct JsonTx_test : public beast::unit_test::suite
             BEAST_EXPECT(lastTxnTime(env, alice) == t + 10);
             BEAST_EXPECT(engine(submitBlob(env, stx(jt))) == "tefPAST_SEQ");
         }
+
+        // The window applies whatever sequences the transaction.
+        env(withTime(noop(alice), nowMs(env) + txTimeMaxFutureMs + 1),
+            ter(terPRE_SEQ));
     }
 
     void
@@ -1258,12 +1269,12 @@ struct JsonTx_test : public beast::unit_test::suite
         BEAST_EXPECT(order.size() == 4);
         if (order.size() == 4)
         {
-            // oldest first, the only order in which all can apply; and all
-            // before any sequence-sequenced transaction, as SeqProxy 0
-            BEAST_EXPECT(order[0] == early);
-            BEAST_EXPECT(order[1] == mid);
-            BEAST_EXPECT(order[2] == late);
-            BEAST_EXPECT(order[3] == bySeq);
+            // after everything sequenced by a Sequence or a Ticket; then
+            // oldest Time first, the only order in which all can apply
+            BEAST_EXPECT(order[0] == bySeq);
+            BEAST_EXPECT(order[1] == early);
+            BEAST_EXPECT(order[2] == mid);
+            BEAST_EXPECT(order[3] == late);
         }
 
         // and the next one after an applied transaction is the next Time
@@ -1279,6 +1290,169 @@ struct JsonTx_test : public beast::unit_test::suite
         plain.insert(s2);
         plain.insert(s1);
         BEAST_EXPECT(plain.begin()->second == s1);
+
+        // Sequences, then Tickets, then time-sequenced transactions oldest
+        // first. A Time on one with a Sequence or a Ticket changes nothing.
+        auto const makeTicket = [](std::uint32_t ticket,
+                                   std::optional<std::uint64_t> time) {
+            return std::make_shared<STTx const>(
+                ttACCOUNT_SET, [&](STObject& o) {
+                    o.setAccountID(sfAccount, AccountID(7));
+                    o.setFieldU32(sfSequence, 0);
+                    o.setFieldU32(sfTicketSequence, ticket);
+                    o.setFieldAmount(sfFee, XRPAmount(10));
+                    o.setFieldVL(sfSigningPubKey, Blob{});
+                    if (time)
+                        o.setFieldU64(sfTime, *time);
+                });
+        };
+        auto const seq6Timed = make(6, 150);
+        auto const tkt8Timed = makeTicket(8, 250);
+        auto const tkt9 = makeTicket(9, std::nullopt);
+
+        CanonicalTXSet mixed{uint256{}};
+        for (auto const& tx :
+             {late, tkt9, seq6Timed, early, tkt8Timed, bySeq, mid, s1})
+            mixed.insert(tx);
+        std::vector<std::shared_ptr<STTx const>> got;
+        for (auto const& [k, tx] : mixed)
+            got.push_back(tx);
+        std::vector<std::shared_ptr<STTx const>> const want{
+            s1, bySeq, seq6Timed, tkt8Timed, tkt9, early, mid, late};
+        BEAST_EXPECT(got == want);
+
+        // After a sequenced transaction, Time or not, the next Sequence is
+        // offered first: that is what it can have unblocked.
+        {
+            auto const seq7 = make(7, std::nullopt);
+            CanonicalTXSet heldSeq{uint256{}};
+            heldSeq.insert(late);
+            heldSeq.insert(seq7);
+            BEAST_EXPECT(heldSeq.popAcctTransaction(seq6Timed) == seq7);
+            BEAST_EXPECT(heldSeq.popAcctTransaction(seq6Timed) == late);
+        }
+    }
+
+    // The open ledger applies transactions in arrival order, consensus in
+    // CanonicalTXSet order, so whatever the open ledger accepted together
+    // must apply together in that order too. Z01 to Z03 are the
+    // reproductions from the 2026-10-07 review; the reversed pairs hold the
+    // fix to both arrival orders.
+    void
+    testConsensusOrder(FeatureBitset features)
+    {
+        testcase("consensus applies what the open ledger accepted");
+        using namespace jtx;
+
+        Env env{*this, features};
+        Account const alice{"alice", KeyType::ed25519};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        // strictly increasing, and never behind the open ledger
+        std::uint64_t t = nowMs(env);
+        auto const nextTime = [&]() {
+            auto const now = nowMs(env);
+            t = now > t + 10 ? now : t + 10;
+            return t;
+        };
+
+        // submits jt, which the open ledger must accept, and returns its id
+        auto const openAccept = [&](JTx const& jt) {
+            BEAST_EXPECT(engine(submitBlob(env, stx(jt))) == "tesSUCCESS");
+            return jt.stx->getTransactionID();
+        };
+
+        // closes the ledger, which must hold both
+        auto const closeWith = [&](uint256 const& a, uint256 const& b) {
+            env.close();
+            BEAST_EXPECT(env.closed()->txExists(a));
+            BEAST_EXPECT(env.closed()->txExists(b));
+        };
+
+        // Z01: a sequenced transaction with a Time, then a time-sequenced
+        // one with a later Time
+        {
+            auto const s = env.seq(alice);
+            auto const a =
+                openAccept(env.jt(withTime(noop(alice), nextTime())));
+            auto const tb = nextTime();
+            auto const b =
+                openAccept(env.jt(withTime(noop(alice), tb), seq(0)));
+            closeWith(a, b);
+            BEAST_EXPECT(env.seq(alice) == s + 1);
+            BEAST_EXPECT(lastTxnTime(env, alice) == tb);
+        }
+
+        // reversed: a sequenced transaction with a later Time must not
+        // shut out the time-sequenced one before it
+        {
+            auto const s = env.seq(alice);
+            auto const ta = nextTime();
+            auto const a =
+                openAccept(env.jt(withTime(noop(alice), ta), seq(0)));
+            auto const b =
+                openAccept(env.jt(withTime(noop(alice), nextTime())));
+            closeWith(a, b);
+            BEAST_EXPECT(env.seq(alice) == s + 1);
+            BEAST_EXPECT(lastTxnTime(env, alice) == ta);
+        }
+
+        // A sequenced transaction's Time is only a window, so one older than
+        // sfLastTxnTime still applies, in either order.
+        {
+            auto const s = env.seq(alice);
+            auto const tOld = nextTime();
+            auto const tb = nextTime();
+            auto const a =
+                openAccept(env.jt(withTime(noop(alice), tb), seq(0)));
+            auto const b = openAccept(env.jt(withTime(noop(alice), tOld)));
+            closeWith(a, b);
+            BEAST_EXPECT(env.seq(alice) == s + 1);
+            BEAST_EXPECT(lastTxnTime(env, alice) == tb);
+        }
+
+        // Z02: as Z01, with a Ticket in place of the Sequence
+        {
+            std::uint32_t const tkt = env.seq(alice) + 1;
+            env(ticket::create(alice, 1));
+            env.close();
+            auto const a = openAccept(
+                env.jt(withTime(noop(alice), nextTime()), ticket::use(tkt)));
+            auto const tb = nextTime();
+            auto const b =
+                openAccept(env.jt(withTime(noop(alice), tb), seq(0)));
+            closeWith(a, b);
+            BEAST_EXPECT(!env.le(keylet::ticket(alice, tkt)));
+            BEAST_EXPECT(lastTxnTime(env, alice) == tb);
+        }
+
+        // Z03: a plain Payment, then a time-sequenced TicketCreate, whose
+        // Tickets must get the numbers the open ledger gave them
+        {
+            auto const s = env.seq(alice);
+            auto const a = openAccept(env.jt(pay(alice, bob, XRP(1))));
+            auto const b = openAccept(
+                env.jt(withTime(ticket::create(alice, 2), nextTime()), seq(0)));
+            closeWith(a, b);
+            BEAST_EXPECT(env.le(keylet::ticket(alice, s + 1)));
+            BEAST_EXPECT(env.le(keylet::ticket(alice, s + 2)));
+            BEAST_EXPECT(env.seq(alice) == s + 3);
+        }
+
+        // reversed: the Payment, sequenced after the Tickets, fails
+        // terPRE_SEQ ahead of the TicketCreate and applies on the retry
+        {
+            auto const s = env.seq(alice);
+            auto const a = openAccept(
+                env.jt(withTime(ticket::create(alice, 2), nextTime()), seq(0)));
+            auto const b = openAccept(env.jt(pay(alice, bob, XRP(1))));
+            closeWith(a, b);
+            BEAST_EXPECT(env.le(keylet::ticket(alice, s)));
+            BEAST_EXPECT(env.le(keylet::ticket(alice, s + 1)));
+            BEAST_EXPECT(env.seq(alice) == s + 3);
+        }
     }
 
     void
@@ -1329,6 +1503,7 @@ struct JsonTx_test : public beast::unit_test::suite
         testAccountDelete(all);
         testQueue(all);
         testCanonicalOrder();
+        testConsensusOrder(all);
         testLocalTxs(all);
     }
 };

@@ -331,10 +331,13 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
         return tecTOO_SOON;
 
     // The same protection for sfTime. A re-created account has no
-    // sfLastTxnTime, so any transaction whose Time is still inside the
-    // validity window could be applied to it a second time. Every Time this
-    // account has used is at most sfLastTxnTime, so once that is older than
-    // txTimeMaxAgeMs none of them can ever apply again.
+    // sfLastTxnTime, so any time-sequenced transaction whose Time is still
+    // inside the validity window could be applied to it a second time. Every
+    // one this account has applied had a Time at most sfLastTxnTime, so once
+    // that is older than txTimeMaxAgeMs none of them can ever apply again.
+    // (A Time on a transaction sequenced by a Sequence or a Ticket is never
+    // recorded and needs no such care: the Sequence restarts and the Tickets
+    // are gone.)
     if (auto const last = (*sleAccount)[~sfLastTxnTime])
     {
         std::uint64_t const close =

@@ -1050,8 +1050,12 @@ class JSONTxSignatures_test : public beast::unit_test::suite
         // A key swap: a third party re-signs the captured preimage with their
         // own key. SigningPubKey is inside the preimage, so it cannot match.
         {
-            auto const [pk2, sk2] =
+            // A named pair, not a structured binding: clang before 16 cannot
+            // capture a binding in a lambda.
+            auto const mallory =
                 generateKeyPair(KeyType::ed25519, generateSeed("mallory"));
+            auto const& pk2 = mallory.first;
+            auto const& sk2 = mallory.second;
             auto const t = mutate(*stx, [&](STObject& o) {
                 o.setFieldVL(sfSigningPubKey, pk2.slice());
                 o.setFieldVL(sfTxnSignature, jsonSign(pk2, sk2, raw));
@@ -1209,7 +1213,7 @@ class JSONTxSignatures_test : public beast::unit_test::suite
     {
         AccountID a1, a2;
         int depth = 0;
-        std::vector<std::string> unfilled;
+        std::vector<std::string> unfilled{};
 
         SField const*
         elementOf(SField const& array) const

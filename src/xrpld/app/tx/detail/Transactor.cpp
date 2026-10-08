@@ -766,9 +766,8 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         (ctx.view.seq() > ctx.tx.getFieldU32(sfLastLedgerSequence)))
         return tefMAX_LEDGER;
 
-    // sfTime stands in for both LastLedgerSequence and, when Sequence is 0,
-    // the account sequence. It applies to every transaction carrying it,
-    // whichever way that transaction is otherwise sequenced.
+    // sfTime stands in for LastLedgerSequence on every transaction carrying
+    // it and, on a time-sequenced one, for the account Sequence too.
     if (auto const time = ctx.tx[~sfTime])
     {
         // milliseconds since the ripple epoch, like sfTime
@@ -788,11 +787,21 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
         if (*time > close && *time - close > txTimeMaxFutureMs)
             return terPRE_SEQ;
 
-        // Replay. Strictly greater, so two transactions can never share a
-        // Time, and the Time of every transaction ever applied is at most
-        // sfLastTxnTime. With the window above, a time-sequenced
-        // transaction is applied at most once.
-        if (sle && sle->isFieldPresent(sfLastTxnTime) &&
+        // Replay, for a time-sequenced transaction only. Strictly greater, so
+        // no two of them share a Time, and the Time of every one ever applied
+        // is at most sfLastTxnTime. With the window above, each is applied at
+        // most once.
+        //
+        // A Sequence or a Ticket is replay protection already, so a
+        // transaction sequenced by one is neither checked here nor recorded
+        // in consumeSeqProxy: its Time is only a validity window. Were it
+        // checked, it would have to apply in Time order among the account's
+        // time-sequenced transactions as well as in Sequence order, and no
+        // CanonicalTXSet order satisfies both for every set the open ledger
+        // can accept, so consensus would drop transactions the open ledger
+        // took.
+        if (ctx.tx.isTimeSequenced() && sle &&
+            sle->isFieldPresent(sfLastTxnTime) &&
             *time <= sle->getFieldU64(sfLastTxnTime))
             return tefPAST_SEQ;
     }
@@ -860,18 +869,17 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
         ctx_.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
-    // Recorded whatever else sequences the transaction, so that
-    // checkPriorTxAndLastLedger's replay check covers every Time this account
-    // ever used. This runs in apply() and again in reset(), so a tec result
-    // is covered too.
-    if (auto const time = ctx_.tx[~sfTime])
-        sleAccount->setFieldU64(sfLastTxnTime, *time);
-
-    // A time-sequenced transaction has Sequence 0 and no Ticket. Falling
-    // through would write Sequence = 0 + 1 and make every sequence this
-    // account ever used replayable.
+    // A time-sequenced transaction records its Time, which is what
+    // checkPriorTxAndLastLedger's replay check reads; nothing else does (see
+    // there). This runs in apply() and again in reset(), so a tec result is
+    // covered too. It has Sequence 0 and no Ticket, so falling through would
+    // write Sequence = 0 + 1 and make every sequence this account ever used
+    // replayable.
     if (ctx_.tx.isTimeSequenced())
+    {
+        sleAccount->setFieldU64(sfLastTxnTime, ctx_.tx.getFieldU64(sfTime));
         return tesSUCCESS;
+    }
 
     SeqProxy const seqProx = ctx_.tx.getSeqProxy();
     if (seqProx.isSeq())
