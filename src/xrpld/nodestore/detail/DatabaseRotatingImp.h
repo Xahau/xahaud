@@ -22,7 +22,10 @@
 
 #include <xrpld/nodestore/DatabaseRotating.h>
 
+#include <xrpl/basics/ReaderPreferringSharedMutex.h>
+
 #include <mutex>
+#include <shared_mutex>
 
 namespace ripple {
 namespace NodeStore {
@@ -93,7 +96,7 @@ public:
 private:
     std::shared_ptr<Backend> writableBackend_;
     std::shared_ptr<Backend> archiveBackend_;
-    mutable std::mutex mutex_;
+    mutable ReaderPreferringSharedMutex mutex_;
 
     std::shared_ptr<NodeObject>
     fetchNodeObject(
