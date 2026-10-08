@@ -20,10 +20,12 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/misc/ValidatorSite.h>
 #include <xrpld/app/rdb/RelationalDatabase.h>
 #include <xrpld/app/rdb/Wallet.h>
+#include <xrpld/app/tx/apply.h>
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/ConnectAttempt.h>
 #include <xrpld/overlay/detail/PeerImp.h>
@@ -35,7 +37,9 @@
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/protocol/STTx.h>
+#include <xrpl/resource/Fees.h>
 #include <xrpl/server/SimpleWriter.h>
 
 #include <xrpld/core/ConfigSections.h>
@@ -105,6 +109,7 @@ OverlayImpl::Timer::on_timer(error_code ec)
 
     overlay_.m_peerFinder->once_per_second();
     overlay_.sendEndpoints();
+    overlay_.sendXUSHPeers();
     overlay_.autoConnect();
     if (overlay_.app_.config().TX_REDUCE_RELAY_ENABLE)
         overlay_.sendTxQueue();
@@ -148,6 +153,8 @@ OverlayImpl::OverlayImpl(
     , next_id_(1)
     , timer_count_(0)
     , slots_(app.logs(), *this)
+    , xushSocket4_(io_context_)
+    , xushSocket6_(io_context_)
     , m_stats(
           std::bind(&OverlayImpl::collect_metrics, this),
           collector,
@@ -493,6 +500,9 @@ OverlayImpl::start()
     m_peerFinder->setConfig(config);
     m_peerFinder->start();
 
+    if (app_.config().UDP_HIGHWAY)
+        openXUSH();
+
     auto addIps = [this](std::vector<std::string> ips, bool fixed) {
         beast::Journal const& j = app_.journal("Overlay");
         for (auto& ip : ips)
@@ -565,6 +575,7 @@ OverlayImpl::stop()
         cond_.wait(lock, [this] { return list_.empty(); });
     }
     m_peerFinder->stop();
+    closeXUSH();
 }
 
 //------------------------------------------------------------------------------
@@ -1468,6 +1479,359 @@ OverlayImpl::deleteIdlePeers()
         return post(strand_, std::bind(&OverlayImpl::deleteIdlePeers, this));
 
     slots_.deleteIdlePeers();
+}
+
+//------------------------------------------------------------------------------
+//
+// XUSH (Xahau UDP Superhighway)
+//
+//------------------------------------------------------------------------------
+
+namespace {
+
+// Called from the JobQueue. Performs the expensive checks and then hands the
+// transaction to NetworkOPs which, if it applies, relays it over both the peer
+// protocol and the highway.
+void
+checkXUSHTransaction(
+    Application& app,
+    beast::Journal j,
+    std::shared_ptr<STTx const> const& stx,
+    Resource::Consumer usage)
+{
+    auto const txID = stx->getTransactionID();
+
+    try
+    {
+        if (stx->isFieldPresent(sfLastLedgerSequence) &&
+            (stx->getFieldU32(sfLastLedgerSequence) <
+             app.getLedgerMaster().getValidLedgerIndex()))
+        {
+            app.getHashRouter().setFlags(txID, SF_BAD);
+            usage.charge(Resource::feeUselessData, "XUSH expired tx");
+            return;
+        }
+
+        if (auto const [validity, reason] = checkValidity(
+                app.getHashRouter(),
+                *stx,
+                app.getLedgerMaster().getValidatedRules(),
+                app.config());
+            validity != Validity::Valid)
+        {
+            JLOG(j.trace())
+                << "XUSH: transaction " << txID << " failed checks: " << reason;
+            app.getHashRouter().setFlags(txID, SF_BAD);
+            usage.charge(Resource::feeInvalidSignature, "XUSH tx signature");
+            return;
+        }
+
+        std::string why;
+        auto tx = std::make_shared<Transaction>(stx, why, app);
+        if (tx->getStatus() == INVALID)
+        {
+            JLOG(j.trace())
+                << "XUSH: transaction " << txID << " is invalid: " << why;
+            app.getHashRouter().setFlags(txID, SF_BAD);
+            usage.charge(Resource::feeInvalidSignature, "XUSH tx (impossible)");
+            return;
+        }
+
+        app.getOPs().processTransaction(
+            tx, false, false, NetworkOPs::FailHard::no);
+    }
+    catch (std::exception const& ex)
+    {
+        JLOG(j.warn()) << "XUSH: exception checking transaction " << txID
+                       << ": " << ex.what();
+        app.getHashRouter().setFlags(txID, SF_BAD);
+        usage.charge(Resource::feeInvalidData, "XUSH tx exception");
+    }
+}
+
+}  // namespace
+
+void
+OverlayImpl::processXUSH(
+    std::string const& message,
+    boost::asio::ip::tcp::endpoint const& remoteEndpoint)
+{
+    if (!app_.config().UDP_HIGHWAY)
+        return;
+
+    auto const remote = beast::IPAddressConversion::from_asio(remoteEndpoint);
+
+    // Datagrams are unauthenticated, so they are accounted for against the
+    // sender's IP address exactly like an inbound peer connection.
+    auto usage = m_resourceManager.newInboundEndpoint(remote);
+    if (usage.disconnect(journal_))
+        return;
+    usage.charge(Resource::feeTrivialPeer, "XUSH datagram");
+
+    Slice const datagram(message.data(), message.size());
+
+    switch (xush::classify(datagram))
+    {
+        case xush::MessageType::peers:
+            onXUSHPeers(datagram, remote, usage);
+            break;
+
+        case xush::MessageType::txn:
+            onXUSHTxnFragment(datagram, remote, usage);
+            break;
+
+        case xush::MessageType::unknown:
+            // Ignored, so that new datagram types can be added later.
+            JLOG(journal_.trace()) << "XUSH: unknown datagram from " << remote;
+            break;
+    }
+}
+
+void
+OverlayImpl::onXUSHPeers(
+    Slice datagram,
+    beast::IP::Endpoint const& remote,
+    Resource::Consumer& usage)
+{
+    auto const endpoints = xush::decodePeers(datagram);
+    if (!endpoints)
+    {
+        usage.charge(Resource::feeMalformedRequest, "XUSHPEER malformed");
+        return;
+    }
+
+    JLOG(journal_.trace()) << "XUSHPEER from " << remote << " with "
+                           << endpoints->size() << " endpoints";
+
+    m_peerFinder->add_highway_peers(*endpoints);
+}
+
+void
+OverlayImpl::onXUSHTxnFragment(
+    Slice datagram,
+    beast::IP::Endpoint const& remote,
+    Resource::Consumer& usage)
+{
+    auto const fragment = xush::decodeTxnFragment(datagram);
+    if (!fragment)
+    {
+        usage.charge(Resource::feeMalformedRequest, "XUSHTXNF malformed");
+        return;
+    }
+
+    auto result = [&] {
+        std::lock_guard lock(xushMutex_);
+        return xushReassembler_.add(
+            remote, *fragment, xush::Reassembler::clock_type::now());
+    }();
+
+    switch (result.status)
+    {
+        case xush::Reassembler::Status::pending:
+            break;
+
+        case xush::Reassembler::Status::overloaded:
+            JLOG(journal_.debug())
+                << "XUSHTXNF: reassembly limit reached, dropped fragment from "
+                << remote;
+            break;
+
+        case xush::Reassembler::Status::invalid:
+            usage.charge(Resource::feeInvalidData, "XUSHTXNF inconsistent");
+            break;
+
+        case xush::Reassembler::Status::complete:
+            onXUSHTransaction(result.txn, fragment->txid, usage);
+            break;
+    }
+}
+
+void
+OverlayImpl::onXUSHTransaction(
+    Buffer const& blob,
+    uint256 const& txid,
+    Resource::Consumer& usage)
+{
+    // If we've never been in sync, there's nothing we can do with it
+    if (app_.getOPs().isNeedNetworkLedger())
+        return;
+
+    std::shared_ptr<STTx const> stx;
+    try
+    {
+        SerialIter sit(Slice(blob.data(), blob.size()));
+        stx = std::make_shared<STTx const>(sit);
+    }
+    catch (std::exception const& ex)
+    {
+        JLOG(journal_.debug()) << "XUSH: malformed transaction: " << ex.what();
+        usage.charge(Resource::feeInvalidData, "XUSH malformed tx");
+        return;
+    }
+
+    auto const txID = stx->getTransactionID();
+
+    // The ID in the header can't be used for anything (in particular, not to
+    // suppress a transaction) until it's known to match the content.
+    if (txID != txid)
+    {
+        usage.charge(Resource::feeInvalidData, "XUSH tx ID mismatch");
+        return;
+    }
+
+    // Emitted transactions are never relayed, and pseudo-transactions are
+    // never submitted by servers.
+    if (stx->isFieldPresent(sfEmitDetails) || isPseudoTx(*stx))
+    {
+        usage.charge(Resource::feeHeavyBurdenPeer, "XUSH emitted/pseudo tx");
+        return;
+    }
+
+    int flags;
+    if (!app_.getHashRouter().shouldProcess(
+            txID, 0, flags, std::chrono::seconds(10)))
+    {
+        // We have seen this transaction recently
+        if (flags & SF_BAD)
+            usage.charge(Resource::feeUselessData, "XUSH known bad tx");
+        return;
+    }
+
+    if (app_.getLedgerMaster().getValidatedLedgerAge() >
+        std::chrono::minutes(4))
+    {
+        JLOG(journal_.trace()) << "XUSH: no new transactions until synced";
+        return;
+    }
+
+    if (app_.getJobQueue().getJobCount(jtTRANSACTION) >
+        app_.config().MAX_TRANSACTIONS)
+    {
+        incJqTransOverflow();
+        JLOG(journal_.info()) << "XUSH: transaction queue is full";
+        return;
+    }
+
+    app_.getJobQueue().addJob(
+        jtTRANSACTION,
+        "XUSH->checkTransaction",
+        [&app = app_, j = journal_, stx, usage]() {
+            checkXUSHTransaction(app, j, stx, usage);
+        });
+}
+
+void
+OverlayImpl::publishTxXUSH(Slice const& tx, uint256 const& txid)
+{
+    if (!app_.config().UDP_HIGHWAY)
+        return;
+
+    auto const targets = m_peerFinder->highway_targets(xush::txnFanout);
+    if (targets.empty())
+        return;
+
+    auto const datagrams = xush::encodeTxn(tx, txid);
+    if (datagrams.empty())
+    {
+        JLOG(journal_.debug())
+            << "XUSH: transaction " << txid << " is too large for the highway";
+        return;
+    }
+
+    sendXUSH(datagrams, targets);
+}
+
+void
+OverlayImpl::sendXUSHPeers()
+{
+    if (!app_.config().UDP_HIGHWAY)
+        return;
+
+    auto const adverts =
+        m_peerFinder->highway_adverts(xush::maxAdvertisedPeers);
+    if (adverts.empty())
+        return;
+
+    auto const targets = m_peerFinder->highway_targets(xush::advertFanout);
+    if (targets.empty())
+        return;
+
+    sendXUSH({xush::encodePeers(adverts)}, targets);
+}
+
+void
+OverlayImpl::sendXUSH(
+    std::vector<Buffer> const& datagrams,
+    std::vector<beast::IP::Endpoint> const& targets)
+{
+    std::lock_guard lock(xushSendMutex_);
+
+    for (auto const& target : targets)
+    {
+        auto& socket = target.address().is_v4() ? xushSocket4_ : xushSocket6_;
+        if (!socket.is_open())
+            continue;
+
+        boost::asio::ip::udp::endpoint const to(
+            target.address(), target.port());
+
+        for (auto const& datagram : datagrams)
+        {
+            boost::system::error_code ec;
+            socket.send_to(
+                boost::asio::buffer(datagram.data(), datagram.size()),
+                to,
+                0,
+                ec);
+
+            // The socket never blocks: if it can't take a datagram now, the
+            // rest are dropped too. The peer protocol still relays them.
+            if (ec)
+            {
+                JLOG(journal_.trace()) << "XUSH: send to " << target
+                                       << " failed: " << ec.message();
+                break;
+            }
+        }
+    }
+}
+
+void
+OverlayImpl::openXUSH()
+{
+    using boost::asio::ip::udp;
+
+    std::lock_guard lock(xushSendMutex_);
+
+    auto open = [this](udp::socket& socket, udp const& protocol) {
+        boost::system::error_code ec;
+        socket.open(protocol, ec);
+        if (!ec && protocol == udp::v6())
+            socket.set_option(boost::asio::ip::v6_only(true), ec);
+        if (!ec)
+            socket.non_blocking(true, ec);
+
+        if (ec)
+        {
+            JLOG(journal_.warn()) << "XUSH: unable to open "
+                                  << (protocol == udp::v4() ? "IPv4" : "IPv6")
+                                  << " socket: " << ec.message();
+            boost::system::error_code ignored;
+            socket.close(ignored);
+        }
+    };
+
+    open(xushSocket4_, udp::v4());
+    open(xushSocket6_, udp::v6());
+}
+
+void
+OverlayImpl::closeXUSH()
+{
+    std::lock_guard lock(xushSendMutex_);
+    boost::system::error_code ignored;
+    xushSocket4_.close(ignored);
+    xushSocket6_.close(ignored);
 }
 
 //------------------------------------------------------------------------------

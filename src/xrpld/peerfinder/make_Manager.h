@@ -21,9 +21,8 @@
 #define RIPPLE_PEERFINDER_MAKE_MANAGER_H_INCLUDED
 
 #include <xrpld/peerfinder/PeerfinderManager.h>
-
+#include <xrpl/beast/insight/Collector.h>
 #include <boost/asio/io_context.hpp>
-
 #include <memory>
 
 namespace ripple {

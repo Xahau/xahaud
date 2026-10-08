@@ -101,6 +101,7 @@ test.overlay > xrpld.overlay
 test.overlay > xrpld.peerfinder
 test.overlay > xrpld.shamap
 test.overlay > xrpl.protocol
+test.overlay > xrpl.resource
 test.peerfinder > test.beast
 test.peerfinder > test.unit_test
 test.peerfinder > xrpl.basics
