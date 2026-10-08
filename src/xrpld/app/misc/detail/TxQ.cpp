@@ -1658,11 +1658,9 @@ TxQ::accept(Application& app, OpenView& view)
                             [seq, txnHash, emitDetails](auto& obj) {
                                 obj[sfLedgerSequence] = seq;
                                 obj[sfTransactionHash] = txnHash;
-                                obj.emplace_back(emitDetails);
-                                /*std::unique_ptr<STBase> ed =
-                                    std::make_unique<STBase>(emitDetails);
-                                ed->setFName(sfEmitDetails);
-                                obj.set(std::move(ed));*/
+                                // replace the template slot rather than
+                                // appending a duplicate (bytes unchanged)
+                                obj.set(STObject(emitDetails));
                             });
 
                         uint256 txID = efTx.getTransactionID();

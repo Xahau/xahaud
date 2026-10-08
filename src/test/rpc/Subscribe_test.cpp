@@ -847,6 +847,14 @@ public:
         Account alice("alice");
         Account bob("bob");
         Account carol("carol");
+
+        // Account history loads ledgers by seq. type=rwdb is tree-only
+        // and cannot reconstruct those maps from the node store.
+        auto storing = [] {
+            auto cfg = envconfig();
+            cfg->section(ConfigSection::nodeDatabase()).set("type", "memory");
+            return cfg;
+        };
         Account david("david");
         ///////////////////////////////////////////////////////////////////
 
@@ -1015,7 +1023,7 @@ public:
              *
              * also test subscribe to the account before it is created
              */
-            Env env(*this);
+            Env env(*this, storing());
             auto wscTxHistory = makeWSClient(env.app().config());
             Json::Value request;
             request[jss::account_history_tx_stream] = Json::objectValue;
@@ -1061,7 +1069,7 @@ public:
              * subscribe genesis account tx history without txns
              * subscribe to bob's account after it is created
              */
-            Env env(*this);
+            Env env(*this, storing());
             auto wscTxHistory = makeWSClient(env.app().config());
             Json::Value request;
             request[jss::account_history_tx_stream] = Json::objectValue;
@@ -1140,7 +1148,7 @@ public:
              * subscribe account and subscribe account tx history
              * and compare txns streamed
              */
-            Env env(*this);
+            Env env(*this, storing());
             auto wscAccount = makeWSClient(env.app().config());
             auto wscTxHistory = makeWSClient(env.app().config());
 
@@ -1211,7 +1219,7 @@ public:
              * alice issues USD to carol
              * mix USD and XRP payments
              */
-            Env env(*this);
+            Env env(*this, storing());
             auto const USD_a = alice["USD"];
 
             std::array<Account, 2> accounts = {alice, carol};
@@ -1250,7 +1258,7 @@ public:
             /*
              * long transaction history
              */
-            Env env(*this);
+            Env env(*this, storing());
             std::array<Account, 2> accounts = {alice, carol};
             env.fund(XRP(444444), accounts);
             env.close();
