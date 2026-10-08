@@ -251,6 +251,12 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     // txid after a fee change. The strictly-increasing sequence test below
     // covers that, both within this ledger and in every later one. Either
     // result is tef, so a replay is never included and never claims a fee.
+    //
+    // The same goes for every other refusal here that turns on ledger state.
+    // The envelope is unsigned and consumes no account sequence, so once
+    // relayed anyone can resubmit it, in every ledger, for as long as the
+    // state it was refused on stays as it is. A tec would charge the master
+    // account its fee each time.
     if (sle->isFieldPresent(sfManifestID))
     {
         // A dangling sfManifestID is a corrupt ledger; doApply reports it.
@@ -293,7 +299,7 @@ SetManifest::preclaim(PreclaimContext const& ctx)
             << "SetManifest: Master key already claimed as an ephemeral key "
                "by another account. "
             << id;
-        return tecDUPLICATE;
+        return tefMANIFEST_KEY_IN_USE;
     }
 
     if (newManifest->signingKey)
@@ -306,7 +312,22 @@ SetManifest::preclaim(PreclaimContext const& ctx)
                 << "SetManifest: Ephemeral key already claimed by another "
                    "account. "
                 << id;
-            return tecDUPLICATE;
+            return tefMANIFEST_KEY_IN_USE;
+        }
+
+        // Held by this account, the object can only be the ephemeral copy of
+        // its current manifest: the master copy is at another key, since a
+        // manifest's two keys must differ. Every manifest cache refuses a
+        // newer manifest that keeps the ephemeral key (badEphemeralKey), so
+        // accepting one here would leave the ledger permanently ahead of what
+        // any node believes. A rotation names a new key; a revocation none.
+        if (sleEph)
+        {
+            JLOG(ctx.j.warn())
+                << "SetManifest: Ephemeral key already used by this master "
+                   "key's current manifest. "
+                << id;
+            return tefMANIFEST_KEY_IN_USE;
         }
     }
 

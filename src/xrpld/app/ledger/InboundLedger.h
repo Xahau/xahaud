@@ -29,6 +29,7 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <atomic>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <utility>
 
@@ -190,12 +191,16 @@ private:
         Dispatches the read at most once per ledger, however many paths reach
         here.
 
-        @param keys Master keys to read by key, whether or not the part of
-            the directory read lists them
+        @param listed Master keys to read by key, whether or not the part of
+            the directory read lists them. If unseated, the master keys on the
+            validator lists are collected in the job, so that a caller holding
+            mtx_ need not take the validator list's lock.
         @param maxPages Most manifest directory pages to read
     */
     void
-    syncManifests(hash_set<PublicKey> keys, std::uint64_t maxPages);
+    syncManifests(
+        std::optional<hash_set<PublicKey>> listed,
+        std::uint64_t maxPages);
 
     /** The manifests have been read, or are being, from this ledger.
 

@@ -401,8 +401,8 @@ public:
     /** Ephemeral keys recently seen signing a verified validation.
 
         2 KiB (16 Kibit) per generation, 4 generations: 8 KiB in all. Around
-       0.2% false positives per live generation with a thousand distinct keys in
-       it.
+        0.2% false positives per live generation with a thousand distinct keys
+        in it.
     */
     using SeenFilter = RotatingBloomFilter<std::size_t{1} << 14, 4, 4>;
 

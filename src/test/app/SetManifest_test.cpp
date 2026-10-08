@@ -554,9 +554,99 @@ struct SetManifest_test : public beast::unit_test::suite
         submit(env, makeManifest(master, ephemeral, 1));
         env.close();
 
+        // Every refusal over a key in use is tef. The transaction is unsigned
+        // and consumes no sequence, so anyone holding it could resubmit it in
+        // every ledger; a tec would charge the master account each time.
+        auto const masterBalance = env.balance(master);
+        auto const otherBalance = env.balance(other);
+
         BEAST_EXPECT(
             engineResult(submit(env, makeManifest(other, ephemeral, 1))) ==
-            "tecDUPLICATE");
+            "tefMANIFEST_KEY_IN_USE");
+
+        // A newer manifest that keeps the current ephemeral key. Every
+        // manifest cache refuses it, so the ledger must too, or it would stay
+        // ahead of what any node believes.
+        BEAST_EXPECT(
+            engineResult(submit(env, makeManifest(master, ephemeral, 2))) ==
+            "tefMANIFEST_KEY_IN_USE");
+
+        // A master key that is already another account's ephemeral key: the
+        // two kinds of manifest keylet share one namespace.
+        auto const third = Account("third", KeyType::ed25519);
+        auto const thirdEph = Account("thirdEph", KeyType::ed25519);
+        env.fund(XRP(1000), third);
+        env.close();
+
+        auto const thirdBalance = env.balance(third);
+        BEAST_EXPECT(
+            engineResult(submit(env, makeManifest(other, third, 1))) ==
+            "tesSUCCESS");
+        env.close();
+
+        BEAST_EXPECT(
+            engineResult(submit(env, makeManifest(third, thirdEph, 1))) ==
+            "tefMANIFEST_KEY_IN_USE");
+        env.close();
+
+        // Nothing was charged and nothing was written.
+        BEAST_EXPECT(env.balance(master) == masterBalance);
+        BEAST_EXPECT(env.balance(third) == thirdBalance);
+        BEAST_EXPECT(env.balance(other) < otherBalance);
+        if (auto const sle = env.le(keylet::manifest(master.pk()));
+            BEAST_EXPECT(sle))
+            BEAST_EXPECT(sle->getFieldU32(sfSequence) == 1);
+        if (auto const sle = env.le(keylet::manifest(third.pk()));
+            BEAST_EXPECT(sle))
+            BEAST_EXPECT(sle->getAccountID(sfAccount) == other.id());
+        BEAST_EXPECT(!env.le(keylet::manifest(thirdEph.pk())));
+        BEAST_EXPECT(
+            !env.le(keylet::account(third.id()))->isFieldPresent(sfManifestID));
+    }
+
+    void
+    testAccountDelete(FeatureBitset features)
+    {
+        testcase("account delete");
+        using namespace jtx;
+
+        Env env{*this, makeConfig(), features};
+
+        auto const master = Account("master", KeyType::ed25519);
+        auto const ephemeral = Account("ephemeral", KeyType::ed25519);
+        auto const plain = Account("plain", KeyType::ed25519);
+        auto const dest = Account("dest");
+        env.fund(XRP(1000), master, plain, dest);
+        env.close();
+
+        BEAST_EXPECT(
+            engineResult(submit(env, makeManifest(master, ephemeral, 1))) ==
+            "tesSUCCESS");
+        env.close();
+
+        // Old enough to delete, so the manifest is the only obstacle.
+        incLgrSeqForAccDel(env, master);
+        incLgrSeqForAccDel(env, plain);
+
+        // An on-ledger manifest outlives its account: neither copy is in the
+        // owner directory, and the master copy stays listed in the manifest
+        // directory for good.
+        env(acctdelete(master, dest),
+            fee(drops(env.current()->fees().increment)),
+            ter(tecHAS_OBLIGATIONS));
+        env.close();
+
+        BEAST_EXPECT(env.le(keylet::account(master.id())));
+        BEAST_EXPECT(env.le(keylet::manifest(master.pk())));
+        BEAST_EXPECT(env.le(keylet::manifest(ephemeral.pk())));
+
+        // An account of the same age without one goes as usual.
+        env(acctdelete(plain, dest),
+            fee(drops(env.current()->fees().increment)),
+            ter(tesSUCCESS));
+        env.close();
+
+        BEAST_EXPECT(!env.le(keylet::account(plain.id())));
     }
 
     void
@@ -1171,6 +1261,7 @@ public:
         testRetrieval(sa);
         testSigningKeyRetrieval(sa);
         testMalformed(sa);
+        testAccountDelete(sa);
         testEnvelopeRejections(sa);
         testCanonicalFee(sa);
         testCorruptLedger(sa);

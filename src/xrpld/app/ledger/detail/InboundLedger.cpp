@@ -478,9 +478,11 @@ InboundLedger::done()
         // manifests from the whole map instead, now that it is immutable.
         // Only as many directory pages as the early walk reads: past those
         // the ledger tier is full, and the listed master keys are read by
-        // key whatever the directory holds.
+        // key whatever the directory holds. The keys are collected in the
+        // job: this runs under mtx_, and the validator list has a lock of
+        // its own.
         if (!mManifestsSynced && wantManifests())
-            syncManifests(listedMasterKeys(app_), manifestSyncPages);
+            syncManifests(std::nullopt, manifestSyncPages);
 
         switch (mReason)
         {
@@ -856,7 +858,9 @@ InboundLedger::wantManifests()
 }
 
 void
-InboundLedger::syncManifests(hash_set<PublicKey> keys, std::uint64_t maxPages)
+InboundLedger::syncManifests(
+    std::optional<hash_set<PublicKey>> listed,
+    std::uint64_t maxPages)
 {
     if (mManifestsSynced.exchange(true))
         return;
@@ -868,10 +872,12 @@ InboundLedger::syncManifests(hash_set<PublicKey> keys, std::uint64_t maxPages)
         jtMANIFEST,
         "InboundLedger::syncManifests",
         [ledger = mLedger,
-         keys = std::move(keys),
+         listed = std::move(listed),
          maxPages,
          &app = app_,
-         j = journal_]() {
+         j = journal_]() mutable {
+            auto const keys =
+                listed ? std::move(*listed) : listedMasterKeys(app);
             auto& cache = app.validatorManifests();
             std::size_t accepted = 0;
             std::size_t unreadable = 0;
