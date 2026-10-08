@@ -143,6 +143,7 @@ Handler const handlerArray[]{
     {"path_find", byRef(&doPathFind), Role::USER, NEEDS_CURRENT_LEDGER},
     {"ping", byRef(&doPing), Role::USER, NO_CONDITION},
     {"print", byRef(&doPrint), Role::ADMIN, NO_CONDITION},
+    {"pwa_info", byRef(&doPWAInfo), Role::ADMIN, NO_CONDITION},
     //      {   "profile",              byRef (&doProfile), Role::USER,
     //      NEEDS_CURRENT_LEDGER  },
     {"random", byRef(&doRandom), Role::USER, NO_CONDITION},

@@ -96,6 +96,25 @@ std::size_t constexpr maxDIDAttestationLength = 256;
 /** The maximum length of a domain */
 std::size_t constexpr maxDomainLength = 256;
 
+/** The maximum length of an AppLoader document.
+
+    The AppLoader holds the bootstrap document of a Progressive Web App
+    served from an account. It is deliberately capped: the blob lives in a
+    ledger object that carries no owner reserve at all, so the only things
+    standing between it and unbounded ledger growth are this limit and the
+    per-byte transaction fee below.
+*/
+std::size_t constexpr maxAppLoaderLength = 4096;
+
+/** Drops of transaction fee charged per byte of AppLoader document.
+
+    Storage is paid for through the fee rather than through an owner
+    reserve, so that a loader can be published by an account sitting at its
+    reserve floor. The fee is charged on every AccountSet that carries the
+    field, including overwrites.
+*/
+std::uint64_t constexpr appLoaderFeeDropsPerByte = 1;
+
 /** The maximum length of a URI inside a Credential */
 std::size_t constexpr maxCredentialURILength = 256;
 

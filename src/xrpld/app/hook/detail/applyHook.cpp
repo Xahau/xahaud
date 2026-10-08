@@ -2210,10 +2210,16 @@ DEFINE_HOOK_FUNCTION(
             case keylet_code::SIGNERS:
             case keylet_code::ACCOUNT:
             case keylet_code::HOOK:
-            case keylet_code::DID: {
+            case keylet_code::DID:
+            case keylet_code::APP_LOADER: {
                 if (keylet_type == keylet_code::DID)
                 {
                     if (!applyCtx.view().rules().enabled(featureDID))
+                        return INVALID_ARGUMENT;
+                }
+                if (keylet_type == keylet_code::APP_LOADER)
+                {
+                    if (!applyCtx.view().rules().enabled(featurePWALoader))
                         return INVALID_ARGUMENT;
                 }
                 if (a == 0 || b == 0)
@@ -2238,8 +2244,9 @@ DEFINE_HOOK_FUNCTION(
                     ? ripple::keylet::signers(id)
                     : keylet_type == keylet_code::OWNER_DIR
                     ? ripple::keylet::ownerDir(id)
-                    : keylet_type == keylet_code::DID
-                    ? ripple::keylet::did(id)
+                    : keylet_type == keylet_code::DID ? ripple::keylet::did(id)
+                    : keylet_type == keylet_code::APP_LOADER
+                    ? ripple::keylet::appLoader(id)
                     : ripple::keylet::account(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
