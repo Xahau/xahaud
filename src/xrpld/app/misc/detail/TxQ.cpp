@@ -788,6 +788,13 @@ TxQ::apply(
         return {terNO_ACCOUNT, false};
     }
 
+    // The queue is keyed by SeqProxy, and every time-sequenced transaction
+    // has SeqProxy sequence(0): two of them would be taken for replacements
+    // of one another. tryDirectApply already applied it if its fee was high
+    // enough, so the only thing left is to say it cannot wait.
+    if (view.rules().enabled(featureJsonTx) && tx->isTimeSequenced())
+        return {telCAN_NOT_QUEUE, false};
+
     // If the transaction needs a Ticket is that Ticket in the ledger?
     SeqProxy const acctSeqProx = SeqProxy::sequence((*sleAccount)[sfSequence]);
     SeqProxy const txSeqProx = tx->getSeqProxy();
@@ -1967,7 +1974,14 @@ TxQ::tryDirectApply(
 
     std::optional<SeqProxy> txSeqProx;
 
-    if (!bypassQueue)
+    // A time-sequenced transaction has no sequence to match, and is never in
+    // the queue (TxQ::apply refuses to queue one), so there is no queued
+    // entry to replace either. Unlike a manifest it still has to pay the
+    // open ledger fee: it can be spammed like any signed transaction.
+    bool const timeSequenced =
+        view.rules().enabled(featureJsonTx) && tx->isTimeSequenced();
+
+    if (!bypassQueue && !timeSequenced)
     {
         SeqProxy const acctSeqProx =
             SeqProxy::sequence((*sleAccount)[sfSequence]);

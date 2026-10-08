@@ -57,6 +57,15 @@ DeleteAccount::preflight(PreflightContext const& ctx)
         // An account cannot be deleted and give itself the resulting XRP.
         return temDST_IS_SRC;
 
+    // Deleting an account also deletes its sfLastTxnTime, which is the only
+    // thing standing between a time-sequenced transaction and a replay. For
+    // earlier transactions preclaim waits out their window; this one is
+    // necessarily still inside its own, so once the account is re-created it
+    // could be applied again. A Sequence or Ticket is not lost that way: a
+    // re-created account starts its Sequence at the current ledger index.
+    if (ctx.tx.isTimeSequenced())
+        return temBAD_SEQUENCE;
+
     if (auto const err = credentials::checkFields(ctx); !isTesSuccess(err))
         return err;
 
@@ -320,6 +329,24 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
     constexpr std::uint32_t seqDelta{255};
     if ((*sleAccount)[sfSequence] + seqDelta > ctx.view.seq())
         return tecTOO_SOON;
+
+    // The same protection for sfTime. A re-created account has no
+    // sfLastTxnTime, so any time-sequenced transaction whose Time is still
+    // inside the validity window could be applied to it a second time. Every
+    // one this account has applied had a Time at most sfLastTxnTime, so once
+    // that is older than txTimeMaxAgeMs none of them can ever apply again.
+    // (A Time on a transaction sequenced by a Sequence or a Ticket is never
+    // recorded and needs no such care: the Sequence restarts and the Tickets
+    // are gone.)
+    if (auto const last = (*sleAccount)[~sfLastTxnTime])
+    {
+        std::uint64_t const close =
+            static_cast<std::uint64_t>(
+                ctx.view.parentCloseTime().time_since_epoch().count()) *
+            1000;
+        if (close <= *last || close - *last <= txTimeMaxAgeMs)
+            return tecTOO_SOON;
+    }
 
     // do not allow the account to be removed if there are hooks installed or
     // one or more hook states when these fields are completely empty the field
