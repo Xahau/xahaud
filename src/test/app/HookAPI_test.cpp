@@ -591,6 +591,134 @@ public:
     }
 
     void
+    test_emitted_txn_entry(FeatureBitset features)
+    {
+        testcase("Test emitted txn ledger entry");
+
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+
+        for (bool const withFix : {true, false})
+        {
+            Env env{*this, withFix ? features : features - fix20261005};
+
+            // emissions are only written into non-open views, so apply on
+            // top of the last closed ledger the way consensus does
+            auto const closed = env.closed();
+            OpenView ov{&*closed};
+            BEAST_EXPECT(!ov.open());
+
+            STTx const invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+            ApplyContext applyCtx{
+                env.app(),
+                ov,
+                invokeTx,
+                tesSUCCESS,
+                env.current()->fees().base,
+                tapNONE,
+                env.journal};
+
+            STTx const emitTx = STTx(ttINVOKE, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = 0;
+                obj[sfSigningPubKey] = Slice{};
+                obj[sfFirstLedgerSequence] = closed->seq() + 1;
+                obj[sfLastLedgerSequence] = closed->seq() + 5;
+                obj[sfFee] = closed->fees().base;
+
+                auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
+                emitDetails[sfEmitGeneration] = 1;
+                emitDetails[sfEmitBurden] = 1;
+                emitDetails[sfEmitParentTxnID] = invokeTx.getTransactionID();
+                emitDetails[sfEmitNonce] = uint256();
+                emitDetails[sfEmitHookHash] = uint256();
+            });
+
+            std::string reason;
+            auto const emitted = std::make_shared<ripple::Transaction>(
+                std::make_shared<STTx const>(emitTx), reason, env.app());
+            std::queue<std::shared_ptr<ripple::Transaction>> emittedTxn;
+            emittedTxn.push(emitted);
+
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.result = {.emittedTxn = emittedTxn}});
+
+            BEAST_EXPECT(
+                hook::finalizeHookResult(hookCtx.result, applyCtx, true) ==
+                tesSUCCESS);
+
+            auto const kl = keylet::emittedTxn(emitted->getID());
+            auto const sle = applyCtx.view().peek(kl);
+            if (!BEAST_EXPECT(sle))
+                continue;
+
+            Serializer expected;
+            emitTx.add(expected);
+
+            // in memory: with the fix sfEmittedTxn occupies its template
+            // slot exactly once, without it a duplicate is appended behind
+            // the (non-present) template slot and the field reads absent
+            auto const entries =
+                std::count_if(sle->begin(), sle->end(), [](STBase const& f) {
+                    return f.getFName() == sfEmittedTxn;
+                });
+            BEAST_EXPECT(entries == (withFix ? 1 : 2));
+            BEAST_EXPECT(sle->isFieldPresent(sfEmittedTxn) == withFix);
+
+            // serialized: identical either way, re-reading the entry always
+            // yields exactly the emitted transaction
+            {
+                Serializer s;
+                sle->add(s);
+                SerialIter sit(s.slice());
+                STLedgerEntry const reread(sit, kl.key);
+                BEAST_EXPECT(reread.isFieldPresent(sfEmittedTxn));
+                Serializer txn;
+                reread.peekAtField(sfEmittedTxn).add(txn);
+                BEAST_EXPECT(txn.peekData() == expected.peekData());
+            }
+
+            // a hook running later in the same ledger can tell them apart:
+            // slot_subfield only finds sfEmittedTxn with the fix
+            auto readerCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = readerCtx.api();
+
+            Bytes klBytes{
+                static_cast<uint8_t>((kl.type >> 8) & 0xFFU),
+                static_cast<uint8_t>(kl.type & 0xFFU)};
+            klBytes.insert(klBytes.end(), kl.key.begin(), kl.key.end());
+
+            auto const slotNo = api.slot_set(klBytes, 0);
+            if (!BEAST_EXPECT(slotNo.has_value()))
+                continue;
+
+            auto const sub =
+                api.slot_subfield(slotNo.value(), sfEmittedTxn.getCode(), 0);
+            if (!withFix)
+            {
+                BEAST_EXPECT(!sub.has_value() && sub.error() == DOESNT_EXIST);
+                continue;
+            }
+
+            if (!BEAST_EXPECT(sub.has_value()))
+                continue;
+            auto const field = api.slot(sub.value());
+            if (!BEAST_EXPECT(field.has_value()))
+                continue;
+            Serializer s;
+            field.value()->add(s);
+            BEAST_EXPECT(s.peekData() == expected.peekData());
+        }
+    }
+
+    void
     test_etxn_details(FeatureBitset features)
     {
         testcase("Test etxn_details");
@@ -4784,6 +4912,7 @@ public:
 
         test_prepare(features);
         test_emit(features);
+        test_emitted_txn_entry(features);
         test_etxn_burden(features);
         test_etxn_generation(features);
         test_otxn_burden(features);

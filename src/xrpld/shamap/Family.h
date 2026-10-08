@@ -82,6 +82,14 @@ public:
 
     virtual void
     reset() = 0;
+
+    /** True when this family's node store does not persist nodes.
+
+        type=rwdb uses NullFactory. Tree nodes live only through
+        in-memory SHAMap pointers. The flag is per family.
+    */
+    virtual bool
+    isNullBackend() const = 0;
 };
 
 }  // namespace ripple

@@ -120,11 +120,26 @@ public:
         tnCache_->reset();
     }
 
+    bool
+    isNullBackend() const override
+    {
+        return nullBackend_;
+    }
+
+    void
+    setNullBackend(bool v)
+    {
+        nullBackend_ = v;
+    }
+
     beast::manual_clock<std::chrono::steady_clock>
     clock()
     {
         return clock_;
     }
+
+private:
+    bool nullBackend_ = false;
 };
 
 }  // namespace tests
