@@ -44,8 +44,8 @@ mergeCanonicalInner(
     std::shared_ptr<SHAMapTreeNode> const& canonical,
     std::shared_ptr<SHAMapTreeNode> const& incoming)
 {
-    if (!canonical || !incoming || !canonical->isInner() ||
-        !incoming->isInner())
+    // Same hash implies same node type, so checking one side suffices.
+    if (!canonical->isInner())
         return;
 
     auto* cached = static_cast<SHAMapInnerNode*>(canonical.get());
@@ -1320,7 +1320,7 @@ SHAMap::canonicalize(
 
     auto incoming = node;
     f_.getTreeNodeCache()->canonicalize_replace_client(hash.as_uint256(), node);
-    if (incoming && node && incoming.get() != node.get())
+    if (node != incoming)
         mergeCanonicalInner(node, incoming);
 }
 

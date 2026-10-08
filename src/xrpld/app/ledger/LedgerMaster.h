@@ -38,6 +38,7 @@
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/messages.h>
 #include <deque>
+#include <functional>
 #include <optional>
 
 #include <mutex>
@@ -338,6 +339,10 @@ private:
     // m_mutex locked.  The passed lock is a reminder to callers.
     void
     doAdvance(std::unique_lock<std::recursive_mutex>&);
+
+    // Closed, validated, then retained ledgers; never loads.
+    std::shared_ptr<Ledger const>
+    findResidentLedger(std::function<bool(LedgerInfo const&)> const& match);
 
     std::vector<std::shared_ptr<Ledger const>>
     findNewLedgersToPublish(std::unique_lock<std::recursive_mutex>&);

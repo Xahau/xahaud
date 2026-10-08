@@ -129,7 +129,63 @@ public:
         run(true, journal);
         run(false, journal);
         testCanonicalizeMergesInnerChildren(journal);
+        testCanonicalizeSharesDuplicateContent(journal);
         testGetLinkedNode(journal);
+    }
+
+    void
+    testCanonicalizeSharesDuplicateContent(beast::Journal const& journal)
+    {
+        testcase("canonicalize shares nodes of identical maps");
+
+        tests::TestNodeFamily f(journal);
+        SHAMap a{SHAMapType::FREE, f};
+        SHAMap b{SHAMapType::FREE, f};
+
+        constexpr uint256 h1(
+            "092891fe4ef6cee585fdc6fda0e09eb4d386363158ec3321b8123e5a772c6ca7");
+        constexpr uint256 h2(
+            "436ccbac3347baa1f1e53baeef1f43334da88f1f6d70d963b833afd6dfa289fe");
+        for (auto* map : {&a, &b})
+        {
+            BEAST_EXPECT(map->addItem(
+                SHAMapNodeType::tnTRANSACTION_NM,
+                make_shamapitem(h1, IntToVUC(1))));
+            BEAST_EXPECT(map->addItem(
+                SHAMapNodeType::tnTRANSACTION_NM,
+                make_shamapitem(h2, IntToVUC(2))));
+        }
+
+        // Do not call getHash() first: it unshares the map and flushDirty
+        // then has nothing to write.
+        auto const harvestedBefore = SHAMap::canonicalInnerBranchesHarvested();
+        a.flushDirty(hotTRANSACTION_NODE);
+        b.flushDirty(hotTRANSACTION_NODE);
+
+        // b's root and leaves were canonicalized onto a's. a's root was
+        // already fully linked, so there was nothing to harvest, and the
+        // leaf duplicates take the non-inner early return.
+        auto const rootA = a.getLinkedNode(SHAMapNodeID{});
+        auto const rootB = b.getLinkedNode(SHAMapNodeID{});
+        if (!BEAST_EXPECT(rootA && rootB && rootA->isInner()))
+            return;
+        BEAST_EXPECT(rootA.get() == rootB.get());
+        BEAST_EXPECT(
+            SHAMap::canonicalInnerBranchesHarvested() == harvestedBefore);
+
+        auto* inner = static_cast<SHAMapInnerNode*>(rootA.get());
+        int shared = 0;
+        for (int branch = 0; branch < SHAMapInnerNode::branchFactor; ++branch)
+        {
+            if (inner->isEmptyBranch(branch))
+                continue;
+            auto const id = SHAMapNodeID{}.getChildNodeID(branch);
+            auto const leafA = a.getLinkedNode(id);
+            auto const leafB = b.getLinkedNode(id);
+            BEAST_EXPECT(leafA && leafB && leafA.get() == leafB.get());
+            ++shared;
+        }
+        BEAST_EXPECT(shared == 2);
     }
 
     void

@@ -758,14 +758,11 @@ LedgerMaster::tryFill(std::shared_ptr<Ledger const> ledger)
             if (it == ledgerHashes.end())
                 break;
 
-            auto const& firstHash = ledgerHashes.begin()->second.ledgerHash;
             if (!nodeStore.fetchNodeObject(
-                    firstHash, ledgerHashes.begin()->first) &&
-                !getResidentLedgerByHash(firstHash))
+                    ledgerHashes.begin()->second.ledgerHash,
+                    ledgerHashes.begin()->first))
             {
-                // Not in node store and not in memory: genuinely missing.
-                // Resident-only lookup: getLedgerByHash would try to load
-                // the very ledger we just failed to find.
+                // The ledger is not backed by the node store
                 JLOG(m_journal.warn()) << "SQL DB ledger sequence " << seq
                                        << " mismatches node store";
                 break;
@@ -947,7 +944,7 @@ LedgerMaster::setFullLedger(
     // ledger_history full trees for nothing, and ledger_history=full
     // (uint32 max) would never trim. SHAMapStoreImp rejects both zero and
     // "full" ledger_history for type=rwdb.
-    if (nullBackend_ && isCurrent && ledger_history_ > 0)
+    if (nullBackend_ && isCurrent)
     {
         std::lock_guard rl(mRetainedLock);
         mRetainedLedgers.push_back(ledger);
@@ -2021,50 +2018,41 @@ LedgerMaster::getLedgerByHash(uint256 const& hash)
 }
 
 std::shared_ptr<Ledger const>
+LedgerMaster::findResidentLedger(
+    std::function<bool(LedgerInfo const&)> const& match)
+{
+    for (auto const& ledger : {mClosedLedger.get(), mValidLedger.get()})
+    {
+        if (ledger && match(ledger->info()))
+            return ledger;
+    }
+
+    std::lock_guard lock(mRetainedLock);
+    auto const it = std::find_if(
+        mRetainedLedgers.rbegin(),
+        mRetainedLedgers.rend(),
+        [&](auto const& ledger) { return match(ledger->info()); });
+    return it == mRetainedLedgers.rend() ? nullptr : *it;
+}
+
+std::shared_ptr<Ledger const>
 LedgerMaster::getResidentLedgerByHash(uint256 const& hash)
 {
     if (auto ret = mLedgerHistory.getCachedLedger(hash))
         return ret;
-
-    if (auto ret = mClosedLedger.get(); ret && ret->info().hash == hash)
-        return ret;
-
-    if (auto ret = mValidLedger.get(); ret && ret->info().hash == hash)
-        return ret;
-
-    std::lock_guard lock(mRetainedLock);
-    for (auto it = mRetainedLedgers.rbegin(); it != mRetainedLedgers.rend();
-         ++it)
-    {
-        if (*it && (*it)->info().hash == hash)
-            return *it;
-    }
-    return {};
+    return findResidentLedger(
+        [&](LedgerInfo const& info) { return info.hash == hash; });
 }
 
 std::shared_ptr<Ledger const>
 LedgerMaster::getResidentLedgerBySeq(std::uint32_t seq)
 {
-    if (auto ret = mClosedLedger.get(); ret && ret->info().seq == seq)
+    // getLedgerHash only reads the in-memory index; a zero hash misses.
+    if (auto ret =
+            mLedgerHistory.getCachedLedger(mLedgerHistory.getLedgerHash(seq)))
         return ret;
-
-    if (auto ret = mValidLedger.get(); ret && ret->info().seq == seq)
-        return ret;
-
-    if (auto const hash = mLedgerHistory.getLedgerHash(seq); hash.isNonZero())
-    {
-        if (auto ret = mLedgerHistory.getCachedLedger(hash))
-            return ret;
-    }
-
-    std::lock_guard lock(mRetainedLock);
-    for (auto it = mRetainedLedgers.rbegin(); it != mRetainedLedgers.rend();
-         ++it)
-    {
-        if (*it && (*it)->info().seq == seq)
-            return *it;
-    }
-    return {};
+    return findResidentLedger(
+        [&](LedgerInfo const& info) { return info.seq == seq; });
 }
 
 void

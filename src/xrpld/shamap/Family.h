@@ -89,10 +89,7 @@ public:
         in-memory SHAMap pointers. The flag is per family.
     */
     virtual bool
-    isNullBackend() const
-    {
-        return false;
-    }
+    isNullBackend() const = 0;
 };
 
 }  // namespace ripple

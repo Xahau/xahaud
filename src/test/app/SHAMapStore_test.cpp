@@ -53,6 +53,19 @@ class SHAMapStore_test : public beast::unit_test::suite
         return cfg;
     }
 
+    // Same as onlineDelete, but on a node store that persists nodes, so
+    // SHAMapStoreImp builds DatabaseRotatingImp and really rotates.
+    // envconfig defaults to type=rwdb, which is the null node store.
+    static auto
+    onlineDeleteStoring(std::unique_ptr<Config> cfg, std::string const& path)
+    {
+        cfg = onlineDelete(std::move(cfg));
+        auto& section = cfg->section(ConfigSection::nodeDatabase());
+        section.set("type", "memory");
+        section.set("path", path);
+        return cfg;
+    }
+
     static auto
     advisoryDelete(std::unique_ptr<Config> cfg)
     {
@@ -314,13 +327,23 @@ public:
     }
 
     void
-    testAutomatic()
+    testAutomatic(bool storing)
     {
-        testcase("automatic online_delete");
+        testcase(
+            storing ? "automatic online_delete (rotating node store)"
+                    : "automatic online_delete (null node store)");
         using namespace jtx;
         using namespace std::chrono_literals;
 
-        Env env(*this, envconfig(onlineDelete));
+        beast::temp_dir nodeDir;
+        Env env(
+            *this,
+            storing ? envconfig(onlineDeleteStoring, nodeDir.path())
+                    : envconfig(onlineDelete));
+        BEAST_EXPECT(
+            storing ==
+            (dynamic_cast<NodeStore::DatabaseRotating*>(
+                 &env.app().getNodeStore()) != nullptr));
         auto& store = env.app().getSHAMapStore();
 
         auto ledgerSeq = waitForReady(env);
@@ -650,6 +673,63 @@ public:
         BEAST_EXPECT(matches(db.fetchNodeObject(hash)));
     }
 
+    // getWriteLoad, sync, storeLedger, importDatabase and for_each changed
+    // lock type. In null mode no Env builds a DatabaseRotatingImp, so
+    // drive them directly.
+    void
+    testRotatingAccessors()
+    {
+        testcase("rotating database accessors");
+
+        using namespace jtx;
+        // Source ledger must come from a node store that holds its nodes.
+        Env env(*this, envconfig([](std::unique_ptr<Config> cfg) {
+            auto& section = cfg->section(ConfigSection::nodeDatabase());
+            section.set("type", "memory");
+            section.set("path", "rotating-accessors-app");
+            return cfg;
+        }));
+        env.fund(XRP(10000), Account{"alice"});
+        env.close();
+
+        NodeStoreScheduler scheduler(env.app().getJobQueue());
+        Section nscfg;
+        nscfg.set("type", "memory");
+        nscfg.set("path", "rotating-accessors");
+        auto makeDb = [&](std::string const& prefix) {
+            return std::make_unique<NodeStore::DatabaseRotatingImp>(
+                env.app(),
+                scheduler,
+                1,
+                makeMemoryBackend(env, scheduler, prefix + "-writable"),
+                makeMemoryBackend(env, scheduler, prefix + "-archive"),
+                nscfg,
+                env.app().logs().journal("NodeStoreTest"));
+        };
+
+        auto src = makeDb("rotating-accessors-src");
+        BEAST_EXPECT(src->getName() == "rotating-accessors-src-writable");
+        BEAST_EXPECT(src->getWriteLoad() >= 0);
+        src->sync();
+
+        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
+        if (!BEAST_EXPECT(ledger))
+            return;
+        BEAST_EXPECT(src->storeLedger(ledger));
+
+        NodeStore::Database& srcDb = *src;
+        auto const stateRoot = ledger->stateMap().getHash().as_uint256();
+        BEAST_EXPECT(srcDb.fetchNodeObject(ledger->info().hash));
+        BEAST_EXPECT(srcDb.fetchNodeObject(stateRoot));
+
+        // importDatabase walks the source with for_each.
+        auto dst = makeDb("rotating-accessors-dst");
+        dst->importDatabase(*src);
+        NodeStore::Database& dstDb = *dst;
+        BEAST_EXPECT(dstDb.fetchNodeObject(ledger->info().hash));
+        BEAST_EXPECT(dstDb.fetchNodeObject(stateRoot));
+    }
+
     static auto
     nullBackend(std::unique_ptr<Config> cfg)
     {
@@ -881,6 +961,34 @@ public:
         BEAST_EXPECT(!lm.getResidentLedgerByHash(uint256{12345}));
         BEAST_EXPECT(!lm.getResidentLedgerBySeq(closed->info().seq + 1000));
 
+        BEAST_EXPECT(lm.getCompleteLedgers() == complete);
+
+        // Drop every ledger from the history cache. Null mode must still
+        // reach recent ledgers through the closed/validated holders and
+        // the retained window, without loading anything.
+        env.app().getJobQueue().rendezvous();
+        auto const older = lm.getResidentLedgerBySeq(closed->info().seq - 3);
+        if (!BEAST_EXPECT(older))
+            return;
+        lm.clearLedgerCachePrior(closed->info().seq + 1);
+
+        auto const closedAgain = lm.getResidentLedgerBySeq(closed->info().seq);
+        BEAST_EXPECT(
+            closedAgain && closedAgain->info().hash == closed->info().hash);
+        auto const closedByHash =
+            lm.getResidentLedgerByHash(closed->info().hash);
+        BEAST_EXPECT(
+            closedByHash && closedByHash->info().seq == closed->info().seq);
+
+        auto const retainedBySeq = lm.getResidentLedgerBySeq(older->info().seq);
+        BEAST_EXPECT(
+            retainedBySeq && retainedBySeq->info().hash == older->info().hash);
+        auto const retainedByHash =
+            lm.getResidentLedgerByHash(older->info().hash);
+        BEAST_EXPECT(
+            retainedByHash && retainedByHash->info().seq == older->info().seq);
+
+        BEAST_EXPECT(!lm.getResidentLedgerByHash(uint256{12345}));
         BEAST_EXPECT(lm.getCompleteLedgers() == complete);
     }
 
@@ -1179,7 +1287,9 @@ public:
     {
         testComputeOnlineDeleteTargets();
         testClear();
-        testAutomatic();
+        testAutomatic(false);
+        testAutomatic(true);
+        testRotatingAccessors();
         testCanDelete();
         testArchiveReadSurvivesRotation();
         testNullModeLedgerProgression();

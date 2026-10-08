@@ -471,10 +471,9 @@ SHAMapStoreImp::run()
             state_db_.setLastRotated(lastRotated);
         }
 
-        // Widen the sum. deleteInterval_ == uint32 max would wrap a
+        // Widen the sum: an online_delete near uint32 max would wrap a
         // 32-bit add and make this true on every ledger.
-        bool const readyToRotate = deleteInterval_ != 0 &&
-            std::uint64_t{validatedSeq} >=
+        bool const readyToRotate = std::uint64_t{validatedSeq} >=
                 std::uint64_t{lastRotated} + deleteInterval_ &&
             canDelete_ >= lastRotated - 1 && healthWait() == keepGoing;
 
@@ -494,78 +493,74 @@ SHAMapStoreImp::run()
 
             if (isNullBackend_)
             {
-                // In null mode the backend never stores anything, so
-                // there is nothing to copy or rotate. Resident trees are
-                // kept alive by LedgerMaster's retained window. Only the
-                // SQL cleanup (clearPrior above) applies.
-                JLOG(journal_.debug()) << "RWDB null: skipping rotation, "
-                                          "updating lastRotated to "
-                                       << validatedSeq;
-
+                // Null node store: nothing to copy or rotate. Resident
+                // trees are kept alive by LedgerMaster's retained window,
+                // so only the SQL cleanup above applies.
                 lastRotated = validatedSeq;
                 state_db_.setLastRotated(lastRotated);
-
                 JLOG(journal_.info())
                     << "finished null-mode cleanup " << validatedSeq;
+                continue;
             }
-            else
+
+            JLOG(journal_.debug()) << "copying ledger " << validatedSeq;
+            std::uint64_t nodeCount = 0;
+
+            try
             {
-                JLOG(journal_.debug()) << "copying ledger " << validatedSeq;
-                std::uint64_t nodeCount = 0;
-
-                try
-                {
-                    validatedLedger->stateMap().snapShot(false)->visitNodes(
-                        std::bind(
-                            &SHAMapStoreImp::copyNode,
-                            this,
-                            std::ref(nodeCount),
-                            std::placeholders::_1));
-                }
-                catch (SHAMapMissingNode const& e)
-                {
-                    JLOG(journal_.error())
-                        << "Missing node while copying ledger before rotate: "
-                        << e.what();
-                    continue;
-                }
-
-                if (healthWait() == stopping)
-                    return;
-                JLOG(journal_.debug()) << "copied ledger " << validatedSeq
-                                       << " nodecount " << nodeCount;
-
-                JLOG(journal_.debug()) << "freshening caches";
-                freshenCaches();
-                if (healthWait() == stopping)
-                    return;
-                JLOG(journal_.debug()) << validatedSeq << " freshened caches";
-
-                JLOG(journal_.trace()) << "Making a new backend";
-                auto newBackend = makeBackendRotating();
-                JLOG(journal_.debug())
-                    << validatedSeq << " new backend " << newBackend->getName();
-
-                clearCaches(validatedSeq);
-                if (healthWait() == stopping)
-                    return;
-
-                lastRotated = validatedSeq;
-
-                dbRotating_->rotate(
-                    std::move(newBackend),
-                    [&](std::string const& writableName,
-                        std::string const& archiveName) {
-                        SavedState savedState;
-                        savedState.writableDb = writableName;
-                        savedState.archiveDb = archiveName;
-                        savedState.lastRotated = lastRotated;
-                        state_db_.setState(savedState);
-                        clearCaches(validatedSeq);
-                    });
-
-                JLOG(journal_.warn()) << "finished rotation " << validatedSeq;
+                validatedLedger->stateMap().snapShot(false)->visitNodes(
+                    std::bind(
+                        &SHAMapStoreImp::copyNode,
+                        this,
+                        std::ref(nodeCount),
+                        std::placeholders::_1));
             }
+            catch (SHAMapMissingNode const& e)
+            {
+                JLOG(journal_.error())
+                    << "Missing node while copying ledger before rotate: "
+                    << e.what();
+                continue;
+            }
+
+            if (healthWait() == stopping)
+                return;
+            // Only log if we completed without a "health" abort
+            JLOG(journal_.debug()) << "copied ledger " << validatedSeq
+                                   << " nodecount " << nodeCount;
+
+            JLOG(journal_.debug()) << "freshening caches";
+            freshenCaches();
+            if (healthWait() == stopping)
+                return;
+            // Only log if we completed without a "health" abort
+            JLOG(journal_.debug()) << validatedSeq << " freshened caches";
+
+            JLOG(journal_.debug()) << "Making a new backend";
+            auto newBackend = makeBackendRotating();
+            JLOG(journal_.debug())
+                << validatedSeq << " new backend " << newBackend->getName();
+
+            clearCaches(validatedSeq);
+            if (healthWait() == stopping)
+                return;
+
+            lastRotated = validatedSeq;
+
+            dbRotating_->rotate(
+                std::move(newBackend),
+                [&](std::string const& writableName,
+                    std::string const& archiveName) {
+                    SavedState savedState;
+                    savedState.writableDb = writableName;
+                    savedState.archiveDb = archiveName;
+                    savedState.lastRotated = lastRotated;
+                    state_db_.setState(savedState);
+
+                    clearCaches(validatedSeq);
+                });
+
+            JLOG(journal_.warn()) << "finished rotation " << validatedSeq;
         }
     }
 }
