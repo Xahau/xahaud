@@ -580,6 +580,12 @@ b58_to_b256_be(std::string_view input, std::span<std::uint8_t> out)
     {
         std::uint64_t const c = b_58_10_coeff[i];
 
+        // Each digit is < 58, so at most 4 words are in use here and the
+        // span below always fits `result`. Guard the invariant anyway rather
+        // than letting a violation index past the end of the stack array.
+        if (cur_result_size >= result.size())
+            return Unexpected(TokenCodecErrc::inputTooLarge);
+
         {
             auto code = ripple::b58_fast::detail::inplace_bigint_mul(
                 std::span(&result[0], cur_result_size + 1), B_58_10);

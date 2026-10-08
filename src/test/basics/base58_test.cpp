@@ -530,11 +530,34 @@ class base58_test : public beast::unit_test::suite
     }
 
     void
+    testDecodeMaxValue()
+    {
+        testcase("decode_max_value");
+
+        // The largest value of every accepted length ('z' is digit 57) must
+        // decode identically in both implementations. At 52 chars this is the
+        // widest intermediate the fast decoder's bigint ever has to hold.
+        for (std::size_t len = 1; len <= 52; ++len)
+        {
+            std::string const s(len, 'z');
+
+            std::array<std::uint8_t, 64> outBuf;
+            auto const r = b58_fast::detail::b58_to_b256_be(s, outBuf);
+            std::string const ref = b58_ref::detail::decodeBase58(s);
+            if (!BEAST_EXPECT(r))
+                continue;
+            BEAST_EXPECT(
+                std::string(r.value().begin(), r.value().end()) == ref);
+        }
+    }
+
+    void
     run() override
     {
         testMultiprecision();
         testFastMatchesRef();
         testDecodeInvalidChars();
+        testDecodeMaxValue();
     }
 };
 
