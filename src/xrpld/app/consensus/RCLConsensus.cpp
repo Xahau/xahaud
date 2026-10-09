@@ -27,6 +27,7 @@
 #include <xrpld/app/ledger/LocalTxs.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/AmendmentTable.h>
+#include <xrpld/app/misc/ExportKeys.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
@@ -882,6 +883,19 @@ RCLConsensus::Adaptor::validate(
                 auto const fee = std::max(ft.getLocalFee(), ft.getClusterFee());
                 if (fee > ft.getLoadBase())
                     v.setFieldU32(sfLoadFee, fee);
+            }
+
+            // Nominate our export key on flag ledgers, which the next flag
+            // ledger's UNL report window covers (see NegativeUNLVote).
+            if (ledger.ledger_->isFlagLedger() &&
+                ledger.ledger_->rules().enabled(featureExport))
+            {
+                if (auto const n =
+                        app_.getExportKeys().nominate(*ledger.ledger_))
+                {
+                    v.setFieldVL(sfExportKey, n->first.slice());
+                    v.setFieldVL(sfExportKeyProof, n->second);
+                }
             }
 
             // If the next ledger is a flag ledger, suggest fee changes and

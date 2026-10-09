@@ -23,6 +23,7 @@
 #include <xrpld/app/tx/detail/InvariantCheck.h>
 
 #include <xrpld/app/misc/CredentialHelpers.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/PermissionedDomainSet.h>
@@ -144,7 +145,10 @@ XRPNotCreated::visitEntry(
     }
 
     if (!before && after->getType() == ltACCOUNT_ROOT)
+    {
         accountsCreated_++;
+        created_.push_back((*after)[sfAccount]);
+    }
 }
 
 bool
@@ -218,6 +222,37 @@ XRPNotCreated::finalize(
         XRPAmount dropsAdded{beast::zero};
         for (auto const& dest : dests)
             dropsAdded += dest.getFieldAmount(sfAmount).xrp();
+
+        // featureExport: accounts created outside the destinations must be
+        // UNLReport validators, each funded with validatorFundingDrops
+        for (auto const& id : created_)
+        {
+            if (std::any_of(dests.begin(), dests.end(), [&](auto const& d) {
+                    return d.getAccountID(sfDestination) == id;
+                }))
+                continue;
+
+            auto const unl = view.read(keylet::UNLReport());
+            if (!view.rules().enabled(featureExport) || !unl ||
+                !unl->isFieldPresent(sfActiveValidators))
+                return false;
+
+            auto const& avs = unl->getFieldArray(sfActiveValidators);
+            if (std::none_of(avs.begin(), avs.end(), [&](auto const& v) {
+                    return (v.isFieldPresent(sfAccount)
+                                ? v.getAccountID(sfAccount)
+                                : calcAccountID(PublicKey(v[sfPublicKey]))) ==
+                        id;
+                }))
+            {
+                JLOG(j.fatal()) << "Invariant failed GenesisMint: created "
+                                << id << " which is neither a destination "
+                                << "nor a UNLReport validator";
+                return false;
+            }
+
+            dropsAdded += XRPAmount{Export::validatorFundingDrops};
+        }
 
         JLOG(j.trace()) << "Invariant XRPNotCreated GenesisMint: "
                         << "dropsAdded: " << dropsAdded

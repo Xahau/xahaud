@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/CronSet.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
@@ -39,7 +40,10 @@ CronSet::preflight(PreflightContext const& ctx)
     auto& tx = ctx.tx;
     auto& j = ctx.j;
 
-    if (tx.getFlags() & tfCronSetMask)
+    auto const mask = ctx.rules.enabled(featureExport)
+        ? tfCronSetMask
+        : tfCronSetMask | tfCronExportRotation;
+    if (tx.getFlags() & mask)
     {
         JLOG(j.warn()) << "CronSet: Invalid flags set.";
         return temINVALID_FLAG;
@@ -58,7 +62,25 @@ CronSet::preflight(PreflightContext const& ctx)
     bool const hasRepeat = tx.isFieldPresent(sfRepeatCount);
     bool const hasStartTime = tx.isFieldPresent(sfStartTime);
 
-    if (tx.isFlag(tfCronUnset))
+    if (tx.isFlag(tfCronExportRotation))
+    {
+        // The ledger picks StartTime (just after the next export key rotation
+        // has settled) and, if repeating, DelaySeconds (one rotation period).
+        if (tx.isFlag(tfCronUnset) || hasStartTime || hasDelay)
+        {
+            JLOG(j.debug()) << "CronSet: tfCronExportRotation cannot be used "
+                               "with tfCronUnset, StartTime or DelaySeconds.";
+            return temMALFORMED;
+        }
+        if (hasRepeat &&
+            (tx.getFieldU32(sfRepeatCount) == 0 ||
+             tx.getFieldU32(sfRepeatCount) > 256))
+        {
+            JLOG(j.debug()) << "CronSet: RepeatCount must be 1 to 256.";
+            return temMALFORMED;
+        }
+    }
+    else if (tx.isFlag(tfCronUnset))
     {
         // delete operation
         if (hasDelay || hasRepeat || hasStartTime)
@@ -170,7 +192,18 @@ CronSet::doApply()
     uint32_t recur{0};
     uint32_t startTime{0};
 
-    if (!isDelete)
+    if (tx.isFlag(tfCronExportRotation))
+    {
+        if (tx.isFieldPresent(sfRepeatCount))
+        {
+            recur = tx.getFieldU32(sfRepeatCount);
+            delay = Export::keyRotationPeriod;
+        }
+        startTime = Export::rotationCronTime(
+            view.parentCloseTime().time_since_epoch().count(),
+            tx.getAccountID(sfAccount));
+    }
+    else if (!isDelete)
     {
         if (tx.isFieldPresent(sfDelaySeconds))
             delay = tx.getFieldU32(sfDelaySeconds);

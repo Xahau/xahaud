@@ -500,10 +500,11 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
-/** Emitted by a hook: have the UNL multisign sfExportedTxn, a transaction for
-    another network from the hook's account. See Export.h. */
+/** Emitted by a hook: have the listed export keys multisign sfExportedTxn, a
+    transaction for another network from the hook's account. See Export.h. */
 TRANSACTION(ttEXPORT, 88, Export, ({
     {sfExportedTxn, soeREQUIRED},
+    {sfSignerEntries, soeREQUIRED},
 }))
 
 /** A UNL validator's multisignature over a pending export. Deliberately not a
@@ -632,4 +633,5 @@ TRANSACTION(ttUNL_REPORT, 104, UNLReport, ({
     {sfLedgerSequence, soeREQUIRED},
     {sfActiveValidator, soeOPTIONAL},
     {sfImportVLKey, soeOPTIONAL},
+    {sfExportKeyReport, soeOPTIONAL},
 }))

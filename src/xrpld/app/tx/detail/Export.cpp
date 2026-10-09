@@ -19,11 +19,12 @@
 
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/main/Application.h>
-#include <xrpld/app/misc/ValidatorKeys.h>
+#include <xrpld/app/misc/ExportKeys.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/core/Config.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/st.h>
 
@@ -64,17 +65,36 @@ exportKeylet(STTx const& tx)
     return keylet::exportedTxn(tx[sfLedgerSequence], tx[sfTransactionHash]);
 }
 
+static bool
+listed(STArray const& entries, AccountID const& acc)
+{
+    return std::any_of(entries.begin(), entries.end(), [&](STObject const& e) {
+        return e[sfAccount] == acc;
+    });
+}
+
+Serializer
+exportKeyProofData(
+    PublicKey const& master,
+    PublicKey const& exportKey,
+    std::uint32_t networkID)
+{
+    Serializer s;
+    s.add32(HashPrefix::exportKeyProof);
+    s.addVL(master.slice());
+    s.addVL(exportKey.slice());
+    s.add32(networkID);
+    return s;
+}
+
 XRPAmount
 Export::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     if (tx.getTxnType() != ttEXPORT)
         return XRPAmount{0};
 
-    // an export fans out into one signature per active validator plus a final
-    auto const unl = view.read(keylet::UNLReport());
-    std::int64_t const n = unl && unl->isFieldPresent(sfActiveValidators)
-        ? unl->getFieldArray(sfActiveValidators).size()
-        : 0;
+    // an export fans out into one signature per listed signer plus a final
+    std::int64_t const n = tx.getFieldArray(sfSignerEntries).size();
     return Transactor::calculateBaseFee(view, tx) + view.fees().base * (n + 1);
 }
 
@@ -82,8 +102,7 @@ NotTEC
 Export::preflight(PreflightContext const& ctx)
 {
     auto const& tx = ctx.tx;
-    if (!ctx.rules.enabled(featureExport) ||
-        !ctx.rules.enabled(featureOnChainManifests))
+    if (!ctx.rules.enabled(featureExport))
         return temDISABLED;
 
     if (tx.getTxnType() == ttEXPORT)
@@ -93,6 +112,26 @@ Export::preflight(PreflightContext const& ctx)
         if (!hook::isEmittedTxn(tx) ||
             !exportedTx(tx, ctx.app.config().NETWORK_ID))
             return temMALFORMED;
+
+        // who may sign: the signer list the exporting account holds on the
+        // other network, or any subset of it
+        auto const& entries = tx.getFieldArray(sfSignerEntries);
+        if (entries.empty() ||
+            entries.size() > STTx::maxMultiSigners(&ctx.rules))
+            return temMALFORMED;
+
+        std::vector<AccountID> accs;
+        accs.reserve(entries.size());
+        for (auto const& e : entries)
+        {
+            if (e.getFName() != sfSignerEntry || e[sfAccount] == beast::zero)
+                return temMALFORMED;
+            accs.push_back(e[sfAccount]);
+        }
+        std::sort(accs.begin(), accs.end());
+        if (std::adjacent_find(accs.begin(), accs.end()) != accs.end())
+            return temMALFORMED;
+
         return preflight2(ctx);
     }
 
@@ -132,21 +171,14 @@ Export::preclaim(PreclaimContext const& ctx)
     if (tx.getTxnType() == ttEXPORT_FINAL)
         return tesSUCCESS;
 
-    // The signer must be the current ephemeral key of an active UNL validator
-    // according to the ledger (OnChainManifests), never the local manifest
-    // cache, so every node reaches the same verdict.
+    // Only accounts the exporter listed may sign: one foreign signer and the
+    // other network rejects the whole transaction. Nothing else about the key
+    // matters here. Signatures authenticate themselves, sign txns only reach
+    // a ledger through trusted proposals, and the listed keys are whichever
+    // the exporting account trusts on the other network.
     auto const& s = obj(tx, sfSigner);
     PublicKey const pk(s[sfSigningPubKey]);
-    auto const man = ctx.view.read(keylet::manifest(pk));
-    auto const unl = ctx.view.read(keylet::UNLReport());
-    if (!man || (*man)[~sfSigningPubKey] != pk.slice() || !unl ||
-        !unl->isFieldPresent(sfActiveValidators))
-        return tefBAD_AUTH;
-
-    auto const& avs = unl->getFieldArray(sfActiveValidators);
-    if (std::none_of(avs.begin(), avs.end(), [&](STObject const& v) {
-            return v[sfPublicKey] == (*man)[sfPublicKey];
-        }))
+    if (!listed(sle->getFieldArray(sfSignerEntries), s[sfAccount]))
         return tefBAD_AUTH;
 
     auto const& inner = obj(*sle, sfExportedTxn);
@@ -194,6 +226,7 @@ Export::doApply()
         sle->peekFieldObject(sfExportedTxn) = obj(tx, sfExportedTxn);
         sle->setFieldH256(sfTransactionHash, id);
         sle->setFieldU32(sfLedgerSequence, view.seq());
+        sle->setFieldArray(sfSignerEntries, tx.getFieldArray(sfSignerEntries));
         view.insert(sle);
 
         if (!t->isFieldPresent(sfTicketSequence) ||
@@ -249,7 +282,7 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
 
     auto const seq = view.seq();
     auto const nid = app.config().NETWORK_ID;
-    auto const& keys = app.getValidatorKeys().keys;
+    auto& exportKeys = app.getExportKeys();
     bool changed = false;
 
     auto const inject = [&](TxType type, auto&& assemble) {
@@ -279,22 +312,37 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
                 o[sfLedgerSequence] = created;
                 o[sfTransactionHash] = id;
             });
-        else if (keys)
-            inject(ttEXPORT_SIGN, [&](STObject& o) {
-                auto const acc = calcAccountID(keys->publicKey);
-                o[sfAccount] = AccountID();
-                if (nid > 1024)
-                    o[sfNetworkID] = nid;
-                o[sfLedgerSequence] = created;
-                o[sfTransactionHash] = id;
-                auto& s = o.peekFieldObject(sfSigner);
-                s[sfAccount] = acc;
-                s[sfSigningPubKey] = keys->publicKey.slice();
-                s[sfTxnSignature] = sign(
-                    keys->publicKey,
-                    keys->secretKey,
-                    buildMultiSigningData(inner, acc).slice());
-            });
+        else
+        {
+            STArray const* signers = inner.isFieldPresent(sfSigners)
+                ? &inner.getFieldArray(sfSigners)
+                : nullptr;
+
+            // possibly several, if the exporter listed more than one of ours
+            for (auto const& key :
+                 exportKeys.signersFor(sle->getFieldArray(sfSignerEntries)))
+            {
+                // not a structured binding: the lambda below captures these
+                PublicKey const& pk = key.first;
+                SecretKey const& sk = key.second;
+                auto const acc = calcAccountID(pk);
+                if (signers && listed(*signers, acc))
+                    continue;
+
+                inject(ttEXPORT_SIGN, [&](STObject& o) {
+                    o[sfAccount] = AccountID();
+                    if (nid > 1024)
+                        o[sfNetworkID] = nid;
+                    o[sfLedgerSequence] = created;
+                    o[sfTransactionHash] = id;
+                    auto& s = o.peekFieldObject(sfSigner);
+                    s[sfAccount] = acc;
+                    s[sfSigningPubKey] = pk.slice();
+                    s[sfTxnSignature] =
+                        sign(pk, sk, buildMultiSigningData(inner, acc).slice());
+                });
+            }
+        }
     }
 
     return changed;

@@ -118,6 +118,7 @@ LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
     {sfExportedTxn,          soeREQUIRED},
     {sfTransactionHash,      soeREQUIRED},
     {sfLedgerSequence,       soeREQUIRED},
+    {sfSignerEntries,        soeREQUIRED},
 }))
 
 /** A ledger object containing a hook-emitted transaction from a previous hook execution.
@@ -187,6 +188,12 @@ LEDGER_ENTRY(ltNFTOKEN_PAGE, 0x0050, NFTokenPage, nft_page, ({
 LEDGER_ENTRY_DUPLICATE(ltUNL_REPORT, 0x0052, UNLReport, unl_report, ({
     {sfImportVLKeys,         soeOPTIONAL},
     {sfActiveValidators,     soeOPTIONAL},
+    /* featureExport: the ledger of the last ActiveValidator/ImportVLKey
+       report, which decides when the arrays above are reset. Export key
+       reports also modify this object, so PreviousTxnLgrSeq no longer can. */
+    {sfLedgerSequence,       soeOPTIONAL},
+    /* featureExport: bumped whenever a validator's export key changes. */
+    {sfExportKeysSeq,        soeOPTIONAL},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
@@ -274,6 +281,11 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
+    /* featureExport: a validator's export keys, newest first */
+    {sfExportKeys,           soeOPTIONAL},
+    /* featureExport, genesis account only: the flag ledger whose UNLReport
+       was last scanned for validator accounts to fund */
+    {sfUNLFundedLedger,      soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.

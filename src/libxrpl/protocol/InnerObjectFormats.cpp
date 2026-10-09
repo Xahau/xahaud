@@ -143,6 +143,23 @@ InnerObjectFormats::InnerObjectFormats()
             {sfAccount, soeOPTIONAL},
         });
 
+    // featureExport: one validator's export key, as reported by the UNL
+    add(sfExportKeyReport.jsonName,
+        sfExportKeyReport.getCode(),
+        {
+            {sfPublicKey, soeREQUIRED},
+            {sfExportKey, soeREQUIRED},
+            {sfExportKeyProof, soeREQUIRED},
+        });
+
+    // featureExport: an entry in a validator account's sfExportKeys
+    add(sfExportKeyEntry.jsonName,
+        sfExportKeyEntry.getCode(),
+        {
+            {sfExportKey, soeREQUIRED},
+            {sfCloseTime, soeREQUIRED},
+        });
+
     add(sfAmountEntry.jsonName,
         sfAmountEntry.getCode(),
         {

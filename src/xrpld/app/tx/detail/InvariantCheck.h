@@ -122,6 +122,7 @@ class XRPNotCreated
     // hide XRP creation.
     boost::multiprecision::int128_t drops_ = 0;
     std::uint32_t accountsCreated_ = 0;
+    std::vector<AccountID> created_;
 
 public:
     void

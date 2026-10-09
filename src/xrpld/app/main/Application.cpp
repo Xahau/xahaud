@@ -38,6 +38,7 @@
 #include <xrpld/app/main/Tuning.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/DatagramMonitor.h>
+#include <xrpld/app/misc/ExportKeys.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/NetworkOPs.h>
@@ -189,6 +190,7 @@ public:
     CachedSLEs cachedSLEs_;
     std::optional<std::pair<PublicKey, SecretKey>> nodeIdentity_;
     ValidatorKeys const validatorKeys_;
+    ExportKeys exportKeys_;
 
     std::unique_ptr<Resource::Manager> m_resourceManager;
 
@@ -348,6 +350,8 @@ public:
               logs_->journal("CachedSLEs"))
 
         , validatorKeys_(*config_, m_journal)
+
+        , exportKeys_(*config_, validatorKeys_, logs_->journal("ExportKeys"))
 
         , m_resourceManager(Resource::make_Manager(
               m_collectorManager->collector(),
@@ -587,6 +591,12 @@ public:
     getValidatorKeys() const override
     {
         return validatorKeys_;
+    }
+
+    ExportKeys&
+    getExportKeys() override
+    {
+        return exportKeys_;
     }
 
     NetworkOPs&

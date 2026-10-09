@@ -82,6 +82,7 @@ class LedgerReplayer;
 class LoadManager;
 class ManifestCache;
 class ValidatorKeys;
+class ExportKeys;
 class NetworkOPs;
 class OpenLedger;
 class OrderBookDB;
@@ -239,6 +240,9 @@ public:
 
     virtual ValidatorKeys const&
     getValidatorKeys() const = 0;
+
+    virtual ExportKeys&
+    getExportKeys() = 0;
 
     virtual Resource::Manager&
     getResourceManager() = 0;
