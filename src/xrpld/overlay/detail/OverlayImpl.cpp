@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/ValidatorList.h>
@@ -35,6 +36,7 @@
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/basics/random.h>
 #include <xrpl/beast/core/LexicalCast.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/server/SimpleWriter.h>
 
@@ -639,6 +641,12 @@ OverlayImpl::onManifests(
     auto const n = m->list_size();
     auto const& journal = from->pjournal();
 
+    // Once manifests are published on-ledger, gossip is checked against the
+    // ledger before it is believed: that is where a revocation lives.
+    std::shared_ptr<ReadView const> view = app_.openLedger().current();
+    if (view && !view->rules().enabled(featureOnChainManifests))
+        view.reset();
+
     protocol::TMManifests relay;
 
     for (std::size_t i = 0; i < n; ++i)
@@ -649,13 +657,11 @@ OverlayImpl::onManifests(
         {
             auto const serialized = mo->serialized;
 
-            auto const result =
-                app_.validatorManifests().applyManifest(std::move(*mo));
+            auto const result = app_.validatorManifests().applyManifest(
+                std::move(*mo), ManifestSource::gossip, view.get());
 
             if (result == ManifestDisposition::accepted)
             {
-                relay.add_list()->set_stobject(s);
-
                 // N.B.: this is important; the applyManifest call above moves
                 //       the loaded Manifest out of the optional so we need to
                 //       reload it here.
@@ -665,6 +671,12 @@ OverlayImpl::onManifests(
                     "ripple::OverlayImpl::onManifests : manifest "
                     "deserialization succeeded");
 
+                // An evicted manifest can be accepted again later. It is only
+                // relayed again once its hash has aged out of the router, so
+                // nodes trading the same entry back and forth stay quiet.
+                if (app_.getHashRouter().shouldRelay(mo->hash()))
+                    relay.add_list()->set_stobject(s);
+
                 app_.getOPs().pubManifest(*mo);
 
                 if (app_.validators().listed(mo->masterKey))
@@ -672,6 +684,15 @@ OverlayImpl::onManifests(
                     auto db = app_.getWalletDB().checkoutDb();
                     addValidatorManifest(*db, serialized);
                 }
+            }
+            else if (result == ManifestDisposition::unseen)
+            {
+                // Held until its ephemeral key is seen validating, and then
+                // relayed from there; see handleNewValidation(). Note who
+                // sent it, so it is not sent back.
+                if (auto const held = deserializeManifest(serialized))
+                    app_.getHashRouter().addSuppressionPeer(
+                        held->hash(), from->id());
             }
         }
         else
@@ -683,8 +704,11 @@ OverlayImpl::onManifests(
     }
 
     if (!relay.list().empty())
-        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS)](
-                     std::shared_ptr<PeerImp>&& p) { p->send(m2); });
+        for_each([m2 = std::make_shared<Message>(relay, protocol::mtMANIFESTS),
+                  source = from->id()](std::shared_ptr<PeerImp>&& p) {
+            if (p->id() != source)
+                p->send(m2);
+        });
 }
 
 void
@@ -1193,12 +1217,10 @@ OverlayImpl::getManifestsMessage()
     {
         protocol::TMManifests tm;
 
-        // A bounded subset of the cache rather than all of it; see
-        // ManifestCache::for_each_gossip_manifest for what is selected.
-        // This message is only rebuilt when the cache sequence changes, so a
-        // shift in which manifests are the most recently used does not by
-        // itself refresh it. That is acceptable: the pinned manifests are the
-        // ones a peer needs, and they are always included.
+        // The list and gossip tiers of the cache, not the ledger tier; see
+        // ManifestCache::for_each_gossip_manifest. Rebuilt whenever the cache
+        // sequence changes, which every admission, eviction and change of
+        // tier bumps.
         app_.validatorManifests().for_each_gossip_manifest(
             [&tm](std::size_t s) { tm.mutable_list()->Reserve(s); },
             [&tm, &hr = app_.getHashRouter()](Manifest const& manifest) {

@@ -617,6 +617,9 @@ Config::loadFromString(std::string const& fileContents)
                 "] section");
     }
 
+    if (getSingleSection(secConfig, SECTION_EARLY_MANIFEST_SYNC, strTemp, j_))
+        EARLY_MANIFEST_SYNC = beast::lexicalCastThrow<bool>(strTemp);
+
     if (getSingleSection(secConfig, SECTION_RELAY_PROPOSALS, strTemp, j_))
     {
         if (boost::iequals(strTemp, "all"))

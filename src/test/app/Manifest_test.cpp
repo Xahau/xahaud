@@ -24,6 +24,7 @@
 #include <xrpld/app/rdb/Wallet.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
+#include <xrpl/basics/chrono.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/protocol/STExchange.h>
 #include <xrpl/protocol/SecretKey.h>
@@ -975,9 +976,482 @@ public:
             ".example.com"));
     }
 
+    struct Validator
+    {
+        SecretKey masterSecret;
+        PublicKey master;
+        SecretKey signingSecret;
+        PublicKey signing;
+    };
+
+    static Validator
+    makeValidator()
+    {
+        auto const ms = randomSecretKey();
+        auto const ss = randomSecretKey();
+        return {
+            ms,
+            derivePublicKey(KeyType::ed25519, ms),
+            ss,
+            derivePublicKey(KeyType::secp256k1, ss)};
+    }
+
+    /** The same master key with a fresh ephemeral key. */
+    static Validator
+    rotate(Validator const& v)
+    {
+        auto const ss = randomSecretKey();
+        return {
+            v.masterSecret,
+            v.master,
+            ss,
+            derivePublicKey(KeyType::secp256k1, ss)};
+    }
+
+    /** Another master key claiming the same ephemeral key. */
+    static Validator
+    impostor(Validator const& v)
+    {
+        auto const ms = randomSecretKey();
+        return {
+            ms,
+            derivePublicKey(KeyType::ed25519, ms),
+            v.signingSecret,
+            v.signing};
+    }
+
+    Manifest
+    manifestFor(Validator const& v, int seq, bool invalidSig = false)
+    {
+        return makeManifest(
+            v.masterSecret,
+            KeyType::ed25519,
+            v.signingSecret,
+            KeyType::secp256k1,
+            seq,
+            invalidSig);
+    }
+
+    static std::size_t
+    offered(ManifestCache const& cache)
+    {
+        std::size_t n = 0;
+        cache.for_each_gossip_manifest(
+            [](std::size_t) {}, [&n](Manifest const&) { ++n; });
+        return n;
+    }
+
+    void
+    testGossipAdmission()
+    {
+        testcase("gossip admission");
+
+        using D = ManifestDisposition;
+        auto const gossip = ManifestSource::gossip;
+
+        TestStopwatch clock;
+        ManifestCache cache{
+            beast::Journal{beast::Journal::getNullSink()}, clock};
+
+        // Gossip for a master key not held, before its ephemeral key has
+        // signed anything: held back, not admitted.
+        auto const a = makeValidator();
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(a, 1), gossip) == D::unseen);
+        BEAST_EXPECT(cache.getMasterKey(a.signing) == a.signing);
+        BEAST_EXPECT(!cache.getTier(a.master));
+
+        // Its first validation releases it, once.
+        auto const seq = cache.sequence();
+        auto const released = cache.noteValidation(a.signing);
+        BEAST_EXPECT(released && released->masterKey == a.master);
+        BEAST_EXPECT(cache.getMasterKey(a.signing) == a.master);
+        BEAST_EXPECT(cache.getTier(a.master) == gossip);
+        BEAST_EXPECT(cache.sequence() > seq);
+        BEAST_EXPECT(!cache.noteValidation(a.signing));
+
+        // Seen first, then gossiped: admitted at once.
+        auto const b = makeValidator();
+        BEAST_EXPECT(!cache.noteValidation(b.signing));
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(b, 1), gossip) == D::accepted);
+
+        // A master key held from gossip rotates without its new key having
+        // been seen...
+        auto const b2 = rotate(b);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(b2, 2), gossip) == D::accepted);
+        BEAST_EXPECT(cache.getMasterKey(b2.signing) == b.master);
+        BEAST_EXPECT(cache.getMasterKey(b.signing) == b.signing);
+
+        // ...and is revoked from gossip too, since that only takes trust away.
+        BEAST_EXPECT(
+            cache.applyManifest(
+                makeRevocation(b.masterSecret, KeyType::ed25519), gossip) ==
+            D::accepted);
+        BEAST_EXPECT(cache.revoked(b.master));
+        BEAST_EXPECT(cache.getMasterKey(b2.signing) == b2.signing);
+        BEAST_EXPECT(cache.getTier(b.master) == gossip);
+
+        // A revocation for a master key not held names no ephemeral key that
+        // could have been seen, so gossip cannot introduce one...
+        auto const c = makeValidator();
+        BEAST_EXPECT(
+            cache.applyManifest(
+                makeRevocation(c.masterSecret, KeyType::ed25519), gossip) ==
+            D::unseen);
+        BEAST_EXPECT(!cache.getTier(c.master));
+
+        // ...but a list can.
+        BEAST_EXPECT(
+            cache.applyManifest(makeRevocation(
+                c.masterSecret, KeyType::ed25519)) == D::accepted);
+        BEAST_EXPECT(cache.getTier(c.master) == ManifestSource::list);
+        BEAST_EXPECT(cache.revoked(c.master));
+
+        // A forgery waits unverified, and is dropped when released.
+        auto const d = makeValidator();
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(d, 1, true), gossip) == D::unseen);
+        BEAST_EXPECT(!cache.noteValidation(d.signing));
+        BEAST_EXPECT(!cache.getTier(d.master));
+
+        // A key is remembered for three to four epochs of the filter.
+        auto const e = makeValidator();
+        cache.noteValidation(e.signing);
+        clock.advance(ManifestCache::seenInterval * 3);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(e, 1), gossip) == D::accepted);
+
+        auto const f = makeValidator();
+        cache.noteValidation(f.signing);
+        clock.advance(ManifestCache::seenInterval * 4);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(f, 1), gossip) == D::unseen);
+    }
+
+    void
+    testPendingSubstitution()
+    {
+        testcase("pending ring: forged replacement");
+
+        using D = ManifestDisposition;
+        auto const gossip = ManifestSource::gossip;
+
+        // Same master and signing key, higher sequence, bad master signature.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 2, true), gossip) ==
+                D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->sequence == 1);
+            BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
+        }
+
+        // Different master claiming the same signing key, bad master signature.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(
+                    manifestFor(impostor(v), 2, true), gossip) == D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->masterKey == v.master);
+            BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
+        }
+
+        // A forgery that arrives first, for the same master key with a
+        // higher sequence, does not keep out the genuine manifest.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 2, true), gossip) ==
+                D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->sequence == 1);
+            BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
+        }
+
+        // Nor does one that arrives first for another master key.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(
+                    manifestFor(impostor(v), 2, true), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->masterKey == v.master);
+            BEAST_EXPECT(cache.getMasterKey(v.signing) == v.master);
+        }
+
+        // A genuine manifest waiting is not displaced by an older genuine one.
+        {
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 2), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->sequence == 2);
+        }
+    }
+
+    void
+    testGossipCapacity()
+    {
+        testcase("gossip capacity and decay");
+
+        using D = ManifestDisposition;
+        auto const gossip = ManifestSource::gossip;
+
+        TestStopwatch clock;
+        ManifestCache cache{
+            beast::Journal{beast::Journal::getNullSink()}, clock};
+
+        std::vector<Validator> held;
+        for (std::size_t i = 0; i < ManifestCache::gossipCapacity; ++i)
+        {
+            held.push_back(makeValidator());
+            cache.noteValidation(held.back().signing);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(held.back(), 1), gossip) ==
+                D::accepted);
+        }
+        BEAST_EXPECT(offered(cache) == ManifestCache::gossipCapacity);
+
+        // Every entry is exactly as active as a newcomer: none gives way.
+        auto const newcomer = makeValidator();
+        cache.noteValidation(newcomer.signing);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(newcomer, 1), gossip) == D::full);
+
+        // Four half-lives on, all but the first have gone on validating. The
+        // first has decayed to a sixteenth of a sighting, the rest stand at
+        // seventeen sixteenths, and a newcomer is worth a whole one: it
+        // displaces the first and nothing else.
+        clock.advance(ManifestCache::halfLife * 4);
+        for (std::size_t i = 1; i < held.size(); ++i)
+            cache.noteValidation(held[i].signing);
+
+        auto const seq = cache.sequence();
+        cache.noteValidation(newcomer.signing);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(newcomer, 1), gossip) ==
+            D::accepted);
+        BEAST_EXPECT(cache.sequence() > seq);
+        BEAST_EXPECT(!cache.getTier(held[0].master));
+        BEAST_EXPECT(cache.getMasterKey(held[0].signing) == held[0].signing);
+        for (std::size_t i = 1; i < held.size(); ++i)
+            BEAST_EXPECT(cache.getTier(held[i].master) == gossip);
+        BEAST_EXPECT(offered(cache) == ManifestCache::gossipCapacity);
+
+        // The newcomer is now the least active, but no less active than
+        // another newcomer, which therefore finds no room.
+        auto const late = makeValidator();
+        cache.noteValidation(late.signing);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(late, 1), gossip) == D::full);
+
+        // Far enough on that the weights are rebased. Their order survives:
+        // the one entry that stopped validating is the one displaced.
+        clock.advance(ManifestCache::halfLife * 300);
+        for (std::size_t i = 2; i < held.size(); ++i)
+            cache.noteValidation(held[i].signing);
+        cache.noteValidation(newcomer.signing);
+        cache.noteValidation(late.signing);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(late, 1), gossip) == D::accepted);
+        BEAST_EXPECT(!cache.getTier(held[1].master));
+        BEAST_EXPECT(cache.getTier(newcomer.master) == gossip);
+        for (std::size_t i = 2; i < held.size(); ++i)
+            BEAST_EXPECT(cache.getTier(held[i].master) == gossip);
+    }
+
+    void
+    testPinning()
+    {
+        testcase("pinning");
+
+        using D = ManifestDisposition;
+        auto const gossip = ManifestSource::gossip;
+
+        TestStopwatch clock;
+        ManifestCache cache{
+            beast::Journal{beast::Journal::getNullSink()}, clock};
+
+        std::vector<Validator> held;
+        for (std::size_t i = 0; i < ManifestCache::gossipCapacity; ++i)
+        {
+            held.push_back(makeValidator());
+            cache.noteValidation(held.back().signing);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(held.back(), 1), gossip) ==
+                D::accepted);
+        }
+
+        // Pinned, a gossip entry is retained as list and frees its slot.
+        auto const seq = cache.sequence();
+        cache.pin({held[0].master});
+        BEAST_EXPECT(cache.sequence() > seq);
+        BEAST_EXPECT(cache.getTier(held[0].master) == ManifestSource::list);
+
+        auto const newcomer = makeValidator();
+        cache.noteValidation(newcomer.signing);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(newcomer, 1), gossip) ==
+            D::accepted);
+        for (auto const& v : held)
+            BEAST_EXPECT(cache.getTier(v.master));
+
+        // Unpinned, it falls back into a full tier, which sheds its least
+        // active entry: one of those that stopped validating.
+        clock.advance(ManifestCache::halfLife);
+        cache.noteValidation(held[0].signing);
+        cache.noteValidation(newcomer.signing);
+        cache.pin({});
+        BEAST_EXPECT(cache.getTier(held[0].master) == gossip);
+        BEAST_EXPECT(cache.getTier(newcomer.master) == gossip);
+        std::size_t remaining = 0;
+        for (std::size_t i = 1; i < held.size(); ++i)
+            remaining += cache.getTier(held[i].master) ? 1 : 0;
+        BEAST_EXPECT(remaining == held.size() - 2);
+        BEAST_EXPECT(offered(cache) == ManifestCache::gossipCapacity);
+
+        // A master key a list vouched for stays in the list tier however it
+        // is updated later, and is offered alongside gossip.
+        auto const listed = makeValidator();
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(listed, 1)) == D::accepted);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(rotate(listed), 2), gossip) ==
+            D::accepted);
+        BEAST_EXPECT(cache.getTier(listed.master) == ManifestSource::list);
+        BEAST_EXPECT(offered(cache) == ManifestCache::gossipCapacity + 1);
+    }
+
+    void
+    testPrecedence()
+    {
+        testcase("tier precedence on key conflicts");
+
+        using D = ManifestDisposition;
+        auto const gossip = ManifestSource::gossip;
+
+        TestStopwatch clock;
+        ManifestCache cache{
+            beast::Journal{beast::Journal::getNullSink()}, clock};
+
+        // Gossip binds an ephemeral key to a master key...
+        auto const a = makeValidator();
+        cache.noteValidation(a.signing);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(a, 1), gossip) == D::accepted);
+
+        // ...and a list binding the same key to another master key wins,
+        // evicting it, where before it would have been refused.
+        auto const b = impostor(a);
+        BEAST_EXPECT(cache.applyManifest(manifestFor(b, 1)) == D::accepted);
+        BEAST_EXPECT(cache.getMasterKey(a.signing) == b.master);
+        BEAST_EXPECT(!cache.getTier(a.master));
+
+        // Gossip cannot do the same to the list...
+        auto const c = impostor(a);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(c, 1), gossip) ==
+            D::badEphemeralKey);
+        BEAST_EXPECT(cache.getMasterKey(a.signing) == b.master);
+
+        // ...and between equals the first holds, as it always has.
+        auto const d = impostor(a);
+        BEAST_EXPECT(
+            cache.applyManifest(manifestFor(d, 1)) == D::badEphemeralKey);
+        BEAST_EXPECT(cache.getMasterKey(a.signing) == b.master);
+    }
+
+    void
+    testPending()
+    {
+        testcase("pending");
+
+        using D = ManifestDisposition;
+        auto const gossip = ManifestSource::gossip;
+
+        {
+            // A newer manifest for a key already waiting replaces it.
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+
+            auto const v = makeValidator();
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 2), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 1), gossip) == D::unseen);
+            BEAST_EXPECT(
+                cache.applyManifest(manifestFor(v, 3), gossip) == D::unseen);
+            auto const released = cache.noteValidation(v.signing);
+            BEAST_EXPECT(released && released->sequence == 3);
+            BEAST_EXPECT(cache.getSequence(v.master) == 3);
+        }
+
+        {
+            // The ring holds pendingCapacity; the first to arrive makes way
+            // for the one after.
+            TestStopwatch clock;
+            ManifestCache cache{
+                beast::Journal{beast::Journal::getNullSink()}, clock};
+
+            std::vector<Validator> waiting;
+            for (std::size_t i = 0; i <= ManifestCache::pendingCapacity; ++i)
+            {
+                waiting.push_back(makeValidator());
+                BEAST_EXPECT(
+                    cache.applyManifest(
+                        manifestFor(waiting.back(), 1), gossip) == D::unseen);
+            }
+
+            BEAST_EXPECT(!cache.noteValidation(waiting.front().signing));
+            BEAST_EXPECT(!cache.getTier(waiting.front().master));
+
+            std::size_t released = 0;
+            for (std::size_t i = 1; i < waiting.size(); ++i)
+                released += cache.noteValidation(waiting[i].signing) ? 1 : 0;
+            BEAST_EXPECT(released == ManifestCache::pendingCapacity);
+        }
+    }
+
     void
     run() override
     {
+        testGossipAdmission();
+        testGossipCapacity();
+        testPendingSubstitution();
+        testPinning();
+        testPrecedence();
+        testPending();
+
         ManifestCache cache;
         {
             testcase("apply");

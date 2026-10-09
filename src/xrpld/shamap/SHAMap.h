@@ -219,6 +219,23 @@ public:
     boost::intrusive_ptr<SHAMapItem const> const&
     peekItem(uint256 const& id, SHAMapHash& hash) const;
 
+    /** Look up an item in a map that may not hold every node.
+
+        Unlike peekItem(), meeting a node that is neither in memory nor in the
+        node store is not an error. The ID and hash of the first such node on
+        the way to the key are returned in `missing` instead: what a peer would
+        be asked for next to read the key.
+
+        @param id Key to look up
+        @param missing Set to the first node not held on the path, if any
+
+        @return the item, or nullptr if the key is absent or `missing` is set
+    */
+    boost::intrusive_ptr<SHAMapItem const>
+    peekItemPartial(
+        uint256 const& id,
+        std::optional<std::pair<SHAMapNodeID, uint256>>& missing) const;
+
     // traverse functions
     /** Find the first item after the given item.
 

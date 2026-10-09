@@ -23,17 +23,21 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/consensus/LedgerTiming.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/core/TimeKeeper.h>
+#include <xrpld/overlay/Overlay.h>
+#include <xrpld/overlay/predicates.h>
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/messages.h>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -167,6 +171,33 @@ RCLValidationsAdaptor::acquire(LedgerHash const& hash)
     return RCLValidatedLedger(std::move(ledger), j_);
 }
 
+namespace {
+
+/** Announce a manifest the cache accepted other than from peer gossip.
+
+    Not to the peers it was held back from: OverlayImpl::onManifests records
+    each of them against the manifest's hash.
+*/
+void
+relayManifest(Application& app, Manifest const& manifest)
+{
+    app.getOPs().pubManifest(manifest);
+
+    auto const toSkip = app.getHashRouter().shouldRelay(manifest.hash());
+    if (!toSkip)
+        return;
+
+    protocol::TMManifests tm;
+    tm.add_list()->set_stobject(
+        manifest.serialized.data(), manifest.serialized.size());
+
+    app.overlay().foreach(send_if_not(
+        std::make_shared<Message>(tm, protocol::mtMANIFESTS),
+        peer_in_set(*toSkip)));
+}
+
+}  // namespace
+
 void
 handleNewValidation(
     Application& app,
@@ -191,12 +222,28 @@ handleNewValidation(
     // Resolving now also means this validation is classified in the round it
     // arrived in rather than written off along with every other one until the
     // trusted set is next recomputed.
-    if (app.validatorManifests().getMasterKey(signingKey) == signingKey)
+    auto& manifests = app.validatorManifests();
+
+    std::shared_ptr<ReadView const> view;
+    if (manifests.getMasterKey(signingKey) == signingKey)
     {
-        if (auto const view = app.openLedger().current();
-            view && view->rules().enabled(featureOnChainManifests))
-            app.validatorManifests().applyLedgerSigningKey(*view, signingKey);
+        view = app.openLedger().current();
+        if (view && !view->rules().enabled(featureOnChainManifests))
+            view.reset();
     }
+
+    // Every caller has verified this validation's signature and found it
+    // current, so its ephemeral key is live. That is what admits a manifest
+    // gossiped for the key, and what keeps the manifest it belongs to from
+    // being evicted. A manifest that arrived before the key was ever seen is
+    // released here, and relayed: the peers that held it back are waiting on
+    // the same validation.
+    if (auto const released = manifests.noteValidation(signingKey, view.get()))
+        relayManifest(app, *released);
+
+    // The ledger tier's miss path.
+    if (view && manifests.getMasterKey(signingKey) == signingKey)
+        manifests.applyLedgerSigningKey(*view, signingKey);
 
     // Ensure validation is marked as trusted if signer currently trusted
     auto masterKey = app.validators().getTrustedKey(signingKey);

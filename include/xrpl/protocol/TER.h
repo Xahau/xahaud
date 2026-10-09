@@ -197,6 +197,7 @@ enum TEFcodes : TERUnderlyingType {
     tefINVALID_LEDGER_FIX_TYPE,
     tefPAST_MANIFEST_SEQ,
     tefREVOKED_MANIFEST,
+    tefMANIFEST_KEY_IN_USE,
 };
 
 //------------------------------------------------------------------------------

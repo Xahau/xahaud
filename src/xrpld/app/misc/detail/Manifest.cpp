@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/misc/ManifestLedger.h>
 #include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/ledger/ReadView.h>
@@ -31,8 +32,13 @@
 
 #include <boost/algorithm/string/trim.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 #include <numeric>
 #include <stdexcept>
+#include <vector>
 
 namespace ripple {
 
@@ -295,6 +301,85 @@ loadValidatorToken(std::vector<std::string> const& blob, beast::Journal journal)
     }
 }
 
+namespace {
+
+constexpr std::size_t
+tierIndex(ManifestSource s)
+{
+    return static_cast<std::size_t>(s);
+}
+
+constexpr std::size_t
+capacity(ManifestSource tier)
+{
+    switch (tier)
+    {
+        case ManifestSource::gossip:
+            return ManifestCache::gossipCapacity;
+        case ManifestSource::ledger:
+            return ManifestCache::ledgerCapacity;
+        default:
+            return std::numeric_limits<std::size_t>::max();
+    }
+}
+
+/** Half-lives after which weights are rebased when convenient. */
+constexpr std::int64_t rebaseAfter = 64;
+
+/** Half-lives after which a rebase is forced, even from a path that holds
+    only a shared lock. Far below the 1023 half-lives a double can span.
+*/
+constexpr std::int64_t rebaseOverdue = 256;
+
+Manifest
+duplicate(Manifest const& m)
+{
+    return Manifest{
+        m.serialized, m.masterKey, m.signingKey, m.sequence, m.domain};
+}
+
+void
+addWeight(std::atomic<double>& weight, double amount)
+{
+    auto current = weight.load(std::memory_order_relaxed);
+    while (!weight.compare_exchange_weak(
+        current, current + amount, std::memory_order_relaxed))
+        ;
+}
+
+/** Rebuild the manifest a ltMANIFEST object was written from.
+
+    The object is a lossless mirror written by SetManifest::doApply, so this
+    round-trip is byte-identical to the blob the master key signed and verify()
+    succeeds, or the manifest is discarded. Presence matters: sfVersion is
+    soeDEFAULT in the manifest format and must not be materialised.
+*/
+std::optional<Manifest>
+manifestFromSLE(SLE const& sle, beast::Journal j)
+{
+    STObject st{sfGeneric};
+    st.setFieldU32(sfSequence, sle.getFieldU32(sfSequence));
+    st.setFieldVL(sfPublicKey, sle.getFieldVL(sfPublicKey));
+    st.setFieldVL(sfMasterSignature, sle.getFieldVL(sfMasterSignature));
+    for (auto const& sf :
+         {std::cref(sfSigningPubKey),
+          std::cref(sfSignature),
+          std::cref(sfDomain)})
+        if (sle.isFieldPresent(sf.get()))
+            st.setFieldVL(sf.get(), sle.getFieldVL(sf.get()));
+    if (sle.isFieldPresent(sfVersion))
+        st.setFieldU16(sfVersion, sle.getFieldU16(sfVersion));
+
+    return deserializeManifest(st, j);
+}
+
+}  // namespace
+
+ManifestCache::ManifestCache(beast::Journal j, Stopwatch& clock)
+    : j_(j), clock_(clock), weightBase_(clock.now())
+{
+}
+
 std::optional<PublicKey>
 ManifestCache::getSigningKey(PublicKey const& pk) const
 {
@@ -302,10 +387,7 @@ ManifestCache::getSigningKey(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end() && !iter->second.revoked())
-    {
-        touch(pk);
         return iter->second.signingKey;
-    }
 
     return pk;
 }
@@ -317,10 +399,7 @@ ManifestCache::getMasterKey(PublicKey const& pk) const
 
     if (auto const iter = signingToMasterKeys_.find(pk);
         iter != signingToMasterKeys_.end())
-    {
-        touch(iter->second);
         return iter->second;
-    }
 
     return pk;
 }
@@ -356,10 +435,7 @@ ManifestCache::getManifest(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end() && !iter->second.revoked())
-    {
-        touch(pk);
         return iter->second.serialized;
-    }
 
     return std::nullopt;
 }
@@ -371,12 +447,20 @@ ManifestCache::revoked(PublicKey const& pk) const
     auto const iter = map_.find(pk);
 
     if (iter != map_.end())
-    {
-        touch(pk);
         return iter->second.revoked();
-    }
 
     return false;
+}
+
+std::optional<ManifestSource>
+ManifestCache::getTier(PublicKey const& pk) const
+{
+    std::shared_lock lock{mutex_};
+
+    if (auto const iter = slots_.find(pk); iter != slots_.end())
+        return iter->second.tier;
+
+    return std::nullopt;
 }
 
 std::optional<std::pair<std::uint32_t, std::string>>
@@ -385,69 +469,357 @@ ManifestCache::getRawManifest(PublicKey const& pk) const
     std::shared_lock lock{mutex_};
 
     if (auto const iter = map_.find(pk); iter != map_.end())
-    {
-        touch(pk);
         return std::make_pair(iter->second.sequence, iter->second.serialized);
+
+    return std::nullopt;
+}
+
+//------------------------------------------------------------------------------
+
+ManifestSource
+ManifestCache::tierOf(
+    PublicKey const& master,
+    ManifestSource source,
+    bool vouched) const
+{
+    if (vouched || source == ManifestSource::list || pinned_.contains(master) ||
+        configured_.contains(master))
+        return ManifestSource::list;
+
+    return source;
+}
+
+double
+ManifestCache::unit(Stopwatch::time_point now) const
+{
+    using seconds = std::chrono::duration<double>;
+    return std::exp2(seconds(now - weightBase_) / seconds(halfLife));
+}
+
+bool
+ManifestCache::overdue(Stopwatch::time_point now) const
+{
+    return now - weightBase_ >= rebaseOverdue * halfLife;
+}
+
+void
+ManifestCache::rebase(Stopwatch::time_point now)
+{
+    auto const halfLives = (now - weightBase_) / halfLife;
+    if (halfLives < rebaseAfter)
+        return;
+
+    // Scaling every weight by the same factor leaves their order and ratios
+    // alone, which is all anything compares.
+    auto const scale = std::exp2(-static_cast<double>(halfLives));
+    for (auto& entry : slots_)
+    {
+        auto& weight = entry.second.weight;
+        weight.store(
+            weight.load(std::memory_order_relaxed) * scale,
+            std::memory_order_relaxed);
+    }
+
+    weightBase_ += halfLives * halfLife;
+}
+
+std::optional<std::pair<PublicKey, double>>
+ManifestCache::coldest(ManifestSource tier, PublicKey const* exclude) const
+{
+    std::optional<std::pair<PublicKey, double>> found;
+
+    for (auto const& [key, slot] : slots_)
+    {
+        if (slot.tier != tier || (exclude && key == *exclude))
+            continue;
+
+        auto const weight = slot.weight.load(std::memory_order_relaxed);
+        if (!found || weight < found->second)
+            found.emplace(key, weight);
+    }
+
+    return found;
+}
+
+bool
+ManifestCache::admissible(
+    ManifestSource tier,
+    PublicKey const& master,
+    double weight) const
+{
+    if (tierSize_[tierIndex(tier)] < capacity(tier))
+        return true;
+
+    // The lookup cache always makes room: whatever it drops is read back from
+    // the ledger when next wanted.
+    if (tier != ManifestSource::gossip)
+        return true;
+
+    // Gossip has no such fallback, so an entry is only displaced by one that
+    // is at least as active. A newcomer competes as a single fresh sighting,
+    // so it can only displace an entry that has not been validating.
+    auto const victim = coldest(tier, &master);
+    return victim && victim->second < weight;
+}
+
+bool
+ManifestCache::makeRoom(
+    ManifestSource tier,
+    PublicKey const& master,
+    double weight)
+{
+    while (tierSize_[tierIndex(tier)] >= capacity(tier))
+    {
+        auto const victim = coldest(tier, &master);
+        if (!victim ||
+            (tier == ManifestSource::gossip && !(victim->second < weight)))
+            return false;
+
+        JLOG(j_.debug()) << "Manifest: Evicted;Pk: "
+                         << toBase58(TokenType::NodePublic, victim->first)
+                         << ";Tier: " << to_string(tier) << ";";
+
+        erase(victim->first);
+    }
+
+    return true;
+}
+
+void
+ManifestCache::erase(PublicKey const& master)
+{
+    auto const iter = map_.find(master);
+    if (iter == map_.end())
+        return;
+
+    if (auto const& sk = iter->second.signingKey; sk && !iter->second.revoked())
+    {
+        if (auto const s = signingToMasterKeys_.find(*sk);
+            s != signingToMasterKeys_.end() && s->second == master)
+            signingToMasterKeys_.erase(s);
+    }
+
+    if (auto const slot = slots_.find(master); slot != slots_.end())
+    {
+        --tierSize_[tierIndex(slot->second.tier)];
+        slots_.erase(slot);
+    }
+
+    map_.erase(iter);
+
+    // What a gossip message would contain may have changed.
+    ++seq_;
+}
+
+void
+ManifestCache::retier(Slot& slot, ManifestSource tier)
+{
+    if (slot.tier == tier)
+        return;
+
+    --tierSize_[tierIndex(slot.tier)];
+    ++tierSize_[tierIndex(tier)];
+    slot.tier = tier;
+
+    // Which tier an entry is in decides whether it is gossiped.
+    ++seq_;
+}
+
+void
+ManifestCache::addPending(Manifest m, bool verified)
+{
+    Pending* target = nullptr;
+
+    for (auto& entry : pending_)
+    {
+        // Keyed by ephemeral key, since that is what a validation names.
+        if (entry.manifest && entry.manifest->signingKey == m.signingKey)
+        {
+            // Only a manifest that verifies may displace one already waiting:
+            // the ephemeral key is public, so anyone can name it. The caller
+            // checks m, outside the lock, when it sees something waiting; one
+            // that raced in unchecked is dropped.
+            if (!verified)
+                return;
+
+            // What is waiting was never checked, so its sequence means
+            // nothing yet: a forgery that arrived first must not keep out the
+            // genuine manifest. It stays only if it is genuine, for the same
+            // master key, and no older. Only the holder of the ephemeral key
+            // can produce a verified m, so only it can cause this check.
+            auto const& waiting = *entry.manifest;
+            if (waiting.masterKey == m.masterKey &&
+                waiting.sequence >= m.sequence)
+            {
+                if (!entry.verified)
+                    entry.verified = waiting.verify();
+                if (entry.verified)
+                    return;
+            }
+
+            entry.manifest = std::move(m);
+            entry.verified = true;
+            return;
+        }
+
+        // An empty entry if there is one, else the one waiting longest.
+        if (!target || (target->manifest && !entry.manifest) ||
+            (target->manifest && entry.manifest && entry.order < target->order))
+            target = &entry;
+    }
+
+    if (!target->manifest)
+        ++pendingSize_;
+
+    target->order = ++pendingOrder_;
+    target->manifest = std::move(m);
+    target->verified = verified;
+}
+
+bool
+ManifestCache::hasPending(PublicKey const& signingKey) const
+{
+    if (pendingSize_ == 0)
+        return false;
+
+    for (auto const& entry : pending_)
+        if (entry.manifest && entry.manifest->signingKey == signingKey)
+            return true;
+
+    return false;
+}
+
+std::optional<Manifest>
+ManifestCache::takePending(PublicKey const& signingKey)
+{
+    for (auto& entry : pending_)
+    {
+        if (entry.manifest && entry.manifest->signingKey == signingKey)
+        {
+            std::optional<Manifest> taken = std::move(entry.manifest);
+            entry.manifest.reset();
+            --pendingSize_;
+            return taken;
+        }
     }
 
     return std::nullopt;
 }
 
 void
-ManifestCache::touch(PublicKey const& masterKey) const
+ManifestCache::adopt(Manifest const& m)
 {
-    // find() rather than operator[]: inserting here would be a structural
-    // modification, and callers hold mutex_ only in shared mode. The entry is
-    // created in applyManifest() alongside the manifest itself, so a lookup
-    // that hit map_ always finds one here too.
-    if (auto const iter = lastUsed_.find(masterKey); iter != lastUsed_.end())
-        iter->second.store(++tick_, std::memory_order_relaxed);
+    auto const iter = map_.find(m.masterKey);
+    if (iter == map_.end() || iter->second.serialized != m.serialized)
+        return;
+
+    auto& slot = slots_.find(m.masterKey)->second;
+    if (slot.source != ManifestSource::gossip)
+        return;
+
+    slot.source = ManifestSource::ledger;
+
+    auto const tier = tierOf(m.masterKey, slot.source, slot.vouched);
+    if (tier != slot.tier && makeRoom(tier, m.masterKey, 0))
+        retier(slot, tier);
 }
+
+std::shared_ptr<SLE const>
+ManifestCache::readLedger(ReadView const& view, PublicKey const& key) const
+{
+    return view.read(keylet::manifest(key));
+}
+
+//------------------------------------------------------------------------------
 
 void
 ManifestCache::pin(hash_set<PublicKey> keys)
 {
     std::lock_guard lock{mutex_};
 
+    // Called every consensus round, so a convenient place to keep the weight
+    // base current.
+    rebase(clock_.now());
+
     if (keys == pinned_)
         return;
 
     pinned_ = std::move(keys);
+
+    for (auto& [key, slot] : slots_)
+        retier(slot, tierOf(key, slot.source, slot.vouched));
+
+    // A key that left falls back to its source's tier, which can put that
+    // tier over capacity. Nothing is being admitted in exchange, so the least
+    // active go unconditionally.
+    for (auto const tier : {ManifestSource::gossip, ManifestSource::ledger})
+    {
+        while (tierSize_[tierIndex(tier)] > capacity(tier))
+        {
+            auto const victim = coldest(tier, nullptr);
+            if (!victim)
+                break;
+            erase(victim->first);
+        }
+    }
 
     // The pinned set is part of what a gossip message contains, so a change to
     // it has to invalidate any message cached against this sequence.
     ++seq_;
 }
 
-namespace {
-
-/** Rebuild the manifest a ltMANIFEST object was written from.
-
-    The object is a lossless mirror written by SetManifest::doApply, so this
-    round-trip is byte-identical to the blob the master key signed and verify()
-    succeeds, or the manifest is discarded. Presence matters: sfVersion is
-    soeDEFAULT in the manifest format and must not be materialised.
-*/
 std::optional<Manifest>
-manifestFromSLE(SLE const& sle, beast::Journal j)
+ManifestCache::noteValidation(PublicKey const& signingKey, ReadView const* view)
 {
-    STObject st{sfGeneric};
-    st.setFieldU32(sfSequence, sle.getFieldU32(sfSequence));
-    st.setFieldVL(sfPublicKey, sle.getFieldVL(sfPublicKey));
-    st.setFieldVL(sfMasterSignature, sle.getFieldVL(sfMasterSignature));
-    for (auto const& sf :
-         {std::cref(sfSigningPubKey),
-          std::cref(sfSignature),
-          std::cref(sfDomain)})
-        if (sle.isFieldPresent(sf.get()))
-            st.setFieldVL(sf.get(), sle.getFieldVL(sf.get()));
-    if (sle.isFieldPresent(sfVersion))
-        st.setFieldU16(sfVersion, sle.getFieldU16(sfVersion));
+    auto const now = clock_.now();
 
-    return deserializeManifest(st, j);
+    // Before anything else, so that a manifest released below passes the
+    // filter it was held back by.
+    seen_.insert(signingKey, now);
+
+    {
+        std::shared_lock lock{mutex_};
+
+        if (overdue(now))
+        {
+            lock.unlock();
+            {
+                std::lock_guard exclusive{mutex_};
+                rebase(now);
+            }
+            lock.lock();
+        }
+
+        if (auto const iter = signingToMasterKeys_.find(signingKey);
+            iter != signingToMasterKeys_.end())
+        {
+            if (auto const slot = slots_.find(iter->second);
+                slot != slots_.end())
+                addWeight(slot->second.weight, unit(now));
+            return std::nullopt;
+        }
+
+        if (!hasPending(signingKey))
+            return std::nullopt;
+    }
+
+    std::optional<Manifest> released;
+    {
+        std::lock_guard lock{mutex_};
+        released = takePending(signingKey);
+    }
+
+    if (!released)
+        return std::nullopt;
+
+    auto copy = duplicate(*released);
+
+    if (applyManifest(std::move(*released), ManifestSource::gossip, view) !=
+        ManifestDisposition::accepted)
+        return std::nullopt;
+
+    return copy;
 }
-
-}  // namespace
 
 std::size_t
 ManifestCache::applyLedger(
@@ -458,22 +830,52 @@ ManifestCache::applyLedger(
 
     for (auto const& pk : masterKeys)
     {
-        auto const sle = view.read(keylet::manifest(pk));
+        auto const sle = readLedger(view, pk);
         if (!sle)
             continue;
 
-        // Cheap reject before rebuilding: applyManifest() would call this
-        // stale anyway, and the signature check is the expensive part.
-        if (auto const seq = getSequence(pk);
-            seq && *seq >= sle->getFieldU32(sfSequence))
+        // Cheap reject before rebuilding: the signature check is the expensive
+        // part, and most rounds nothing has changed. An equal sequence is
+        // still wanted if the copy held came by gossip: it may be the same
+        // manifest, which then belongs in the lookup cache instead.
+        auto const wanted = [&]() {
+            std::shared_lock lock{mutex_};
+            auto const iter = map_.find(pk);
+            if (iter == map_.end())
+                return true;
+            auto const onLedger = sle->getFieldU32(sfSequence);
+            return iter->second.sequence < onLedger ||
+                (iter->second.sequence == onLedger &&
+                 slots_.find(pk)->second.source == ManifestSource::gossip);
+        }();
+
+        if (!wanted)
             continue;
 
         if (auto mo = manifestFromSLE(*sle, j_); mo &&
-            applyManifest(std::move(*mo)) == ManifestDisposition::accepted)
+            applyManifest(std::move(*mo), ManifestSource::ledger) ==
+                ManifestDisposition::accepted)
             ++accepted;
     }
 
     return accepted;
+}
+
+std::size_t
+ManifestCache::applyLedger(ReadView const& view)
+{
+    hash_set<PublicKey> keys;
+
+    {
+        std::shared_lock lock{mutex_};
+        keys.reserve(map_.size() + pinned_.size() + configured_.size());
+        keys.insert(pinned_.begin(), pinned_.end());
+        keys.insert(configured_.begin(), configured_.end());
+        for (auto const& entry : map_)
+            keys.insert(entry.first);
+    }
+
+    return applyLedger(view, keys);
 }
 
 std::optional<PublicKey>
@@ -486,10 +888,7 @@ ManifestCache::applyLedgerSigningKey(
 
         if (auto const iter = signingToMasterKeys_.find(signingKey);
             iter != signingToMasterKeys_.end())
-        {
-            touch(iter->second);
             return iter->second;
-        }
 
         return std::nullopt;
     };
@@ -517,7 +916,7 @@ ManifestCache::applyLedgerSigningKey(
         iter->second = seq;
     }
 
-    auto const sle = view.read(keylet::manifest(signingKey));
+    auto const sle = readLedger(view, signingKey);
     if (!sle)
         return std::nullopt;
 
@@ -528,30 +927,122 @@ ManifestCache::applyLedgerSigningKey(
     // applyManifest() verifies both signatures, so nothing found here can
     // assert a binding its key holder did not sign for.
     if (auto mo = manifestFromSLE(*sle, j_))
-        applyManifest(std::move(*mo));
+        applyManifest(std::move(*mo), ManifestSource::ledger);
 
     // Only a signing key resolves: a master key is its own master.
-    return held();
+    auto const resolved = held();
+
+    // Resolved, the key is answered from the cache until it is evicted, and
+    // a miss after that should read again rather than find a stale probe.
+    if (resolved)
+    {
+        std::lock_guard lock{mutex_};
+        probed_.erase(signingKey);
+    }
+
+    return resolved;
+}
+
+std::size_t
+ManifestCache::applyLedgerDirectory(
+    ReadView const& view,
+    std::uint64_t maxPages)
+{
+    std::size_t accepted = 0;
+
+    auto const visit = [&](std::shared_ptr<SLE const> const& sle) {
+        auto const raw = sle->getFieldVL(sfPublicKey);
+        if (!publicKeyType(makeSlice(raw)))
+            return;
+
+        PublicKey const master{makeSlice(raw)};
+
+        // The directory lists master objects. Anything else listed there is
+        // not this function's to interpret.
+        if (sle->key() != keylet::manifest(master).key)
+            return;
+
+        auto const onLedger = sle->getFieldU32(sfSequence);
+
+        bool const wanted = [&]() {
+            std::shared_lock lock{mutex_};
+
+            // As in applyLedger(): newer, or the same manifest held from
+            // gossip, which then belongs in the lookup cache instead.
+            if (auto const iter = map_.find(master); iter != map_.end())
+                return iter->second.sequence < onLedger ||
+                    (iter->second.sequence == onLedger &&
+                     slots_.find(master)->second.source ==
+                         ManifestSource::gossip);
+
+            if (pinned_.contains(master) || configured_.contains(master))
+                return true;
+
+            return tierSize_[tierIndex(ManifestSource::ledger)] <
+                ledgerCapacity;
+        }();
+
+        if (!wanted)
+            return;
+
+        if (auto mo = manifestFromSLE(*sle, j_); mo &&
+            applyManifest(std::move(*mo), ManifestSource::ledger) ==
+                ManifestDisposition::accepted)
+            ++accepted;
+    };
+
+    forEachLedgerManifest(view, visit, maxPages);
+
+    return accepted;
 }
 
 ManifestDisposition
-ManifestCache::applyManifest(Manifest m)
+ManifestCache::applyManifest(
+    Manifest m,
+    ManifestSource source,
+    ReadView const* view)
 {
-    // Check the manifest against the conditions that do not require a
-    // `unique_lock` (write lock) on the `mutex_`. Since the signature can be
-    // relatively expensive, the `checkSignature` parameter determines if the
-    // signature should be checked. Since `prewriteCheck` is run twice (see
-    // comment below), `checkSignature` only needs to be set to true on the
-    // first run.
-    auto prewriteCheck =
-        [this, &m](auto const& iter, bool checkSignature, auto const& lock)
+    auto const now = clock_.now();
+
+    // How this manifest would be held, as worked out by check().
+    struct Admission
+    {
+        /// Source recorded for it. A revocation never lowers this: it can only
+        /// take trust away, so it is accepted from anywhere for a master key
+        /// already held, and leaves that key where it was.
+        ManifestSource source = ManifestSource::gossip;
+        bool vouched = false;
+        ManifestSource tier = ManifestSource::gossip;
+        /// It takes a place in a tier it does not already occupy.
+        bool entering = false;
+        /// What it competes for that place with.
+        double weight = 0;
+    };
+
+    // The conditions that need no write. Run under a shared lock before the
+    // exclusive one is taken, so the expensive parts -- the signature, and for
+    // gossip the ledger read between the two runs -- do not block readers;
+    // and again under the exclusive lock, because the collections may have
+    // been written in between. Held manifests that conflict with this one over
+    // a key but rank below it are collected in `evict` rather than refusing
+    // this one.
+    auto check = [this, &m, source, now](
+                     bool checkSignature,
+                     auto const& lock,
+                     Admission& admission,
+                     std::vector<PublicKey>& evict)
         -> std::optional<ManifestDisposition> {
         XRPL_ASSERT(
             lock.owns_lock(),
-            "ripple::ManifestCache::applyManifest::prewriteCheck : locked");
+            "ripple::ManifestCache::applyManifest::check : locked");
         (void)lock;  // not used. parameter is present to ensure the mutex is
                      // locked when the lambda is called.
-        if (iter != map_.end() && m.sequence <= iter->second.sequence)
+
+        auto const iter = map_.find(m.masterKey);
+        Slot const* const slot =
+            iter == map_.end() ? nullptr : &slots_.find(m.masterKey)->second;
+
+        if (slot && m.sequence <= iter->second.sequence)
         {
             // We received a manifest whose sequence number is not strictly
             // greater than the one we already know about. This can happen in
@@ -565,6 +1056,46 @@ ManifestCache::applyManifest(Manifest m)
                     m.sequence,
                     iter->second.sequence);
             return ManifestDisposition::stale;
+        }
+
+        bool const revoked = m.revoked();
+
+        admission.source =
+            (slot && revoked && tierIndex(source) < tierIndex(slot->source))
+            ? slot->source
+            : source;
+        admission.vouched =
+            (slot && slot->vouched) || source == ManifestSource::list;
+        admission.tier =
+            tierOf(m.masterKey, admission.source, admission.vouched);
+        admission.entering = !slot || slot->tier != admission.tier;
+        admission.weight = unit(now);
+        if (slot)
+            admission.weight = std::max(
+                admission.weight, slot->weight.load(std::memory_order_relaxed));
+
+        if (admission.entering && admission.tier == ManifestSource::gossip)
+        {
+            // The gate on the legacy transport, and cheap, so it comes before
+            // the signature: a master key not already held from gossip is let
+            // in on the strength of its ephemeral key having just signed a
+            // validation that verified. A revocation names no ephemeral key,
+            // and for a master key not held there is nothing for it to revoke.
+            if (revoked || !m.signingKey || !seen_.contains(*m.signingKey, now))
+            {
+                if (auto stream = j_.debug())
+                    LOG_MANIFEST_ACTION(
+                        stream, "Unseen", m.masterKey, m.sequence);
+                return ManifestDisposition::unseen;
+            }
+
+            if (!admissible(admission.tier, m.masterKey, admission.weight))
+            {
+                if (auto stream = j_.debug())
+                    LOG_MANIFEST_ACTION(
+                        stream, "Full", m.masterKey, m.sequence);
+                return ManifestDisposition::full;
+            }
         }
 
         if (checkSignature && !m.verify())
@@ -581,21 +1112,33 @@ ManifestCache::applyManifest(Manifest m)
         // setting the sequence number to the highest value possible, the
         // manifest is effectively neutered and cannot be superseded by a forged
         // one.
-        bool const revoked = m.revoked();
-
-        if (auto stream = j_.warn(); stream && revoked)
+        if (auto stream = j_.warn(); stream && revoked && checkSignature)
             LOG_MANIFEST_ACTION(stream, "Revoked", m.masterKey, m.sequence);
+
+        // A held manifest in a lower tier than this one would be loses a key
+        // conflict; anything at or above it wins it, as before.
+        auto const outranks = [this, &admission](PublicKey const& other) {
+            auto const s = slots_.find(other);
+            return s != slots_.end() &&
+                tierIndex(s->second.tier) < tierIndex(admission.tier);
+        };
 
         // Sanity check: the master key of this manifest should not be used as
         // the ephemeral key of another manifest:
         if (auto const x = signingToMasterKeys_.find(m.masterKey);
             x != signingToMasterKeys_.end())
         {
-            JLOG(j_.warn()) << to_string(m)
-                            << ": Master key already used as ephemeral key for "
-                            << toBase58(TokenType::NodePublic, x->second);
+            if (x->second == m.masterKey || !outranks(x->second))
+            {
+                JLOG(j_.warn())
+                    << to_string(m)
+                    << ": Master key already used as ephemeral key for "
+                    << toBase58(TokenType::NodePublic, x->second);
 
-            return ManifestDisposition::badMasterKey;
+                return ManifestDisposition::badMasterKey;
+            }
+
+            evict.push_back(x->second);
         }
 
         if (!revoked)
@@ -614,51 +1157,159 @@ ManifestCache::applyManifest(Manifest m)
             if (auto const x = signingToMasterKeys_.find(*m.signingKey);
                 x != signingToMasterKeys_.end())
             {
-                JLOG(j_.warn())
-                    << to_string(m)
-                    << ": Ephemeral key already used as ephemeral key for "
-                    << toBase58(TokenType::NodePublic, x->second);
+                if (x->second == m.masterKey || !outranks(x->second))
+                {
+                    JLOG(j_.warn())
+                        << to_string(m)
+                        << ": Ephemeral key already used as ephemeral key for "
+                        << toBase58(TokenType::NodePublic, x->second);
 
-                return ManifestDisposition::badEphemeralKey;
+                    return ManifestDisposition::badEphemeralKey;
+                }
+
+                evict.push_back(x->second);
             }
 
             if (auto const x = map_.find(*m.signingKey); x != map_.end())
             {
-                JLOG(j_.warn())
-                    << to_string(m) << ": Ephemeral key used as master key for "
-                    << to_string(x->second);
+                if (!outranks(x->first))
+                {
+                    JLOG(j_.warn()) << to_string(m)
+                                    << ": Ephemeral key used as master key for "
+                                    << to_string(x->second);
 
-                return ManifestDisposition::badEphemeralKey;
+                    return ManifestDisposition::badEphemeralKey;
+                }
+
+                evict.push_back(x->first);
             }
         }
 
         return std::nullopt;
     };
 
+    // Gossip held back by the filter waits for its ephemeral key, unverified:
+    // checking it now would let anyone spend this node's time on keys that
+    // never validate. Only when something already waits for the same
+    // ephemeral key, which it might displace, is it checked, and then with
+    // no lock held: called unlocked, with `rival` as read under the lock it
+    // was last checked under.
+    auto const held = [this, source](Manifest& mm, bool rival) {
+        if (source != ManifestSource::gossip || !mm.signingKey || mm.revoked())
+            return ManifestDisposition::unseen;
+
+        bool const verified = rival && mm.verify();
+        if (rival && !verified)
+            return ManifestDisposition::unseen;
+
+        std::lock_guard lock{mutex_};
+        addPending(std::move(mm), verified);
+        return ManifestDisposition::unseen;
+    };
+
+    // Whether gossip held back would meet something already waiting for its
+    // ephemeral key. @pre mutex_ held.
+    auto const rivalFor = [this](Manifest const& mm) {
+        return mm.signingKey && hasPending(*mm.signingKey);
+    };
+
     {
+        Admission admission;
+        std::vector<PublicKey> evict;
         std::shared_lock sl{mutex_};
-        if (auto d =
-                prewriteCheck(map_.find(m.masterKey), /*checkSig*/ true, sl))
+        if (auto const d = check(false, sl, admission, evict))
+        {
+            bool const rival = *d == ManifestDisposition::unseen && rivalFor(m);
+            sl.unlock();
+
+            if (*d == ManifestDisposition::unseen)
+                return held(m, rival);
+
+            // The ledger confirming verbatim what gossip delivered earlier.
+            if (*d == ManifestDisposition::stale &&
+                source == ManifestSource::ledger)
+            {
+                std::lock_guard lock{mutex_};
+                adopt(m);
+            }
+
             return *d;
+        }
+    }
+
+    // The ledger outranks gossip. Before taking a peer's word for a master
+    // key, see whether the ledger holds its manifest at the same or a later
+    // sequence: above all a revocation, which a validator publishes on-ledger
+    // and which the cache may never have had cause to read. If so the ledger's
+    // copy goes in, and this is stale. A ledger object that fails to verify is
+    // ignored rather than allowed to block gossip.
+    if (source == ManifestSource::gossip && view)
+    {
+        if (auto const sle = readLedger(*view, m.masterKey);
+            sle && sle->getFieldU32(sfSequence) >= m.sequence)
+        {
+            if (auto mo = manifestFromSLE(*sle, j_))
+            {
+                auto const r =
+                    applyManifest(std::move(*mo), ManifestSource::ledger);
+                if (r == ManifestDisposition::accepted ||
+                    r == ManifestDisposition::stale)
+                    return ManifestDisposition::stale;
+            }
+        }
+    }
+
+    {
+        Admission admission;
+        std::vector<PublicKey> evict;
+        std::shared_lock sl{mutex_};
+        if (auto const d = check(true, sl, admission, evict))
+        {
+            bool const rival = *d == ManifestDisposition::unseen && rivalFor(m);
+            sl.unlock();
+            if (*d == ManifestDisposition::unseen)
+                return held(m, rival);
+            return *d;
+        }
     }
 
     std::unique_lock sl{mutex_};
-    auto const iter = map_.find(m.masterKey);
+
     // Since we released the previously held read lock, it's possible that the
-    // collections have been written to. This means we need to run
-    // `prewriteCheck` again. This re-does work, but `prewriteCheck` is
-    // relatively inexpensive to run, and doing it this way allows us to run
-    // `prewriteCheck` under a `shared_lock` above.
-    // Note, the signature has already been checked above, so it
-    // doesn't need to happen again (signature checks are somewhat expensive).
+    // collections have been written to. This means we need to run `check`
+    // again. This re-does work, but it is relatively inexpensive to run, and
+    // doing it this way allows us to run it under a `shared_lock` above.
+    // Note, the signature has already been checked above, so it doesn't need
+    // to happen again (signature checks are somewhat expensive).
     // Note: It's a mistake to use an upgradable lock. This is a recipe for
     // deadlock.
-    if (auto d = prewriteCheck(iter, /*checkSig*/ false, sl))
+    Admission admission;
+    std::vector<PublicKey> evict;
+    if (auto const d = check(false, sl, admission, evict))
+    {
+        // The second check verified m, so it may displace whatever is
+        // waiting for its ephemeral key without another look.
+        if (*d == ManifestDisposition::unseen &&
+            source == ManifestSource::gossip && m.signingKey && !m.revoked())
+            addPending(std::move(m), true);
         return *d;
+    }
+
+    for (auto const& key : evict)
+    {
+        JLOG(j_.info()) << to_string(m) << ": supersedes conflicting "
+                        << toBase58(TokenType::NodePublic, key);
+        erase(key);
+    }
+
+    if (admission.entering &&
+        !makeRoom(admission.tier, m.masterKey, admission.weight))
+        return ManifestDisposition::full;
 
     bool const revoked = m.revoked();
-    // This is the first manifest we are seeing for a master key. This should
-    // only ever happen once per validator run.
+    auto const iter = map_.find(m.masterKey);
+
+    // This is the first manifest we are seeing for a master key.
     if (iter == map_.end())
     {
         if (auto stream = j_.info())
@@ -667,9 +1318,14 @@ ManifestCache::applyManifest(Manifest m)
         if (!revoked)
             signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
 
-        // Kept in step with map_ so touch() never has to insert; see
-        // lastUsed_.
-        lastUsed_.try_emplace(m.masterKey, 0);
+        // A newcomer starts as a single sighting at now.
+        slots_.try_emplace(
+            m.masterKey,
+            admission.source,
+            admission.tier,
+            admission.vouched,
+            unit(now));
+        ++tierSize_[tierIndex(admission.tier)];
 
         auto masterKey = m.masterKey;
         map_.emplace(std::move(masterKey), std::move(m));
@@ -690,10 +1346,19 @@ ManifestCache::applyManifest(Manifest m)
             m.sequence,
             iter->second.sequence);
 
-    signingToMasterKeys_.erase(*iter->second.signingKey);
+    if (auto const& old = iter->second.signingKey;
+        old && !iter->second.revoked())
+        signingToMasterKeys_.erase(*old);
 
     if (!revoked)
         signingToMasterKeys_.emplace(*m.signingKey, m.masterKey);
+
+    // The activity recorded for the master key carries over: the new
+    // ephemeral key adds to it as it validates.
+    auto& slot = slots_.find(m.masterKey)->second;
+    slot.source = admission.source;
+    slot.vouched = admission.vouched;
+    retier(slot, admission.tier);
 
     iter->second = std::move(m);
 
@@ -733,6 +1398,11 @@ ManifestCache::load(
             JLOG(j_.warn()) << "Configured manifest revokes public key";
         }
 
+        {
+            std::lock_guard lock{mutex_};
+            configured_.insert(mo->masterKey);
+        }
+
         if (applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
         {
             JLOG(j_.error()) << "Manifest in config was rejected";
@@ -756,6 +1426,12 @@ ManifestCache::load(
 
         auto mo = deserializeManifest(base64_decode(revocationStr));
 
+        if (mo && mo->revoked())
+        {
+            std::lock_guard lock{mutex_};
+            configured_.insert(mo->masterKey);
+        }
+
         if (!mo || !mo->revoked() ||
             applyManifest(std::move(*mo)) == ManifestDisposition::invalid)
         {
@@ -773,10 +1449,19 @@ ManifestCache::save(
     std::string const& dbTable,
     std::function<bool(PublicKey const&)> const& isTrusted)
 {
-    std::shared_lock lock{mutex_};
-    auto db = dbCon.checkoutDb();
+    // Copied out first so isTrusted, which may call back into this cache,
+    // runs without the lock held.
+    std::vector<Manifest> listed;
+    {
+        std::shared_lock lock{mutex_};
+        listed.reserve(tierSize_[tierIndex(ManifestSource::list)]);
+        for (auto const& [key, slot] : slots_)
+            if (slot.tier == ManifestSource::list)
+                listed.push_back(duplicate(map_.find(key)->second));
+    }
 
-    saveManifests(*db, dbTable, isTrusted, map_, j_);
+    auto db = dbCon.checkoutDb();
+    saveManifests(*db, dbTable, isTrusted, listed, j_);
 }
 
 // Clean up macros to avoid namespace pollution
