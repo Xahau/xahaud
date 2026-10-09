@@ -114,6 +114,7 @@ Handler const handlerArray[]{
      byRef(&doGetAggregatePrice),
      Role::USER,
      NO_CONDITION},
+    {"hook_validate", byRef(&doHookValidate), Role::USER, NO_CONDITION},
     {"inject", byRef(&doInject), Role::ADMIN, NEEDS_CURRENT_LEDGER},
     {"ledger_accept",
      byRef(&doLedgerAccept),
