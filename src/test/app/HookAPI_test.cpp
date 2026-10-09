@@ -4607,6 +4607,35 @@ public:
     }
 
     void
+    test_util_sha256(FeatureBitset features)
+    {
+        testcase("Test util_sha256");
+
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        auto& api = hookCtx.api();
+
+        // sha256("rN6SYwr2dTVCzEq9WCwJ"), same vector as SetHook_test
+        std::string msg{"rN6SYwr2dTVCzEq9WCwJ"};
+        BEAST_EXPECT(
+            strHex(api.util_sha256(Slice(msg.data(), msg.size()))) ==
+            "CF0F064C376333BE8948C60796870FAFF29CBA9CD2E62B0B2EB4507DD8746FFD");
+
+        // well-known SHA-256 of the empty string
+        BEAST_EXPECT(
+            strHex(api.util_sha256(Slice{})) ==
+            "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855");
+    }
+
+    void
     test_util_verify(FeatureBitset features)
     {
         testcase("Test util_verify");
@@ -4657,6 +4686,95 @@ public:
         auto const ok = api.util_verify(msg, sig, kp.first.slice());
         BEAST_EXPECT(ok.has_value());
         BEAST_EXPECT(ok.value());
+    }
+
+    void
+    test_util_verify_p256(FeatureBitset features)
+    {
+        testcase("Test util_verify_p256");
+
+        using namespace jtx;
+        using namespace hook;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        auto& api = hookCtx.api();
+
+        // Known-good P-256 vector (same as SetHook_test)
+        auto const hash = *strUnHex(
+            "A41A41A12A799548211C410C65D8133AFDE34D28BDD542E4B680CF2899C8A8C4");
+        auto const r = *strUnHex(
+            "2B42F576D07F4165FF65D1F3B1500F81E44C316F1F0B3EF57325B69ACA46104F");
+        auto const s = *strUnHex(
+            "DC42C2122D6392CD3E3A993A89502A8198C1886FE69D262C4B329BDB6B63FAF1");
+        auto const x = *strUnHex(
+            "B7E08AFDFE94BAD3F1DC8C734798BA1C62B3A0AD1E9EA2A38201CD0889BC7A19");
+        auto const y = *strUnHex(
+            "3603F747959DBF7A4BB226E41928729063ADC7AE43529E61B563BBC606CC5E09");
+        auto const sl = [](Bytes const& b) {
+            return Slice{b.data(), b.size()};
+        };
+
+        // Success
+        auto const ok =
+            api.util_verify_p256(sl(hash), sl(r), sl(s), sl(x), sl(y));
+        BEAST_EXPECT(ok.has_value() && ok.value());
+
+        // Invalid hash size
+        BEAST_EXPECT(
+            api.util_verify_p256(
+                   Slice{hash.data(), 31}, sl(r), sl(s), sl(x), sl(y))
+                .error() == INVALID_ARGUMENT);
+
+        // Oversized components
+        auto const big = Bytes(33, 0x01);
+        BEAST_EXPECT(
+            api.util_verify_p256(sl(hash), sl(big), sl(s), sl(x), sl(y))
+                .error() == TOO_BIG);
+        BEAST_EXPECT(
+            api.util_verify_p256(sl(hash), sl(r), sl(big), sl(x), sl(y))
+                .error() == TOO_BIG);
+        BEAST_EXPECT(
+            api.util_verify_p256(sl(hash), sl(r), sl(s), sl(big), sl(y))
+                .error() == TOO_BIG);
+        BEAST_EXPECT(
+            api.util_verify_p256(sl(hash), sl(r), sl(s), sl(x), sl(big))
+                .error() == TOO_BIG);
+
+        // Tampered inputs verify as false (not an error)
+        auto tamper = [&](Bytes b) {
+            b[0] ^= 0x01;
+            return b;
+        };
+        auto const badHash = tamper(hash), badR = tamper(r), badS = tamper(s),
+                   badX = tamper(x), badY = tamper(y);
+        auto const notOk = [&](auto const& res) {
+            return res.has_value() && !res.value();
+        };
+        BEAST_EXPECT(notOk(
+            api.util_verify_p256(sl(badHash), sl(r), sl(s), sl(x), sl(y))));
+        BEAST_EXPECT(notOk(
+            api.util_verify_p256(sl(hash), sl(badR), sl(s), sl(x), sl(y))));
+        BEAST_EXPECT(notOk(
+            api.util_verify_p256(sl(hash), sl(r), sl(badS), sl(x), sl(y))));
+        // x/y off the curve: invalid public key, still reported as false
+        BEAST_EXPECT(notOk(
+            api.util_verify_p256(sl(hash), sl(r), sl(s), sl(badX), sl(y))));
+        BEAST_EXPECT(notOk(
+            api.util_verify_p256(sl(hash), sl(r), sl(s), sl(x), sl(badY))));
+
+        // Zero r / s is rejected by ECDSA
+        Bytes const zero(32, 0);
+        BEAST_EXPECT(notOk(
+            api.util_verify_p256(sl(hash), sl(zero), sl(s), sl(x), sl(y))));
+        BEAST_EXPECT(notOk(
+            api.util_verify_p256(sl(hash), sl(r), sl(zero), sl(x), sl(y))));
     }
 
     void
@@ -5001,7 +5119,9 @@ public:
         test_util_keylet(features);
         test_util_raddr(features);
         test_util_sha512h(features);
+        test_util_sha256(features);
         test_util_verify(features);
+        test_util_verify_p256(features);
     }
 
 public:

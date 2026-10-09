@@ -5,6 +5,11 @@
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpl/protocol/STParsedJSON.h>
+#include <memory>
+#include <openssl/bn.h>
+#include <openssl/ec.h>
+#include <openssl/ecdsa.h>
+#include <openssl/obj_mac.h>
 
 namespace hook {
 
@@ -56,10 +61,75 @@ HookAPI::util_verify(Slice const& data, Slice const& sig, Slice const& key)
     return ripple::verify(pubkey, data, sig, false);
 }
 
+// Verify an ECDSA signature (r, s) over a 32-byte hash with a secp256r1
+// (P-256) public key given as affine coordinates (x, y). All big-endian.
+Expected<bool, HookReturnCode>
+HookAPI::util_verify_p256(
+    Slice const& hash,
+    Slice const& r,
+    Slice const& s,
+    Slice const& x,
+    Slice const& y) const
+{
+    if (hash.size() != 32)
+        return Unexpected(INVALID_ARGUMENT);
+
+    if (r.size() > 32 || s.size() > 32 || x.size() > 32 || y.size() > 32)
+        return Unexpected(TOO_BIG);
+
+    using BN = std::unique_ptr<BIGNUM, decltype(&BN_free)>;
+    auto const toBN = [](Slice const& v) {
+        return BN(BN_bin2bn(v.data(), v.size(), nullptr), BN_free);
+    };
+
+    std::unique_ptr<EC_GROUP, decltype(&EC_GROUP_free)> group(
+        EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1), EC_GROUP_free);
+    std::unique_ptr<EC_KEY, decltype(&EC_KEY_free)> key(
+        EC_KEY_new(), EC_KEY_free);
+    std::unique_ptr<EC_POINT, decltype(&EC_POINT_free)> point(
+        group ? EC_POINT_new(group.get()) : nullptr, EC_POINT_free);
+    std::unique_ptr<ECDSA_SIG, decltype(&ECDSA_SIG_free)> sig(
+        ECDSA_SIG_new(), ECDSA_SIG_free);
+    if (!group || !key || !point || !sig)
+        return Unexpected(INTERNAL_ERROR);
+
+    // public key: set_affine_coordinates rejects points not on the curve
+    BN const bnX = toBN(x);
+    BN const bnY = toBN(y);
+    if (!bnX || !bnY ||
+        EC_POINT_set_affine_coordinates(
+            group.get(), point.get(), bnX.get(), bnY.get(), nullptr) != 1 ||
+        EC_KEY_set_group(key.get(), group.get()) != 1 ||
+        EC_KEY_set_public_key(key.get(), point.get()) != 1)
+        return false;
+
+    // signature: ECDSA_SIG_set0 takes ownership of r and s on success
+    BIGNUM* bnR = BN_bin2bn(r.data(), r.size(), nullptr);
+    BIGNUM* bnS = BN_bin2bn(s.data(), s.size(), nullptr);
+    if (!bnR || !bnS || ECDSA_SIG_set0(sig.get(), bnR, bnS) != 1)
+    {
+        BN_free(bnR);
+        BN_free(bnS);
+        return false;
+    }
+
+    // ECDSA_do_verify returns 1 (valid), 0 (invalid) or -1 (error)
+    return ECDSA_do_verify(hash.data(), hash.size(), sig.get(), key.get()) == 1;
+}
+
 uint256
 HookAPI::util_sha512h(Slice const& data) const
 {
     return ripple::sha512Half(data);
+}
+
+uint256
+HookAPI::util_sha256(Slice const& data) const
+{
+    ripple::sha256_hasher h;
+    h(data.data(), data.size());
+    return uint256::fromVoid(
+        static_cast<ripple::sha256_hasher::result_type>(h).data());
 }
 
 // util_keylet

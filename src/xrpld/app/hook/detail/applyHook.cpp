@@ -2960,6 +2960,34 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
+// Compute the SHA-256 of the input and write the 32 byte digest to write_ptr.
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_sha256,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx, view on current stack
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length) ||
+        NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const hash =
+        api.util_sha256(ripple::Slice{memory + read_ptr, read_len});
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, 32, hash.data(), 32, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
 // Given an serialized object in memory locate and return the offset and length
 // of the payload of a subfield of that object. Arrays are returned fully
 // formed. If successful returns offset and length joined as int64_t. Use
@@ -3312,6 +3340,49 @@ DEFINE_HOOK_FUNCTION(
         reinterpret_cast<const void*>(sread_ptr + memory), sread_len};
 
     auto const result = api.util_verify(data, sig, key);
+    if (!result)
+        return result.error();
+    return result.value() ? 1ULL : 0ULL;
+
+    HOOK_TEARDOWN();
+}
+
+// Verify a secp256r1 (P-256) ECDSA signature. Pointer prefixes: h = hash,
+// r/s = signature components, x/y = public key affine coordinates.
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_verify_p256,
+    uint32_t hread_ptr,
+    uint32_t hread_len,
+    uint32_t rread_ptr,
+    uint32_t rread_len,
+    uint32_t sread_ptr,
+    uint32_t sread_len,
+    uint32_t xread_ptr,
+    uint32_t xread_len,
+    uint32_t yread_ptr,
+    uint32_t yread_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(hread_ptr, hread_len, memory_length) ||
+        NOT_IN_BOUNDS(rread_ptr, rread_len, memory_length) ||
+        NOT_IN_BOUNDS(sread_ptr, sread_len, memory_length) ||
+        NOT_IN_BOUNDS(xread_ptr, xread_len, memory_length) ||
+        NOT_IN_BOUNDS(yread_ptr, yread_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const slice = [&](uint32_t ptr, uint32_t len) {
+        return ripple::Slice{reinterpret_cast<const void*>(ptr + memory), len};
+    };
+
+    auto const result = api.util_verify_p256(
+        slice(hread_ptr, hread_len),
+        slice(rread_ptr, rread_len),
+        slice(sread_ptr, sread_len),
+        slice(xread_ptr, xread_len),
+        slice(yread_ptr, yread_len));
     if (!result)
         return result.error();
     return result.value() ? 1ULL : 0ULL;
