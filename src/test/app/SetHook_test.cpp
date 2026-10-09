@@ -634,6 +634,19 @@ public:
             env.close();
         }
 
+        // can't set api version (invalid value)
+        {
+            Json::Value iv;
+            iv[jss::HookHash] = accept_hash_str;
+            iv[jss::HookApiVersion] = 1U;
+            jv[jss::Hooks][0U][jss::Hook] = iv;
+            env(jv,
+                M("Hook Install operation cannot set invalid apiversion"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
         // can't set non-existent hook
         {
             Json::Value iv;
@@ -772,6 +785,36 @@ public:
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
+        }
+
+        // malformed grants / parameters
+        {
+            Json::Value grants{Json::arrayValue};
+            grants[0U][jss::Memo] = Json::Value{};
+            grants[0U][jss::Memo][jss::MemoFormat] =
+                strHex(std::string(12, 'a'));
+            grants[0U][jss::Memo][jss::MemoData] = strHex(std::string(12, 'a'));
+
+            Json::Value params{Json::arrayValue};
+            params[0U][jss::HookParameter] = Json::Value{};
+            params[0U][jss::HookParameter][jss::HookParameterName] =
+                strHex(std::string(33, 'a'));
+
+            for (auto const& [key, value] : JSSMap{
+                     {jss::HookGrants, grants},
+                     {jss::HookParameters, params},
+                 })
+            {
+                auto iv = hso_delete();
+                iv[key] = value;
+                jv[jss::Hooks][0U][jss::Hook] = iv;
+                env(jv,
+                    M("Hook DELETE operation cannot include malformed grants "
+                      "or parameters"),
+                    HSFEE,
+                    ter(temMALFORMED));
+                env.close();
+            }
         }
 
         // create and delete single hook
@@ -962,6 +1005,38 @@ public:
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
+        }
+
+        // malformed grants / parameters
+        {
+            Json::Value grants{Json::arrayValue};
+            grants[0U][jss::Memo] = Json::Value{};
+            grants[0U][jss::Memo][jss::MemoFormat] =
+                strHex(std::string(12, 'a'));
+            grants[0U][jss::Memo][jss::MemoData] = strHex(std::string(12, 'a'));
+
+            Json::Value params{Json::arrayValue};
+            params[0U][jss::HookParameter] = Json::Value{};
+            params[0U][jss::HookParameter][jss::HookParameterName] =
+                strHex(std::string(33, 'a'));
+
+            for (auto const& [key, value] : JSSMap{
+                     {jss::HookGrants, grants},
+                     {jss::HookParameters, params},
+                 })
+            {
+                Json::Value iv;
+                iv[jss::Flags] = hsfNSDELETE;
+                iv[jss::HookNamespace] = to_string(uint256{beast::zero});
+                iv[key] = value;
+                jv[jss::Hooks][0U][jss::Hook] = iv;
+                env(jv,
+                    M("Hook NSDELETE operation cannot include malformed grants "
+                      "or parameters"),
+                    HSFEE,
+                    ter(temMALFORMED));
+                env.close();
+            }
         }
 
         auto const key = uint256::fromVoid(
@@ -1450,6 +1525,47 @@ public:
             deleteHook(alice);
             deleteHook(bob);
         }
+
+        // create with no hookOn fields
+        {
+            auto jv = hso(accept_wasm);
+            jv.removeMember(jss::HookOn);
+            jv.removeMember(jss::HookOnIncoming);
+            jv.removeMember(jss::HookOnOutgoing);
+            env(ripple::test::jtx::hook(alice, {{jv}}, 0),
+                M("Create with no hookOn fields"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+
+        // create with only HookOnOutgoing
+        {
+            auto jv = hso(accept_wasm);
+            jv.removeMember(jss::HookOn);
+            jv[jss::HookOnOutgoing] =
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "02";
+            env(ripple::test::jtx::hook(alice, {{jv}}, 0),
+                M("Create with only HookOnOutgoing"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+
+        // create with HookOn, HookOnIncoming and HookOnOutgoing
+        {
+            auto jv = hso(accept_wasm);
+            jv[jss::HookOnIncoming] =
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "01";
+            jv[jss::HookOnOutgoing] =
+                "00000000000000000000000000000000000000000000000000000000000000"
+                "02";
+            env(ripple::test::jtx::hook(alice, {{jv}}, 0),
+                M("Create with HookOn, HookOnIncoming and HookOnOutgoing"),
+                HSFEE,
+                ter(temMALFORMED));
+        }
+
         if (!hookOnV2)
             return;
 
@@ -2453,6 +2569,28 @@ public:
             env.close();
         }
 
+        // payload too large together with an amendment gated field:
+        // the amendment check takes precedence
+        {
+            auto jvc = hso(long_wasm);
+            jvc[jss::HookCanEmit] =
+                "0000000000000000000000000000000000000000000000000000000000"
+                "000000";
+            env(ripple::test::jtx::hook(alice, {{jvc}}, 0),
+                M("Too large CreateCode with HookCanEmit"),
+                HSFEE,
+                hasHookCanEmit ? ter(temMALFORMED) : ter(temDISABLED));
+            env.close();
+
+            auto jvn = hso(long_wasm);
+            jvn[jss::HookName] = strHex(std::string{"DEADBEEF"});
+            env(ripple::test::jtx::hook(alice, {{jvn}}, 0),
+                M("Too large CreateCode with HookName"),
+                HSFEE,
+                hasNamedHooks ? ter(temMALFORMED) : ter(temDISABLED));
+            env.close();
+        }
+
         // namespace missing
         {
             Json::Value iv;
@@ -2557,6 +2695,22 @@ public:
             jv[jss::Hooks][0U] = iv;
             env(jv,
                 M("Cannot have both CreateCode and HookHash"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // hook hash present with well-formed / malformed parameters
+        for (auto const nameLen : {32, 33})
+        {
+            Json::Value jv =
+                ripple::test::jtx::hook(alice, {{hso(accept_wasm)}}, 0);
+            auto& hook = jv[jss::Hooks][0U][jss::Hook];
+            hook[jss::HookHash] = to_string(uint256{beast::zero});
+            hook[jss::HookParameters][0U][jss::HookParameter]
+                [jss::HookParameterName] = strHex(std::string(nameLen, 'a'));
+            env(jv,
+                M("Cannot have both CreateCode and HookHash (with params)"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -2777,6 +2931,21 @@ public:
 
             env(jv,
                 M("ApiVersion not allowed in update"),
+                HSFEE,
+                ter(temMALFORMED));
+            env.close();
+        }
+
+        // invalid api version in update
+        {
+            Json::Value iv;
+            iv[jss::HookNamespace] = to_string(uint256{beast::zero});
+            iv[jss::HookApiVersion] = 1U;
+            jv[jss::Hooks][0U] = Json::Value{};
+            jv[jss::Hooks][0U][jss::Hook] = iv;
+
+            env(jv,
+                M("Invalid ApiVersion not allowed in update"),
                 HSFEE,
                 ter(temMALFORMED));
             env.close();
@@ -16136,6 +16305,7 @@ public:
 
         testHookOnV2((features | featureHookOnV2) - featureHookOnV2_1);
         testHookOnV2((features | featureHookOnV2_1) - featureHookOnV2);
+        testHookOnV2(features - featureHookOnV2 - featureHookOnV2_1);
         testHookName(features);
 
         testFillCopy(features);
