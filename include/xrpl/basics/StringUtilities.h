@@ -77,7 +77,7 @@ strUnHex(std::size_t strSize, Iterator begin, Iterator end)
 
     if (strSize & 1)
     {
-        int c = unxtab[*iter++];
+        int c = unxtab[static_cast<unsigned char>(*iter++)];
 
         if (c < 0)
             return {};
@@ -87,12 +87,12 @@ strUnHex(std::size_t strSize, Iterator begin, Iterator end)
 
     while (iter != end)
     {
-        int cHigh = unxtab[*iter++];
+        int cHigh = unxtab[static_cast<unsigned char>(*iter++)];
 
         if (cHigh < 0)
             return {};
 
-        int cLow = unxtab[*iter++];
+        int cLow = unxtab[static_cast<unsigned char>(*iter++)];
 
         if (cLow < 0)
             return {};

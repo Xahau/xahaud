@@ -4527,6 +4527,22 @@ public:
         BEAST_EXPECT(accid.has_value());
         auto aliceid = alice.id();
         BEAST_EXPECT(accid.value() == Bytes(aliceid.begin(), aliceid.end()));
+
+        // Bytes outside the base58 alphabet, including >= 0x80, must be
+        // rejected wherever they appear (signed-char lookup regression)
+        {
+            std::string const addr = alice.human();
+            for (std::size_t pos = 0; pos < addr.size(); ++pos)
+            {
+                for (int const b : {0x00, 0x7f, 0x80, 0xc2, 0xff})
+                {
+                    std::string bad = addr;
+                    bad[pos] = static_cast<char>(b);
+                    auto const r = api.util_accid(bad);
+                    BEAST_EXPECT(!r && r.error() == INVALID_ARGUMENT);
+                }
+            }
+        }
     }
 
     void
