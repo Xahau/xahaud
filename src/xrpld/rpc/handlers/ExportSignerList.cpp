@@ -22,8 +22,6 @@
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
@@ -37,31 +35,21 @@ namespace ripple {
         quorum   SignerQuorum (default: 80% of the signers, rounded up)
         account  the account on the other network, filled into tx_json
 
-    Returns tx_json, ready for the other network's autofill, the signers it
-    lists, and UNLReport.ExportKeysSeq, which an exporting hook compares to
-    know when its signer list may need updating.
+    Returns tx_json, the signers it lists, and UNLReport.ExportKeysSeq. Hooks
+    need none of this: xport() a SignerListSet without SignerEntries.
 */
 Json::Value
 doExportSignerList(RPC::JsonContext& context)
 {
     auto const& params = context.params;
-
-    std::optional<std::uint32_t> asOf;
-    if (params.isMember("as_of"))
-    {
-        if (!params["as_of"].isIntegral())
-            return RPC::invalid_field_error("as_of");
-        asOf = params["as_of"].asUInt();
-    }
+    if (params.isMember("as_of") && !params["as_of"].isIntegral())
+        return RPC::invalid_field_error("as_of");
 
     std::optional<AccountID> account;
-    if (params.isMember(jss::account))
-    {
-        if (!params[jss::account].isString() ||
-            !(account =
-                  parseBase58<AccountID>(params[jss::account].asString())))
-            return RPC::invalid_field_error(jss::account);
-    }
+    if (params.isMember(jss::account) &&
+        (!params[jss::account].isString() ||
+         !(account = parseBase58<AccountID>(params[jss::account].asString()))))
+        return RPC::invalid_field_error(jss::account);
 
     std::shared_ptr<ReadView const> ledger;
     auto result = RPC::lookupLedger(ledger, context);
@@ -71,47 +59,11 @@ doExportSignerList(RPC::JsonContext& context)
     auto const unl = ledger->read(keylet::UNLReport());
     result["export_keys_seq"] = unl ? (*unl)[~sfExportKeysSeq].value_or(0) : 0;
 
-    // one export key per active validator, in UNLReport order
-    struct Signer
-    {
-        PublicKey validator;
-        Blob key;
-        std::uint32_t closeTime;
-        AccountID account;
-    };
-    std::vector<Signer> signers;
-    if (unl && unl->isFieldPresent(sfActiveValidators))
-    {
-        for (auto const& v : unl->getFieldArray(sfActiveValidators))
-        {
-            PublicKey const master(v[sfPublicKey]);
-            auto const acc =
-                ledger->read(keylet::account(calcAccountID(master)));
-            if (!acc || !acc->isFieldPresent(sfExportKeys))
-                continue;
-
-            for (auto const& e : acc->getFieldArray(sfExportKeys))
-            {
-                auto const t = e.getFieldU32(sfCloseTime);
-                if (asOf && t > *asOf)
-                    continue;
-                auto const key = e.getFieldVL(sfExportKey);
-                auto const id = calcAccountID(PublicKey(makeSlice(key)));
-                if (std::none_of(
-                        signers.begin(), signers.end(), [&](Signer const& s) {
-                            return s.account == id;
-                        }))
-                    signers.push_back({master, key, t, id});
-                break;
-            }
-        }
-    }
-
-    auto const max = STTx::maxMultiSigners(&ledger->rules());
-    result["truncated"] = signers.size() > max;
-    if (signers.size() > max)
-        signers.erase(signers.begin() + max, signers.end());
-
+    auto const signers = exportSigners(
+        *ledger,
+        params.isMember("as_of")
+            ? std::optional<std::uint32_t>(params["as_of"].asUInt())
+            : std::nullopt);
     if (signers.empty())
         return RPC::make_error(
             rpcOBJECT_NOT_FOUND, "No export keys for the requested time.");
@@ -125,12 +77,13 @@ doExportSignerList(RPC::JsonContext& context)
         quorum = params["quorum"].asUInt();
     }
 
-    std::sort(signers.begin(), signers.end(), [](auto const& a, auto const& b) {
-        return a.account < b.account;
-    });
-
+    Json::Value& tx = result[jss::tx_json] = Json::objectValue;
+    tx[jss::TransactionType] = jss::SignerListSet;
+    if (account)
+        tx[jss::Account] = toBase58(*account);
+    tx[sfSignerQuorum.jsonName] = quorum;
+    Json::Value& entries = tx[sfSignerEntries.jsonName] = Json::arrayValue;
     Json::Value& list = result["signers"] = Json::arrayValue;
-    Json::Value entries = Json::arrayValue;
     for (auto const& s : signers)
     {
         Json::Value& o = list.append(Json::objectValue);
@@ -139,19 +92,10 @@ doExportSignerList(RPC::JsonContext& context)
         o["close_time"] = s.closeTime;
         o[jss::account] = toBase58(s.account);
 
-        Json::Value e = Json::objectValue;
+        Json::Value& e = entries.append(Json::objectValue);
         e[sfSignerEntry.jsonName][sfAccount.jsonName] = toBase58(s.account);
         e[sfSignerEntry.jsonName][sfSignerWeight.jsonName] = 1;
-        entries.append(e);
     }
-
-    Json::Value& tx = result[jss::tx_json] = Json::objectValue;
-    tx[jss::TransactionType] = jss::SignerListSet;
-    if (account)
-        tx[jss::Account] = toBase58(*account);
-    tx[sfSignerQuorum.jsonName] = quorum;
-    tx[sfSignerEntries.jsonName] = entries;
-
     return result;
 }
 

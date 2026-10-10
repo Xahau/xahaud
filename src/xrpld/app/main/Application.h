@@ -238,9 +238,6 @@ public:
     virtual std::optional<PublicKey const>
     getValidationPublicKey() const = 0;
 
-    virtual ValidatorKeys const&
-    getValidatorKeys() const = 0;
-
     virtual ExportKeys&
     getExportKeys() = 0;
 

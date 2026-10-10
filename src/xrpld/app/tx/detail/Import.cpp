@@ -1409,6 +1409,37 @@ Import::doApply()
         sle->setFieldU32(sfImportSequence, importSequence);
     sle->setFieldAmount(sfBalance, finalBal);
 
+    // featureExport: remember the signer list the account now holds there,
+    // unless a later SignerListSet (by ledger, then index) was already seen
+    if (view().rules().enabled(featureExport) &&
+        stpTrans->getTxnType() == ttSIGNER_LIST_SET &&
+        isTesSuccess(meta->getFieldU8(sfTransactionResult)))
+    {
+        std::pair const at{
+            (*xpop)[jss::ledger][jss::index].asUInt(),
+            (*meta)[~sfTransactionIndex].value_or(0)};
+        auto const old = sle->isFieldPresent(sfExportSignerList)
+            ? &sle->peekAtField(sfExportSignerList).downcast<STObject>()
+            : nullptr;
+        if (!old ||
+            std::pair{(*old)[sfLedgerSequence], (*old)[sfTransactionIndex]} <
+                at)
+        {
+            if (!stpTrans->isFieldPresent(sfSignerEntries))
+                sle->makeFieldAbsent(sfExportSignerList);
+            else
+            {
+                auto l = STObject::makeInnerObject(sfExportSignerList);
+                l[sfSignerQuorum] = (*stpTrans)[sfSignerQuorum];
+                l.setFieldArray(
+                    sfSignerEntries, stpTrans->getFieldArray(sfSignerEntries));
+                l[sfLedgerSequence] = at.first;
+                l[sfTransactionIndex] = at.second;
+                sle->peekFieldObject(sfExportSignerList) = std::move(l);
+            }
+        }
+    }
+
     if (create)
     {
         view().insert(sle);

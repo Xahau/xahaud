@@ -18,7 +18,6 @@
 //==============================================================================
 
 #include <test/jtx.h>
-#include <xrpld/app/misc/ExportKeys.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
@@ -31,8 +30,9 @@
 namespace ripple {
 namespace test {
 
-/** The export transactors (see Export.h): ttEXPORT's checks and shadow
-    tickets, and validators signing and finalizing pending exports.
+/** The export transactors (see Export.h): ttEXPORT's checks, its use of the
+    account's signer list and shadow tickets, and validators signing and
+    finalizing pending exports.
 
     ttEXPORT is hook-emitted, so its preflight runs as emit() runs it and its
     doApply runs directly; a full hook round trip and the Import of a ticketed
@@ -86,13 +86,49 @@ class Export_test : public beast::unit_test::suite
         return a;
     }
 
+    // `acc`'s signer list on the other network, as Import records it
+    static void
+    setSignerList(
+        OpenView& view,
+        AccountID const& acc,
+        STArray const& entries,
+        std::uint32_t quorum = 1)
+    {
+        auto sle = std::make_shared<SLE>(*view.read(keylet::account(acc)));
+        auto l = STObject::makeInnerObject(sfExportSignerList);
+        l[sfSignerQuorum] = quorum;
+        l.setFieldArray(sfSignerEntries, entries);
+        l[sfLedgerSequence] = 1;
+        l[sfTransactionIndex] = 0;
+        sle->peekFieldObject(sfExportSignerList) = std::move(l);
+        view.rawReplace(sle);
+    }
+
+    // ttEXPORT's doApply, as the hook's emission would reach it
+    static TER
+    applyExport(jtx::Env& env, OpenView& view, STTx const& tx)
+    {
+        ApplyContext ctx(
+            env.app(),
+            view,
+            tx,
+            tesSUCCESS,
+            XRPAmount{0},
+            tapNONE,
+            env.journal);
+        Export ex(ctx);
+        auto const ter = ex.doApply();
+        if (isTesSuccess(ter))
+            ctx.apply(ter);
+        return ter;
+    }
+
     // ttEXPORT as a hook would emit it
     static STTx
     exportTx(
         jtx::Env& env,
         AccountID const& from,
         STObject const& inner,
-        STArray const& entries,
         std::uint32_t flags = 0,
         bool emitted = true)
     {
@@ -110,7 +146,6 @@ class Export_test : public beast::unit_test::suite
             if (nid > 1024)
                 o.setFieldU32(sfNetworkID, nid);
             o.set(std::make_unique<STObject>(inner));
-            o.setFieldArray(sfSignerEntries, entries);
             if (emitted)
             {
                 auto d = std::make_unique<STObject>(sfEmitDetails);
@@ -162,6 +197,7 @@ class Export_test : public beast::unit_test::suite
         sle->setFieldH256(sfTransactionHash, txid(inner));
         sle->setFieldU32(sfLedgerSequence, created);
         sle->setFieldArray(sfSignerEntries, entries);
+        sle->setFieldU32(sfSignerQuorum, 1);
         view.rawInsert(sle);
         return k;
     }
@@ -220,55 +256,58 @@ class Export_test : public beast::unit_test::suite
         };
 
         auto const good = payment(alice.id(), 10);
-        BEAST_EXPECT(
-            pf(exportTx(env, alice.id(), good, signerEntries({a, b}))) ==
-            tesSUCCESS);
+        BEAST_EXPECT(pf(exportTx(env, alice.id(), good)) == tesSUCCESS);
 
         // emitted only
-        BEAST_EXPECT(isTemMalformed(
-            pf(exportTx(env, alice.id(), good, signerEntries({a}), 0, false))));
+        BEAST_EXPECT(
+            isTemMalformed(pf(exportTx(env, alice.id(), good, 0, false))));
 
         BEAST_EXPECT(
-            pf(exportTx(
-                env, alice.id(), good, signerEntries({a}), 0x00010000)) ==
-            temINVALID_FLAG);
+            pf(exportTx(env, alice.id(), good, 0x00010000)) == temINVALID_FLAG);
 
         // the inner transaction: from the hook account, unsigned, elsewhere
         BEAST_EXPECT(
-            pf(exportTx(env, alice.id(), payment(a, 10), signerEntries({a}))) ==
-            temMALFORMED);
+            pf(exportTx(env, alice.id(), payment(a, 10))) == temMALFORMED);
         {
             auto signed_ = good;
             signed_.setFieldVL(sfTxnSignature, Blob{1, 2, 3});
             BEAST_EXPECT(
-                pf(exportTx(env, alice.id(), signed_, signerEntries({a}))) ==
-                temMALFORMED);
+                pf(exportTx(env, alice.id(), signed_)) == temMALFORMED);
         }
         {
             auto here = good;
             here.setFieldU32(sfNetworkID, nid);
-            BEAST_EXPECT(
-                pf(exportTx(env, alice.id(), here, signerEntries({a}))) ==
-                temMALFORMED);
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), here)) == temMALFORMED);
         }
 
-        // the signer list: present, without duplicates
-        BEAST_EXPECT(
-            pf(exportTx(env, alice.id(), good, signerEntries({}))) ==
-            temMALFORMED);
-        BEAST_EXPECT(
-            pf(exportTx(env, alice.id(), good, signerEntries({a, a}))) ==
-            temMALFORMED);
+        // a SignerListSet must come back, or the list here would go stale
+        {
+            STObject sls(sfExportedTxn);
+            sls.setFieldU16(sfTransactionType, ttSIGNER_LIST_SET);
+            sls.setAccountID(sfAccount, alice.id());
+            sls.setFieldAmount(sfFee, XRPAmount{1000});
+            sls.setFieldU32(sfSequence, 0);
+            sls.setFieldU32(sfSignerQuorum, 0);
+            sls.setFieldVL(sfSigningPubKey, Slice{});
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == temMALFORMED);
+            sls.setFieldU32(sfTicketSequence, 3);
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == temMALFORMED);
+            sls.setFieldU32(sfOperationLimit, nid);
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == tesSUCCESS);
+        }
 
-        // one base fee per listed signer
-        auto const view = env.current();
-        BEAST_EXPECT(
-            Export::calculateBaseFee(
-                *view, exportTx(env, alice.id(), good, signerEntries({a, b}))) -
-                Export::calculateBaseFee(
-                    *view,
-                    exportTx(env, alice.id(), good, signerEntries({a}))) ==
-            view->fees().base);
+        // one base fee per signer in the account's list
+        {
+            env.fund(XRP(10000), alice);
+            env.close();
+            OpenView view(open_ledger, env.closed()->rules(), env.closed());
+            auto const fee = [&](std::vector<AccountID> const& signers) {
+                setSignerList(view, alice.id(), signerEntries(signers));
+                return Export::calculateBaseFee(
+                    view, exportTx(env, alice.id(), good));
+            };
+            BEAST_EXPECT(fee({a, b}) - fee({a}) == view.fees().base);
+        }
 
         {
             Env off{*this, supported_amendments() - featureExport};
@@ -276,7 +315,7 @@ class Export_test : public beast::unit_test::suite
                 preflight(
                     off.app(),
                     off.current()->rules(),
-                    exportTx(off, alice.id(), good, signerEntries({a})),
+                    exportTx(off, alice.id(), good),
                     tapPREFLIGHT_EMIT,
                     off.journal)
                     .ter == temDISABLED);
@@ -295,29 +334,19 @@ class Export_test : public beast::unit_test::suite
         env.close();
 
         auto const nid = env.app().config().NETWORK_ID;
-        auto const entries = signerEntries(
-            {calcAccountID(randomKeyPair(KeyType::ed25519).first)});
         OpenView view(open_ledger, env.closed()->rules(), env.closed());
+        setSignerList(
+            view,
+            alice.id(),
+            signerEntries(
+                {calcAccountID(randomKeyPair(KeyType::ed25519).first)}));
 
         auto const owners = [&]() {
             return view.read(keylet::account(alice.id()))
                 ->getFieldU32(sfOwnerCount);
         };
         auto const apply = [&](STObject const& inner) {
-            auto const tx = exportTx(env, alice.id(), inner, entries);
-            ApplyContext ctx(
-                env.app(),
-                view,
-                tx,
-                tesSUCCESS,
-                XRPAmount{0},
-                tapNONE,
-                env.journal);
-            Export ex(ctx);
-            auto const ter = ex.doApply();
-            if (isTesSuccess(ter))
-                ctx.apply(ter);
-            return ter;
+            return applyExport(env, view, exportTx(env, alice.id(), inner));
         };
         auto const ticket = [&](std::uint32_t t) {
             return view.read(keylet::shadowTicket(alice.id(), t));
@@ -353,6 +382,107 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             ticket(7) && (*ticket(7))[sfTransactionHash] == txid(second));
         BEAST_EXPECT(owners() == before + 1);
+    }
+
+    void
+    testSignerList()
+    {
+        testcase("export signer list");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments() | featureExport};
+        Account const alice{"alice"}, bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        auto const nid = env.app().config().NETWORK_ID;
+        auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        OpenView view(open_ledger, env.closed()->rules(), env.closed());
+        setSignerList(view, alice.id(), signerEntries({a}), 1);
+
+        // only an account whose signer list is known can export
+        auto const preclaim = [&](AccountID const& from) {
+            return Export::preclaim(PreclaimContext(
+                env.app(),
+                view,
+                tesSUCCESS,
+                exportTx(env, from, payment(from, 1)),
+                tapNONE));
+        };
+        BEAST_EXPECT(preclaim(alice.id()) == tesSUCCESS);
+        BEAST_EXPECT(preclaim(bob.id()) == tecNO_TARGET);
+
+        // the pending export snapshots it
+        auto const pay = payment(alice.id(), 1);
+        BEAST_EXPECT(
+            applyExport(env, view, exportTx(env, alice.id(), pay)) ==
+            tesSUCCESS);
+        if (auto const p =
+                view.read(keylet::exportedTxn(view.seq(), txid(pay)));
+            BEAST_EXPECT(p))
+        {
+            BEAST_EXPECT(p->getFieldArray(sfSignerEntries).size() == 1);
+            BEAST_EXPECT((*p)[sfSignerQuorum] == 1);
+        }
+
+        // one UNL validator with an export key on its account
+        auto const master = randomKeyPair(KeyType::secp256k1);
+        auto const key = randomKeyPair(KeyType::ed25519);
+        {
+            auto unl = std::make_shared<SLE>(keylet::UNLReport());
+            STArray avs(sfActiveValidators);
+            avs.push_back(STObject::makeInnerObject(sfActiveValidator));
+            avs.back()[sfPublicKey] = master.first.slice();
+            unl->setFieldArray(sfActiveValidators, avs);
+            if (view.exists(keylet::UNLReport()))
+                view.rawReplace(unl);
+            else
+                view.rawInsert(unl);
+
+            auto const id = calcAccountID(master.first);
+            auto acc = std::make_shared<SLE>(keylet::account(id));
+            acc->setAccountID(sfAccount, id);
+            acc->setFieldAmount(sfBalance, XRPAmount{100'000'000});
+            acc->setFieldU32(sfSequence, 1);
+            STArray keys(sfExportKeys);
+            keys.push_back(STObject::makeInnerObject(sfExportKeyEntry));
+            keys.back().setFieldVL(sfExportKey, key.first.slice());
+            keys.back().setFieldU32(sfCloseTime, 0);
+            acc->setFieldArray(sfExportKeys, keys);
+            view.rawInsert(acc);
+        }
+
+        // a SignerListSet without entries moves onto the current export keys
+        STObject sls(sfExportedTxn);
+        sls.setFieldU16(sfTransactionType, ttSIGNER_LIST_SET);
+        sls.setAccountID(sfAccount, alice.id());
+        sls.setFieldAmount(sfFee, XRPAmount{1000});
+        sls.setFieldU32(sfSequence, 0);
+        sls.setFieldU32(sfTicketSequence, 3);
+        sls.setFieldU32(sfOperationLimit, nid);
+        sls.setFieldU32(sfSignerQuorum, 0);
+        sls.setFieldVL(sfSigningPubKey, Slice{});
+        BEAST_EXPECT(
+            applyExport(env, view, exportTx(env, alice.id(), sls)) ==
+            tesSUCCESS);
+
+        auto const st = view.read(keylet::shadowTicket(alice.id(), 3));
+        auto const p = st ? view.read(keylet::exportedTxn(
+                                view.seq(), (*st)[sfTransactionHash]))
+                          : nullptr;
+        BEAST_EXPECT(p);
+        if (!p)
+            return;
+        auto const& inner = p->peekAtField(sfExportedTxn).downcast<STObject>();
+        BEAST_EXPECT(inner[sfSignerQuorum] == 1);
+        BEAST_EXPECT(
+            inner.getFieldArray(sfSignerEntries).size() == 1 &&
+            inner.getFieldArray(sfSignerEntries)[0][sfAccount] ==
+                calcAccountID(key.first));
+        // signed by the list the account holds now, not the new one
+        BEAST_EXPECT(
+            p->getFieldArray(sfSignerEntries).size() == 1 &&
+            p->getFieldArray(sfSignerEntries)[0][sfAccount] == a);
     }
 
     void
@@ -465,6 +595,7 @@ public:
     {
         testPreflight();
         testShadowTicket();
+        testSignerList();
         testSignAndFinal();
     }
 };

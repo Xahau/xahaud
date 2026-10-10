@@ -839,6 +839,35 @@ HookAPI::emit(Slice const& txBlob) const
     return tpTrans;
 }
 
+Expected<std::shared_ptr<Transaction>, HookReturnCode>
+HookAPI::xport(Slice const& txBlob) const
+{
+    Serializer s;
+    try
+    {
+        SerialIter sit{txBlob};
+        STObject inner{sit, sfExportedTxn};
+        if (!inner.isFieldPresent(sfAccount))
+            inner[sfAccount] = hookCtx.result.account;
+        if (!inner.isFieldPresent(sfSigningPubKey))
+            inner[sfSigningPubKey] = Slice{};
+        STObject outer{sfGeneric};
+        outer[sfTransactionType] = static_cast<std::uint16_t>(ttEXPORT);
+        outer.emplace_back(std::move(inner));
+        outer.add(s);
+    }
+    catch (std::exception const&)
+    {
+        return Unexpected(INVALID_ARGUMENT);
+    }
+
+    // prepare() fills in what emit() requires, including the export's fee
+    auto const blob = prepare(s.slice());
+    if (!blob)
+        return Unexpected(blob.error());
+    return emit(makeSlice(*blob));
+}
+
 Expected<uint64_t, HookReturnCode>
 HookAPI::etxn_burden() const
 {

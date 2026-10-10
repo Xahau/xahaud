@@ -22,42 +22,48 @@
 
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/PublicKey.h>
-#include <xrpl/protocol/Serializer.h>
+#include <boost/filesystem.hpp>
+#include <mutex>
 
 namespace ripple {
 
-/** Export: validators multisign transactions for another network on behalf
-    of a hook's account, using export keys the hook chooses.
+class ValidatorKeys;
+
+/** Export: UNL validators multisign transactions for another network on
+    behalf of a hook's account, which has the same AccountID there.
 
     Export keys. Every UNLReport validator nominates its current export key,
-    with a proof of possession, in its flag ledger validations. The UNL then
-    reports it (ttUNL_REPORT ExportKeyReport) and the key is recorded, newest
-    first, in sfExportKeys on the validator's master account (at most
-    maxExportKeys). Keys rotate on epochs of keyRotationPeriod: a key reported
-    in a later epoch than the current head is pushed, one reported in the same
-    epoch replaces the head, so the array always spans maxExportKeys epochs.
-    Each change bumps UNLReport.ExportKeysSeq. A validator whose account does
-    not exist yet gets one, with validatorFundingDrops, from the next
-    ttGENESIS_MINT.
+    with a proof of possession, in its flag ledger validations. The UNL
+    reports it (ttUNL_REPORT ExportKeyReport) and it is recorded, newest first,
+    in sfExportKeys on the validator's account: one key per keyRotationPeriod
+    epoch, at most maxExportKeys. Each change bumps UNLReport.ExportKeysSeq.
+    A validator whose account does not exist yet gets one, with
+    validatorFundingDrops, from the next ttGENESIS_MINT.
 
-    1. A hook emits ttEXPORT carrying the transaction (Account = hook account,
-       empty SigningPubKey) and sfSignerEntries, the signer list its account
-       holds on the other network. Applying it creates an ltEXPORTED_TXN and,
-       if the transaction uses a TicketSequence and is bound back to this
-       network (OperationLimit == NETWORK_ID), an ltSHADOW_TICKET: the XPOP of
+    Signer list. sfExportSignerList on an account is the signer list it holds
+    on the other network, as last proven by an Import of its SignerListSet.
+    Hooks never need to track it.
+
+    1. A hook calls xport() (or emits a ttEXPORT) with the transaction.
+       Applying it copies the account's sfExportSignerList into a new
+       ltEXPORTED_TXN and, if the transaction uses a ticket and is bound back
+       here (OperationLimit == NETWORK_ID), an ltSHADOW_TICKET: the XPOP of
        whichever transaction uses that ticket there can be imported once.
-    2. Every validator holding an export key whose account is listed applies a
-       ttEXPORT_SIGN to its next open ledger. Each is proposed by one validator
-       only, so it loses its first round, but not being a pseudo-txn it is
-       retried into every node's next open ledger and lands one ledger later.
-       A signature can only be checked against the ledger, so it is never
-       relayed as a transaction: peers have it from the proposed set.
-       Only listed accounts can sign: the other network rejects a multisigned
-       transaction if any signer is missing from its signer list. Signers are
-       kept sorted, so the object always holds a submittable transaction.
-    3. `window` ledgers after creation every node injects ttEXPORT_FINAL, which
-       deletes the object: the DeletedNode's FinalFields are the result.
+       Exported SignerListSets must be so bound, so the list here cannot go
+       stale, and one without SignerEntries is completed with the current
+       export keys at an 80% quorum.
+    2. Every validator holding a listed export key applies a ttEXPORT_SIGN to
+       its next open ledger. Each is proposed by one validator only, so it
+       loses its first round, but not being a pseudo-txn it is retried into
+       every node's next open ledger and lands one ledger later. A signature
+       can only be checked against the ledger, so it is never relayed as a
+       transaction: peers have it from the proposed set. Signers are kept
+       sorted, so the object always holds a submittable transaction.
+    3. `window` ledgers after creation every node injects ttEXPORT_FINAL,
+       which deletes the object: the DeletedNode's FinalFields are the result.
+
+    Servers with [xrpl_relay] submit exports that reach quorum to XRPL and
+    import their XPOPs back (see ExportRelay.cpp).
 */
 class Export : public Transactor
 {
@@ -71,12 +77,11 @@ public:
     /** The most export keys kept on a validator's account */
     static constexpr std::size_t maxExportKeys = 16;
 
-    /** A CronSet with tfCronExportRotation fires this long after each epoch
-        begins, so validators offline at the boundary have rotated too, */
+    /** A tfCronExportRotation cron fires this long after each epoch begins,
+        plus up to rotationSpread more, fixed per account, so validators
+        offline at the boundary have rotated and exporters do not fan out at
+        once */
     static constexpr std::uint32_t rotationSettle = 24 * 60 * 60;
-
-    /** plus up to this much more, fixed per account, so that exporters do not
-        all fan out into UNL-signed exports at once */
     static constexpr std::uint32_t rotationSpread = 24 * 60 * 60;
 
     /** A UNLReport validator whose account does not exist yet is created with
@@ -89,9 +94,7 @@ public:
         return closeTime / keyRotationPeriod;
     }
 
-    /** When `account`'s tfCronExportRotation cron next fires after `now`:
-        rotationSettle plus its spread after an epoch boundary, so repeating
-        it every keyRotationPeriod lands after each rotation. */
+    /** When `account`'s tfCronExportRotation cron next fires after `now` */
     static std::uint32_t
     rotationCronTime(std::uint32_t now, AccountID const& account)
     {
@@ -130,6 +133,9 @@ public:
     accept(Application& app, OpenView& view, beast::Journal j);
 };
 
+using ExportSign = Export;
+using ExportFinal = Export;
+
 /** What an export key signs to prove that its holder nominated it */
 Serializer
 exportKeyProofData(
@@ -137,8 +143,73 @@ exportKeyProofData(
     PublicKey const& exportKey,
     std::uint32_t networkID);
 
-using ExportSign = Export;
-using ExportFinal = Export;
+/** One export key per UNLReport validator: its newest recorded at or before
+    `asOf` (default: now), sorted by account, at most maxMultiSigners. */
+struct ExportSigner
+{
+    PublicKey validator;
+    PublicKey key;
+    std::uint32_t closeTime;
+    AccountID account;
+};
+
+std::vector<ExportSigner>
+exportSigners(ReadView const& view, std::optional<std::uint32_t> asOf = {});
+
+/** A validator's export keys: independent random ed25519 keys, kept for as
+    long as its account lists them. They live in [export_key_file] (default
+    export_keys.txt in the database path), one hex secret per line, oldest
+    first, the last being the nominee. As sensitive as the validator token:
+    without it the validator cannot sign for exporters listing older keys.
+    Independent keys make rotation worth something: a compromise that has
+    ended does not reach keys generated after it. */
+class ExportKeys
+{
+public:
+    ExportKeys(Config const& config, ValidatorKeys const& vk, beast::Journal j);
+
+    /** The key and proof of possession to nominate in the validation of
+        flag ledger `ledger`. Rotates if there is no key, a new epoch began,
+        or `ledger` moved past ours (an older backup); forgets keys `ledger`
+        no longer lists. Empty unless this server is a validator. */
+    std::optional<std::pair<PublicKey, Blob>>
+    nominate(ReadView const& ledger);
+
+    /** The held keys whose accounts are listed in sfSignerEntries `entries` */
+    std::vector<std::pair<PublicKey, SecretKey>>
+    signersFor(STArray const& entries) const;
+
+private:
+    struct Key
+    {
+        PublicKey pk;
+        SecretKey sk;
+        Blob proof;
+    };
+
+    Key
+    make(SecretKey const& sk) const;
+
+    void
+    save() const;
+
+    beast::Journal const j_;
+    std::optional<PublicKey> master_;
+    std::uint32_t const networkID_;
+    std::optional<boost::filesystem::path> file_;
+    mutable std::mutex mutex_;
+    std::vector<Key> keys_;  // oldest first, back() is the nominee
+};
+
+/** [xrpl_relay]: carries exports to XRPL and their XPOPs back. Stops and
+    joins on destruction. Null unless configured. */
+struct ExportRelay
+{
+    virtual ~ExportRelay() = default;
+};
+
+std::unique_ptr<ExportRelay>
+makeExportRelay(Application& app);
 
 }  // namespace ripple
 

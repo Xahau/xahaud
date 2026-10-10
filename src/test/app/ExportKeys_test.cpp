@@ -500,7 +500,6 @@ class ExportKeys_test : public beast::unit_test::suite
                 accountsOf(r) == (std::set<std::string>{acc(k1), acc(k2b)}));
             BEAST_EXPECT(r[jss::tx_json][sfSignerQuorum.jsonName] == 2);
             BEAST_EXPECT(r["export_keys_seq"] == 3);
-            BEAST_EXPECT(r["truncated"] == false);
         }
 
         {

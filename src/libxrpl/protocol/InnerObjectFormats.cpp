@@ -152,6 +152,17 @@ InnerObjectFormats::InnerObjectFormats()
             {sfExportKeyProof, soeREQUIRED},
         });
 
+    // featureExport: an account's signer list on the network it exports to,
+    // and the (ledger, index) there of the SignerListSet that set it
+    add(sfExportSignerList.jsonName,
+        sfExportSignerList.getCode(),
+        {
+            {sfSignerQuorum, soeREQUIRED},
+            {sfSignerEntries, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+            {sfTransactionIndex, soeREQUIRED},
+        });
+
     // featureExport: an entry in a validator account's sfExportKeys
     add(sfExportKeyEntry.jsonName,
         sfExportKeyEntry.getCode(),

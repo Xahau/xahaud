@@ -110,9 +110,10 @@ LEDGER_ENTRY(ltHOOK_DEFINITION, 'D', HookDefinition, hook_definition, ({
 }))
 
 /** A pending export: the transaction being multisigned for another network,
-    gathering UNL signatures in its sfSigners until ttEXPORT_FINAL deletes it.
-    sfOwner is the exporting account, so the signatures and the result are
-    attributed to it in metadata.
+    gathering UNL signatures in its sfSigners until ttEXPORT_FINAL deletes it,
+    with the exporter's signer list there when it was created. sfOwner is the
+    exporting account, so the signatures and the result are attributed to it
+    in metadata.
 
     \sa keylet::exportedTxn
 */
@@ -122,6 +123,7 @@ LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
     {sfTransactionHash,      soeREQUIRED},
     {sfLedgerSequence,       soeREQUIRED},
     {sfSignerEntries,        soeREQUIRED},
+    {sfSignerQuorum,         soeREQUIRED},
 }))
 
 /** A shadow ticket: lets one XPOP of a ticketed export that is bound back to
@@ -303,6 +305,9 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfManifestID,           soeOPTIONAL},
     /* featureExport: a validator's export keys, newest first */
     {sfExportKeys,           soeOPTIONAL},
+    /* featureExport: the signer list this account holds on the network it
+       exports to, as last proven by an Import of its SignerListSet */
+    {sfExportSignerList,     soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.
