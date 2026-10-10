@@ -842,6 +842,22 @@ private:
         return jvRequest;
     }
 
+    // catalogue_unpin <ledger_index_min> <ledger_index_max>
+    Json::Value
+    parseCatalogueUnpin(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+
+        if (jvParams.size() >= 2)
+        {
+            // asUInt() throws on non-numeric input rather than yielding 0
+            jvRequest[jss::ledger_index_min] = jvParams[0u].asUInt();
+            jvRequest[jss::ledger_index_max] = jvParams[1u].asUInt();
+        }
+
+        return jvRequest;
+    }
+
     // catalogue_status - no parameters required
     Json::Value
     parseCatalogueStatus(Json::Value const& jvParams)
@@ -1433,6 +1449,7 @@ public:
             {"catalogue_create", &RPCParser::parseCatalogueCreate, 3, 4},
             {"catalogue_load", &RPCParser::parseCatalogueLoad, 1, 2},
             {"catalogue_status", &RPCParser::parseCatalogueStatus, 0, 0},
+            {"catalogue_unpin", &RPCParser::parseCatalogueUnpin, 2, 2},
             {"channel_authorize", &RPCParser::parseChannelAuthorize, 3, 4},
             {"channel_verify", &RPCParser::parseChannelVerify, 4, 4},
             {"connect", &RPCParser::parseConnect, 1, 2},

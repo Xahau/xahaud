@@ -383,6 +383,21 @@ public:
     void
     sync() override
     {
+        // Drain anything queued through store() into RocksDB, then flush
+        // and fsync the WAL so every write so far survives a crash.
+        m_batch.waitForWriting();
+        if (!m_db)
+            return;
+        auto const ret = m_db->FlushWAL(/*sync=*/true);
+        if (!ret.ok())
+            Throw<std::runtime_error>("sync failed: " + ret.ToString());
+    }
+
+    bool
+    syncDurable() override
+    {
+        sync();
+        return true;
     }
 
     void

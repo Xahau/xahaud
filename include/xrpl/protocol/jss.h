@@ -167,6 +167,7 @@ JSS(amendment_blocked);           // out: NetworkOPs
 JSS(amm_account);                 // in: amm_info
 JSS(amount);                      // out: AccountChannels, amm_info
 JSS(amount2);                     // out: amm_info
+JSS(anchored_through);      // out: CatalogueLoad
 JSS(api_version);                 // in: many, out: Version
 JSS(api_version_low);             // out: Version
 JSS(applied);                     // out: SubmitTransaction
@@ -737,6 +738,7 @@ JSS(TRANSACTION_FLAGS_INDICES);  // out: RPC server_definitions
 JSS(type_hex);                   // out: STPathSet
 JSS(unl);                        // out: UnlList
 JSS(unlimited);                  // out: Connection.h
+JSS(unpinned);              // out: CatalogueUnpin
 JSS(uptime);                     // out: GetCounts
 JSS(uri);                        // out: ValidatorSites
 JSS(url);                        // in/out: Subscribe, Unsubscribe

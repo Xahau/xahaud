@@ -91,6 +91,36 @@ DatabasePinnedImp::store(
     }
 }
 
+void
+DatabasePinnedImp::storePinnedBatch(Batch const& batch)
+{
+    if (batch.empty())
+        return;
+
+    std::uint64_t bytes = 0;
+    for (auto const& obj : batch)
+    {
+        XRPL_ASSERT(
+            obj && !isPinnedType(obj->getType()),
+            "ripple::NodeStore::DatabasePinnedImp::storePinnedBatch : "
+            "serializable type");
+        bytes += obj->getData().size();
+    }
+
+    // The persistent backends allowed for pinned_type (NuDB, RocksDB, and
+    // rwdb/memory in standalone) are safe to write from several threads,
+    // so this may overlap a BatchWriter flush of single store() calls.
+    persistent_->storeBatch(batch);
+    pinnedStoreCount_ += batch.size();
+    storeStats(batch.size(), bytes);
+}
+
+bool
+DatabasePinnedImp::syncPinned()
+{
+    return persistent_->syncDurable();
+}
+
 std::shared_ptr<NodeObject>
 DatabasePinnedImp::fetchNodeObject(
     uint256 const& hash,
@@ -130,7 +160,21 @@ DatabasePinnedImp::fetchNodeObject(
         return obj;
 
     // Fallback: try persistent backend (pinned data)
-    return tryPersistent(hash, fetchReport);
+    auto obj = tryPersistent(hash, fetchReport);
+
+    // `duplicate` is set by online_delete's copy of the current validated
+    // state into the new writable backend. A hot ledger can share nodes
+    // that exist only in persistent storage (e.g. after catalogue_load
+    // switched the LCL to its last ledger); copy those too, so the hot
+    // store becomes self-contained after one rotation and pinned history
+    // can be unpinned and its store discarded without breaking live state.
+    if (obj && duplicate)
+    {
+        Blob data(obj->getData());
+        rotating_.store(obj->getType(), std::move(data), hash, ledgerSeq);
+    }
+
+    return obj;
 }
 
 void
@@ -262,8 +306,8 @@ DatabasePinnedImp::tryPersistent(uint256 const& hash, FetchReport& fetchReport)
     if (status == ok && nodeObject)
     {
         fetchReport.wasFound = true;
-        // Note: We do NOT copy pinned data to rotating storage even if
-        // duplicate=true. Pinned data stays in persistent storage.
+        // Copying into rotating storage for duplicate=true is handled by
+        // the caller (see fetchNodeObject's default path).
     }
     return nodeObject;
 }

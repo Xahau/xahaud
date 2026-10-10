@@ -59,6 +59,24 @@ deserializeTxMapFromStream(
     NodeObjectType flushType,
     beast::Journal const& j);
 
+/** As above, but dirty nodes are flushed to `sink` (tagged with
+    hotACCOUNT_NODE / hotTRANSACTION_NODE) instead of the nodestore, and are
+    not canonicalized into the TreeNodeCache. See SHAMap::flushDirty(t, sink).
+*/
+bool
+deserializeStateMapFromStream(
+    SHAMap& stateMap,
+    CatalogueInputStream& stream,
+    SHAMap::FlushSink const& sink,
+    beast::Journal const& j);
+
+bool
+deserializeTxMapFromStream(
+    SHAMap& txMap,
+    CatalogueInputStream& stream,
+    SHAMap::FlushSink const& sink,
+    beast::Journal const& j);
+
 }  // namespace RPC
 }  // namespace ripple
 

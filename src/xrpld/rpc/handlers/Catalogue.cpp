@@ -24,6 +24,8 @@
 #include <xrpld/app/misc/SHAMapStore.h>
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/ledger/View.h>
+#include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
 #include <xrpld/rpc/Role.h>
@@ -32,6 +34,7 @@
 #include <xrpld/rpc/detail/Tuning.h>
 #include <xrpld/shamap/SHAMapItem.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/RangeSet.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/LedgerFormats.h>
@@ -44,16 +47,21 @@
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
+#include <shared_mutex>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
+#include <boost/iostreams/concepts.hpp>
 #include <boost/iostreams/filter/zlib.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
+#include <boost/iostreams/operations.hpp>
 
 #include <chrono>
 
@@ -875,6 +883,194 @@ doCatalogueCreate(RPC::JsonContext& context)
     return jvResult;
 }
 
+namespace {
+
+// ---- catalogue_load tuning --------------------------------------------------
+
+// state.db is updated at checkpoints rather than per ledger (it is opened with
+// synchronous=FULL, so each update costs several fsyncs). In between, progress
+// is visible in memory (complete_ledgers, pinned set); a crash loses at most
+// the ledgers since the last checkpoint, and re-running catalogue_load on the
+// same file re-covers them idempotently.
+constexpr std::uint32_t loadCheckpointLedgers = 1024;
+constexpr std::chrono::seconds loadCheckpointInterval{10};
+
+// A pinned backend that cannot sync on demand (NuDB commits on its own thread
+// about once a second) gets this long to commit the tail before the final
+// state.db update. SHAMapStoreImp::loadPinnedRanges trims anything that still
+// did not make it, so this only narrows the window.
+constexpr std::chrono::seconds nonDurableCommitGrace{3};
+
+// A ledger's nodes are written only after its hash verifies. Maps too large
+// to buffer (the full base ledger) spill in chunks of this size instead.
+constexpr std::size_t pinnedBatchMaxObjects = 65536;
+constexpr std::size_t pinnedBatchMaxBytes = 64 * 1024 * 1024;
+
+// Buffer size for reads from the file and through the decompressor.
+constexpr std::streamsize loadReadBufferSize = 1 << 20;
+
+// ---- helpers ----------------------------------------------------------------
+
+struct CatalogueHashState
+{
+    sha512_hasher hasher;
+    std::uint64_t bytes = 0;  // raw file bytes hashed after the header
+};
+
+// Sits directly above the file in the input chain, beneath any decompressor,
+// so the whole-file SHA-512 is computed in the same pass that loads ledgers.
+class CatalogueHashTee : public boost::iostreams::multichar_input_filter
+{
+    CatalogueHashState* state_;
+
+public:
+    explicit CatalogueHashTee(CatalogueHashState& state) : state_(&state)
+    {
+    }
+
+    template <typename Source>
+    std::streamsize
+    read(Source& src, char* s, std::streamsize n)
+    {
+        std::streamsize const r = boost::iostreams::read(src, s, n);
+        if (r > 0)
+        {
+            state_->hasher(s, static_cast<std::size_t>(r));
+            state_->bytes += static_cast<std::uint64_t>(r);
+        }
+        return r;
+    }
+};
+
+// Collects the nodes a ledger's maps flush (via SHAMap::flushDirty(t, sink),
+// which bypasses the TreeNodeCache) and writes them to the pinned backend as
+// one batch.
+class PinnedBatchWriter
+{
+public:
+    explicit PinnedBatchWriter(NodeStore::DatabasePinnedImp& db)
+        : db_(db)
+        , sink_([this](NodeObjectType type, Blob&& data, uint256 const& hash) {
+            bytes_ += data.size();
+            batch_.emplace_back(
+                NodeObject::createObject(type, std::move(data), hash));
+            if (batch_.size() >= pinnedBatchMaxObjects ||
+                bytes_ >= pinnedBatchMaxBytes)
+                write();
+        })
+    {
+        batch_.reserve(4096);
+    }
+
+    PinnedBatchWriter(PinnedBatchWriter const&) = delete;
+    PinnedBatchWriter&
+    operator=(PinnedBatchWriter const&) = delete;
+
+    SHAMap::FlushSink const&
+    sink() const
+    {
+        return sink_;
+    }
+
+    void
+    write()
+    {
+        if (batch_.empty())
+            return;
+        db_.storePinnedBatch(batch_);
+        batch_.clear();
+        bytes_ = 0;
+    }
+
+    void
+    discard()
+    {
+        batch_.clear();
+        bytes_ = 0;
+    }
+
+private:
+    NodeStore::DatabasePinnedImp& db_;
+    NodeStore::Batch batch_;
+    std::size_t bytes_ = 0;
+    SHAMap::FlushSink sink_;
+};
+
+// Makes the pinned set durable in state.db, but only as far as the pinned
+// backend has made the corresponding nodes durable. A backend that can sync
+// on demand (RocksDB) is synced and the current set recorded; one that can't
+// (NuDB) records the previous checkpoint's set, which is at least one
+// interval old.
+class PinnedRangeCheckpointer
+{
+    using clock = std::chrono::steady_clock;
+
+public:
+    PinnedRangeCheckpointer(Application& app, NodeStore::DatabasePinnedImp& db)
+        : app_(app), db_(db), last_(clock::now())
+    {
+    }
+
+    void
+    onLedgerSaved()
+    {
+        ++saved_;
+        if (++sinceLast_ < loadCheckpointLedgers &&
+            clock::now() - last_ < loadCheckpointInterval)
+            return;
+
+        auto current = app_.getLedgerMaster().getPinnedLedgersRangeSet();
+        if (db_.syncPinned())
+            persist(current);
+        else
+        {
+            if (previous_)
+                persist(*previous_);
+            previous_ = std::move(current);
+        }
+        sinceLast_ = 0;
+        last_ = clock::now();
+    }
+
+    /** Record everything pinned so far. On shutdown the backend is closed
+        right after, which commits whatever is still pending. */
+    void
+    finish(bool stopping)
+    {
+        if (saved_ == 0)
+            return;
+        if (!db_.syncPinned() && !stopping)
+            std::this_thread::sleep_for(nonDurableCommitGrace);
+        persist(app_.getLedgerMaster().getPinnedLedgersRangeSet());
+    }
+
+private:
+    void
+    persist(RangeSet<std::uint32_t> const& ranges)
+    {
+        app_.getSHAMapStore().setPinnedRanges(ranges);
+    }
+
+    Application& app_;
+    NodeStore::DatabasePinnedImp& db_;
+    std::optional<RangeSet<std::uint32_t>> previous_;
+    std::uint32_t saved_ = 0;
+    std::uint32_t sinceLast_ = 0;
+    clock::time_point last_;
+};
+
+std::optional<std::uint32_t>
+asLedgerSeq(Json::Value const& v)
+{
+    if (v.isUInt())
+        return v.asUInt();
+    if (v.isInt() && v.asInt() >= 0)
+        return static_cast<std::uint32_t>(v.asInt());
+    return std::nullopt;
+}
+
+}  // namespace
+
 Json::Value
 doCatalogueLoad(RPC::JsonContext& context)
 {
@@ -911,11 +1107,14 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
     } opCleanup;
 
+    auto& app = context.app;
+    auto& ledgerMaster = app.getLedgerMaster();
+    auto const j = context.j;
+
     // Reject if DatabasePinned is not configured. Without it, loaded
     // data lands in rotating storage and will be rotated away.
     {
-        auto const& nscfg =
-            context.app.config().section(ConfigSection::nodeDatabase());
+        auto const& nscfg = app.config().section(ConfigSection::nodeDatabase());
         if (!nscfg.exists("pinned_type"))
         {
             return rpcError(
@@ -925,6 +1124,14 @@ doCatalogueLoad(RPC::JsonContext& context)
                 "the next database rotation.");
         }
     }
+
+    auto* const pinnedDb =
+        dynamic_cast<NodeStore::DatabasePinnedImp*>(&app.getNodeStore());
+    if (!pinnedDb)
+        return rpcError(
+            rpcINTERNAL,
+            "catalogue_load requires the pinned node store, which is not "
+            "active.");
 
     if (!context.params.isMember(jss::input_file))
         return rpcError(rpcINVALID_PARAMS, "expected input_file");
@@ -940,7 +1147,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             rpcINVALID_PARAMS,
             "expected input_file: <absolute readable filepath>");
 
-    JLOG(context.j.info()) << "Opening catalogue file: " << filepath;
+    JLOG(j.info()) << "Opening catalogue file: " << filepath;
 
     // Check file size before attempting to read
     struct stat st;
@@ -959,7 +1166,7 @@ doCatalogueLoad(RPC::JsonContext& context)
                 " bytes), must be at least " +
                 std::to_string(sizeof(CATLHeader)) + " bytes");
 
-    JLOG(context.j.info()) << "Catalogue file size: " << file_size << " bytes";
+    JLOG(j.info()) << "Catalogue file size: " << file_size << " bytes";
 
     // Check if file exists and is readable
     std::ifstream infile(filepath.c_str(), std::ios::in | std::ios::binary);
@@ -968,7 +1175,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             rpcINTERNAL,
             "cannot open input_file: " + std::string(strerror(errno)));
 
-    JLOG(context.j.info()) << "Reading catalogue header...";
+    JLOG(j.info()) << "Reading catalogue header...";
 
     // Read and validate header
     CATLHeader header;
@@ -1007,9 +1214,9 @@ doCatalogueLoad(RPC::JsonContext& context)
         catalogueRunStatus.filesize = header.filesize;
     }
 
-    JLOG(context.j.info()) << "Catalogue version: " << (int)version;
-    JLOG(context.j.info()) << "Compression level: " << (int)compressionLevel;
-    JLOG(context.j.info()) << "Catalogue hash: " << hash_hex;
+    JLOG(j.info()) << "Catalogue version: " << (int)version;
+    JLOG(j.info()) << "Compression level: " << (int)compressionLevel;
+    JLOG(j.info()) << "Catalogue hash: " << hash_hex;
 
     // Check version compatibility
     if (version > 1)  // Only checking base version number
@@ -1017,7 +1224,7 @@ doCatalogueLoad(RPC::JsonContext& context)
             rpcINVALID_PARAMS,
             "unsupported catalogue version: " + std::to_string(version));
 
-    if (header.network_id != context.app.config().NETWORK_ID)
+    if (header.network_id != app.config().NETWORK_ID)
         return rpcError(
             rpcINVALID_PARAMS,
             "catalogue network ID mismatch: " +
@@ -1026,10 +1233,9 @@ doCatalogueLoad(RPC::JsonContext& context)
     // Check if actual filesize matches the one in the header
     if (file_size != header.filesize)
     {
-        JLOG(context.j.error())
-            << "Catalogue file size mismatch. Header indicates "
-            << header.filesize << " bytes, but actual file size is "
-            << file_size << " bytes";
+        JLOG(j.error()) << "Catalogue file size mismatch. Header indicates "
+                        << header.filesize << " bytes, but actual file size is "
+                        << file_size << " bytes";
         return rpcError(
             rpcINVALID_PARAMS,
             "catalogue file size mismatch: expected " +
@@ -1037,371 +1243,485 @@ doCatalogueLoad(RPC::JsonContext& context)
                 std::to_string(file_size) + " bytes");
     }
 
-    JLOG(context.j.info()) << "Catalogue file size verified: " << file_size
-                           << " bytes";
+    JLOG(j.info()) << "Catalogue file size verified: " << file_size << " bytes";
 
-    // Verify hash if not ignored
-    if (!ignore_hash && file_size > sizeof(CATLHeader))
+    // ---- Authenticity anchors ----------------------------------------------
+    //
+    // Each ledger's hash is recomputed from its contents and must equal the
+    // hash in the file, and each ledger's parentHash must equal the previous
+    // ledger's computed hash, so the file is internally consistent. On a
+    // networked server it is also tied to history this server already trusts:
+    //  - the base ledger must chain to the local ledger min-1, if we have it;
+    //  - the last ledger must be the parent of the local ledger max+1, if any;
+    //  - any ledger the validated ledger's skip lists know (every 256th, and
+    //    the last 256) must match. Through the parent chain, one match
+    //    authenticates every earlier ledger in the file.
+    // Standalone servers have unrelated local history, so these are skipped.
+    std::shared_ptr<Ledger const> anchor;
+    std::optional<uint256> localParentOfMin;
+    std::optional<uint256> localHashOfMax;
+    if (!app.config().standalone())
     {
-        JLOG(context.j.info()) << "Verifying catalogue hash...";
+        auto& rdb = app.getRelationalDatabase();
+        anchor = ledgerMaster.getValidatedLedger();
+        if (header.min_ledger > 1)
+        {
+            if (auto const h = rdb.getHashByIndex(header.min_ledger - 1);
+                h.isNonZero())
+                localParentOfMin = h;
+        }
+        if (header.max_ledger < std::numeric_limits<std::uint32_t>::max())
+        {
+            if (auto const next =
+                    rdb.getLedgerInfoByIndex(header.max_ledger + 1))
+                localHashOfMax = next->parentHash;
+        }
+    }
+    std::optional<std::uint32_t> anchoredThrough;
 
-        // Close and reopen file for hash verification
-        infile.close();
-        std::ifstream hashFile(
-            filepath.c_str(), std::ios::in | std::ios::binary);
-        if (hashFile.fail())
-            return rpcError(
-                rpcINTERNAL,
-                "cannot reopen file for hash verification: " +
-                    std::string(strerror(errno)));
-
-        // Create a copy of the header with zeroed hash
+    // ---- Single pass: hash, decompress, parse, verify, store ---------------
+    //
+    // The whole-file SHA-512 is computed by a tee beneath the decompressor
+    // instead of a separate pre-pass over the file. Per-ledger hash checks
+    // catch corruption at the ledger it hits; the file hash is settled when
+    // loading ends, successfully or not, so a file failing its checksum is
+    // reported as such and keeps nothing this run pinned.
+    bool const verifyHash = !ignore_hash && file_size > sizeof(CATLHeader);
+    CatalogueHashState hashState;
+    if (verifyHash)
+    {
         CATLHeader hashHeader = header;
         std::fill(hashHeader.hash.begin(), hashHeader.hash.end(), 0);
-
-        // Initialize hasher
-        sha512_hasher hasher;
-
-        // Add the modified header to the hash
-        hasher(&hashHeader, sizeof(CATLHeader));
-
-        // Read and hash the rest of the file
-        hashFile.seekg(sizeof(CATLHeader), std::ios::beg);
-        std::vector<char> buffer(64 * 1024);  // 64K buffer
-        while (hashFile)
-        {
-            if (context.app.isStopping())
-                return {};
-
-            hashFile.read(buffer.data(), buffer.size());
-            std::streamsize bytes_read = hashFile.gcount();
-            if (bytes_read > 0)
-                hasher(buffer.data(), bytes_read);
-        }
-        hashFile.close();
-
-        // Get the computed hash
-        auto computed_hash = static_cast<sha512_hasher::result_type>(hasher);
-
-        // Compare with stored hash
-        if (!std::equal(
-                computed_hash.begin(),
-                computed_hash.end(),
-                stored_hash.begin()))
-        {
-            std::string computed_hex =
-                toHexString(computed_hash.data(), computed_hash.size());
-            JLOG(context.j.error())
-                << "Catalogue hash verification failed. Expected: " << hash_hex
-                << ", Computed: " << computed_hex;
-            return rpcError(
-                rpcINVALID_PARAMS, "catalogue hash verification failed");
-        }
-
-        JLOG(context.j.info()) << "Catalogue hash verified successfully";
-
-        // Reopen file for reading
-        infile.open(filepath.c_str(), std::ios::in | std::ios::binary);
-        if (infile.fail())
-            return rpcError(
-                rpcINTERNAL,
-                "cannot reopen file after hash verification: " +
-                    std::string(strerror(errno)));
-
-        // Skip the header
-        infile.seekg(sizeof(CATLHeader), std::ios::beg);
+        hashState.hasher(&hashHeader, sizeof(CATLHeader));
     }
 
-    // Set up decompression if needed
     auto decompStream = std::make_unique<boost::iostreams::filtering_istream>();
     if (compressionLevel > 0)
     {
-        JLOG(context.j.info())
-            << "Setting up decompression with level " << (int)compressionLevel;
+        JLOG(j.info()) << "Setting up decompression with level "
+                       << (int)compressionLevel;
         boost::iostreams::zlib_params params((int)compressionLevel);
         params.window_bits = 15;
         params.noheader = false;
-        decompStream->push(boost::iostreams::zlib_decompressor(params));
+        decompStream->push(
+            boost::iostreams::zlib_decompressor(params, loadReadBufferSize),
+            loadReadBufferSize);
     }
     else
     {
-        JLOG(context.j.info())
+        JLOG(j.info())
             << "No decompression needed (level 0), using direct input";
     }
-    decompStream->push(boost::ref(infile));
+    if (verifyHash)
+        decompStream->push(CatalogueHashTee(hashState), loadReadBufferSize);
+    decompStream->push(boost::ref(infile), loadReadBufferSize);
+
+    // Hash the raw bytes the decoder did not consume (normally none, all of
+    // them after a mid-file failure) and compare with the header.
+    auto fileHashMatches = [&]() -> bool {
+        if (!verifyHash)
+            return true;
+
+        std::ifstream rest(filepath.c_str(), std::ios::in | std::ios::binary);
+        if (rest.fail())
+            return false;
+        rest.seekg(
+            static_cast<std::streamoff>(sizeof(CATLHeader) + hashState.bytes),
+            std::ios::beg);
+        std::vector<char> buffer(loadReadBufferSize);
+        while (rest)
+        {
+            rest.read(buffer.data(), buffer.size());
+            auto const n = rest.gcount();
+            if (n > 0)
+                hashState.hasher(buffer.data(), static_cast<std::size_t>(n));
+        }
+
+        auto const computed =
+            static_cast<sha512_hasher::result_type>(hashState.hasher);
+        if (std::equal(computed.begin(), computed.end(), stored_hash.begin()))
+        {
+            JLOG(j.info()) << "Catalogue hash verified successfully";
+            return true;
+        }
+        JLOG(j.error()) << "Catalogue hash verification failed. Expected: "
+                        << hash_hex << ", Computed: "
+                        << toHexString(computed.data(), computed.size());
+        return false;
+    };
+
+    auto const pinnedBefore = ledgerMaster.getPinnedLedgersRangeSet();
+    auto const completeBefore = ledgerMaster.getCompleteLedgersRangeSet();
+
+    PinnedBatchWriter batch(*pinnedDb);
+    PinnedRangeCheckpointer checkpointer(app, *pinnedDb);
 
     uint32_t ledgersLoaded = 0;
     std::shared_ptr<Ledger> prevLedger;
     uint32_t expected_seq = header.min_ledger;
 
-    // Process each ledger sequentially
-    while (!decompStream->eof() && expected_seq <= header.max_ledger)
+    // Pinned in memory by storeLedger but not yet saved; unpinned on failure.
+    std::optional<std::uint32_t> pendingPin;
+
+    // Undo this run's pins (used when the file fails its checksum).
+    auto rollback = [&]() {
+        if (ledgersLoaded == 0)
+            return;
+        RangeSet<std::uint32_t> loaded;
+        loaded.insert(
+            range(header.min_ledger, header.min_ledger + ledgersLoaded - 1));
+        auto const unpin = loaded - pinnedBefore;
+        if (unpin.empty())
+            return;
+        ledgerMaster.unpinLedgers(unpin, unpin - completeBefore);
+        app.getSHAMapStore().setPinnedRanges(
+            ledgerMaster.getPinnedLedgersRangeSet());
+        JLOG(j.warn()) << "Catalogue failed its checksum; unpinned "
+                       << to_string(unpin) << " loaded by this run";
+    };
+
+    // Every exit once loading has started goes through here.
+    auto conclude = [&](Json::Value result) -> Json::Value {
+        if (pendingPin)
+        {
+            ledgerMaster.unpinLedger(*pendingPin);
+            pendingPin.reset();
+        }
+        if (app.isStopping())
+        {
+            checkpointer.finish(true);
+            return result;
+        }
+        if (!fileHashMatches())
+        {
+            rollback();
+            return rpcError(
+                rpcINVALID_PARAMS, "catalogue hash verification failed");
+        }
+        checkpointer.finish(false);
+        return result;
+    };
+
+    try
     {
-        if (context.app.isStopping())
-            return {};
-
-        // Update current ledger
-        UPDATE_CATALOGUE_STATUS(ledgerUpto, expected_seq);
-
-        LedgerInfo info;
-        uint64_t closeTime = -1;
-        uint64_t parentCloseTime = -1;
-        uint32_t closeTimeResolution = -1;
-        uint64_t drops = -1;
-
-        if (!decompStream->read(
-                reinterpret_cast<char*>(&info.seq), sizeof(info.seq)) ||
-            !decompStream->read(
-                reinterpret_cast<char*>(info.hash.data()), 32) ||
-            !decompStream->read(
-                reinterpret_cast<char*>(info.txHash.data()), 32) ||
-            !decompStream->read(
-                reinterpret_cast<char*>(info.accountHash.data()), 32) ||
-            !decompStream->read(
-                reinterpret_cast<char*>(info.parentHash.data()), 32) ||
-            !decompStream->read(
-                reinterpret_cast<char*>(&drops), sizeof(drops)) ||
-            !decompStream->read(
-                reinterpret_cast<char*>(&info.closeFlags),
-                sizeof(info.closeFlags)) ||
-            !decompStream->read(
-                reinterpret_cast<char*>(&closeTimeResolution),
-                sizeof(closeTimeResolution)) ||
-            !decompStream->read(
-                reinterpret_cast<char*>(&closeTime), sizeof(closeTime)) ||
-            !decompStream->read(
-                reinterpret_cast<char*>(&parentCloseTime),
-                sizeof(parentCloseTime)))
+        // Process each ledger sequentially
+        while (!decompStream->eof() && expected_seq <= header.max_ledger)
         {
-            JLOG(context.j.warn())
-                << "Catalogue load expected but could not "
-                << "read the next ledger header at seq=" << expected_seq << ". "
-                << "Ledgers prior to this in the file (if any) were loaded.";
-            return rpcError(rpcINTERNAL, "Unexpected end of catalogue file.");
-        }
+            if (app.isStopping())
+                return conclude({});
 
-        info.closeTime = time_point{duration{closeTime}};
-        info.parentCloseTime = time_point{duration{parentCloseTime}};
-        info.closeTimeResolution = duration{closeTimeResolution};
-        info.drops = drops;
+            // Update current ledger
+            UPDATE_CATALOGUE_STATUS(ledgerUpto, expected_seq);
 
-        JLOG(context.j.info()) << "Found ledger " << info.seq << "...";
+            LedgerInfo info;
+            uint64_t closeTime = -1;
+            uint64_t parentCloseTime = -1;
+            uint32_t closeTimeResolution = -1;
+            uint64_t drops = -1;
 
-        if (info.seq != expected_seq++)
-        {
-            JLOG(context.j.error())
-                << "Expected ledger " << expected_seq << ", bailing";
-            return rpcError(
-                rpcINTERNAL,
-                "Unexpected ledger out of sequence in catalogue file");
-        }
+            if (!decompStream->read(
+                    reinterpret_cast<char*>(&info.seq), sizeof(info.seq)) ||
+                !decompStream->read(
+                    reinterpret_cast<char*>(info.hash.data()), 32) ||
+                !decompStream->read(
+                    reinterpret_cast<char*>(info.txHash.data()), 32) ||
+                !decompStream->read(
+                    reinterpret_cast<char*>(info.accountHash.data()), 32) ||
+                !decompStream->read(
+                    reinterpret_cast<char*>(info.parentHash.data()), 32) ||
+                !decompStream->read(
+                    reinterpret_cast<char*>(&drops), sizeof(drops)) ||
+                !decompStream->read(
+                    reinterpret_cast<char*>(&info.closeFlags),
+                    sizeof(info.closeFlags)) ||
+                !decompStream->read(
+                    reinterpret_cast<char*>(&closeTimeResolution),
+                    sizeof(closeTimeResolution)) ||
+                !decompStream->read(
+                    reinterpret_cast<char*>(&closeTime), sizeof(closeTime)) ||
+                !decompStream->read(
+                    reinterpret_cast<char*>(&parentCloseTime),
+                    sizeof(parentCloseTime)))
+            {
+                JLOG(j.warn())
+                    << "Catalogue load expected but could not "
+                    << "read the next ledger header at seq=" << expected_seq
+                    << ". "
+                    << "Ledgers prior to this in the file (if any) were "
+                       "loaded.";
+                return conclude(
+                    rpcError(rpcINTERNAL, "Unexpected end of catalogue file."));
+            }
 
-        // Create a ledger object
-        std::shared_ptr<Ledger> ledger;
+            info.closeTime = time_point{duration{closeTime}};
+            info.parentCloseTime = time_point{duration{parentCloseTime}};
+            info.closeTimeResolution = duration{closeTimeResolution};
+            info.drops = drops;
 
-        if (info.seq == header.min_ledger)
-        {
-            // Base ledger - create a fresh one
-            ledger = std::make_shared<Ledger>(
-                info.seq,
+            JLOG(j.debug()) << "Found ledger " << info.seq << "...";
+
+            if (info.seq != expected_seq)
+            {
+                JLOG(j.error()) << "Expected ledger " << expected_seq
+                                << ", found " << info.seq << ", bailing";
+                return conclude(rpcError(
+                    rpcINTERNAL,
+                    "Unexpected ledger out of sequence in catalogue file"));
+            }
+            ++expected_seq;
+
+            // Chain linkage: the file's ledgers must form one chain, and the
+            // base ledger must extend local history where we have it.
+            if (prevLedger)
+            {
+                if (info.parentHash != prevLedger->info().hash)
+                {
+                    JLOG(j.error())
+                        << "Catalogue ledger " << info.seq << " has parent "
+                        << info.parentHash << " but ledger " << (info.seq - 1)
+                        << " is " << prevLedger->info().hash;
+                    return conclude(rpcError(
+                        rpcINTERNAL,
+                        "Catalogue ledger " + std::to_string(info.seq) +
+                            " does not chain to its predecessor."));
+                }
+            }
+            else if (localParentOfMin && info.parentHash != *localParentOfMin)
+            {
+                return conclude(rpcError(
+                    rpcINVALID_PARAMS,
+                    "Catalogue ledger " + std::to_string(info.seq) +
+                        " does not chain to local ledger " +
+                        std::to_string(info.seq - 1) + "."));
+            }
+
+            // Create a ledger object
+            std::shared_ptr<Ledger> ledger;
+
+            if (info.seq == header.min_ledger)
+            {
+                // Base ledger - create a fresh one
+                ledger = std::make_shared<Ledger>(
+                    info.seq,
+                    info.closeTime,
+                    app.config(),
+                    app.getNodeFamily());
+
+                ledger->setLedgerInfo(info);
+
+                // Deserialize the complete state map from leaf nodes
+                if (!RPC::deserializeStateMapFromStream(
+                        ledger->stateMap(), *decompStream, batch.sink(), j))
+                {
+                    JLOG(j.error())
+                        << "Failed to deserialize base ledger state";
+                    batch.discard();
+                    return conclude(rpcError(
+                        rpcINTERNAL, "Failed to load base ledger state"));
+                }
+            }
+            else
+            {
+                // Delta ledger - start with a copy of the previous ledger
+                if (!prevLedger)
+                {
+                    JLOG(j.error()) << "Missing previous ledger for delta";
+                    return conclude(
+                        rpcError(rpcINTERNAL, "Missing previous ledger"));
+                }
+
+                auto snapshot = prevLedger->stateMap().snapShot(true);
+
+                ledger = std::make_shared<Ledger>(
+                    info, app.config(), app.getNodeFamily(), *snapshot);
+
+                // Apply delta (only leaf-node changes)
+                if (!RPC::deserializeStateMapFromStream(
+                        ledger->stateMap(), *decompStream, batch.sink(), j))
+                {
+                    JLOG(j.error())
+                        << "Failed to apply delta to ledger " << info.seq;
+                    batch.discard();
+                    return conclude(
+                        rpcError(rpcINTERNAL, "Failed to apply ledger delta"));
+                }
+            }
+
+            // pull in the tx map
+            if (!RPC::deserializeTxMapFromStream(
+                    ledger->txMap(), *decompStream, batch.sink(), j))
+            {
+                JLOG(j.error())
+                    << "Failed to load transactions of ledger " << info.seq;
+                batch.discard();
+                return conclude(
+                    rpcError(rpcINTERNAL, "Failed to apply ledger delta"));
+            }
+
+            ledger->setAccepted(
                 info.closeTime,
-                context.app.config(),
-                context.app.getNodeFamily());
+                info.closeTimeResolution,
+                info.closeFlags & sLCF_NoConsensusTime);
 
-            ledger->setLedgerInfo(info);
+            ledger->setValidated();
+            ledger->setCloseFlags(info.closeFlags);
+            ledger->setImmutable(true);
 
-            // Deserialize the complete state map from leaf nodes
-            if (!RPC::deserializeStateMapFromStream(
-                    ledger->stateMap(),
-                    *decompStream,
-                    pinnedACCOUNT_NODE,
-                    context.j))
+            // we can double check the computed hashes now, since setImmutable
+            // recomputes the hashes
+            if (ledger->info().hash != info.hash)
             {
-                JLOG(context.j.error())
-                    << "Failed to deserialize base ledger state";
-                return rpcError(
-                    rpcINTERNAL, "Failed to load base ledger state");
-            }
-        }
-        else
-        {
-            // Delta ledger - start with a copy of the previous ledger
-            if (!prevLedger)
-            {
-                JLOG(context.j.error()) << "Missing previous ledger for delta";
-                return rpcError(rpcINTERNAL, "Missing previous ledger");
-            }
-
-            auto snapshot = prevLedger->stateMap().snapShot(true);
-
-            ledger = std::make_shared<Ledger>(
-                info,
-                context.app.config(),
-                context.app.getNodeFamily(),
-                *snapshot);
-
-            // Apply delta (only leaf-node changes)
-            if (!RPC::deserializeStateMapFromStream(
-                    ledger->stateMap(),
-                    *decompStream,
-                    pinnedACCOUNT_NODE,
-                    context.j))
-            {
-                JLOG(context.j.error())
-                    << "Failed to apply delta to ledger " << info.seq;
-                return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
-            }
-        }
-
-        // pull in the tx map
-        if (!RPC::deserializeTxMapFromStream(
-                ledger->txMap(),
-                *decompStream,
-                pinnedTRANSACTION_NODE,
-                context.j))
-        {
-            JLOG(context.j.error())
-                << "Failed to apply delta to ledger " << info.seq;
-            return rpcError(rpcINTERNAL, "Failed to apply ledger delta");
-        }
-
-        ledger->setAccepted(
-            info.closeTime,
-            info.closeTimeResolution,
-            info.closeFlags & sLCF_NoConsensusTime);
-
-        ledger->setValidated();
-        ledger->setCloseFlags(info.closeFlags);
-        ledger->setImmutable(true);
-
-        // we can double check the computed hashes now, since setImmutable
-        // recomputes the hashes
-        if (ledger->info().hash != info.hash)
-        {
-            JLOG(context.j.error())
-                << "Ledger seq=" << info.seq
-                << " was loaded from catalogue, but computed hash does not "
-                   "match. "
-                << "This ledger was not saved, and ledger loading from this "
-                   "catalogue file ended here.";
-            return rpcError(
-                rpcINTERNAL, "Catalogue file contains a corrupted ledger.");
-        }
-
-        // IMPORTANT: Mark as pinned BEFORE saving to database.
-        // This ensures isPinned() returns true when saveValidatedLedger
-        // checks, which: (a) routes to persistent backend via pinnedLEDGER
-        // type, and (b) skips AcceptedLedgerCache to avoid memory bloat.
-        context.app.getLedgerMaster().storeLedger(ledger, true);
-
-        // Scope guard: un-pin if we exit without a successful save.
-        // Dismissed on success below.
-        bool saveDone = false;
-        auto unpinGuard = [&]() {
-            if (!saveDone)
-                context.app.getLedgerMaster().unpinLedger(ledger->info().seq);
-        };
-        // Use a simple RAII wrapper to guarantee the guard runs
-        struct OnExit
-        {
-            std::function<void()> fn;
-            ~OnExit()
-            {
-                fn();
-            }
-        } unpinOnExit{unpinGuard};
-
-        // Save in database - wait for completion to avoid memory bloat.
-        // Uses pendSaveValidated to respect job queue tuning on live
-        // servers (jtPUBOLDLEDGER), runs synchronously in standalone.
-        {
-            auto savePromise = std::make_shared<std::promise<bool>>();
-            auto saveFuture = savePromise->get_future();
-
-            bool queued = pendSaveValidated(
-                context.app,
-                ledger,
-                context.app.config().standalone(),
-                false,
-                [savePromise](bool success) {
-                    savePromise->set_value(success);
-                });
-
-            if (!queued)
-                return rpcError(rpcINTERNAL, "Failed to save ledger");
-
-            // Wait for the async save to complete. Note: if the save
-            // job throws, the JobQueue has no exception handling — the
-            // process will std::terminate before we ever see a
-            // broken_promise here. The catch is defensive in case the
-            // job queue gains exception handling in the future.
-            bool saved = false;
-            try
-            {
-                saved = saveFuture.get();
-            }
-            catch (std::future_error const& e)
-            {
-                JLOG(context.j.error())
-                    << "Save job for ledger " << ledger->info().seq
-                    << " failed with exception (promise broken): " << e.what();
-                return rpcError(
+                JLOG(j.error())
+                    << "Ledger seq=" << info.seq
+                    << " was loaded from catalogue, but computed hash does "
+                       "not match. "
+                    << "This ledger was not saved, and ledger loading from "
+                       "this catalogue file ended here.";
+                batch.discard();
+                return conclude(rpcError(
                     rpcINTERNAL,
-                    "Save job crashed for ledger " +
-                        std::to_string(ledger->info().seq));
+                    "Catalogue file contains a corrupted ledger."));
             }
 
-            if (!saved)
+            if (localHashOfMax && info.seq == header.max_ledger &&
+                info.hash != *localHashOfMax)
             {
-                JLOG(context.j.error()) << "Failed to save ledger "
-                                        << ledger->info().seq << " to SQLite";
-                return rpcError(
-                    rpcINTERNAL,
-                    "Failed to save ledger " +
-                        std::to_string(ledger->info().seq) +
-                        " to SQLite database");
+                batch.discard();
+                return conclude(rpcError(
+                    rpcINVALID_PARAMS,
+                    "Catalogue ledger " + std::to_string(info.seq) +
+                        " is not the parent of local ledger " +
+                        std::to_string(info.seq + 1) + "."));
             }
 
-            // Save succeeded — dismiss the guard
-            saveDone = true;
+            if (anchor && info.seq <= anchor->info().seq &&
+                ((info.seq & 0xff) == 0 ||
+                 anchor->info().seq - info.seq <= 256))
+            {
+                if (auto const h = hashOfSeq(*anchor, info.seq, j))
+                {
+                    if (*h != info.hash)
+                    {
+                        batch.discard();
+                        return conclude(rpcError(
+                            rpcINVALID_PARAMS,
+                            "Catalogue ledger " + std::to_string(info.seq) +
+                                " does not match validated network "
+                                "history."));
+                    }
+                    anchoredThrough = info.seq;
+                }
+            }
+
+            // Verified: now its nodes go to the pinned store, before its
+            // header (written by the save below), so that a present header
+            // implies the ledger's nodes are present.
+            batch.write();
+
+            // IMPORTANT: Mark as pinned BEFORE saving to database.
+            // This ensures isPinned() returns true when saveValidatedLedger
+            // checks, which: (a) routes to persistent backend via
+            // pinnedLEDGER type, and (b) skips AcceptedLedgerCache and the
+            // per-transaction JSON.
+            ledgerMaster.storeLedger(ledger, true);
+            pendingPin = info.seq;
+
+            // Save in database - wait for completion to avoid memory bloat.
+            // Uses pendSaveValidated to respect job queue tuning on live
+            // servers (jtPUBOLDLEDGER), runs synchronously in standalone.
+            {
+                auto savePromise = std::make_shared<std::promise<bool>>();
+                auto saveFuture = savePromise->get_future();
+
+                bool queued = pendSaveValidated(
+                    app,
+                    ledger,
+                    app.config().standalone(),
+                    false,
+                    [savePromise](bool success) {
+                        savePromise->set_value(success);
+                    });
+
+                if (!queued)
+                    return conclude(
+                        rpcError(rpcINTERNAL, "Failed to save ledger"));
+
+                // Wait for the async save to complete. Note: if the save
+                // job throws, the JobQueue has no exception handling — the
+                // process will std::terminate before we ever see a
+                // broken_promise here. The catch is defensive in case the
+                // job queue gains exception handling in the future.
+                bool saved = false;
+                try
+                {
+                    saved = saveFuture.get();
+                }
+                catch (std::future_error const& e)
+                {
+                    JLOG(j.error())
+                        << "Save job for ledger " << info.seq
+                        << " failed with exception (promise broken): "
+                        << e.what();
+                    return conclude(rpcError(
+                        rpcINTERNAL,
+                        "Save job crashed for ledger " +
+                            std::to_string(info.seq)));
+                }
+
+                if (!saved)
+                {
+                    JLOG(j.error())
+                        << "Failed to save ledger " << info.seq << " to SQLite";
+                    return conclude(rpcError(
+                        rpcINTERNAL,
+                        "Failed to save ledger " + std::to_string(info.seq) +
+                            " to SQLite database"));
+                }
+            }
+            pendingPin.reset();
+
+            ledgerMaster.setLedgerRangePresent(
+                header.min_ledger, info.seq, true);
+
+            // Persist pinned ranges to state.db at checkpoints (see
+            // PinnedRangeCheckpointer). Ledgers saved since the last
+            // checkpoint are on disk but not yet recorded; if the process
+            // dies before the next one, re-running catalogue_load on the
+            // same file records them.
+            checkpointer.onLedgerSaved();
+
+            // Store the ledger
+            prevLedger = ledger;
+            ledgersLoaded++;
         }
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.error()) << "Exception during catalogue load: " << e.what();
+        batch.discard();
+        return conclude(rpcError(
+            rpcINTERNAL,
+            std::string("Exception during catalogue load: ") + e.what()));
+    }
 
-        if (info.seq == header.max_ledger &&
-            context.app.getLedgerMaster().getClosedLedger()->info().seq <
-                info.seq)
-        {
-            // Set as current ledger if this is the latest
-            context.app.getLedgerMaster().switchLCL(ledger);
-        }
+    // Settle the whole-file hash and make the pinned ranges durable before
+    // handing the last ledger to the rest of the server.
+    auto result = conclude(Json::Value{Json::objectValue});
+    if (result.isMember(jss::error) || app.isStopping())
+        return result;
 
-        context.app.getLedgerMaster().setLedgerRangePresent(
-            header.min_ledger, info.seq, true);
-
-        // Persist pinned ranges to state.db after every ledger.
-        // This is a single row UPDATE, so it's cheap.
-        //
-        // DURABILITY NOTE: There is a small crash window between the
-        // ledger save above and this setPinnedRanges call. If the
-        // process crashes in that window, the ledger data is safely
-        // in the persistent backend (always opened based on config,
-        // independent of state.db), and fetchNodeObject will still
-        // find it via the tryPersistent fallback. However, state.db
-        // won't record the pinned range, so mCompleteLedgers won't
-        // include those seqs until catalogue_load is re-run.
-        context.app.getSHAMapStore().setPinnedRanges(
-            context.app.getLedgerMaster().getPinnedLedgersRangeSet());
-
-        // Store the ledger
-        prevLedger = ledger;
-        ledgersLoaded++;
+    if (prevLedger && prevLedger->info().seq == header.max_ledger &&
+        ledgerMaster.getClosedLedger()->info().seq < header.max_ledger)
+    {
+        // Set as current ledger if this is the latest
+        ledgerMaster.switchLCL(prevLedger);
     }
 
     decompStream->reset();
     infile.close();
 
-    JLOG(context.j.info()) << "Catalogue load complete! Loaded "
-                           << ledgersLoaded << " ledgers from file size "
-                           << file_size << " bytes";
+    JLOG(j.info()) << "Catalogue load complete! Loaded " << ledgersLoaded
+                   << " ledgers from file size " << file_size << " bytes";
 
     Json::Value jvResult;
     jvResult[jss::ledger_min] = header.min_ledger;
@@ -1415,7 +1735,82 @@ doCatalogueLoad(RPC::JsonContext& context)
     jvResult[jss::compression_level] = compressionLevel;
     jvResult[jss::hash] = hash_hex;
     jvResult[jss::ignore_hash] = ignore_hash;
+    if (anchoredThrough)
+        jvResult[jss::anchored_through] = *anchoredThrough;
 
+    return jvResult;
+}
+
+// catalogue_unpin <ledger_index_min> <ledger_index_max>
+//
+// Stops protecting [ledger_index_min, ledger_index_max] (inclusive) from
+// online_delete. Ledgers in the range that are not pinned are ignored.
+//
+// Unpinned ledgers stay readable until the next online_delete rotation, which
+// releases them like any other history older than the rotation boundary (SQL
+// rows and complete_ledgers; see SHAMapStoreImp::clearPrior). Their nodes stay
+// in the pinned store: nodes are content-addressed and shared between ledgers
+// (and NuDB cannot delete). Once nothing is pinned and one rotation has run,
+// the hot store holds everything live state needs (DatabasePinnedImp copies
+// persistent-only nodes forward during rotation), so pinned_path can then be
+// discarded to reclaim its space.
+Json::Value
+doCatalogueUnpin(RPC::JsonContext& context)
+{
+    // Held throughout: catalogue_load extends and checkpoints the pinned set,
+    // so an unpin must not interleave with it.
+    std::unique_lock<std::shared_mutex> lock(
+        catalogueStatusMutex, std::try_to_lock);
+    if (!lock.owns_lock() || catalogueRunStatus.isRunning)
+        return rpcError(
+            rpcTOO_BUSY,
+            "a catalogue operation is in progress; retry when it completes");
+
+    auto& app = context.app;
+    {
+        auto const& nscfg = app.config().section(ConfigSection::nodeDatabase());
+        if (!nscfg.exists("pinned_type"))
+            return rpcError(
+                rpcINVALID_PARAMS,
+                "catalogue_unpin requires [node_db] pinned_type to be "
+                "configured.");
+    }
+
+    auto const& params = context.params;
+    if (!params.isMember(jss::ledger_index_min) ||
+        !params.isMember(jss::ledger_index_max))
+        return rpcError(
+            rpcINVALID_PARAMS,
+            "expected ledger_index_min and ledger_index_max");
+
+    auto const minSeq = asLedgerSeq(params[jss::ledger_index_min]);
+    auto const maxSeq = asLedgerSeq(params[jss::ledger_index_max]);
+    if (!minSeq || !maxSeq)
+        return rpcError(
+            rpcINVALID_PARAMS,
+            "ledger_index_min and ledger_index_max must be unsigned integers");
+    if (*minSeq > *maxSeq)
+        return rpcError(
+            rpcINVALID_PARAMS, "ledger_index_min must be <= ledger_index_max");
+
+    auto& ledgerMaster = app.getLedgerMaster();
+
+    RangeSet<std::uint32_t> requested;
+    requested.insert(range(*minSeq, *maxSeq));
+    auto const unpinned = ledgerMaster.unpinLedgers(requested);
+    auto const remaining = ledgerMaster.getPinnedLedgersRangeSet();
+
+    if (!unpinned.empty())
+    {
+        app.getSHAMapStore().setPinnedRanges(remaining);
+        JLOG(context.j.info()) << "Unpinned ledgers " << to_string(unpinned)
+                               << "; still pinned: " << to_string(remaining);
+    }
+
+    Json::Value jvResult;
+    jvResult[jss::unpinned] = to_string(unpinned);
+    jvResult[jss::complete_ledgers_pinned] = to_string(remaining);
+    jvResult[jss::status] = jss::success;
     return jvResult;
 }
 

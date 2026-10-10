@@ -121,6 +121,20 @@ public:
         std::uint32_t ledgerSeq) override;
     void
     sync() override;
+
+    /** Write node objects of pinned history straight to the persistent
+        backend in one batch. Objects must carry hot (serializable) types.
+        Used by catalogue_load, which builds whole batches per ledger.
+    */
+    void
+    storePinnedBatch(Batch const& batch);
+
+    /** Make everything written to the persistent backend durable.
+        @return false if the backend cannot guarantee that on demand.
+    */
+    bool
+    syncPinned();
+
     bool
     storeLedger(std::shared_ptr<Ledger const> const& srcLedger) override;
     void

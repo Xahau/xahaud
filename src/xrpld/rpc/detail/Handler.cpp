@@ -196,6 +196,7 @@ Handler const handlerArray[]{
     {"catalogue_create", byRef(&doCatalogueCreate), Role::ADMIN, NO_CONDITION},
     {"catalogue_status", byRef(&doCatalogueStatus), Role::ADMIN, NO_CONDITION},
     {"catalogue_load", byRef(&doCatalogueLoad), Role::ADMIN, NO_CONDITION},
+    {"catalogue_unpin", byRef(&doCatalogueUnpin), Role::ADMIN, NO_CONDITION},
 };
 
 class HandlerTable
