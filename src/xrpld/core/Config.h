@@ -309,6 +309,9 @@ public:
     // Enable the beta API version
     bool BETA_RPC_API = false;
 
+    // Enable the hook_validate RPC (defaults to true in standalone mode).
+    bool HOOK_VALIDATE_RPC = false;
+
     // First, attempt to load the latest ledger directly from disk.
     bool FAST_LOAD = false;
     // When starting rippled with existing database it do not know it has those

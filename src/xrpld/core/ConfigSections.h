@@ -53,6 +53,7 @@ struct ConfigSection
 #define SECTION_FEE_DEFAULT "fee_default"
 #define SECTION_FETCH_DEPTH "fetch_depth"
 #define SECTION_IMPORT_VL_KEYS "import_vl_keys"
+#define SECTION_HOOK_VALIDATE_RPC "hook_validate_rpc"
 #define SECTION_INSIGHT "insight"
 #define SECTION_IO_WORKERS "io_workers"
 #define SECTION_IPS "ips"

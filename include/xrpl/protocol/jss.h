@@ -372,6 +372,8 @@ JSS(inbound);  // out: PeerImp
 JSS(index);    // in: LedgerEntry,
                // out: STLedgerEntry,
                //      LedgerEntry, TxHistory, LedgerData
+JSS(instruction_count_cbak);  // out: HookValidate
+JSS(instruction_count_hook);  // out: HookValidate
 JSS(info);     // out: ServerInfo, ConsensusInfo, FetchInfo
 JSS(initial_sync_duration_us);
 JSS(internal_command);     // in: Internal
@@ -447,6 +449,7 @@ JSS(local);                   // out: resource/Logic.h
 JSS(local_txs);               // out: GetCounts
 JSS(local_static_keys);       // out: ValidatorList
 JSS(locked_balance);          // out: AccountLines
+JSS(log);                     // out: HookValidate
 JSS(low);                     // out: BookChanges
 JSS(lock_count);              // out: AccountLines
 JSS(lowest_sequence);         // out: AccountInfo
@@ -744,6 +747,7 @@ JSS(url_password);               // in: Subscribe
 JSS(url_username);               // in: Subscribe
 JSS(urlgravatar);                //
 JSS(username);                   // in: Subscribe
+JSS(valid);                      // out: HookValidate
 JSS(validated);                  // out: NetworkOPs, RPCHelpers, AccountTx*
                                  //      Tx
 JSS(validator_list_expires);     // out: NetworkOps, ValidatorList
@@ -767,6 +771,7 @@ JSS(version);          // out: RPCVersion
 JSS(vetoed);           // out: AmendmentTableImpl
 JSS(volume_a);         // out: BookChanges
 JSS(volume_b);         // out: BookChanges
+JSS(vm_error);         // out: HookValidate
 JSS(vote);             // in: Feature
 JSS(vote_slots);       // out: amm_info
 JSS(vote_weight);      // out: amm_info
