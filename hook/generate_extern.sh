@@ -22,29 +22,29 @@ APPLY_HOOK="$SCRIPT_DIR/../include/xrpl/hook/hook_api.macro"
             return s;
         }
 
-        {
-            line = $0;
-            
-            # Skip block comments
-            if (line ~ /\/\*/) {
-                next;
-            }
-            
-            # Look for comment lines that start with // and contain function signature
-            if (line ~ /^[[:space:]]*\/\/[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]*\(/) {
-                # Remove leading // and trim
-                sub(/^[[:space:]]*\/\/[[:space:]]*/, "", line);
-                line = trim(line);
-                
-                # Check if function name is "_g" to add attribute
-                if (line ~ /[[:space:]]+_g[[:space:]]*\(/) {
-                    # Insert __attribute__((noduplicate)) before _g
-                    sub(/[[:space:]]+_g/, " __attribute__((noduplicate)) _g", line);
-                }
-                
-                # printf("\n");
-                
-                printf("extern %s\n\n", line);
+        # Each entry is HOOK_API_DEFINITION(RET, NAME, (PARAMS), AMENDMENT),
+        # possibly spread over several lines. Collect until the parentheses
+        # balance, then split on the first two commas; the parameter tuple
+        # is the first parenthesised group.
+        function emit(s,    i, ret, name, p, q, params) {
+            sub(/^[[:space:]]*HOOK_API_DEFINITION[[:space:]]*\(/, "", s);
+            gsub(/[[:space:]]+/, " ", s);
+            i = index(s, ","); ret = trim(substr(s, 1, i - 1)); s = substr(s, i + 1);
+            i = index(s, ","); name = trim(substr(s, 1, i - 1)); s = substr(s, i + 1);
+            p = index(s, "("); q = index(s, ")");
+            params = trim(substr(s, p + 1, q - p - 1));
+            if (name == "_g")
+                name = "__attribute__((noduplicate)) _g";
+            printf("extern %s %s(%s);\n\n", ret, name, params);
+        }
+
+        /^[[:space:]]*HOOK_API_DEFINITION[[:space:]]*\(/ { buf = ""; collecting = 1; }
+
+        collecting {
+            buf = buf " " $0;
+            if (gsub(/\(/, "(", buf) == gsub(/\)/, ")", buf)) {
+                collecting = 0;
+                emit(buf);
             }
         }
     ' "$APPLY_HOOK"
