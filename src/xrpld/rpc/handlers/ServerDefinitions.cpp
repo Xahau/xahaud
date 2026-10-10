@@ -433,15 +433,17 @@ private:
 
         ret[jss::native_currency_code] = systemCurrencyCode();
 
-        // Hook API: enough to regenerate hook/extern.h, hookapi.h keylet and
-        // compare constants, and error.h without the xahaud source tree.
-        ret[jss::HOOK_API] = Json::objectValue;
+        // Hook API: enough to regenerate hook/extern.h, hookapi.h keylet
+        // constants and error.h without the xahaud source tree.
+        Json::Value& hook = ret[jss::HOOK];
+        hook = Json::objectValue;
+        hook[jss::API] = Json::objectValue;
 #pragma push_macro("HOOK_API_DEFINITION")
 #undef HOOK_API_DEFINITION
 #define HOOK_API_DEFINITION(                             \
     RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT) \
     addHookApi(                                          \
-        ret[jss::HOOK_API],                              \
+        hook[jss::API],                                  \
         #RETURN_TYPE,                                    \
         #FUNCTION_NAME,                                  \
         #PARAMS_TUPLE,                                   \
@@ -451,10 +453,8 @@ private:
 #pragma pop_macro("HOOK_API_DEFINITION")
 
         addEnumToJson<hook_api::keylet_code::keylet_code>(
-            ret[jss::HOOK_KEYLET_TYPES]);
-        addEnumToJson<hook_api::compare_mode::compare_mode>(
-            ret[jss::HOOK_COMPARE_MODES]);
-        addEnumToJson<hook_api::hook_return_code>(ret[jss::HOOK_RETURN_CODES]);
+            hook[jss::KEYLET_TYPES]);
+        addEnumToJson<hook_api::hook_return_code>(hook[jss::RETURN_CODES]);
 
         // generate hash
         {
