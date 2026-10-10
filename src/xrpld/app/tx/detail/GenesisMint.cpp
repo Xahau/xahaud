@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/GenesisMint.h>
 #include <xrpld/app/tx/detail/Import.h>
@@ -282,49 +281,34 @@ GenesisMint::doApply()
             view().update(sle);
     }
 
-    // featureExport: the first mint after each flag ledger creates the
-    // accounts of UNLReport validators that have none, so their export keys
-    // have somewhere to live. The genesis account remembers which flag
-    // ledger's report it last scanned.
-    if (view().rules().enabled(featureExport))
+    // featureExport: UNLReport validators without an account get one, so
+    // their export keys have somewhere to live. Reports only change on flag
+    // ledgers, so in practice this is the first mint after each of those.
+    if (auto const unl = view().read(keylet::UNLReport());
+        view().rules().enabled(featureExport) && unl &&
+        unl->isFieldPresent(sfActiveValidators))
     {
-        auto const seq = view().seq();
-        LedgerIndex const flag =
-            ((seq - 1) / FLAG_LEDGER_INTERVAL) * FLAG_LEDGER_INTERVAL;
-        auto const gen = view().peek(keylet::account(account_));
-        auto const unl = view().read(keylet::UNLReport());
-        if (gen && flag > 0 && (*gen)[~sfUNLFundedLedger].value_or(0) < flag)
+        XRPAmount const funding{Export::validatorFundingDrops};
+        for (auto const& v : unl->getFieldArray(sfActiveValidators))
         {
-            if (unl && unl->isFieldPresent(sfActiveValidators))
-            {
-                XRPAmount const funding{Export::validatorFundingDrops};
-                for (auto const& v : unl->getFieldArray(sfActiveValidators))
-                {
-                    auto const id = v.isFieldPresent(sfAccount)
-                        ? v.getAccountID(sfAccount)
-                        : calcAccountID(PublicKey(v[sfPublicKey]));
-                    auto const k = keylet::account(id);
-                    if (view().exists(k))
-                        continue;
+            auto const id = calcAccountID(PublicKey(v[sfPublicKey]));
+            auto const k = keylet::account(id);
+            if (view().exists(k))
+                continue;
 
-                    if (funding + dropsAdded.xrp() + view().info().drops <
-                        view().info().drops)
-                        return tecINTERNAL;
+            if (funding + dropsAdded.xrp() + view().info().drops <
+                view().info().drops)
+                return tecINTERNAL;
 
-                    auto const sle = std::make_shared<SLE>(k);
-                    sle->setAccountID(sfAccount, id);
-                    sle->setFieldU32(sfSequence, newAccountSeqNo(view()));
-                    sle->setFieldAmount(sfBalance, funding);
-                    view().insert(sle);
-                    dropsAdded += funding;
+            auto const sle = std::make_shared<SLE>(k);
+            sle->setAccountID(sfAccount, id);
+            sle->setFieldU32(sfSequence, newAccountSeqNo(view()));
+            sle->setFieldAmount(sfBalance, funding);
+            view().insert(sle);
+            dropsAdded += funding;
 
-                    JLOG(ctx_.journal.info())
-                        << "GenesisMint: funded UNLReport validator " << id;
-                }
-            }
-
-            gen->setFieldU32(sfUNLFundedLedger, flag);
-            view().update(gen);
+            JLOG(ctx_.journal.info())
+                << "GenesisMint: funded UNLReport validator " << id;
         }
     }
 

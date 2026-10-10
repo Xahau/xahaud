@@ -37,18 +37,22 @@ namespace ripple {
     maxExportKeys). Keys rotate on epochs of keyRotationPeriod: a key reported
     in a later epoch than the current head is pushed, one reported in the same
     epoch replaces the head, so the array always spans maxExportKeys epochs.
-    Each change bumps UNLReport.ExportKeysSeq.
+    Each change bumps UNLReport.ExportKeysSeq. A validator whose account does
+    not exist yet gets one, with validatorFundingDrops, from the next
+    ttGENESIS_MINT.
 
     1. A hook emits ttEXPORT carrying the transaction (Account = hook account,
        empty SigningPubKey) and sfSignerEntries, the signer list its account
        holds on the other network. Applying it creates an ltEXPORTED_TXN and,
        if the transaction uses a TicketSequence and is bound back to this
-       network (OperationLimit == NETWORK_ID), a shadow ticket that lets its
-       XPOP be imported exactly once.
+       network (OperationLimit == NETWORK_ID), an ltSHADOW_TICKET: the XPOP of
+       whichever transaction uses that ticket there can be imported once.
     2. Every validator holding an export key whose account is listed applies a
        ttEXPORT_SIGN to its next open ledger. Each is proposed by one validator
        only, so it loses its first round, but not being a pseudo-txn it is
        retried into every node's next open ledger and lands one ledger later.
+       A signature can only be checked against the ledger, so it is never
+       relayed as a transaction: peers have it from the proposed set.
        Only listed accounts can sign: the other network rejects a multisigned
        transaction if any signer is missing from its signer list. Signers are
        kept sorted, so the object always holds a submittable transaction.
@@ -135,17 +139,6 @@ exportKeyProofData(
 
 using ExportSign = Export;
 using ExportFinal = Export;
-
-/** Shadow tickets are HookState entries under a reserved namespace on the
-    exporting account, keyed by TicketSequence. */
-inline uint256 const shadowTicketNS =
-    uint256::fromVoid("RESERVED NAMESPACE SHADOW TICKET");
-
-inline Keylet
-shadowTicket(AccountID const& acc, std::uint32_t ticketSeq)
-{
-    return keylet::hookState(acc, uint256(ticketSeq), shadowTicketNS);
-}
 
 }  // namespace ripple
 

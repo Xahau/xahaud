@@ -239,10 +239,7 @@ XRPNotCreated::finalize(
 
             auto const& avs = unl->getFieldArray(sfActiveValidators);
             if (std::none_of(avs.begin(), avs.end(), [&](auto const& v) {
-                    return (v.isFieldPresent(sfAccount)
-                                ? v.getAccountID(sfAccount)
-                                : calcAccountID(PublicKey(v[sfPublicKey]))) ==
-                        id;
+                    return calcAccountID(PublicKey(v[sfPublicKey])) == id;
                 }))
             {
                 JLOG(j.fatal()) << "Invariant failed GenesisMint: created "
@@ -650,6 +647,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltPERMISSIONED_DOMAIN:
             case ltMANIFEST:
             case ltEXPORTED_TXN:
+            case ltSHADOW_TICKET:
                 break;
             default:
                 invalidTypeAdded_ = true;

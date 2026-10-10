@@ -2936,7 +2936,9 @@ PeerImp::checkTransaction(
             return;
         }
 
-        if (isPseudoTx(*stx))
+        // Export signatures are likewise network generated and can only be
+        // checked against the ledger. Honest peers don't relay them.
+        if (isPseudoTx(*stx) || stx->getTxnType() == ttEXPORT_SIGN)
         {
             // Don't do anything with pseudo transactions except put them in the
             // TransactionMaster cache

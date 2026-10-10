@@ -93,6 +93,7 @@ enum class LedgerNameSpace : std::uint16_t {
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
     EXPORTED_TXN = 'X',
+    SHADOW_TICKET = 'Y',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -689,6 +690,14 @@ exportedTxn(std::uint32_t seq, uint256 const& txid) noexcept
         k.data()[8 + i] = static_cast<std::uint8_t>(seq >> (24 - 8 * i));
     std::memcpy(k.data() + 12, txid.data(), 20);
     return {ltEXPORTED_TXN, k};
+}
+
+Keylet
+shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept
+{
+    return {
+        ltSHADOW_TICKET,
+        indexHash(LedgerNameSpace::SHADOW_TICKET, account, ticketSeq)};
 }
 
 }  // namespace keylet

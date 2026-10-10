@@ -96,8 +96,6 @@ doExportSignerList(RPC::JsonContext& context)
                 if (asOf && t > *asOf)
                     continue;
                 auto const key = e.getFieldVL(sfExportKey);
-                if (!publicKeyType(makeSlice(key)))
-                    break;
                 auto const id = calcAccountID(PublicKey(makeSlice(key)));
                 if (std::none_of(
                         signers.begin(), signers.end(), [&](Signer const& s) {

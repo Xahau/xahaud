@@ -111,14 +111,34 @@ LEDGER_ENTRY(ltHOOK_DEFINITION, 'D', HookDefinition, hook_definition, ({
 
 /** A pending export: the transaction being multisigned for another network,
     gathering UNL signatures in its sfSigners until ttEXPORT_FINAL deletes it.
+    sfOwner is the exporting account, so the signatures and the result are
+    attributed to it in metadata.
 
     \sa keylet::exportedTxn
 */
 LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
+    {sfOwner,                soeREQUIRED},
     {sfExportedTxn,          soeREQUIRED},
     {sfTransactionHash,      soeREQUIRED},
     {sfLedgerSequence,       soeREQUIRED},
     {sfSignerEntries,        soeREQUIRED},
+}))
+
+/** A shadow ticket: lets one XPOP of a ticketed export that is bound back to
+    this network (OperationLimit == NETWORK_ID) be imported, which consumes it.
+    Only ttEXPORT creates these. They are not hook state because a hook can
+    write any namespace of its own account's state, so it could forge one and
+    import the same XPOP again and again.
+
+    \sa keylet::shadowTicket
+*/
+LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
+    {sfAccount,              soeREQUIRED},
+    {sfTicketSequence,       soeREQUIRED},
+    {sfTransactionHash,      soeREQUIRED},
+    {sfOwnerNode,            soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
 /** A ledger object containing a hook-emitted transaction from a previous hook execution.
@@ -283,9 +303,6 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfManifestID,           soeOPTIONAL},
     /* featureExport: a validator's export keys, newest first */
     {sfExportKeys,           soeOPTIONAL},
-    /* featureExport, genesis account only: the flag ledger whose UNLReport
-       was last scanned for validator accounts to fund */
-    {sfUNLFundedLedger,      soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.

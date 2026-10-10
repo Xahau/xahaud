@@ -340,15 +340,14 @@ Change::applyUNLReport()
     if (created)
         sle = std::make_shared<SLE>(keylet::UNLReport());
 
-    // The first report of a flag ledger resets the array it carries. That
-    // was judged by PreviousTxnLgrSeq, but export key reports now modify this
-    // object too, so under featureExport only these reports move a marker.
+    // The first report of a ledger resets the array it carries. That was
+    // judged by PreviousTxnLgrSeq, but export key reports modify this object
+    // too, so under featureExport only these reports move a marker. Without
+    // one, the arrays predate the amendment and so this ledger.
     bool const exportOn = view().rules().enabled(featureExport);
     bool const reset = exportOn
-        ? (*sle)[~sfLedgerSequence].value_or(
-              (*sle)[~sfPreviousTxnLgrSeq].value_or(seq)) < seq
-        : sle->isFieldPresent(sfPreviousTxnLgrSeq) &&
-            sle->getFieldU32(sfPreviousTxnLgrSeq) < seq;
+        ? (*sle)[~sfLedgerSequence].value_or(0) < seq
+        : (*sle)[~sfPreviousTxnLgrSeq].value_or(seq) < seq;
 
     if (exportOn)
         sle->setFieldU32(sfLedgerSequence, seq);
@@ -524,9 +523,8 @@ normalizeXahauGenesis(
             }
 
             amounts.emplace_back(idStr, x);
-            JLOG(j.warn()) << "featureXahauGenesis: "
-                           << "initial validator: " << rn
-                           << " =>accid: " << idStr;
+            JLOG(j.warn()) << "featureXahauGenesis: " << "initial validator: "
+                           << rn << " =>accid: " << idStr;
 
             // initial member enumeration
             params.emplace_back(

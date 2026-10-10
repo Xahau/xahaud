@@ -17,9 +17,7 @@
 */
 //==============================================================================
 
-#include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/misc/Manifest.h>
-#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/ledger/View.h>
@@ -997,7 +995,7 @@ Import::preclaim(PreclaimContext const& ctx)
 
     if (auto const t = (*stpTrans)[~sfTicketSequence])
     {
-        if (!ctx.view.exists(shadowTicket(ctx.tx[sfAccount], *t)))
+        if (!ctx.view.exists(keylet::shadowTicket(ctx.tx[sfAccount], *t)))
             return tefNO_TICKET;
 
         // the relayer spends the account's XAH, so it gets no say in the fee
@@ -1147,9 +1145,9 @@ Import::doSignerList(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
     // validate signer list
     //
 
-    JLOG(ctx_.journal.warn()) << "Import: actioning SignerListSet "
-                              << "quorum: " << quorum << " "
-                              << "size: " << signers.size();
+    JLOG(ctx_.journal.warn())
+        << "Import: actioning SignerListSet " << "quorum: " << quorum << " "
+        << "size: " << signers.size();
 
     if (SetSignerList::validateQuorumAndSignerEntries(
             quorum, signers, id, ctx_.journal, ctx_.view().rules()) !=
@@ -1206,8 +1204,8 @@ Import::doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
     if (!stpTrans.isFieldPresent(sfRegularKey))
     {
         // delete op
-        JLOG(ctx_.journal.trace()) << "Import: clearing SetRegularKey "
-                                   << " acc: " << id;
+        JLOG(ctx_.journal.trace())
+            << "Import: clearing SetRegularKey " << " acc: " << id;
         if (sle->isFieldPresent(sfRegularKey))
             sle->makeFieldAbsent(sfRegularKey);
         return;
@@ -1420,13 +1418,17 @@ Import::doApply()
     else
         view().update(sle);
 
-    // each exported txn comes back at most once
+    // each ticketed export comes back at most once
     if (ticket)
     {
-        if (auto const ter = hook::setHookState(
-                ctx_, id, shadowTicketNS, uint256(*ticket), {});
-            !isTesSuccess(ter))
-            return ter;
+        auto const k = keylet::shadowTicket(id, *ticket);
+        auto const st = view().peek(k);
+        if (!st ||
+            !view().dirRemove(
+                keylet::ownerDir(id), (*st)[sfOwnerNode], k, false))
+            return tefBAD_LEDGER;
+        view().erase(st);
+        adjustOwnerCount(view(), sle, -1, ctx_.journal);
     }
 
     //

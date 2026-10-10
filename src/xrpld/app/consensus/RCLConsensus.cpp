@@ -191,6 +191,18 @@ RCLConsensus::Adaptor::share(RCLCxPeerPos const& peerPos)
 void
 RCLConsensus::Adaptor::share(RCLCxTx const& tx)
 {
+    // Export signatures can only be checked against the ledger, so peers
+    // would take them for badly signed transactions. They need no relay:
+    // peers have them from the proposed set (see Export.h).
+    try
+    {
+        if (STTx(SerialIter{tx.tx_->slice()}).getTxnType() == ttEXPORT_SIGN)
+            return;
+    }
+    catch (std::exception const&)
+    {
+    }
+
     // If we didn't relay this transaction recently, relay it to all peers
     if (app_.getHashRouter().shouldRelay(tx.id()))
     {

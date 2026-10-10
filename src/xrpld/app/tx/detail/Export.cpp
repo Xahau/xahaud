@@ -23,9 +23,11 @@
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/core/Config.h>
+#include <xrpld/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Sign.h>
+#include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 
 namespace ripple {
@@ -73,6 +75,47 @@ listed(STArray const& entries, AccountID const& acc)
     });
 }
 
+// A ticketed export bound back here may return once via Import, which
+// consumes this. Exporting again with the same ticket repoints it: only one
+// transaction can use the ticket on the other network.
+static TER
+setShadowTicket(
+    ApplyView& view,
+    AccountID const& acc,
+    std::uint32_t ticket,
+    uint256 const& txid,
+    beast::Journal j)
+{
+    auto const k = keylet::shadowTicket(acc, ticket);
+    if (auto const st = view.peek(k))
+    {
+        st->setFieldH256(sfTransactionHash, txid);
+        view.update(st);
+        return tesSUCCESS;
+    }
+
+    auto const sle = view.peek(keylet::account(acc));
+    if (!sle)
+        return tefINTERNAL;
+    if (sle->getFieldAmount(sfBalance).xrp() <
+        view.fees().accountReserve((*sle)[sfOwnerCount] + 1))
+        return tecINSUFFICIENT_RESERVE;
+
+    auto const page =
+        view.dirInsert(keylet::ownerDir(acc), k, describeOwnerDir(acc));
+    if (!page)
+        return tecDIR_FULL;
+
+    auto const st = std::make_shared<SLE>(k);
+    st->setAccountID(sfAccount, acc);
+    st->setFieldU32(sfTicketSequence, ticket);
+    st->setFieldH256(sfTransactionHash, txid);
+    st->setFieldU64(sfOwnerNode, *page);
+    view.insert(st);
+    adjustOwnerCount(view, sle, 1, j);
+    return tesSUCCESS;
+}
+
 Serializer
 exportKeyProofData(
     PublicKey const& master,
@@ -109,6 +152,8 @@ Export::preflight(PreflightContext const& ctx)
     {
         if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
             return ret;
+        if (tx.getFlags() & tfUniversalMask)
+            return temINVALID_FLAG;
         if (!hook::isEmittedTxn(tx) ||
             !exportedTx(tx, ctx.app.config().NETWORK_ID))
             return temMALFORMED;
@@ -138,11 +183,11 @@ Export::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight0(ctx); !isTesSuccess(ret))
         return ret;
 
-    // network generated: account zero, free, unsigned, unsequenced
+    // network generated: account zero, free, unsigned, unsequenced, no flags
     if (tx[sfAccount] != beast::zero || tx[sfFee] != beast::zero ||
-        tx[sfSequence] != 0 || !tx.getSigningPubKey().empty() ||
-        tx.isFieldPresent(sfTxnSignature) || tx.isFieldPresent(sfSigners) ||
-        tx.isFieldPresent(sfTicketSequence) ||
+        tx[sfSequence] != 0 || tx.getFlags() != 0 ||
+        !tx.getSigningPubKey().empty() || tx.isFieldPresent(sfTxnSignature) ||
+        tx.isFieldPresent(sfSigners) || tx.isFieldPresent(sfTicketSequence) ||
         tx.isFieldPresent(sfPreviousTxnID))
         return temMALFORMED;
 
@@ -169,7 +214,11 @@ Export::preclaim(PreclaimContext const& ctx)
         return tefFAILURE;
 
     if (tx.getTxnType() == ttEXPORT_FINAL)
+    {
+        if (tx[sfOwner] != (*sle)[sfOwner])
+            return tefFAILURE;
         return tesSUCCESS;
+    }
 
     // Only accounts the exporter listed may sign: one foreign signer and the
     // other network rejects the whole transaction. Nothing else about the key
@@ -181,17 +230,11 @@ Export::preclaim(PreclaimContext const& ctx)
     if (!listed(sle->getFieldArray(sfSignerEntries), s[sfAccount]))
         return tefBAD_AUTH;
 
+    // Signers are unique and listed, so never more than SignerEntries holds.
     auto const& inner = obj(*sle, sfExportedTxn);
-    if (inner.isFieldPresent(sfSigners))
-    {
-        auto const& signers = inner.getFieldArray(sfSigners);
-        if (std::any_of(signers.begin(), signers.end(), [&](STObject const& o) {
-                return o[sfAccount] == s[sfAccount];
-            }))
-            return tefALREADY;
-        if (signers.size() >= STTx::maxMultiSigners())
-            return tefTOO_BIG;
-    }
+    if (inner.isFieldPresent(sfSigners) &&
+        listed(inner.getFieldArray(sfSigners), s[sfAccount]))
+        return tefALREADY;
 
     // XRPL requires fully canonical signatures, which also stops malleated
     // copies of one signature from becoming distinct transactions.
@@ -222,24 +265,23 @@ Export::doApply()
         if (view.exists(k))
             return tecDUPLICATE;
 
+        if (auto const ticket = (*t)[~sfTicketSequence];
+            ticket && (*t)[~sfOperationLimit] == ctx_.app.config().NETWORK_ID)
+        {
+            if (auto const ter =
+                    setShadowTicket(view, account_, *ticket, id, j_);
+                !isTesSuccess(ter))
+                return ter;
+        }
+
         auto const sle = std::make_shared<SLE>(k);
+        sle->setAccountID(sfOwner, account_);
         sle->peekFieldObject(sfExportedTxn) = obj(tx, sfExportedTxn);
         sle->setFieldH256(sfTransactionHash, id);
         sle->setFieldU32(sfLedgerSequence, view.seq());
         sle->setFieldArray(sfSignerEntries, tx.getFieldArray(sfSignerEntries));
         view.insert(sle);
-
-        if (!t->isFieldPresent(sfTicketSequence) ||
-            (*t)[~sfOperationLimit] != ctx_.app.config().NETWORK_ID)
-            return tesSUCCESS;
-
-        // a ticketed txn bound back here may return via Import, once
-        return hook::setHookState(
-            ctx_,
-            account_,
-            shadowTicketNS,
-            uint256(t->getFieldU32(sfTicketSequence)),
-            Slice{id.data(), id.size()});
+        return tesSUCCESS;
     }
 
     auto const sle = view.peek(exportKeylet(tx));
@@ -308,7 +350,7 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
         if (seq >= created + window)
             inject(ttEXPORT_FINAL, [&](STObject& o) {
                 o[sfAccount] = AccountID();
-                o[sfOwner] = inner[sfAccount];
+                o[sfOwner] = (*sle)[sfOwner];
                 o[sfLedgerSequence] = created;
                 o[sfTransactionHash] = id;
             });

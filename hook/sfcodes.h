@@ -72,7 +72,6 @@
 #define sfLockCount ((2U << 16U) + 49U)
 #define sfFirstNFTokenSequence ((2U << 16U) + 50U)
 #define sfOracleDocumentID ((2U << 16U) + 51U)
-#define sfUNLFundedLedger ((2U << 16U) + 91U)
 #define sfExportKeysSeq ((2U << 16U) + 92U)
 #define sfStartTime ((2U << 16U) + 93U)
 #define sfRepeatCount ((2U << 16U) + 94U)
