@@ -58,6 +58,13 @@ MAGIC_ENUM_FLAG(ripple::PaymentChannelClaimFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenMintFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenCreateOfferFlags);
 MAGIC_ENUM_FLAG(ripple::ClaimRewardFlags);
+MAGIC_ENUM_FLAG(ripple::HookDefinitionUpdateFlags);
+MAGIC_ENUM_FLAG(ripple::CronSetFlags);
+MAGIC_ENUM_FLAG(ripple::BridgeModifyFlags);
+MAGIC_ENUM_FLAG(ripple::MPTokenIssuanceCreateFlags);
+MAGIC_ENUM_FLAG(ripple::MPTokenAuthorizeFlags);
+MAGIC_ENUM_FLAG(ripple::MPTokenIssuanceSetFlags);
+MAGIC_ENUM_FLAG(ripple::AMMClawbackFlags);
 MAGIC_ENUM_16(ripple::AccountFlags);
 
 namespace ripple {
@@ -326,6 +333,7 @@ private:
         addFlagsToJson<NFTokenMintFlags>(ret, "NFTokenMint");
         addFlagsToJson<NFTokenCreateOfferFlags>(ret, "NFTokenCreateOffer");
         addFlagsToJson<ClaimRewardFlags>(ret, "ClaimReward");
+        addFlagsToJson<HookDefinitionUpdateFlags>(ret, "HookDefinitionUpdate");
         addFlagsToJson<CronSetFlags>(ret, "CronSet");
         addFlagsToJson<BridgeModifyFlags>(ret, "XChainModifyBridge");
         addFlagsToJson<MPTokenIssuanceCreateFlags>(
