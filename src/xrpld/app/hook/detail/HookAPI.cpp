@@ -69,7 +69,7 @@ Expected<bool, HookReturnCode>
 HookAPI::sto_validate(Bytes const& data) const
 {
     if (data.size() < 2)
-        return Unexpected(TOO_SMALL);
+        return 0ULL;
 
     unsigned char* start = const_cast<unsigned char*>(data.data());
     unsigned char* upto = start;
@@ -1033,11 +1033,11 @@ HookAPI::float_set(int32_t exponent, int64_t mantissa) const
     if (!normalized)
     {
         if (normalized.error() == XFL_OVERFLOW)
-            return Unexpected(INVALID_FLOAT);
+            return Unexpected(EXPONENT_OVERSIZED);
         return Unexpected(normalized.error());
     }
     if (normalized.value() == 0)
-        return Unexpected(INVALID_FLOAT);
+        return Unexpected(EXPONENT_UNDERSIZED);
 
     return normalized;
 }
