@@ -1956,11 +1956,31 @@ public:
         BEAST_EXPECT(api.float_set(-50, 0).value() == 0);
         BEAST_EXPECT(api.float_set(0, 0).value() == 0);
 
-        // an exponent lower than -96 should produce an invalid float error
-        BEAST_EXPECT(api.float_set(-97, 1).error() == INVALID_FLOAT);
+        // fix20261005: exponent out of range is reported as
+        // EXPONENT_UNDERSIZED / EXPONENT_OVERSIZED; before the fix both
+        // cases were reported as INVALID_FLOAT
+        bool const fixExpCodes = env.current()->rules().enabled(fix20261005);
+        auto const undersized =
+            fixExpCodes ? EXPONENT_UNDERSIZED : INVALID_FLOAT;
+        auto const oversized = fixExpCodes ? EXPONENT_OVERSIZED : INVALID_FLOAT;
 
-        // an exponent larger than +96 should produce an invalid float error
-        BEAST_EXPECT(api.float_set(+97, 1).error() == INVALID_FLOAT);
+        // an exponent lower than -96 should produce an underflow error
+        BEAST_EXPECT(api.float_set(-97, 1).error() == undersized);
+
+        // an exponent larger than +96 should produce an overflow error
+        BEAST_EXPECT(api.float_set(+97, 1).error() == oversized);
+
+        // the -96..80 range applies to the exponent after the mantissa has
+        // been normalized to 16 digits (1 -> 1e15, exponent - 15)
+        auto const oneE15 = [](int32_t exp) {
+            return hook::hook_float::make_float(1000000000000000ULL, exp, false)
+                .value();
+        };
+        BEAST_EXPECT(api.float_set(81, 1).value() == oneE15(66));
+        BEAST_EXPECT(api.float_set(95, 1).value() == oneE15(80));
+        BEAST_EXPECT(api.float_set(96, 1).error() == oversized);
+        BEAST_EXPECT(api.float_set(-81, 1).value() == oneE15(-96));
+        BEAST_EXPECT(api.float_set(-82, 1).error() == undersized);
 
         // clang-format off
         std::vector<std::tuple<int32_t, int64_t, uint64_t>> tests = {
@@ -4452,8 +4472,20 @@ public:
             makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
         auto& api = hookCtx.api();
 
-        BEAST_EXPECT(api.sto_validate(Bytes{}).error() == TOO_SMALL);
-        BEAST_EXPECT(api.sto_validate(Bytes{0x00}).error() == TOO_SMALL);
+        // a buffer shorter than two bytes can't be a valid STObject:
+        // fix20261005 reports it as invalid rather than as TOO_SMALL
+        if (env.closed()->rules().enabled(fix20261005))
+        {
+            BEAST_EXPECT(api.sto_validate(Bytes{}).value() == false);
+            BEAST_EXPECT(api.sto_validate(Bytes{0x00}).value() == false);
+            BEAST_EXPECT(api.sto_validate(Bytes{0xE1}).value() == false);
+        }
+        else
+        {
+            BEAST_EXPECT(api.sto_validate(Bytes{}).error() == TOO_SMALL);
+            BEAST_EXPECT(api.sto_validate(Bytes{0x00}).error() == TOO_SMALL);
+            BEAST_EXPECT(api.sto_validate(Bytes{0xE1}).error() == TOO_SMALL);
+        }
 
         // { Memo: {MemoData: "BEEF"} }
         auto const memos = *strUnHex("EA7D02BEEFE1");
@@ -4941,6 +4973,7 @@ public:
         test_float_one(features);
         test_float_root(features);
         test_float_set(features);
+        test_float_set(features - fix20261005);
         test_float_sign(features);
         test_float_sto(features);
         test_float_sto_set(features);
@@ -4992,6 +5025,7 @@ public:
         test_sto_subfield(features);
         test_sto_subfield(features - fix20260929);
         test_sto_validate(features);
+        test_sto_validate(features - fix20261005);
 
         test_trace(features);
         test_trace_float(features);

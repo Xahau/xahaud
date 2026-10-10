@@ -6482,7 +6482,10 @@ public:
     {
         testcase("Test float_set");
         using namespace jtx;
-        Env env{*this, features};
+        // this hook asserts the pre-fix20261005 INVALID_FLOAT result for an
+        // out of range exponent; the amended EXPONENT_UNDERSIZED/OVERSIZED
+        // behaviour is covered in HookAPI_test
+        Env env{*this, features - fix20261005};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -13262,7 +13265,9 @@ public:
         testcase("Test sto_validate");
         using namespace jtx;
 
-        Env env{*this, features};
+        // this hook asserts the pre-fix20261005 TOO_SMALL result for a short
+        // buffer; the amended behaviour is covered by the param hook below
+        Env env{*this, features - fix20261005};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -13517,6 +13522,45 @@ public:
                 // STI_CURRENCY
                 testSTI(
                     "011A0000000000000000000000005553440000000000", hasEnabled);
+            }
+
+            // a buffer shorter than two bytes can't be a valid STObject:
+            // fix20261005 returns 0 (invalid) instead of TOO_SMALL
+            for (bool const withFix : {true, false})
+            {
+                Env env{
+                    *this,
+                    withFix ? features | fix20261005 : features - fix20261005};
+
+                env.fund(XRP(10000), alice, bob);
+                env.close();
+
+                // install the hook on alice
+                env(ripple::test::jtx::hook(
+                        alice, {{hso(hook, overrideFlag)}}, 0),
+                    M("set sto_validate"),
+                    HSFEE);
+                env.close();
+
+                auto payJv = pay(bob, alice, XRP(1));
+                Json::Value params{Json::arrayValue};
+                auto& param = params[0U][jss::HookParameter];
+                param[jss::HookParameterName] = strHex(std::string("V"));
+                param[jss::HookParameterValue] = "E1";
+                payJv[jss::HookParameters] = params;
+
+                env(payJv, M("test sto_validate short buffer"), fee(XRP(1)));
+                env.close();
+
+                auto const result =
+                    env.meta()->getFieldArray(sfHookExecutions)[0].getFieldU64(
+                        sfHookReturnCode);
+
+                // negative exit codes are recorded with the MSB set
+                BEAST_EXPECT(
+                    result ==
+                    (withFix ? 0ULL
+                             : 0x8000000000000000ULL + 4ULL /*TOO_SMALL*/));
             }
         }
     }
