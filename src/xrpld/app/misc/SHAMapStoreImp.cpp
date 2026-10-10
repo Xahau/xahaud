@@ -411,22 +411,62 @@ SHAMapStoreImp::loadPinnedRanges()
             static_cast<bool>(app_.getNodeStore().fetchNodeObject(hash, seq));
     };
 
+    //
+    // catalogue_load records ranges at checkpoints, after handing the pinned
+    // backend every node of the recorded ledgers, but not every backend can
+    // make those writes durable on demand (NuDB commits on its own thread).
+    // A crash can therefore leave the tail of an interval recorded but not
+    // on disk. Each ledger's nodes reach the backend before its header, and
+    // ledgers in sequence, so what survives is a prefix: trim the upper bound
+    // back to the last ledger whose header is present instead of refusing to
+    // start. A missing lower bound still means the configured pinned store
+    // is not the one these ranges were loaded into.
+    constexpr std::uint32_t maxTailTrim = 65536;
+
+    RangeSet<std::uint32_t> verified;
     for (auto const& interval : persistedRanges)
     {
-        if (!hasLedgerData(interval.lower()) ||
-            !hasLedgerData(interval.upper()))
-        {
-            Throw<std::runtime_error>(
-                "Persisted pinned interval " +
-                std::to_string(interval.lower()) + "-" +
+        auto const lower = interval.lower();
+        auto upper = interval.upper();
+
+        auto const notPresent = [&]() {
+            return std::runtime_error(
+                "Persisted pinned interval " + std::to_string(lower) + "-" +
                 std::to_string(interval.upper()) +
                 " is not present in the currently configured pinned store");
+        };
+
+        if (!hasLedgerData(lower))
+            Throw<std::runtime_error>(notPresent());
+
+        std::uint32_t trimmed = 0;
+        while (upper > lower && !hasLedgerData(upper))
+        {
+            if (++trimmed > maxTailTrim)
+                Throw<std::runtime_error>(notPresent());
+            --upper;
         }
+
+        if (trimmed)
+        {
+            JLOG(journal_.warn())
+                << "Pinned interval " << lower << "-" << interval.upper()
+                << " was recorded but its last " << trimmed
+                << " ledger(s) are not in the pinned store (likely an "
+                   "interrupted catalogue_load); trimmed to "
+                << lower << "-" << upper
+                << ". Re-run catalogue_load to restore them.";
+        }
+
+        verified.insert(range(lower, upper));
     }
 
+    if (verified != persistedRanges)
+        state_db_.setPinnedRanges(to_string(verified));
+
     JLOG(journal_.info()) << "Loaded pinned ranges from database: "
-                          << rangesStr;
-    app_.getLedgerMaster().setPinnedLedgersRangeSet(persistedRanges);
+                          << to_string(verified);
+    app_.getLedgerMaster().setPinnedLedgersRangeSet(verified);
 }
 
 void

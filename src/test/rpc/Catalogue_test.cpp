@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpl/beast/unit_test.h>
@@ -26,8 +27,10 @@
 #include <boost/filesystem.hpp>
 #include <chrono>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <grpc/impl/codegen/compression_types.h>
+#include <iterator>
 #include <thread>
 
 namespace ripple {
@@ -1068,6 +1071,245 @@ class Catalogue_test : public beast::unit_test::suite
 
 public:
     void
+    testCatalogueChainLinkage(FeatureBitset features)
+    {
+        testcase("catalogue_load: Ledgers must chain");
+        using namespace test::jtx;
+
+        Env env{
+            *this,
+            catalogueEnvconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled,
+        };
+        prepareLedgerData(env, 3);
+
+        boost::filesystem::path tempDir =
+            boost::filesystem::temp_directory_path() /
+            boost::filesystem::unique_path();
+        boost::filesystem::create_directories(tempDir);
+        auto cataloguePath = (tempDir / "test.catl").string();
+
+        // Uncompressed, so ledger records can be located and edited.
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::min_ledger] = 3;
+            params[jss::max_ledger] = 6;
+            params[jss::output_file] = cataloguePath;
+            params[jss::compression_level] = 0;
+            auto const result =
+                env.client().invoke("catalogue_create", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+        }
+
+        std::vector<std::uint8_t> bytes;
+        {
+            std::ifstream in(cataloguePath, std::ios::binary);
+            bytes.assign(
+                std::istreambuf_iterator<char>(in),
+                std::istreambuf_iterator<char>());
+        }
+
+        // Ledger record: seq, hash, txHash, accountHash, parentHash, drops,
+        // closeFlags, closeTimeResolution, closeTime, parentCloseTime; then
+        // the state map and tx map as leaf records ending in tnTERMINAL.
+        constexpr std::size_t ledgerHeaderSize =
+            4 + 32 * 4 + 8 + sizeof(int) + 4 + 8 + 8;
+        auto skipMap = [&](std::size_t pos) -> std::size_t {
+            while (pos < bytes.size())
+            {
+                auto const type = bytes[pos++];
+                if (type == 255)  // tnTERMINAL
+                    return pos;
+                pos += 32;
+                if (type == 254)  // tnREMOVE
+                    continue;
+                if (pos + 4 > bytes.size())
+                    break;
+                std::uint32_t size = 0;
+                std::memcpy(&size, &bytes[pos], 4);
+                pos += 4 + size;
+            }
+            return bytes.size();
+        };
+
+        // Skip the base ledger (3) to reach ledger 4.
+        std::size_t pos = sizeof(TestCATLHeader) + ledgerHeaderSize;
+        pos = skipMap(skipMap(pos));
+        if (!BEAST_EXPECT(pos + ledgerHeaderSize <= bytes.size()))
+            return;
+
+        LedgerInfo info;
+        std::size_t p = pos;
+        auto take = [&](void* dst, std::size_t n) {
+            std::memcpy(dst, &bytes[p], n);
+            p += n;
+        };
+        std::uint64_t drops = 0, closeTime = 0, parentCloseTime = 0;
+        std::uint32_t resolution = 0;
+        take(&info.seq, 4);
+        std::size_t const hashOffset = p;
+        take(info.hash.data(), 32);
+        take(info.txHash.data(), 32);
+        take(info.accountHash.data(), 32);
+        std::size_t const parentOffset = p;
+        take(info.parentHash.data(), 32);
+        take(&drops, 8);
+        take(&info.closeFlags, sizeof(info.closeFlags));
+        take(&resolution, 4);
+        take(&closeTime, 8);
+        take(&parentCloseTime, 8);
+        info.drops = drops;
+        info.closeTime = NetClock::time_point{NetClock::duration{closeTime}};
+        info.parentCloseTime =
+            NetClock::time_point{NetClock::duration{parentCloseTime}};
+        info.closeTimeResolution = NetClock::duration{resolution};
+
+        BEAST_EXPECT(info.seq == 4);
+        // Sanity: the record parses to a ledger whose hash checks out.
+        BEAST_EXPECT(calculateLedgerHash(info) == info.hash);
+
+        // Re-parent ledger 4 and fix up its hash, so the file stays
+        // internally consistent ledger by ledger; only the chain check can
+        // catch it.
+        info.parentHash = ~info.parentHash;
+        info.hash = calculateLedgerHash(info);
+        std::memcpy(&bytes[parentOffset], info.parentHash.data(), 32);
+        std::memcpy(&bytes[hashOffset], info.hash.data(), 32);
+        {
+            std::ofstream out(
+                cataloguePath, std::ios::binary | std::ios::trunc);
+            out.write(
+                reinterpret_cast<char const*>(bytes.data()), bytes.size());
+        }
+
+        Env loadEnv{
+            *this,
+            catalogueEnvconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled,
+        };
+
+        Json::Value params{Json::objectValue};
+        params[jss::input_file] = cataloguePath;
+        params[jss::ignore_hash] = true;  // the file was edited
+        auto const result =
+            loadEnv.client().invoke("catalogue_load", params)[jss::result];
+        BEAST_EXPECT(result[jss::status] == "error");
+        BEAST_EXPECT(
+            result[jss::error_message].asString().find(
+                "does not chain to its predecessor") != std::string::npos);
+
+        // The base ledger verified and stays pinned; nothing after it does.
+        auto const pinned =
+            loadEnv.app().getLedgerMaster().getPinnedLedgersRangeSet();
+        BEAST_EXPECT(boost::icl::contains(pinned, 3u));
+        BEAST_EXPECT(!boost::icl::contains(pinned, 4u));
+
+        boost::filesystem::remove_all(tempDir);
+    }
+
+    void
+    testCatalogueUnpin(FeatureBitset features)
+    {
+        testcase("catalogue_unpin");
+        using namespace test::jtx;
+
+        Env env{
+            *this,
+            catalogueEnvconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled,
+        };
+        prepareLedgerData(env, 5);
+
+        boost::filesystem::path tempDir =
+            boost::filesystem::temp_directory_path() /
+            boost::filesystem::unique_path();
+        boost::filesystem::create_directories(tempDir);
+        auto cataloguePath = (tempDir / "test.catl").string();
+
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::min_ledger] = 3;
+            params[jss::max_ledger] = 8;
+            params[jss::output_file] = cataloguePath;
+            auto const result =
+                env.client().invoke("catalogue_create", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+        }
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = cataloguePath;
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+        }
+
+        auto& lm = env.app().getLedgerMaster();
+        BEAST_EXPECT(to_string(lm.getPinnedLedgersRangeSet()) == "3-8");
+
+        auto unpin = [&](std::optional<Json::Value> min,
+                         std::optional<Json::Value> max) {
+            Json::Value params{Json::objectValue};
+            if (min)
+                params[jss::ledger_index_min] = *min;
+            if (max)
+                params[jss::ledger_index_max] = *max;
+            return env.client().invoke("catalogue_unpin", params)[jss::result];
+        };
+
+        // Bad parameters
+        BEAST_EXPECT(unpin({}, {})[jss::status] == "error");
+        BEAST_EXPECT(unpin(5, {})[jss::status] == "error");
+        BEAST_EXPECT(unpin(6, 5)[jss::status] == "error");
+        BEAST_EXPECT(unpin(-1, 5)[jss::status] == "error");
+        BEAST_EXPECT(unpin("x", 5)[jss::status] == "error");
+        BEAST_EXPECT(to_string(lm.getPinnedLedgersRangeSet()) == "3-8");
+
+        // Cut a hole
+        {
+            auto const result = unpin(5, 6);
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result[jss::unpinned] == "5-6");
+            BEAST_EXPECT(result[jss::complete_ledgers_pinned] == "3-4,7-8");
+            BEAST_EXPECT(lm.isPinned(4) && lm.isPinned(7));
+            BEAST_EXPECT(!lm.isPinned(5) && !lm.isPinned(6));
+        }
+
+        // A range only partly pinned unpins just the pinned part
+        {
+            auto const result = unpin(1, 4);
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result[jss::unpinned] == "3-4");
+            BEAST_EXPECT(result[jss::complete_ledgers_pinned] == "7-8");
+        }
+
+        // Nothing pinned in range: success, nothing unpinned
+        {
+            auto const result = unpin(5, 6);
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result[jss::unpinned] == "empty");
+            BEAST_EXPECT(result[jss::complete_ledgers_pinned] == "7-8");
+        }
+
+        // Re-loading the file pins it again
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = cataloguePath;
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(to_string(lm.getPinnedLedgersRangeSet()) == "3-8");
+        }
+
+        boost::filesystem::remove_all(tempDir);
+    }
+
+    void
     run() override
     {
         using namespace test::jtx;
@@ -1081,6 +1323,8 @@ public:
         testCatalogueFileSize(all);
         testCatalogueCompression(all);
         testCatalogueStatus(all);
+        testCatalogueChainLinkage(all);
+        testCatalogueUnpin(all);
     }
 };
 

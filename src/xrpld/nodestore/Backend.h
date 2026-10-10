@@ -121,6 +121,22 @@ public:
     virtual void
     sync() = 0;
 
+    /** Make every object previously passed to store() or storeBatch()
+        durable before returning.
+
+        @return true if, on return, those writes are as durable as this
+                backend ever makes them (trivially so for in-memory
+                backends); false if the backend cannot do this on demand and
+                they become durable later on its own schedule (e.g. NuDB's
+                commit thread).
+    */
+    virtual bool
+    syncDurable()
+    {
+        sync();
+        return false;
+    }
+
     /** Visit every object in the database
         This is usually called during import.
         @note This routine will not be called concurrently with itself

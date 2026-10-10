@@ -178,6 +178,8 @@ Json::Value
 doCatalogueStatus(RPC::JsonContext&);
 Json::Value
 doCatalogueLoad(RPC::JsonContext&);
+Json::Value
+doCatalogueUnpin(RPC::JsonContext&);
 }  // namespace ripple
 
 #endif

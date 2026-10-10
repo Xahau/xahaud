@@ -586,6 +586,19 @@ LedgerMaster::unpinLedger(std::uint32_t seq)
     mPinnedLedgers.erase(range(seq, seq));
 }
 
+RangeSet<std::uint32_t>
+LedgerMaster::unpinLedgers(
+    RangeSet<std::uint32_t> const& ranges,
+    RangeSet<std::uint32_t> const& dropFromComplete)
+{
+    std::scoped_lock lock(mCompleteLock, mPinnedLock);
+    RangeSet<std::uint32_t> removed = mPinnedLedgers & ranges;
+    mPinnedLedgers -= removed;
+    if (!dropFromComplete.empty())
+        mCompleteLedgers -= (removed & dropFromComplete);
+    return removed;
+}
+
 bool
 LedgerMaster::isValidated(ReadView const& ledger)
 {
