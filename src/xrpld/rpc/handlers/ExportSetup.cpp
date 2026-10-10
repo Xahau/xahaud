@@ -17,29 +17,46 @@
 */
 //==============================================================================
 
+#include <xrpld/app/main/Application.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/core/Config.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/rpc/Context.h>
+#include <xrpld/rpc/detail/QRCode.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/json/to_string.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
 
-/** export_signer_list: the SignerListSet that lets the validators' export
-    keys sign for an account on another network (see Export.h).
+/** export_setup: the SignerListSet that sets an account up on the network
+    it exports to (see Export.h), as a sign request for Xaman.
 
     Takes the usual ledger selectors, plus optional:
-        as_of    ripple epoch seconds: each validator's newest export key
-                 recorded at or before then (default: the current keys)
-        quorum   SignerQuorum (default: 80% of the signers, rounded up)
-        account  the account on the other network, filled into tx_json
+        account    the account, filled into tx_json
+        quorum     SignerQuorum (default: 80% of the signers, rounded up)
+        as_of      ripple epoch seconds: each validator's newest export key
+                   recorded at or before then (default: the current keys)
+        qr_invert  draw the QR code's dark modules, for a light background
 
-    Returns tx_json, the signers it lists, and UNLReport.ExportKeysSeq. Hooks
-    need none of this: xport() a SignerListSet without SignerEntries.
+    Returns:
+        tx_json          the SignerListSet. Xaman fills in Fee and Sequence.
+                         OperationLimit is this network's ID, so the
+                         transaction's XPOP can be imported here, which is
+                         what records the list for xport().
+        signers          the export keys it lists, and their validators
+        export_keys_seq  UNLReport.ExportKeysSeq; the list needs updating
+                         when this changes
+        xaman.url        a link Xaman opens tx_json from
+        xaman.qr         the link as a QR code, one line of UTF-8 half
+                         blocks per array entry, absent if too large
+
+    Hooks need none of this: xport() a SignerListSet without SignerEntries.
 */
 Json::Value
-doExportSignerList(RPC::JsonContext& context)
+doExportSetup(RPC::JsonContext& context)
 {
     auto const& params = context.params;
     if (params.isMember("as_of") && !params["as_of"].isIntegral())
@@ -82,6 +99,7 @@ doExportSignerList(RPC::JsonContext& context)
     if (account)
         tx[jss::Account] = toBase58(*account);
     tx[sfSignerQuorum.jsonName] = quorum;
+    tx[sfOperationLimit.jsonName] = context.app.config().NETWORK_ID;
     Json::Value& entries = tx[sfSignerEntries.jsonName] = Json::arrayValue;
     Json::Value& list = result["signers"] = Json::arrayValue;
     for (auto const& s : signers)
@@ -95,6 +113,17 @@ doExportSignerList(RPC::JsonContext& context)
         Json::Value& e = entries.append(Json::objectValue);
         e[sfSignerEntry.jsonName][sfAccount.jsonName] = toBase58(s.account);
         e[sfSignerEntry.jsonName][sfSignerWeight.jsonName] = 1;
+    }
+
+    // Xaman reads a hex JSON template from its detect link. Uppercase hex
+    // packs into the QR code's alphanumeric mode.
+    Json::Value& xaman = result["xaman"] = Json::objectValue;
+    xaman[jss::url] = "https://xaman.app/detect/" + strHex(to_string(tx));
+    if (auto const code = qr::encode(xaman[jss::url].asString()); !code.empty())
+    {
+        Json::Value& lines = xaman["qr"] = Json::arrayValue;
+        for (auto& l : qr::render(code, params["qr_invert"].asBool()))
+            lines.append(std::move(l));
     }
     return result;
 }

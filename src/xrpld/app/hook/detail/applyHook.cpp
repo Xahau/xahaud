@@ -72,14 +72,15 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     switch (tt)
     {
-        case ttCRON:
-        case ttEXPORT_FINAL: {
+        case ttCRON: {
             ADD_TSH(tx.getAccountID(sfOwner), tshWEAK);
             break;
         }
 
+        // the exporter hears of its exports through cbak, not hook()
         case ttEXPORT:
         case ttEXPORT_SIGN:
+        case ttEXPORT_FINAL:
             break;
 
         case ttREMIT: {

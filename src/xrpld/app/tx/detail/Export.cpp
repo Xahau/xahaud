@@ -83,20 +83,29 @@ listed(STArray const& entries, AccountID const& acc)
 }
 
 // A ticketed export bound back here may return once via Import, which
-// consumes this. Exporting again with the same ticket repoints it: only one
-// transaction can use the ticket on the other network.
+// consumes this and calls back `hook`. Exporting again with the same ticket
+// repoints it: only one transaction can use the ticket on the other network.
 static TER
 setShadowTicket(
     ApplyView& view,
     AccountID const& acc,
     std::uint32_t ticket,
     uint256 const& txid,
+    std::optional<uint256> const& hook,
     beast::Journal j)
 {
+    auto const setHook = [&](SLE& st) {
+        if (hook)
+            st.setFieldH256(sfEmitHookHash, *hook);
+        else if (st.isFieldPresent(sfEmitHookHash))
+            st.makeFieldAbsent(sfEmitHookHash);
+    };
+
     auto const k = keylet::shadowTicket(acc, ticket);
     if (auto const st = view.peek(k))
     {
         st->setFieldH256(sfTransactionHash, txid);
+        setHook(*st);
         view.update(st);
         return tesSUCCESS;
     }
@@ -117,6 +126,7 @@ setShadowTicket(
     st->setAccountID(sfAccount, acc);
     st->setFieldU32(sfTicketSequence, ticket);
     st->setFieldH256(sfTransactionHash, txid);
+    setHook(*st);
     st->setFieldU64(sfOwnerNode, *page);
     view.insert(st);
     adjustOwnerCount(view, sle, 1, j);
@@ -176,6 +186,40 @@ exportSigners(ReadView const& view, std::optional<std::uint32_t> asOf)
     return out;
 }
 
+bool
+listsExportKey(ReadView const& view, STArray const& entries)
+{
+    auto const unl = view.read(keylet::UNLReport());
+    if (!unl || !unl->isFieldPresent(sfActiveValidators))
+        return false;
+    for (auto const& v : unl->getFieldArray(sfActiveValidators))
+    {
+        PublicKey const master(v[sfPublicKey]);
+        auto const acc = view.read(keylet::account(calcAccountID(master)));
+        if (acc && acc->isFieldPresent(sfExportKeys))
+            for (auto const& e : acc->getFieldArray(sfExportKeys))
+            {
+                auto const key = e.getFieldVL(sfExportKey);
+                if (listed(entries, calcAccountID(PublicKey(makeSlice(key)))))
+                    return true;
+            }
+    }
+    return false;
+}
+
+std::uint32_t
+exportWeight(SLE const& exported)
+{
+    std::uint32_t weight = 0;
+    auto const& inner = obj(exported, sfExportedTxn);
+    if (inner.isFieldPresent(sfSigners))
+        for (auto const& s : inner.getFieldArray(sfSigners))
+            for (auto const& e : exported.getFieldArray(sfSignerEntries))
+                if (e[sfAccount] == s[sfAccount])
+                    weight += e[sfSignerWeight];
+    return weight;
+}
+
 // the exporter's signer list on the other network
 static STObject const*
 signerList(ReadView const& view, AccountID const& acc)
@@ -192,11 +236,18 @@ Export::calculateBaseFee(ReadView const& view, STTx const& tx)
     if (tx.getTxnType() != ttEXPORT)
         return XRPAmount{0};
 
-    // an export fans out into one signature per listed signer plus a final
+    // an export fans out into one signature per listed signer plus a final,
+    // and one bound back pays for the free Import that returns it
     auto const list = signerList(view, tx[sfAccount]);
     std::int64_t const n =
         list ? list->getFieldArray(sfSignerEntries).size() : 0;
-    return Transactor::calculateBaseFee(view, tx) + view.fees().base * (n + 1);
+    auto const& inner = obj(tx, sfExportedTxn);
+    std::int64_t const back = inner.isFieldPresent(sfTicketSequence) &&
+            inner.isFieldPresent(sfOperationLimit)
+        ? 10
+        : 0;
+    return Transactor::calculateBaseFee(view, tx) +
+        view.fees().base * (n + 1 + back);
 }
 
 NotTEC
@@ -327,11 +378,19 @@ Export::doApply()
         if (view.exists(k))
             return tecDUPLICATE;
 
-        if (auto const ticket = (*t)[~sfTicketSequence];
-            ticket && (*t)[~sfOperationLimit] == nid)
+        // Bound back here, the export calls its hook back when it returns or
+        // closes below quorum, rather than now
+        auto const ticket = (*t)[~sfTicketSequence];
+        bool const bound = ticket && (*t)[~sfOperationLimit] == nid;
+        std::optional<uint256> hook;
+        if (auto const& d = obj(tx, sfEmitDetails); bound &&
+            d.isFieldPresent(sfEmitCallback) &&
+            d.getAccountID(sfEmitCallback) == account_)
+            hook = d.getFieldH256(sfEmitHookHash);
+        if (bound)
         {
             if (auto const ter =
-                    setShadowTicket(view, account_, *ticket, id, j_);
+                    setShadowTicket(view, account_, *ticket, id, hook, j_);
                 !isTesSuccess(ter))
                 return ter;
         }
@@ -344,7 +403,11 @@ Export::doApply()
         sle->setFieldArray(
             sfSignerEntries, list->getFieldArray(sfSignerEntries));
         sle->setFieldU32(sfSignerQuorum, (*list)[sfSignerQuorum]);
+        if (hook)
+            sle->setFieldH256(sfEmitHookHash, *hook);
         view.insert(sle);
+        if (bound)
+            callback_ = HookCallback{account_, uint256{}, 0};
         return tesSUCCESS;
     }
 
@@ -354,6 +417,13 @@ Export::doApply()
 
     if (tx.getTxnType() == ttEXPORT_FINAL)
     {
+        // Below quorum it was never submitted. Tell the hook, as for an
+        // emitted txn that failed, but keep the shadow ticket: identical
+        // content exported again could still land.
+        if (sle->isFieldPresent(sfEmitHookHash) &&
+            exportWeight(*sle) < (*sle)[sfSignerQuorum])
+            callback_ =
+                HookCallback{(*sle)[sfOwner], (*sle)[sfEmitHookHash], 1};
         view.erase(sle);
         return tesSUCCESS;
     }

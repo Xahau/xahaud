@@ -1976,14 +1976,12 @@ private:
         pass();
     }
 
-    // | otxn | tsh | final |
-    // |   -  |  O  |   W   |
     void
     testExportFinalTSH(FeatureBitset features)
     {
         testcase("export final tsh");
 
-        // pseudo transaction, owner is weak (as ttCRON)
+        // pseudo transaction, no tsh: the owner hears of it through cbak
         pass();
     }
 

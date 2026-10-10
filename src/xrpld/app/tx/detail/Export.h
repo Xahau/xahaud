@@ -21,7 +21,9 @@
 #define RIPPLE_TX_EXPORT_H_INCLUDED
 
 #include <xrpld/app/tx/detail/Transactor.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Rules.h>
 #include <boost/filesystem.hpp>
 #include <mutex>
 
@@ -51,7 +53,7 @@ class ValidatorKeys;
        whichever transaction uses that ticket there can be imported once.
        Exported SignerListSets must be so bound, so the list here cannot go
        stale, and one without SignerEntries is completed with the current
-       export keys at an 80% quorum.
+       export keys at an 80% quorum. The ttEXPORT pays for that Import too.
     2. Every validator holding a listed export key applies a ttEXPORT_SIGN to
        its next open ledger. Each is proposed by one validator only, so it
        loses its first round, but not being a pseudo-txn it is retried into
@@ -61,6 +63,20 @@ class ValidatorKeys;
        sorted, so the object always holds a submittable transaction.
     3. `window` ledgers after creation every node injects ttEXPORT_FINAL,
        which deletes the object: the DeletedNode's FinalFields are the result.
+    4. The XPOP of the transaction that used the ticket there is imported
+       here by anyone (see isLoopback): free, consuming no sequence and
+       running none of the account's hooks, it consumes the shadow ticket.
+
+    Callbacks. A hook hears of its export as it would of an emitted txn, by
+    cbak, once: what == 2 when the Import of step 4 lands (xpop_slot() gives
+    the transaction there and its meta, which may be another export that used
+    the same ticket), or what == 1 if the export closes below quorum in step 3.
+    The latter is a prompt, not a verdict: identical content exported again
+    could still land, so the shadow ticket stays, and a definite outcome
+    needs the ticket used, by a retry or a no-op. An export that is not
+    bound back calls back as soon as the ttEXPORT applies, as does one that
+    fails. A transaction the other network rejects outright never comes
+    back, so no callback follows.
 
     Servers with [xrpl_relay] submit exports that reach quorum to XRPL and
     import their XPOPs back (see ExportRelay.cpp).
@@ -135,6 +151,29 @@ public:
 
 using ExportSign = Export;
 using ExportFinal = Export;
+
+/** Whether `tx` is an Import bringing an export back, on an account that
+    exists: Sequence 0 and no ticket. (A first Import also has Sequence 0,
+    but no account yet.) Its shadow ticket is its replay protection and the
+    export paid for it, so it consumes no sequence, pays no fee, and runs
+    none of the account's hooks: the exporting hook's cbak runs instead. */
+inline bool
+isLoopback(Rules const& rules, STTx const& tx)
+{
+    return rules.enabled(featureExport) && tx.getTxnType() == ttIMPORT &&
+        tx[sfSequence] == 0 && !tx.isFieldPresent(sfTicketSequence);
+}
+
+/** Whether `entries` lists the account of any UNLReport validator's export
+    key. Importing such a SignerListSet records it as the account's list
+    there but never installs it here, as that would let the UNL sign for
+    the account on this network. */
+bool
+listsExportKey(ReadView const& view, STArray const& entries);
+
+/** The weight of the signatures a pending export has gathered */
+std::uint32_t
+exportWeight(SLE const& exported);
 
 /** What an export key signs to prove that its holder nominated it */
 Serializer

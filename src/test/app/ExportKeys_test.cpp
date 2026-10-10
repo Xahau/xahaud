@@ -22,6 +22,8 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpl/basics/StringUtilities.h>
+#include <xrpl/json/json_reader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STValidation.h>
@@ -31,7 +33,7 @@ namespace ripple {
 namespace test {
 
 /** Export keys: their nomination by UNL report, rotation on the account,
-    crons following the rotation and the export_signer_list RPC (see
+    crons following the rotation and the export_setup RPC (see
     Export.h). */
 class ExportKeys_test : public beast::unit_test::suite
 {
@@ -450,7 +452,7 @@ class ExportKeys_test : public beast::unit_test::suite
     void
     testSignerListRPC()
     {
-        testcase("export_signer_list");
+        testcase("export_setup");
         using namespace jtx;
 
         Env env{*this, supported_amendments() | featureExport};
@@ -492,14 +494,28 @@ class ExportKeys_test : public beast::unit_test::suite
         };
 
         {
-            auto const r =
-                env.rpc("json", "export_signer_list", "{}")[jss::result];
+            auto const r = env.rpc("json", "export_setup", "{}")[jss::result];
             BEAST_EXPECT(
                 r[jss::tx_json][jss::TransactionType] == "SignerListSet");
             BEAST_EXPECT(
                 accountsOf(r) == (std::set<std::string>{acc(k1), acc(k2b)}));
             BEAST_EXPECT(r[jss::tx_json][sfSignerQuorum.jsonName] == 2);
+            BEAST_EXPECT(r[jss::tx_json][sfOperationLimit.jsonName] == nid);
             BEAST_EXPECT(r["export_keys_seq"] == 3);
+
+            // a Xaman link to the same transaction, and its QR code
+            std::string const prefix = "https://xaman.app/detect/";
+            auto const url = r["xaman"][jss::url].asString();
+            BEAST_EXPECT(url.starts_with(prefix));
+            auto const json = strUnHex(url.substr(prefix.size()));
+            Json::Value tx;
+            BEAST_EXPECT(
+                json &&
+                Json::Reader().parse(
+                    std::string(json->begin(), json->end()), tx) &&
+                tx == r[jss::tx_json]);
+            BEAST_EXPECT(
+                r["xaman"]["qr"].isArray() && r["xaman"]["qr"].size() > 10);
         }
 
         {
@@ -508,8 +524,8 @@ class ExportKeys_test : public beast::unit_test::suite
             p["as_of"] = b0 + 1000;
             p["quorum"] = 1;
             p[jss::account] = v1.human();
-            auto const r = env.rpc(
-                "json", "export_signer_list", to_string(p))[jss::result];
+            auto const r =
+                env.rpc("json", "export_setup", to_string(p))[jss::result];
             BEAST_EXPECT(
                 accountsOf(r) == (std::set<std::string>{acc(k1), acc(k2a)}));
             BEAST_EXPECT(r[jss::tx_json][sfSignerQuorum.jsonName] == 1);
@@ -521,13 +537,21 @@ class ExportKeys_test : public beast::unit_test::suite
             Json::Value p;
             p["as_of"] = b0 - 1;
             BEAST_EXPECT(
-                env.rpc("json", "export_signer_list", to_string(p))[jss::result]
+                env.rpc("json", "export_setup", to_string(p))[jss::result]
                     .isMember(jss::error));
             p["as_of"] = b0 + 1000;
             p["quorum"] = 3;
             BEAST_EXPECT(
-                env.rpc("json", "export_signer_list", to_string(p))[jss::result]
+                env.rpc("json", "export_setup", to_string(p))[jss::result]
                     .isMember(jss::error));
+        }
+
+        {
+            // the command line form
+            auto const r =
+                env.rpc("export_setup", v1.human(), "1")[jss::result];
+            BEAST_EXPECT(r[jss::tx_json][jss::Account] == v1.human());
+            BEAST_EXPECT(r[jss::tx_json][sfSignerQuorum.jsonName] == 1);
         }
     }
 

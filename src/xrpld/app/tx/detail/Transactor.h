@@ -183,8 +183,18 @@ public:
         bool collectCallsOnly = false);
 
 protected:
+    /** A hook callback: the hook `hook` on `account`, cbak(`what`) */
+    struct HookCallback
+    {
+        AccountID account;
+        uint256 hook;
+        std::uint32_t what;
+    };
+
     void
-    doHookCallback(std::shared_ptr<STObject const> const& provisionalMeta);
+    doHookCallback(
+        std::shared_ptr<STObject const> const& provisionalMeta,
+        HookCallback const& cb);
 
     TER
     doTSH(
@@ -237,6 +247,10 @@ protected:
     // featureHooks is enabled
     int executedHookCount_ =
         0;  // record how many hooks have executed across the whole transactor
+    // The callback made once this txn has applied with tesSUCCESS. If unset,
+    // an emitted txn calls back the hook that emitted it. doApply may
+    // redirect that, or defer it with a zero hook (see Export.h).
+    std::optional<HookCallback> callback_;
     std::set<AccountID>
         additionalWeakTSH_;  // any TSH that needs weak hook execution at the
                              // end of the transactor, who isn't able to be

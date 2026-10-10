@@ -535,10 +535,9 @@ private:
             STTx const t(st);
             auto const ticket = t[~sfTicketSequence];
             auto const view = app_.openLedger().current();
-            auto const acct = view->read(keylet::account(t[sfAccount]));
 
             // only exports coming back: other imports need their owner's key
-            if (!ticket || t[~sfOperationLimit] != nid || !acct ||
+            if (!ticket || t[~sfOperationLimit] != nid ||
                 !view->exists(keylet::shadowTicket(t[sfAccount], *ticket)))
                 return;
 
@@ -565,11 +564,11 @@ private:
             // not a structured binding: the lambda below captures these
             PublicKey const& pk = relayKey().first;
             SecretKey const& sk = relayKey().second;
+            // free and sequence 0: the export paid for it (see isLoopback)
             STTx imp(ttIMPORT, [&](auto& o) {
                 o[sfAccount] = t[sfAccount];
-                o[sfSequence] = (*acct)[sfSequence];
-                // Import's fee for an existing account, pinned by preclaim
-                o[sfFee] = view->fees().base * 10;
+                o[sfSequence] = 0;
+                o[sfFee] = XRPAmount{0};
                 o[sfSigningPubKey] = pk.slice();
                 o[sfBlob] = makeSlice(xpop);
                 if (nid > 1024)
@@ -603,16 +602,10 @@ private:
             auto const sle = l->read(Keylet{ltEXPORTED_TXN, *next});
             if (!sle)
                 continue;
+            if (exportWeight(*sle) < (*sle)[sfSignerQuorum])
+                continue;
             auto const& in =
                 sle->peekAtField(sfExportedTxn).downcast<STObject>();
-            std::uint32_t weight = 0;
-            if (in.isFieldPresent(sfSigners))
-                for (auto const& s : in.getFieldArray(sfSigners))
-                    for (auto const& e : sle->getFieldArray(sfSignerEntries))
-                        if (e[sfAccount] == s[sfAccount])
-                            weight += e[sfSignerWeight];
-            if (weight < (*sle)[sfSignerQuorum])
-                continue;
 
             Serializer s;
             in.add(s);

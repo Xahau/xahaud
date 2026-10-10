@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/ledger/View.h>
@@ -204,6 +205,14 @@ Import::preflight(PreflightContext const& ctx)
     if (shadow && !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Import: cannot use TicketSequence XPOP.";
+        return temMALFORMED;
+    }
+
+    // and the export paid for it, so it is free and uses no sequence here
+    if (shadow && (!isLoopback(ctx.rules, tx) || tx[sfFee] != beast::zero))
+    {
+        JLOG(ctx.j.warn()) << "Import: a ticketed XPOP needs Sequence and "
+                              "Fee 0.";
         return temMALFORMED;
     }
 
@@ -997,11 +1006,10 @@ Import::preclaim(PreclaimContext const& ctx)
     {
         if (!ctx.view.exists(keylet::shadowTicket(ctx.tx[sfAccount], *t)))
             return tefNO_TICKET;
-
-        // the relayer spends the account's XAH, so it gets no say in the fee
-        if (ctx.tx[sfFee].xrp() != calculateBaseFee(ctx.view, ctx.tx))
-            return temBAD_FEE;
     }
+    // other Imports by an existing account use its sequence
+    else if (sle && isLoopback(ctx.view.rules(), ctx.tx))
+        return tefPAST_SEQ;
     else if (sle && sle->isFieldPresent(sfImportSequence))
     {
         uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
@@ -1458,6 +1466,9 @@ Import::doApply()
             !view().dirRemove(
                 keylet::ownerDir(id), (*st)[sfOwnerNode], k, false))
             return tefBAD_LEDGER;
+        // the exporting hook's callback, deferred until now (see Export.h)
+        if (st->isFieldPresent(sfEmitHookHash))
+            callback_ = HookCallback{id, (*st)[sfEmitHookHash], 2};
         view().erase(st);
         adjustOwnerCount(view(), sle, -1, ctx_.journal);
     }
@@ -1470,7 +1481,10 @@ Import::doApply()
     if (!ticket && isTesSuccess(meta->getFieldU8(sfTransactionResult)))
     {
         auto const tt = stpTrans->getTxnType();
-        if (tt == ttSIGNER_LIST_SET)
+        if (tt == ttSIGNER_LIST_SET &&
+            !(view().rules().enabled(featureExport) &&
+              stpTrans->isFieldPresent(sfSignerEntries) &&
+              listsExportKey(view(), stpTrans->getFieldArray(sfSignerEntries))))
             doSignerList(sle, *stpTrans);
         else if (tt == ttREGULAR_KEY_SET)
             doRegularKey(sle, *stpTrans);
@@ -1488,6 +1502,10 @@ Import::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     if (!view.exists(keylet::account(tx.getAccountID(sfAccount))) &&
         !tx.isFieldPresent(sfIssuer))
+        return XRPAmount{0};
+
+    // an export coming back was paid for by the export
+    if (isLoopback(view.rules(), tx))
         return XRPAmount{0};
 
     return Transactor::calculateBaseFee(view, tx);

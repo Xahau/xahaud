@@ -154,6 +154,7 @@ class Export_test : public beast::unit_test::suite
                 d->setFieldH256(sfEmitParentTxnID, uint256{1});
                 d->setFieldH256(sfEmitNonce, uint256{2});
                 d->setFieldH256(sfEmitHookHash, uint256{3});
+                d->setAccountID(sfEmitCallback, from);
                 o.set(std::move(d));
             }
         });
@@ -307,6 +308,15 @@ class Export_test : public beast::unit_test::suite
                     view, exportTx(env, alice.id(), good));
             };
             BEAST_EXPECT(fee({a, b}) - fee({a}) == view.fees().base);
+
+            // one bound back pays for the free Import that returns it
+            setSignerList(view, alice.id(), signerEntries({a}));
+            BEAST_EXPECT(
+                Export::calculateBaseFee(
+                    view,
+                    exportTx(env, alice.id(), payment(alice.id(), 1, 7, nid))) -
+                    fee({a}) ==
+                view.fees().base * 10);
         }
 
         {
@@ -369,9 +379,20 @@ class Export_test : public beast::unit_test::suite
             ticket(7) && (*ticket(7))[sfTransactionHash] == txid(first));
         BEAST_EXPECT(owners() == before + 1);
 
+        // both name the hook its Import (or a close below quorum) calls back
+        BEAST_EXPECT(ticket(7) && (*ticket(7))[~sfEmitHookHash] == uint256{3});
+
         // the pending export is attributed to the exporter
         auto const k = keylet::exportedTxn(view.seq(), txid(first));
         BEAST_EXPECT(view.read(k) && (*view.read(k))[sfOwner] == alice.id());
+        BEAST_EXPECT(
+            view.read(k) && (*view.read(k))[~sfEmitHookHash] == uint256{3});
+
+        // an export not bound back calls back now, so names no hook
+        auto const k2 =
+            keylet::exportedTxn(view.seq(), txid(payment(alice.id(), 1)));
+        BEAST_EXPECT(
+            view.read(k2) && !view.read(k2)->isFieldPresent(sfEmitHookHash));
 
         // the same export again in this ledger
         BEAST_EXPECT(apply(first) == tecDUPLICATE);

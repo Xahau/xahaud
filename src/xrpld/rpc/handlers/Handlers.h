@@ -63,7 +63,7 @@ doConsensusInfo(RPC::JsonContext&);
 Json::Value
 doDepositAuthorized(RPC::JsonContext&);
 Json::Value
-doExportSignerList(RPC::JsonContext&);
+doExportSetup(RPC::JsonContext&);
 Json::Value
 doFeature(RPC::JsonContext&);
 Json::Value

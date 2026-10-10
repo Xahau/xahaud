@@ -1962,7 +1962,10 @@ TxQ::tryDirectApply(
     const bool isManifest = view.rules().enabled(featureOnChainManifests) &&
         tx->getTxnType() == ttMANIFEST_SET;
 
-    const bool bypassQueue = isFirstImport || isManifest;
+    // An export coming back is pinned to sfSequence 0 too (isLoopback).
+    const bool loopback = sleAccount && isLoopback(view.rules(), *tx);
+
+    const bool bypassQueue = isFirstImport || isManifest || loopback;
 
     // Don't attempt to direct apply if the account is not in the ledger.
     if (!sleAccount && !isFirstImport)
