@@ -1121,6 +1121,11 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
         return;
     }
 
+    // Export signatures come this way from acquired proposed sets. They can
+    // only be checked against the ledger, so they are left to consensus.
+    if (iTrans->getTxnType() == ttEXPORT_SIGN)
+        return;
+
     // this is an asynchronous interface
     auto const trans = sterilize(*iTrans);
 

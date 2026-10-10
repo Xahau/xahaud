@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/ledger/View.h>
@@ -197,9 +198,21 @@ Import::preflight(PreflightContext const& ctx)
     if (!stpTrans || !meta)
         return temMALFORMED;
 
-    if (stpTrans->isFieldPresent(sfTicketSequence))
+    // A ticketed XPOP can only be an exported txn coming back. It is
+    // authorised by its shadow ticket (preclaim), not by the outer signature:
+    // nobody could co-sign it with the UNL's keys, so anyone may relay it.
+    bool const shadow = stpTrans->isFieldPresent(sfTicketSequence);
+    if (shadow && !ctx.rules.enabled(featureExport))
     {
         JLOG(ctx.j.warn()) << "Import: cannot use TicketSequence XPOP.";
+        return temMALFORMED;
+    }
+
+    // and the export paid for it, so it is free and uses no sequence here
+    if (shadow && (!isLoopback(ctx.rules, tx) || tx[sfFee] != beast::zero))
+    {
+        JLOG(ctx.j.warn()) << "Import: a ticketed XPOP needs Sequence and "
+                              "Fee 0.";
         return temMALFORMED;
     }
 
@@ -280,6 +293,7 @@ Import::preflight(PreflightContext const& ctx)
 
     // check if the inner transaction is signed using the same keying as the
     // outer txn
+    if (!shadow)
     {
         auto outer = tx.getSigningPubKey();
         auto inner = stpTrans->getSigningPubKey();
@@ -988,7 +1002,15 @@ Import::preclaim(PreclaimContext const& ctx)
         } while (0);
     }
 
-    if (sle && sle->isFieldPresent(sfImportSequence))
+    if (auto const t = (*stpTrans)[~sfTicketSequence])
+    {
+        if (!ctx.view.exists(keylet::shadowTicket(ctx.tx[sfAccount], *t)))
+            return tefNO_TICKET;
+    }
+    // other Imports by an existing account use its sequence
+    else if (sle && isLoopback(ctx.view.rules(), ctx.tx))
+        return tefPAST_SEQ;
+    else if (sle && sle->isFieldPresent(sfImportSequence))
     {
         uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
 
@@ -1131,9 +1153,9 @@ Import::doSignerList(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
     // validate signer list
     //
 
-    JLOG(ctx_.journal.warn()) << "Import: actioning SignerListSet "
-                              << "quorum: " << quorum << " "
-                              << "size: " << signers.size();
+    JLOG(ctx_.journal.warn())
+        << "Import: actioning SignerListSet " << "quorum: " << quorum << " "
+        << "size: " << signers.size();
 
     if (SetSignerList::validateQuorumAndSignerEntries(
             quorum, signers, id, ctx_.journal, ctx_.view().rules()) !=
@@ -1190,8 +1212,8 @@ Import::doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
     if (!stpTrans.isFieldPresent(sfRegularKey))
     {
         // delete op
-        JLOG(ctx_.journal.trace()) << "Import: clearing SetRegularKey "
-                                   << " acc: " << id;
+        JLOG(ctx_.journal.trace())
+            << "Import: clearing SetRegularKey " << " acc: " << id;
         if (sle->isFieldPresent(sfRegularKey))
             sle->makeFieldAbsent(sfRegularKey);
         return;
@@ -1301,8 +1323,9 @@ Import::doApply()
     uint32_t importSequence = stpTrans->getFieldU32(sfSequence);
     auto const id = ctx_.tx[sfAccount];
     auto sle = view().peek(keylet::account(id));
+    auto const ticket = (*stpTrans)[~sfTicketSequence];
 
-    if (sle && sle->getFieldU32(sfImportSequence) >= importSequence)
+    if (!ticket && sle && sle->getFieldU32(sfImportSequence) >= importSequence)
     {
         // make double sure import seq hasn't passed
         JLOG(ctx_.journal.warn()) << "Import: ImportSequence passed";
@@ -1390,8 +1413,40 @@ Import::doApply()
         }
     }
 
-    sle->setFieldU32(sfImportSequence, importSequence);
+    if (!ticket)
+        sle->setFieldU32(sfImportSequence, importSequence);
     sle->setFieldAmount(sfBalance, finalBal);
+
+    // featureExport: remember the signer list the account now holds there,
+    // unless a later SignerListSet (by ledger, then index) was already seen
+    if (view().rules().enabled(featureExport) &&
+        stpTrans->getTxnType() == ttSIGNER_LIST_SET &&
+        isTesSuccess(meta->getFieldU8(sfTransactionResult)))
+    {
+        std::pair const at{
+            (*xpop)[jss::ledger][jss::index].asUInt(),
+            (*meta)[~sfTransactionIndex].value_or(0)};
+        auto const old = sle->isFieldPresent(sfExportSignerList)
+            ? &sle->peekAtField(sfExportSignerList).downcast<STObject>()
+            : nullptr;
+        if (!old ||
+            std::pair{(*old)[sfLedgerSequence], (*old)[sfTransactionIndex]} <
+                at)
+        {
+            if (!stpTrans->isFieldPresent(sfSignerEntries))
+                sle->makeFieldAbsent(sfExportSignerList);
+            else
+            {
+                auto l = STObject::makeInnerObject(sfExportSignerList);
+                l[sfSignerQuorum] = (*stpTrans)[sfSignerQuorum];
+                l.setFieldArray(
+                    sfSignerEntries, stpTrans->getFieldArray(sfSignerEntries));
+                l[sfLedgerSequence] = at.first;
+                l[sfTransactionIndex] = at.second;
+                sle->peekFieldObject(sfExportSignerList) = std::move(l);
+            }
+        }
+    }
 
     if (create)
     {
@@ -1402,14 +1457,34 @@ Import::doApply()
     else
         view().update(sle);
 
+    // each ticketed export comes back at most once
+    if (ticket)
+    {
+        auto const k = keylet::shadowTicket(id, *ticket);
+        auto const st = view().peek(k);
+        if (!st ||
+            !view().dirRemove(
+                keylet::ownerDir(id), (*st)[sfOwnerNode], k, false))
+            return tefBAD_LEDGER;
+        // the exporting hook's callback, deferred until now (see Export.h)
+        if (st->isFieldPresent(sfEmitHookHash))
+            callback_ = HookCallback{id, (*st)[sfEmitHookHash], 2};
+        view().erase(st);
+        adjustOwnerCount(view(), sle, -1, ctx_.journal);
+    }
+
     //
     // Handle any key imports, but only if a tes code
     // these functions update the sle on their own
+    // (never for exports: that would hand the UNL's keys the account here)
     //
-    if (isTesSuccess(meta->getFieldU8(sfTransactionResult)))
+    if (!ticket && isTesSuccess(meta->getFieldU8(sfTransactionResult)))
     {
         auto const tt = stpTrans->getTxnType();
-        if (tt == ttSIGNER_LIST_SET)
+        if (tt == ttSIGNER_LIST_SET &&
+            !(view().rules().enabled(featureExport) &&
+              stpTrans->isFieldPresent(sfSignerEntries) &&
+              listsExportKey(view(), stpTrans->getFieldArray(sfSignerEntries))))
             doSignerList(sle, *stpTrans);
         else if (tt == ttREGULAR_KEY_SET)
             doRegularKey(sle, *stpTrans);
@@ -1427,6 +1502,10 @@ Import::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     if (!view.exists(keylet::account(tx.getAccountID(sfAccount))) &&
         !tx.isFieldPresent(sfIssuer))
+        return XRPAmount{0};
+
+    // an export coming back was paid for by the export
+    if (isLoopback(view.rules(), tx))
         return XRPAmount{0};
 
     return Transactor::calculateBaseFee(view, tx);

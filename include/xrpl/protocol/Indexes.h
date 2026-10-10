@@ -376,6 +376,14 @@ permissionedDomain(uint256 const& domainID) noexcept;
 Keylet
 manifest(PublicKey const& pk) noexcept;
 
+/** A pending export, ordered by creation ledger so TxQ can walk them. */
+Keylet
+exportedTxn(std::uint32_t seq, uint256 const& txid) noexcept;
+
+/** The shadow ticket for an export using `ticketSeq` on the other network. */
+Keylet
+shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept;
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:

@@ -61,8 +61,12 @@ NegativeUNLVote::doVoting(
     // Build a reliability score table of validators. This only fails if
     // there isn't enough ledger history; it does NOT apply the local
     // reliability gate (that is N-UNL specific, see below).
-    auto const scoreTable =
-        buildRawScoreTable(prevLedger, unlNodeIDs, validations);
+    ExportKeyMap exportKeys;
+    auto const scoreTable = buildRawScoreTable(
+        prevLedger,
+        unlNodeIDs,
+        validations,
+        prevLedger->rules().enabled(featureExport) ? &exportKeys : nullptr);
     if (!scoreTable)
         return;
 
@@ -137,6 +141,9 @@ NegativeUNLVote::doVoting(
         {
             addReportingTx(seq, *scoreTable, nidToKeyMap, initialSet);
             addImportVLTx(seq, initialSet);
+            if (!exportKeys.empty())
+                addExportKeyTx(
+                    seq, *scoreTable, nidToKeyMap, exportKeys, initialSet);
         }
         else
         {
@@ -193,6 +200,56 @@ NegativeUNLVote::addReportingTx(
                 << ", size=" << s.size() << ", "
                 << repUnlTx.getJson(JsonOptions::none);
         }
+    }
+}
+
+void
+NegativeUNLVote::addExportKeyTx(
+    LedgerIndex seq,
+    hash_map<NodeID, std::uint32_t> const& scoreTable,
+    hash_map<NodeID, PublicKey> const& nidToKeyMap,
+    ExportKeyMap const& exportKeys,
+    std::shared_ptr<SHAMap> const& initalSet)
+{
+    // One report per active validator, kept apart from its ActiveValidator
+    // report so that disagreement over its export key (some proposers missing
+    // its validation) can never cost it that entry.
+    for (auto const& entry : scoreTable)
+    {
+        // no structured bindings: they cannot be captured by the lambdas
+        // below on every supported compiler
+        auto const ek = exportKeys.find(entry.first);
+        if (entry.second <= (FLAG_LEDGER_INTERVAL >> 1) ||
+            ek == exportKeys.end())
+            continue;
+
+        PublicKey const& master = nidToKeyMap.at(entry.first);
+        Blob const& key = ek->second.first;
+        Blob const& proof = ek->second.second;
+        STTx tx(ttUNL_REPORT, [&](auto& obj) {
+            obj.set(([&]() {
+                auto inner = std::make_unique<STObject>(sfExportKeyReport);
+                inner->setFieldVL(sfPublicKey, master);
+                inner->setFieldVL(sfExportKey, key);
+                inner->setFieldVL(sfExportKeyProof, proof);
+                return inner;
+            })());
+            obj.setFieldU32(sfLedgerSequence, seq);
+        });
+
+        uint256 txID = tx.getTransactionID();
+        Serializer s;
+        tx.add(s);
+        if (!initalSet->addGiveItem(
+                SHAMapNodeType::tnTRANSACTION_NM,
+                make_shamapitem(txID, s.slice())))
+            JLOG(j_.warn()) << "R-UNL: ledger seq=" << seq
+                            << ", add ttUNL_REPORT (export_key) tx failed";
+        else
+            JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
+                             << ", add a ttUNL_REPORT (export_key) Tx with "
+                                "txID: "
+                             << txID;
     }
 }
 
@@ -308,7 +365,8 @@ std::optional<hash_map<NodeID, std::uint32_t>>
 NegativeUNLVote::buildRawScoreTable(
     std::shared_ptr<Ledger const> const& prevLedger,
     hash_set<NodeID> const& unl,
-    RCLValidations& validations)
+    RCLValidations& validations,
+    ExportKeyMap* exportKeys)
 {
     // Find agreed validation messages received for
     // the last FLAG_LEDGER_INTERVAL (i.e. 256) ledgers,
@@ -351,7 +409,17 @@ NegativeUNLVote::buildRawScoreTable(
                  ledgerAncestors[numAncestors - 1 - i], seq - 2 - i))
         {
             if (scoreTable.count(v->getNodeID()))
+            {
                 ++scoreTable[v->getNodeID()];
+
+                // newest first, so the first nomination seen is the latest
+                if (exportKeys && v->isFieldPresent(sfExportKey) &&
+                    v->isFieldPresent(sfExportKeyProof))
+                    exportKeys->try_emplace(
+                        v->getNodeID(),
+                        v->getFieldVL(sfExportKey),
+                        v->getFieldVL(sfExportKeyProof));
+            }
         }
     }
 

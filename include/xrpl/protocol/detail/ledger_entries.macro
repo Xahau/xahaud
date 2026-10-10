@@ -109,6 +109,44 @@ LEDGER_ENTRY(ltHOOK_DEFINITION, 'D', HookDefinition, hook_definition, ({
     {sfPreviousTxnLgrSeq,    soeOPTIONAL},
 }))
 
+/** A pending export: the transaction being multisigned for another network,
+    gathering UNL signatures in its sfSigners until ttEXPORT_FINAL deletes it,
+    with the exporter's signer list there when it was created. sfOwner is the
+    exporting account, so the signatures and the result are attributed to it
+    in metadata. sfEmitHookHash is the hook to call back if it closes below
+    quorum.
+
+    \sa keylet::exportedTxn
+*/
+LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
+    {sfOwner,                soeREQUIRED},
+    {sfExportedTxn,          soeREQUIRED},
+    {sfTransactionHash,      soeREQUIRED},
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfSignerEntries,        soeREQUIRED},
+    {sfSignerQuorum,         soeREQUIRED},
+    {sfEmitHookHash,         soeOPTIONAL},
+}))
+
+/** A shadow ticket: lets one XPOP of a ticketed export that is bound back to
+    this network (OperationLimit == NETWORK_ID) be imported, which consumes it.
+    Only ttEXPORT creates these. They are not hook state because a hook can
+    write any namespace of its own account's state, so it could forge one and
+    import the same XPOP again and again. sfEmitHookHash is the hook whose
+    cbak the Import calls.
+
+    \sa keylet::shadowTicket
+*/
+LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
+    {sfAccount,              soeREQUIRED},
+    {sfTicketSequence,       soeREQUIRED},
+    {sfTransactionHash,      soeREQUIRED},
+    {sfEmitHookHash,         soeOPTIONAL},
+    {sfOwnerNode,            soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** A ledger object containing a hook-emitted transaction from a previous hook execution.
 
     \sa keylet::emitted
@@ -176,6 +214,12 @@ LEDGER_ENTRY(ltNFTOKEN_PAGE, 0x0050, NFTokenPage, nft_page, ({
 LEDGER_ENTRY_DUPLICATE(ltUNL_REPORT, 0x0052, UNLReport, unl_report, ({
     {sfImportVLKeys,         soeOPTIONAL},
     {sfActiveValidators,     soeOPTIONAL},
+    /* featureExport: the ledger of the last ActiveValidator/ImportVLKey
+       report, which decides when the arrays above are reset. Export key
+       reports also modify this object, so PreviousTxnLgrSeq no longer can. */
+    {sfLedgerSequence,       soeOPTIONAL},
+    /* featureExport: bumped whenever a validator's export key changes. */
+    {sfExportKeysSeq,        soeOPTIONAL},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
@@ -263,6 +307,11 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
+    /* featureExport: a validator's export keys, newest first */
+    {sfExportKeys,           soeOPTIONAL},
+    /* featureExport: the signer list this account holds on the network it
+       exports to, as last proven by an Import of its SignerListSet */
+    {sfExportSignerList,     soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.

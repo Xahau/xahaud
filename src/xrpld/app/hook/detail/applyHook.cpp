@@ -77,6 +77,12 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             break;
         }
 
+        // the exporter hears of its exports through cbak, not hook()
+        case ttEXPORT:
+        case ttEXPORT_SIGN:
+        case ttEXPORT_FINAL:
+            break;
+
         case ttREMIT: {
             if (destAcc)
                 ADD_TSH(*destAcc, tshSTRONG);
@@ -2686,6 +2692,37 @@ DEFINE_HOOK_FUNCTION(
         tx_blob.size(),
         memory,
         memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+/* Export a transaction for the other network: wrap it in a ttEXPORT and emit
+ * that. Writes the ttEXPORT's id. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    xport,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length) ||
+        NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    auto const res = api.xport(ripple::Slice{memory + read_ptr, read_len});
+    if (!res)
+        return res.error();
+
+    std::memcpy(memory + write_ptr, (*res)->getID().data(), 32);
+    hookCtx.result.emittedTxn.push(*res);
+    return uint64_t{32};
 
     HOOK_TEARDOWN();
 }

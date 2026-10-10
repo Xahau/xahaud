@@ -26,6 +26,8 @@
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/applySteps.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
@@ -1293,7 +1295,139 @@ class UNLReportVoteLocalReliability_test : public beast::unit_test::suite
     }
 };
 
+/*
+ * featureExport: validators nominating export keys in their validations get
+ * one ttUNL_REPORT ExportKeyReport each, carrying their key and proof.
+ */
+class UNLReportVoteExportKeys_test : public beast::unit_test::suite
+{
+    void
+    testDoVoting()
+    {
+        testcase("Export key reports");
+
+        auto const numNodes = 10;
+        URNetworkHistory history = {
+            *this, {numNodes, 0, false, false, false, {}}};
+        BEAST_EXPECT(history.goodHistory);
+        if (!history.goodHistory)
+            return;
+
+        auto& env = history.env;
+        auto const nid = env.app().config().NETWORK_ID;
+        auto const signer = randomKeyPair(KeyType::secp256k1);
+
+        // every second validator nominates a key
+        std::vector<std::optional<std::pair<PublicKey, SecretKey>>> eks;
+        for (int i = 0; i < numNodes; ++i)
+            eks.push_back(
+                i % 2 ? std::nullopt
+                      : std::optional(randomKeyPair(KeyType::ed25519)));
+
+        auto const proofOf = [&](int i) {
+            auto const& [pk, sk] = *eks[i];
+            auto const p = sign(
+                pk,
+                sk,
+                exportKeyProofData(history.UNLKeys[i], pk, nid).slice());
+            return Blob(p.begin(), p.end());
+        };
+
+        // as walkHistoryAndAddValidations, with the nominations attached
+        auto const& ledgers = history.history;
+        std::size_t curr = ledgers.size() > 257 ? ledgers.size() - 257 : 0;
+        for (; curr != ledgers.size(); ++curr)
+        {
+            auto const& l = ledgers[curr];
+            for (int i = 0; i < numNodes; ++i)
+            {
+                RCLValidation v(std::make_shared<STValidation>(
+                    env.app().timeKeeper().now(),
+                    signer.first,
+                    signer.second,
+                    history.UNLNodeIDs[i],
+                    [&](STValidation& sv) {
+                        sv.setFieldH256(sfLedgerHash, l->info().hash);
+                        sv.setFieldU32(sfLedgerSequence, l->seq());
+                        sv.setFlag(vfFullValidation);
+                        if (eks[i])
+                        {
+                            sv.setFieldVL(sfExportKey, eks[i]->first.slice());
+                            sv.setFieldVL(sfExportKeyProof, proofOf(i));
+                        }
+                    }));
+                v.setTrusted();
+                history.validations.add(history.UNLNodeIDs[i], v);
+            }
+        }
+
+        NegativeUNLVote vote(history.UNLNodeIDs[0], env.journal, env.app());
+        auto txSet = std::make_shared<SHAMap>(
+            SHAMapType::TRANSACTION, env.app().getNodeFamily());
+        vote.doVoting(
+            history.lastLedger(),
+            history.UNLKeySet,
+            history.validations,
+            txSet);
+
+        std::size_t active = 0, reports = 0;
+        for (auto i = txSet->begin(); i != txSet->end(); ++i)
+        {
+            SerialIter sit(i->slice());
+            STTx const tx(sit);
+            if (tx.getTxnType() != ttUNL_REPORT)
+                continue;
+            if (tx.isFieldPresent(sfActiveValidator))
+                ++active;
+            if (!tx.isFieldPresent(sfExportKeyReport))
+                continue;
+
+            ++reports;
+            BEAST_EXPECT(!tx.isFieldPresent(sfActiveValidator));
+            BEAST_EXPECT(!tx.isFieldPresent(sfImportVLKey));
+
+            auto const& r =
+                tx.peekAtField(sfExportKeyReport).downcast<STObject>();
+            auto const it = std::find(
+                history.UNLKeys.begin(),
+                history.UNLKeys.end(),
+                PublicKey(r[sfPublicKey]));
+            BEAST_EXPECT(it != history.UNLKeys.end());
+            if (it == history.UNLKeys.end())
+                continue;
+            auto const idx = it - history.UNLKeys.begin();
+            BEAST_EXPECT(eks[idx].has_value());
+            if (!eks[idx])
+                continue;
+            BEAST_EXPECT(
+                r.getFieldVL(sfExportKey) ==
+                Blob(eks[idx]->first.begin(), eks[idx]->first.end()));
+            BEAST_EXPECT(r.getFieldVL(sfExportKeyProof) == proofOf(idx));
+
+            // and it passes preflight, proof and all
+            BEAST_EXPECT(
+                preflight(
+                    env.app(),
+                    history.lastLedger()->rules(),
+                    tx,
+                    tapNONE,
+                    env.journal)
+                    .ter == tesSUCCESS);
+        }
+
+        BEAST_EXPECT(active == numNodes);
+        BEAST_EXPECT(reports == numNodes / 2);
+    }
+
+    void
+    run() override
+    {
+        testDoVoting();
+    }
+};
+
 BEAST_DEFINE_TESTSUITE(UNLReport, ledger, ripple);
+BEAST_DEFINE_TESTSUITE(UNLReportVoteExportKeys, consensus, ripple);
 BEAST_DEFINE_TESTSUITE(UNLReportNoAmendment, ledger, ripple);
 BEAST_DEFINE_TESTSUITE(UNLReportFork, consensus, ripple);
 BEAST_DEFINE_TESTSUITE_PRIO(UNLReportVoteGoodScore, consensus, ripple, 1);

@@ -66,6 +66,9 @@ STValidation::validationFormat()
         {sfBaseFeeDrops,          soeOPTIONAL},
         {sfReserveBaseDrops,      soeOPTIONAL},
         {sfReserveIncrementDrops, soeOPTIONAL},
+        // featureExport: sent on flag ledger validations only
+        {sfExportKey,             soeOPTIONAL},
+        {sfExportKeyProof,        soeOPTIONAL},
     };
     // clang-format on
 

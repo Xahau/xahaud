@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/GenesisMint.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/ledger/View.h>
@@ -278,6 +279,37 @@ GenesisMint::doApply()
             view().insert(sle);
         else
             view().update(sle);
+    }
+
+    // featureExport: UNLReport validators without an account get one, so
+    // their export keys have somewhere to live. Reports only change on flag
+    // ledgers, so in practice this is the first mint after each of those.
+    if (auto const unl = view().read(keylet::UNLReport());
+        view().rules().enabled(featureExport) && unl &&
+        unl->isFieldPresent(sfActiveValidators))
+    {
+        XRPAmount const funding{Export::validatorFundingDrops};
+        for (auto const& v : unl->getFieldArray(sfActiveValidators))
+        {
+            auto const id = calcAccountID(PublicKey(v[sfPublicKey]));
+            auto const k = keylet::account(id);
+            if (view().exists(k))
+                continue;
+
+            if (funding + dropsAdded.xrp() + view().info().drops <
+                view().info().drops)
+                return tecINTERNAL;
+
+            auto const sle = std::make_shared<SLE>(k);
+            sle->setAccountID(sfAccount, id);
+            sle->setFieldU32(sfSequence, newAccountSeqNo(view()));
+            sle->setFieldAmount(sfBalance, funding);
+            view().insert(sle);
+            dropsAdded += funding;
+
+            JLOG(ctx_.journal.info())
+                << "GenesisMint: funded UNLReport validator " << id;
+        }
     }
 
     if (dropsAdded > beast::zero)

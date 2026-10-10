@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpl/basics/mulDiv.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
@@ -1559,6 +1560,8 @@ TxQ::accept(Application& app, OpenView& view)
         }
     }
 
+    ledgerChanged |= Export::accept(app, view, j_);
+
     // Inject emitted transactions if any
     if (view.rules().enabled(featureHooks))
         do
@@ -1959,7 +1962,10 @@ TxQ::tryDirectApply(
     const bool isManifest = view.rules().enabled(featureOnChainManifests) &&
         tx->getTxnType() == ttMANIFEST_SET;
 
-    const bool bypassQueue = isFirstImport || isManifest;
+    // An export coming back is pinned to sfSequence 0 too (isLoopback).
+    const bool loopback = sleAccount && isLoopback(view.rules(), *tx);
+
+    const bool bypassQueue = isFirstImport || isManifest || loopback;
 
     // Don't attempt to direct apply if the account is not in the ledger.
     if (!sleAccount && !isFirstImport)

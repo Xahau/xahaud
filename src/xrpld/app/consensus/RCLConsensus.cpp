@@ -35,6 +35,7 @@
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/misc/ValidatorList.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/consensus/LedgerTiming.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/predicates.h>
@@ -190,6 +191,18 @@ RCLConsensus::Adaptor::share(RCLCxPeerPos const& peerPos)
 void
 RCLConsensus::Adaptor::share(RCLCxTx const& tx)
 {
+    // Export signatures can only be checked against the ledger, so peers
+    // would take them for badly signed transactions. They need no relay:
+    // peers have them from the proposed set (see Export.h).
+    try
+    {
+        if (STTx(SerialIter{tx.tx_->slice()}).getTxnType() == ttEXPORT_SIGN)
+            return;
+    }
+    catch (std::exception const&)
+    {
+    }
+
     // If we didn't relay this transaction recently, relay it to all peers
     if (app_.getHashRouter().shouldRelay(tx.id()))
     {
@@ -882,6 +895,19 @@ RCLConsensus::Adaptor::validate(
                 auto const fee = std::max(ft.getLocalFee(), ft.getClusterFee());
                 if (fee > ft.getLoadBase())
                     v.setFieldU32(sfLoadFee, fee);
+            }
+
+            // Nominate our export key on flag ledgers, which the next flag
+            // ledger's UNL report window covers (see NegativeUNLVote).
+            if (ledger.ledger_->isFlagLedger() &&
+                ledger.ledger_->rules().enabled(featureExport))
+            {
+                if (auto const n =
+                        app_.getExportKeys().nominate(*ledger.ledger_))
+                {
+                    v.setFieldVL(sfExportKey, n->first.slice());
+                    v.setFieldVL(sfExportKeyProof, n->second);
+                }
             }
 
             // If the next ledger is a flag ledger, suggest fee changes and

@@ -92,6 +92,8 @@ enum class LedgerNameSpace : std::uint16_t {
     MANIFEST = 'M',
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
+    EXPORTED_TXN = 'X',
+    SHADOW_TICKET = 'Y',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -675,6 +677,27 @@ Keylet
 manifest(PublicKey const& pk) noexcept
 {
     return {ltMANIFEST, indexHash(LedgerNameSpace::MANIFEST, pk.slice())};
+}
+
+Keylet
+exportedTxn(std::uint32_t seq, uint256 const& txid) noexcept
+{
+    // like cron: 8 bytes of namespace, 4 bytes BE ledger seq, 20 of the txid
+    static uint256 const ns = indexHash(LedgerNameSpace::EXPORTED_TXN);
+    uint256 k;
+    std::memcpy(k.data(), ns.data(), 8);
+    for (int i = 0; i < 4; ++i)
+        k.data()[8 + i] = static_cast<std::uint8_t>(seq >> (24 - 8 * i));
+    std::memcpy(k.data() + 12, txid.data(), 20);
+    return {ltEXPORTED_TXN, k};
+}
+
+Keylet
+shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept
+{
+    return {
+        ltSHADOW_TICKET,
+        indexHash(LedgerNameSpace::SHADOW_TICKET, account, ticketSeq)};
 }
 
 }  // namespace keylet

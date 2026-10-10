@@ -1957,6 +1957,34 @@ private:
         pass();
     }
 
+    // Export: emitted by a hook, so only the emitting account is involved
+    void
+    testExportTSH(FeatureBitset features)
+    {
+        testcase("export tsh");
+
+        // emitted transaction, no additional tsh
+        pass();
+    }
+
+    void
+    testExportSignTSH(FeatureBitset features)
+    {
+        testcase("export sign tsh");
+
+        // validator generated, no tsh
+        pass();
+    }
+
+    void
+    testExportFinalTSH(FeatureBitset features)
+    {
+        testcase("export final tsh");
+
+        // pseudo transaction, no tsh: the owner hears of it through cbak
+        pass();
+    }
+
     // Escrow
     // | otxn  | tsh | cancel | cancel(id) |  create  | finish | finish(id)
     // |   A   |  A  |    S   |     S      |     S    |    S   |     S
