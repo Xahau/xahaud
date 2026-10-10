@@ -130,8 +130,7 @@ public:
             BEAST_EXPECT(hook[jss::KEYLET_TYPES]["MANIFEST"] == 37);
             BEAST_EXPECT(hook[jss::RETURN_CODES]["SUCCESS"] == 0);
             BEAST_EXPECT(hook[jss::RETURN_CODES]["INVALID_FLOAT"] == -10024);
-            BEAST_EXPECT(
-                hook[jss::RETURN_CODES]["TOO_MANY_NAMESPACES"] == -45);
+            BEAST_EXPECT(hook[jss::RETURN_CODES]["TOO_MANY_NAMESPACES"] == -45);
         }
     }
 
