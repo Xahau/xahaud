@@ -1956,24 +1956,31 @@ public:
         BEAST_EXPECT(api.float_set(-50, 0).value() == 0);
         BEAST_EXPECT(api.float_set(0, 0).value() == 0);
 
-        // an exponent lower than -96 should produce an invalid float error
-        BEAST_EXPECT(api.float_set(-97, 1).error() == INVALID_FLOAT);
+        // fix20261005: exponent out of range is reported as
+        // EXPONENT_UNDERSIZED / EXPONENT_OVERSIZED; before the fix both
+        // cases were reported as INVALID_FLOAT
+        bool const fixExpCodes = env.current()->rules().enabled(fix20261005);
+        auto const undersized =
+            fixExpCodes ? EXPONENT_UNDERSIZED : INVALID_FLOAT;
+        auto const oversized = fixExpCodes ? EXPONENT_OVERSIZED : INVALID_FLOAT;
 
-        // an exponent larger than +96 should produce an invalid float error
-        BEAST_EXPECT(api.float_set(+97, 1).error() == INVALID_FLOAT);
+        // an exponent lower than -96 should produce an underflow error
+        BEAST_EXPECT(api.float_set(-97, 1).error() == undersized);
+
+        // an exponent larger than +96 should produce an overflow error
+        BEAST_EXPECT(api.float_set(+97, 1).error() == oversized);
 
         // the -96..80 range applies to the exponent after the mantissa has
-        // been normalized to 16 digits (1 -> 1e15, exponent - 15), and
-        // leaving that range is reported as INVALID_FLOAT, as documented
+        // been normalized to 16 digits (1 -> 1e15, exponent - 15)
         auto const oneE15 = [](int32_t exp) {
             return hook::hook_float::make_float(1000000000000000ULL, exp, false)
                 .value();
         };
         BEAST_EXPECT(api.float_set(81, 1).value() == oneE15(66));
         BEAST_EXPECT(api.float_set(95, 1).value() == oneE15(80));
-        BEAST_EXPECT(api.float_set(96, 1).error() == INVALID_FLOAT);
+        BEAST_EXPECT(api.float_set(96, 1).error() == oversized);
         BEAST_EXPECT(api.float_set(-81, 1).value() == oneE15(-96));
-        BEAST_EXPECT(api.float_set(-82, 1).error() == INVALID_FLOAT);
+        BEAST_EXPECT(api.float_set(-82, 1).error() == undersized);
 
         // clang-format off
         std::vector<std::tuple<int32_t, int64_t, uint64_t>> tests = {
@@ -4966,6 +4973,7 @@ public:
         test_float_one(features);
         test_float_root(features);
         test_float_set(features);
+        test_float_set(features - fix20261005);
         test_float_sign(features);
         test_float_sto(features);
         test_float_sto_set(features);

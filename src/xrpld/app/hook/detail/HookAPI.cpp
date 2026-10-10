@@ -1037,17 +1037,19 @@ HookAPI::float_set(int32_t exponent, int64_t mantissa) const
     // the above function will underflow into a canonical 0
     // but this api must report that underflow.
     // The range check is on the exponent *after* the mantissa is normalized
-    // to 16 digits, and both under and overflow are documented as returning
-    // INVALID_FLOAT (not EXPONENT_UNDERSIZED/OVERSIZED). Changing these codes
-    // changes hook execution results and would require an amendment.
+    // to 16 digits. fix20261005: report overflow / underflow as
+    // EXPONENT_OVERSIZED / EXPONENT_UNDERSIZED; before the fix both were
+    // reported as INVALID_FLOAT.
+    bool const fixExpCodes =
+        hookCtx.applyCtx.view().rules().enabled(fix20261005);
     if (!normalized)
     {
         if (normalized.error() == XFL_OVERFLOW)
-            return Unexpected(INVALID_FLOAT);
+            return Unexpected(fixExpCodes ? EXPONENT_OVERSIZED : INVALID_FLOAT);
         return Unexpected(normalized.error());
     }
     if (normalized.value() == 0)
-        return Unexpected(INVALID_FLOAT);
+        return Unexpected(fixExpCodes ? EXPONENT_UNDERSIZED : INVALID_FLOAT);
 
     return normalized;
 }

@@ -6482,7 +6482,10 @@ public:
     {
         testcase("Test float_set");
         using namespace jtx;
-        Env env{*this, features};
+        // this hook asserts the pre-fix20261005 INVALID_FLOAT result for an
+        // out of range exponent; the amended EXPONENT_UNDERSIZED/OVERSIZED
+        // behaviour is covered in HookAPI_test
+        Env env{*this, features - fix20261005};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
