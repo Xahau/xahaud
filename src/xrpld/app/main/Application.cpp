@@ -1682,6 +1682,11 @@ ApplicationImp::signalStop(std::string msg)
         else
             JLOG(m_journal.warn()) << "Server stopping: " << msg;
 
+        // run() checks isTimeToStop and blocks on stoppingCondition_ while
+        // holding stoppingMutex_. Notifying without the lock can land in the
+        // gap between that check and the wait and be lost, leaving run()
+        // blocked forever (seen as a hung Env::~AppBundle thread.join()).
+        std::lock_guard lk{stoppingMutex_};
         stoppingCondition_.notify_all();
     }
 }

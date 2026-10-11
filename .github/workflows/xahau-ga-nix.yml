@@ -324,6 +324,18 @@ jobs:
           echo "nproc=$(nproc) jobs=$JOBS loadavg=$(cat /proc/loadavg)"
           free -m; df -h . /dev/shm /tmp; ulimit -a; cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io 2>/dev/null || true
 
+          cat > /tmp/flag.py <<'EOF'
+          import gdb
+          for t in gdb.selected_inferior().threads():
+              t.switch()
+              f = gdb.newest_frame()
+              while f:
+                  if f.name() and 'ApplicationImp::run' in f.name():
+                      f.select()
+                      print("thread", t.num, "in ApplicationImp::run, isTimeToStop =", gdb.parse_and_eval("this->isTimeToStop"))
+                      break
+                  f = f.older()
+          EOF
           dump_stacks() {
             echo "===== STACK DUMP ($1) $(date -u +%T)"
             for p in $(pgrep -x rippled); do
@@ -331,7 +343,7 @@ jobs:
               timeout 120 eu-stack -p $p 2>&1 | head -300 || true
               st=$(awk '/^State/{print $2}' /proc/$p/status 2>/dev/null)
               if [ "$st" = "S" ] && [ "$p" != "$RP" ]; then
-                timeout 900 gdb -p $p -batch -ex 'set pagination off' -ex 'thread apply all bt 30' 2>&1 \
+                timeout 900 gdb -p $p -batch -ex 'set pagination off' -ex 'source /tmp/flag.py' -ex 'thread apply all bt 30' 2>&1 \
                   | grep -vE '^\[New LWP|^\[Thread debugging|^Using host|^warning:|^Reading symbols|^Download' | head -800 || true
               fi
             done
