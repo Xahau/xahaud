@@ -916,6 +916,68 @@ class RNG_test : public beast::unit_test::suite
             std::vector<std::uint64_t>{rc(DOESNT_EXIST)});
     }
 
+    void
+    testLedgerEntry(FeatureBitset features)
+    {
+        testcase("ledger_entry rng");
+        using namespace jtx;
+
+        Env env{*this, envconfig(validator, ""), features};
+        env.close();
+        env.close();
+        auto const sle = env.le(keylet::random());
+        if (!BEAST_EXPECT(sle))
+            return;
+
+        auto const index = to_string(keylet::random().key);
+        auto const request = [&](Json::Value const& rng) {
+            Json::Value params;
+            params[jss::rng] = rng;
+            return env.rpc(
+                "json", "ledger_entry", to_string(params))[jss::result];
+        };
+
+        // the singleton, by flag
+        {
+            auto const jrr = request(true);
+            BEAST_EXPECT(jrr[jss::index] == index);
+            BEAST_EXPECT(
+                jrr[jss::node][sfLedgerEntryType.jsonName] == jss::Random);
+            BEAST_EXPECT(
+                jrr[jss::node][sfLedgerSequence.jsonName].asUInt() ==
+                sle->getFieldU32(sfLedgerSequence));
+            BEAST_EXPECT(
+                jrr[jss::node][sfRandomData.jsonName] ==
+                to_string(sle->getFieldH256(sfRandomData)));
+            BEAST_EXPECT(jrr[jss::node][sfEntropyCount.jsonName].asUInt() == 1);
+            BEAST_EXPECT(jrr[jss::node].isMember(sfRandomDigests.jsonName));
+        }
+
+        // and by its index
+        {
+            auto const jrr = request(index);
+            BEAST_EXPECT(jrr[jss::index] == index);
+            BEAST_EXPECT(
+                jrr[jss::node][sfLedgerEntryType.jsonName] == jss::Random);
+        }
+
+        // anything else is malformed
+        BEAST_EXPECT(request(false)[jss::error] == "malformedRequest");
+        BEAST_EXPECT(request(7)[jss::error] == "malformedRequest");
+        BEAST_EXPECT(request("nothex")[jss::error] == "malformedRequest");
+
+        // ledger_data sees it as type "rng"
+        {
+            Json::Value params;
+            params[jss::type] = jss::rng;
+            auto const jrr =
+                env.rpc("json", "ledger_data", to_string(params))[jss::result];
+            BEAST_EXPECT(
+                jrr[jss::state].size() == 1 &&
+                jrr[jss::state][0u][sfLedgerEntryType.jsonName] == jss::Random);
+        }
+    }
+
 public:
     void
     run() override
@@ -928,6 +990,7 @@ public:
         testNoEntropy(all);
         testHooks(all);
         testSlotBlocked(all);
+        testLedgerEntry(all);
     }
 };
 

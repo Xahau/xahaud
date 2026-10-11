@@ -1936,7 +1936,8 @@ HookAPI::rng_next() const
         return Unexpected(TOO_LITTLE_ENTROPY);
 
     // At least 80% of the UNLReport must have contributed (at least one
-    // validator if there is no UNLReport).
+    // validator if there is no UNLReport). Both fields are 16 bits on the
+    // ledger; they are widened here so the scaled comparison cannot overflow.
     std::uint32_t const count = sle->getFieldU16(sfEntropyCount);
     std::uint32_t const denominator = sle->getFieldU16(sfEntropyDenominator);
     if (count == 0 || count * 5 < denominator * 4)
