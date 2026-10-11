@@ -437,7 +437,9 @@ class PWAServe_test : public beast::unit_test::suite,
                  {"custom_domains", "1"},
                  {"resolver", "127.0.0.1"}})
             BEAST_EXPECTS(
-                !accepts([=](Config& c) { c["port_rpc"].set(k, v); }), k);
+                !accepts(
+                    [k = k, v = v](Config& c) { c["port_rpc"].set(k, v); }),
+                k);
 
         // Lists: one r-address per line, and never on both.
         for (auto const& line :
