@@ -97,8 +97,13 @@ private:
     addEnumToJson(Json::Value& json)
     {
         json = Json::objectValue;
-        for (auto const& [value, name] : magic_enum::enum_entries<EnumType>())
-            json[STR(name)] = static_cast<Json::Int>(value);
+        // No structured binding: STR() is a lambda, and capturing a
+        // binding needs P1091 (Clang 16+).
+        for (auto const& entry : magic_enum::enum_entries<EnumType>())
+        {
+            auto const name = entry.second;
+            json[STR(name)] = static_cast<Json::Int>(entry.first);
+        }
     }
 
     // params is the stringified C parameter list, e.g.
