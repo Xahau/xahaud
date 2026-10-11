@@ -337,6 +337,19 @@ jobs:
             done
           }
 
+          # Stress the suite whose Env lifetimes are shortest: the hang sits in
+          # Env::~AppBundle (thread.join on ApplicationImp::run) and shows up
+          # within a few iterations when it is present.
+          for i in 1 2 3 4 5 6; do
+            st=$SECONDS
+            if LLVM_PROFILE_FILE=/tmp/stress-%p.profraw timeout -s KILL 240 ./rippled --unittest=ripple.app.HookAPI --unittest-jobs 1 > /tmp/stress_$i.log 2>&1; then
+              echo "stress iter $i ok $((SECONDS-st))s: $(grep -oE '[0-9]+ cases, [0-9]+ tests total, [0-9]+ failures' /tmp/stress_$i.log)"
+            else
+              echo "stress iter $i FAILED/HUNG rc=$? after $((SECONDS-st))s; last lines:"; tail -3 /tmp/stress_$i.log
+            fi
+          done
+          rm -f /tmp/stress-*.profraw
+
           ( while true; do
               echo "===== sample $(date -u +%T) loadavg=$(cut -d' ' -f1-3 /proc/loadavg) psi_cpu=$(grep -o 'avg60=[0-9.]*' /proc/pressure/cpu 2>/dev/null | head -1) psi_mem=$(grep -o 'avg60=[0-9.]*' /proc/pressure/memory 2>/dev/null | head -1) psi_io=$(grep -o 'avg60=[0-9.]*' /proc/pressure/io 2>/dev/null | head -1)"
               free -m | sed -n 2,3p
