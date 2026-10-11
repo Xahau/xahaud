@@ -354,7 +354,7 @@ RCLConsensus::Adaptor::onClose(
     // featureRNG: our entropy contribution, if we add one. It is not tracked
     // by the censorship detector: it is only valid for this ledger.
     std::optional<uint256> entropyTxID;
-    
+
     // Keep enough validation history for the next flag ledger's score table
     // even when we don't vote this round (not proposing / wrong LCL).
     // Otherwise toKeep_ goes stale, validations older than
