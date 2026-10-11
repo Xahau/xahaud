@@ -322,130 +322,63 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
         port.secure_gateway_nets_v4,
         port.secure_gateway_nets_v6);
 
-    // Browser origins (scheme://host[:port], or *) whose pages may use
-    // IP-granted admin. "null" (sandboxed pages, file: and data: URLs) can
-    // never be granted it.
-    if (auto const optResult = section.get("admin_origin"))
+    // pwa ports: the zone(s) documents are served under, normalised like a
+    // Host header: lower case, no trailing dot, LDH labels of 1..63, with
+    // room left for the 43-character account label in front.
+    if (auto const optResult = section.get("domain"))
     {
-        std::vector<std::string> origins;
+        std::vector<std::string> domains;
         boost::algorithm::split(
-            origins, *optResult, boost::algorithm::is_any_of(","));
-        for (auto& origin : origins)
+            domains, *optResult, boost::algorithm::is_any_of(","));
+        for (auto& domain : domains)
         {
-            boost::algorithm::trim(origin);
-            if (origin.empty())
+            boost::algorithm::trim(domain);
+            boost::algorithm::to_lower(domain);
+            if (!domain.empty() && domain.back() == '.')
+                domain.pop_back();
+            if (domain.empty())
                 continue;
-            auto const scheme = origin.find("://");
-            bool const valid = origin == "*" ||
-                ((boost::istarts_with(origin, "http://") ||
-                  boost::istarts_with(origin, "https://")) &&
-                 origin.size() > scheme + 3 &&
-                 origin.find_first_of("/?#*@ \t", scheme + 3) ==
-                     std::string::npos);
-            if (!valid || boost::iequals(origin, "null"))
+            bool valid = domain.size() + 44 <= 253;
+            std::vector<std::string> labels;
+            boost::algorithm::split(
+                labels, domain, boost::algorithm::is_any_of("."));
+            for (auto const& l : labels)
+                valid = valid && !l.empty() && l.size() <= 63 &&
+                    l.front() != '-' && l.back() != '-' &&
+                    l.find_first_not_of(
+                        "abcdefghijklmnopqrstuvwxyz0123456789-") ==
+                        std::string::npos;
+            if (!valid)
             {
-                log << "Invalid value '" << origin
-                    << "' for key 'admin_origin' in [" << section.name()
-                    << "]: expected an origin such as http://localhost:8080, "
-                       "or *";
+                log << "Invalid value '" << domain << "' for key 'domain' in ["
+                    << section.name()
+                    << "]: expected a DNS zone such as pwapp.example";
                 Throw<std::exception>();
             }
-            port.admin_origins.insert(origin);
+            port.pwa_domains.insert(domain);
         }
     }
 
-    auto bad =
-        [&](char const* key, std::string const& value, char const* want) {
-            log << "Invalid value '" << value << "' for key '" << key
-                << "' in [" << section.name() << "]: expected " << want;
+    // Custom domains on pwa ports, and the IPv4 recursive resolver to use for
+    // their TXT records (default: the system resolver).
+    if (auto const v = section.get("custom_domains"))
+        if (!beast::lexicalCastChecked(port.pwa_custom_domains, *v))
+        {
+            log << "Invalid value '" << *v << "' for key 'custom_domains' in ["
+                << section.name() << "]: expected 0 or 1";
             Throw<std::exception>();
-        };
-    auto items = [&](char const* key, auto&& each) {
-        if (auto const optResult = section.get(key))
-        {
-            std::vector<std::string> v;
-            boost::algorithm::split(
-                v, *optResult, boost::algorithm::is_any_of(","));
-            for (auto& item : v)
-            {
-                boost::algorithm::trim(item);
-                if (!item.empty())
-                    each(item);
-            }
         }
-    };
-
-    // pwa ports: the zone(s) documents are served under, normalised like a
-    // Host header: lower case, no trailing dot, LDH labels of 1..63, with
-    // room left for the longest label prepended (a 40-digit AccountID).
-    items("domain", [&](std::string& domain) {
-        boost::algorithm::to_lower(domain);
-        if (domain.back() == '.')
-            domain.pop_back();
-        bool valid = !domain.empty() && domain.size() + 41 <= 253;
-        std::vector<std::string> labels;
-        boost::algorithm::split(
-            labels, domain, boost::algorithm::is_any_of("."));
-        for (auto const& l : labels)
-            valid = valid && !l.empty() && l.size() <= 63 && l.front() != '-' &&
-                l.back() != '-' &&
-                l.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") ==
-                    std::string::npos;
-        if (!valid)
-            bad("domain", domain, "a DNS zone such as pwapp.example");
-        port.pwa_domains.insert(domain);
-    });
-
-    auto accounts = [&](char const* key, std::set<AccountID>& out) {
-        items(key, [&](std::string const& item) {
-            auto const account = parseBase58<AccountID>(item);
-            if (!account || account->isZero())
-                bad(key, item, "an r-address");
-            out.insert(*account);
-        });
-    };
-    accounts("allowlist", port.pwa_allowlist);
-    accounts("blocklist", port.pwa_blocklist);
-
-    auto flag = [&](char const* key, bool& out) {
-        if (auto const optResult = section.get(key))
-            if (!beast::lexicalCastChecked(out, *optResult))
-                bad(key, *optResult, "0 or 1");
-    };
-    flag("custom_domains", port.pwa_custom_domains);
-
-    // "addr", "v4:port", "[v6]" or "[v6]:port"; port 53 by default.
-    items("resolver", [&](std::string const& item) {
-        std::string addr = item;
-        std::uint16_t udpPort = 53;
-        bool valid = true;
-        auto portFrom = [&](std::string const& p) {
-            valid = valid && beast::lexicalCastChecked(udpPort, p) && udpPort;
-        };
-        if (addr.front() == '[')
+    if (auto const v = section.get("resolver"))
+    {
+        auto const ep = beast::IP::Endpoint::from_string_checked(*v);
+        if (!ep || !ep->is_v4() || ep->address().is_unspecified())
         {
-            auto const close = addr.find(']');
-            auto const rest =
-                close == std::string::npos ? "x" : addr.substr(close + 1);
-            if (!rest.empty() && rest.front() != ':')
-                valid = false;
-            else if (!rest.empty())
-                portFrom(rest.substr(1));
-            addr = addr.substr(1, close - 1);
+            log << "Invalid value '" << *v << "' for key 'resolver' in ["
+                << section.name() << "]: expected an IPv4 address[:port]";
+            Throw<std::exception>();
         }
-        else if (auto const colon = addr.find(':');
-                 colon != std::string::npos &&
-                 addr.find(':', colon + 1) == std::string::npos)
-        {
-            portFrom(addr.substr(colon + 1));
-            addr.erase(colon);
-        }
-        boost::system::error_code ec;
-        auto const ip = boost::asio::ip::make_address(addr, ec);
-        if (!valid || ec || ip.is_unspecified())
-            bad("resolver", item, "127.0.0.1, 127.0.0.1:5353 or [::1]:53");
-        port.pwa_resolvers.emplace_back(ip, udpPort);
-    });
+        port.pwa_resolver = ep->port() ? *ep : ep->at_port(53);
+    }
 
     set(port.user, "user", section);
     set(port.password, "password", section);

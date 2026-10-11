@@ -428,16 +428,10 @@ DeleteAccount::doApply()
     if (src->isFieldPresent(sfHookNamespaces) || src->isFieldPresent(sfHooks))
         return tecHAS_OBLIGATIONS;
 
-    // The AppLoader is linked directly from the AccountRoot via sfAppLoaderID
-    // rather than through the owner directory, so the cleanup walk below will
-    // never visit it. Erase it here, or account deletion would orphan it --
-    // which AccountRootsDeletedClean would flag, since keylet::appLoader is
-    // registered in directAccountKeylets.
-    //
-    // Not gated on featurePWALoader: on a ledger where the amendment is not
-    // active no such object can exist, so the peek simply finds nothing. That
-    // is deliberately safer than gating, which would orphan the object in the
-    // event the rule ever read as disabled while one existed.
+    // The AppLoader is in no owner directory, so the cleanup walk below never
+    // visits it; erase it here or AccountRootsDeletedClean fires on the
+    // orphan. Not gated on featurePWALoader: without it no such object can
+    // exist, and gating could only ever leave one behind.
     if (auto sleLoader = view().peek(keylet::appLoader(account_)))
         view().erase(sleLoader);
 

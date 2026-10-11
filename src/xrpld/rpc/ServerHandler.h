@@ -22,7 +22,6 @@
 
 #include <xrpld/app/main/CollectorManager.h>
 #include <xrpld/core/JobQueue.h>
-#include <xrpld/rpc/PWADomainResolver.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/detail/UDPInfoSub.h>
 #include <xrpld/rpc/detail/WSInfoSub.h>
@@ -38,6 +37,7 @@
 
 #include <array>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <map>
 #include <mutex>
@@ -66,12 +66,13 @@ public:
         noForwardedFor,    // 400
         directConnection,  // 403: not from a secure_gateway address
         blocked,           // 403: allowlist / blocklist
-        domainMismatch,    // 403: account's Domain is not the host
+        domainMismatch,    // 503: account's Domain does not name the host
+        dnsPending,        // 429: lookup started or in flight, retry
+        dnsFailed,         // 503: resolver failed
         upgradeRefused,    // 403
         badMethod,         // 405
         throttled,         // 503: resource manager
         busy,              // 503: too many in flight
-        dnsFailed,         // 503
         unavailable,       // 503: no validated ledger or lookup failed
         count_
     };
@@ -139,22 +140,43 @@ private:
     bool stopped_{false};
     std::map<std::reference_wrapper<Port const>, int> count_;
     PWAStats pwaStats_;
-    // Custom domain -> account, from _xahau-pwa TXT records.
-    PWADomainResolver pwaResolver_;
 
     // PWA lookups queued or running on the job queue. Requests past
     // maxPWAJobs are refused with 503 rather than queued.
     std::atomic<std::size_t> pwaJobs_{0};
     static constexpr std::size_t maxPWAJobs = 64;
 
+    // Custom hosts: _xahau-pwa.<host> TXT -> account, looked up with
+    // libresolv on jtCLIENT_PWADNS (it blocks) and cached: a record for its
+    // TTL clamped to 60..3600 s, no record 15 min, a failure 60 s. At most
+    // maxPWADnsInFlight lookups run at once, one per host, and a request
+    // that misses the cache is answered 429 at once, so no flood of Host
+    // headers can start more than a handful of queries or hold a thread.
+    struct PWADns
+    {
+        enum class Status : std::uint8_t { found, none, failed };
+        Status status = Status::failed;
+        AccountID account;
+        std::chrono::steady_clock::time_point expires;
+    };
+    std::mutex pwaDnsMutex_;
+    std::map<std::string, PWADns> pwaDnsCache_;
+    std::set<std::string> pwaDnsInFlight_;
+    static constexpr std::size_t maxPWADnsInFlight = 4;
+    static constexpr std::size_t maxPWADnsEntries = 10'000;
+
+    void
+    resolvePWADomain(
+        std::string const& host,
+        std::optional<beast::IP::Endpoint> const& resolver);
+
     // One document lookup, once the request has named an account.
     struct PWALookup
     {
         AccountID account;
-        boost::asio::ip::address client;  // the billing address
         bool head = false;
         std::string ifNoneMatch;
-        std::string domain;  // the custom domain it came in on, if any
+        std::string domain;  // custom host it came in on, if any
     };
 
     // A private type used to restrict access to the ServerHandler constructor.
@@ -204,10 +226,14 @@ public:
         return pwaStats_;
     }
 
-    PWADomainResolver&
-    pwaResolver()
+    /** Drop every cached custom domain answer; returns how many. */
+    std::size_t
+    pwaDnsFlush()
     {
-        return pwaResolver_;
+        std::lock_guard lock(pwaDnsMutex_);
+        auto const n = pwaDnsCache_.size();
+        pwaDnsCache_.clear();
+        return n;
     }
 
     Endpoints const&
@@ -288,8 +314,8 @@ private:
 
     /** Entry point for ports whose protocol is "pwa". Runs on the I/O
         thread: proxy and X-Forwarded-For checks, metering, routing of the
-        Host header and target (document host, bare-zone redirect, or custom
-        domain resolved through its TXT record without blocking), then
+        Host header and target (document host, custom domain or bare-zone
+        redirect), then
         queuePWALookup. */
     void
     onPWARequest(Session& session);

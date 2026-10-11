@@ -27,11 +27,10 @@ namespace ripple {
 
 /** pwa_info: usage of this node's "pwa" ports. Admin only.
 
-    {"reset": bool, "flush_dns": bool} are optional: reset zeroes the
-    request counters after reading them; flush_dns drops every cached
-    custom domain answer. Returns the ports (name, ip, port, domains,
-    custom_domains), "requests" and "outcomes" (64-bit counters as
-    strings), "bytes_served", and "dns" (resolver cache size and counters).
+    {"reset": true} zeroes the request counters after reading them;
+    {"flush_dns": true} drops every cached custom domain answer. Returns the
+    ports (name, ip, port, domains, custom_domains), "requests" and
+    "outcomes" (64-bit counters as strings) and "bytes_served".
 */
 Json::Value
 doPWAInfo(RPC::JsonContext& context)
@@ -46,18 +45,15 @@ doPWAInfo(RPC::JsonContext& context)
         return true;
     };
     bool reset = false, flush = false;
-    if (!flag("reset", reset))
+    if (!flag(jss::reset, reset))
         return RPC::expected_field_error(jss::reset, "bool");
     if (!flag("flush_dns", flush))
         return RPC::expected_field_error("flush_dns", "bool");
 
     auto& handler = context.app.getServerHandler();
     Json::Value ret = handler.pwaStats().getJson(reset);
-    ret["dns"] = handler.pwaResolver().getJson();
     if (flush)
-        ret["dns_flushed"] =
-            static_cast<Json::UInt>(handler.pwaResolver().flush());
-
+        ret["dns_flushed"] = static_cast<Json::UInt>(handler.pwaDnsFlush());
     Json::Value& ports = ret[jss::ports] = Json::arrayValue;
     for (auto const& port : handler.setup().ports)
     {

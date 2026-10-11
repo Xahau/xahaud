@@ -721,7 +721,6 @@ public:
 class ValidAppLoader
 {
     bool touched_ = false;
-    bool bad_ = false;
     std::vector<std::shared_ptr<SLE const>> live_;
 
 public:

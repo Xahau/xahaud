@@ -115,6 +115,8 @@ doPing(RPC::JsonContext&);
 Json::Value
 doPWAInfo(RPC::JsonContext&);
 Json::Value
+doPWAValidate(RPC::JsonContext&);
+Json::Value
 doPrint(RPC::JsonContext&);
 Json::Value
 doRandom(RPC::JsonContext&);

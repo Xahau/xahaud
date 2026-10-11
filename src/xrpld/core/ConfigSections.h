@@ -74,6 +74,8 @@ struct ConfigSection
 #define SECTION_PEERS_IN_MAX "peers_in_max"
 #define SECTION_PEERS_OUT_MAX "peers_out_max"
 #define SECTION_PORT_GRPC "port_grpc"
+#define SECTION_PWA_ALLOWLIST "pwa_allowlist"
+#define SECTION_PWA_BLOCKLIST "pwa_blocklist"
 #define SECTION_PREFETCH_WORKERS "prefetch_workers"
 #define SECTION_REDUCE_RELAY "reduce_relay"
 #define SECTION_RELATIONAL_DB "relational_db"

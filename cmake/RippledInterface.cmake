@@ -97,6 +97,7 @@ target_link_libraries (ripple_syslibs
       crypt32
     >
     $<$<NOT:$<BOOL:${MSVC}>>:dl>
+    $<$<NOT:$<BOOL:${MSVC}>>:resolv>
     $<$<NOT:$<OR:$<BOOL:${MSVC}>,$<BOOL:${APPLE}>>>:rt>)
 
 if (NOT MSVC)

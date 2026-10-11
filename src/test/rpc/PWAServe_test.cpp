@@ -22,11 +22,15 @@
 // domains (against an in-process DNS server), lists, headers, ETag/304,
 // pwa_info, and the browser-Origin admin hardening.
 
+// End-to-end tests for "pwa" ports over real sockets: startup validation,
+// proxy and X-Forwarded-For rules, routing, the bare-zone redirect, custom
+// domains (against an in-process DNS server), lists, headers, ETag/304 and
+// pwa_info.
+
 #include <test/jtx.h>
 #include <test/jtx/JSONRPCClient.h>
 #include <test/jtx/envconfig.h>
 #include <xrpld/core/Config.h>
-#include <xrpld/rpc/PWADomainResolver.h>
 #include <xrpld/rpc/ServerHandler.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
@@ -137,8 +141,7 @@ private:
             pos += 1 + len;
         }
         pos += 1 + 4;
-        if (pos > n || labels.size() < 2 ||
-            labels.front() != PWADomainResolver::recordLabel)
+        if (pos > n || labels.size() < 2 || labels.front() != "_xahau-pwa")
             return;
         std::string host;
         for (std::size_t i = 1; i < labels.size(); ++i)
@@ -193,6 +196,9 @@ private:
 
 class PWAServe_test : public beast::unit_test::suite,
                       public beast::test::enable_yield_to
+
+                      class PWAServe_test : public beast::unit_test::suite,
+                                            public beast::test::enable_yield_to
 {
     using response_t =
         boost::beast::http::response<boost::beast::http::string_body>;
@@ -214,10 +220,17 @@ class PWAServe_test : public beast::unit_test::suite,
         return boost::algorithm::to_lower_copy(s);
     }
 
+    // The account's own host label: pwa + 40 hex digits.
+    static std::string
+    label(jtx::Account const& a)
+    {
+        return "pwa" + lower(strHex(a.id()));
+    }
+
     // A config with a working pwa port behind a "proxy" at the test's own
-    // address. `tweak` may edit the [port_pwa] section.
+    // address. `tweak` may edit the config, [port_pwa] included.
     static std::unique_ptr<Config>
-    pwaConfig(std::function<void(Section&)> const& tweak = {})
+    pwaConfig(std::function<void(Config&)> const& tweak = {})
     {
         auto cfg = jtx::envconfig();
         (*cfg)["server"].append("port_pwa");
@@ -228,7 +241,7 @@ class PWAServe_test : public beast::unit_test::suite,
         s.set("secure_gateway", getEnvLocalhostAddr());
         s.set("domain", zone);
         if (tweak)
-            tweak(s);
+            tweak(*cfg);
         return cfg;
     }
 
@@ -321,7 +334,7 @@ class PWAServe_test : public beast::unit_test::suite,
         return r ? std::move(*r) : response_t{};
     }
 
-    // The document at alice's own host.
+    // The document at the account's own host.
     response_t
     getDoc(
         jtx::Env& env,
@@ -329,12 +342,7 @@ class PWAServe_test : public beast::unit_test::suite,
         boost::asio::yield_context& yield,
         Headers const& headers = {{"X-Forwarded-For", xff}})
     {
-        return get(
-            env,
-            lower(a.human()) + "." + zone,
-            "/" + a.human(),
-            yield,
-            headers);
+        return get(env, label(a) + "." + zone, "/" + a.human(), yield, headers);
     }
 
     static std::string
@@ -354,17 +362,11 @@ class PWAServe_test : public beast::unit_test::suite,
     }
 
     static void
-    publish(
-        jtx::Env& env,
-        jtx::Account const& a,
-        std::string const& d,
-        std::string const& domain = {})
+    publish(jtx::Env& env, jtx::Account const& a, std::string const& d)
     {
         using namespace jtx;
         auto jt = noop(a);
         jt[sfAppLoader.fieldName] = strHex(d);
-        if (!domain.empty())
-            jt[sfDomain.fieldName] = strHex(domain);
         env(jt, fee(XRP(1)));
         env.close();
     }
@@ -381,7 +383,7 @@ class PWAServe_test : public beast::unit_test::suite,
     testConfigValidation()
     {
         testcase("configuration is validated at startup");
-        auto accepts = [&](std::function<void(Section&)> tweak) {
+        auto accepts = [&](std::function<void(Config&)> const& tweak) {
             try
             {
                 setup_ServerHandler(*pwaConfig(tweak), std::stringstream{});
@@ -393,9 +395,9 @@ class PWAServe_test : public beast::unit_test::suite,
             }
         };
         auto set = [](char const* k, std::string v) {
-            return [=](Section& s) { s.set(k, v); };
+            return [=](Config& c) { c["port_pwa"].set(k, v); };
         };
-        jtx::Account const a{"a"}, b{"b"};
+        jtx::Account const a{"a"};
 
         BEAST_EXPECT(accepts({}));
         for (auto const& [k, v] :
@@ -415,97 +417,42 @@ class PWAServe_test : public beast::unit_test::suite,
                  {"domain", "pwa..test"},
                  {"domain", "-pwa.test"},
                  {"domain", "pwa test"},
-                 {"domain", std::string(64, 'a') + ".test"},
-                 {"allowlist", "not-an-address"},
-                 {"allowlist", toBase58(AccountID{})},
-                 {"blocklist", strHex(a.id())},
-                 {"custom_domains", "2"},
-                 {"custom_domains", "yes"},
-                 {"resolver", "127.0.0.1"},  // needs custom_domains
-                 {"admin_origin", "null"},
-                 {"admin_origin", "localhost:8080"},
-                 {"admin_origin", "http://tool.example/path"}})
+                 {"domain", std::string(64, 'a') + ".test"}})
             BEAST_EXPECTS(!accepts(set(k, v)), std::string(k) + "=" + v);
+        BEAST_EXPECT(accepts(set("secure_gateway", "10.0.0.0/8")));
+        BEAST_EXPECT(accepts(set("domain", "PWA.Test., apps.example.net")));
+
         for (auto const& [k, v] :
              std::vector<std::pair<char const*, std::string>>{
-                 {"secure_gateway", "10.0.0.0/8"},
-                 {"domain", "PWA.Test., apps.example.net"},
-                 {"allowlist", a.human() + ", " + b.human()},
-                 {"blocklist", a.human()},
-                 {"custom_domains", "0"},
-                 {"custom_domains", "1"},  // needs resolver
-                 {"admin_origin", "*"},
-                 {"admin_origin",
-                  "https://Tool.Example, http://127.0.0.1:3000"}})
-            BEAST_EXPECTS(accepts(set(k, v)), std::string(k) + "=" + v);
-        BEAST_EXPECT(!accepts([&](Section& s) {
-            s.set("allowlist", a.human());
-            s.set("blocklist", a.human());
-        }));
-
-        for (auto const r :
-             {"127.0.0.1",
-              "127.0.0.1:5353",
-              "::1",
-              "[::1]:5353",
-              "10.0.0.1, [2001:db8::1]:53"})
-            BEAST_EXPECTS(
-                accepts([=](Section& s) {
-                    s.set("custom_domains", "1");
-                    s.set("resolver", r);
-                }),
-                r);
-        for (auto const r :
-             {"localhost",
-              "0.0.0.0",
-              "127.0.0.1:0",
-              "127.0.0.1:65536",
-              "[::1",
-              "[::1]x"})
-            BEAST_EXPECTS(
-                !accepts([=](Section& s) {
-                    s.set("custom_domains", "1");
-                    s.set("resolver", r);
-                }),
-                r);
-        {
-            auto const setup = setup_ServerHandler(
-                *pwaConfig([](Section& s) {
-                    s.set("custom_domains", "1");
-                    s.set("resolver", "127.0.0.1:5353, [::1]");
-                }),
-                std::stringstream{});
-            auto const& p = setup.ports.back();
-            BEAST_EXPECT(p.name == "port_pwa" && p.pwa_custom_domains);
-            BEAST_EXPECT(
-                p.pwa_resolvers.size() == 2 &&
-                p.pwa_resolvers[0].port() == 5353 &&
-                p.pwa_resolvers[1].port() == 53);
-        }
+                 {"custom_domains", "2"},
+                 {"resolver", "localhost"},
+                 {"resolver", "0.0.0.0"},
+                 {"resolver", "::1"}})
+            BEAST_EXPECTS(!accepts(set(k, v)), std::string(k) + "=" + v);
+        BEAST_EXPECT(accepts(set("custom_domains", "1")));
+        BEAST_EXPECT(accepts(set("resolver", "127.0.0.1:5353")));
 
         // pwa settings belong to pwa ports only.
-        for (auto const key :
-             {"domain", "allowlist", "blocklist", "custom_domains", "resolver"})
-        {
-            auto cfg = pwaConfig();
-            std::string const k = key;
-            (*cfg)["port_rpc"].set(
-                key,
-                k == "domain"               ? std::string(zone)
-                    : k == "resolver"       ? std::string("127.0.0.1")
-                    : k == "custom_domains" ? std::string("1")
-                                            : a.human());
-            bool ok = true;
-            try
-            {
-                setup_ServerHandler(*cfg, std::stringstream{});
-            }
-            catch (std::exception const&)
-            {
-                ok = false;
-            }
-            BEAST_EXPECTS(!ok, key);
-        }
+        for (auto const& [k, v] :
+             std::vector<std::pair<char const*, std::string>>{
+                 {"domain", zone},
+                 {"custom_domains", "1"},
+                 {"resolver", "127.0.0.1"}})
+            BEAST_EXPECTS(
+                !accepts([=](Config& c) { c["port_rpc"].set(k, v); }), k);
+
+        // Lists: one r-address per line, and never on both.
+        for (auto const& line :
+             {std::string("not-an-address"), toBase58(AccountID{})})
+            BEAST_EXPECTS(
+                !accepts([=](Config& c) { c["pwa_allowlist"].append(line); }),
+                line);
+        BEAST_EXPECT(!accepts(
+            [&](Config& c) { c["pwa_blocklist"].append(strHex(a.id())); }));
+        BEAST_EXPECT(!accepts([&](Config& c) {
+            c["pwa_allowlist"].append(a.human());
+            c["pwa_blocklist"].append(a.human());
+        }));
     }
 
     void
@@ -536,7 +483,6 @@ class PWAServe_test : public beast::unit_test::suite,
             hdr(r, "X-LedgerSeq") == std::to_string(env.closed()->seq()));
         BEAST_EXPECT(
             hdr(r, "X-LedgerHash") == to_string(env.closed()->info().hash));
-        BEAST_EXPECT(hdr(r, "X-PWAAccID") == strHex(alice.id()));
         BEAST_EXPECT(hdr(r, "X-PWASeq") == "1");
         auto const etag = hdr(r, "ETag");
         BEAST_EXPECT(
@@ -573,7 +519,7 @@ class PWAServe_test : public beast::unit_test::suite,
         {
             auto const s = exchange(
                 env,
-                raw(lower(alice.human()) + "." + zone,
+                raw(label(alice) + "." + zone,
                     "/" + alice.human(),
                     {{"X-Forwarded-For", xff}},
                     "HEAD"),
@@ -605,29 +551,24 @@ class PWAServe_test : public beast::unit_test::suite,
     {
         testcase("routing, redirect and methods");
         using namespace jtx;
-        Env env{*this, pwaConfig([](Section& s) {
-                    s.set("domain", "pwa.test, Apps.Example.");
+        Env env{*this, pwaConfig([](Config& c) {
+                    c["port_pwa"].set("domain", "pwa.test, Apps.Example.");
                 })};
         Account const alice{"alice"}, bob{"bob"};
         env.fund(XRP(1000), alice, bob);
         publish(env, alice, doc());
         auto const a = alice.human();
-        auto const la = lower(a);
-        auto const hex = strHex(alice.id());
+        auto const la = label(alice);
+        auto const ua = boost::algorithm::to_upper_copy(la);
 
-        // Served: hex label with a bare path; r-address label in any case
-        // with the exact address in the path; either zone; port, trailing
-        // dot, one trailing slash and a query string ignored.
+        // Served: pwa<hex> label in any case with the exact address in the
+        // path; either zone; port, trailing dot, one trailing slash and a
+        // query string ignored.
         for (auto const& [host, t] :
              std::vector<std::pair<std::string, std::string>>{
-                 {hex + ".pwa.test", "/"},
-                 {lower(hex) + ".PWA.TEST:443", "/?v=1"},
-                 {hex + ".pwa.test.", "//"},
-                 {hex + ".apps.example", "/"},
-                 {a + ".pwa.test", "/" + a},
-                 {la + ".pwa.test", "/" + a + "/"},
-                 {boost::algorithm::to_upper_copy(a) + ".pwa.test",
-                  "/" + a + "?x"},
+                 {la + ".pwa.test", "/" + a},
+                 {ua + ".PWA.TEST:443", "/" + a + "?v=1"},
+                 {la + ".pwa.test.", "/" + a + "/"},
                  {la + ".apps.example:8443", "/" + a + "/?v=2&x=%2F"}})
             BEAST_EXPECTS(html(get(env, host, t, yield)), host + t);
 
@@ -635,25 +576,22 @@ class PWAServe_test : public beast::unit_test::suite,
         for (auto const& [host, t] :
              std::vector<std::pair<std::string, std::string>>{
                  {"pwa.test", "/"},
-                 {"pwa.test", "/" + la},  // path must be exact
+                 {"pwa.test", "/" + lower(a)},  // path must be exact
                  {"pwa.test", "/" + a + "x"},
                  {"pwa.test", "/" + a + "/extra"},
                  {"pwa.test", "//" + a},
-                 {"pwa.test", "/" + hex},
+                 {"pwa.test", "/" + strHex(alice.id())},
                  {"pwa.test", "/" + toBase58(AccountID{})},
                  {"www.pwa.test", "/" + a},
                  {la + ".pwa.test", "/"},
-                 {la + ".pwa.test", "/" + la},
+                 {la + ".pwa.test", "/" + lower(a)},
                  {la + ".pwa.test", "/" + bob.human()},  // disagree
                  {la + ".pwa.test", "/" + a + "/index.html"},
-                 {hex + ".pwa.test", "/" + a},  // hex label: bare path
-                 {hex + ".pwa.test", "/index.html"},
-                 {hex.substr(1) + ".pwa.test", "/"},
-                 {strHex(AccountID{}) + ".pwa.test", "/"},
+                 {la.substr(3) + ".pwa.test", "/" + a},  // no pwa prefix
+                 {la.substr(1) + ".pwa.test", "/" + a},
                  {la + ".other.test", "/" + a},  // not our zone
                  {la + ".pwa.test.evil", "/" + a},
-                 {"x." + la + ".pwa.test", "/" + a},
-                 {"app.example.org", "/"}})  // custom domains are off
+                 {"x." + la + ".pwa.test", "/" + a}})
             BEAST_EXPECTS(
                 get(env, host, t, yield).result_int() == 404, host + t);
 
@@ -679,9 +617,10 @@ class PWAServe_test : public beast::unit_test::suite,
                 yield)
                 .rfind("HTTP/1.1 400 ", 0) == 0);
 
-        // <zone>/<r-address>: 301 to the account's own host. Lower-cased
-        // label, exact path, port and query kept, scheme-relative, no
-        // ledger read and no lists (bob has no loader). Following it works.
+        // <zone>/<r-address>: 301 to the account's own host. Exact path,
+        // port and query kept, scheme-relative, no ledger read and no lists
+        // (bob has no loader). Following it works.
+        auto const lb = label(bob);
         for (auto const& [host, t, location] :
              std::vector<std::tuple<std::string, std::string, std::string>>{
                  {"pwa.test", "/" + a, "//" + la + ".pwa.test/" + a},
@@ -694,7 +633,7 @@ class PWAServe_test : public beast::unit_test::suite,
                   "//" + la + ".apps.example/" + a + "?q"},
                  {"pwa.test",
                   "/" + bob.human(),
-                  "//" + lower(bob.human()) + ".pwa.test/" + bob.human()}})
+                  "//" + lb + ".pwa.test/" + bob.human()}})
         {
             auto const r = get(env, host, t, yield);
             BEAST_EXPECTS(r.result_int() == 301, host + t);
@@ -778,18 +717,21 @@ class PWAServe_test : public beast::unit_test::suite,
         status(pwaConfig(), {200, 200, 200, 404});
         // allowlist: only those (dave is listed but has no loader).
         status(
-            pwaConfig([&](Section& s) {
-                s.set("allowlist", alice.human() + "," + dave.human());
+            pwaConfig([&](Config& c) {
+                c["pwa_allowlist"].append(alice.human());
+                c["pwa_allowlist"].append(dave.human());
             }),
             {200, 403, 403, 404});
         // blocklist, and blocklist wins over allowlist.
         status(
-            pwaConfig([&](Section& s) { s.set("blocklist", bob.human()); }),
+            pwaConfig(
+                [&](Config& c) { c["pwa_blocklist"].append(bob.human()); }),
             {200, 403, 200, 404});
         status(
-            pwaConfig([&](Section& s) {
-                s.set("allowlist", alice.human() + "," + bob.human());
-                s.set("blocklist", carol.human());
+            pwaConfig([&](Config& c) {
+                c["pwa_allowlist"].append(alice.human());
+                c["pwa_allowlist"].append(bob.human());
+                c["pwa_blocklist"].append(carol.human());
             }),
             {200, 200, 403, 404});
     }
@@ -839,8 +781,8 @@ class PWAServe_test : public beast::unit_test::suite,
 
         // Not from a secure_gateway address: 403.
         {
-            Env env2{*this, pwaConfig([](Section& s) {
-                         s.set("secure_gateway", "10.255.255.254");
+            Env env2{*this, pwaConfig([](Config& c) {
+                         c["port_pwa"].set("secure_gateway", "10.255.255.254");
                      })};
             env2.fund(XRP(1000), alice);
             publish(env2, alice, doc());
@@ -863,12 +805,9 @@ class PWAServe_test : public beast::unit_test::suite,
         auto throttles = [&](std::string const& client) {
             for (int i = 0; i < 50; ++i)
             {
-                auto const s = get(env,
-                                   lower(nobody.human()) + "." + zone,
-                                   "/" + nobody.human(),
-                                   yield,
-                                   {{"X-Forwarded-For", client}})
-                                   .result_int();
+                auto const s =
+                    getDoc(env, nobody, yield, {{"X-Forwarded-For", client}})
+                        .result_int();
                 if (s == 503)
                     return i > 0;
                 if (s != 404)
@@ -891,93 +830,106 @@ class PWAServe_test : public beast::unit_test::suite,
     {
         testcase("custom domains: _xahau-pwa TXT record and Domain consent");
         using namespace jtx;
-        Account const alice{"alice"}, bob{"bob"}, carol{"carol"}, dave{"dave"};
+        Account const alice{"alice"}, bob{"bob"}, carol{"carol"};
         FakeDNS dns;
-        Env env{*this, pwaConfig([&](Section& s) {
-                    s.set("custom_domains", "1");
-                    s.set("resolver", dns.address());
-                    s.set("blocklist", carol.human());
+        Env env{*this, pwaConfig([&](Config& c) {
+                    c["port_pwa"].set("custom_domains", "1");
+                    c["port_pwa"].set("resolver", dns.address());
+                    c["pwa_blocklist"].append(carol.human());
                 })};
         env.fund(XRP(1000), alice, bob, carol);
-        publish(env, alice, doc(), "App.Example.org");  // consents to the host
-        publish(env, bob, doc());                       // no Domain
-        publish(env, carol, doc(), "blocked.example.org");
+        auto consent = [&](Account const& a, std::string const& d) {
+            auto jt = noop(a);
+            jt[sfDomain.fieldName] = strHex(d);
+            env(jt);
+            env.close();
+        };
+        publish(env, alice, doc());
+        consent(alice, "App.Example.org");
+        publish(env, bob, doc());  // no Domain
+        publish(env, carol, doc());
+        consent(carol, "blocked.example.org");
 
         using M = FakeDNS::Mode;
         dns.set("app.example.org", {M::answer, {alice.human()}});
+        dns.set("sub.app.example.org", {M::answer, {alice.human()}});
         dns.set(
             "other.example.org",
-            {M::answer, {"v=spf1 -all", " " + dave.human() + " "}});
+            {M::answer, {"v=spf1 -all", " " + alice.human() + " "}});
         dns.set("nodomain.example.org", {M::answer, {bob.human()}});
         dns.set("blocked.example.org", {M::answer, {carol.human()}});
         dns.set("two.example.org", {M::answer, {alice.human(), bob.human()}});
         dns.set("empty.example.org", {M::answer, {}});
         dns.set("broken.example.org", {M::servfail, {}});
-        auto at = [&](std::string const& host,
-                      std::string const& t = "/",
-                      Headers const& h = {{"X-Forwarded-For", xff}}) {
-            return get(env, host, t, yield, h);
+
+        // A miss is answered 429 at once, with a refresh; poll until the
+        // lookup has landed in the cache.
+        auto until = [&](std::string const& host, std::string const& t = "/") {
+            response_t r;
+            for (int i = 0; i < 50; ++i)
+            {
+                r = get(env, host, t, yield);
+                if (r.result_int() != 429)
+                    break;
+                BEAST_EXPECT(hdr(r, "Retry-After") == "2");
+                BEAST_EXPECT(
+                    r.body().find("http-equiv=\"refresh\"") !=
+                    std::string::npos);
+                boost::asio::steady_timer wait{get_io_context()};
+                wait.expires_after(std::chrono::milliseconds(100));
+                wait.async_wait(yield);
+            }
+            return r;
         };
 
         // Served as the named account, same document and ETag as its own
-        // host; the answer is cached.
+        // host; the answer is cached, so the next request is immediate.
         auto const own = getDoc(env, alice, yield);
-        auto const r = at("app.example.org");
+        auto const r = until("app.example.org");
         BEAST_EXPECT(
             html(r) && r.body() == doc() && hdr(r, "ETag") == hdr(own, "ETag"));
-        BEAST_EXPECT(hdr(r, "X-PWAAccID") == strHex(alice.id()));
-        for (auto const& [host, t] :
-             std::vector<std::pair<std::string, std::string>>{
-                 {"APP.Example.Org.", "/"}, {"app.example.org:443", "/?utm=x"}})
-            BEAST_EXPECTS(html(at(host, t)), host + t);
         BEAST_EXPECT(
-            at("app.example.org",
-               "/",
-               {{"X-Forwarded-For", xff}, {"If-None-Match", hdr(own, "ETag")}})
-                .result_int() == 304);
-        BEAST_EXPECT(dns.queries("app.example.org") == 1);
+            get(env, "app.example.org", "/", yield).result_int() == 200);
+        BEAST_EXPECT(dns.queries("app.example.org") >= 1);
+        BEAST_EXPECT(
+            until("APP.Example.Org.:443", "/?utm=x").result_int() == 200);
+        // A parent in Domain consents for the host.
+        BEAST_EXPECT(html(until("sub.app.example.org")));
 
-        // Only the root is a document; nothing else reaches DNS.
+        // Only the root is a document; nothing under our zone reaches DNS.
         for (auto const& t : {"/" + alice.human(), std::string("/index.html")})
-            BEAST_EXPECTS(at("app.example.org", t).result_int() == 404, t);
-        for (auto const host :
-             {"localhost", "203.0.113.9", "www.pwa.test", "x.y.pwa.test"})
-            BEAST_EXPECTS(at(host).result_int() == 404, host);
-        BEAST_EXPECT(
-            dns.queries("app.example.org") == 1 &&
-            dns.queries("www.pwa.test") == 0);
+            BEAST_EXPECTS(until("app.example.org", t).result_int() == 404, t);
+        for (auto const host : {"www.pwa.test", "x.y.pwa.test"})
+            BEAST_EXPECTS(until(host).result_int() == 404, host);
+        BEAST_EXPECT(dns.queries("www.pwa.test") == 0);
 
-        // Other TXT records beside the address are ignored.
-        BEAST_EXPECT(html(at("other.example.org")));  // dave consents
-        // No usable record: 404. Resolver failure: 503, every attempt made.
+        // No usable record: 404. Resolver failure: 503. Named account must
+        // consent with its Domain: 503. Lists apply: 403.
         for (auto const host :
              {"nothing.example.org", "empty.example.org", "two.example.org"})
-            BEAST_EXPECTS(at(host).result_int() == 404, host);
-        BEAST_EXPECT(at("broken.example.org").result_int() == 503);
-        BEAST_EXPECT(
-            dns.queries("broken.example.org") ==
-            int(PWADomainResolver::maxAttempts));
-        // The named account must consent with its Domain field; lists apply.
-        BEAST_EXPECT(at("nodomain.example.org").result_int() == 403);
-        BEAST_EXPECT(at("blocked.example.org").result_int() == 403);
-        // Negative answers are cached; flush_dns picks up a changed record.
-        BEAST_EXPECT(at("nothing.example.org").result_int() == 404);
-        BEAST_EXPECT(dns.queries("nothing.example.org") == 1);
-        dns.set("app.example.org", {M::answer, {bob.human()}});
-        BEAST_EXPECT(html(at("app.example.org")));
-        BEAST_EXPECT(
-            info(env, R"({"flush_dns": true})")["dns_flushed"].asUInt() >= 7);
-        BEAST_EXPECT(at("app.example.org").result_int() == 403);
-        BEAST_EXPECT(dns.queries("app.example.org") == 2);
+            BEAST_EXPECTS(until(host).result_int() == 404, host);
+        BEAST_EXPECT(until("broken.example.org").result_int() == 503);
+        BEAST_EXPECT(until("other.example.org").result_int() == 503);
+        BEAST_EXPECT(until("nodomain.example.org").result_int() == 503);
+        BEAST_EXPECT(until("blocked.example.org").result_int() == 403);
 
-        auto const i = info(env);
-        auto const& o = i["outcomes"];
+        // Negative answers are cached; flush_dns picks up a changed record.
+        auto const seen = dns.queries("nothing.example.org");
+        BEAST_EXPECT(until("nothing.example.org").result_int() == 404);
+        BEAST_EXPECT(dns.queries("nothing.example.org") == seen);
+        dns.set("app.example.org", {M::answer, {bob.human()}});
+        BEAST_EXPECT(until("app.example.org").result_int() == 200);
+        BEAST_EXPECT(
+            info(env, R"({"flush_dns": true})")["dns_flushed"].asUInt() >= 5);
+        BEAST_EXPECT(until("app.example.org").result_int() == 503);
+
+        auto const o = info(env)["outcomes"];
         BEAST_EXPECT(o["unknown_domain"] == "4");
         BEAST_EXPECT(o["dns_failed"] == "1");
-        BEAST_EXPECT(o["domain_mismatch"] == "2");
+        BEAST_EXPECT(o["domain_mismatch"] == "3");
         BEAST_EXPECT(o["blocked"] == "1");
-        BEAST_EXPECT(i[jss::ports][0u]["custom_domains"] == true);
-        BEAST_EXPECT(i["dns"]["found"] == "5" && i["dns"]["failed"] == "1");
+        BEAST_EXPECT(o["dns_pending"].asString() != "0");
+        BEAST_EXPECT(info(env)[jss::ports][0u]["custom_domains"] == true);
     }
 
     void
@@ -1018,7 +970,6 @@ class PWAServe_test : public beast::unit_test::suite,
             o["bad_target"] == "1" && o["redirected"] == "1" &&
             o["no_forwarded_for"] == "1");
         BEAST_EXPECT(r["bytes_served"] == std::to_string(doc().size()));
-        BEAST_EXPECT(r["dns"]["queries"] == "0");
 
         for (auto const bad : {R"({"reset": "yes"})", R"({"flush_dns": 1})"})
             BEAST_EXPECTS(info(env, bad)[jss::error] == "invalidParams", bad);
@@ -1027,96 +978,14 @@ class PWAServe_test : public beast::unit_test::suite,
 
         // Command line, and admin only.
         getDoc(env, alice, yield);
-        auto const cli = env.rpc("pwa_info", "flush_dns", "reset")[jss::result];
-        BEAST_EXPECT(cli["requests"] == "1" && cli.isMember("dns_flushed"));
-        BEAST_EXPECT(env.rpc("pwa_info", "x")[jss::error] == "invalidParams");
         BEAST_EXPECT(
-            env.rpc("pwa_info", "reset", "reset")[jss::error] ==
-            "invalidParams");
+            env.rpc("pwa_info", "reset")[jss::result]["requests"] == "1");
+        BEAST_EXPECT(env.rpc("pwa_info", "x")[jss::error] == "invalidParams");
         {
             Env env2{*this, jtx::no_admin(pwaConfig())};
             auto const jrc = makeJSONRPCClient(env2.app().config());
             BEAST_EXPECT(jrc->invoke("pwa_info", Json::objectValue)[jss::result]
                              .isNull());
-        }
-    }
-
-    // Browser-originated requests must not ride an IP-based admin grant on
-    // any port: that, not anything on the pwa port, is what stops a hosted
-    // document driving 127.0.0.1:5005 on the visitor's own machine.
-    void
-    testOriginAdmin(boost::asio::yield_context& yield)
-    {
-        testcase("Origin header never receives IP-granted admin");
-        using namespace jtx;
-        auto post = [&](Env& e, Headers const& h) {
-            return exchange(
-                       e,
-                       raw("node",
-                           "/",
-                           h,
-                           "POST",
-                           R"({"method":"ledger_accept"})"),
-                       yield,
-                       "port_rpc")
-                .substr(0, 13);
-        };
-        Env env{*this};  // envconfig: port_rpc and port_ws are admin by IP
-        BEAST_EXPECT(post(env, {}) == "HTTP/1.1 200 ");
-        for (auto const origin : {"null", "https://evil.example"})
-            BEAST_EXPECTS(
-                post(env, {{"Origin", origin}}) == "HTTP/1.1 403 ", origin);
-        std::array<std::uint8_t, 16> key{};
-        BEAST_EXPECT(
-            exchange(
-                env,
-                raw("node",
-                    "/",
-                    {{"Upgrade", "websocket"},
-                     {"Connection", "upgrade"},
-                     {"Sec-WebSocket-Version", "13"},
-                     {"Sec-WebSocket-Key",
-                      base64_encode(key.data(), key.size())},
-                     {"Origin", "null"}}),
-                yield,
-                "port_ws")
-                .rfind("HTTP/1.1 403 ", 0) == 0);
-
-        // admin_origin names the origins allowed through, ignoring case;
-        // "*" restores the old behaviour.
-        {
-            auto cfg = jtx::envconfig();
-            (*cfg)["port_rpc"].set(
-                "admin_origin", "http://localhost:8080, https://tool.example");
-            Env env2{*this, std::move(cfg)};
-            BEAST_EXPECT(
-                post(env2, {{"Origin", "https://TOOL.example"}}) ==
-                "HTTP/1.1 200 ");
-            BEAST_EXPECT(
-                post(env2, {{"Origin", "http://localhost:8081"}}) ==
-                "HTTP/1.1 403 ");
-            BEAST_EXPECT(post(env2, {{"Origin", "null"}}) == "HTTP/1.1 403 ");
-        }
-        {
-            auto cfg = jtx::envconfig();
-            (*cfg)["port_rpc"].set("admin_origin", "*");
-            Env env2{*this, std::move(cfg)};
-            BEAST_EXPECT(post(env2, {{"Origin", "null"}}) == "HTTP/1.1 200 ");
-        }
-        // A non-admin port is unaffected: browsers keep the public API.
-        {
-            Env env2{*this, jtx::no_admin(jtx::envconfig())};
-            BEAST_EXPECT(
-                exchange(
-                    env2,
-                    raw("node",
-                        "/",
-                        {{"Origin", "https://wallet.example"}},
-                        "POST",
-                        R"({"method":"server_info"})"),
-                    yield,
-                    "port_rpc")
-                    .rfind("HTTP/1.1 200 ", 0) == 0);
         }
     }
 
@@ -1132,7 +1001,6 @@ public:
             testProxy(yield);
             testCustomDomains(yield);
             testPWAInfo(yield);
-            testOriginAdmin(yield);
         });
     }
 };

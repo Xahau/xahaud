@@ -26,7 +26,6 @@
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/network_v4.hpp>
 #include <boost/asio/ip/network_v6.hpp>
-#include <boost/asio/ip/udp.hpp>
 #include <boost/beast/core/string.hpp>
 #include <boost/beast/websocket/option.hpp>
 #include <cstdint>
@@ -35,7 +34,6 @@
 #include <set>
 #include <string>
 #include <variant>
-#include <vector>
 
 namespace boost {
 namespace asio {
@@ -60,16 +58,12 @@ struct Port
     std::vector<boost::asio::ip::network_v6> admin_nets_v6;
     std::vector<boost::asio::ip::network_v4> secure_gateway_nets_v4;
     std::vector<boost::asio::ip::network_v6> secure_gateway_nets_v6;
-    // Browser origins (scheme://host[:port], or "*" for any) whose pages may
-    // use admin rights granted by `admin` IP alone. Empty: none may.
-    std::set<std::string, boost::beast::iless> admin_origins;
-
     // "pwa" ports only; see the "pwa ports" section of xahaud-example.cfg.
     std::set<std::string> pwa_domains;  // zones, lower case, no trailing dot
     std::set<AccountID> pwa_allowlist;  // if non-empty, only these are served
     std::set<AccountID> pwa_blocklist;  // never served; wins over allowlist
     bool pwa_custom_domains = false;    // serve hosts named by TXT records
-    std::vector<boost::asio::ip::udp::endpoint> pwa_resolvers;  // for those
+    std::optional<beast::IP::Endpoint> pwa_resolver;  // for those; else system
     std::string user;
     std::string password;
     std::string admin_user;
@@ -139,12 +133,9 @@ struct ParsedPort
     std::vector<boost::asio::ip::network_v6> admin_nets_v6;
     std::vector<boost::asio::ip::network_v4> secure_gateway_nets_v4;
     std::vector<boost::asio::ip::network_v6> secure_gateway_nets_v6;
-    std::set<std::string, boost::beast::iless> admin_origins;
     std::set<std::string> pwa_domains;
-    std::set<AccountID> pwa_allowlist;
-    std::set<AccountID> pwa_blocklist;
     bool pwa_custom_domains = false;
-    std::vector<boost::asio::ip::udp::endpoint> pwa_resolvers;
+    std::optional<beast::IP::Endpoint> pwa_resolver;
 };
 
 void

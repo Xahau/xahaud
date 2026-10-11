@@ -23,6 +23,7 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Protocol.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 
 #include <string>
@@ -325,6 +326,60 @@ class PWALoader_test : public beast::unit_test::suite
         BEAST_EXPECT(!env.le(keylet::appLoader(alice.id())));
     }
 
+    void
+    testValidateRPC()
+    {
+        testcase("pwa_validate");
+        using namespace jtx;
+        Env env{*this};
+        Account const alice{"alice"};
+        env.fund(XRP(1000), alice);
+        env.close();
+        auto validate = [&](std::string const& d, std::string const& domain) {
+            Json::Value p(Json::objectValue);
+            p[jss::account] = alice.human();
+            p[jss::hash] = to_string(sha512Half(makeSlice(d)));
+            if (!domain.empty())
+                p[jss::domain] = domain;
+            return env.rpc("json", "pwa_validate", to_string(p))[jss::result];
+        };
+
+        BEAST_EXPECT(validate(doc(), "")["reason"] == "no loader");
+        env(set(alice, doc()), fee(XRP(1)));
+        env.close();
+        auto r = validate(doc(), "");
+        BEAST_EXPECT(r["valid"] == true && r["app_loader_sequence"] == 1);
+        BEAST_EXPECT(r[jss::ledger_index] == env.closed()->seq());
+        BEAST_EXPECT(
+            validate("<html></html>", "")["reason"] == "hash mismatch");
+
+        // domain: the account's Domain, or a host beneath it, ignoring case.
+        BEAST_EXPECT(
+            validate(doc(), "pwa.test")["reason"] ==
+            "domain not endorsed by account");
+        auto jt = noop(alice);
+        jt[sfDomain.fieldName] = strHex(std::string("Pwa.Test"));
+        env(jt);
+        env.close();
+        for (auto const d :
+             {"pwa.test", "PWA.TEST.", "pwaabcd.pwa.test", "a.b.pwa.test"})
+            BEAST_EXPECTS(validate(doc(), d)["valid"] == true, d);
+        for (auto const d : {"other.test", "xpwa.test", "pwa.test.evil"})
+            BEAST_EXPECTS(validate(doc(), d)["valid"] == false, d);
+
+        // Malformed input.
+        BEAST_EXPECT(
+            env.rpc(
+                "json",
+                "pwa_validate",
+                R"({"account":"x","hash":"00"})")[jss::result][jss::error] ==
+            "actMalformed");
+        BEAST_EXPECT(
+            env.rpc(
+                "pwa_validate", alice.human(), "zz")[jss::result][jss::error] ==
+            "invalidParams");
+    }
+
 public:
     void
     run() override
@@ -335,6 +390,7 @@ public:
         testFee();
         testMalformed();
         testAccountDelete();
+        testValidateRPC();
     }
 };
 
