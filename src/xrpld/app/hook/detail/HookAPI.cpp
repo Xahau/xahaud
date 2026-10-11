@@ -69,7 +69,13 @@ Expected<bool, HookReturnCode>
 HookAPI::sto_validate(Bytes const& data) const
 {
     if (data.size() < 2)
+    {
+        // fix20261005: a buffer this short can never hold a valid STObject,
+        // so report it as invalid (0) as documented, rather than TOO_SMALL
+        if (hookCtx.applyCtx.view().rules().enabled(fix20261005))
+            return false;
         return Unexpected(TOO_SMALL);
+    }
 
     unsigned char* start = const_cast<unsigned char*>(data.data());
     unsigned char* upto = start;
@@ -1029,15 +1035,21 @@ HookAPI::float_set(int32_t exponent, int64_t mantissa) const
     auto normalized = hook_float::normalize_xfl(mantissa, exponent);
 
     // the above function will underflow into a canonical 0
-    // but this api must report that underflow
+    // but this api must report that underflow.
+    // The range check is on the exponent *after* the mantissa is normalized
+    // to 16 digits. fix20261005: report overflow / underflow as
+    // EXPONENT_OVERSIZED / EXPONENT_UNDERSIZED; before the fix both were
+    // reported as INVALID_FLOAT.
+    bool const fixExpCodes =
+        hookCtx.applyCtx.view().rules().enabled(fix20261005);
     if (!normalized)
     {
         if (normalized.error() == XFL_OVERFLOW)
-            return Unexpected(INVALID_FLOAT);
+            return Unexpected(fixExpCodes ? EXPONENT_OVERSIZED : INVALID_FLOAT);
         return Unexpected(normalized.error());
     }
     if (normalized.value() == 0)
-        return Unexpected(INVALID_FLOAT);
+        return Unexpected(fixExpCodes ? EXPONENT_UNDERSIZED : INVALID_FLOAT);
 
     return normalized;
 }
