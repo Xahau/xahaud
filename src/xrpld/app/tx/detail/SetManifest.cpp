@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/misc/ManifestLedger.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/View.h>
@@ -250,6 +251,12 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     // txid after a fee change. The strictly-increasing sequence test below
     // covers that, both within this ledger and in every later one. Either
     // result is tef, so a replay is never included and never claims a fee.
+    //
+    // The same goes for every other refusal here that turns on ledger state.
+    // The envelope is unsigned and consumes no account sequence, so once
+    // relayed anyone can resubmit it, in every ledger, for as long as the
+    // state it was refused on stays as it is. A tec would charge the master
+    // account its fee each time.
     if (sle->isFieldPresent(sfManifestID))
     {
         // A dangling sfManifestID is a corrupt ledger; doApply reports it.
@@ -279,6 +286,22 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     // account, but keylet::manifest(signingKey) is not: without this, a
     // manifest naming another validator's key as its ephemeral key would
     // collide with -- and clobber -- that validator's object.
+    //
+    // The two kinds of keylet share one namespace, so the master key's own
+    // keylet can be held as well: by another account's ephemeral copy, when
+    // this master key is that account's ephemeral key. Left to doApply, that
+    // would be reported as a corrupt ledger.
+    if (auto const sleMaster =
+            ctx.view.read(keylet::manifest(newManifest->masterKey));
+        sleMaster && sleMaster->getAccountID(sfAccount) != id)
+    {
+        JLOG(ctx.j.warn())
+            << "SetManifest: Master key already claimed as an ephemeral key "
+               "by another account. "
+            << id;
+        return tefMANIFEST_KEY_IN_USE;
+    }
+
     if (newManifest->signingKey)
     {
         auto const sleEph =
@@ -289,7 +312,22 @@ SetManifest::preclaim(PreclaimContext const& ctx)
                 << "SetManifest: Ephemeral key already claimed by another "
                    "account. "
                 << id;
-            return tecDUPLICATE;
+            return tefMANIFEST_KEY_IN_USE;
+        }
+
+        // Held by this account, the object can only be the ephemeral copy of
+        // its current manifest: the master copy is at another key, since a
+        // manifest's two keys must differ. Every manifest cache refuses a
+        // newer manifest that keeps the ephemeral key (badEphemeralKey), so
+        // accepting one here would leave the ledger permanently ahead of what
+        // any node believes. A rotation names a new key; a revocation none.
+        if (sleEph)
+        {
+            JLOG(ctx.j.warn())
+                << "SetManifest: Ephemeral key already used by this master "
+                   "key's current manifest. "
+                << id;
+            return tefMANIFEST_KEY_IN_USE;
         }
     }
 
@@ -313,94 +351,9 @@ SetManifest::doApply()
     if (!manifest || calcAccountID(manifest->masterKey) != account_)
         return tefINTERNAL;
 
-    // A manifest is stored twice so it can be found from either key:
-    //   keylet::manifest(masterKey)  -> obj1, sfManifestID -> obj2
-    //   keylet::manifest(signingKey) -> obj2, sfManifestID -> obj1
-    // A revoked manifest has no signing key, so it exists only as obj1 with no
-    // sfManifestID. Both copies are erased and rewritten on every update so
-    // they can never drift apart.
-    if (sle->isFieldPresent(sfManifestID))
-    {
-        uint256 const firstID = sle->getFieldH256(sfManifestID);
-        auto const sleMan1 = view().peek(Keylet{ltMANIFEST, firstID});
-        if (!sleMan1 || sleMan1->getAccountID(sfAccount) != account_)
-        {
-            JLOG(j_.error()) << "SetManifest: Old manifest object missing or "
-                                "misowned (ID1) !! "
-                             << strHex(firstID);
-            return tefBAD_LEDGER;
-        }
-
-        // Absent when the previous manifest was a revocation.
-        if (sleMan1->isFieldPresent(sfManifestID))
-        {
-            uint256 const secondID = sleMan1->getFieldH256(sfManifestID);
-            auto const sleMan2 = view().peek(Keylet{ltMANIFEST, secondID});
-            if (secondID == firstID || !sleMan2 ||
-                sleMan2->getAccountID(sfAccount) != account_)
-            {
-                JLOG(j_.error())
-                    << "SetManifest: Old manifest object missing, misowned or "
-                       "self-referential (ID2) !! "
-                    << strHex(secondID);
-                return tefBAD_LEDGER;
-            }
-            view().erase(sleMan2);
-        }
-
-        view().erase(sleMan1);
-    }
-
-    Keylet const klMan1 = keylet::manifest(manifest->masterKey);
-    std::optional<Keylet> klMan2;
-    if (!manifest->revoked() && manifest->signingKey)
-        klMan2 = keylet::manifest(*manifest->signingKey);
-
-    // Neither key may still be occupied: preclaim rejects an ephemeral key held
-    // by another account, and the block above cleared this account's own
-    // copies.
-    if (view().exists(klMan1) || (klMan2 && view().exists(*klMan2)))
-    {
-        JLOG(j_.error()) << "SetManifest: Manifest keylet already occupied !! "
-                         << strHex(klMan1.key);
-        return tefBAD_LEDGER;
-    }
-
-    // Mirror the manifest losslessly, signatures included, so any node can
-    // reconstruct and independently verify it (ManifestCache::applyLedger).
-    // Field *presence* is copied faithfully: sfVersion is soeDEFAULT in the
-    // manifest format, so materialising an absent one would alter the signed
-    // payload and break verification.
-    auto const write = [&](Keylet const& kl,
-                           std::optional<uint256> const& other) {
-        auto sleMan = std::make_shared<SLE>(kl);
-        sleMan->setAccountID(sfAccount, account_);
-        sleMan->setFieldU32(sfSequence, obj.getFieldU32(sfSequence));
-        sleMan->setFieldVL(sfPublicKey, obj.getFieldVL(sfPublicKey));
-        sleMan->setFieldVL(
-            sfMasterSignature, obj.getFieldVL(sfMasterSignature));
-        if (obj.isFieldPresent(sfVersion))
-            sleMan->setFieldU16(sfVersion, obj.getFieldU16(sfVersion));
-        if (obj.isFieldPresent(sfSigningPubKey))
-            sleMan->setFieldVL(
-                sfSigningPubKey, obj.getFieldVL(sfSigningPubKey));
-        if (obj.isFieldPresent(sfSignature))
-            sleMan->setFieldVL(sfSignature, obj.getFieldVL(sfSignature));
-        if (obj.isFieldPresent(sfDomain))
-            sleMan->setFieldVL(sfDomain, obj.getFieldVL(sfDomain));
-        if (other)
-            sleMan->setFieldH256(sfManifestID, *other);
-        view().insert(sleMan);
-    };
-
-    write(klMan1, klMan2 ? std::optional<uint256>{klMan2->key} : std::nullopt);
-    if (klMan2)
-        write(*klMan2, klMan1.key);
-
-    sle->setFieldH256(sfManifestID, klMan1.key);
-    view().update(sle);
-
-    return tesSUCCESS;
+    // The objects, and the manifest directory entry, are maintained in one
+    // place; see writeManifestObjects.
+    return writeManifestObjects(view(), sle, obj, *manifest, j_);
 }
 
 XRPAmount

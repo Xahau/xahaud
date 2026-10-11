@@ -25,6 +25,7 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/LedgerToJson.h>
 #include <xrpld/app/ledger/LocalTxs.h>
+#include <xrpld/app/ledger/ManifestSync.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
@@ -318,6 +319,13 @@ private:
     checkLastClosedLedger(const Overlay::PeerSequence&, uint256& networkClosed);
     void
     publishNewerManifests(ReadView const& ledger);
+
+    /** Read manifests from ledgers peers report, while too few of this node's
+        validators can be resolved to trust any ledger. See
+        [early_manifest_sync].
+    */
+    void
+    bootstrapManifests();
 
 public:
     bool
@@ -667,6 +675,12 @@ private:
     std::atomic<OperatingMode> mMode;
 
     std::atomic<bool> needNetworkLedger_{false};
+
+    /** State of bootstrapManifests(), which only the heartbeat calls. */
+    std::mutex manifestBootstrapMutex_;
+    hash_set<uint256> manifestBootstrapTried_;
+    std::chrono::steady_clock::time_point manifestBootstrapNext_{};
+
     std::atomic<bool> amendmentBlocked_{false};
     std::atomic<bool> amendmentWarned_{false};
     std::atomic<bool> unlBlocked_{false};
@@ -1027,6 +1041,8 @@ NetworkOPsImp::processHeartbeatTimer()
     }
     CLOG(clog.ss()) << ". ";
 
+    bootstrapManifests();
+
     setHeartbeatTimer();
 }
 
@@ -1243,6 +1259,105 @@ NetworkOPsImp::publishNewerManifests(ReadView const& ledger)
             auto t = tx;
             processTransaction(t, false, false, FailHard::no);
         });
+    }
+}
+
+namespace {
+
+/** How often a node that cannot resolve enough of its validators looks for
+    ledgers to read their manifests from. */
+constexpr std::chrono::seconds manifestBootstrapInterval{15};
+
+/** Most ledgers it starts reading at each look. */
+constexpr std::size_t manifestBootstrapWidth = 3;
+
+/** Ledgers remembered as read, past which the record starts over. */
+constexpr std::size_t manifestBootstrapMemory = 256;
+
+}  // namespace
+
+void
+NetworkOPsImp::bootstrapManifests()
+{
+    // Only until a ledger has been validated: from then on the manifests are
+    // kept current from each ledger as it closes, in beginConsensus().
+    if (!app_.config().EARLY_MANIFEST_SYNC || m_ledgerMaster.haveValidated())
+        return;
+
+    std::vector<uint256> picked;
+    {
+        auto const now = std::chrono::steady_clock::now();
+        std::lock_guard lock(manifestBootstrapMutex_);
+        if (now < manifestBootstrapNext_)
+            return;
+        manifestBootstrapNext_ = now + manifestBootstrapInterval;
+
+        // The validators whose manifests matter: the trusted ones once the
+        // trusted set has been worked out, every listed one before that.
+        auto keys = app_.validators().getTrustedMasterKeys();
+        bool const trusted = !keys.empty();
+        if (!trusted)
+            app_.validators().for_each_listed(
+                [&keys](PublicKey const& pk, bool) { keys.insert(pk); });
+        if (keys.empty())
+            return;
+
+        // Enough of them to make a quorum.
+        std::size_t const needed =
+            manifestQuorum(keys.size(), trusted, app_.validators().quorum());
+
+        auto const& manifests = app_.validatorManifests();
+        std::size_t resolved = 0;
+        for (auto const& pk : keys)
+            if (manifests.getManifest(pk))
+                ++resolved;
+
+        if (resolved >= needed)
+            return;
+
+        std::vector<uint256> reported;
+        for (auto const& peer : app_.overlay().getActivePeers())
+            reported.push_back(peer->getClosedLedgerHash());
+
+        if (manifestBootstrapTried_.size() > manifestBootstrapMemory)
+            manifestBootstrapTried_.clear();
+
+        picked = pickManifestCandidates(
+            reported, manifestBootstrapTried_, manifestBootstrapWidth);
+        if (picked.empty())
+            return;
+
+        manifestBootstrapTried_.insert(picked.begin(), picked.end());
+
+        JLOG(m_journal.info())
+            << "Manifests held for " << resolved << " of " << keys.size()
+            << " validators, " << needed << " needed: reading manifests from "
+            << picked.size() << " ledger(s) reported by " << reported.size()
+            << " peer(s)";
+    }
+
+    // Each is acquired as consensus would acquire it. Before a ledger has
+    // been validated, InboundLedger reads the manifests first, by key and from
+    // the directory, and only then fetches the rest. The first pick is
+    // usually the ledger checkLastClosedLedger() is already acquiring. Ledgers
+    // of the same network share nearly all their nodes, so each further one
+    // costs little more than what changed; one that only a peer has fails and
+    // costs nothing more.
+    //
+    // Runs on the heartbeat, ahead of re-arming it, so nothing here may throw.
+    for (auto const& hash : picked)
+    {
+        JLOG(m_journal.debug()) << "Reading manifests from ledger " << hash;
+        try
+        {
+            app_.getInboundLedgers().acquire(
+                hash, 0, InboundLedger::Reason::CONSENSUS);
+        }
+        catch (std::exception const& e)
+        {
+            JLOG(m_journal.warn()) << "Could not start reading manifests from "
+                                   << "ledger " << hash << ": " << e.what();
+        }
     }
 }
 
@@ -2081,13 +2196,13 @@ NetworkOPsImp::beginConsensus(
         app_.validators().setNegativeUNL(prevLedger->negativeUNL());
     // Pull in any manifests published on-ledger before the trusted set is
     // recomputed, so a validator that rotated its ephemeral key on-chain is
-    // resolved to the new signing key in this same round. The master keys come
-    // from the published lists, so this needs no bootstrap: only the ephemeral
-    // half of the mapping ever comes from a manifest.
+    // resolved to the new signing key in this same round. Every master key the
+    // cache holds or pins is probed, not only the trusted ones: a revocation is
+    // published on-ledger by master key alone, and a master key whose ephemeral
+    // key the cache already resolves would otherwise never be looked up again.
     if (prevLedger->rules().enabled(featureOnChainManifests))
     {
-        app_.validatorManifests().applyLedger(
-            *prevLedger, app_.validators().getTrustedMasterKeys());
+        app_.validatorManifests().applyLedger(*prevLedger);
 
         // The reverse of applyLedger above. Manifests reach us by peer gossip
         // and in published validator lists, both of which can arrive before
@@ -2103,8 +2218,8 @@ NetworkOPsImp::beginConsensus(
         app_.overlay(),
         app_.getHashRouter());
 
-    // Pin the trusted master keys so they are always offered to a new peer and
-    // cannot be crowded out of the gossip set by more recently used manifests.
+    // Pin the trusted master keys: their manifests are retained in the list
+    // tier and offered to every new peer, whichever source delivered them.
     app_.validatorManifests().pin(app_.validators().getTrustedMasterKeys());
 
     if (!changes.added.empty() || !changes.removed.empty())
