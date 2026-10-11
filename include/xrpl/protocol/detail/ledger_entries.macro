@@ -142,6 +142,22 @@ LEDGER_ENTRY(ltIMPORT_VLSEQ, 0x0049, ImportVLSequence, import_vlseq, ({
     {sfPreviousTxnLgrSeq,    soeOPTIONAL},
 }))
 
+/** The bootstrap document of a Progressive Web App (featurePWALoader).
+
+    At most one per account, keyed on the owner alone (keylet::appLoader).
+    It is in no owner directory and takes no reserve: its storage is paid
+    for by a per-byte fee on the AccountSet that writes it, and
+    DeleteAccount erases it explicitly. AppLoaderSequence equals the owner's
+    AccountRoot AppLoaderSequence as of the AccountSet that wrote it.
+ */
+LEDGER_ENTRY(ltAPP_LOADER, 0x004c, AppLoader, app_loader, ({
+    {sfOwner,                soeREQUIRED},
+    {sfAppLoader,            soeREQUIRED},
+    {sfAppLoaderSequence,    soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** The ledger object which tracks the current negative UNL state.
 
     \note This is a singleton: only one such object exists in the ledger.
@@ -262,6 +278,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
+    {sfAppLoaderSequence,    soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
 }))
 

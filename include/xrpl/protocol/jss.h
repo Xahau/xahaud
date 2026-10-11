@@ -610,6 +610,7 @@ JSS(reserve_base_native);   // out: NetworkOPs
 JSS(reserve_inc);           // out: NetworkOPs
 JSS(reserve_inc_xrp);       // out: NetworkOPs
 JSS(reserve_inc_native);    // out: NetworkOPs
+JSS(reset);                 // in/out: PWAInfo
 JSS(response);              // websocket
 JSS(result);                // RPC
 JSS(ripple_lines);          // out: NetworkOPs
