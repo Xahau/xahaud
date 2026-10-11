@@ -624,54 +624,39 @@ SetAccount::doApply()
         }
     }
 
-    //
-    // AppLoader
-    //
-    // The document lives in its own ltAPP_LOADER object rather than inline on
-    // the AccountRoot, so that a multi-kilobyte blob is not dragged into
-    // memory every time the account is touched. The AccountRoot keeps only a
-    // pointer.
-    //
-    // The object is not placed in the owner directory and takes no reserve:
-    // its storage is paid for by the per-byte fee added in calculateBaseFee.
-    // DeleteAccount therefore has to erase it explicitly, since its directory
-    // walk will never see it.
-    //
+    // AppLoader: its own ltAPP_LOADER object (no directory entry, no
+    // reserve; the per-byte fee from calculateBaseFee pays for it). Every
+    // AccountSet carrying the field, removal included, advances the owner's
+    // AppLoaderSequence, and a written object records the sequence it was
+    // written at, so a reader can tell whether a copy is current.
     if (view().rules().enabled(featurePWALoader) &&
         tx.isFieldPresent(sfAppLoader))
     {
         Blob const loader = tx.getFieldVL(sfAppLoader);
         Keylet const klLoader = keylet::appLoader(account_);
         auto sleLoader = view().peek(klLoader);
+        std::uint32_t const seq = (*sle)[~sfAppLoaderSequence].value_or(0) + 1;
+        (*sle)[sfAppLoaderSequence] = seq;
 
         if (loader.empty())
         {
-            // Removal.
             if (sleLoader)
-            {
-                JLOG(j_.trace()) << "unset app loader";
                 view().erase(sleLoader);
-            }
-
-            if (sle->isFieldPresent(sfAppLoaderID))
-                sle->makeFieldAbsent(sfAppLoaderID);
-        }
-        else if (sleLoader)
-        {
-            // Overwrite in place; the pointer already stands.
-            JLOG(j_.trace()) << "update app loader";
-            sleLoader->setFieldVL(sfAppLoader, loader);
-            view().update(sleLoader);
         }
         else
         {
-            // Create.
-            JLOG(j_.trace()) << "set app loader";
-            sleLoader = std::make_shared<SLE>(klLoader);
-            (*sleLoader)[sfOwner] = account_;
+            bool const create = !sleLoader;
+            if (create)
+            {
+                sleLoader = std::make_shared<SLE>(klLoader);
+                (*sleLoader)[sfOwner] = account_;
+            }
             sleLoader->setFieldVL(sfAppLoader, loader);
-            view().insert(sleLoader);
-            sle->setFieldH256(sfAppLoaderID, klLoader.key);
+            (*sleLoader)[sfAppLoaderSequence] = seq;
+            if (create)
+                view().insert(sleLoader);
+            else
+                view().update(sleLoader);
         }
     }
 

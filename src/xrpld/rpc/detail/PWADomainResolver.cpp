@@ -22,17 +22,14 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/crypto/csprng.h>
 
-#include <boost/asio/bind_executor.hpp>
 #include <boost/asio/post.hpp>
 #include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 
 #include <algorithm>
 #include <array>
-#include <fstream>
 #include <mutex>
 #include <set>
-#include <sstream>
 #include <unordered_map>
 
 namespace ripple {
@@ -43,23 +40,13 @@ using clock_type = std::chrono::steady_clock;
 using udp = boost::asio::ip::udp;
 
 constexpr std::uint16_t typeTXT = 16;
-constexpr std::uint16_t typeOPT = 41;
-constexpr std::uint16_t classIN = 1;
-constexpr std::uint16_t ednsPayload = 1232;
 constexpr std::size_t headerSize = 12;
-constexpr std::size_t optSize = 11;  // root name, type, class, ttl, rdlen
+constexpr std::size_t optSize = 11;  // the EDNS(0) OPT record in a query
 
 std::uint16_t
 get16(std::uint8_t const* p)
 {
     return static_cast<std::uint16_t>((p[0] << 8) | p[1]);
-}
-
-std::uint32_t
-get32(std::uint8_t const* p)
-{
-    return (std::uint32_t{p[0]} << 24) | (std::uint32_t{p[1]} << 16) |
-        (std::uint32_t{p[2]} << 8) | std::uint32_t{p[3]};
 }
 
 void
@@ -75,23 +62,16 @@ lowerAscii(std::uint8_t c)
     return (c >= 'A' && c <= 'Z') ? static_cast<std::uint8_t>(c + 32) : c;
 }
 
-// Step over a (possibly compressed) name starting at `pos`. Returns the
-// offset just past it, or nullopt if it runs off the end or is malformed.
+// Offset just past the (possibly compressed) name at `pos`, or nullopt.
 std::optional<std::size_t>
 skipName(std::uint8_t const* p, std::size_t size, std::size_t pos)
 {
-    for (int labels = 0; labels < 128; ++labels)
+    for (int labels = 0; labels < 128 && pos < size; ++labels)
     {
-        if (pos >= size)
-            return std::nullopt;
         auto const len = p[pos];
         if ((len & 0xC0) == 0xC0)
-        {
-            if (pos + 2 > size)
-                return std::nullopt;
-            return pos + 2;
-        }
-        if ((len & 0xC0) != 0)
+            return pos + 2 <= size ? std::optional{pos + 2} : std::nullopt;
+        if (len & 0xC0)
             return std::nullopt;
         if (len == 0)
             return pos + 1;
@@ -102,76 +82,59 @@ skipName(std::uint8_t const* p, std::size_t size, std::size_t pos)
 
 }  // namespace
 
-//------------------------------------------------------------------------------
-
 bool
 PWADomainResolver::isCustomDomainName(std::string_view host)
 {
     if (host.empty() || host.size() + recordLabel.size() + 1 > 253)
         return false;
-
     std::size_t labels = 0;
-    std::string_view last;
-    std::string_view rest = host;
-    while (true)
+    std::string_view label;
+    for (std::string_view rest = host;; rest.remove_prefix(label.size() + 1))
     {
-        auto const dot = rest.find('.');
-        auto const label = rest.substr(0, dot);
+        label = rest.substr(0, rest.find('.'));
         if (label.empty() || label.size() > 63 || label.front() == '-' ||
-            label.back() == '-')
+            label.back() == '-' ||
+            label.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-") !=
+                std::string_view::npos)
             return false;
-        for (char c : label)
-            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'))
-                return false;
         ++labels;
-        last = label;
-        if (dot == std::string_view::npos)
+        if (label.size() == rest.size())
             break;
-        rest.remove_prefix(dot + 1);
     }
-
-    if (labels < 2)
-        return false;
-    // An all-numeric top-level label is an IPv4 literal, not a name.
-    return last.find_first_not_of("0123456789") != std::string_view::npos;
+    // An all-digit top label is an IPv4 literal.
+    return labels >= 2 &&
+        label.find_first_not_of("0123456789") != std::string_view::npos;
 }
 
 std::vector<std::uint8_t>
 PWADomainResolver::encodeQuery(std::string_view host, std::uint16_t id)
 {
     std::vector<std::uint8_t> q;
-    q.reserve(headerSize + host.size() + recordLabel.size() + 8 + optSize);
-
     put16(q, id);
-    put16(q, 0x0100);  // QR=0, OPCODE=QUERY, RD=1
+    put16(q, 0x0100);  // RD
     put16(q, 1);       // QDCOUNT
-    put16(q, 0);       // ANCOUNT
-    put16(q, 0);       // NSCOUNT
-    put16(q, 1);       // ARCOUNT: the OPT record
-
+    put16(q, 0);
+    put16(q, 0);
+    put16(q, 1);  // ARCOUNT: OPT
     auto label = [&](std::string_view l) {
         q.push_back(static_cast<std::uint8_t>(l.size()));
         q.insert(q.end(), l.begin(), l.end());
     };
     label(recordLabel);
-    std::string_view rest = host;
-    while (!rest.empty())
+    for (std::string_view rest = host; !rest.empty();)
     {
         auto const dot = rest.find('.');
         label(rest.substr(0, dot));
-        if (dot == std::string_view::npos)
-            break;
-        rest.remove_prefix(dot + 1);
+        rest.remove_prefix(
+            dot == std::string_view::npos ? rest.size() : dot + 1);
     }
     q.push_back(0);
     put16(q, typeTXT);
-    put16(q, classIN);
-
-    // EDNS(0): a 1232 byte UDP payload, which fits any sane TXT answer in
-    // one unfragmented datagram.
+    put16(q, 1);  // IN
+    // OPT: 1232 byte UDP payload, so a sane answer never truncates.
     q.push_back(0);
-    put16(q, typeOPT);
-    put16(q, ednsPayload);
+    put16(q, 41);
+    put16(q, 1232);
     put16(q, 0);
     put16(q, 0);
     put16(q, 0);
@@ -184,96 +147,65 @@ PWADomainResolver::parseResponse(
     std::uint8_t const* p,
     std::size_t size)
 {
-    Parsed out;
-    if (query.size() < headerSize + optSize + 4 || size < headerSize)
-        return out;  // mismatch
-
-    if (p[0] != query[0] || p[1] != query[1])
-        return out;
-    bool const qr = (p[2] & 0x80) != 0;
-    auto const opcode = (p[2] >> 3) & 0x0F;
-    if (!qr || opcode != 0 || get16(p + 4) != 1)
-        return out;
-
-    // The question must be ours, ignoring ASCII case. Label length octets
-    // are below 64 and so unaffected by lowerAscii.
+    Parsed out;  // mismatch until proven ours
     auto const qlen = query.size() - headerSize - optSize;  // name+type+class
-    if (size < headerSize + qlen)
+    if (size < headerSize + qlen || p[0] != query[0] || p[1] != query[1] ||
+        !(p[2] & 0x80) || ((p[2] >> 3) & 0x0F) != 0 || get16(p + 4) != 1)
         return out;
-    for (std::size_t i = 0; i < qlen; ++i)
+    for (std::size_t i = 0; i < qlen; ++i)  // the question, ignoring case
         if (lowerAscii(p[headerSize + i]) != lowerAscii(query[headerSize + i]))
             return out;
 
-    // From here on it is an answer to this query.
-    bool const truncated = (p[2] & 0x02) != 0;
-    auto const rcode = p[3] & 0x0F;
-    if (truncated)
-    {
+    auto fail = [&] {
         out.kind = Parsed::Kind::error;
+        out.txt.clear();
         return out;
-    }
+    };
+    auto const rcode = p[3] & 0x0F;
+    if (p[2] & 0x02)  // truncated
+        return fail();
     if (rcode == 3)
     {
         out.kind = Parsed::Kind::nxdomain;
         return out;
     }
     if (rcode != 0)
-    {
-        out.kind = Parsed::Kind::error;
-        return out;
-    }
+        return fail();
 
-    auto const ancount = get16(p + 6);
     std::size_t pos = headerSize + qlen;
     std::optional<std::uint32_t> minTTL;
-    for (std::uint16_t i = 0; i < ancount; ++i)
+    for (std::uint16_t i = 0, n = get16(p + 6); i < n; ++i)
     {
         auto const after = skipName(p, size, pos);
         if (!after || *after + 10 > size)
-        {
-            out.kind = Parsed::Kind::error;
-            out.txt.clear();
-            return out;
-        }
+            return fail();
         pos = *after;
         auto const type = get16(p + pos);
         auto const cls = get16(p + pos + 2);
-        auto const ttl = get32(p + pos + 4);
+        auto const ttl = (std::uint32_t{p[pos + 4]} << 24) |
+            (std::uint32_t{p[pos + 5]} << 16) |
+            (std::uint32_t{p[pos + 6]} << 8) | p[pos + 7];
         auto const rdlen = get16(p + pos + 8);
         pos += 10;
         if (pos + rdlen > size)
-        {
-            out.kind = Parsed::Kind::error;
-            out.txt.clear();
-            return out;
-        }
-
-        // CNAMEs (and anything else) on the way to the TXT are skipped; the
-        // recursive resolver has already followed the chain.
-        if (type == typeTXT && cls == classIN)
+            return fail();
+        if (type == typeTXT && cls == 1)  // CNAMEs on the way are skipped
         {
             std::string s;
-            std::size_t i = 0;
-            while (i < rdlen)
+            for (std::size_t i2 = 0; i2 < rdlen;)
             {
-                auto const len = p[pos + i];
-                if (i + 1 + len > rdlen)
-                {
-                    out.kind = Parsed::Kind::error;
-                    out.txt.clear();
-                    return out;
-                }
-                s.append(reinterpret_cast<char const*>(p + pos + i + 1), len);
-                i += 1 + len;
+                auto const len = p[pos + i2];
+                if (i2 + 1 + len > rdlen)
+                    return fail();
+                s.append(reinterpret_cast<char const*>(p + pos + i2 + 1), len);
+                i2 += 1 + len;
             }
             out.txt.push_back(std::move(s));
-            // A TTL with the top bit set is treated as zero (RFC 2181 8).
-            auto const t = (ttl & 0x80000000u) ? 0u : ttl;
+            auto const t = (ttl & 0x80000000u) ? 0u : ttl;  // RFC 2181 8
             minTTL = minTTL ? std::min(*minTTL, t) : t;
         }
         pos += rdlen;
     }
-
     out.kind = Parsed::Kind::answer;
     out.ttl = minTTL.value_or(0);
     return out;
@@ -294,38 +226,9 @@ PWADomainResolver::decide(std::vector<std::string> const& txt)
             a && !a->isZero())
             named.insert(*a);
     }
-
-    Answer answer;
     if (named.size() == 1)
-    {
-        answer.status = Status::found;
-        answer.account = *named.begin();
-    }
-    else
-    {
-        answer.status = Status::none;
-    }
-    return answer;
-}
-
-std::vector<udp::endpoint>
-PWADomainResolver::systemResolvers(std::string const& path)
-{
-    std::vector<udp::endpoint> out;
-    std::ifstream in(path);
-    std::string line;
-    while (std::getline(in, line) && out.size() < 3)
-    {
-        std::istringstream words(line);
-        std::string key, value;
-        if (!(words >> key >> value) || key != "nameserver")
-            continue;
-        boost::system::error_code ec;
-        auto const addr = boost::asio::ip::make_address(value, ec);
-        if (!ec && !addr.is_unspecified())
-            out.emplace_back(addr, 53);
-    }
-    return out;
+        return {Status::found, *named.begin()};
+    return {Status::none, {}};
 }
 
 //------------------------------------------------------------------------------
@@ -334,13 +237,6 @@ class PWADomainResolver::Impl : public std::enable_shared_from_this<Impl>
 {
 public:
     class Query;
-
-    struct CacheEntry
-    {
-        Answer answer;
-        clock_type::time_point expires;
-    };
-
     struct Pending
     {
         std::vector<Handler> handlers;
@@ -349,28 +245,20 @@ public:
 
     boost::asio::io_context& io_;
     beast::Journal const j_;
-
     std::mutex mutex_;
     bool stopped_ = false;
-    std::unordered_map<std::string, CacheEntry> cache_;
+    std::unordered_map<std::string, std::pair<Answer, clock_type::time_point>>
+        cache_;
     std::unordered_map<std::string, Pending> pending_;
     std::size_t waiters_ = 0;
-
-    std::uint64_t hits_ = 0;
-    std::uint64_t misses_ = 0;
-    std::uint64_t queries_ = 0;
-    std::uint64_t coalesced_ = 0;
-    std::uint64_t busy_ = 0;
-    std::uint64_t found_ = 0;
-    std::uint64_t none_ = 0;
-    std::uint64_t failed_ = 0;
-    std::uint64_t timeouts_ = 0;
+    std::uint64_t hits_ = 0, queries_ = 0, found_ = 0, none_ = 0, failed_ = 0,
+                  timeouts_ = 0;
 
     Impl(boost::asio::io_context& io, beast::Journal j) : io_(io), j_(j)
     {
     }
 
-    // Record a finished lookup and hand it to everyone waiting on it.
+    // Cache a finished lookup and hand it to everyone waiting on it.
     void
     complete(
         std::string const& host,
@@ -382,19 +270,9 @@ public:
         {
             std::lock_guard lock(mutex_);
             timeouts_ += timeouts;
-            switch (answer.status)
-            {
-                case Status::found:
-                    ++found_;
-                    break;
-                case Status::none:
-                    ++none_;
-                    break;
-                case Status::failed:
-                    ++failed_;
-                    break;
-            }
-
+            (answer.status == Status::found      ? found_
+                 : answer.status == Status::none ? none_
+                                                 : failed_)++;
             if (!stopped_)
             {
                 auto const now = clock_type::now();
@@ -402,14 +280,13 @@ public:
                     cache_.find(host) == cache_.end())
                 {
                     std::erase_if(cache_, [&](auto const& e) {
-                        return e.second.expires <= now;
+                        return e.second.second <= now;
                     });
                     if (cache_.size() >= maxCacheEntries)
                         cache_.erase(cache_.begin());
                 }
                 cache_[host] = {answer, now + std::chrono::seconds(ttl)};
             }
-
             if (auto it = pending_.find(host); it != pending_.end())
             {
                 handlers = std::move(it->second.handlers);
@@ -417,14 +294,14 @@ public:
                 pending_.erase(it);
             }
         }
-
         for (auto const& h : handlers)
             h(answer);
     }
 };
 
-// One lookup: up to maxAttempts datagrams, round robin over the servers,
-// each with its own ID and ephemeral port. Everything runs on one strand.
+// One lookup: up to maxAttempts datagrams round robin over the servers,
+// each with a fresh ID and ephemeral port, all on one strand. A generation
+// counter retires the handlers of an abandoned attempt.
 class PWADomainResolver::Impl::Query
     : public std::enable_shared_from_this<Query>
 {
@@ -437,8 +314,7 @@ class PWADomainResolver::Impl::Query
     std::array<std::uint8_t, 4096> buf_{};
     std::vector<std::uint8_t> wire_;
     std::size_t attempt_ = 0;
-    std::uint64_t gen_ = 0;
-    std::uint64_t timeouts_ = 0;
+    std::uint64_t gen_ = 0, timeouts_ = 0;
     bool done_ = false;
 
 public:
@@ -462,7 +338,6 @@ public:
             strand_, [self = shared_from_this()] { self->attempt(); });
     }
 
-    // From any thread: give up now (stop()).
     void
     cancel()
     {
@@ -479,9 +354,7 @@ private:
             return;
         if (servers_.empty() || attempt_ >= maxAttempts)
             return finish({Status::failed, {}}, failureTTL);
-
-        auto const& server = servers_[attempt_ % servers_.size()];
-        ++attempt_;
+        auto const& server = servers_[attempt_++ % servers_.size()];
         auto const gen = ++gen_;
 
         std::uint16_t id;
@@ -492,14 +365,10 @@ private:
         socket_.close(ec);
         socket_.open(server.protocol(), ec);
         if (!ec)
-            socket_.connect(server, ec);  // no I/O: fixes the peer
+            socket_.connect(server, ec);  // no I/O: only this peer may answer
         if (ec)
-        {
-            JLOG(impl_->j_.debug())
-                << "resolver " << server << ": " << ec.message();
             return boost::asio::post(
                 strand_, [self = shared_from_this()] { self->attempt(); });
-        }
 
         timer_.expires_after(attemptTimeout);
         timer_.async_wait(
@@ -507,11 +376,9 @@ private:
                 if (ec || gen != self->gen_ || self->done_)
                     return;
                 ++self->timeouts_;
-                // Aborts the receive, which moves on to the next attempt.
                 boost::system::error_code ignored;
-                self->socket_.close(ignored);
+                self->socket_.close(ignored);  // aborts the receive: retry
             });
-
         socket_.async_send(
             boost::asio::buffer(wire_),
             [self = shared_from_this(), gen](
@@ -519,7 +386,6 @@ private:
                 if (ec && gen == self->gen_ && !self->done_)
                     self->retry();
             });
-
         receive(gen);
     }
 
@@ -534,31 +400,28 @@ private:
                     return;
                 if (ec)
                     return self->retry();
-                self->onDatagram(gen, n);
+                auto const parsed =
+                    parseResponse(self->wire_, self->buf_.data(), n);
+                switch (parsed.kind)
+                {
+                    case Parsed::Kind::mismatch:  // not ours: keep waiting
+                        return self->receive(gen);
+                    case Parsed::Kind::error:
+                        return self->retry();
+                    case Parsed::Kind::nxdomain:
+                        return self->finish({Status::none, {}}, negativeTTL);
+                    case Parsed::Kind::answer: {
+                        auto const answer = decide(parsed.txt);
+                        return self->finish(
+                            answer,
+                            answer.status == Status::found ? std::clamp(
+                                                                 parsed.ttl,
+                                                                 minPositiveTTL,
+                                                                 maxPositiveTTL)
+                                                           : negativeTTL);
+                    }
+                }
             });
-    }
-
-    void
-    onDatagram(std::uint64_t gen, std::size_t n)
-    {
-        auto const parsed = parseResponse(wire_, buf_.data(), n);
-        switch (parsed.kind)
-        {
-            case Parsed::Kind::mismatch:
-                // Not ours. Keep listening until the attempt times out.
-                return receive(gen);
-            case Parsed::Kind::error:
-                return retry();
-            case Parsed::Kind::nxdomain:
-                return finish({Status::none, {}}, negativeTTL);
-            case Parsed::Kind::answer: {
-                auto const answer = decide(parsed.txt);
-                auto const ttl = answer.status == Status::found
-                    ? std::clamp(parsed.ttl, minPositiveTTL, maxPositiveTTL)
-                    : negativeTTL;
-                return finish(answer, ttl);
-            }
-        }
     }
 
     void
@@ -581,14 +444,11 @@ private:
         timer_.cancel();
         boost::system::error_code ignored;
         socket_.close(ignored);
-
         JLOG(impl_->j_.debug())
             << recordLabel << "." << host_ << ": "
             << (answer.status == Status::found      ? toBase58(answer.account)
                     : answer.status == Status::none ? "no record"
-                                                    : "failed")
-            << " (ttl " << ttl << ")";
-
+                                                    : "failed");
         impl_->complete(host_, answer, ttl, timeouts_);
     }
 };
@@ -602,12 +462,11 @@ PWADomainResolver::PWADomainResolver(
 {
 }
 
+// stop() is the orderly path, while the io_context runs. Here it may not,
+// so post nothing: drop the waiters and let any running query finish on
+// its own, keeping Impl alive until it does.
 PWADomainResolver::~PWADomainResolver()
 {
-    // stop() is the orderly path, while the io_context still runs. Here it
-    // may not, so post nothing: drop the waiters (and with them the
-    // sessions they hold) and let any query still running finish on its
-    // own, keeping Impl alive until it does.
     std::lock_guard lock(impl_->mutex_);
     impl_->stopped_ = true;
     impl_->pending_.clear();
@@ -620,18 +479,14 @@ PWADomainResolver::cached(std::string const& host)
     std::lock_guard lock(impl_->mutex_);
     auto const it = impl_->cache_.find(host);
     if (it == impl_->cache_.end())
-    {
-        ++impl_->misses_;
         return std::nullopt;
-    }
-    if (it->second.expires <= clock_type::now())
+    if (it->second.second <= clock_type::now())
     {
         impl_->cache_.erase(it);
-        ++impl_->misses_;
         return std::nullopt;
     }
     ++impl_->hits_;
-    return it->second.answer;
+    return it->second.first;
 }
 
 PWADomainResolver::Start
@@ -646,25 +501,15 @@ PWADomainResolver::resolve(
         if (impl_->stopped_)
             return Start::stopped;
         if (impl_->waiters_ >= maxWaiters)
-        {
-            ++impl_->busy_;
             return Start::busy;
-        }
-
         if (auto it = impl_->pending_.find(host); it != impl_->pending_.end())
         {
             it->second.handlers.push_back(std::move(handler));
             ++impl_->waiters_;
-            ++impl_->coalesced_;
             return Start::coalesced;
         }
-
         if (impl_->pending_.size() >= maxQueriesInFlight)
-        {
-            ++impl_->busy_;
             return Start::busy;
-        }
-
         query = std::make_shared<Impl::Query>(impl_, host, servers);
         auto& p = impl_->pending_[host];
         p.handlers.push_back(std::move(handler));
@@ -672,7 +517,6 @@ PWADomainResolver::resolve(
         ++impl_->waiters_;
         ++impl_->queries_;
     }
-
     query->run();
     return Start::started;
 }
@@ -697,7 +541,6 @@ PWADomainResolver::stop()
         impl_->pending_.clear();
         impl_->waiters_ = 0;
     }
-
     for (auto const& q : queries)
         q->cancel();
     for (auto const& h : handlers)
@@ -714,30 +557,19 @@ PWADomainResolver::flush()
 }
 
 Json::Value
-PWADomainResolver::getJson(bool reset)
+PWADomainResolver::getJson()
 {
     Json::Value ret(Json::objectValue);
     std::lock_guard lock(impl_->mutex_);
-    auto& i = *impl_;
-
+    auto const& i = *impl_;
     ret["cache_entries"] = static_cast<Json::UInt>(i.cache_.size());
     ret["queries_in_flight"] = static_cast<Json::UInt>(i.pending_.size());
-    ret["waiting_requests"] = static_cast<Json::UInt>(i.waiters_);
-    ret["cache_hits"] = std::to_string(i.hits_);
-    ret["cache_misses"] = std::to_string(i.misses_);
     ret["queries"] = std::to_string(i.queries_);
-    ret["coalesced"] = std::to_string(i.coalesced_);
-    ret["busy"] = std::to_string(i.busy_);
+    ret["cache_hits"] = std::to_string(i.hits_);
     ret["found"] = std::to_string(i.found_);
     ret["no_record"] = std::to_string(i.none_);
     ret["failed"] = std::to_string(i.failed_);
     ret["timeouts"] = std::to_string(i.timeouts_);
-
-    if (reset)
-    {
-        i.hits_ = i.misses_ = i.queries_ = i.coalesced_ = i.busy_ = 0;
-        i.found_ = i.none_ = i.failed_ = i.timeouts_ = 0;
-    }
     return ret;
 }
 

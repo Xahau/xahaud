@@ -709,34 +709,20 @@ public:
 };
 
 /**
- * @brief Invariants: AppLoader objects and their AccountRoot pointers stay
- *        consistent.
+ * @brief Invariant: AppLoader objects stay consistent with their owners.
  *
- * An ltAPP_LOADER is not in any owner directory; the only link to it is
- * sfAppLoaderID on the owning AccountRoot. Nothing else (no directory walk,
- * no OwnerCount) would notice the two drifting apart, so this checks, for
- * every transaction that touches either side:
- *
- * - only AccountSet and AccountDelete create, modify or delete a loader or
- *   change sfAppLoaderID, and only once featurePWALoader is enabled;
- * - a live loader is keyed at keylet::appLoader(sfOwner), its owner's
- *   AccountRoot exists and points at it, and its blob still passes
- *   appLoader::validate (non-empty, within maxAppLoaderLength);
- * - a deleted loader leaves no pointer behind on a surviving AccountRoot;
- * - an AccountRoot that carries sfAppLoaderID points at its own keylet and
- *   that object exists.
+ * An ltAPP_LOADER is in no owner directory, so nothing else would notice it
+ * drifting. For every transaction that creates, changes or deletes one:
+ * featurePWALoader is enabled and the transaction is an AccountSet or
+ * AccountDelete; a live loader is keyed at keylet::appLoader(sfOwner), its
+ * blob passes appLoader::validate, and its AppLoaderSequence equals its
+ * owner's.
  */
 class ValidAppLoader
 {
-    struct Loader
-    {
-        uint256 key;
-        AccountID owner;
-        bool deleted = false;
-        bool blobValid = false;
-    };
-    std::vector<Loader> loaders_;
-    std::vector<AccountID> pointersChanged_;
+    bool touched_ = false;
+    bool bad_ = false;
+    std::vector<std::shared_ptr<SLE const>> live_;
 
 public:
     void
@@ -754,8 +740,6 @@ public:
         beast::Journal const&);
 };
 
-// additional invariant checks can be declared above and then added to this
-// tuple
 using InvariantChecks = std::tuple<
     TransactionFeeCheck,
     AccountRootsNotDeleted,

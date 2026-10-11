@@ -1371,7 +1371,7 @@ private:
         return jvRequest;
     }
 
-    // pwa_info [<top>] [reset] [flush_dns]   (any order, each at most once)
+    // pwa_info [reset] [flush_dns]
     Json::Value
     parsePWAInfo(Json::Value const& jvParams)
     {
@@ -1379,26 +1379,10 @@ private:
         for (Json::UInt i = 0; i < jvParams.size(); ++i)
         {
             auto const param = jvParams[i].asString();
-            if (param == "reset")
-            {
-                if (jvRequest.isMember(jss::reset))
-                    return rpcError(rpcINVALID_PARAMS);
-                jvRequest[jss::reset] = true;
-                continue;
-            }
-            if (param == "flush_dns")
-            {
-                if (jvRequest.isMember("flush_dns"))
-                    return rpcError(rpcINVALID_PARAMS);
-                jvRequest["flush_dns"] = true;
-                continue;
-            }
-
-            std::uint32_t top = 0;
-            if (jvRequest.isMember(jss::top) ||
-                !beast::lexicalCastChecked(top, param))
+            if ((param != "reset" && param != "flush_dns") ||
+                jvRequest.isMember(param))
                 return rpcError(rpcINVALID_PARAMS);
-            jvRequest[jss::top] = top;
+            jvRequest[param] = true;
         }
         return jvRequest;
     }
@@ -1491,7 +1475,7 @@ public:
             {"peers", &RPCParser::parseAsIs, 0, 0},
             {"ping", &RPCParser::parseAsIs, 0, 0},
             {"print", &RPCParser::parseAsIs, 0, 1},
-            {"pwa_info", &RPCParser::parsePWAInfo, 0, 3},
+            {"pwa_info", &RPCParser::parsePWAInfo, 0, 2},
             //      {   "profile",              &RPCParser::parseProfile, 1,  9
             //      },
             {"random", &RPCParser::parseAsIs, 0, 0},

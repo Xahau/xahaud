@@ -23,7 +23,6 @@
 #include <xrpld/app/main/CollectorManager.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/rpc/PWADomainResolver.h>
-#include <xrpld/rpc/PWAStats.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/detail/UDPInfoSub.h>
 #include <xrpld/rpc/detail/WSInfoSub.h>
@@ -37,6 +36,7 @@
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/utility/string_view.hpp>
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <map>
@@ -54,6 +54,41 @@ operator<(Port const& lhs, Port const& rhs)
 class ServerHandler
 {
 public:
+    /** How a pwa port answered, for the pwa_info RPC. */
+    enum class PWAOutcome : std::uint8_t {
+        served,            // 200
+        notModified,       // 304
+        redirected,        // 301
+        notFound,          // 404: no such loader
+        badTarget,         // 404: host and path name no document
+        unknownDomain,     // 404: no usable _xahau-pwa record
+        badHost,           // 400
+        noForwardedFor,    // 400
+        directConnection,  // 403: not from a secure_gateway address
+        blocked,           // 403: allowlist / blocklist
+        domainMismatch,    // 403: account's Domain is not the host
+        upgradeRefused,    // 403
+        badMethod,         // 405
+        throttled,         // 503: resource manager
+        busy,              // 503: too many in flight
+        dnsFailed,         // 503
+        unavailable,       // 503: no validated ledger or lookup failed
+        count_
+    };
+
+    struct PWAStats
+    {
+        std::array<std::atomic<std::uint64_t>, std::size_t(PWAOutcome::count_)>
+            outcomes{};
+        std::atomic<std::uint64_t> bytesServed{0};
+
+        static char const*
+        name(PWAOutcome o);
+
+        Json::Value
+        getJson(bool reset);
+    };
+
     struct Setup
     {
         explicit Setup() = default;
@@ -117,7 +152,7 @@ private:
     {
         AccountID account;
         boost::asio::ip::address client;  // the billing address
-        bool head = false;                // HEAD: headers only
+        bool head = false;
         std::string ifNoneMatch;
         std::string domain;  // the custom domain it came in on, if any
     };
@@ -163,14 +198,12 @@ public:
         return setup_;
     }
 
-    /** Usage statistics for "pwa" ports; see the pwa_info RPC. */
     PWAStats&
     pwaStats()
     {
         return pwaStats_;
     }
 
-    /** Custom domain lookups for "pwa" ports; see the pwa_info RPC. */
     PWADomainResolver&
     pwaResolver()
     {
@@ -253,35 +286,23 @@ private:
         std::shared_ptr<Session> const&,
         std::shared_ptr<JobQueue::Coro> coro);
 
-    /** Entry point for ports whose protocol is "pwa".
-
-        Runs on the I/O thread and does only cheap work: checks that the
-        request came through a secure_gateway proxy with X-Forwarded-For,
-        meters it against the forwarded client (per IPv4 address, per IPv6
-        /64), and works out from the Host header and target which account
-        it names. A bare zone with an r-address path is redirected (301) to
-        that account's own host. A Host outside every zone is, if the port
-        allows custom domains, resolved through its _xahau-pwa TXT record:
-        from the cache at once, or else by an asynchronous DNS query that
-        blocks no thread. The ledger read itself goes to queuePWALookup.
-    */
+    /** Entry point for ports whose protocol is "pwa". Runs on the I/O
+        thread: proxy and X-Forwarded-For checks, metering, routing of the
+        Host header and target (document host, bare-zone redirect, or custom
+        domain resolved through its TXT record without blocking), then
+        queuePWALookup. */
     void
     onPWARequest(Session& session);
 
-    /** Refuse accounts the port's allowlist or blocklist rule out, then
-        post the ledger read to the job queue as jtCLIENT_PWA, with at most
-        maxPWAJobs in flight. Callable from any thread.
-    */
+    /** Apply the allowlist and blocklist, then post the ledger read to the
+        job queue as jtCLIENT_PWA. Callable from any thread. */
     void
     queuePWALookup(
         std::shared_ptr<Session> const& session,
         PWALookup const& lookup);
 
-    /** Serve an account's AppLoader document from the validated ledger,
-        after consulting the port's allowlist and blocklist publishers in
-        that same ledger. Runs on the job queue. Always closes the
-        connection.
-    */
+    /** Serve the document from the validated ledger. Runs on the job
+        queue. Always closes the connection. */
     void
     processPWARequest(
         std::shared_ptr<Session> const& session,

@@ -142,25 +142,18 @@ LEDGER_ENTRY(ltIMPORT_VLSEQ, 0x0049, ImportVLSequence, import_vlseq, ({
     {sfPreviousTxnLgrSeq,    soeOPTIONAL},
 }))
 
-/** A ledger object holding the bootstrap document of a Progressive Web App.
+/** The bootstrap document of a Progressive Web App (featurePWALoader).
 
-    There is at most one of these per account, keyed on the owner's AccountID.
-    It is linked directly from the owning AccountRoot via sfAppLoaderID and is
-    deliberately NOT placed in the owner directory: it takes no owner reserve
-    and contributes nothing to OwnerCount, because its storage is paid for by
-    a per-byte fee on the AccountSet that publishes it.
-
-    Two consequences follow from staying out of the directory. It is invisible
-    to account_objects, so it must be reached via sfAppLoaderID (or by
-    recomputing the keylet). And DeleteAccount's directory walk cannot find
-    it, so DeleteAccount erases it explicitly; without that, account deletion
-    would orphan it and trip AccountRootsDeletedClean.
-
-    \sa keylet::appLoader
+    At most one per account, keyed on the owner alone (keylet::appLoader).
+    It is in no owner directory and takes no reserve: its storage is paid
+    for by a per-byte fee on the AccountSet that writes it, and
+    DeleteAccount erases it explicitly. AppLoaderSequence equals the owner's
+    AccountRoot AppLoaderSequence as of the AccountSet that wrote it.
  */
 LEDGER_ENTRY(ltAPP_LOADER, 0x004c, AppLoader, app_loader, ({
     {sfOwner,                soeREQUIRED},
     {sfAppLoader,            soeREQUIRED},
+    {sfAppLoaderSequence,    soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
@@ -285,7 +278,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
-    {sfAppLoaderID,          soeOPTIONAL},
+    {sfAppLoaderSequence,    soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
 }))
 

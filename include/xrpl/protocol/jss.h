@@ -678,7 +678,6 @@ JSS(time);
 JSS(timeouts);                // out: InboundLedger
 JSS(time_threshold);          // in/out: Oracle aggregate
 JSS(time_interval);           // out: AMM Auction Slot
-JSS(top);                     // in: PWAInfo
 JSS(track);                   // out: PeerImp
 JSS(traffic);                 // out: Overlay
 JSS(trim);                    // in: get_aggregate_price

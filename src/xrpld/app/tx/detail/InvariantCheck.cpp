@@ -2031,43 +2031,12 @@ ValidAppLoader::visitEntry(
     std::shared_ptr<SLE const> const& before,
     std::shared_ptr<SLE const> const& after)
 {
-    auto const type =
-        after ? after->getType() : (before ? before->getType() : ltANY);
-
-    if (type == ltAPP_LOADER)
-    {
-        auto const& sle = after ? after : before;
-        Loader l;
-        l.key = sle->key();
-        l.owner = sle->getAccountID(sfOwner);
-        l.deleted = isDelete;
-        if (!isDelete)
-        {
-            if (after->isFieldPresent(sfAppLoader))
-            {
-                auto const blob = after->getFieldVL(sfAppLoader);
-                l.blobValid = appLoader::validate(blob.data(), blob.size()) ==
-                    appLoader::Result::ok;
-            }
-        }
-        loaders_.push_back(std::move(l));
+    auto const& sle = after ? after : before;
+    if (!sle || sle->getType() != ltAPP_LOADER)
         return;
-    }
-
-    if (type == ltACCOUNT_ROOT)
-    {
-        auto ptr = [](std::shared_ptr<SLE const> const& sle)
-            -> std::optional<uint256> {
-            if (sle && sle->isFieldPresent(sfAppLoaderID))
-                return sle->getFieldH256(sfAppLoaderID);
-            return std::nullopt;
-        };
-        auto const b = ptr(before);
-        auto const a = isDelete ? std::nullopt : ptr(after);
-        if (a != b)
-            pointersChanged_.push_back(
-                (after ? after : before)->getAccountID(sfAccount));
-    }
+    touched_ = true;
+    if (!isDelete)
+        live_.push_back(after);
 }
 
 bool
@@ -2078,78 +2047,35 @@ ValidAppLoader::finalize(
     ReadView const& view,
     beast::Journal const& j)
 {
-    if (loaders_.empty() && pointersChanged_.empty())
+    if (!touched_)
         return true;
 
+    auto fail = [&](char const* why) {
+        JLOG(j.fatal()) << "Invariant failed: AppLoader " << why;
+        return false;
+    };
+
     if (!view.rules().enabled(featurePWALoader))
+        return fail("changed before featurePWALoader was enabled");
+    if (tx.getTxnType() != ttACCOUNT_SET && tx.getTxnType() != ttACCOUNT_DELETE)
+        return fail(
+            "changed by a transaction other than AccountSet or "
+            "AccountDelete");
+
+    for (auto const& sle : live_)
     {
-        JLOG(j.fatal()) << "Invariant failed: AppLoader state changed "
-                           "before featurePWALoader was enabled";
-        return false;
+        auto const owner = sle->getAccountID(sfOwner);
+        if (sle->key() != keylet::appLoader(owner).key)
+            return fail("is not keyed at its owner's keylet");
+        auto const blob = sle->getFieldVL(sfAppLoader);
+        if (appLoader::validate(blob.data(), blob.size()) !=
+            appLoader::Result::ok)
+            return fail("blob does not validate");
+        auto const root = view.read(keylet::account(owner));
+        if (!root ||
+            (*root)[~sfAppLoaderSequence] != (*sle)[sfAppLoaderSequence])
+            return fail("sequence does not match its owner's");
     }
-
-    auto const txType = tx.getTxnType();
-    if (txType != ttACCOUNT_SET && txType != ttACCOUNT_DELETE)
-    {
-        JLOG(j.fatal()) << "Invariant failed: AppLoader state changed by "
-                           "a transaction other than AccountSet or "
-                           "AccountDelete";
-        return false;
-    }
-
-    for (auto const& l : loaders_)
-    {
-        if (l.key != keylet::appLoader(l.owner).key)
-        {
-            JLOG(j.fatal()) << "Invariant failed: AppLoader is not keyed "
-                               "at its owner's keylet";
-            return false;
-        }
-
-        auto const root = view.read(keylet::account(l.owner));
-
-        if (l.deleted)
-        {
-            if (root && root->isFieldPresent(sfAppLoaderID))
-            {
-                JLOG(j.fatal()) << "Invariant failed: AppLoader deleted but "
-                                   "its owner still points at it";
-                return false;
-            }
-            continue;
-        }
-
-        if (!l.blobValid)
-        {
-            JLOG(j.fatal()) << "Invariant failed: AppLoader blob does not "
-                               "validate";
-            return false;
-        }
-
-        if (!root || !root->isFieldPresent(sfAppLoaderID) ||
-            root->getFieldH256(sfAppLoaderID) != l.key)
-        {
-            JLOG(j.fatal()) << "Invariant failed: AppLoader is not pointed "
-                               "at by its owner";
-            return false;
-        }
-    }
-
-    for (auto const& acct : pointersChanged_)
-    {
-        auto const root = view.read(keylet::account(acct));
-        if (!root || !root->isFieldPresent(sfAppLoaderID))
-            continue;
-
-        auto const kl = keylet::appLoader(acct);
-        if (root->getFieldH256(sfAppLoaderID) != kl.key || !view.exists(kl))
-        {
-            JLOG(j.fatal()) << "Invariant failed: sfAppLoaderID does not "
-                               "point at the account's AppLoader";
-            return false;
-        }
-    }
-
     return true;
 }
 

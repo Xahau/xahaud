@@ -64,26 +64,12 @@ struct Port
     // use admin rights granted by `admin` IP alone. Empty: none may.
     std::set<std::string, boost::beast::iless> admin_origins;
 
-    // "pwa" ports only. See the "pwa ports" section of xahaud-example.cfg.
-    //
-    // The zones documents are served under, lower case, without a trailing
-    // dot. A request is for the account named by the first label of its
-    // Host header, which must be followed by exactly one of these.
-    std::set<std::string> pwa_domains;
-    // If pwa_allowlist or pwa_allow_publishers is non-empty, only accounts
-    // on pwa_allowlist, or listed by one of the allow publishers, are served.
-    // Accounts on pwa_blocklist, or listed by any block publisher, are never
-    // served. Blocking wins over allowing.
-    std::set<AccountID> pwa_allowlist;
-    std::set<AccountID> pwa_blocklist;
-    std::vector<AccountID> pwa_allow_publishers;
-    std::vector<AccountID> pwa_block_publishers;
-    // Serve a Host outside every zone (a custom domain) as the account its
-    // _xahau-pwa TXT record names. Off unless custom_domains = 1.
-    bool pwa_custom_domains = false;
-    // Recursive resolvers for those TXT lookups. From "resolver", or else
-    // /etc/resolv.conf (filled in by parse_Ports).
-    std::vector<boost::asio::ip::udp::endpoint> pwa_resolvers;
+    // "pwa" ports only; see the "pwa ports" section of xahaud-example.cfg.
+    std::set<std::string> pwa_domains;  // zones, lower case, no trailing dot
+    std::set<AccountID> pwa_allowlist;  // if non-empty, only these are served
+    std::set<AccountID> pwa_blocklist;  // never served; wins over allowlist
+    bool pwa_custom_domains = false;    // serve hosts named by TXT records
+    std::vector<boost::asio::ip::udp::endpoint> pwa_resolvers;  // for those
     std::string user;
     std::string password;
     std::string admin_user;
@@ -157,8 +143,6 @@ struct ParsedPort
     std::set<std::string> pwa_domains;
     std::set<AccountID> pwa_allowlist;
     std::set<AccountID> pwa_blocklist;
-    std::vector<AccountID> pwa_allow_publishers;
-    std::vector<AccountID> pwa_block_publishers;
     bool pwa_custom_domains = false;
     std::vector<boost::asio::ip::udp::endpoint> pwa_resolvers;
 };

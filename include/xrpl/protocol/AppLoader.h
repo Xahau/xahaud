@@ -20,112 +20,47 @@
 #ifndef RIPPLE_PROTOCOL_APPLOADER_H_INCLUDED
 #define RIPPLE_PROTOCOL_APPLOADER_H_INCLUDED
 
-#include <xrpl/basics/base_uint.h>
-#include <xrpl/protocol/AccountID.h>
-
 #include <cstddef>
 #include <cstdint>
 
 namespace ripple {
 
-/** Validation of the AccountRoot `AppLoader` blob (sfAppLoader).
+/** Validation of an AppLoader document (sfAppLoader), the bootstrap page of
+    a Progressive Web App served from an account.
 
-    The blob carries the bootstrap document of a Progressive Web App that is
-    served from the account itself. Consensus cannot afford to run a real
-    HTML parser, so enforcement here is deliberately *shallow*: it rejects
-    payloads that plainly are not a UTF-8 HTML document, and nothing more.
-    It is a sanity gate, not a conformance checker -- a blob that passes is
-    not thereby guaranteed to render, and clients must still treat the
-    contents as wholly untrusted input.
+    Consensus cannot afford a real HTML parser, so this is a shallow sanity
+    gate and nothing more. A document must be non-empty and at most
+    maxAppLoaderLength bytes; well-formed UTF-8; free of C0 control
+    characters other than TAB, LF, FF and CR, and of DEL; begin, after an
+    optional BOM and whitespace, with an HTML doctype or an <html start tag;
+    and contain an <html start tag followed later by a </html> end tag with
+    nothing but whitespace after the last one. Nothing parses comments,
+    scripts or attributes, and content is not policed.
 
-    A conforming blob must:
-      - be non-empty and no longer than `maxAppLoaderLength` bytes;
-      - pass ripple::isValidUTF8 (well-formed UTF-8: no overlongs,
-        surrogates, truncated sequences or scalar values above U+10FFFF,
-        and no U+FFFE or U+FFFF);
-      - contain no C0 control characters other than the HTML whitespace
-        characters TAB, LF, FF and CR, and no NUL or DEL (C1 controls,
-        U+0080..U+009F, are not rejected);
-      - begin (after an optional BOM and leading whitespace) with either an
-        HTML doctype or an `<html` start tag;
-      - contain an `<html` start tag and a later `</html>` end tag (ASCII
-        whitespace is allowed before its '>'), with the last such end tag
-        followed by nothing but ASCII whitespace.
-
-    Nothing parses comments, scripts or attributes: an `<html` inside a
-    comment satisfies the start-tag check, and content is not policed (a
-    meta refresh to another site passes). This function is consensus
-    critical; any change to what it accepts needs an amendment, and the
-    edge cases are pinned in PWALoader_test.
+    Consensus critical: a change to what it accepts needs an amendment.
 */
 namespace appLoader {
 
-/** Reasons an AppLoader blob may be rejected.
-
-    Returned by `validate` so that callers can log something more useful
-    than a bare failure. Not part of the protocol: only `ok` vs. everything
-    else is consensus-relevant.
-*/
 enum class Result : std::uint8_t {
     ok = 0,
-    empty,           // zero-length blob
-    tooLarge,        // exceeds maxAppLoaderLength
-    badUTF8,         // malformed UTF-8 sequence
-    badControlChar,  // disallowed control character
-    noDoctype,       // does not open with a doctype or <html tag
-    noHtmlElement,   // missing <html ...> start tag
-    unclosed,        // no </html> end tag after the <html start tag
-    trailingGarbage  // non-whitespace content after </html>
+    empty,
+    tooLarge,
+    badUTF8,
+    badControlChar,
+    noDoctype,        // does not open with a doctype or <html tag
+    noHtmlElement,    // no <html start tag
+    unclosed,         // no </html> end tag after it
+    trailingGarbage,  // non-whitespace after the last </html>
 };
 
-/** Validate a UTF-8 byte sequence as an AppLoader document.
-
-    @param data Pointer to the first byte; may be nullptr iff size is 0.
-    @param size Length of the blob in bytes.
-    @return Result::ok if the blob is acceptable, otherwise the first
-            problem encountered.
-
-    @note Total: every input yields a defined result, including inputs
-          whose final bytes form a truncated multi-byte sequence.
-*/
+/** Total: every input yields a result. `data` may be null iff size is 0. */
 Result
 validate(std::uint8_t const* data, std::size_t size);
 
-/** Human-readable description of a validation result, for logging. */
 char const*
 to_string(Result r);
 
-/** Hook state namespaces read by "pwa" ports.
-
-    An operator can delegate the decision of which accounts a pwa port
-    serves to one or more publisher accounts (allowlist_publisher and
-    blocklist_publisher in the port's configuration). A publisher lists an
-    account by holding a HookState entry, under one of these two reserved
-    namespaces, whose key is `listKey(account)`. The entry's value is
-    ignored; only its presence matters. Hooks on the publisher account
-    create and remove the entries like any other state.
-
-    The namespaces are sha512Half of the ASCII strings "PWALoader/allowlist"
-    and "PWALoader/blocklist" respectively. They are not consensus relevant:
-    nothing on-ledger reads them, only serving nodes do.
-*/
-uint256 const&
-allowListNamespace();
-
-/** \sa allowListNamespace */
-uint256 const&
-blockListNamespace();
-
-/** The HookState key under which a publisher lists `account`: the 20-byte
-    AccountID right-aligned in 32 bytes, with 12 leading zero bytes. This is
-    the key a hook gets by passing the bare AccountID as a 20-byte key to
-    state_set, which zero-pads on the left.
-*/
-uint256
-listKey(AccountID const& account);
-
 }  // namespace appLoader
-
 }  // namespace ripple
 
 #endif

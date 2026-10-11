@@ -21,9 +21,7 @@
 #include <xrpl/basics/UTF8.h>
 #include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Protocol.h>
-#include <xrpl/protocol/digest.h>
 
-#include <algorithm>
 #include <string_view>
 
 namespace ripple {
@@ -31,33 +29,21 @@ namespace appLoader {
 
 namespace {
 
-// HTML "ASCII whitespace" per the WHATWG spec: TAB, LF, FF, CR, SPACE.
+// HTML "ASCII whitespace": TAB, LF, FF, CR, SPACE.
 inline bool
 isSpace(std::uint8_t c) noexcept
 {
     return c == 0x09 || c == 0x0A || c == 0x0C || c == 0x0D || c == 0x20;
 }
 
-// Control characters we refuse to store. Everything in C0 that is not HTML
-// whitespace, plus DEL. These have no business in a loader document and
-// their presence is a strong smell of a non-HTML payload being smuggled
-// through as "text".
-inline bool
-isForbiddenControl(std::uint8_t c) noexcept
-{
-    if (isSpace(c))
-        return false;
-    return c < 0x20 || c == 0x7F;
-}
-
 inline std::uint8_t
-asciiLower(std::uint8_t c) noexcept
+lower(std::uint8_t c) noexcept
 {
     return (c >= 'A' && c <= 'Z') ? static_cast<std::uint8_t>(c + 32) : c;
 }
 
-// True if `lit` (which must be lowercase ASCII) occurs at `pos`, compared
-// case-insensitively. A match that would run past the end is no match.
+// Case-insensitive match of lower-case `lit` at `pos`; never reads past
+// the end.
 bool
 matchAt(
     std::uint8_t const* data,
@@ -68,13 +54,11 @@ matchAt(
     if (pos > size || size - pos < lit.size())
         return false;
     for (std::size_t i = 0; i < lit.size(); ++i)
-        if (asciiLower(data[pos + i]) != static_cast<std::uint8_t>(lit[i]))
+        if (lower(data[pos + i]) != static_cast<std::uint8_t>(lit[i]))
             return false;
     return true;
 }
 
-// Index of the first case-insensitive occurrence of `lit` at or after
-// `from`, or `size` if absent.
 std::size_t
 findFrom(
     std::uint8_t const* data,
@@ -82,16 +66,13 @@ findFrom(
     std::size_t from,
     std::string_view lit) noexcept
 {
-    if (lit.empty() || lit.size() > size)
-        return size;
     for (std::size_t i = from; i + lit.size() <= size; ++i)
         if (matchAt(data, size, i, lit))
             return i;
     return size;
 }
 
-// A tag name must be terminated by whitespace, '>' or '/', otherwise
-// "<htmlish>" would be mistaken for "<html>".
+// So that "<htmlish>" is not mistaken for "<html>".
 inline bool
 isTagNameEnd(std::uint8_t c) noexcept
 {
@@ -105,40 +86,31 @@ validate(std::uint8_t const* data, std::size_t size)
 {
     if (size == 0 || data == nullptr)
         return Result::empty;
-
     if (size > maxAppLoaderLength)
         return Result::tooLarge;
-
     if (!isValidUTF8(Slice(data, size)))
         return Result::badUTF8;
-
     for (std::size_t i = 0; i < size; ++i)
-        if (isForbiddenControl(data[i]))
+        if (!isSpace(data[i]) && (data[i] < 0x20 || data[i] == 0x7F))
             return Result::badControlChar;
 
-    // Skip an optional UTF-8 BOM, then any leading whitespace.
     std::size_t begin = 0;
     if (size >= 3 && data[0] == 0xEF && data[1] == 0xBB && data[2] == 0xBF)
         begin = 3;
     while (begin < size && isSpace(data[begin]))
         ++begin;
-
     if (begin == size)
         return Result::empty;
 
-    // The document must open with a doctype or with the <html> tag itself.
-    // We accept "<!doctype" followed by whitespace, because that is the
-    // only doctype form any browser treats as standards mode for HTML.
-    bool const opensWithDoctype = matchAt(data, size, begin, "<!doctype") &&
+    // "<!doctype" followed by whitespace is the only doctype form any
+    // browser treats as standards-mode HTML.
+    bool const doctype = matchAt(data, size, begin, "<!doctype") &&
         begin + 9 < size && isSpace(data[begin + 9]);
-
-    bool const opensWithHtml = matchAt(data, size, begin, "<html") &&
-        begin + 5 < size && isTagNameEnd(data[begin + 5]);
-
-    if (!opensWithDoctype && !opensWithHtml)
+    bool const html = matchAt(data, size, begin, "<html") && begin + 5 < size &&
+        isTagNameEnd(data[begin + 5]);
+    if (!doctype && !html)
         return Result::noDoctype;
 
-    // Locate the <html> start tag.
     std::size_t open = begin;
     for (;;)
     {
@@ -150,43 +122,28 @@ validate(std::uint8_t const* data, std::size_t size)
         ++open;
     }
 
-    // Locate the last well-formed </html> end tag. The scan runs forwards
-    // and keeps the final match, so a literal "</html>" inside a script
-    // string earlier in the document does not shadow the real one. Each
-    // probe resumes one byte past the previous match, so the whole scan is
-    // linear in the size of the blob.
-    std::size_t close = size;
+    // The LAST well-formed </html>, so that one quoted inside a script
+    // does not shadow the real one. Linear: each probe resumes one past
+    // the previous match.
     std::size_t closeEnd = size;
+    for (std::size_t probe = open;;)
     {
-        std::size_t probe = open;
-        for (;;)
-        {
-            std::size_t const found = findFrom(data, size, probe, "</html");
-            if (found == size)
-                break;
-
-            // Allow whitespace between the tag name and '>'.
-            std::size_t j = found + 6;
-            while (j < size && isSpace(data[j]))
-                ++j;
-            if (j < size && data[j] == '>')
-            {
-                close = found;
-                closeEnd = j + 1;
-            }
-            probe = found + 1;
-        }
+        std::size_t const found = findFrom(data, size, probe, "</html");
+        if (found == size)
+            break;
+        std::size_t j = found + 6;
+        while (j < size && isSpace(data[j]))
+            ++j;
+        if (j < size && data[j] == '>')
+            closeEnd = j + 1;
+        probe = found + 1;
     }
-
-    // The probe starts at `open`, so any match lies after the start tag.
-    if (close == size)
+    if (closeEnd == size)
         return Result::unclosed;
 
-    // Nothing but whitespace may follow the closing tag.
     for (std::size_t i = closeEnd; i < size; ++i)
         if (!isSpace(data[i]))
             return Result::trailingGarbage;
-
     return Result::ok;
 }
 
@@ -215,32 +172,6 @@ to_string(Result r)
             return "content after </html>";
     }
     return "unknown";
-}
-
-uint256 const&
-allowListNamespace()
-{
-    // 31B3200DEAA8F282E64D4BCB97255A2A2B297208D18D1ABA34EC2E3F7422564F
-    static constexpr std::string_view name{"PWALoader/allowlist"};
-    static uint256 const ns = sha512Half(Slice{name.data(), name.size()});
-    return ns;
-}
-
-uint256 const&
-blockListNamespace()
-{
-    // 3EDDB37279B486BC74864DB16E718658C26B921F84C66A7B6AFC33C203CA00D0
-    static constexpr std::string_view name{"PWALoader/blocklist"};
-    static uint256 const ns = sha512Half(Slice{name.data(), name.size()});
-    return ns;
-}
-
-uint256
-listKey(AccountID const& account)
-{
-    uint256 key{beast::zero};
-    std::copy(account.begin(), account.end(), key.begin() + 12);
-    return key;
 }
 
 }  // namespace appLoader

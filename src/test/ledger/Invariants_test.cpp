@@ -1239,140 +1239,83 @@ class Invariants_test : public beast::unit_test::suite
     testAppLoader()
     {
         using namespace test::jtx;
-
         static std::string const good = "<html></html>";
 
-        auto insertLoader = [](ApplyContext& ac,
-                               AccountID const& owner,
-                               uint256 const& key,
-                               std::string const& blob) {
+        auto insert = [](ApplyContext& ac,
+                         AccountID const& owner,
+                         uint256 const& key,
+                         std::string const& blob,
+                         std::uint32_t seq) {
             auto sle = std::make_shared<SLE>(Keylet{ltAPP_LOADER, key});
             sle->setAccountID(sfOwner, owner);
             sle->setFieldVL(sfAppLoader, Slice(blob.data(), blob.size()));
+            sle->setFieldU32(sfAppLoaderSequence, seq);
             ac.view().insert(sle);
+            auto root = ac.view().peek(keylet::account(owner));
+            root->setFieldU32(sfAppLoaderSequence, seq);
+            ac.view().update(root);
+            return true;
         };
-        auto setPointer =
-            [](ApplyContext& ac, AccountID const& acct, uint256 const& key) {
-                auto root = ac.view().peek(keylet::account(acct));
-                if (!root)
-                    return false;
-                root->setFieldH256(sfAppLoaderID, key);
-                ac.view().update(root);
-                return true;
-            };
-        // Publish a real loader for A1 before the ledger under test closes.
         Preclose publish = [](Account const& A1, Account const&, Env& env) {
             auto jt = noop(A1);
             jt[sfAppLoader.fieldName] = strHex(good);
             env(jt, fee(XRP(1)));
             return bool(env.le(keylet::appLoader(A1.id())));
         };
-
-        testcase << "AppLoader without pointer";
-        doInvariantCheck(
-            {{"AppLoader is not pointed at by its owner"}},
-            [&](Account const& A1, Account const&, ApplyContext& ac) {
-                insertLoader(ac, A1, keylet::appLoader(A1).key, good);
-                return true;
-            });
+        auto bad = [&](char const* log,
+                       Precheck const& pre,
+                       std::uint16_t txType = ttACCOUNT_SET,
+                       Preclose const& preclose = {}) {
+            doInvariantCheck(
+                {{log}},
+                pre,
+                XRPAmount{},
+                STTx{TxType(txType), [](STObject&) {}},
+                {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
+                preclose);
+        };
 
         testcase << "AppLoader at the wrong key";
-        doInvariantCheck(
-            {{"AppLoader is not keyed at its owner's keylet"}},
+        bad("AppLoader is not keyed at its owner's keylet",
             [&](Account const& A1, Account const& A2, ApplyContext& ac) {
-                auto const key = keylet::appLoader(A2).key;
-                insertLoader(ac, A1, key, good);
-                return setPointer(ac, A1, key);
+                return insert(ac, A1, keylet::appLoader(A2).key, good, 1);
             });
-
         testcase << "AppLoader with invalid blob";
-        doInvariantCheck(
-            {{"AppLoader blob does not validate"}},
+        bad("AppLoader blob does not validate",
             [&](Account const& A1, Account const&, ApplyContext& ac) {
-                auto const key = keylet::appLoader(A1).key;
-                insertLoader(ac, A1, key, "not html");
-                return setPointer(ac, A1, key);
+                return insert(ac, A1, keylet::appLoader(A1).key, "nope", 1);
             });
-
         testcase << "AppLoader blob over the size limit";
-        doInvariantCheck(
-            {{"AppLoader blob does not validate"}},
+        bad("AppLoader blob does not validate",
             [&](Account const& A1, Account const&, ApplyContext& ac) {
-                auto const key = keylet::appLoader(A1).key;
-                std::string const big =
-                    "<html>" + std::string(maxAppLoaderLength, 'x') + "</html>";
-                insertLoader(ac, A1, key, big);
-                return setPointer(ac, A1, key);
+                return insert(
+                    ac,
+                    A1,
+                    keylet::appLoader(A1).key,
+                    "<html>" + std::string(maxAppLoaderLength, 'x') + "</html>",
+                    1);
             });
-
-        testcase << "dangling sfAppLoaderID";
-        doInvariantCheck(
-            {{"sfAppLoaderID does not point at the account's AppLoader"}},
-            [&](Account const& A1, Account const&, ApplyContext& ac) {
-                return setPointer(ac, A1, keylet::appLoader(A1).key);
-            });
-
-        testcase << "sfAppLoaderID pointing elsewhere";
-        doInvariantCheck(
-            {{"sfAppLoaderID does not point at the account's AppLoader"}},
-            [&](Account const& A1, Account const&, ApplyContext& ac) {
-                return setPointer(ac, A1, uint256{42});
-            },
-            XRPAmount{},
-            STTx{ttACCOUNT_SET, [](STObject&) {}},
-            {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
-            publish);
-
-        testcase << "AppLoader deleted, pointer left behind";
-        doInvariantCheck(
-            {{"AppLoader deleted but its owner still points at it"}},
+        testcase << "AppLoader sequence differs from its owner's";
+        bad(
+            "AppLoader sequence does not match its owner's",
             [&](Account const& A1, Account const&, ApplyContext& ac) {
                 auto sle = ac.view().peek(keylet::appLoader(A1));
-                if (!sle)
-                    return false;
-                ac.view().erase(sle);
-                return true;
-            },
-            XRPAmount{},
-            STTx{ttACCOUNT_SET, [](STObject&) {}},
-            {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
-            publish);
-
-        testcase << "AppLoader changed by the wrong transaction type";
-        doInvariantCheck(
-            {{"AppLoader state changed by a transaction other than "
-              "AccountSet or AccountDelete"}},
-            [&](Account const& A1, Account const&, ApplyContext& ac) {
-                auto sle = ac.view().peek(keylet::appLoader(A1));
-                if (!sle)
-                    return false;
-                std::string const v2 = "<html>2</html>";
-                sle->setFieldVL(sfAppLoader, Slice(v2.data(), v2.size()));
+                sle->setFieldU32(sfAppLoaderSequence, 7);
                 ac.view().update(sle);
                 return true;
             },
-            XRPAmount{},
-            STTx{ttPAYMENT, [](STObject&) {}},
-            {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
+            ttACCOUNT_SET,
             publish);
-
-        testcase << "pointer removed by the wrong transaction type";
-        doInvariantCheck(
-            {{"AppLoader state changed by a transaction other than "
-              "AccountSet or AccountDelete"}},
+        testcase << "AppLoader changed by the wrong transaction type";
+        bad(
+            "AppLoader changed by a transaction other than AccountSet or "
+            "AccountDelete",
             [&](Account const& A1, Account const&, ApplyContext& ac) {
-                auto root = ac.view().peek(keylet::account(A1));
                 auto sle = ac.view().peek(keylet::appLoader(A1));
-                if (!root || !sle)
-                    return false;
-                root->makeFieldAbsent(sfAppLoaderID);
-                ac.view().update(root);
                 ac.view().erase(sle);
                 return true;
             },
-            XRPAmount{},
-            STTx{ttOFFER_CREATE, [](STObject&) {}},
-            {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
+            ttPAYMENT,
             publish);
     }
 
