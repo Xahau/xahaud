@@ -1004,6 +1004,20 @@ ManifestCache::applyManifest(
 {
     auto const now = clock_.now();
 
+    // pin() rebases every consensus round, but a node that has been out of
+    // consensus for days reaches here with weightBase_ far behind: unit(now)
+    // would then overflow, and every weight compared below would be inf.
+    // noteValidation() guards the same way.
+    {
+        std::shared_lock lock{mutex_};
+        if (overdue(now))
+        {
+            lock.unlock();
+            std::lock_guard exclusive{mutex_};
+            rebase(now);
+        }
+    }
+
     // How this manifest would be held, as worked out by check().
     struct Admission
     {

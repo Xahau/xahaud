@@ -27,6 +27,7 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/ValidatorList.h>
+#include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/consensus/LedgerTiming.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/core/TimeKeeper.h>
@@ -182,6 +183,13 @@ void
 relayManifest(Application& app, Manifest const& manifest)
 {
     app.getOPs().pubManifest(manifest);
+
+    // As OverlayImpl::onManifests does for gossip it accepts directly.
+    if (app.validators().listed(manifest.masterKey))
+    {
+        auto db = app.getWalletDB().checkoutDb();
+        addValidatorManifest(*db, manifest.serialized);
+    }
 
     auto const toSkip = app.getHashRouter().shouldRelay(manifest.hash());
     if (!toSkip)
