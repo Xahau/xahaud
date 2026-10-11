@@ -375,6 +375,21 @@ public:
         return isMem;
     }
 
+    /** True when [node_db] type=rwdb.
+
+        The app node store is the existing NullFactory (type=none).
+        Nodes stay alive through Ledger and SHAMap pointers.
+        The result is read from this configuration, so two
+        applications in one process do not share it.
+    */
+    bool
+    nullBackend() const
+    {
+        auto const& node = section(ConfigSection::nodeDatabase());
+        return !node.empty() &&
+            boost::beast::iequals(get(node, "type"), "rwdb");
+    }
+
     bool
     useTxTables() const
     {

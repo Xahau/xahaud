@@ -1102,23 +1102,24 @@ trustthesevalidators.gov
         Config cfg;
         /* NOTE: this string includes some explicit
          * space chars in order to verify proper trimming */
-        std::string toLoad(R"(
+        std::string toLoad(
+            R"(
 [port_rpc])"
-                           "\x20"
-                           R"(
+            "\x20"
+            R"(
 # comment
     # indented comment
 )"
-                           "\x20\x20"
-                           R"(
+            "\x20\x20"
+            R"(
 [ips])"
-                           "\x20"
-                           R"(
+            "\x20"
+            R"(
 r.ripple.com 51235
 
   [ips_fixed])"
-                           "\x20\x20"
-                           R"(
+            "\x20\x20"
+            R"(
     # COMMENT
     s1.ripple.com 51235
     s2.ripple.com 51235
@@ -1144,23 +1145,24 @@ r.ripple.com 51235
         Config cfg;
         /* NOTE: this string includes some explicit
          * space chars in order to verify proper trimming */
-        std::string toLoad(R"(
+        std::string toLoad(
+            R"(
 [port_rpc])"
-                           "\x20"
-                           R"(
+            "\x20"
+            R"(
 # comment
     # indented comment
 )"
-                           "\x20\x20"
-                           R"(
+            "\x20\x20"
+            R"(
 [ips])"
-                           "\x20"
-                           R"(
+            "\x20"
+            R"(
 r.ripple.com:51235
 
   [ips_fixed])"
-                           "\x20\x20"
-                           R"(
+            "\x20\x20"
+            R"(
     # COMMENT
     s1.ripple.com:51235
     s2.ripple.com 51235
@@ -1447,8 +1449,8 @@ r.ripple.com:51235
             }
         }
 
-        // Test 2: RWDB without online_delete NOT in standalone mode (should
-        // throw)
+        // Test 2: RWDB without online_delete NOT in standalone mode
+        // (now allowed — SHAMapStoreImp defaults it to ledger_history)
         {
             Config c;
             std::string toLoad =
@@ -1459,15 +1461,11 @@ r.ripple.com:51235
             try
             {
                 c.loadFromString(toLoad);
-                fail("Expected exception for RWDB without online_delete");
-            }
-            catch (std::runtime_error const& e)
-            {
-                BEAST_EXPECT(
-                    std::string(e.what()).find(
-                        "RWDB (in-memory backend) requires online_delete") !=
-                    std::string::npos);
                 pass();
+            }
+            catch (std::runtime_error const&)
+            {
+                fail("Should not throw for RWDB without online_delete");
             }
         }
 
@@ -1613,7 +1611,33 @@ r.ripple.com:51235
             }
         }
 
-        // Test 5: pinned_type without online_delete (should throw)
+        // Test 5: type=rwdb with pinned_type (should throw, even in
+        // standalone). The rwdb node store is tree-only, so pinned data
+        // would be accepted and then dropped.
+        for (bool const standalone : {false, true})
+        {
+            Config c;
+            std::string toLoad =
+                "[node_db]\n"
+                "type=rwdb\n"
+                "online_delete=256\n"
+                "pinned_type=NuDB\n"
+                "pinned_path=pinned\n";
+            c.setupControl(true, true, standalone);
+            try
+            {
+                c.loadFromString(toLoad);
+                fail("Expected exception for pinned_type with type=rwdb");
+            }
+            catch (std::runtime_error const& e)
+            {
+                BEAST_EXPECT(
+                    std::string(e.what()).find("type=rwdb") !=
+                    std::string::npos);
+            }
+        }
+
+        // Test 6: pinned_type without online_delete (should throw)
         {
             Config c;
             std::string toLoad =
