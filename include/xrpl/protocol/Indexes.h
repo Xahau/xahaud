@@ -376,6 +376,16 @@ permissionedDomain(uint256 const& domainID) noexcept;
 Keylet
 manifest(PublicKey const& pk) noexcept;
 
+/** The directory listing every master key's ltMANIFEST object.
+
+    One entry per master key, made when its first manifest is published and
+    kept for good: a newer manifest, a revocation included, replaces the object
+    at the same key and keeps its place. The copy at the ephemeral key is not
+    listed; it is named by the master object.
+*/
+Keylet const&
+manifestDir() noexcept;
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:
