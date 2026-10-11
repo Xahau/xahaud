@@ -303,8 +303,67 @@ jobs:
           # Coverage builds are slower due to instrumentation; use fewer parallel jobs to avoid flakiness.
           # Use *_FLAGS_DEBUG so the build action's stdlib flag (e.g. -stdlib=libc++) in CMAKE_CXX_FLAGS isn't clobbered.
           cmake-args: '-Dcoverage=ON -Dcoverage_tool=${{ matrix.coverage_tool }} -Dcoverage_format=${{ matrix.coverage_format }} -Dcoverage_test_parallelism=$(($(nproc)/2)) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0"'
-          cmake-target: 'coverage'
+          cmake-target: 'rippled'
           ccache_max_size: '100G'
+
+      # [DO NOT MERGE] Diagnostic: run the coverage test pass directly (not via
+      # the ninja `coverage` target, which buffers all output until exit) so
+      # every line gets a live timestamp, sample host/process state every 60s,
+      # and dump thread stacks of every rippled process at 20/40 min and on a
+      # 90 min deadline instead of sitting for the 6h job timeout.
+      - name: Run tests (coverage, diagnostic)
+        if: matrix.job_type == 'coverage'
+        shell: bash
+        run: |
+          apt-get install -y procps elfutils > /dev/null
+          cd ${{ env.build_dir }}
+          rm -rf coverage-profraw && mkdir coverage-profraw
+          JOBS=$(($(nproc)/2))
+          echo "nproc=$(nproc) jobs=$JOBS loadavg=$(cat /proc/loadavg)"
+          free -m; df -h . /dev/shm /tmp; ulimit -a; cat /proc/pressure/cpu /proc/pressure/memory /proc/pressure/io 2>/dev/null || true
+
+          dump_stacks() {
+            echo "===== STACK DUMP ($1) $(date -u +%T)"
+            for p in $(pgrep -x rippled); do
+              echo "--- pid $p state=$(awk '/^State/{print $2}' /proc/$p/status) wchan=$(cat /proc/$p/wchan 2>/dev/null) cmd=$(tr '\0' ' ' < /proc/$p/cmdline | cut -c1-100)"
+              timeout 120 eu-stack -p $p 2>&1 | head -300 || true
+            done
+          }
+
+          ( while true; do
+              echo "===== sample $(date -u +%T) loadavg=$(cut -d' ' -f1-3 /proc/loadavg) psi_cpu=$(grep -o 'avg60=[0-9.]*' /proc/pressure/cpu 2>/dev/null | head -1) psi_mem=$(grep -o 'avg60=[0-9.]*' /proc/pressure/memory 2>/dev/null | head -1) psi_io=$(grep -o 'avg60=[0-9.]*' /proc/pressure/io 2>/dev/null | head -1)"
+              free -m | sed -n 2,3p
+              ps -eo pid,ppid,stat,etimes,pcpu,rss,wchan:28,args --sort=-pcpu | grep -E 'PID|rippled' | grep -v grep | head -14 | cut -c1-150
+              sleep 60
+            done ) &
+          MON=$!
+
+          LLVM_PROFILE_FILE="$PWD/coverage-profraw/rippled-%m-%p.profraw" \
+            stdbuf -oL -eL ./rippled --unittest --unittest-jobs $JOBS --unittest-log &
+          RP=$!
+          START=$SECONDS; D20=0; D40=0; rc=0
+          while kill -0 $RP 2>/dev/null; do
+            el=$((SECONDS-START))
+            if [ $D20 = 0 ] && [ $el -ge 1200 ]; then D20=1; dump_stacks "20min"; fi
+            if [ $D40 = 0 ] && [ $el -ge 2400 ]; then D40=1; dump_stacks "40min"; fi
+            if [ $el -ge 5400 ]; then
+              dump_stacks "90min deadline"
+              echo "===== DEADLINE: killing rippled processes"
+              pkill -KILL -x rippled || true
+              break
+            fi
+            sleep 10
+          done
+          wait $RP || rc=$?
+          kill $MON 2>/dev/null || true
+          echo "rippled unittest exit code: $rc after $((SECONDS-START))s"
+          ls -la coverage-profraw | head -20
+
+          llvm-profdata-${{ matrix.compiler_version }} merge -sparse -o coverage.profdata coverage-profraw/*.profraw
+          llvm-cov-${{ matrix.compiler_version }} export -instr-profile=coverage.profdata -format=lcov \
+            -ignore-filename-regex="src/test|include/xrpl/beast/test|include/xrpl/beast/unit_test|$PWD/pb-xrpl.libpb" \
+            ./rippled > coverage.lcov
+          exit $rc
 
       - name: Set artifact name
         if: matrix.job_type == 'build'
