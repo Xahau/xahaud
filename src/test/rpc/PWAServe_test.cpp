@@ -196,9 +196,6 @@ private:
 
 class PWAServe_test : public beast::unit_test::suite,
                       public beast::test::enable_yield_to
-
-                      class PWAServe_test : public beast::unit_test::suite,
-                                            public beast::test::enable_yield_to
 {
     using response_t =
         boost::beast::http::response<boost::beast::http::string_body>;

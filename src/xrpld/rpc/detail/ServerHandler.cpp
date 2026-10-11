@@ -574,9 +574,18 @@ pwaError(
 
 // Releases a ServerHandler PWA job slot when the last copy of the job
 // closure dies, whether or not it ever ran.
+// Non-copyable: a copy would release the slot twice.
 struct PWAJobSlot
 {
     std::atomic<std::size_t>& count;
+
+    explicit PWAJobSlot(std::atomic<std::size_t>& c) : count(c)
+    {
+    }
+    PWAJobSlot(PWAJobSlot const&) = delete;
+    PWAJobSlot&
+    operator=(PWAJobSlot const&) = delete;
+
     ~PWAJobSlot()
     {
         count.fetch_sub(1, std::memory_order_relaxed);
@@ -879,7 +888,7 @@ ServerHandler::queuePWALookup(
         ++pwaStats_.outcomes[std::size_t(Outcome::busy)];
         return pwaError(*session, 503, lookup.head);
     }
-    auto const slot = std::make_shared<PWAJobSlot>(PWAJobSlot{pwaJobs_});
+    auto const slot = std::make_shared<PWAJobSlot>(pwaJobs_);
     if (!m_jobQueue.addJob(
             jtCLIENT_PWA, "PWA-Client", [this, session, slot, lookup]() {
                 processPWARequest(session, lookup);
