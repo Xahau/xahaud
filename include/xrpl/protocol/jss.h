@@ -47,6 +47,7 @@ JSS(AL_hit_rate);    // out: GetCounts
 JSS(AcceptedCredentials);  // out: AccountObjects
 JSS(Account);        // in: TransactionSign; field.
 JSS(AMMID);          // field
+JSS(API);            // out: RPC server_definitions (HOOK)
 JSS(Amount);         // in: TransactionSign; field.
 JSS(Authorize);      // field
 JSS(Amount2);        // in/out: AMM IOU/XRP pool, deposit, withdraw amount
@@ -68,6 +69,9 @@ JSS(Destination);      // in: TransactionSign; field.
 JSS(EPrice);           // in: AMM Deposit option
 JSS(Fee);              // in/out: TransactionSign; field.
 JSS(FIELDS);           // out: RPC server_definitions
+JSS(HOOK);             // out: RPC server_definitions
+JSS(KEYLET_TYPES);     // out: RPC server_definitions (HOOK)
+JSS(RETURN_CODES);     // out: RPC server_definitions (HOOK)
 JSS(Flags);            // in/out: TransactionSign; field.
 JSS(GenesisMints);
 JSS(GovernanceMarks);
