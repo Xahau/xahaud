@@ -91,6 +91,7 @@ enum class LedgerNameSpace : std::uint16_t {
     MPTOKEN_ISSUANCE = '~',
     MPTOKEN = 't',
     MANIFEST = 'M',
+    MANIFEST_DIR = LEDGER_NAMESPACE2(0x01, 'M'),
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
 
@@ -682,6 +683,14 @@ Keylet
 manifest(PublicKey const& pk) noexcept
 {
     return {ltMANIFEST, indexHash(LedgerNameSpace::MANIFEST, pk.slice())};
+}
+
+Keylet const&
+manifestDir() noexcept
+{
+    static Keylet const ret{
+        ltDIR_NODE, indexHash(LedgerNameSpace::MANIFEST_DIR)};
+    return ret;
 }
 
 }  // namespace keylet

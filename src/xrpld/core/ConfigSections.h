@@ -49,6 +49,7 @@ struct ConfigSection
 #define SECTION_COMPRESSION "compression"
 #define SECTION_DATAGRAM_MONITOR "datagram_monitor"
 #define SECTION_DEBUG_LOGFILE "debug_logfile"
+#define SECTION_EARLY_MANIFEST_SYNC "early_manifest_sync"
 #define SECTION_ELB_SUPPORT "elb_support"
 #define SECTION_FEE_DEFAULT "fee_default"
 #define SECTION_FETCH_DEPTH "fetch_depth"
