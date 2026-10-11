@@ -1371,7 +1371,7 @@ private:
         return jvRequest;
     }
 
-    // pwa_info [<top>] [reset]   (either order, each at most once)
+    // pwa_info [<top>] [reset] [flush_dns]   (any order, each at most once)
     Json::Value
     parsePWAInfo(Json::Value const& jvParams)
     {
@@ -1384,6 +1384,13 @@ private:
                 if (jvRequest.isMember(jss::reset))
                     return rpcError(rpcINVALID_PARAMS);
                 jvRequest[jss::reset] = true;
+                continue;
+            }
+            if (param == "flush_dns")
+            {
+                if (jvRequest.isMember("flush_dns"))
+                    return rpcError(rpcINVALID_PARAMS);
+                jvRequest["flush_dns"] = true;
                 continue;
             }
 
@@ -1484,7 +1491,7 @@ public:
             {"peers", &RPCParser::parseAsIs, 0, 0},
             {"ping", &RPCParser::parseAsIs, 0, 0},
             {"print", &RPCParser::parseAsIs, 0, 1},
-            {"pwa_info", &RPCParser::parsePWAInfo, 0, 2},
+            {"pwa_info", &RPCParser::parsePWAInfo, 0, 3},
             //      {   "profile",              &RPCParser::parseProfile, 1,  9
             //      },
             {"random", &RPCParser::parseAsIs, 0, 0},

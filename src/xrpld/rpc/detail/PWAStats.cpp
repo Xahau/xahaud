@@ -81,6 +81,12 @@ PWAStats::to_string(Outcome o)
             return "bad_host";
         case Outcome::blocked:
             return "blocked";
+        case Outcome::redirected:
+            return "redirected";
+        case Outcome::unknownDomain:
+            return "unknown_domain";
+        case Outcome::dnsFailed:
+            return "dns_failed";
         case Outcome::count_:
             break;
     }
@@ -93,7 +99,8 @@ PWAStats::record(
     std::optional<boost::asio::ip::address> const& client,
     std::optional<AccountID> const& account,
     std::size_t bytes,
-    std::uint32_t ledgerSeq)
+    std::uint32_t ledgerSeq,
+    std::string const& domain)
 {
     auto const idx = static_cast<std::size_t>(outcome);
     if (idx >= outcomeCount)
@@ -140,6 +147,33 @@ PWAStats::record(
             }
             if (ledgerSeq)
                 e.lastLedger = ledgerSeq;
+            e.lastSeen = now;
+        }
+    }
+
+    if (trackAccount && !domain.empty())
+    {
+        auto it = domains_.find(domain);
+        if (it == domains_.end() && domains_.size() < maxTrackedDomains)
+            it = domains_.emplace(domain, DomainEntry{}).first;
+
+        if (it == domains_.end())
+        {
+            ++untrackedDomainRequests_;
+        }
+        else
+        {
+            auto& e = it->second;
+            e.account = *account;
+            if (outcome == Outcome::served)
+            {
+                ++e.served;
+                e.bytes += bytes;
+            }
+            else
+            {
+                ++e.notModified;
+            }
             e.lastSeen = now;
         }
     }
@@ -266,6 +300,43 @@ PWAStats::getJson(std::size_t top, bool reset)
         ret["clients"] = clients;
     }
 
+    {
+        std::vector<decltype(domains_)::const_iterator> rows;
+        rows.reserve(domains_.size());
+        for (auto it = domains_.cbegin(); it != domains_.cend(); ++it)
+            rows.push_back(it);
+        auto const n = std::min(top, rows.size());
+        std::partial_sort(
+            rows.begin(),
+            rows.begin() + n,
+            rows.end(),
+            [](auto const& a, auto const& b) {
+                auto const ha = a->second.served + a->second.notModified;
+                auto const hb = b->second.served + b->second.notModified;
+                if (ha != hb)
+                    return ha > hb;
+                return a->first < b->first;
+            });
+
+        Json::Value domains(Json::objectValue);
+        domains["tracked"] = static_cast<Json::UInt>(domains_.size());
+        domains["untracked_requests"] =
+            std::to_string(untrackedDomainRequests_);
+        Json::Value& list = domains["top"] = Json::arrayValue;
+        for (std::size_t i = 0; i < n; ++i)
+        {
+            auto const& [name, e] = *rows[i];
+            Json::Value& row = list.append(Json::objectValue);
+            row["domain"] = name;
+            row["account"] = toBase58(e.account);
+            row["served"] = std::to_string(e.served);
+            row["not_modified"] = std::to_string(e.notModified);
+            row["bytes"] = std::to_string(e.bytes);
+            row["last_seen"] = static_cast<Json::UInt>(e.lastSeen);
+        }
+        ret["domains"] = domains;
+    }
+
     if (reset)
         resetLocked();
 
@@ -287,8 +358,10 @@ PWAStats::resetLocked()
     lastLedger_ = 0;
     accounts_.clear();
     clients_.clear();
+    domains_.clear();
     untrackedAccountRequests_ = 0;
     untrackedClientRequests_ = 0;
+    untrackedDomainRequests_ = 0;
     since_ = std::chrono::system_clock::now();
 }
 

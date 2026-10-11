@@ -77,6 +77,14 @@ operator<<(std::ostream& os, Port const& p)
         os << ", ";
     }
 
+    if (p.pwa_custom_domains)
+    {
+        os << "custom domains via:";
+        for (auto const& r : p.pwa_resolvers)
+            os << " " << r;
+        os << ", ";
+    }
+
     if (p.secure_gateway_nets_v4.size() || p.secure_gateway_nets_v6.size())
     {
         os << "secure_gateway nets:";
@@ -446,6 +454,79 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
     accounts("blocklist", port.pwa_blocklist);
     accounts("allowlist_publisher", port.pwa_allow_publishers);
     accounts("blocklist_publisher", port.pwa_block_publishers);
+
+    // pwa ports: serve custom domains named by _xahau-pwa TXT records.
+    if (auto const optResult = section.get("custom_domains"))
+    {
+        if (!beast::lexicalCastChecked(port.pwa_custom_domains, *optResult))
+        {
+            log << "Invalid value '" << *optResult
+                << "' for key 'custom_domains' in [" << section.name()
+                << "]: expected 0 or 1";
+            Throw<std::exception>();
+        }
+    }
+
+    // pwa ports: the recursive resolvers custom domains are looked up with,
+    // as "addr", "v4addr:port", "[v6addr]" or "[v6addr]:port" (port 53 by
+    // default), comma-separated.
+    if (auto const optResult = section.get("resolver"))
+    {
+        std::vector<std::string> items;
+        boost::algorithm::split(
+            items, *optResult, boost::algorithm::is_any_of(","));
+        for (auto& item : items)
+        {
+            boost::algorithm::trim(item);
+            if (item.empty())
+                continue;
+
+            std::string addr = item;
+            std::uint16_t udpPort = 53;
+            bool valid = true;
+            auto portFrom = [&](std::string const& s) {
+                if (!beast::lexicalCastChecked(udpPort, s) || udpPort == 0)
+                    valid = false;
+            };
+            if (addr.front() == '[')
+            {
+                auto const close = addr.find(']');
+                if (close == std::string::npos)
+                    valid = false;
+                else
+                {
+                    auto const rest = addr.substr(close + 1);
+                    if (!rest.empty())
+                    {
+                        if (rest.front() != ':')
+                            valid = false;
+                        else
+                            portFrom(rest.substr(1));
+                    }
+                    addr = addr.substr(1, close - 1);
+                }
+            }
+            else if (auto const colon = addr.find(':');
+                     colon != std::string::npos &&
+                     addr.find(':', colon + 1) == std::string::npos)
+            {
+                portFrom(addr.substr(colon + 1));
+                addr.erase(colon);
+            }
+
+            boost::system::error_code ec;
+            auto const ip = boost::asio::ip::make_address(addr, ec);
+            if (!valid || ec || ip.is_unspecified())
+            {
+                log << "Invalid value '" << item << "' for key 'resolver' in ["
+                    << section.name()
+                    << "]: expected an address such as 127.0.0.1, "
+                       "127.0.0.1:5353 or [::1]:53";
+                Throw<std::exception>();
+            }
+            port.pwa_resolvers.emplace_back(ip, udpPort);
+        }
+    }
 
     set(port.user, "user", section);
     set(port.password, "password", section);

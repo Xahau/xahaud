@@ -22,6 +22,7 @@
 
 #include <xrpld/app/main/CollectorManager.h>
 #include <xrpld/core/JobQueue.h>
+#include <xrpld/rpc/PWADomainResolver.h>
 #include <xrpld/rpc/PWAStats.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/detail/UDPInfoSub.h>
@@ -103,11 +104,23 @@ private:
     bool stopped_{false};
     std::map<std::reference_wrapper<Port const>, int> count_;
     PWAStats pwaStats_;
+    // Custom domain -> account, from _xahau-pwa TXT records.
+    PWADomainResolver pwaResolver_;
 
     // PWA lookups queued or running on the job queue. Requests past
     // maxPWAJobs are refused with 503 rather than queued.
     std::atomic<std::size_t> pwaJobs_{0};
     static constexpr std::size_t maxPWAJobs = 64;
+
+    // One document lookup, once the request has named an account.
+    struct PWALookup
+    {
+        AccountID account;
+        boost::asio::ip::address client;  // the billing address
+        bool head = false;                // HEAD: headers only
+        std::string ifNoneMatch;
+        std::string domain;  // the custom domain it came in on, if any
+    };
 
     // A private type used to restrict access to the ServerHandler constructor.
     struct ServerHandlerCreator
@@ -155,6 +168,13 @@ public:
     pwaStats()
     {
         return pwaStats_;
+    }
+
+    /** Custom domain lookups for "pwa" ports; see the pwa_info RPC. */
+    PWADomainResolver&
+    pwaResolver()
+    {
+        return pwaResolver_;
     }
 
     Endpoints const&
@@ -238,29 +258,34 @@ private:
         Runs on the I/O thread and does only cheap work: checks that the
         request came through a secure_gateway proxy with X-Forwarded-For,
         meters it against the forwarded client (per IPv4 address, per IPv6
-        /64), parses the account out of the Host header and target, and
-        refuses accounts the port's allowlist or blocklist rule out. The
-        ledger read is posted to the job queue as jtCLIENT_PWA, with at most
-        maxPWAJobs in flight.
+        /64), and works out from the Host header and target which account
+        it names. A bare zone with an r-address path is redirected (301) to
+        that account's own host. A Host outside every zone is, if the port
+        allows custom domains, resolved through its _xahau-pwa TXT record:
+        from the cache at once, or else by an asynchronous DNS query that
+        blocks no thread. The ledger read itself goes to queuePWALookup.
     */
     void
     onPWARequest(Session& session);
+
+    /** Refuse accounts the port's allowlist or blocklist rule out, then
+        post the ledger read to the job queue as jtCLIENT_PWA, with at most
+        maxPWAJobs in flight. Callable from any thread.
+    */
+    void
+    queuePWALookup(
+        std::shared_ptr<Session> const& session,
+        PWALookup const& lookup);
 
     /** Serve an account's AppLoader document from the validated ledger,
         after consulting the port's allowlist and blocklist publishers in
         that same ledger. Runs on the job queue. Always closes the
         connection.
-
-        @param client The billing address (see onPWARequest), for stats.
-        @param head   The request was HEAD: send headers only.
     */
     void
     processPWARequest(
         std::shared_ptr<Session> const& session,
-        AccountID const& account,
-        boost::asio::ip::address const& client,
-        bool head,
-        std::string const& ifNoneMatch);
+        PWALookup const& lookup);
 
     void
     processRequest(

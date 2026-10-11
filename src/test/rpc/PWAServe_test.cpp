@@ -18,15 +18,17 @@
 //==============================================================================
 
 // End-to-end tests for "pwa" ports: startup validation, proxy and
-// X-Forwarded-For rules, host and path routing, allowlist / blocklist
-// (static and publisher), headers, ETag/304, connection handling, metering,
-// the pwa_info RPC, and the browser-Origin admin hardening that accompanies
-// them. These talk to the node over real sockets.
+// X-Forwarded-For rules, host and path routing, the <zone>/<r-address>
+// redirect, custom domains (against an in-process DNS server), allowlist /
+// blocklist (static and publisher), headers, ETag/304, connection handling,
+// metering, the pwa_info RPC, and the browser-Origin admin hardening that
+// accompanies them. These talk to the node over real sockets.
 
 #include <test/jtx.h>
 #include <test/jtx/JSONRPCClient.h>
 #include <test/jtx/envconfig.h>
 #include <xrpld/core/Config.h>
+#include <xrpld/rpc/PWADomainResolver.h>
 #include <xrpld/rpc/ServerHandler.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/basics/StringUtilities.h>
@@ -47,15 +49,177 @@
 #include <boost/beast/http.hpp>
 
 #include <array>
+#include <atomic>
 #include <cstdlib>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <random>
 #include <sstream>
 #include <string>
+#include <thread>
 
 namespace ripple {
 namespace test {
+
+// A recursive resolver stand-in for custom domain tests: answers TXT
+// queries for "_xahau-pwa.<host>" from a table, on its own thread.
+class FakeDNS
+{
+public:
+    enum class Mode { answer, nxdomain, servfail };
+
+    struct Entry
+    {
+        Mode mode = Mode::answer;
+        std::vector<std::string> txt;  // one TXT RR each
+        std::uint32_t ttl = 300;
+    };
+
+    FakeDNS()
+        : socket_(
+              io_,
+              boost::asio::ip::udp::endpoint(
+                  boost::asio::ip::make_address(getEnvLocalhostAddr()),
+                  0))
+    {
+        receive();
+        thread_ = std::thread([this] { io_.run(); });
+    }
+
+    ~FakeDNS()
+    {
+        boost::asio::post(io_, [this] {
+            boost::system::error_code ec;
+            socket_.close(ec);
+        });
+        thread_.join();
+    }
+
+    // As the "resolver" value for the port.
+    std::string
+    address() const
+    {
+        auto const ep = socket_.local_endpoint();
+        auto const a = ep.address().to_string();
+        return (ep.address().is_v6() ? "[" + a + "]" : a) + ":" +
+            std::to_string(ep.port());
+    }
+
+    void
+    set(std::string const& host, Entry e)
+    {
+        std::lock_guard lock(mutex_);
+        table_[host] = std::move(e);
+    }
+
+    // Queries received for `host`.
+    int
+    queries(std::string const& host)
+    {
+        std::lock_guard lock(mutex_);
+        return seen_[host];
+    }
+
+    int
+    totalQueries()
+    {
+        std::lock_guard lock(mutex_);
+        int n = 0;
+        for (auto const& [h, c] : seen_)
+            n += c;
+        return n;
+    }
+
+private:
+    void
+    receive()
+    {
+        socket_.async_receive_from(
+            boost::asio::buffer(buf_),
+            from_,
+            [this](boost::system::error_code ec, std::size_t n) {
+                if (ec)
+                    return;
+                answer(n);
+                receive();
+            });
+    }
+
+    void
+    answer(std::size_t n)
+    {
+        // Header, then the name, type and class of the one question.
+        if (n < 12 + 5)
+            return;
+        std::size_t pos = 12;
+        std::vector<std::string> labels;
+        while (pos < n && buf_[pos] != 0)
+        {
+            auto const len = buf_[pos];
+            if (pos + 1 + len > n)
+                return;
+            labels.emplace_back(
+                reinterpret_cast<char const*>(&buf_[pos + 1]), len);
+            pos += 1 + len;
+        }
+        pos += 1 + 4;
+        if (pos > n || labels.size() < 2 ||
+            labels.front() != PWADomainResolver::recordLabel)
+            return;
+        std::string host;
+        for (std::size_t i = 1; i < labels.size(); ++i)
+            host += (i > 1 ? "." : "") + labels[i];
+
+        Entry e;
+        e.mode = Mode::nxdomain;
+        {
+            std::lock_guard lock(mutex_);
+            ++seen_[host];
+            if (auto it = table_.find(host); it != table_.end())
+                e = it->second;
+        }
+
+        std::vector<std::uint8_t> r(buf_.begin(), buf_.begin() + pos);
+        r[2] = 0x81;  // QR, RD
+        r[3] = 0x80 |
+            (e.mode == Mode::nxdomain       ? 3
+                 : e.mode == Mode::servfail ? 2
+                                            : 0);
+        auto const an = e.mode == Mode::answer ? e.txt.size() : 0;
+        r[6] = 0;
+        r[7] = static_cast<std::uint8_t>(an);
+        r[8] = r[9] = r[10] = r[11] = 0;  // no authority, no OPT
+        auto put16 = [&](std::uint16_t x) {
+            r.push_back(static_cast<std::uint8_t>(x >> 8));
+            r.push_back(static_cast<std::uint8_t>(x & 0xff));
+        };
+        for (std::size_t i = 0; i < an; ++i)
+        {
+            auto const& t = e.txt[i];
+            r.push_back(0xC0);  // pointer to the question name
+            r.push_back(12);
+            put16(16);
+            put16(1);
+            put16(static_cast<std::uint16_t>(e.ttl >> 16));
+            put16(static_cast<std::uint16_t>(e.ttl & 0xffff));
+            put16(static_cast<std::uint16_t>(t.size() + 1));
+            r.push_back(static_cast<std::uint8_t>(t.size()));
+            r.insert(r.end(), t.begin(), t.end());
+        }
+        boost::system::error_code ec;
+        socket_.send_to(boost::asio::buffer(r), from_, 0, ec);
+    }
+
+    boost::asio::io_context io_;
+    boost::asio::ip::udp::socket socket_;
+    boost::asio::ip::udp::endpoint from_;
+    std::array<std::uint8_t, 2048> buf_{};
+    std::thread thread_;
+    std::mutex mutex_;
+    std::map<std::string, Entry> table_;
+    std::map<std::string, int> seen_;
+};
 
 class PWAServe_test : public beast::unit_test::suite,
                       public beast::test::enable_yield_to
@@ -385,17 +549,91 @@ class PWAServe_test : public beast::unit_test::suite,
             s.set("blocklist", b.human());
         }));
 
+        // custom_domains is a boolean; resolver is a list of addresses and
+        // needs custom_domains.
+        for (auto const good : {"0", "1", "true", "False"})
+            BEAST_EXPECTS(
+                accepts([good](Section& s) {
+                    s.set("custom_domains", good);
+                    s.set("resolver", "127.0.0.1");
+                    if (std::string(good) == "0" ||
+                        std::string(good) == "False")
+                        s.set("resolver", "");
+                }),
+                good);
+        BEAST_EXPECT(
+            !accepts([](Section& s) { s.set("custom_domains", "2"); }));
+        BEAST_EXPECT(
+            !accepts([](Section& s) { s.set("custom_domains", "yes"); }));
+        for (auto const good :
+             {"127.0.0.1",
+              "127.0.0.1:5353",
+              "::1",
+              "[::1]",
+              "[::1]:5353",
+              "10.0.0.1, [2001:db8::1]:53"})
+            BEAST_EXPECTS(
+                accepts([good](Section& s) {
+                    s.set("custom_domains", "1");
+                    s.set("resolver", good);
+                }),
+                good);
+        for (auto const bad :
+             {"localhost",
+              "0.0.0.0",
+              "::",
+              "127.0.0.1:0",
+              "127.0.0.1:65536",
+              "127.0.0.1:x",
+              "[::1",
+              "[::1]x",
+              "1.2.3.4.5"})
+            BEAST_EXPECTS(
+                !accepts([bad](Section& s) {
+                    s.set("custom_domains", "1");
+                    s.set("resolver", bad);
+                }),
+                bad);
+        BEAST_EXPECT(
+            !accepts([](Section& s) { s.set("resolver", "127.0.0.1"); }));
+        {
+            auto cfg = pwaConfig([](Section& s) {
+                s.set("custom_domains", "1");
+                s.set("resolver", "127.0.0.1:5353, [::1]");
+            });
+            auto const setup = setup_ServerHandler(*cfg, std::stringstream{});
+            auto const it = std::find_if(
+                setup.ports.begin(), setup.ports.end(), [](Port const& p) {
+                    return p.name == "port_pwa";
+                });
+            if (BEAST_EXPECT(it != setup.ports.end()))
+            {
+                BEAST_EXPECT(it->pwa_custom_domains);
+                BEAST_EXPECT(it->pwa_resolvers.size() == 2);
+                BEAST_EXPECT(it->pwa_resolvers[0].port() == 5353);
+                BEAST_EXPECT(it->pwa_resolvers[1].port() == 53);
+                BEAST_EXPECT(it->pwa_resolvers[1].address().is_v6());
+            }
+        }
+
         // ...and they belong to pwa ports only.
         for (auto const key :
              {"domain",
               "allowlist",
               "blocklist",
               "allowlist_publisher",
-              "blocklist_publisher"})
+              "blocklist_publisher",
+              "custom_domains",
+              "resolver"})
         {
             auto cfg = pwaConfig();
+            std::string const k = key;
             (*cfg)["port_rpc"].set(
-                key, std::string(key) == "domain" ? zone : a.human());
+                key,
+                k == "domain"               ? std::string(zone)
+                    : k == "custom_domains" ? std::string("1")
+                    : k == "resolver"       ? std::string("127.0.0.1")
+                                            : a.human());
             bool ok = true;
             try
             {
@@ -759,7 +997,6 @@ class PWAServe_test : public beast::unit_test::suite,
         Account const bob{"bob"};
         for (auto const& [host, t] :
              std::vector<std::pair<std::string, std::string>>{
-                 {"pwa.test", "/" + a},  // the dangerous shape
                  {"pwa.test", "/"},
                  {"www.pwa.test", "/" + a},
                  {lower + ".pwa.test", "/"},          // no address in the path
@@ -781,8 +1018,23 @@ class PWAServe_test : public beast::unit_test::suite,
             BEAST_EXPECTS(r.result_int() == 404, host + " " + t);
         }
 
-        // No usable Host at all: 400, so a proxy that drops it shows up.
-        for (auto const& host : {"", "[::1]:8088", "pwa_test", "a b.pwa.test"})
+        // Never served from the zone's own origin: redirected instead (see
+        // testRedirect).
+        BEAST_EXPECT(with("pwa.test", "/" + a).result_int() == 301);
+
+        // A custom domain, but the port has none.
+        BEAST_EXPECT(with("app.example.org", "/").result_int() == 404);
+
+        // No usable Host at all: 400, so a proxy that drops it shows up. A
+        // port is echoed into redirects, so it must be digits.
+        for (auto const& host :
+             {"",
+              "[::1]:8088",
+              "pwa_test",
+              "a b.pwa.test",
+              "pwa.test:",
+              "pwa.test:x",
+              "pwa.test:1234567"})
             BEAST_EXPECTS(with(host, "/" + a).result_int() == 400, host);
         {
             auto const raw = exchange(
@@ -800,6 +1052,311 @@ class PWAServe_test : public beast::unit_test::suite,
                      {"Host", lower + ".pwa.test"}}),
                 yield);
             BEAST_EXPECT(two.rfind("HTTP/1.1 400 ", 0) == 0);
+        }
+    }
+
+    void
+    testRedirect(boost::asio::yield_context& yield)
+    {
+        testcase("<zone>/<r-address> redirects to the account's own host");
+        using namespace jtx;
+        Account const alice{"alice"}, bob{"bob"};
+        Env env{*this, pwaConfig([&](Section& s) {
+                    s.set("domain", "pwa.test, Apps.Example.");
+                    s.set("blocklist", bob.human());
+                })};
+        env.fund(XRP(1000), alice, bob);
+        publish(env, alice, doc());
+        env.close();
+
+        auto const a = alice.human();
+        auto const lower = boost::algorithm::to_lower_copy(a);
+        auto with = [&](std::string const& host,
+                        std::string const& target,
+                        std::string const& method = "GET") {
+            return get(
+                env,
+                target,
+                yield,
+                {{"X-Forwarded-For", "203.0.113.7"}, {"Host", host}},
+                method);
+        };
+
+        // The label is the address lower-cased, as a browser would send
+        // it; the path keeps it exact; port and query string are kept; one
+        // trailing slash and any fragment are dropped. The Location is a
+        // network-path reference, so the browser keeps its own scheme.
+        for (auto const& [host, target, location] :
+             std::vector<std::tuple<std::string, std::string, std::string>>{
+                 {"pwa.test", "/" + a, "//" + lower + ".pwa.test/" + a},
+                 {"PWA.TEST.", "/" + a + "/", "//" + lower + ".pwa.test/" + a},
+                 {"pwa.test:8443",
+                  "/" + a + "?v=2&x=%2F",
+                  "//" + lower + ".pwa.test:8443/" + a + "?v=2&x=%2F"},
+                 {"apps.example",
+                  "/" + a + "/?q",
+                  "//" + lower + ".apps.example/" + a + "?q"}})
+        {
+            bool closed = false;
+            auto const raw = exchange(
+                env,
+                rawGet(
+                    target,
+                    {{"X-Forwarded-For", "203.0.113.7"}, {"Host", host}}),
+                yield,
+                "port_pwa",
+                &closed);
+            BEAST_EXPECT(closed);
+            auto const r = parse(raw);
+            if (!BEAST_EXPECTS(r, host + target))
+                continue;
+            BEAST_EXPECTS(r->result_int() == 301, host + target);
+            BEAST_EXPECTS(hdr(*r, "Location") == location, hdr(*r, "Location"));
+            BEAST_EXPECT(hdr(*r, "Cache-Control") == "public, max-age=86400");
+            BEAST_EXPECT(hdr(*r, "Connection") == "close");
+            BEAST_EXPECT(hdr(*r, "X-Content-Type-Options") == "nosniff");
+            BEAST_EXPECT(hdr(*r, "ETag").empty());
+            BEAST_EXPECT(r->body().find("<html") == std::string::npos);
+
+            // Following it serves the document: the lower-cased label
+            // still matches the exact address in the path.
+            auto const rest = location.substr(2);
+            auto const slash = rest.find('/');
+            BEAST_EXPECTS(
+                servedAsHtml(with(rest.substr(0, slash), rest.substr(slash))),
+                location);
+        }
+
+        // HEAD: same status and Location, no body.
+        {
+            auto const raw = exchange(
+                env,
+                rawGet(
+                    "/" + a,
+                    {{"X-Forwarded-For", "203.0.113.7"}, {"Host", "pwa.test"}},
+                    "HEAD"),
+                yield);
+            BEAST_EXPECT(raw.rfind("HTTP/1.1 301 ", 0) == 0);
+            BEAST_EXPECT(
+                raw.find(
+                    "\r\nLocation: //" + lower + ".pwa.test/" + a + "\r\n") !=
+                std::string::npos);
+            BEAST_EXPECT(raw.find("\r\n\r\n") + 4 == raw.size());
+        }
+
+        // The redirect reads no ledger and applies no list: an account
+        // with no loader, or a blocked one, is redirected all the same and
+        // answered for real at its own host.
+        {
+            Account const nobody{"nobody"};
+            BEAST_EXPECT(
+                with("pwa.test", "/" + nobody.human()).result_int() == 301);
+            BEAST_EXPECT(
+                with(
+                    boost::algorithm::to_lower_copy(nobody.human()) +
+                        ".pwa.test",
+                    "/" + nobody.human())
+                    .result_int() == 404);
+            BEAST_EXPECT(
+                with("pwa.test", "/" + bob.human()).result_int() == 301);
+            BEAST_EXPECT(
+                with(
+                    boost::algorithm::to_lower_copy(bob.human()) + ".pwa.test",
+                    "/" + bob.human())
+                    .result_int() == 403);
+        }
+
+        // Only an exact classic address in the path is redirected.
+        for (auto const& t :
+             {std::string("/"),
+              "/" + lower,
+              "/" + a + "x",
+              "/" + a + "/extra",
+              "//" + a,
+              "/" + strHex(alice.id()),
+              "/" + toBase58(AccountID{})})
+            BEAST_EXPECTS(with("pwa.test", t).result_int() == 404, t);
+
+        // Other methods are refused before routing.
+        BEAST_EXPECT(with("pwa.test", "/" + a, "POST").result_int() == 405);
+
+        auto const info = env.rpc("json", "pwa_info", "{}")[jss::result];
+        BEAST_EXPECT(info["outcomes"]["redirected"] == "7");
+    }
+
+    void
+    testCustomDomains(boost::asio::yield_context& yield)
+    {
+        testcase("custom domains via _xahau-pwa TXT records");
+        using namespace jtx;
+        Account const alice{"alice"}, bob{"bob"}, carol{"carol"};
+        FakeDNS dns;
+        Env env{*this, pwaConfig([&](Section& s) {
+                    s.set("custom_domains", "1");
+                    s.set("resolver", dns.address());
+                    s.set("blocklist", carol.human());
+                })};
+        env.fund(XRP(1000), alice, bob, carol);
+        publish(env, alice, doc());
+        publish(env, carol, doc());
+        env.close();
+
+        using Mode = FakeDNS::Mode;
+        dns.set("app.example.org", {Mode::answer, {alice.human()}});
+        dns.set("nodoc.example.org", {Mode::answer, {bob.human()}});
+        dns.set("blocked.example.org", {Mode::answer, {carol.human()}});
+        dns.set(
+            "two.example.org", {Mode::answer, {alice.human(), bob.human()}});
+        dns.set(
+            "other.example.org",
+            {Mode::answer, {"v=spf1 -all", " " + alice.human() + " "}});
+        dns.set("empty.example.org", {Mode::answer, {}});
+        dns.set("broken.example.org", {Mode::servfail, {}});
+
+        auto at = [&](std::string const& host,
+                      std::string const& target = "/",
+                      Headers extra = {},
+                      std::string const& method = "GET") {
+            extra.emplace_back("X-Forwarded-For", "203.0.113.7");
+            extra.emplace_back("Host", host);
+            return get(env, target, yield, extra, method);
+        };
+
+        // Served as the account the record names, with the same document,
+        // headers and ETag as at that account's own host.
+        auto const own = get(env, "/" + alice.human(), yield);
+        auto const r = at("app.example.org");
+        BEAST_EXPECT(servedAsHtml(r));
+        BEAST_EXPECT(r.body() == doc());
+        BEAST_EXPECT(hdr(r, "ETag") == hdr(own, "ETag"));
+        BEAST_EXPECT(
+            hdr(r, "Content-Security-Policy") ==
+            hdr(own, "Content-Security-Policy"));
+        BEAST_EXPECT(dns.queries("app.example.org") == 1);
+
+        // Case, a trailing dot, a port and a query string do not matter;
+        // the answer is cached, so none of these asks DNS again.
+        for (auto const& [host, target] :
+             std::vector<std::pair<std::string, std::string>>{
+                 {"APP.Example.Org", "/"},
+                 {"app.example.org.", "/"},
+                 {"app.example.org:443", "/?utm=x"},
+                 {"app.example.org", "/?a=1/"}})
+            BEAST_EXPECTS(servedAsHtml(at(host, target)), host + target);
+        BEAST_EXPECT(dns.queries("app.example.org") == 1);
+
+        // HEAD, and revalidation.
+        {
+            auto const raw = exchange(
+                env,
+                rawGet(
+                    "/",
+                    {{"X-Forwarded-For", "203.0.113.7"},
+                     {"Host", "app.example.org"}},
+                    "HEAD"),
+                yield);
+            BEAST_EXPECT(raw.rfind("HTTP/1.1 200 ", 0) == 0);
+            BEAST_EXPECT(raw.find("\r\n\r\n") + 4 == raw.size());
+            BEAST_EXPECT(
+                at("app.example.org",
+                   "/",
+                   {{"If-None-Match", hdr(own, "ETag")}})
+                    .result_int() == 304);
+        }
+
+        // Only the root is a document; anything else is refused without
+        // asking DNS.
+        for (auto const& t :
+             {"/" + alice.human(),
+              std::string("/index.html"),
+              std::string("/a/b")})
+            BEAST_EXPECTS(at("app.example.org", t).result_int() == 404, t);
+        BEAST_EXPECT(dns.queries("app.example.org") == 1);
+
+        // Names that cannot be custom domains, and names under the zone,
+        // never reach DNS.
+        auto const before = dns.totalQueries();
+        for (auto const& host :
+             {"localhost", "203.0.113.9", "www.pwa.test", "x.y.pwa.test"})
+            BEAST_EXPECTS(at(host).result_int() == 404, host);
+        BEAST_EXPECT(dns.totalQueries() == before);
+
+        // Records that name nobody, or more than one account: 404.
+        for (auto const host :
+             {"nothing.example.org",  // NXDOMAIN
+              "empty.example.org",    // no TXT
+              "two.example.org"})     // ambiguous
+            BEAST_EXPECTS(at(host).result_int() == 404, host);
+        // Other TXT records beside the address are ignored.
+        BEAST_EXPECT(servedAsHtml(at("other.example.org")));
+
+        // The named account has no loader, or the port refuses it.
+        BEAST_EXPECT(at("nodoc.example.org").result_int() == 404);
+        BEAST_EXPECT(at("blocked.example.org").result_int() == 403);
+
+        // The resolver fails: 503. Every attempt was made.
+        BEAST_EXPECT(at("broken.example.org").result_int() == 503);
+        BEAST_EXPECT(
+            dns.queries("broken.example.org") ==
+            static_cast<int>(PWADomainResolver::maxAttempts));
+
+        // Negative answers are cached too.
+        BEAST_EXPECT(at("nothing.example.org").result_int() == 404);
+        BEAST_EXPECT(dns.queries("nothing.example.org") == 1);
+
+        // A record that changes is picked up once the cache is flushed.
+        dns.set("app.example.org", {Mode::answer, {bob.human()}});
+        BEAST_EXPECT(servedAsHtml(at("app.example.org")));
+        {
+            auto const flushed = env.rpc(
+                "json", "pwa_info", R"({"flush_dns": true})")[jss::result];
+            // Every name looked up so far, bar a failure that may already
+            // have expired.
+            BEAST_EXPECT(flushed["dns_flushed"].asUInt() >= 7);
+        }
+        BEAST_EXPECT(at("app.example.org").result_int() == 404);
+        BEAST_EXPECT(dns.queries("app.example.org") == 2);
+
+        auto const info = env.rpc("json", "pwa_info", "{}")[jss::result];
+        auto const& o = info["outcomes"];
+        BEAST_EXPECT(o["unknown_domain"] == "4");
+        BEAST_EXPECT(o["dns_failed"] == "1");
+        BEAST_EXPECT(o["blocked"] == "1");
+        BEAST_EXPECT(info[jss::ports][0u]["custom_domains"] == true);
+        BEAST_EXPECT(info[jss::ports][0u]["resolvers"][0u] == dns.address());
+
+        // Domains are tracked only when they served something.
+        auto const& d = info["domains"];
+        BEAST_EXPECT(d["tracked"] == 2);
+        BEAST_EXPECT(d["top"][0u]["domain"] == "app.example.org");
+        BEAST_EXPECT(d["top"][0u]["account"] == alice.human());
+        BEAST_EXPECT(d["top"][0u]["served"] == "7");
+        BEAST_EXPECT(d["top"][0u]["not_modified"] == "1");
+        BEAST_EXPECT(d["top"][1u]["domain"] == "other.example.org");
+
+        auto const& q = info["dns"];
+        BEAST_EXPECT(q["queries"] == std::to_string(dns.totalQueries() - 3));
+        // app (twice: alice, then bob), other, nodoc, blocked.
+        BEAST_EXPECT(q["found"] == "5");
+        BEAST_EXPECT(q["failed"] == "1");
+        BEAST_EXPECT(q["queries_in_flight"] == 0);
+        BEAST_EXPECT(q["waiting_requests"] == 0);
+
+        // A port without custom_domains never asks: it has no resolver to
+        // ask, and the request is an ordinary wrong URL.
+        {
+            Env env2{*this, pwaConfig()};
+            BEAST_EXPECT(
+                get(env2,
+                    "/",
+                    yield,
+                    {{"X-Forwarded-For", "203.0.113.7"},
+                     {"Host", "app.example.org"}})
+                    .result_int() == 404);
+            auto const i2 = env2.rpc("json", "pwa_info", "{}")[jss::result];
+            BEAST_EXPECT(i2["outcomes"]["bad_target"] == "1");
+            BEAST_EXPECT(i2["dns"]["queries"] == "0");
+            BEAST_EXPECT(i2["dns"]["cache_misses"] == "0");
         }
     }
 
@@ -1469,6 +2026,13 @@ class PWAServe_test : public beast::unit_test::suite,
         BEAST_EXPECT(o["busy"] == "0");
         BEAST_EXPECT(o["bad_host"] == "0");
         BEAST_EXPECT(o["blocked"] == "0");
+        BEAST_EXPECT(o["redirected"] == "0");
+        BEAST_EXPECT(o["unknown_domain"] == "0");
+        BEAST_EXPECT(o["dns_failed"] == "0");
+        BEAST_EXPECT(r[jss::ports][0u]["custom_domains"] == false);
+        BEAST_EXPECT(!r[jss::ports][0u].isMember("resolvers"));
+        BEAST_EXPECT(r["domains"]["tracked"] == 0);
+        BEAST_EXPECT(r["dns"]["queries"] == "0");
         BEAST_EXPECT(r[jss::ports][0u]["domains"][0u] == zone);
         BEAST_EXPECT(r["bytes_served"] == std::to_string(2 * doc().size()));
         BEAST_EXPECT(r["last_ledger_index"] == env.closed()->seq());
@@ -1502,7 +2066,8 @@ class PWAServe_test : public beast::unit_test::suite,
               R"({"top": "5"})",
               R"({"top": true})",
               R"({"top": 1.5})",
-              R"({"reset": "yes"})"})
+              R"({"reset": "yes"})",
+              R"({"flush_dns": 1})"})
         {
             BEAST_EXPECTS(info(bad)[jss::error] == "invalidParams", bad);
         }
@@ -1546,6 +2111,14 @@ class PWAServe_test : public beast::unit_test::suite,
                 "invalidParams");
             BEAST_EXPECT(
                 env.rpc("pwa_info", "1", "2")[jss::error] == "invalidParams");
+            {
+                auto const f = env.rpc("pwa_info", "flush_dns", "reset", "3");
+                BEAST_EXPECT(f[jss::result][jss::status] == "success");
+                BEAST_EXPECT(f[jss::result].isMember("dns_flushed"));
+            }
+            BEAST_EXPECT(
+                env.rpc("pwa_info", "flush_dns", "flush_dns")[jss::error] ==
+                "invalidParams");
         }
 
         // Admin only.
@@ -1661,6 +2234,8 @@ public:
             testOnlyValidated(yield);
             testRouting(yield);
             testHostRules(yield);
+            testRedirect(yield);
+            testCustomDomains(yield);
             testStaticLists(yield);
             testPublisherLists(yield);
             testProxyRules(yield);

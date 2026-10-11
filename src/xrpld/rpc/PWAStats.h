@@ -44,7 +44,7 @@ namespace ripple {
     kept in bounded tables: once a table is full, requests for entries not
     already in it are counted in an "untracked" total instead, so a client
     sweeping random addresses cannot grow memory without limit. 404s are
-    never tracked per account, for the same reason.
+    never tracked per account or per custom domain, for the same reason.
 
     Clients are keyed by the address requests are billed against: the
     IPv4 address, or the IPv6 /64 (shown as "<prefix>::/64").
@@ -71,11 +71,16 @@ public:
         badHost,           // 400: no usable Host header (proxy not
                            //      forwarding it, or an IP literal)
         blocked,           // 403: refused by allowlist / blocklist
+        redirected,        // 301: <zone>/<r-address> sent to its own host
+        unknownDomain,     // 404: custom domain with no usable
+                           //      _xahau-pwa TXT record
+        dnsFailed,         // 503: custom domain whose TXT lookup failed
         count_
     };
 
     static constexpr std::size_t maxTrackedAccounts = 10'000;
     static constexpr std::size_t maxTrackedClients = 10'000;
+    static constexpr std::size_t maxTrackedDomains = 10'000;
     static constexpr std::size_t maxTop = 200;
 
     PWAStats();
@@ -88,6 +93,8 @@ public:
         @param account  The loader's owner; only for served / notModified.
         @param bytes    Body bytes written; only for served.
         @param ledgerSeq Validated ledger the answer came from, if any.
+        @param domain   The custom domain the request named, if it was one;
+                        tracked per domain only for served / notModified.
     */
     void
     record(
@@ -95,7 +102,8 @@ public:
         std::optional<boost::asio::ip::address> const& client = {},
         std::optional<AccountID> const& account = {},
         std::size_t bytes = 0,
-        std::uint32_t ledgerSeq = 0);
+        std::uint32_t ledgerSeq = 0,
+        std::string const& domain = {});
 
     /** Snapshot as JSON, with the `top` busiest accounts and clients.
 
@@ -123,6 +131,15 @@ private:
         std::int64_t lastSeen = 0;  // seconds since the Unix epoch
     };
 
+    struct DomainEntry
+    {
+        AccountID account;  // as last resolved
+        std::uint64_t served = 0;
+        std::uint64_t notModified = 0;
+        std::uint64_t bytes = 0;
+        std::int64_t lastSeen = 0;
+    };
+
     struct ClientEntry
     {
         std::uint64_t requests = 0;
@@ -144,8 +161,10 @@ private:
     std::chrono::system_clock::time_point since_;
     hash_map<AccountID, AccountEntry> accounts_;
     std::unordered_map<std::string, ClientEntry> clients_;
+    std::unordered_map<std::string, DomainEntry> domains_;
     std::uint64_t untrackedAccountRequests_ = 0;
     std::uint64_t untrackedClientRequests_ = 0;
+    std::uint64_t untrackedDomainRequests_ = 0;
 };
 
 }  // namespace ripple

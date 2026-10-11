@@ -29,31 +29,47 @@ namespace ripple {
 
     Request:
         {
-          "top":   <uint>,  // optional, rows per table, default 20, max 200
-          "reset": <bool>   // optional; return the snapshot, then zero it
+          "top":       <uint>,  // optional, rows per table, default 20,
+                                // max 200
+          "reset":     <bool>,  // optional; return the snapshot, then zero
+                                // the counters
+          "flush_dns": <bool>   // optional; drop every cached custom domain
+                                // answer (after taking the snapshot)
         }
 
     Response:
         {
-          "ports": [ { "name", "ip", "port", "domains": [...] } ],
+          "ports": [ { "name", "ip", "port", "domains": [...],
+                       "custom_domains": <bool>,
+                       "resolvers": [...] } ],      // only if custom_domains
           "since", "window_seconds",               // collection window
           "requests", "outcomes": { served, not_modified, not_found,
               bad_target, bad_method, no_forwarded_for, direct_connection,
               throttled, unavailable, upgrade_refused, busy, bad_host,
-              blocked },
+              blocked, redirected, unknown_domain, dns_failed },
           "bytes_served", "last_ledger_index",
           "accounts": { "tracked", "untracked_requests",
               "top": [ { account, served, not_modified, bytes,
                          last_ledger_index, last_seen } ] },
           "clients":  { "tracked", "untracked_requests",
               "top": [ { ip, requests, served, rejected, last_seen } ] },
-          "reset": true                            // only if reset was asked
+          "domains":  { "tracked", "untracked_requests",
+              "top": [ { domain, account, served, not_modified, bytes,
+                         last_seen } ] },
+          "dns": { cache_entries, queries_in_flight, waiting_requests,
+                   cache_hits, cache_misses, queries, coalesced, busy,
+                   found, no_record, failed, timeouts },
+          "reset": true,                           // only if reset was asked
+          "dns_flushed": <uint>                    // only if flush_dns
         }
 
     Clients are the rightmost X-Forwarded-For address, i.e. the address
     requests are billed against: an IPv4 address, or an IPv6 /64 shown as
     "<prefix>::/64". 64-bit counters are strings. With "reset", the
-    snapshot returned and the reset happen atomically.
+    snapshot returned and the reset happen atomically (the DNS counters
+    under their own lock; the DNS cache is kept unless flush_dns is set).
+    "domains" lists custom domains that served a document; its "account"
+    is the one the domain last resolved to.
 */
 Json::Value
 doPWAInfo(RPC::JsonContext& context)
@@ -80,10 +96,22 @@ doPWAInfo(RPC::JsonContext& context)
         reset = params[jss::reset].asBool();
     }
 
+    bool flushDNS = false;
+    if (params.isMember("flush_dns"))
+    {
+        if (!params["flush_dns"].isBool())
+            return RPC::expected_field_error("flush_dns", "bool");
+        flushDNS = params["flush_dns"].asBool();
+    }
+
     auto& handler = context.app.getServerHandler();
     auto& stats = handler.pwaStats();
+    auto& resolver = handler.pwaResolver();
 
     Json::Value ret = stats.getJson(top, reset);
+    ret["dns"] = resolver.getJson(reset);
+    if (flushDNS)
+        ret["dns_flushed"] = static_cast<Json::UInt>(resolver.flush());
 
     Json::Value& ports = ret[jss::ports] = Json::arrayValue;
     for (auto const& port : handler.setup().ports)
@@ -97,6 +125,19 @@ doPWAInfo(RPC::JsonContext& context)
         Json::Value& domains = p["domains"] = Json::arrayValue;
         for (auto const& d : port.pwa_domains)
             domains.append(d);
+        p["custom_domains"] = port.pwa_custom_domains;
+        if (port.pwa_custom_domains)
+        {
+            Json::Value& resolvers = p["resolvers"] = Json::arrayValue;
+            for (auto const& r : port.pwa_resolvers)
+            {
+                auto const addr = r.address();
+                resolvers.append(
+                    (addr.is_v6() ? "[" + addr.to_string() + "]"
+                                  : addr.to_string()) +
+                    ":" + std::to_string(r.port()));
+            }
+        }
     }
 
     if (reset)

@@ -26,6 +26,7 @@
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/network_v4.hpp>
 #include <boost/asio/ip/network_v6.hpp>
+#include <boost/asio/ip/udp.hpp>
 #include <boost/beast/core/string.hpp>
 #include <boost/beast/websocket/option.hpp>
 #include <cstdint>
@@ -77,6 +78,12 @@ struct Port
     std::set<AccountID> pwa_blocklist;
     std::vector<AccountID> pwa_allow_publishers;
     std::vector<AccountID> pwa_block_publishers;
+    // Serve a Host outside every zone (a custom domain) as the account its
+    // _xahau-pwa TXT record names. Off unless custom_domains = 1.
+    bool pwa_custom_domains = false;
+    // Recursive resolvers for those TXT lookups. From "resolver", or else
+    // /etc/resolv.conf (filled in by parse_Ports).
+    std::vector<boost::asio::ip::udp::endpoint> pwa_resolvers;
     std::string user;
     std::string password;
     std::string admin_user;
@@ -152,6 +159,8 @@ struct ParsedPort
     std::set<AccountID> pwa_blocklist;
     std::vector<AccountID> pwa_allow_publishers;
     std::vector<AccountID> pwa_block_publishers;
+    bool pwa_custom_domains = false;
+    std::vector<boost::asio::ip::udp::endpoint> pwa_resolvers;
 };
 
 void
