@@ -74,6 +74,7 @@ TRANSACTION(ttACCOUNT_SET, 3, AccountSet, ({
     {sfTickSize, soeOPTIONAL},
     {sfNFTokenMinter, soeOPTIONAL},
     {sfHookStateScale, soeOPTIONAL},
+    {sfAppLoader, soeOPTIONAL},
 }))
 
 /** This transaction type cancels an existing escrow. */

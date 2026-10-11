@@ -1380,6 +1380,34 @@ private:
         return jvRequest;
     }
 
+    // pwa_info [reset] [flush_dns]
+    Json::Value
+    parsePWAInfo(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+        for (Json::UInt i = 0; i < jvParams.size(); ++i)
+        {
+            auto const param = jvParams[i].asString();
+            if ((param != "reset" && param != "flush_dns") ||
+                jvRequest.isMember(param))
+                return rpcError(rpcINVALID_PARAMS);
+            jvRequest[param] = true;
+        }
+        return jvRequest;
+    }
+
+    // pwa_validate <account> <hash> [<domain>]
+    Json::Value
+    parsePWAValidate(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+        jvRequest[jss::account] = jvParams[0u].asString();
+        jvRequest[jss::hash] = jvParams[1u].asString();
+        if (jvParams.size() > 2)
+            jvRequest[jss::domain] = jvParams[2u].asString();
+        return jvRequest;
+    }
+
     // server_info [counters]
     Json::Value
     parseServerInfo(Json::Value const& jvParams)
@@ -1469,6 +1497,8 @@ public:
             {"peers", &RPCParser::parseAsIs, 0, 0},
             {"ping", &RPCParser::parseAsIs, 0, 0},
             {"print", &RPCParser::parseAsIs, 0, 1},
+            {"pwa_info", &RPCParser::parsePWAInfo, 0, 2},
+            {"pwa_validate", &RPCParser::parsePWAValidate, 2, 3},
             //      {   "profile",              &RPCParser::parseProfile, 1,  9
             //      },
             {"random", &RPCParser::parseAsIs, 0, 0},

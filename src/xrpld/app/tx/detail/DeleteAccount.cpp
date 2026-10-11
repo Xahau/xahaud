@@ -437,6 +437,13 @@ DeleteAccount::doApply()
     if (src->isFieldPresent(sfHookNamespaces) || src->isFieldPresent(sfHooks))
         return tecHAS_OBLIGATIONS;
 
+    // The AppLoader is in no owner directory, so the cleanup walk below never
+    // visits it; erase it here or AccountRootsDeletedClean fires on the
+    // orphan. Not gated on featurePWALoader: without it no such object can
+    // exist, and gating could only ever leave one behind.
+    if (auto sleLoader = view().peek(keylet::appLoader(account_)))
+        view().erase(sleLoader);
+
     // Delete all of the entries in the account directory.
     Keylet const ownerDirKeylet{keylet::ownerDir(account_)};
     auto const ter = cleanupOnAccountDelete(

@@ -29,6 +29,7 @@
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/FeeUnits.h>
 #include <xrpl/protocol/STArray.h>
@@ -614,6 +615,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltMPTOKEN:
             case ltCREDENTIAL:
             case ltPERMISSIONED_DOMAIN:
+            case ltAPP_LOADER:
             case ltMANIFEST:
                 break;
             default:
@@ -2021,4 +2023,61 @@ ValidLockedBalance::finalize(
 
     return true;
 }
+
+//------------------------------------------------------------------------------
+
+void
+ValidAppLoader::visitEntry(
+    bool isDelete,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    auto const& sle = after ? after : before;
+    if (!sle || sle->getType() != ltAPP_LOADER)
+        return;
+    touched_ = true;
+    if (!isDelete)
+        live_.push_back(after);
+}
+
+bool
+ValidAppLoader::finalize(
+    STTx const& tx,
+    TER const,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j)
+{
+    if (!touched_)
+        return true;
+
+    auto fail = [&](char const* why) {
+        JLOG(j.fatal()) << "Invariant failed: AppLoader " << why;
+        return false;
+    };
+
+    if (!view.rules().enabled(featurePWALoader))
+        return fail("changed before featurePWALoader was enabled");
+    if (tx.getTxnType() != ttACCOUNT_SET && tx.getTxnType() != ttACCOUNT_DELETE)
+        return fail(
+            "changed by a transaction other than AccountSet or "
+            "AccountDelete");
+
+    for (auto const& sle : live_)
+    {
+        auto const owner = sle->getAccountID(sfOwner);
+        if (sle->key() != keylet::appLoader(owner).key)
+            return fail("is not keyed at its owner's keylet");
+        auto const blob = sle->getFieldVL(sfAppLoader);
+        if (appLoader::validate(blob.data(), blob.size()) !=
+            appLoader::Result::ok)
+            return fail("blob does not validate");
+        auto const root = view.read(keylet::account(owner));
+        if (!root ||
+            (*root)[~sfAppLoaderSequence] != (*sle)[sfAppLoaderSequence])
+            return fail("sequence does not match its owner's");
+    }
+    return true;
+}
+
 }  // namespace ripple
