@@ -25,6 +25,7 @@
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/InnerObjectFormats.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STLedgerEntry.h>
 
 #include <boost/algorithm/string/predicate.hpp>
@@ -1235,6 +1236,90 @@ class Invariants_test : public beast::unit_test::suite
     }
 
     void
+    testAppLoader()
+    {
+        using namespace test::jtx;
+        static std::string const good = "<html></html>";
+
+        auto insert = [](ApplyContext& ac,
+                         AccountID const& owner,
+                         uint256 const& key,
+                         std::string const& blob,
+                         std::uint32_t seq) {
+            auto sle = std::make_shared<SLE>(Keylet{ltAPP_LOADER, key});
+            sle->setAccountID(sfOwner, owner);
+            sle->setFieldVL(sfAppLoader, Slice(blob.data(), blob.size()));
+            sle->setFieldU32(sfAppLoaderSequence, seq);
+            ac.view().insert(sle);
+            auto root = ac.view().peek(keylet::account(owner));
+            root->setFieldU32(sfAppLoaderSequence, seq);
+            ac.view().update(root);
+            return true;
+        };
+        Preclose publish = [](Account const& A1, Account const&, Env& env) {
+            auto jt = noop(A1);
+            jt[sfAppLoader.fieldName] = strHex(good);
+            env(jt, fee(XRP(1)));
+            return bool(env.le(keylet::appLoader(A1.id())));
+        };
+        auto bad = [&](char const* log,
+                       Precheck const& pre,
+                       std::uint16_t txType = ttACCOUNT_SET,
+                       Preclose const& preclose = {}) {
+            doInvariantCheck(
+                {{log}},
+                pre,
+                XRPAmount{},
+                STTx{TxType(txType), [](STObject&) {}},
+                {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
+                preclose);
+        };
+
+        testcase << "AppLoader at the wrong key";
+        bad("AppLoader is not keyed at its owner's keylet",
+            [&](Account const& A1, Account const& A2, ApplyContext& ac) {
+                return insert(ac, A1, keylet::appLoader(A2).key, good, 1);
+            });
+        testcase << "AppLoader with invalid blob";
+        bad("AppLoader blob does not validate",
+            [&](Account const& A1, Account const&, ApplyContext& ac) {
+                return insert(ac, A1, keylet::appLoader(A1).key, "nope", 1);
+            });
+        testcase << "AppLoader blob over the size limit";
+        bad("AppLoader blob does not validate",
+            [&](Account const& A1, Account const&, ApplyContext& ac) {
+                return insert(
+                    ac,
+                    A1,
+                    keylet::appLoader(A1).key,
+                    "<html>" + std::string(maxAppLoaderLength, 'x') + "</html>",
+                    1);
+            });
+        testcase << "AppLoader sequence differs from its owner's";
+        bad(
+            "AppLoader sequence does not match its owner's",
+            [&](Account const& A1, Account const&, ApplyContext& ac) {
+                auto sle = ac.view().peek(keylet::appLoader(A1));
+                sle->setFieldU32(sfAppLoaderSequence, 7);
+                ac.view().update(sle);
+                return true;
+            },
+            ttACCOUNT_SET,
+            publish);
+        testcase << "AppLoader changed by the wrong transaction type";
+        bad(
+            "AppLoader changed by a transaction other than AccountSet or "
+            "AccountDelete",
+            [&](Account const& A1, Account const&, ApplyContext& ac) {
+                auto sle = ac.view().peek(keylet::appLoader(A1));
+                ac.view().erase(sle);
+                return true;
+            },
+            ttPAYMENT,
+            publish);
+    }
+
+    void
     testLockedBalance()
     {
         using namespace test::jtx;
@@ -1289,6 +1374,7 @@ public:
         testNFTokenPageInvariants();
         testPermissionedDomainInvariants();
         testLockedBalance();
+        testAppLoader();
     }
 };
 

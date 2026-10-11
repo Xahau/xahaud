@@ -19,10 +19,12 @@
 
 #include <xrpld/rpc/ServerHandler.h>
 
+#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/core/JobQueue.h>
+#include <xrpld/ledger/ReadView.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/Role.h>
@@ -30,15 +32,20 @@
 #include <xrpld/rpc/detail/Tuning.h>
 #include <xrpld/rpc/json_body.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/basics/make_SSLContext.h>
+#include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/to_string.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
+#include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/resource/Fees.h>
 #include <xrpl/resource/ResourceManager.h>
 #include <xrpl/server/Server.h>
@@ -46,11 +53,24 @@
 #include <xrpl/server/detail/JSONRPCUtil.h>
 
 #include <boost/algorithm/string.hpp>
+#include <boost/asio/ip/address.hpp>
+#include <boost/beast/core/string.hpp>
 #include <boost/beast/http/fields.hpp>
 #include <boost/beast/http/string_body.hpp>
 
+#include <arpa/inet.h>
+#include <arpa/nameser.h>
+#include <netinet/in.h>
+#include <resolv.h>
+
 #include <algorithm>
+#include <atomic>
+#include <iterator>
+#include <optional>
 #include <stdexcept>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace ripple {
 
@@ -203,6 +223,14 @@ ServerHandler::onHandoff(
         p.count("ws") > 0 || p.count("ws2") > 0 || p.count("wss") > 0 ||
         p.count("wss2") > 0};
 
+    // PWA ports: no websockets, no peers, no status page. Every request,
+    // upgrade requests included, goes to onRequest and from there to
+    // onPWARequest, so that it meets the proxy rules, is metered and counted,
+    // and is answered without the full version string statusRequestResponse
+    // would put in the Server header.
+    if (p.count("pwa") > 0)
+        return {};
+
     if (websocket::is_upgrade(request))
     {
         if (!is_ws)
@@ -293,9 +321,713 @@ buffers_to_string(ConstBufferSequence const& bs)
     return s;
 }
 
+//------------------------------------------------------------------------------
+//
+// PWA ports (protocol = pwa): serve accounts' on-ledger AppLoader documents
+// as HTML, one host per account, behind a reverse proxy only. See the "pwa
+// ports" section of xahaud-example.cfg.
+//
+//------------------------------------------------------------------------------
+
+namespace {
+
+using Outcome = ServerHandler::PWAOutcome;
+
+// The client a secure_gateway proxy vouches for: the RIGHTMOST entry of the
+// (last) X-Forwarded-For field, the only one the proxy itself wrote. Not
+// forwardedFor(), which takes the leftmost entry and trusts a client-supplied
+// Forwarded header. IPv4-mapped IPv6 is returned as IPv4.
+std::optional<boost::asio::ip::address>
+pwaClientAddress(http_request_type const& request)
+{
+    std::string_view value;
+    bool found = false;
+    for (auto const& field : request)
+        if (boost::beast::iequals(field.name_string(), "X-Forwarded-For"))
+        {
+            value = {field.value().data(), field.value().size()};
+            found = true;
+        }
+    if (!found)
+        return std::nullopt;
+    if (auto const comma = value.rfind(','); comma != std::string_view::npos)
+        value.remove_prefix(comma + 1);
+    auto const isSpace = [](char c) { return c == ' ' || c == '\t'; };
+    while (!value.empty() && isSpace(value.front()))
+        value.remove_prefix(1);
+    while (!value.empty() && isSpace(value.back()))
+        value.remove_suffix(1);
+    if (value.empty())
+        return std::nullopt;
+
+    boost::system::error_code ec;
+    auto addr = boost::asio::ip::make_address(std::string(value), ec);
+    if (ec)
+        return std::nullopt;
+    if (addr.is_v6() && addr.to_v6().is_v4_mapped())
+        addr = boost::asio::ip::make_address_v4(
+            boost::asio::ip::v4_mapped, addr.to_v6());
+    if (addr.is_unspecified())
+        return std::nullopt;
+    return addr;
+}
+
+// Bill IPv4 per address and IPv6 per /64: a subscriber usually holds a /64.
+boost::asio::ip::address
+pwaBillingAddress(boost::asio::ip::address const& client)
+{
+    if (!client.is_v6())
+        return client;
+    auto bytes = client.to_v6().to_bytes();
+    std::fill(bytes.begin() + 8, bytes.end(), 0);
+    return boost::asio::ip::address_v6(bytes);
+}
+
+// What a request's Host header and target name. Every account has a host of
+// its own so that loaders never share an origin with each other or with the
+// operator's site:
+//
+//   pwa<account-index>.<zone>/<r-address>    the label is the AccountIndex
+//                                            (decimal) of the account the
+//                                            path names
+//   <zone>/<r-address>                       301 to the above, keeping :port
+//                                            and query, scheme-relative
+//   <custom host>/                           with custom_domains: served as
+//                                            the account its _xahau-pwa TXT
+//                                            names, if that account's Domain
+//                                            names the host (or a parent)
+//
+// One trailing slash and a query string are ignored. Anything else is 404.
+struct PWARoute
+{
+    enum class Kind { account, domain, redirect, badHost, badTarget };
+    Kind kind = Kind::badTarget;
+    AccountID account;
+    std::uint64_t index = 0;   // account: what the label said
+    std::string redirectTail;  // redirect: Location after "//pwa<index>"
+    std::string domain;        // domain: the normalised Host, no port
+};
+
+PWARoute
+parsePWATarget(Port const& port, http_request_type const& request)
+{
+    using Kind = PWARoute::Kind;
+    PWARoute route;
+    auto badHost = [&] {
+        route.kind = Kind::badHost;
+        return route;
+    };
+
+    // Exactly one Host, no IP literal; an optional :port (digits, since it
+    // is echoed into a redirect) and trailing dot are dropped.
+    auto const range = request.equal_range(boost::beast::http::field::host);
+    if (range.first == request.end() || std::next(range.first) != range.second)
+        return badHost();
+    std::string host(range.first->value().data(), range.first->value().size());
+    if (host.empty() || host.front() == '[')
+        return badHost();
+    std::string hostPort;
+    if (auto const colon = host.find(':'); colon != std::string::npos)
+    {
+        hostPort = host.substr(colon);
+        host.erase(colon);
+        if (hostPort.size() < 2 || hostPort.size() > 6 ||
+            hostPort.find_first_not_of("0123456789", 1) != std::string::npos)
+            return badHost();
+    }
+    boost::algorithm::to_lower(host);
+    if (!host.empty() && host.back() == '.')
+        host.pop_back();
+    if (host.empty() ||
+        host.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-.") !=
+            std::string::npos)
+        return badHost();
+
+    // Path less query (kept for a redirect; beast has refused any target
+    // with control characters) and one trailing slash.
+    auto const target = request.target();
+    if (target.empty() || target.front() != '/')
+        return route;
+    std::string path{target.substr(1)};
+    std::string query;
+    if (auto const cut = path.find_first_of("?#"); cut != std::string::npos)
+    {
+        if (path[cut] == '?')
+            query = path.substr(cut, path.find('#', cut) - cut);
+        path.erase(cut);
+    }
+    if (!path.empty() && path.back() == '/')
+        path.pop_back();
+    if (path.find('/') != std::string::npos)
+        return route;
+
+    // Anything under one of our zones is a wrong URL, never a custom domain.
+    bool const ours = port.pwa_domains.count(host) > 0 ||
+        std::any_of(port.pwa_domains.begin(),
+                    port.pwa_domains.end(),
+                    [&](auto const& z) {
+                        return boost::algorithm::ends_with(host, "." + z);
+                    });
+    if (!ours)
+    {
+        if (port.pwa_custom_domains && path.empty())
+        {
+            route.kind = Kind::domain;
+            route.domain = std::move(host);
+        }
+        return route;
+    }
+
+    auto const account = parseBase58<AccountID>(path);
+    if (!account || account->isZero())
+        return route;
+    route.account = *account;
+
+    if (port.pwa_domains.count(host) > 0)
+    {
+        // Scheme-relative: the browser keeps the scheme it used. The index
+        // comes from the ledger later.
+        route.kind = Kind::redirect;
+        route.redirectTail = "." + host + hostPort + "/" + path + query;
+        return route;
+    }
+
+    // pwa<decimal AccountIndex>.<zone>; whether it is the path's account's
+    // index is checked against the ledger later.
+    auto const dot = host.find('.');
+    std::string label;
+    if (dot != std::string::npos && dot > 3 && host.compare(0, 3, "pwa") == 0)
+        label = host.substr(3, dot - 3);
+    if (!label.empty() && port.pwa_domains.count(host.substr(dot + 1)) > 0 &&
+        label.size() <= 20 && (label == "0" || label.front() != '0') &&
+        label.find_first_not_of("0123456789") == std::string::npos &&
+        beast::lexicalCastChecked(route.index, label))
+        route.kind = Kind::account;
+    return route;
+}
+
+// Does an account's Domain field name `host`, or a parent of it?
+bool
+pwaEndorses(std::shared_ptr<SLE const> const& root, std::string const& host)
+{
+    if (!root || !root->isFieldPresent(sfDomain))
+        return false;
+    auto const d = root->getFieldVL(sfDomain);
+    auto const endorsed =
+        boost::algorithm::to_lower_copy(std::string(d.begin(), d.end()));
+    return !endorsed.empty() &&
+        (host == endorsed || boost::algorithm::ends_with(host, "." + endorsed));
+}
+
+std::string
+pwaReason(int status)
+{
+    return std::string(boost::beast::http::obsolete_reason(
+        static_cast<boost::beast::http::status>(status)));
+}
+
+// A complete HTTP/1.1 response, then close: one request per connection.
+// HEAD gets the GET's headers, Content-Length included, and no body.
+void
+pwaReply(
+    Session& session,
+    int status,
+    bool head,
+    std::vector<std::string> const& headers = {},
+    std::string const& body = {})
+{
+    std::string out =
+        "HTTP/1.1 " + std::to_string(status) + " " + pwaReason(status) + "\r\n";
+    out += "Server: " + systemName() +
+        "\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
+        "Referrer-Policy: no-referrer\r\n";
+    for (auto const& h : headers)
+        out += h + "\r\n";
+    if (status != 304)  // a 304 has no body and no Content-Length
+    {
+        if (status != 200 &&
+            std::none_of(headers.begin(), headers.end(), [](auto const& h) {
+                return boost::algorithm::istarts_with(h, "Content-Type:");
+            }))
+            out += "Content-Type: text/plain; charset=utf-8\r\n";
+        if (status != 200 && status != 301)
+            out += "Cache-Control: no-store\r\n";
+        out += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+    }
+    out += "\r\n";
+    if (status != 304 && !head)
+        out += body;
+    session.write(out);
+    session.close(true);
+}
+
+void
+pwaError(
+    Session& session,
+    int status,
+    bool head,
+    std::vector<std::string> const& headers = {})
+{
+    pwaReply(
+        session, status, head, headers, std::string(pwaReason(status)) + "\n");
+}
+
+// Releases a ServerHandler PWA job slot when the last copy of the job
+// closure dies, whether or not it ever ran.
+// Non-copyable: a copy would release the slot twice.
+struct PWAJobSlot
+{
+    std::atomic<std::size_t>& count;
+
+    explicit PWAJobSlot(std::atomic<std::size_t>& c) : count(c)
+    {
+    }
+    PWAJobSlot(PWAJobSlot const&) = delete;
+    PWAJobSlot&
+    operator=(PWAJobSlot const&) = delete;
+
+    ~PWAJobSlot()
+    {
+        count.fetch_sub(1, std::memory_order_relaxed);
+    }
+};
+
+}  // namespace
+
+char const*
+ServerHandler::PWAStats::name(PWAOutcome o)
+{
+    static constexpr char const* names[] = {
+        "served",
+        "not_modified",
+        "redirected",
+        "not_found",
+        "bad_target",
+        "unknown_domain",
+        "bad_host",
+        "no_forwarded_for",
+        "direct_connection",
+        "blocked",
+        "domain_mismatch",
+        "dns_pending",
+        "dns_failed",
+        "upgrade_refused",
+        "bad_method",
+        "throttled",
+        "busy",
+        "unavailable"};
+    static_assert(std::size(names) == std::size_t(PWAOutcome::count_));
+    return names[std::size_t(o)];
+}
+
+Json::Value
+ServerHandler::PWAStats::getJson(bool reset)
+{
+    Json::Value ret(Json::objectValue);
+    Json::Value& o = ret["outcomes"] = Json::objectValue;
+    std::uint64_t total = 0;
+    for (std::size_t i = 0; i < outcomes.size(); ++i)
+    {
+        auto const n = reset ? outcomes[i].exchange(0) : outcomes[i].load();
+        total += n;
+        o[name(PWAOutcome(i))] = std::to_string(n);
+    }
+    ret["requests"] = std::to_string(total);
+    ret["bytes_served"] =
+        std::to_string(reset ? bytesServed.exchange(0) : bytesServed.load());
+    return ret;
+}
+
+void
+ServerHandler::onPWARequest(Session& session)
+{
+    using boost::beast::http::verb;
+    auto const& port = session.port();
+    auto const& request = session.request();
+    auto const remote = session.remoteAddress().at_port(0);
+    bool const head = request.method() == verb::head;
+    auto count = [&](Outcome o) { ++pwaStats_.outcomes[std::size_t(o)]; };
+
+    // Only the configured proxy, and it must say who it forwards for.
+    if (!ipAllowed(
+            remote.address(),
+            port.secure_gateway_nets_v4,
+            port.secure_gateway_nets_v6))
+    {
+        count(Outcome::directConnection);
+        return pwaError(session, 403, head);
+    }
+    auto const forwarded = pwaClientAddress(request);
+    if (!forwarded)
+    {
+        count(Outcome::noForwardedFor);
+        return pwaError(session, 400, head);
+    }
+
+    // Meter the client, never the proxy.
+    auto usage = m_resourceManager.newInboundEndpoint(
+        beast::IPAddressConversion::from_asio(pwaBillingAddress(*forwarded)));
+    if (usage.disconnect(m_journal))
+    {
+        count(Outcome::throttled);
+        return pwaError(session, 503, head);
+    }
+    usage.charge(Resource::feeReferenceRPC);
+
+    if (request.method() != verb::get && !head)
+    {
+        usage.charge(Resource::feeMalformedRPC);
+        count(Outcome::badMethod);
+        return pwaError(session, 405, head, {"Allow: GET, HEAD"});
+    }
+    if (boost::beast::websocket::is_upgrade(request))
+    {
+        usage.charge(Resource::feeMalformedRPC);
+        count(Outcome::upgradeRefused);
+        return pwaError(session, 403, head);
+    }
+
+    auto const route = parsePWATarget(port, request);
+    switch (route.kind)
+    {
+        case PWARoute::Kind::badHost:
+            usage.charge(Resource::feeMalformedRPC);
+            count(Outcome::badHost);
+            return pwaError(session, 400, head);
+        case PWARoute::Kind::badTarget:
+            usage.charge(Resource::feeMalformedRPC);
+            count(Outcome::badTarget);
+            return pwaError(session, 404, head);
+        case PWARoute::Kind::redirect:
+        case PWARoute::Kind::account:
+        case PWARoute::Kind::domain:
+            break;
+    }
+
+    // A miss costs what a hit does, so sweeping is no cheaper than reading.
+    usage.charge(Resource::feeMediumBurdenRPC);
+
+    PWALookup lookup;
+    lookup.account = route.account;
+    lookup.head = head;
+    lookup.domain = route.domain;
+    lookup.index = route.index;
+    lookup.redirectTail = route.redirectTail;
+    if (auto const it = request.find(boost::beast::http::field::if_none_match);
+        it != request.end())
+        lookup.ifNoneMatch =
+            std::string(it->value().data(), it->value().size());
+
+    if (route.kind == PWARoute::Kind::domain)
+    {
+        // The cache answers now. A miss starts one lookup (if fewer than
+        // maxPWADnsInFlight are running and none for this host) and is
+        // answered 429 with a refresh, so no request ever waits on DNS.
+        std::optional<PWADns> dns;
+        bool start = false;
+        {
+            std::lock_guard lock(pwaDnsMutex_);
+            auto const it = pwaDnsCache_.find(route.domain);
+            if (it != pwaDnsCache_.end() &&
+                it->second.expires > std::chrono::steady_clock::now())
+                dns = it->second;
+            else if (
+                pwaDnsInFlight_.size() < maxPWADnsInFlight &&
+                pwaDnsInFlight_.insert(route.domain).second)
+                start = true;
+        }
+        if (!dns)
+        {
+            usage.charge(Resource::feeMediumBurdenRPC);
+            if (start &&
+                !m_jobQueue.addJob(
+                    jtCLIENT_PWADNS,
+                    "PWA-DNS",
+                    [this, host = route.domain, resolver = port.pwa_resolver] {
+                        resolvePWADomain(host, resolver);
+                    }))
+            {
+                std::lock_guard lock(pwaDnsMutex_);
+                pwaDnsInFlight_.erase(route.domain);
+            }
+            count(Outcome::dnsPending);
+            return pwaReply(
+                session,
+                429,
+                head,
+                {"Retry-After: 2", "Content-Type: text/html; charset=utf-8"},
+                "<!DOCTYPE html><html><head><meta http-equiv=\"refresh\" "
+                "content=\"2\"></head><body>Looking up this host; retrying."
+                "</body></html>\n");
+        }
+        switch (dns->status)
+        {
+            case PWADns::Status::none:
+                count(Outcome::unknownDomain);
+                return pwaError(session, 404, head);
+            case PWADns::Status::failed:
+                count(Outcome::dnsFailed);
+                return pwaError(session, 503, head);
+            case PWADns::Status::found:
+                lookup.account = dns->account;
+        }
+    }
+    queuePWALookup(session.detach(), lookup);
+}
+
+void
+ServerHandler::resolvePWADomain(
+    std::string const& host,
+    std::optional<beast::IP::Endpoint> const& resolver)
+{
+    using Status = PWADns::Status;
+    PWADns dns;
+    std::uint32_t ttl = 60;
+    struct __res_state res
+    {
+    };
+    if (res_ninit(&res) == 0)
+    {
+        res.retrans = 1;  // seconds per attempt
+        res.retry = 2;
+        if (resolver)
+        {
+            res.nscount = 1;
+            res.nsaddr_list[0].sin_family = AF_INET;
+            res.nsaddr_list[0].sin_port = htons(resolver->port());
+            res.nsaddr_list[0].sin_addr.s_addr =
+                htonl(resolver->to_v4().to_uint());
+        }
+        unsigned char buf[4096];
+        int const n = res_nquery(
+            &res,
+            ("_xahau-pwa." + host).c_str(),
+            ns_c_in,
+            ns_t_txt,
+            buf,
+            sizeof(buf));
+        ns_msg msg;
+        if (n < 0)
+        {
+            // NXDOMAIN and NOERROR-without-data are both "no record".
+            if (res.res_h_errno == HOST_NOT_FOUND || res.res_h_errno == NO_DATA)
+                dns.status = Status::none;
+        }
+        else if (ns_initparse(buf, n, &msg) == 0)
+        {
+            // Exactly one distinct address across the TXT records; other
+            // strings are ignored, two or more addresses count as none.
+            dns.status = Status::none;
+            bool conflict = false;
+            ns_rr rr;
+            for (int i = 0; i < ns_msg_count(msg, ns_s_an); ++i)
+            {
+                if (ns_parserr(&msg, ns_s_an, i, &rr) != 0 ||
+                    ns_rr_type(rr) != ns_t_txt)
+                    continue;
+                auto const* p = ns_rr_rdata(rr);
+                auto const* const end = p + ns_rr_rdlen(rr);
+                for (; p < end && p + 1 + *p <= end; p += 1 + *p)
+                {
+                    auto const a = parseBase58<AccountID>(
+                        boost::algorithm::trim_copy(std::string(
+                            reinterpret_cast<char const*>(p + 1), *p)));
+                    if (!a || a->isZero())
+                        continue;
+                    conflict = conflict ||
+                        (dns.status == Status::found && dns.account != *a);
+                    dns.status = Status::found;
+                    dns.account = *a;
+                    ttl = std::clamp<std::uint32_t>(ns_rr_ttl(rr), 60, 3600);
+                }
+            }
+            if (conflict)
+                dns.status = Status::none;
+        }
+        res_nclose(&res);
+    }
+    dns.expires = std::chrono::steady_clock::now() +
+        (dns.status == Status::found ? std::chrono::seconds(ttl)
+             : dns.status == Status::none
+             ? std::chrono::seconds(std::chrono::minutes(15))
+             : std::chrono::seconds(60));
+
+    std::lock_guard lock(pwaDnsMutex_);
+    pwaDnsInFlight_.erase(host);
+    if (pwaDnsCache_.size() >= maxPWADnsEntries)
+    {
+        auto const now = std::chrono::steady_clock::now();
+        std::erase_if(pwaDnsCache_, [&](auto const& kv) {
+            return kv.second.expires <= now;
+        });
+        if (pwaDnsCache_.size() >= maxPWADnsEntries)
+            pwaDnsCache_.erase(pwaDnsCache_.begin());
+    }
+    pwaDnsCache_[host] = dns;
+}
+
+void
+ServerHandler::queuePWALookup(
+    std::shared_ptr<Session> const& session,
+    PWALookup const& lookup)
+{
+    auto const& port = session->port();
+    if (port.pwa_blocklist.count(lookup.account) > 0 ||
+        (!port.pwa_allowlist.empty() &&
+         port.pwa_allowlist.count(lookup.account) == 0))
+    {
+        ++pwaStats_.outcomes[std::size_t(Outcome::blocked)];
+        return pwaError(*session, 403, lookup.head);
+    }
+
+    // jtCLIENT_PWA limits the workers; this bounds the queue behind them
+    // and so the detached connections it holds.
+    if (pwaJobs_.fetch_add(1, std::memory_order_relaxed) >= maxPWAJobs)
+    {
+        pwaJobs_.fetch_sub(1, std::memory_order_relaxed);
+        ++pwaStats_.outcomes[std::size_t(Outcome::busy)];
+        return pwaError(*session, 503, lookup.head);
+    }
+    auto const slot = std::make_shared<PWAJobSlot>(pwaJobs_);
+    if (!m_jobQueue.addJob(
+            jtCLIENT_PWA, "PWA-Client", [this, session, slot, lookup]() {
+                processPWARequest(session, lookup);
+            }))
+    {
+        ++pwaStats_.outcomes[std::size_t(Outcome::unavailable)];
+        pwaError(*session, 503, lookup.head);
+    }
+}
+
+void
+ServerHandler::processPWARequest(
+    std::shared_ptr<Session> const& session,
+    PWALookup const& lookup)
+{
+    auto const& account = lookup.account;
+
+    // Decide the whole response before writing any of it: the ledger read
+    // can throw (SHAMapMissingNode), and nothing above Job::doJob catches.
+    Outcome outcome = Outcome::unavailable;
+    int status = 503;
+    std::vector<std::string> headers;
+    std::string body;
+    try
+    {
+        // Validated state only: a closed ledger may still lose consensus.
+        auto const ledger = app_.getLedgerMaster().getValidatedLedger();
+        std::shared_ptr<SLE const> sle, root;
+        if (ledger)
+        {
+            sle = ledger->read(keylet::appLoader(account));
+            root = ledger->read(keylet::account(account));
+        }
+        // The host label must be the account's AccountIndex; an account
+        // without one (created before it existed) has no host.
+        std::optional<std::uint64_t> index;
+        if (root)
+            index = (*root)[~sfAccountIndex];
+        if (!ledger)
+        {
+        }
+        else if (!lookup.redirectTail.empty())
+        {
+            if (index)
+            {
+                outcome = Outcome::redirected;
+                status = 301;
+                headers = {
+                    "Location: //pwa" + std::to_string(*index) +
+                        lookup.redirectTail,
+                    "Cache-Control: public, max-age=86400"};
+                body = "Moved Permanently\n";
+            }
+            else
+            {
+                outcome = Outcome::notFound;
+                status = 404;
+            }
+        }
+        else if (!sle || (lookup.domain.empty() && index != lookup.index))
+        {
+            outcome = Outcome::notFound;
+            status = 404;
+        }
+        else if (!lookup.domain.empty() && !pwaEndorses(root, lookup.domain))
+        {
+            // A custom host serves an account only with its consent.
+            outcome = Outcome::domainMismatch;
+            status = 503;
+        }
+        else if (sle)
+        {
+            // Every change is threaded, so the last transaction that touched
+            // the object is a strong validator for its content.
+            std::string const etag =
+                "\"" + to_string(sle->getFieldH256(sfPreviousTxnID)) + "\"";
+            headers = {
+                "Content-Security-Policy: sandbox allow-scripts allow-forms "
+                "allow-popups",
+                "X-Frame-Options: DENY",
+                "Cross-Origin-Resource-Policy: same-origin",
+                "Cross-Origin-Opener-Policy: same-origin",
+                "Cache-Control: no-cache",  // store, but revalidate
+                "ETag: " + etag,
+                // Enough for a client to vet the document against a second
+                // node (pwa_validate, or ledger_entry app_loader at this
+                // ledger).
+                "X-NetworkID: " + std::to_string(app_.config().NETWORK_ID),
+                "X-LedgerSeq: " + std::to_string(ledger->seq()),
+                "X-LedgerHash: " + to_string(ledger->info().hash),
+                "X-PWASeq: " +
+                    std::to_string(sle->getFieldU32(sfAppLoaderSequence))};
+
+            // If-None-Match: the tag as we sent it, or *.
+            if (lookup.ifNoneMatch == etag || lookup.ifNoneMatch == "*")
+            {
+                outcome = Outcome::notModified;
+                status = 304;
+            }
+            else
+            {
+                Blob const blob = sle->getFieldVL(sfAppLoader);
+                body.assign(blob.begin(), blob.end());
+                headers.push_back("Content-Type: text/html; charset=utf-8");
+                outcome = Outcome::served;
+                status = 200;
+            }
+        }
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(app_.journal("PWA").warn())
+            << "lookup for " << toBase58(account) << " failed: " << e.what();
+        outcome = Outcome::unavailable;
+        status = 503;
+        headers.clear();
+        body.clear();
+    }
+
+    ++pwaStats_.outcomes[std::size_t(outcome)];
+    if (status == 200 || status == 304 || status == 301)
+    {
+        if (status == 200 && !lookup.head)
+            pwaStats_.bytesServed += body.size();
+        return pwaReply(*session, status, lookup.head, headers, body);
+    }
+    pwaError(*session, status, lookup.head);
+}
+
 void
 ServerHandler::onRequest(Session& session)
 {
+    // PWA ports speak nothing else.
+    if (session.port().protocol.count("pwa") > 0)
+    {
+        onPWARequest(session);
+        return;
+    }
+
     // Make sure RPC is enabled on the port
     if (session.port().protocol.count("http") == 0 &&
         session.port().protocol.count("https") == 0)
@@ -1338,6 +2070,9 @@ to_Port(ParsedPort const& parsed, std::ostream& log)
     p.admin_nets_v6 = parsed.admin_nets_v6;
     p.secure_gateway_nets_v4 = parsed.secure_gateway_nets_v4;
     p.secure_gateway_nets_v6 = parsed.secure_gateway_nets_v6;
+    p.pwa_domains = parsed.pwa_domains;
+    p.pwa_custom_domains = parsed.pwa_custom_domains;
+    p.pwa_resolver = parsed.pwa_resolver;
 
     return p;
 }
@@ -1374,6 +2109,74 @@ parse_Ports(Config const& config, std::ostream& log)
         ParsedPort parsed = common;
         parse_Port(parsed, config[name], log);
         result.push_back(to_Port(parsed, log));
+    }
+
+    // PWA ports host third-party content and must only ever be reached
+    // through a reverse proxy. [pwa_allowlist] and [pwa_blocklist], one
+    // r-address per line, apply to all of them.
+    auto accounts = [&](char const* name) {
+        std::set<AccountID> out;
+        for (auto const& line : config.section(name).values())
+        {
+            auto const account = parseBase58<AccountID>(line);
+            if (!account || account->isZero())
+            {
+                log << "Invalid r-address '" << line << "' in [" << name << "]";
+                Throw<std::exception>();
+            }
+            out.insert(*account);
+        }
+        return out;
+    };
+    auto const allowlist = accounts(SECTION_PWA_ALLOWLIST);
+    auto const blocklist = accounts(SECTION_PWA_BLOCKLIST);
+    for (auto const& a : allowlist)
+        if (blocklist.count(a) > 0)
+        {
+            log << "Account " << toBase58(a)
+                << " is in both [" SECTION_PWA_ALLOWLIST
+                   "] and [" SECTION_PWA_BLOCKLIST "]";
+            Throw<std::exception>();
+        }
+    for (auto& p : result)
+    {
+        auto fail = [&](char const* why) {
+            log << "Invalid [" << p.name << "]: " << why;
+            Throw<std::exception>();
+        };
+        if (p.protocol.count("pwa") == 0)
+        {
+            if (!p.pwa_domains.empty() || p.pwa_custom_domains ||
+                p.pwa_resolver)
+                fail(
+                    "domain, custom_domains and resolver apply to pwa "
+                    "ports only");
+            continue;
+        }
+        if (p.protocol.size() != 1)
+            fail("pwa cannot be combined with any other protocol");
+        if (p.pwa_domains.empty())
+            fail("pwa port requires domain");
+        // A /0 gateway would let every client write its own X-Forwarded-For.
+        auto const everyAddress = [](auto const& nets) {
+            return std::any_of(nets.begin(), nets.end(), [](auto const& n) {
+                return n.prefix_length() == 0;
+            });
+        };
+        if ((p.secure_gateway_nets_v4.empty() &&
+             p.secure_gateway_nets_v6.empty()) ||
+            everyAddress(p.secure_gateway_nets_v4) ||
+            everyAddress(p.secure_gateway_nets_v6))
+            fail(
+                "pwa port requires secure_gateway naming the proxy's own "
+                "addresses");
+        if (!p.admin_nets_v4.empty() || !p.admin_nets_v6.empty() ||
+            !p.admin_user.empty() || !p.admin_password.empty() ||
+            !p.user.empty() || !p.password.empty() || !p.ssl_key.empty() ||
+            !p.ssl_cert.empty() || !p.ssl_chain.empty())
+            fail("pwa port cannot have admin, credentials or TLS");
+        p.pwa_allowlist = allowlist;
+        p.pwa_blocklist = blocklist;
     }
 
     if (config.standalone())

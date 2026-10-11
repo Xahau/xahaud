@@ -26,6 +26,7 @@
 #include <xrpld/rpc/detail/UDPInfoSub.h>
 #include <xrpld/rpc/detail/WSInfoSub.h>
 #include <xrpl/json/Output.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/server/Server.h>
 #include <xrpl/server/Session.h>
 #include <xrpl/server/WSSession.h>
@@ -34,6 +35,9 @@
 #include <boost/beast/ssl/ssl_stream.hpp>
 #include <boost/utility/string_view.hpp>
 
+#include <array>
+#include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <map>
 #include <mutex>
@@ -50,6 +54,42 @@ operator<(Port const& lhs, Port const& rhs)
 class ServerHandler
 {
 public:
+    /** How a pwa port answered, for the pwa_info RPC. */
+    enum class PWAOutcome : std::uint8_t {
+        served,            // 200
+        notModified,       // 304
+        redirected,        // 301
+        notFound,          // 404: no such loader
+        badTarget,         // 404: host and path name no document
+        unknownDomain,     // 404: no usable _xahau-pwa record
+        badHost,           // 400
+        noForwardedFor,    // 400
+        directConnection,  // 403: not from a secure_gateway address
+        blocked,           // 403: allowlist / blocklist
+        domainMismatch,    // 503: account's Domain does not name the host
+        dnsPending,        // 429: lookup started or in flight, retry
+        dnsFailed,         // 503: resolver failed
+        upgradeRefused,    // 403
+        badMethod,         // 405
+        throttled,         // 503: resource manager
+        busy,              // 503: too many in flight
+        unavailable,       // 503: no validated ledger or lookup failed
+        count_
+    };
+
+    struct PWAStats
+    {
+        std::array<std::atomic<std::uint64_t>, std::size_t(PWAOutcome::count_)>
+            outcomes{};
+        std::atomic<std::uint64_t> bytesServed{0};
+
+        static char const*
+        name(PWAOutcome o);
+
+        Json::Value
+        getJson(bool reset);
+    };
+
     struct Setup
     {
         explicit Setup() = default;
@@ -99,6 +139,47 @@ private:
     std::condition_variable condition_;
     bool stopped_{false};
     std::map<std::reference_wrapper<Port const>, int> count_;
+    PWAStats pwaStats_;
+
+    // PWA lookups queued or running on the job queue. Requests past
+    // maxPWAJobs are refused with 503 rather than queued.
+    std::atomic<std::size_t> pwaJobs_{0};
+    static constexpr std::size_t maxPWAJobs = 64;
+
+    // Custom hosts: _xahau-pwa.<host> TXT -> account, looked up with
+    // libresolv on jtCLIENT_PWADNS (it blocks) and cached: a record for its
+    // TTL clamped to 60..3600 s, no record 15 min, a failure 60 s. At most
+    // maxPWADnsInFlight lookups run at once, one per host, and a request
+    // that misses the cache is answered 429 at once, so no flood of Host
+    // headers can start more than a handful of queries or hold a thread.
+    struct PWADns
+    {
+        enum class Status : std::uint8_t { found, none, failed };
+        Status status = Status::failed;
+        AccountID account;
+        std::chrono::steady_clock::time_point expires;
+    };
+    std::mutex pwaDnsMutex_;
+    std::map<std::string, PWADns> pwaDnsCache_;
+    std::set<std::string> pwaDnsInFlight_;
+    static constexpr std::size_t maxPWADnsInFlight = 4;
+    static constexpr std::size_t maxPWADnsEntries = 10'000;
+
+    void
+    resolvePWADomain(
+        std::string const& host,
+        std::optional<beast::IP::Endpoint> const& resolver);
+
+    // One document lookup, once the request has named an account.
+    struct PWALookup
+    {
+        AccountID account;
+        bool head = false;
+        std::string ifNoneMatch;
+        std::string domain;        // custom host it came in on, if any
+        std::uint64_t index = 0;   // AccountIndex the host label named
+        std::string redirectTail;  // non-empty: bare-zone 301 to pwa<index>
+    };
 
     // A private type used to restrict access to the ServerHandler constructor.
     struct ServerHandlerCreator
@@ -139,6 +220,22 @@ public:
     setup() const
     {
         return setup_;
+    }
+
+    PWAStats&
+    pwaStats()
+    {
+        return pwaStats_;
+    }
+
+    /** Drop every cached custom domain answer; returns how many. */
+    std::size_t
+    pwaDnsFlush()
+    {
+        std::lock_guard lock(pwaDnsMutex_);
+        auto const n = pwaDnsCache_.size();
+        pwaDnsCache_.clear();
+        return n;
     }
 
     Endpoints const&
@@ -217,6 +314,28 @@ private:
     processSession(
         std::shared_ptr<Session> const&,
         std::shared_ptr<JobQueue::Coro> coro);
+
+    /** Entry point for ports whose protocol is "pwa". Runs on the I/O
+        thread: proxy and X-Forwarded-For checks, metering, routing of the
+        Host header and target (document host, custom domain or bare-zone
+        redirect), then
+        queuePWALookup. */
+    void
+    onPWARequest(Session& session);
+
+    /** Apply the allowlist and blocklist, then post the ledger read to the
+        job queue as jtCLIENT_PWA. Callable from any thread. */
+    void
+    queuePWALookup(
+        std::shared_ptr<Session> const& session,
+        PWALookup const& lookup);
+
+    /** Serve the document, or the bare-zone redirect, from the validated
+        ledger. Runs on the job queue. Always closes the connection. */
+    void
+    processPWARequest(
+        std::shared_ptr<Session> const& session,
+        PWALookup const& lookup);
 
     void
     processRequest(

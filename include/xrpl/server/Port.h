@@ -22,6 +22,7 @@
 
 #include <xrpl/basics/BasicConfig.h>
 #include <xrpl/beast/net/IPEndpoint.h>
+#include <xrpl/protocol/AccountID.h>
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/network_v4.hpp>
 #include <boost/asio/ip/network_v6.hpp>
@@ -57,6 +58,12 @@ struct Port
     std::vector<boost::asio::ip::network_v6> admin_nets_v6;
     std::vector<boost::asio::ip::network_v4> secure_gateway_nets_v4;
     std::vector<boost::asio::ip::network_v6> secure_gateway_nets_v6;
+    // "pwa" ports only; see the "pwa ports" section of xahaud-example.cfg.
+    std::set<std::string> pwa_domains;  // zones, lower case, no trailing dot
+    std::set<AccountID> pwa_allowlist;  // if non-empty, only these are served
+    std::set<AccountID> pwa_blocklist;  // never served; wins over allowlist
+    bool pwa_custom_domains = false;    // serve hosts named by TXT records
+    std::optional<beast::IP::Endpoint> pwa_resolver;  // for those; else system
     std::string user;
     std::string password;
     std::string admin_user;
@@ -136,6 +143,9 @@ struct ParsedPort
     std::vector<boost::asio::ip::network_v6> admin_nets_v6;
     std::vector<boost::asio::ip::network_v4> secure_gateway_nets_v4;
     std::vector<boost::asio::ip::network_v6> secure_gateway_nets_v6;
+    std::set<std::string> pwa_domains;
+    bool pwa_custom_domains = false;
+    std::optional<beast::IP::Endpoint> pwa_resolver;
 };
 
 void

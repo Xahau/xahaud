@@ -620,6 +620,9 @@ Config::loadFromString(std::string const& fileContents)
                 "] section");
     }
 
+    if (getSingleSection(secConfig, SECTION_EARLY_MANIFEST_SYNC, strTemp, j_))
+        EARLY_MANIFEST_SYNC = beast::lexicalCastThrow<bool>(strTemp);
+
     if (getSingleSection(secConfig, SECTION_RELAY_PROPOSALS, strTemp, j_))
     {
         if (boost::iequals(strTemp, "all"))
@@ -851,6 +854,12 @@ Config::loadFromString(std::string const& fileContents)
 
     if (getSingleSection(secConfig, SECTION_BETA_RPC_API, strTemp, j_))
         BETA_RPC_API = beast::lexicalCastThrow<bool>(strTemp);
+
+    // hook_validate RPC is opt-in on networked nodes, but on by default in
+    // standalone mode for local hook development.
+    HOOK_VALIDATE_RPC = RUN_STANDALONE;
+    if (getSingleSection(secConfig, SECTION_HOOK_VALIDATE_RPC, strTemp, j_))
+        HOOK_VALIDATE_RPC = beast::lexicalCastThrow<bool>(strTemp);
 
     // Do not load trusted validator configuration for standalone mode
     do
