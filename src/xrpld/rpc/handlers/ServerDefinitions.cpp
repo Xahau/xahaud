@@ -24,6 +24,7 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/rpc/detail/TransactionSign.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -60,6 +61,14 @@ MAGIC_ENUM_FLAG(ripple::NFTokenCreateOfferFlags);
 MAGIC_ENUM_FLAG(ripple::ClaimRewardFlags);
 MAGIC_ENUM_16(ripple::AccountFlags);
 
+// hook_return_code spans [-10024, 0] because of INVALID_FLOAT
+template <>
+struct magic_enum::customize::enum_range<hook_api::hook_return_code>
+{
+    static constexpr int min = -10024;
+    static constexpr int max = 0;
+};
+
 namespace ripple {
 
 class Definitions
@@ -81,6 +90,45 @@ private:
             json[jss::TRANSACTION_FLAGS][key][STR(name)] =
                 static_cast<uint32_t>(entry.first);
         }
+    }
+
+    template <typename EnumType>
+    void
+    addEnumToJson(Json::Value& json)
+    {
+        json = Json::objectValue;
+        for (auto const& [value, name] : magic_enum::enum_entries<EnumType>())
+            json[STR(name)] = static_cast<Json::Int>(value);
+    }
+
+    // params is the stringified C parameter list, e.g.
+    // "(uint32_t read_ptr, uint32_t read_len)"
+    void
+    addHookApi(
+        Json::Value& json,
+        std::string const& returnType,
+        std::string const& name,
+        std::string params,
+        uint256 const& amendment)
+    {
+        Json::Value& fn = json[name];
+        fn["return"] = returnType;
+        fn["params"] = Json::arrayValue;
+        boost::trim_if(params, boost::is_any_of("() "));
+        std::vector<std::string> parts;
+        if (!params.empty())
+            boost::split(parts, params, boost::is_any_of(","));
+        for (auto& part : parts)
+        {
+            boost::trim(part);
+            auto const sp = part.rfind(' ');
+            Json::Value p = Json::objectValue;
+            p[jss::type] = part.substr(0, sp);
+            p[jss::name] = part.substr(sp + 1);
+            fn["params"].append(p);
+        }
+        if (amendment != uint256{})
+            fn["amendment"] = featureToName(amendment);
     }
 
     Json::Value
@@ -384,6 +432,29 @@ private:
         }
 
         ret[jss::native_currency_code] = systemCurrencyCode();
+
+        // Hook API: enough to regenerate hook/extern.h, hookapi.h keylet
+        // constants and error.h without the xahaud source tree.
+        Json::Value& hook = ret[jss::HOOK];
+        hook = Json::objectValue;
+        hook[jss::API] = Json::objectValue;
+#pragma push_macro("HOOK_API_DEFINITION")
+#undef HOOK_API_DEFINITION
+#define HOOK_API_DEFINITION(                             \
+    RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT) \
+    addHookApi(                                          \
+        hook[jss::API],                                  \
+        #RETURN_TYPE,                                    \
+        #FUNCTION_NAME,                                  \
+        #PARAMS_TUPLE,                                   \
+        AMENDMENT);
+#include <xrpl/hook/hook_api.macro>
+#undef HOOK_API_DEFINITION
+#pragma pop_macro("HOOK_API_DEFINITION")
+
+        addEnumToJson<hook_api::keylet_code::keylet_code>(
+            hook[jss::KEYLET_TYPES]);
+        addEnumToJson<hook_api::hook_return_code>(hook[jss::RETURN_CODES]);
 
         // generate hash
         {
