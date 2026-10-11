@@ -592,7 +592,6 @@ JSS(queue_data);        // out: AccountInfo
 JSS(queued);            // out: SubmitTransaction
 JSS(queued_duration_us);
 JSS(quote_asset);           // in: get_aggregate_price
-JSS(random);                // out: Random
 JSS(raw_meta);              // out: AcceptedLedgerTx
 JSS(receive_currencies);    // out: AccountCurrencies
 JSS(reference_level);       // out: TxQ

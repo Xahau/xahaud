@@ -352,7 +352,8 @@ parseRippleState(Json::Value const& jvRippleState, Json::Value& jvResult)
     return keylet::line(*id1, *id2, uCurrency).key;
 }
 
-// featureRNG: the Random object is a singleton, so `"rng": true` selects it.
+// featureRNG: the Random object is a singleton, so `"random": true` selects
+// it.
 // A string is an explicit index, as for the other types.
 static std::optional<uint256>
 parseRandom(Json::Value const& params, Json::Value& jvResult)
@@ -1152,8 +1153,8 @@ doLedgerEntry(RPC::JsonContext& context)
         {jss::permissioned_domain,
          parsePermissionedDomains,
          ltPERMISSIONED_DOMAIN},
+        {jss::random, parseRandom, ltRANDOM},
         {jss::ripple_state, parseRippleState, ltRIPPLE_STATE},
-        {jss::rng, parseRandom, ltRANDOM},
         // This is an alias, since the `ledger_data` filter uses jss::state
         {jss::state, parseRippleState, ltRIPPLE_STATE},
         {jss::ticket, parseTicket, ltTICKET},

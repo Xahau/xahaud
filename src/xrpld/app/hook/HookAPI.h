@@ -599,10 +599,6 @@ private:
     std::optional<ripple::Keylet>
     unserialize_keylet(Bytes const& data) const;
 
-    // featureRNG: advance the ledger's RNG state and return one output block.
-    Expected<uint256, HookReturnCode>
-    rng_next() const;
-
     // update the state cache
     inline std::optional<
         std::reference_wrapper<std::pair<bool, ripple::Blob> const>>
@@ -644,6 +640,10 @@ private:
         Rules const& rules,
         int recursion_depth = 0)  // used internally
         const;
+
+    // featureRNG: advance the ledger's RNG state and return one output block.
+    Expected<uint256, HookReturnCode>
+    rng_next() const;
 };
 
 }  // namespace hook

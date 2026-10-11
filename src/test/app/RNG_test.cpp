@@ -919,7 +919,7 @@ class RNG_test : public beast::unit_test::suite
     void
     testLedgerEntry(FeatureBitset features)
     {
-        testcase("ledger_entry rng");
+        testcase("ledger_entry random");
         using namespace jtx;
 
         Env env{*this, envconfig(validator, ""), features};
@@ -930,9 +930,9 @@ class RNG_test : public beast::unit_test::suite
             return;
 
         auto const index = to_string(keylet::random().key);
-        auto const request = [&](Json::Value const& rng) {
+        auto const request = [&](Json::Value const& random) {
             Json::Value params;
-            params[jss::rng] = rng;
+            params[jss::random] = random;
             return env.rpc(
                 "json", "ledger_entry", to_string(params))[jss::result];
         };
@@ -951,6 +951,18 @@ class RNG_test : public beast::unit_test::suite
                 to_string(sle->getFieldH256(sfRandomData)));
             BEAST_EXPECT(jrr[jss::node][sfEntropyCount.jsonName].asUInt() == 1);
             BEAST_EXPECT(jrr[jss::node].isMember(sfRandomDigests.jsonName));
+
+            // threaded to the last transaction that touched it: the ledger's
+            // last entropy contribution, since nothing drew in it
+            BEAST_EXPECT(
+                jrr[jss::node][sfPreviousTxnLgrSeq.jsonName].asUInt() ==
+                sle->getFieldU32(sfLedgerSequence));
+            auto const prevTxnID = sle->getFieldH256(sfPreviousTxnID);
+            BEAST_EXPECT(
+                jrr[jss::node][sfPreviousTxnID.jsonName] ==
+                to_string(prevTxnID));
+            auto const [prevTxn, prevMeta] = env.closed()->txRead(prevTxnID);
+            BEAST_EXPECT(prevTxn && prevTxn->getTxnType() == ttENTROPY);
         }
 
         // and by its index
@@ -966,10 +978,10 @@ class RNG_test : public beast::unit_test::suite
         BEAST_EXPECT(request(7)[jss::error] == "malformedRequest");
         BEAST_EXPECT(request("nothex")[jss::error] == "malformedRequest");
 
-        // ledger_data sees it as type "rng"
+        // ledger_data sees it as type "random"
         {
             Json::Value params;
-            params[jss::type] = jss::rng;
+            params[jss::type] = jss::random;
             auto const jrr =
                 env.rpc("json", "ledger_data", to_string(params))[jss::result];
             BEAST_EXPECT(
