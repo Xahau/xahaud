@@ -2119,6 +2119,17 @@ Transactor::finishApply(
     if (ctx_.size() > oversizeMetaDataCap)
         result = tecOVERSIZE;
 
+    // featureRNG: a transaction whose Hooks drew from the RNG is never
+    // retried on a tec. Under tapRETRY (the first closed-ledger pass, and
+    // open-ledger retries) a tec would otherwise drop the view without going
+    // through reset(), so the RNG state would not be rolled forward: a Hook
+    // that rolled back (tecHOOK_REJECTED) would leave the state it drew from
+    // in place for the next transaction in the pass, and would draw again on
+    // the final pass against a different state. Draws only exist when the
+    // amendment is enabled, so this needs no separate gate.
+    bool const rngDrawn =
+        dynamic_cast<ApplyViewImpl&>(ctx_.view()).getRandomData().has_value();
+
     if (isTecClaim(result) && (view().flags() & tapFAIL_HARD))
     {
         // If the tapFAIL_HARD flag is set, a tec result
@@ -2129,7 +2140,8 @@ Transactor::finishApply(
     else if (
         (result == tecOVERSIZE) || (result == tecKILLED) ||
         (result == tecINCOMPLETE) || (result == tecEXPIRED) ||
-        (isTecClaimHardFail(result, view().flags())))
+        (isTecClaimHardFail(result, view().flags())) ||
+        (rngDrawn && isTecClaim(result)))
     {
         JLOG(j_.trace()) << "reapplying because of " << transToken(result);
 

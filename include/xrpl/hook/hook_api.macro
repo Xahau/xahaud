@@ -306,3 +306,4 @@ HOOK_API_DEFINITION(
 HOOK_API_DEFINITION(
   int64_t, util_random, (uint32_t write_ptr, uint32_t write_len),
   featureRNG)
+// clang-format on

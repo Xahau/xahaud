@@ -568,6 +568,16 @@ private:
     */
     std::map<NodeID_t, typename Tx_t::ID> forcedTxs_;
 
+    /** forcedTxOwner results for this round, keyed by transaction ID.
+
+        The adaptor's answer depends only on the transaction and the previous
+        ledger, both fixed for the round, so it is computed once per disputed
+        transaction rather than on every tick (forcedOwner is reached several
+        times per dispute per tick, and the RCL adaptor deserialises the
+        transaction to answer). Cleared when we close.
+    */
+    mutable std::map<typename Tx_t::ID, std::optional<NodeID_t>> forcedOwners_;
+
     bool
     haveConsensus(std::unique_ptr<std::stringstream> const& clog);
 
@@ -1457,6 +1467,7 @@ Consensus<Adaptor>::closeLedger(std::unique_ptr<std::stringstream> const& clog)
     JLOG(j_.debug()) << "transitioned to ConsensusPhase::establish";
     rawCloseTimes_.self = now_;
     forcedTxs_.clear();
+    forcedOwners_.clear();
 
     result_.emplace(adaptor_.onClose(previousLedger_, now_, mode_.get()));
     result_->roundTime.reset(clock_.now());
@@ -1720,7 +1731,15 @@ Consensus<Adaptor>::forcedOwner(typename Result::Dispute_t const& dispute) const
             parms.ledgerMIN_CONSENSUS + parms.ledgerGRANULARITY)
             return std::nullopt;
 
-        return adaptor_.forcedTxOwner(dispute.tx(), previousLedger_);
+        auto const& id = dispute.tx().id();
+        auto it = forcedOwners_.find(id);
+        if (it == forcedOwners_.end())
+            it = forcedOwners_
+                     .emplace(
+                         id,
+                         adaptor_.forcedTxOwner(dispute.tx(), previousLedger_))
+                     .first;
+        return it->second;
     }
     else
     {
