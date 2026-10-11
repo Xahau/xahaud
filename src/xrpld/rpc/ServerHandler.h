@@ -238,14 +238,18 @@ private:
         Runs on the I/O thread and does only cheap work: checks that the
         request came through a secure_gateway proxy with X-Forwarded-For,
         meters it against the forwarded client (per IPv4 address, per IPv6
-        /64), and parses the target. The ledger read is posted to the job
-        queue as jtCLIENT_PWA, with at most maxPWAJobs in flight.
+        /64), parses the account out of the Host header and target, and
+        refuses accounts the port's allowlist or blocklist rule out. The
+        ledger read is posted to the job queue as jtCLIENT_PWA, with at most
+        maxPWAJobs in flight.
     */
     void
     onPWARequest(Session& session);
 
-    /** Serve an account's AppLoader document from the validated ledger.
-        Runs on the job queue. Always closes the connection.
+    /** Serve an account's AppLoader document from the validated ledger,
+        after consulting the port's allowlist and blocklist publishers in
+        that same ledger. Runs on the job queue. Always closes the
+        connection.
 
         @param client The billing address (see onPWARequest), for stats.
         @param head   The request was HEAD: send headers only.

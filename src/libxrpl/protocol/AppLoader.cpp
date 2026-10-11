@@ -17,10 +17,13 @@
 */
 //==============================================================================
 
+#include <xrpl/basics/Slice.h>
 #include <xrpl/basics/UTF8.h>
 #include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Protocol.h>
+#include <xrpl/protocol/digest.h>
 
+#include <algorithm>
 #include <string_view>
 
 namespace ripple {
@@ -212,6 +215,32 @@ to_string(Result r)
             return "content after </html>";
     }
     return "unknown";
+}
+
+uint256 const&
+allowListNamespace()
+{
+    // 31B3200DEAA8F282E64D4BCB97255A2A2B297208D18D1ABA34EC2E3F7422564F
+    static constexpr std::string_view name{"PWALoader/allowlist"};
+    static uint256 const ns = sha512Half(Slice{name.data(), name.size()});
+    return ns;
+}
+
+uint256 const&
+blockListNamespace()
+{
+    // 3EDDB37279B486BC74864DB16E718658C26B921F84C66A7B6AFC33C203CA00D0
+    static constexpr std::string_view name{"PWALoader/blocklist"};
+    static uint256 const ns = sha512Half(Slice{name.data(), name.size()});
+    return ns;
+}
+
+uint256
+listKey(AccountID const& account)
+{
+    uint256 key{beast::zero};
+    std::copy(account.begin(), account.end(), key.begin() + 12);
+    return key;
 }
 
 }  // namespace appLoader

@@ -24,6 +24,7 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/core/JobQueue.h>
+#include <xrpld/ledger/ReadView.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/Role.h>
@@ -39,6 +40,7 @@
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
@@ -57,6 +59,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <iterator>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -348,10 +351,12 @@ buffers_to_string(ConstBufferSequence const& bs)
 //
 // PWA ports (protocol = pwa)
 //
-// Serves an account's on-ledger AppLoader document as HTML at GET /<account>.
-// These ports exist only to sit behind a reverse proxy: parse_Ports refuses
-// any other protocol, credential or admin setting on them, and requires
-// secure_gateway. See the "pwa ports" section of xahaud-example.cfg.
+// Serves an account's on-ledger AppLoader document as HTML, one host per
+// account: https://<account>.<domain>/ (see parsePWATarget for the exact
+// shapes). These ports exist only to sit behind a reverse proxy: parse_Ports
+// refuses any other protocol, credential or admin setting on them, requires
+// secure_gateway and domain, and applies the port's allowlist and blocklist.
+// See the "pwa ports" section of xahaud-example.cfg.
 //
 //------------------------------------------------------------------------------
 
@@ -440,28 +445,135 @@ pwaBillingAddress(boost::asio::ip::address const& client)
     return boost::asio::ip::address_v6(bytes);
 }
 
-// "/<account>", optionally with a single trailing slash and a query string.
-std::optional<AccountID>
-parsePWATarget(boost::beast::string_view target)
+// Which account a request is for, from its Host header and target.
+//
+// Every document gets a host of its own: the first label of the Host header
+// names the account, and the rest must be one of the port's configured
+// zones. A loader that lands in a visitor's browser therefore shares no
+// origin -- no cookies, storage, service workers or wallet permissions --
+// with the operator's own site or with any other account's loader. The shape
+// where the zone is the origin and the account only a path (pwa.example/<r>)
+// is never served.
+//
+// Two label forms are accepted, because browsers lower-case host names and
+// a classic address is case-sensitive base58 which cannot be recovered from
+// its lower-cased form:
+//
+//   <account-id-hex>.<zone>/          40 hex digits, any case; path is "/"
+//   <r-address>.<zone>/<r-address>    label is the address in any case; the
+//                                     path carries it exactly, and the two
+//                                     must agree
+//
+// A single trailing slash and a query string are ignored on either path.
+// Anything else is not a document.
+enum class PWATarget { ok, badHost, badTarget };
+
+PWATarget
+parsePWATarget(
+    Port const& port,
+    http_request_type const& request,
+    AccountID& account)
 {
+    // Exactly one Host header, no IP literal, optional :port and trailing dot.
+    std::string host;
+    {
+        auto const range = request.equal_range(boost::beast::http::field::host);
+        if (range.first == request.end() ||
+            std::next(range.first) != range.second)
+            return PWATarget::badHost;
+        host.assign(range.first->value().data(), range.first->value().size());
+    }
+    if (host.empty() || host.front() == '[')
+        return PWATarget::badHost;
+    if (auto const colon = host.find(':'); colon != std::string::npos)
+        host.erase(colon);
+    boost::algorithm::to_lower(host);
+    if (!host.empty() && host.back() == '.')
+        host.pop_back();
+    if (host.empty() ||
+        host.find_first_not_of("abcdefghijklmnopqrstuvwxyz0123456789-.") !=
+            std::string::npos)
+        return PWATarget::badHost;
+
+    auto const dot = host.find('.');
+    if (dot == std::string::npos || dot == 0)
+        return PWATarget::badTarget;
+    std::string const label = host.substr(0, dot);
+    if (port.pwa_domains.count(host.substr(dot + 1)) == 0)
+        return PWATarget::badTarget;
+
+    // The path, less query string and one trailing slash.
+    auto const target = request.target();
     if (target.empty() || target.front() != '/')
-        return std::nullopt;
+        return PWATarget::badTarget;
+    std::string path{target.substr(1)};
+    if (auto const cut = path.find_first_of("?#"); cut != std::string::npos)
+        path.erase(cut);
+    if (!path.empty() && path.back() == '/')
+        path.pop_back();
+    if (path.find('/') != std::string::npos)
+        return PWATarget::badTarget;
 
-    std::string rest{target.substr(1)};
+    if (label.size() == 40)
+    {
+        // Hex form: the whole address is in the host, so the path is bare.
+        if (!path.empty() || !account.parseHex(label) || account.isZero())
+            return PWATarget::badTarget;
+        return PWATarget::ok;
+    }
 
-    if (auto const cut = rest.find_first_of("?#"); cut != std::string::npos)
-        rest.erase(cut);
+    // r-address form: the path carries the exact address and the label is
+    // the same address in whatever case the browser left it.
+    auto const parsed = parseBase58<AccountID>(path);
+    if (!parsed || parsed->isZero() || !boost::algorithm::iequals(label, path))
+        return PWATarget::badTarget;
+    account = *parsed;
+    return PWATarget::ok;
+}
 
-    if (!rest.empty() && rest.back() == '/')
-        rest.pop_back();
+// Whether a pwa port may serve `account`.
+//
+// Blocking always wins over allowing. With no allowlist and no
+// allowlist_publisher the port is open and only the blocklist and the block
+// publishers apply; otherwise an account must be on the allowlist or listed
+// by an allow publisher. Publisher lists live in the ledger (see
+// appLoader::allowListNamespace), so without a ledger the answer may be
+// `needsLedger`; the static part is decided first so that an account the
+// configuration alone rules out never costs a job slot.
+enum class PWAAccess { allowed, blocked, needsLedger };
 
-    if (rest.empty() || rest.find('/') != std::string::npos)
-        return std::nullopt;
+PWAAccess
+pwaAccess(Port const& port, AccountID const& account, ReadView const* ledger)
+{
+    if (port.pwa_blocklist.count(account) > 0)
+        return PWAAccess::blocked;
 
-    auto const account = parseBase58<AccountID>(rest);
-    if (!account || account->isZero())
-        return std::nullopt;
-    return account;
+    bool const allowMode =
+        !port.pwa_allowlist.empty() || !port.pwa_allow_publishers.empty();
+    bool const staticAllowed =
+        !allowMode || port.pwa_allowlist.count(account) > 0;
+
+    if (!staticAllowed && port.pwa_allow_publishers.empty())
+        return PWAAccess::blocked;
+    if (staticAllowed && port.pwa_block_publishers.empty())
+        return PWAAccess::allowed;
+
+    if (!ledger)
+        return PWAAccess::needsLedger;
+
+    auto const key = appLoader::listKey(account);
+    for (auto const& publisher : port.pwa_block_publishers)
+        if (ledger->exists(keylet::hookState(
+                publisher, key, appLoader::blockListNamespace())))
+            return PWAAccess::blocked;
+
+    if (staticAllowed)
+        return PWAAccess::allowed;
+    for (auto const& publisher : port.pwa_allow_publishers)
+        if (ledger->exists(keylet::hookState(
+                publisher, key, appLoader::allowListNamespace())))
+            return PWAAccess::allowed;
+    return PWAAccess::blocked;
 }
 
 // If-None-Match uses the weak comparison function (RFC 9110 13.1.2): "W/"
@@ -694,12 +806,39 @@ ServerHandler::onPWARequest(Session& session)
         return;
     }
 
-    auto const account = parsePWATarget(request.target());
-    if (!account)
+    AccountID account;
+    switch (parsePWATarget(port, request, account))
     {
-        usage.charge(Resource::feeMalformedRPC);
-        pwaStats_.record(Outcome::badTarget, client);
-        pwaError(session, 404, head);
+        case PWATarget::badHost:
+            // No usable Host header: the proxy is not forwarding it, or
+            // sent an IP literal. Nothing on this port can be addressed
+            // that way, so say so distinctly from a mere wrong URL.
+            usage.charge(Resource::feeMalformedRPC);
+            pwaStats_.record(Outcome::badHost, client);
+            pwaError(session, 400, head);
+            return;
+        case PWATarget::badTarget:
+            usage.charge(Resource::feeMalformedRPC);
+            pwaStats_.record(Outcome::badTarget, client);
+            pwaError(session, 404, head);
+            return;
+        case PWATarget::ok:
+            break;
+    }
+
+    // Charge for the ledger lookup before knowing whether it will hit, so
+    // that a miss costs exactly what a hit does: sweeping addresses that
+    // hold no loader must be no cheaper than downloading real ones. The
+    // same charge applies to an account the configuration refuses.
+    usage.charge(Resource::feeMediumBurdenRPC);
+
+    // What the configuration alone can decide, it decides here, without
+    // a job slot. Publisher lists need the validated ledger and are read
+    // in processPWARequest.
+    if (pwaAccess(port, account, nullptr) == PWAAccess::blocked)
+    {
+        pwaStats_.record(Outcome::blocked, client);
+        pwaError(session, 403, head);
         return;
     }
 
@@ -722,24 +861,13 @@ ServerHandler::onPWARequest(Session& session)
     }
     auto const slot = std::make_shared<PWAJobSlot>(pwaJobs_);
 
-    // Charge for the ledger lookup before knowing whether it will hit, so
-    // that a miss costs exactly what a hit does: sweeping addresses that
-    // hold no loader must be no cheaper than downloading real ones.
-    usage.charge(Resource::feeMediumBurdenRPC);
-
     // The ledger read can touch the node store, so it runs on the job queue.
     // No coroutine: nothing here ever yields.
     std::shared_ptr<Session> detached = session.detach();
     if (!m_jobQueue.addJob(
             jtCLIENT_PWA,
             "PWA-Client",
-            [this,
-             detached,
-             slot,
-             account = *account,
-             client,
-             head,
-             ifNoneMatch]() {
+            [this, detached, slot, account, client, head, ifNoneMatch]() {
                 processPWARequest(detached, account, client, head, ifNoneMatch);
             }))
     {
@@ -778,8 +906,16 @@ ServerHandler::processPWARequest(
         // validated chain under this node's name.
         if (auto const ledger = app_.getLedgerMaster().getValidatedLedger())
         {
-            auto const sle = ledger->read(keylet::appLoader(account));
-            if (!sle || !sle->isFieldPresent(sfAppLoader))
+            // The configuration's own verdict was taken before queueing;
+            // this settles what only the publisher lists can decide.
+            if (pwaAccess(session->port(), account, ledger.get()) !=
+                PWAAccess::allowed)
+            {
+                outcome = Outcome::blocked;
+                status = 403;
+            }
+            else if (auto const sle = ledger->read(keylet::appLoader(account));
+                     !sle || !sle->isFieldPresent(sfAppLoader))
             {
                 outcome = Outcome::notFound;
                 status = 404;
@@ -1895,6 +2031,11 @@ to_Port(ParsedPort const& parsed, std::ostream& log)
     p.secure_gateway_nets_v4 = parsed.secure_gateway_nets_v4;
     p.secure_gateway_nets_v6 = parsed.secure_gateway_nets_v6;
     p.admin_origins = parsed.admin_origins;
+    p.pwa_domains = parsed.pwa_domains;
+    p.pwa_allowlist = parsed.pwa_allowlist;
+    p.pwa_blocklist = parsed.pwa_blocklist;
+    p.pwa_allow_publishers = parsed.pwa_allow_publishers;
+    p.pwa_block_publishers = parsed.pwa_block_publishers;
 
     return p;
 }
@@ -1938,8 +2079,23 @@ parse_Ports(Config const& config, std::ostream& log)
     // with RPC, websockets, peers, credentials, admin rights or local TLS.
     for (auto const& p : result)
     {
+        bool const hasPWASettings = !p.pwa_domains.empty() ||
+            !p.pwa_allowlist.empty() || !p.pwa_blocklist.empty() ||
+            !p.pwa_allow_publishers.empty() || !p.pwa_block_publishers.empty();
+
         if (p.protocol.count("pwa") == 0)
+        {
+            // Catch a hosting restriction typed into the wrong section: it
+            // would otherwise be silently ignored.
+            if (hasPWASettings)
+            {
+                log << "Invalid [" << p.name
+                    << "]: domain, allowlist, blocklist, allowlist_publisher "
+                       "and blocklist_publisher apply to pwa ports only";
+                Throw<std::exception>();
+            }
             continue;
+        }
 
         auto fail = [&](char const* why) {
             log << "Invalid [" << p.name << "]: pwa port " << why;
@@ -1948,6 +2104,13 @@ parse_Ports(Config const& config, std::ostream& log)
 
         if (p.protocol.size() != 1)
             fail("cannot be combined with any other protocol");
+        if (p.pwa_domains.empty())
+            fail(
+                "requires domain: the zone documents are served under, as "
+                "<account>.<domain>");
+        for (auto const& a : p.pwa_allowlist)
+            if (p.pwa_blocklist.count(a) > 0)
+                fail("lists the same account in allowlist and blocklist");
         if (p.secure_gateway_nets_v4.empty() &&
             p.secure_gateway_nets_v6.empty())
             fail(

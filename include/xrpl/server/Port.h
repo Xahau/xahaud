@@ -22,6 +22,7 @@
 
 #include <xrpl/basics/BasicConfig.h>
 #include <xrpl/beast/net/IPEndpoint.h>
+#include <xrpl/protocol/AccountID.h>
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/network_v4.hpp>
 #include <boost/asio/ip/network_v6.hpp>
@@ -33,6 +34,7 @@
 #include <set>
 #include <string>
 #include <variant>
+#include <vector>
 
 namespace boost {
 namespace asio {
@@ -60,6 +62,21 @@ struct Port
     // Browser origins (scheme://host[:port], or "*" for any) whose pages may
     // use admin rights granted by `admin` IP alone. Empty: none may.
     std::set<std::string, boost::beast::iless> admin_origins;
+
+    // "pwa" ports only. See the "pwa ports" section of xahaud-example.cfg.
+    //
+    // The zones documents are served under, lower case, without a trailing
+    // dot. A request is for the account named by the first label of its
+    // Host header, which must be followed by exactly one of these.
+    std::set<std::string> pwa_domains;
+    // If pwa_allowlist or pwa_allow_publishers is non-empty, only accounts
+    // on pwa_allowlist, or listed by one of the allow publishers, are served.
+    // Accounts on pwa_blocklist, or listed by any block publisher, are never
+    // served. Blocking wins over allowing.
+    std::set<AccountID> pwa_allowlist;
+    std::set<AccountID> pwa_blocklist;
+    std::vector<AccountID> pwa_allow_publishers;
+    std::vector<AccountID> pwa_block_publishers;
     std::string user;
     std::string password;
     std::string admin_user;
@@ -130,6 +147,11 @@ struct ParsedPort
     std::vector<boost::asio::ip::network_v4> secure_gateway_nets_v4;
     std::vector<boost::asio::ip::network_v6> secure_gateway_nets_v6;
     std::set<std::string, boost::beast::iless> admin_origins;
+    std::set<std::string> pwa_domains;
+    std::set<AccountID> pwa_allowlist;
+    std::set<AccountID> pwa_blocklist;
+    std::vector<AccountID> pwa_allow_publishers;
+    std::vector<AccountID> pwa_block_publishers;
 };
 
 void

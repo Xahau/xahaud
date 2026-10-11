@@ -18,26 +18,31 @@
 //==============================================================================
 
 // End-to-end tests for "pwa" ports: startup validation, proxy and
-// X-Forwarded-For rules, routing, headers, ETag/304, connection handling,
-// metering, the pwa_info RPC, and the browser-Origin admin hardening that
-// accompanies them. These talk to the node over real sockets.
+// X-Forwarded-For rules, host and path routing, allowlist / blocklist
+// (static and publisher), headers, ETag/304, connection handling, metering,
+// the pwa_info RPC, and the browser-Origin admin hardening that accompanies
+// them. These talk to the node over real sockets.
 
 #include <test/jtx.h>
 #include <test/jtx/JSONRPCClient.h>
 #include <test/jtx/envconfig.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/rpc/ServerHandler.h>
+#include <xrpl/basics/Slice.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/beast/test/yield_to.h>
+#include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/SystemParameters.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/Charge.h>
 #include <xrpl/resource/ResourceManager.h>
 #include <xrpl/resource/detail/Tuning.h>
 
+#include <boost/algorithm/string/case_conv.hpp>
 #include <boost/asio.hpp>
 #include <boost/beast/http.hpp>
 
@@ -59,6 +64,25 @@ class PWAServe_test : public beast::unit_test::suite,
         boost::beast::http::response<boost::beast::http::string_body>;
     using Headers = std::vector<std::pair<std::string, std::string>>;
 
+    // The zone the test port serves under.
+    static constexpr char const* zone = "pwa.test";
+
+    // The Host header for a request whose path is `target`: if its first
+    // segment parses as a classic address, that address lower-cased (as a
+    // browser would send it) under the zone; otherwise the bare zone, which
+    // names no document. Tests of the host rules themselves set Host
+    // explicitly.
+    static std::string
+    hostFor(std::string const& target)
+    {
+        std::string seg = target.size() > 1 ? target.substr(1) : "";
+        if (auto const cut = seg.find_first_of("/?#"); cut != std::string::npos)
+            seg.erase(cut);
+        if (parseBase58<AccountID>(seg))
+            return boost::algorithm::to_lower_copy(seg) + "." + zone;
+        return zone;
+    }
+
     static std::string
     doc()
     {
@@ -79,6 +103,7 @@ class PWAServe_test : public beast::unit_test::suite,
         s.set("port", "0");
         s.set("protocol", "pwa");
         s.set("secure_gateway", getEnvLocalhostAddr());
+        s.set("domain", zone);
         if (tweak)
             tweak(s);
         return cfg;
@@ -148,9 +173,15 @@ class PWAServe_test : public beast::unit_test::suite,
         std::string const& body = "")
     {
         std::string r = method + " " + target + " HTTP/1.1\r\n";
-        r += "Host: node\r\n";
+        bool hasHost = false;
         for (auto const& [k, v] : headers)
+        {
             r += k + ": " + v + "\r\n";
+            if (boost::beast::iequals(k, "Host"))
+                hasHost = true;
+        }
+        if (!hasHost)
+            r += "Host: " + hostFor(target) + "\r\n";
         if (!body.empty())
             r += "Content-Type: application/json\r\nContent-Length: " +
                 std::to_string(body.size()) + "\r\n";
@@ -303,6 +334,79 @@ class PWAServe_test : public beast::unit_test::suite,
                 gw);
         BEAST_EXPECT(
             accepts([](Section& s) { s.set("secure_gateway", "10.0.0.0/8"); }));
+
+        // domain is required and must be a DNS zone.
+        BEAST_EXPECT(!accepts([](Section& s) { s.set("domain", ""); }));
+        for (auto const bad :
+             {"pwa_test",
+              ".pwa.test",
+              "pwa..test",
+              "-pwa.test",
+              "pwa.test/",
+              "http://pwa.test",
+              "pwa test",
+              "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              "a.test"})
+            BEAST_EXPECTS(
+                !accepts([bad](Section& s) { s.set("domain", bad); }), bad);
+        for (auto const good :
+             {"pwa.test",
+              "PWA.Test.",
+              "pwa.test, apps.example.net",
+              "localhost"})
+            BEAST_EXPECTS(
+                accepts([good](Section& s) { s.set("domain", good); }), good);
+
+        // Lists are r-addresses; the same account cannot be on both.
+        jtx::Account const a{"a"}, b{"b"};
+        for (auto const key :
+             {"allowlist",
+              "blocklist",
+              "allowlist_publisher",
+              "blocklist_publisher"})
+        {
+            BEAST_EXPECTS(
+                accepts([&](Section& s) {
+                    s.set(key, a.human() + ", " + b.human());
+                }),
+                key);
+            BEAST_EXPECTS(
+                !accepts([&](Section& s) { s.set(key, "not-an-address"); }),
+                key);
+            BEAST_EXPECTS(
+                !accepts([&](Section& s) { s.set(key, strHex(a.id())); }), key);
+            BEAST_EXPECTS(
+                !accepts(
+                    [&](Section& s) { s.set(key, toBase58(AccountID{})); }),
+                key);
+        }
+        BEAST_EXPECT(!accepts([&](Section& s) {
+            s.set("allowlist", a.human() + "," + b.human());
+            s.set("blocklist", b.human());
+        }));
+
+        // ...and they belong to pwa ports only.
+        for (auto const key :
+             {"domain",
+              "allowlist",
+              "blocklist",
+              "allowlist_publisher",
+              "blocklist_publisher"})
+        {
+            auto cfg = pwaConfig();
+            (*cfg)["port_rpc"].set(
+                key, std::string(key) == "domain" ? zone : a.human());
+            bool ok = true;
+            try
+            {
+                setup_ServerHandler(*cfg, std::stringstream{});
+            }
+            catch (std::exception const&)
+            {
+                ok = false;
+            }
+            BEAST_EXPECTS(!ok, key);
+        }
 
         // admin_origin is parsed for every port.
         for (auto const bad :
@@ -606,6 +710,460 @@ class PWAServe_test : public beast::unit_test::suite,
     }
 
     void
+    testHostRules(boost::asio::yield_context& yield)
+    {
+        testcase("one host per account");
+        using namespace jtx;
+        Env env{*this, pwaConfig([](Section& s) {
+                    s.set("domain", "pwa.test, Apps.Example.");
+                })};
+        Account const alice{"alice"};
+        env.fund(XRP(1000), alice);
+        publish(env, alice, doc());
+        env.close();
+
+        auto const a = alice.human();
+        auto const lower = boost::algorithm::to_lower_copy(a);
+        auto const hex = strHex(alice.id());
+        auto with = [&](std::string const& host,
+                        std::string const& target,
+                        std::string const& xff = "203.0.113.7") {
+            return get(
+                env, target, yield, {{"X-Forwarded-For", xff}, {"Host", host}});
+        };
+
+        // Hex label: bare path, any case, either zone, port and trailing
+        // dot ignored.
+        for (auto const& host :
+             {hex + ".pwa.test",
+              boost::algorithm::to_lower_copy(hex) + ".pwa.test",
+              hex + ".PWA.TEST",
+              hex + ".pwa.test:443",
+              hex + ".pwa.test.",
+              hex + ".apps.example"})
+            for (auto const& t : {"/", "/?v=1", "//"})
+                BEAST_EXPECTS(servedAsHtml(with(host, t)), host + t);
+
+        // r-address label: the path carries the exact address; the label
+        // may be in any case (a browser lower-cases it).
+        for (auto const& host :
+             {a + ".pwa.test",
+              lower + ".pwa.test",
+              boost::algorithm::to_upper_copy(a) + ".pwa.test",
+              lower + ".pwa.test:8443",
+              lower + ".apps.example"})
+            for (auto const& t : {"/" + a, "/" + a + "/", "/" + a + "?x"})
+                BEAST_EXPECTS(servedAsHtml(with(host, t)), host + t);
+
+        // Not a document: 404.
+        Account const bob{"bob"};
+        for (auto const& [host, t] :
+             std::vector<std::pair<std::string, std::string>>{
+                 {"pwa.test", "/" + a},  // the dangerous shape
+                 {"pwa.test", "/"},
+                 {"www.pwa.test", "/" + a},
+                 {lower + ".pwa.test", "/"},          // no address in the path
+                 {lower + ".pwa.test", "/" + lower},  // path must be exact
+                 {hex + ".pwa.test", "/" + a},        // hex label: bare path
+                 {hex + ".pwa.test", "/index.html"},
+                 {lower + ".pwa.test", "/" + bob.human()},  // disagree
+                 {boost::algorithm::to_lower_copy(bob.human()) + ".pwa.test",
+                  "/" + a},
+                 {lower + ".other.test", "/" + a},  // not our zone
+                 {lower + ".pwa.test.evil", "/" + a},
+                 {lower + "x.pwa.test", "/" + a},
+                 {"x." + lower + ".pwa.test", "/" + a},
+                 {hex.substr(1) + ".pwa.test", "/"},
+                 {strHex(AccountID{}) + ".pwa.test", "/"},
+                 {hex + "." + hex + ".pwa.test", "/"}})
+        {
+            auto const r = with(host, t);
+            BEAST_EXPECTS(r.result_int() == 404, host + " " + t);
+        }
+
+        // No usable Host at all: 400, so a proxy that drops it shows up.
+        for (auto const& host : {"", "[::1]:8088", "pwa_test", "a b.pwa.test"})
+            BEAST_EXPECTS(with(host, "/" + a).result_int() == 400, host);
+        {
+            auto const raw = exchange(
+                env,
+                "GET /" + a +
+                    " HTTP/1.1\r\nX-Forwarded-For: 203.0.113.7\r\n\r\n",
+                yield);
+            BEAST_EXPECT(raw.rfind("HTTP/1.1 400 ", 0) == 0);
+            auto const two = exchange(
+                env,
+                rawGet(
+                    "/" + a,
+                    {{"X-Forwarded-For", "203.0.113.7"},
+                     {"Host", lower + ".pwa.test"},
+                     {"Host", lower + ".pwa.test"}}),
+                yield);
+            BEAST_EXPECT(two.rfind("HTTP/1.1 400 ", 0) == 0);
+        }
+    }
+
+    void
+    testStaticLists(boost::asio::yield_context& yield)
+    {
+        testcase("allowlist and blocklist");
+        using namespace jtx;
+        Account const alice{"alice"}, bob{"bob"}, carol{"carol"}, dave{"dave"};
+
+        auto setup = [&](Env& env) {
+            env.fund(XRP(1000), alice, bob, carol, dave);
+            publish(env, alice, doc());
+            publish(env, bob, doc());
+            publish(env, carol, doc());
+            env.close();
+        };
+        auto status = [&](Env& env, Account const& who) {
+            return get(env, "/" + who.human(), yield).result_int();
+        };
+
+        // Open port: everyone with a loader is served.
+        {
+            Env env{*this, pwaConfig()};
+            setup(env);
+            BEAST_EXPECT(status(env, alice) == 200);
+            BEAST_EXPECT(status(env, bob) == 200);
+            BEAST_EXPECT(status(env, dave) == 404);
+        }
+
+        // allowlist: only the listed accounts, 403 for everyone else,
+        // loader or not. The 403 looks like any other error response.
+        {
+            Env env{*this, pwaConfig([&](Section& s) {
+                        s.set(
+                            "allowlist", alice.human() + ", " + carol.human());
+                    })};
+            setup(env);
+            BEAST_EXPECT(status(env, alice) == 200);
+            BEAST_EXPECT(status(env, carol) == 200);
+            auto const r = get(env, "/" + bob.human(), yield);
+            BEAST_EXPECT(r.result_int() == 403);
+            BEAST_EXPECT(!servedAsHtml(r));
+            BEAST_EXPECT(hdr(r, "Cache-Control") == "no-store");
+            BEAST_EXPECT(hdr(r, "Connection") == "close");
+            BEAST_EXPECT(status(env, dave) == 403);
+
+            // The hex form is subject to the same rule.
+            BEAST_EXPECT(
+                get(env,
+                    "/",
+                    yield,
+                    {{"X-Forwarded-For", "203.0.113.7"},
+                     {"Host", strHex(bob.id()) + "." + zone}})
+                    .result_int() == 403);
+
+            auto const info = env.rpc("json", "pwa_info", "{}")[jss::result];
+            BEAST_EXPECT(info["outcomes"]["blocked"] == "3");
+            BEAST_EXPECT(info["outcomes"]["served"] == "2");
+        }
+
+        // blocklist: the listed accounts are refused, everyone else served.
+        {
+            Env env{*this, pwaConfig([&](Section& s) {
+                        s.set("blocklist", bob.human());
+                    })};
+            setup(env);
+            BEAST_EXPECT(status(env, alice) == 200);
+            BEAST_EXPECT(status(env, bob) == 403);
+            BEAST_EXPECT(status(env, carol) == 200);
+            BEAST_EXPECT(status(env, dave) == 404);
+        }
+
+        // A refusal costs what a lookup costs, so a blocked address is no
+        // cheaper to hammer than an unknown one.
+        {
+            Env env{*this, pwaConfig([&](Section& s) {
+                        s.set("blocklist", bob.human());
+                    })};
+            setup(env);
+            chargeNearDrop(env, "203.0.113.50", 3);
+            int blocked = 0;
+            for (int i = 0; i < 50; ++i)
+            {
+                auto const r =
+                    get(env,
+                        "/" + bob.human(),
+                        yield,
+                        {{"X-Forwarded-For", "203.0.113.50"}});
+                if (r.result_int() == 503)
+                    break;
+                if (!BEAST_EXPECT(r.result_int() == 403))
+                    break;
+                ++blocked;
+            }
+            BEAST_EXPECT(blocked >= 3 && blocked < 50);
+        }
+    }
+
+    // A hook that lists the sender of every transaction it sees: it writes
+    // a one-byte state entry at appLoader::listKey(sender) in the hook's
+    // namespace, or deletes it when the transaction carries hook parameter
+    // "U". Installed under allowListNamespace or blockListNamespace on a
+    // publisher account it makes that account a curator. Assembled with
+    // wat2wasm from:
+    //
+    // (module
+    //   ;; Test hook for the PWA allowlist/blocklist publisher lookup.
+    //   ;; Lists the sender of every incoming transaction by writing a
+    //   ;; one-byte state entry at key {0..0, <20 byte sender AccountID>}
+    //   ;; in the hook's namespace. If the transaction carries hook
+    //   ;; parameter "U" (unlist), the entry is deleted instead.
+    //   (type (;0;) (func (param i32 i32) (result i32)))
+    //   (type (;1;) (func (param i32 i32 i64) (result i64)))
+    //   (type (;2;) (func (param i32 i32 i32) (result i64)))
+    //   (type (;3;) (func (param i32 i32 i32 i32) (result i64)))
+    //   (type (;4;) (func (param i32) (result i64)))
+    //   (import "env" "_g" (func $_g (type 0)))
+    //   (import "env" "accept" (func $accept (type 1)))
+    //   (import "env" "otxn_field" (func $otxn_field (type 2)))
+    //   (import "env" "otxn_param" (func $otxn_param (type 3)))
+    //   (import "env" "state_set" (func $state_set (type 3)))
+    //   (memory (export "memory") 1)
+    //   (export "hook" (func $hook))
+    //   (func $hook (type 4) (param i32) (result i64)
+    //     (drop (call $_g (i32.const 1) (i32.const 1)))
+    //     ;; sender AccountID -> memory[0..20)   (sfAccount = 0x80001)
+    //     (drop (call $otxn_field
+    //             (i32.const 0) (i32.const 20) (i32.const 524289)))
+    //     ;; value byte -> memory[32]
+    //     (i32.store8 (i32.const 32) (i32.const 1))
+    //     (if (i64.gt_s
+    //           (call $otxn_param
+    //             (i32.const 40) (i32.const 1) (i32.const 64) (i32.const 1))
+    //           (i64.const 0))
+    //       (then
+    //         ;; "U" present: delete the entry
+    //         (drop (call $state_set
+    //            (i32.const 0) (i32.const 0) (i32.const 0) (i32.const 20))))
+    //       (else
+    //         (drop (call $state_set
+    //            (i32.const 32) (i32.const 1) (i32.const 0) (i32.const 20)))))
+    //     (call $accept (i32.const 0) (i32.const 0) (i64.const 0)))
+    //   (data (i32.const 64) "U"))
+    static std::vector<std::uint8_t> const&
+    listHookWasm()
+    {
+        static std::vector<std::uint8_t> const wasm{
+            0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U,
+            0x22U, 0x05U, 0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7FU, 0x60U,
+            0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x03U, 0x7FU,
+            0x7FU, 0x7FU, 0x01U, 0x7EU, 0x60U, 0x04U, 0x7FU, 0x7FU, 0x7FU,
+            0x7FU, 0x01U, 0x7EU, 0x60U, 0x01U, 0x7FU, 0x01U, 0x7EU, 0x02U,
+            0x49U, 0x05U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x02U, 0x5FU, 0x67U,
+            0x00U, 0x00U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x06U, 0x61U, 0x63U,
+            0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x01U, 0x03U, 0x65U, 0x6EU,
+            0x76U, 0x0AU, 0x6FU, 0x74U, 0x78U, 0x6EU, 0x5FU, 0x66U, 0x69U,
+            0x65U, 0x6CU, 0x64U, 0x00U, 0x02U, 0x03U, 0x65U, 0x6EU, 0x76U,
+            0x0AU, 0x6FU, 0x74U, 0x78U, 0x6EU, 0x5FU, 0x70U, 0x61U, 0x72U,
+            0x61U, 0x6DU, 0x00U, 0x03U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x09U,
+            0x73U, 0x74U, 0x61U, 0x74U, 0x65U, 0x5FU, 0x73U, 0x65U, 0x74U,
+            0x00U, 0x03U, 0x03U, 0x02U, 0x01U, 0x04U, 0x05U, 0x03U, 0x01U,
+            0x00U, 0x01U, 0x07U, 0x11U, 0x02U, 0x06U, 0x6DU, 0x65U, 0x6DU,
+            0x6FU, 0x72U, 0x79U, 0x02U, 0x00U, 0x04U, 0x68U, 0x6FU, 0x6FU,
+            0x6BU, 0x00U, 0x05U, 0x0AU, 0x4DU, 0x01U, 0x4BU, 0x00U, 0x41U,
+            0x01U, 0x41U, 0x01U, 0x10U, 0x00U, 0x1AU, 0x41U, 0x00U, 0x41U,
+            0x14U, 0x41U, 0x81U, 0x80U, 0x20U, 0x10U, 0x02U, 0x1AU, 0x41U,
+            0x20U, 0x41U, 0x01U, 0x3AU, 0x00U, 0x00U, 0x41U, 0x28U, 0x41U,
+            0x01U, 0x41U, 0xC0U, 0x00U, 0x41U, 0x01U, 0x10U, 0x03U, 0x42U,
+            0x00U, 0x55U, 0x04U, 0x40U, 0x41U, 0x00U, 0x41U, 0x00U, 0x41U,
+            0x00U, 0x41U, 0x14U, 0x10U, 0x04U, 0x1AU, 0x05U, 0x41U, 0x20U,
+            0x41U, 0x01U, 0x41U, 0x00U, 0x41U, 0x14U, 0x10U, 0x04U, 0x1AU,
+            0x0BU, 0x41U, 0x00U, 0x41U, 0x00U, 0x42U, 0x00U, 0x10U, 0x01U,
+            0x0BU, 0x0BU, 0x08U, 0x01U, 0x00U, 0x41U, 0xC0U, 0x00U, 0x0BU,
+            0x01U, 0x55U,
+        };
+        return wasm;
+    }
+
+    void
+    installListHook(
+        jtx::Env& env,
+        jtx::Account const& publisher,
+        uint256 const& ns)
+    {
+        using namespace jtx;
+        Json::Value hso_ = hso(listHookWasm());
+        hso_[jss::HookNamespace] = to_string(ns);
+        env(hook(publisher, {{hso_}}, 0), fee(XRP(100)));
+        env.close();
+    }
+
+    // `who` sends the publisher a payment, which lists them.
+    void
+    list(jtx::Env& env, jtx::Account const& publisher, jtx::Account const& who)
+    {
+        using namespace jtx;
+        env(pay(who, publisher, XRP(1)), fee(XRP(1)));
+        env.close();
+    }
+
+    void
+    unlist(
+        jtx::Env& env,
+        jtx::Account const& publisher,
+        jtx::Account const& who)
+    {
+        using namespace jtx;
+        auto jt = pay(who, publisher, XRP(1));
+        Json::Value params{Json::arrayValue};
+        params[0U][jss::HookParameter][jss::HookParameterName] =
+            strHex(std::string("U"));
+        params[0U][jss::HookParameter][jss::HookParameterValue] = "01";
+        jt[jss::HookParameters] = params;
+        env(jt, fee(XRP(1)));
+        env.close();
+    }
+
+    void
+    testPublisherLists(boost::asio::yield_context& yield)
+    {
+        testcase("allowlist_publisher and blocklist_publisher");
+        using namespace jtx;
+
+        // The reserved namespaces and key layout are a published contract
+        // for hook authors; pin them.
+        {
+            auto ns = [](std::string_view name) {
+                return sha512Half(Slice{name.data(), name.size()});
+            };
+            BEAST_EXPECT(
+                appLoader::allowListNamespace() == ns("PWALoader/allowlist"));
+            BEAST_EXPECT(
+                appLoader::blockListNamespace() == ns("PWALoader/blocklist"));
+            BEAST_EXPECT(
+                to_string(appLoader::allowListNamespace()) ==
+                "31B3200DEAA8F282E64D4BCB97255A2A2B297208D18D1ABA34EC2E3F74225"
+                "64F");
+            BEAST_EXPECT(
+                to_string(appLoader::blockListNamespace()) ==
+                "3EDDB37279B486BC74864DB16E718658C26B921F84C66A7B6AFC33C203CA0"
+                "0D0");
+            Account const x{"x"};
+            BEAST_EXPECT(
+                to_string(appLoader::listKey(x.id())) ==
+                "000000000000000000000000" + strHex(x.id()));
+        }
+
+        Account const curator{"curator"}, censor{"censor"}, alice{"alice"},
+            bob{"bob"}, carol{"carol"};
+
+        auto status = [&](Env& env, Account const& who) {
+            return get(env, "/" + who.human(), yield).result_int();
+        };
+        auto fundAll = [&](Env& env) {
+            env.fund(XRP(10000), curator, censor, alice, bob, carol);
+            publish(env, alice, doc());
+            publish(env, bob, doc());
+            publish(env, carol, doc());
+            env.close();
+        };
+
+        // allowlist_publisher: only accounts the curator lists.
+        {
+            Env env{*this, pwaConfig([&](Section& s) {
+                        s.set("allowlist_publisher", curator.human());
+                    })};
+            fundAll(env);
+            BEAST_EXPECT(status(env, alice) == 403);
+
+            installListHook(env, curator, appLoader::allowListNamespace());
+            BEAST_EXPECT(status(env, alice) == 403);
+
+            list(env, curator, alice);
+            BEAST_EXPECT(env.le(keylet::hookState(
+                curator.id(),
+                appLoader::listKey(alice.id()),
+                appLoader::allowListNamespace())));
+            BEAST_EXPECT(status(env, alice) == 200);
+            BEAST_EXPECT(status(env, bob) == 403);
+
+            // Only validated state counts: a listing in the open ledger is
+            // not yet in force.
+            env(pay(bob, curator, XRP(1)), fee(XRP(1)));
+            BEAST_EXPECT(status(env, bob) == 403);
+            env.close();
+            BEAST_EXPECT(status(env, bob) == 200);
+
+            unlist(env, curator, alice);
+            BEAST_EXPECT(!env.le(keylet::hookState(
+                curator.id(),
+                appLoader::listKey(alice.id()),
+                appLoader::allowListNamespace())));
+            BEAST_EXPECT(status(env, alice) == 403);
+            BEAST_EXPECT(status(env, bob) == 200);
+
+            // An entry in the wrong namespace is not a listing.
+            installListHook(env, censor, appLoader::blockListNamespace());
+            list(env, censor, alice);
+            BEAST_EXPECT(status(env, alice) == 403);
+        }
+
+        // blocklist_publisher: everyone except accounts the censor lists.
+        {
+            Env env{*this, pwaConfig([&](Section& s) {
+                        s.set("blocklist_publisher", censor.human());
+                    })};
+            fundAll(env);
+            installListHook(env, censor, appLoader::blockListNamespace());
+            BEAST_EXPECT(status(env, alice) == 200);
+            list(env, censor, alice);
+            BEAST_EXPECT(status(env, alice) == 403);
+            BEAST_EXPECT(status(env, bob) == 200);
+            unlist(env, censor, alice);
+            BEAST_EXPECT(status(env, alice) == 200);
+        }
+
+        // Combined: blocking wins over every form of allowing; a static
+        // allowlist entry and a publisher listing are interchangeable.
+        {
+            Env env{*this, pwaConfig([&](Section& s) {
+                        s.set("allowlist", alice.human());
+                        s.set("allowlist_publisher", curator.human());
+                        s.set("blocklist_publisher", censor.human());
+                        s.set("blocklist", carol.human());
+                    })};
+            fundAll(env);
+            installListHook(env, curator, appLoader::allowListNamespace());
+            installListHook(env, censor, appLoader::blockListNamespace());
+
+            BEAST_EXPECT(status(env, alice) == 200);  // static allow
+            BEAST_EXPECT(status(env, bob) == 403);    // nobody allows
+            list(env, curator, bob);
+            BEAST_EXPECT(status(env, bob) == 200);  // curator allows
+            list(env, censor, bob);
+            BEAST_EXPECT(status(env, bob) == 403);  // censor vetoes
+            list(env, censor, alice);
+            BEAST_EXPECT(status(env, alice) == 403);  // ...even static
+            list(env, curator, carol);
+            BEAST_EXPECT(status(env, carol) == 403);  // static block wins
+
+            auto const info = env.rpc("json", "pwa_info", "{}")[jss::result];
+            BEAST_EXPECT(info["outcomes"]["blocked"] == "4");
+            BEAST_EXPECT(info["outcomes"]["served"] == "2");
+        }
+
+        // Several publishers: listed by any one of them is enough.
+        {
+            Account const curator2{"curator2"};
+            Env env{*this, pwaConfig([&](Section& s) {
+                        s.set(
+                            "allowlist_publisher",
+                            curator.human() + "," + curator2.human());
+                    })};
+            env.fund(XRP(10000), curator2);
+            fundAll(env);
+            installListHook(env, curator2, appLoader::allowListNamespace());
+            BEAST_EXPECT(status(env, alice) == 403);
+            list(env, curator2, alice);
+            BEAST_EXPECT(status(env, alice) == 200);
+        }
+    }
+
+    void
     testProxyRules(boost::asio::yield_context& yield)
     {
         testcase("proxy and X-Forwarded-For rules");
@@ -887,9 +1445,13 @@ class PWAServe_test : public beast::unit_test::suite,
              {"If-None-Match", etag}});          // 304
         get(env, "/" + bob.human(), yield, c1);  // not_found
         get(env, "/" + bob.human(), yield, c2);  // not_found
-        get(env, "/nope", yield, c2);            // bad_target
-        get(env, a, yield, c2, "POST");          // bad_method
-        get(env, a, yield, {});                  // no XFF
+        get(env,
+            "/nope",
+            yield,
+            {{"X-Forwarded-For", "x, 198.51.100.9"},
+             {"Host", hostFor(a)}});     // bad_target
+        get(env, a, yield, c2, "POST");  // bad_method
+        get(env, a, yield, {});          // no XFF
 
         auto const r = info(R"({"top": 5})");
         BEAST_EXPECT(r["requests"] == "8");
@@ -905,6 +1467,9 @@ class PWAServe_test : public beast::unit_test::suite,
         BEAST_EXPECT(o["unavailable"] == "0");
         BEAST_EXPECT(o["upgrade_refused"] == "0");
         BEAST_EXPECT(o["busy"] == "0");
+        BEAST_EXPECT(o["bad_host"] == "0");
+        BEAST_EXPECT(o["blocked"] == "0");
+        BEAST_EXPECT(r[jss::ports][0u]["domains"][0u] == zone);
         BEAST_EXPECT(r["bytes_served"] == std::to_string(2 * doc().size()));
         BEAST_EXPECT(r["last_ledger_index"] == env.closed()->seq());
 
@@ -1095,6 +1660,9 @@ public:
             testETag(yield);
             testOnlyValidated(yield);
             testRouting(yield);
+            testHostRules(yield);
+            testStaticLists(yield);
+            testPublisherLists(yield);
             testProxyRules(yield);
             testConnectionClose(yield);
             testMetering(yield);

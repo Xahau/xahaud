@@ -21,6 +21,7 @@
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/server/Port.h>
+#include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/algorithm/string/split.hpp>
@@ -66,6 +67,14 @@ operator<<(std::ostream& os, Port const& p)
             os << net.to_string();
             os << ", ";
         }
+    }
+
+    if (!p.pwa_domains.empty())
+    {
+        os << "domains:";
+        for (auto const& d : p.pwa_domains)
+            os << " " << d;
+        os << ", ";
     }
 
     if (p.secure_gateway_nets_v4.size() || p.secure_gateway_nets_v6.size())
@@ -358,6 +367,85 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
             port.admin_origins.insert(origin);
         }
     }
+
+    // pwa ports: the zone(s) documents are served under. Lower-cased and
+    // stripped of a trailing dot, so that a Host header can be compared to
+    // them after the same normalisation.
+    if (auto const optResult = section.get("domain"))
+    {
+        std::vector<std::string> domains;
+        boost::algorithm::split(
+            domains, *optResult, boost::algorithm::is_any_of(","));
+        for (auto& domain : domains)
+        {
+            boost::algorithm::trim(domain);
+            if (domain.empty())
+                continue;
+            boost::algorithm::to_lower(domain);
+            if (domain.back() == '.')
+                domain.pop_back();
+
+            // Labels of 1..63 characters from [a-z0-9-], not starting or
+            // ending with '-', at most 253 characters in all. Leave room for
+            // the longest label this port prepends (a 40-digit AccountID).
+            bool valid = !domain.empty() && domain.size() + 41 <= 253;
+            if (valid)
+            {
+                std::vector<std::string> labels;
+                boost::algorithm::split(
+                    labels, domain, boost::algorithm::is_any_of("."));
+                for (auto const& label : labels)
+                {
+                    if (label.empty() || label.size() > 63 ||
+                        label.front() == '-' || label.back() == '-' ||
+                        label.find_first_not_of(
+                            "abcdefghijklmnopqrstuvwxyz0123456789-") !=
+                            std::string::npos)
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+            if (!valid)
+            {
+                log << "Invalid value '" << domain << "' for key 'domain' in ["
+                    << section.name()
+                    << "]: expected a DNS zone such as pwapp.example";
+                Throw<std::exception>();
+            }
+            port.pwa_domains.insert(domain);
+        }
+    }
+
+    // pwa ports: comma-separated classic addresses. A key given more than
+    // once keeps only its last value, as for every other key in a section.
+    auto const accounts = [&](char const* key, auto& out) {
+        auto const optResult = section.get(key);
+        if (!optResult)
+            return;
+        std::vector<std::string> items;
+        boost::algorithm::split(
+            items, *optResult, boost::algorithm::is_any_of(","));
+        for (auto& item : items)
+        {
+            boost::algorithm::trim(item);
+            if (item.empty())
+                continue;
+            auto const account = parseBase58<AccountID>(item);
+            if (!account || account->isZero())
+            {
+                log << "Invalid value '" << item << "' for key '" << key
+                    << "' in [" << section.name() << "]: expected an r-address";
+                Throw<std::exception>();
+            }
+            out.insert(out.end(), *account);
+        }
+    };
+    accounts("allowlist", port.pwa_allowlist);
+    accounts("blocklist", port.pwa_blocklist);
+    accounts("allowlist_publisher", port.pwa_allow_publishers);
+    accounts("blocklist_publisher", port.pwa_block_publishers);
 
     set(port.user, "user", section);
     set(port.password, "password", section);

@@ -20,6 +20,9 @@
 #ifndef RIPPLE_PROTOCOL_APPLOADER_H_INCLUDED
 #define RIPPLE_PROTOCOL_APPLOADER_H_INCLUDED
 
+#include <xrpl/basics/base_uint.h>
+#include <xrpl/protocol/AccountID.h>
+
 #include <cstddef>
 #include <cstdint>
 
@@ -91,6 +94,35 @@ validate(std::uint8_t const* data, std::size_t size);
 /** Human-readable description of a validation result, for logging. */
 char const*
 to_string(Result r);
+
+/** Hook state namespaces read by "pwa" ports.
+
+    An operator can delegate the decision of which accounts a pwa port
+    serves to one or more publisher accounts (allowlist_publisher and
+    blocklist_publisher in the port's configuration). A publisher lists an
+    account by holding a HookState entry, under one of these two reserved
+    namespaces, whose key is `listKey(account)`. The entry's value is
+    ignored; only its presence matters. Hooks on the publisher account
+    create and remove the entries like any other state.
+
+    The namespaces are sha512Half of the ASCII strings "PWALoader/allowlist"
+    and "PWALoader/blocklist" respectively. They are not consensus relevant:
+    nothing on-ledger reads them, only serving nodes do.
+*/
+uint256 const&
+allowListNamespace();
+
+/** \sa allowListNamespace */
+uint256 const&
+blockListNamespace();
+
+/** The HookState key under which a publisher lists `account`: the 20-byte
+    AccountID right-aligned in 32 bytes, with 12 leading zero bytes. This is
+    the key a hook gets by passing the bare AccountID as a 20-byte key to
+    state_set, which zero-pads on the left.
+*/
+uint256
+listKey(AccountID const& account);
 
 }  // namespace appLoader
 

@@ -35,11 +35,12 @@ namespace ripple {
 
     Response:
         {
-          "ports": [ { "name", "ip", "port" } ],   // configured pwa ports
+          "ports": [ { "name", "ip", "port", "domains": [...] } ],
           "since", "window_seconds",               // collection window
           "requests", "outcomes": { served, not_modified, not_found,
               bad_target, bad_method, no_forwarded_for, direct_connection,
-              throttled, unavailable, upgrade_refused, busy },
+              throttled, unavailable, upgrade_refused, busy, bad_host,
+              blocked },
           "bytes_served", "last_ledger_index",
           "accounts": { "tracked", "untracked_requests",
               "top": [ { account, served, not_modified, bytes,
@@ -93,6 +94,9 @@ doPWAInfo(RPC::JsonContext& context)
         p[jss::name] = port.name;
         p[jss::ip] = port.ip.to_string();
         p[jss::port] = port.port;
+        Json::Value& domains = p["domains"] = Json::arrayValue;
+        for (auto const& d : port.pwa_domains)
+            domains.append(d);
     }
 
     if (reset)

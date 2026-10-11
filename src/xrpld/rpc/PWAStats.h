@@ -59,7 +59,7 @@ public:
         served = 0,        // 200
         notModified,       // 304
         notFound,          // 404: no such loader
-        badTarget,         // 404: target is not /<r-address>
+        badTarget,         // 404: host and path do not name a document
         badMethod,         // 405
         noForwardedFor,    // 400: proxy sent no usable X-Forwarded-For
         directConnection,  // 403: not from a secure_gateway address
@@ -68,6 +68,9 @@ public:
                            //      or the ledger read failed
         upgradeRefused,    // 403: websocket upgrade request
         busy,              // 503: too many lookups already in flight
+        badHost,           // 400: no usable Host header (proxy not
+                           //      forwarding it, or an IP literal)
+        blocked,           // 403: refused by allowlist / blocklist
         count_
     };
 

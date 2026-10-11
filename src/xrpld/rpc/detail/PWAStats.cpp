@@ -77,6 +77,10 @@ PWAStats::to_string(Outcome o)
             return "upgrade_refused";
         case Outcome::busy:
             return "busy";
+        case Outcome::badHost:
+            return "bad_host";
+        case Outcome::blocked:
+            return "blocked";
         case Outcome::count_:
             break;
     }
