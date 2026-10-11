@@ -324,7 +324,7 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
 
     // pwa ports: the zone(s) documents are served under, normalised like a
     // Host header: lower case, no trailing dot, LDH labels of 1..63, with
-    // room left for the 43-character account label in front.
+    // room left for the longest "pwa<AccountIndex>" label in front.
     if (auto const optResult = section.get("domain"))
     {
         std::vector<std::string> domains;
@@ -338,7 +338,7 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
                 domain.pop_back();
             if (domain.empty())
                 continue;
-            bool valid = domain.size() + 44 <= 253;
+            bool valid = domain.size() + 24 <= 253;
             std::vector<std::string> labels;
             boost::algorithm::split(
                 labels, domain, boost::algorithm::is_any_of("."));

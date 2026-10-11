@@ -176,7 +176,9 @@ private:
         AccountID account;
         bool head = false;
         std::string ifNoneMatch;
-        std::string domain;  // custom host it came in on, if any
+        std::string domain;        // custom host it came in on, if any
+        std::uint64_t index = 0;   // AccountIndex the host label named
+        std::string redirectTail;  // non-empty: bare-zone 301 to pwa<index>
     };
 
     // A private type used to restrict access to the ServerHandler constructor.
@@ -327,8 +329,8 @@ private:
         std::shared_ptr<Session> const& session,
         PWALookup const& lookup);
 
-    /** Serve the document from the validated ledger. Runs on the job
-        queue. Always closes the connection. */
+    /** Serve the document, or the bare-zone redirect, from the validated
+        ledger. Runs on the job queue. Always closes the connection. */
     void
     processPWARequest(
         std::shared_ptr<Session> const& session,

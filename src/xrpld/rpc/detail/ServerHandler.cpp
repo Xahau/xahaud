@@ -36,6 +36,7 @@
 #include <xrpl/basics/base64.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/basics/make_SSLContext.h>
+#include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/json/json_reader.h>
@@ -386,8 +387,9 @@ pwaBillingAddress(boost::asio::ip::address const& client)
 // its own so that loaders never share an origin with each other or with the
 // operator's site:
 //
-//   pwa<account-id-hex>.<zone>/<r-address>   label (any case) and path must
-//                                            name the same account
+//   pwa<account-index>.<zone>/<r-address>    the label is the AccountIndex
+//                                            (decimal) of the account the
+//                                            path names
 //   <zone>/<r-address>                       301 to the above, keeping :port
 //                                            and query, scheme-relative
 //   <custom host>/                           with custom_domains: served as
@@ -401,8 +403,9 @@ struct PWARoute
     enum class Kind { account, domain, redirect, badHost, badTarget };
     Kind kind = Kind::badTarget;
     AccountID account;
-    std::string location;  // redirect
-    std::string domain;    // domain: the normalised Host, no port
+    std::uint64_t index = 0;   // account: what the label said
+    std::string redirectTail;  // redirect: Location after "//pwa<index>"
+    std::string domain;        // domain: the normalised Host, no port
 };
 
 PWARoute
@@ -482,24 +485,24 @@ parsePWATarget(Port const& port, http_request_type const& request)
 
     if (port.pwa_domains.count(host) > 0)
     {
+        // Scheme-relative: the browser keeps the scheme it used. The index
+        // comes from the ledger later.
         route.kind = Kind::redirect;
-        // Scheme-relative: the browser keeps the scheme it used.
-        route.location = "//pwa" +
-            boost::algorithm::to_lower_copy(strHex(*account)) + "." + host +
-            hostPort + "/" + path + query;
+        route.redirectTail = "." + host + hostPort + "/" + path + query;
         return route;
     }
 
-    // pwa<40 hex digits>.<zone>, naming the same account as the path.
-    AccountID fromHost;
-    if (host.size() > 44 && host.compare(0, 3, "pwa") == 0 && host[43] == '.' &&
-        port.pwa_domains.count(host.substr(44)) > 0 &&
-        fromHost.parseHex(host.substr(3, 40)) && fromHost == *account)
-    {
+    // pwa<decimal AccountIndex>.<zone>; whether it is the path's account's
+    // index is checked against the ledger later.
+    auto const dot = host.find('.');
+    std::string label;
+    if (dot != std::string::npos && dot > 3 && host.compare(0, 3, "pwa") == 0)
+        label = host.substr(3, dot - 3);
+    if (!label.empty() && port.pwa_domains.count(host.substr(dot + 1)) > 0 &&
+        label.size() <= 20 && (label == "0" || label.front() != '0') &&
+        label.find_first_not_of("0123456789") == std::string::npos &&
+        beast::lexicalCastChecked(route.index, label))
         route.kind = Kind::account;
-        return route;
-    }
-
     return route;
 }
 
@@ -687,15 +690,6 @@ ServerHandler::onPWARequest(Session& session)
             count(Outcome::badTarget);
             return pwaError(session, 404, head);
         case PWARoute::Kind::redirect:
-            // No ledger read and no lists: the target host applies those.
-            count(Outcome::redirected);
-            return pwaReply(
-                session,
-                301,
-                head,
-                {"Location: " + route.location,
-                 "Cache-Control: public, max-age=86400"},
-                "Moved Permanently\n");
         case PWARoute::Kind::account:
         case PWARoute::Kind::domain:
             break;
@@ -708,6 +702,8 @@ ServerHandler::onPWARequest(Session& session)
     lookup.account = route.account;
     lookup.head = head;
     lookup.domain = route.domain;
+    lookup.index = route.index;
+    lookup.redirectTail = route.redirectTail;
     if (auto const it = request.find(boost::beast::http::field::if_none_match);
         it != request.end())
         lookup.ifNoneMatch =
@@ -911,17 +907,44 @@ ServerHandler::processPWARequest(
     {
         // Validated state only: a closed ledger may still lose consensus.
         auto const ledger = app_.getLedgerMaster().getValidatedLedger();
-        std::shared_ptr<SLE const> sle;
+        std::shared_ptr<SLE const> sle, root;
         if (ledger)
+        {
             sle = ledger->read(keylet::appLoader(account));
-        if (ledger && !sle)
+            root = ledger->read(keylet::account(account));
+        }
+        // The host label must be the account's AccountIndex; an account
+        // without one (created before it existed) has no host.
+        std::optional<std::uint64_t> index;
+        if (root)
+            index = (*root)[~sfAccountIndex];
+        if (!ledger)
+        {
+        }
+        else if (!lookup.redirectTail.empty())
+        {
+            if (index)
+            {
+                outcome = Outcome::redirected;
+                status = 301;
+                headers = {
+                    "Location: //pwa" + std::to_string(*index) +
+                        lookup.redirectTail,
+                    "Cache-Control: public, max-age=86400"};
+                body = "Moved Permanently\n";
+            }
+            else
+            {
+                outcome = Outcome::notFound;
+                status = 404;
+            }
+        }
+        else if (!sle || (lookup.domain.empty() && index != lookup.index))
         {
             outcome = Outcome::notFound;
             status = 404;
         }
-        else if (
-            sle && !lookup.domain.empty() &&
-            !pwaEndorses(ledger->read(keylet::account(account)), lookup.domain))
+        else if (!lookup.domain.empty() && !pwaEndorses(root, lookup.domain))
         {
             // A custom host serves an account only with its consent.
             outcome = Outcome::domainMismatch;
@@ -977,7 +1000,7 @@ ServerHandler::processPWARequest(
     }
 
     ++pwaStats_.outcomes[std::size_t(outcome)];
-    if (status == 200 || status == 304)
+    if (status == 200 || status == 304 || status == 301)
     {
         if (status == 200 && !lookup.head)
             pwaStats_.bytesServed += body.size();

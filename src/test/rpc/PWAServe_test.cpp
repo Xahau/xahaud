@@ -220,11 +220,11 @@ class PWAServe_test : public beast::unit_test::suite,
         return boost::algorithm::to_lower_copy(s);
     }
 
-    // The account's own host label: pwa + 40 hex digits.
+    // The account's own host label: pwa + its decimal AccountIndex.
     static std::string
-    label(jtx::Account const& a)
+    label(jtx::Env& env, jtx::Account const& a)
     {
-        return "pwa" + lower(strHex(a.id()));
+        return "pwa" + std::to_string((*env.le(a))[sfAccountIndex]);
     }
 
     // A config with a working pwa port behind a "proxy" at the test's own
@@ -342,7 +342,8 @@ class PWAServe_test : public beast::unit_test::suite,
         boost::asio::yield_context& yield,
         Headers const& headers = {{"X-Forwarded-For", xff}})
     {
-        return get(env, label(a) + "." + zone, "/" + a.human(), yield, headers);
+        return get(
+            env, label(env, a) + "." + zone, "/" + a.human(), yield, headers);
     }
 
     static std::string
@@ -519,7 +520,7 @@ class PWAServe_test : public beast::unit_test::suite,
         {
             auto const s = exchange(
                 env,
-                raw(label(alice) + "." + zone,
+                raw(label(env, alice) + "." + zone,
                     "/" + alice.human(),
                     {{"X-Forwarded-For", xff}},
                     "HEAD"),
@@ -558,10 +559,12 @@ class PWAServe_test : public beast::unit_test::suite,
         env.fund(XRP(1000), alice, bob);
         publish(env, alice, doc());
         auto const a = alice.human();
-        auto const la = label(alice);
+        auto const la = label(env, alice);
         auto const ua = boost::algorithm::to_upper_copy(la);
+        auto const wrong =
+            "pwa" + std::to_string((*env.le(alice))[sfAccountIndex] + 1);
 
-        // Served: pwa<hex> label in any case with the exact address in the
+        // Served: pwa<index> label (any case) with the exact address in the
         // path; either zone; port, trailing dot, one trailing slash and a
         // query string ignored.
         for (auto const& [host, t] :
@@ -587,8 +590,11 @@ class PWAServe_test : public beast::unit_test::suite,
                  {la + ".pwa.test", "/" + lower(a)},
                  {la + ".pwa.test", "/" + bob.human()},  // disagree
                  {la + ".pwa.test", "/" + a + "/index.html"},
+                 {wrong + ".pwa.test", "/" + a},         // not alice's index
                  {la.substr(3) + ".pwa.test", "/" + a},  // no pwa prefix
-                 {la.substr(1) + ".pwa.test", "/" + a},
+                 {"pwa0" + la.substr(3) + ".pwa.test", "/" + a},  // leading 0
+                 {"pwax.pwa.test", "/" + a},
+                 {"pwa.pwa.test", "/" + a},
                  {la + ".other.test", "/" + a},  // not our zone
                  {la + ".pwa.test.evil", "/" + a},
                  {"x." + la + ".pwa.test", "/" + a}})
@@ -618,9 +624,9 @@ class PWAServe_test : public beast::unit_test::suite,
                 .rfind("HTTP/1.1 400 ", 0) == 0);
 
         // <zone>/<r-address>: 301 to the account's own host. Exact path,
-        // port and query kept, scheme-relative, no ledger read and no lists
-        // (bob has no loader). Following it works.
-        auto const lb = label(bob);
+        // port and query kept, scheme-relative, no loader needed (bob has
+        // none). Following it works.
+        auto const lb = label(env, bob);
         for (auto const& [host, t, location] :
              std::vector<std::tuple<std::string, std::string, std::string>>{
                  {"pwa.test", "/" + a, "//" + la + ".pwa.test/" + a},
