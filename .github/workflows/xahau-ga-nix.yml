@@ -97,6 +97,8 @@ jobs:
       contents: read
     container:
       image: ubuntu:24.04
+      # [DO NOT MERGE] diagnostic: allow gdb/eu-stack to attach to hung test children
+      options: --cap-add=SYS_PTRACE
       volumes:
         - /home/runner/.conan-cache:/.conan-cache
         - /home/runner/.ccache-cache:/github/home/.ccache-cache
@@ -309,13 +311,13 @@ jobs:
       # [DO NOT MERGE] Diagnostic: run the coverage test pass directly (not via
       # the ninja `coverage` target, which buffers all output until exit) so
       # every line gets a live timestamp, sample host/process state every 60s,
-      # and dump thread stacks of every rippled process at 20/40 min and on a
+      # and dump thread stacks of every rippled process at 12/25 min and on a
       # 90 min deadline instead of sitting for the 6h job timeout.
       - name: Run tests (coverage, diagnostic)
         if: matrix.job_type == 'coverage'
         shell: bash
         run: |
-          apt-get install -y procps elfutils > /dev/null
+          apt-get install -y procps elfutils gdb > /dev/null
           cd ${{ env.build_dir }}
           rm -rf coverage-profraw && mkdir coverage-profraw
           JOBS=$(($(nproc)/2))
@@ -327,6 +329,11 @@ jobs:
             for p in $(pgrep -x rippled); do
               echo "--- pid $p state=$(awk '/^State/{print $2}' /proc/$p/status) wchan=$(cat /proc/$p/wchan 2>/dev/null) cmd=$(tr '\0' ' ' < /proc/$p/cmdline | cut -c1-100)"
               timeout 120 eu-stack -p $p 2>&1 | head -300 || true
+              st=$(awk '/^State/{print $2}' /proc/$p/status 2>/dev/null)
+              if [ "$st" = "S" ] && [ "$p" != "$RP" ]; then
+                timeout 900 gdb -p $p -batch -ex 'set pagination off' -ex 'thread apply all bt 30' 2>&1 \
+                  | grep -vE '^\[New LWP|^\[Thread debugging|^Using host|^warning:|^Reading symbols|^Download' | head -800 || true
+              fi
             done
           }
 
@@ -344,10 +351,10 @@ jobs:
           START=$SECONDS; D20=0; D40=0; rc=0
           while kill -0 $RP 2>/dev/null; do
             el=$((SECONDS-START))
-            if [ $D20 = 0 ] && [ $el -ge 1200 ]; then D20=1; dump_stacks "20min"; fi
-            if [ $D40 = 0 ] && [ $el -ge 2400 ]; then D40=1; dump_stacks "40min"; fi
-            if [ $el -ge 5400 ]; then
-              dump_stacks "90min deadline"
+            if [ $D20 = 0 ] && [ $el -ge 720 ]; then D20=1; dump_stacks "12min"; fi
+            if [ $D40 = 0 ] && [ $el -ge 1500 ]; then D40=1; dump_stacks "25min"; fi
+            if [ $el -ge 3600 ]; then
+              dump_stacks "60min deadline"
               echo "===== DEADLINE: killing rippled processes"
               pkill -KILL -x rippled || true
               break
