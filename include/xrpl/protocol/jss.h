@@ -238,7 +238,7 @@ JSS(closed);                 // out: NetworkOPs, LedgerToJson,
                              //      handlers/Ledger
 JSS(closed_ledger);          // out: NetworkOPs
 JSS(cluster);                // out: PeerImp
-JSS(code);                   // out: errors
+JSS(code);                   // in: HookValidate; out: errors
 JSS(command);                // in: RPCHandler
 JSS(complete);               // out: NetworkOPs, InboundLedger
 JSS(complete_ledgers);       // out: NetworkOPs, PeerImp
@@ -378,6 +378,8 @@ JSS(index);    // in: LedgerEntry,
                //      LedgerEntry, TxHistory, LedgerData
 JSS(info);     // out: ServerInfo, ConsensusInfo, FetchInfo
 JSS(initial_sync_duration_us);
+JSS(instruction_count_cbak);  // out: HookValidate
+JSS(instruction_count_hook);  // out: HookValidate
 JSS(internal_command);     // in: Internal
 JSS(invalid_API_version);  // out: Many, when a request has an invalid
                            //      version
@@ -451,6 +453,7 @@ JSS(local);                   // out: resource/Logic.h
 JSS(local_txs);               // out: GetCounts
 JSS(local_static_keys);       // out: ValidatorList
 JSS(locked_balance);          // out: AccountLines
+JSS(log);                     // out: HookValidate
 JSS(low);                     // out: BookChanges
 JSS(lock_count);              // out: AccountLines
 JSS(lowest_sequence);         // out: AccountInfo
@@ -749,6 +752,7 @@ JSS(url_password);               // in: Subscribe
 JSS(url_username);               // in: Subscribe
 JSS(urlgravatar);                //
 JSS(username);                   // in: Subscribe
+JSS(valid);                      // out: HookValidate
 JSS(validated);                  // out: NetworkOPs, RPCHelpers, AccountTx*
                                  //      Tx
 JSS(validator_list_expires);     // out: NetworkOps, ValidatorList
@@ -770,6 +774,7 @@ JSS(validator_sites);  // out: ValidatorSites
 JSS(value);            // out: STAmount
 JSS(version);          // out: RPCVersion
 JSS(vetoed);           // out: AmendmentTableImpl
+JSS(vm_error);         // out: HookValidate
 JSS(volume_a);         // out: BookChanges
 JSS(volume_b);         // out: BookChanges
 JSS(vote);             // in: Feature
