@@ -738,7 +738,7 @@ class PWAServe_test : public beast::unit_test::suite,
                 c["pwa_allowlist"].append(bob.human());
                 c["pwa_blocklist"].append(carol.human());
             }),
-            {200, 200, 403, 404});
+            {200, 200, 403, 403});
     }
 
     void
@@ -797,7 +797,11 @@ class PWAServe_test : public beast::unit_test::suite,
         // Metering: the forwarded client is billed, not the proxy, an IPv6
         // client per /64, and a miss costs what a hit does. Push a client
         // close to the drop threshold, then a few misses tip it over.
+        // Funded so it has a host label, but never publishes: every GET is
+        // a miss.
         Account const nobody{"nobody"};
+        env.fund(XRP(1000), nobody);
+        env.close();
         auto nearDrop = [&](std::string const& ip, int misses) {
             auto c = env.app().getResourceManager().newInboundEndpoint(
                 beast::IP::Endpoint::from_string(ip));

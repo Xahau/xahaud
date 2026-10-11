@@ -125,7 +125,9 @@ validate(std::uint8_t const* data, std::size_t size)
     // The LAST well-formed </html>, so that one quoted inside a script
     // does not shadow the real one. Linear: each probe resumes one past
     // the previous match.
-    std::size_t closeEnd = size;
+    // closeEnd == 0 means none found: a well-formed </html> always ends
+    // past position 0.
+    std::size_t closeEnd = 0;
     for (std::size_t probe = open;;)
     {
         std::size_t const found = findFrom(data, size, probe, "</html");
@@ -138,7 +140,7 @@ validate(std::uint8_t const* data, std::size_t size)
             closeEnd = j + 1;
         probe = found + 1;
     }
-    if (closeEnd == size)
+    if (closeEnd == 0)
         return Result::unclosed;
 
     for (std::size_t i = closeEnd; i < size; ++i)
