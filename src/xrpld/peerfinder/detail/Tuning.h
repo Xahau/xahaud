@@ -131,6 +131,13 @@ std::chrono::seconds constexpr liveCacheSecondsToLive(30);
 // Note that we ignore the port for purposes of comparison.
 std::chrono::seconds constexpr recentAttemptDuration(60);
 
+// The most learned (non-fixed) UDP Superhighway endpoints we will track.
+std::size_t constexpr highwayPeersMax = 2000;
+
+// How long a learned UDP Superhighway endpoint is kept after it was last
+// learned from an authenticated source (endpoint gossip or a redirect).
+std::chrono::seconds constexpr highwayPeerSecondsToLive(500);
+
 }  // namespace Tuning
 /** @} */
 

@@ -1119,8 +1119,13 @@ void
 ServerHandler::onUDPMessage(
     std::string const& message,
     boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+    Port const& port,
     std::function<void(std::string const&)> sendResponse)
 {
+    // Datagrams arriving on the peer port belong to the UDP Superhighway
+    if (port.has_peer())
+        return app_.overlay().processXUSH(message, remoteEndpoint);
+
     Json::Value jv;
     if (message.size() > RPC::Tuning::maxRequestSize ||
         !Json::Reader{}.parse(message, jv) || !jv.isObject())
@@ -2255,6 +2260,12 @@ setup_ServerHandler(Config const& config, std::ostream&& log)
 {
     ServerHandler::Setup setup;
     setup.ports = parse_Ports(config, log);
+
+    if (config.UDP_HIGHWAY)
+    {
+        for (auto& port : setup.ports)
+            port.udp_highway = port.has_peer();
+    }
 
     setup_Client(setup);
     setup_Overlay(setup);
