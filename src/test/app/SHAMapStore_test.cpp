@@ -1273,6 +1273,28 @@ public:
         expected.insert(range(first, last));
         BEAST_EXPECT(
             env.app().getLedgerMaster().getPinnedLedgersRangeSet() == expected);
+
+        // A missing tail longer than the trim limit (65536 ledgers) is not
+        // an interrupted load: it means the wrong pinned store, so startup
+        // still refuses.
+        try
+        {
+            SHAMapStoreImp restoreCheck(env.app(), scheduler, journal);
+
+            RangeSet<std::uint32_t> recorded;
+            recorded.insert(range(first, last + 70000));
+            restoreCheck.setPinnedRanges(recorded);
+
+            restoreCheck.start();
+            restoreCheck.stop();
+            fail("Expected startup failure for an over-long missing tail");
+        }
+        catch (std::runtime_error const& e)
+        {
+            BEAST_EXPECT(
+                std::string(e.what()).find("Persisted pinned interval") !=
+                std::string::npos);
+        }
     }
 
     // Helper: compare two RangeSet<uint32_t> for set-equality. The
