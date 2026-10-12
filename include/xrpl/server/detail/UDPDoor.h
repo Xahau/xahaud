@@ -93,13 +93,18 @@ public:
         {
             JLOG(j_.error())
                 << "UDP set reuse_address failed: " << ec.message();
+            close();
             return;
         }
 
         socket_.bind(udp_endpoint, ec);
         if (ec)
         {
-            JLOG(j_.error()) << "UDP socket bind failed: " << ec.message();
+            // Close the socket so that run() does not start receiving on an
+            // unbound socket, which would silently bind an ephemeral port.
+            JLOG(j_.error()) << "UDP socket bind to " << udp_endpoint
+                             << " failed: " << ec.message();
+            close();
             return;
         }
 

@@ -503,7 +503,19 @@ OverlayImpl::start()
     m_peerFinder->start();
 
     if (app_.config().UDP_HIGHWAY)
+    {
         openXUSH();
+
+        // A private server only exchanges highway traffic with its fixed
+        // peers, so without any the highway is enabled but idle.
+        if (config.peerPrivate && app_.config().IPS_FIXED.empty())
+        {
+            JLOG(journal_.warn())
+                << "XUSH: [udp_highway] is enabled, but this server is "
+                   "private (peer_private or validator) and has no "
+                   "[ips_fixed] peers, so no highway traffic will be sent";
+        }
+    }
 
     auto addIps = [this](std::vector<std::string> ips, bool fixed) {
         beast::Journal const& j = app_.journal("Overlay");
@@ -1531,6 +1543,19 @@ checkXUSHTransaction(
         {
             app.getHashRouter().setFlags(txID, SF_BAD);
             usage.charge(Resource::feeUselessData, "XUSH expired tx");
+            return;
+        }
+
+        // A manifest-authorized SetManifest's Fee follows the voted base fee,
+        // so a miss may be a fee setting this server has not reached yet.
+        // Every ingress path runs this before checkValidity(). Drop it, but
+        // do not mark it bad: the same bytes can become canonical here.
+        if (auto const [fee, feeReason] = checkManifestIngressFee(app, *stx);
+            fee == ManifestIngressFee::Refused)
+        {
+            JLOG(j.trace()) << "XUSH: dropping manifest-authorized tx " << txID
+                            << ": " << feeReason;
+            usage.charge(Resource::feeUselessData, "XUSH manifest fee miss");
             return;
         }
 
