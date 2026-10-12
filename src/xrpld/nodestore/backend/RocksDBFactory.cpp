@@ -383,21 +383,33 @@ public:
     void
     sync() override
     {
-        // Drain anything queued through store() into RocksDB, then flush
-        // and fsync the WAL so every write so far survives a crash.
-        m_batch.waitForWriting();
-        if (!m_db)
-            return;
-        auto const ret = m_db->FlushWAL(/*sync=*/true);
-        if (!ret.ok())
-            Throw<std::runtime_error>("sync failed: " + ret.ToString());
+        (void)syncDurable();
     }
 
     bool
     syncDurable() override
     {
-        sync();
-        return true;
+        // Drain anything queued through store() into RocksDB, then flush
+        // and fsync the WAL so every write so far survives a crash.
+        m_batch.waitForWriting();
+        if (!m_db)
+            return false;
+
+        auto const ret = m_db->FlushWAL(/*sync=*/true);
+        if (ret.ok())
+            return true;
+
+        // Some user-supplied options (e.g. allow_mmap_writes) make WAL sync
+        // unavailable. Report "not durable on demand" rather than failing:
+        // callers then fall back to the non-durable checkpoint path.
+        if (ret.IsNotSupported())
+        {
+            JLOG(m_journal.warn())
+                << "RocksDB cannot sync its WAL on demand: " << ret.ToString();
+            return false;
+        }
+
+        Throw<std::runtime_error>("sync failed: " + ret.ToString());
     }
 
     void

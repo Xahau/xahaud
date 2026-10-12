@@ -56,6 +56,7 @@
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <boost/iostreams/concepts.hpp>
@@ -999,8 +1000,9 @@ private:
 // Makes the pinned set durable in state.db, but only as far as the pinned
 // backend has made the corresponding nodes durable. A backend that can sync
 // on demand (RocksDB) is synced and the current set recorded; one that can't
-// (NuDB) records the previous checkpoint's set, which is at least one
-// interval old.
+// (NuDB) records an earlier snapshot of the set, and only once that snapshot
+// is at least nonDurableCommitGrace old, so the backend's own commit cycle
+// has had time to cover it.
 class PinnedRangeCheckpointer
 {
     using clock = std::chrono::steady_clock;
@@ -1015,21 +1017,32 @@ public:
     onLedgerSaved()
     {
         ++saved_;
+        auto const now = clock::now();
         if (++sinceLast_ < loadCheckpointLedgers &&
-            clock::now() - last_ < loadCheckpointInterval)
+            now - last_ < loadCheckpointInterval)
             return;
+        sinceLast_ = 0;
+        last_ = now;
 
         auto current = app_.getLedgerMaster().getPinnedLedgersRangeSet();
         if (db_.syncPinned())
-            persist(current);
-        else
         {
-            if (previous_)
-                persist(*previous_);
-            previous_ = std::move(current);
+            persist(current);
+            return;
         }
-        sinceLast_ = 0;
-        last_ = clock::now();
+
+        // Not durable on demand. A checkpoint can come only
+        // loadCheckpointLedgers after the last one, which on a fast load is
+        // well inside one commit cycle, so the previous snapshot is not
+        // necessarily committed yet: record it only once it is old enough,
+        // and keep it (rather than replacing it) until then.
+        if (previous_ && now - previous_->second >= nonDurableCommitGrace)
+        {
+            persist(previous_->first);
+            previous_.reset();
+        }
+        if (!previous_)
+            previous_.emplace(std::move(current), now);
     }
 
     /** Record everything pinned so far. On shutdown the backend is closed
@@ -1039,7 +1052,9 @@ public:
     {
         if (saved_ == 0)
             return;
-        if (!db_.syncPinned() && !stopping)
+        // Never sync while stopping: once the job queue stops, BatchWriter
+        // tasks are no longer scheduled and a sync would wait forever.
+        if (!stopping && !db_.syncPinned())
             std::this_thread::sleep_for(nonDurableCommitGrace);
         persist(app_.getLedgerMaster().getPinnedLedgersRangeSet());
     }
@@ -1053,7 +1068,8 @@ private:
 
     Application& app_;
     NodeStore::DatabasePinnedImp& db_;
-    std::optional<RangeSet<std::uint32_t>> previous_;
+    std::optional<std::pair<RangeSet<std::uint32_t>, clock::time_point>>
+        previous_;
     std::uint32_t saved_ = 0;
     std::uint32_t sinceLast_ = 0;
     clock::time_point last_;
@@ -1363,25 +1379,34 @@ doCatalogueLoad(RPC::JsonContext& context)
     // Pinned in memory by storeLedger but not yet saved; unpinned on failure.
     std::optional<std::uint32_t> pendingPin;
 
-    // Undo this run's pins (used when the file fails its checksum).
-    auto rollback = [&]() {
+    // Undo this run's pins from `first` on: all of them when the file fails
+    // its checksum, the unauthenticated tail when it contradicts trusted
+    // history. Ledgers pinned before this run are left alone.
+    auto rollback = [&](std::uint32_t first, char const* why) {
         if (ledgersLoaded == 0)
             return;
+        auto const last = header.min_ledger + ledgersLoaded - 1;
+        if (first > last)
+            return;
         RangeSet<std::uint32_t> loaded;
-        loaded.insert(
-            range(header.min_ledger, header.min_ledger + ledgersLoaded - 1));
+        loaded.insert(range(first, last));
         auto const unpin = loaded - pinnedBefore;
         if (unpin.empty())
             return;
         ledgerMaster.unpinLedgers(unpin, unpin - completeBefore);
         app.getSHAMapStore().setPinnedRanges(
             ledgerMaster.getPinnedLedgersRangeSet());
-        JLOG(j.warn()) << "Catalogue failed its checksum; unpinned "
+        JLOG(j.warn()) << "Catalogue " << why << "; unpinned "
                        << to_string(unpin) << " loaded by this run";
     };
 
-    // Every exit once loading has started goes through here.
+    // Every exit once loading has started goes through here, exactly once:
+    // if it throws inside the try below, the catch must not settle the hash
+    // (finalizing the hasher twice) or roll back a second time.
+    bool concluded = false;
     auto conclude = [&](Json::Value result) -> Json::Value {
+        if (std::exchange(concluded, true))
+            return result;
         if (pendingPin)
         {
             ledgerMaster.unpinLedger(*pendingPin);
@@ -1394,12 +1419,24 @@ doCatalogueLoad(RPC::JsonContext& context)
         }
         if (!fileHashMatches())
         {
-            rollback();
+            rollback(header.min_ledger, "failed its checksum");
             return rpcError(
                 rpcINVALID_PARAMS, "catalogue hash verification failed");
         }
         checkpointer.finish(false);
         return result;
+    };
+
+    // The file contradicts history this server already trusts. Ledgers up to
+    // anchoredThrough matched it, and so did all their ancestors in the file
+    // (by parent hash); everything this run pinned after that is not
+    // authenticated and now known to sit on a divergent chain, so unpin it.
+    auto untrusted = [&](std::string const& message) -> Json::Value {
+        batch.discard();
+        rollback(
+            anchoredThrough ? *anchoredThrough + 1 : header.min_ledger,
+            "does not match trusted history");
+        return conclude(rpcError(rpcINVALID_PARAMS, message));
     };
 
     try
@@ -1586,12 +1623,10 @@ doCatalogueLoad(RPC::JsonContext& context)
             if (localHashOfMax && info.seq == header.max_ledger &&
                 info.hash != *localHashOfMax)
             {
-                batch.discard();
-                return conclude(rpcError(
-                    rpcINVALID_PARAMS,
+                return untrusted(
                     "Catalogue ledger " + std::to_string(info.seq) +
-                        " is not the parent of local ledger " +
-                        std::to_string(info.seq + 1) + "."));
+                    " is not the parent of local ledger " +
+                    std::to_string(info.seq + 1) + ".");
             }
 
             if (anchor && info.seq <= anchor->info().seq &&
@@ -1602,12 +1637,9 @@ doCatalogueLoad(RPC::JsonContext& context)
                 {
                     if (*h != info.hash)
                     {
-                        batch.discard();
-                        return conclude(rpcError(
-                            rpcINVALID_PARAMS,
+                        return untrusted(
                             "Catalogue ledger " + std::to_string(info.seq) +
-                                " does not match validated network "
-                                "history."));
+                            " does not match validated network history.");
                     }
                     anchoredThrough = info.seq;
                 }
@@ -1758,10 +1790,11 @@ Json::Value
 doCatalogueUnpin(RPC::JsonContext& context)
 {
     // Held throughout: catalogue_load extends and checkpoints the pinned set,
-    // so an unpin must not interleave with it.
-    std::unique_lock<std::shared_mutex> lock(
-        catalogueStatusMutex, std::try_to_lock);
-    if (!lock.owns_lock() || catalogueRunStatus.isRunning)
+    // so an unpin must not interleave with it. Other holders of this lock
+    // (status reads and updates) hold it only briefly, so block for it
+    // rather than refusing; isRunning is what excludes a running job.
+    std::unique_lock<std::shared_mutex> lock(catalogueStatusMutex);
+    if (catalogueRunStatus.isRunning)
         return rpcError(
             rpcTOO_BUSY,
             "a catalogue operation is in progress; retry when it completes");

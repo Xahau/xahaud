@@ -33,9 +33,11 @@
 #include <xrpl/protocol/jss.h>
 #include <boost/filesystem.hpp>
 
+#include <chrono>
 #include <exception>
 #include <limits>
 #include <string>
+#include <thread>
 
 namespace ripple {
 namespace test {
@@ -89,6 +91,27 @@ class SHAMapStore_test : public beast::unit_test::suite
         section.set("type", "rwdb");
         section.set("path", nodePath);
         section.set("pinned_type", "nudb");
+        section.set("pinned_path", pinnedPath);
+        return cfg;
+    }
+
+    // Online delete with DatabasePinned over in-memory backends. Unlike
+    // pinnedPersistent, the hot store keeps nodes (type=rwdb is the null
+    // node store), so ledgers closed in the test can be fetched. There is
+    // no database_path, so every SHAMapStoreImp opens its own private
+    // state.db: a second instance built by a test does not see (or trip
+    // over) the rotation state of the Env's own.
+    static auto
+    pinnedInMemory(
+        std::unique_ptr<Config> cfg,
+        std::string const& nodePath,
+        std::string const& pinnedPath)
+    {
+        cfg = onlineDelete(std::move(cfg));
+        auto& section = cfg->section(ConfigSection::nodeDatabase());
+        section.set("type", "memory");
+        section.set("path", nodePath);
+        section.set("pinned_type", "memory");
         section.set("pinned_path", pinnedPath);
         return cfg;
     }
@@ -1153,6 +1176,105 @@ public:
         }
     }
 
+    // catalogue_unpin of everything (or a rolled-back first load) leaves the
+    // pinned set empty. That must persist as "no pins", not as a string that
+    // fails to parse on the next start.
+    void
+    testPinnedRangeRestoreEmpty()
+    {
+        testcase("pinned range restore of an empty set");
+
+        using namespace jtx;
+
+        beast::temp_dir tempDir;
+        auto const tempPath = boost::filesystem::path(tempDir.path());
+        auto const nodePath = (tempPath / "node").string();
+        auto const pinnedPath = (tempPath / "pinned").string();
+
+        Env env(*this, envconfig(pinnedInMemory, nodePath, pinnedPath));
+
+        NodeStoreScheduler scheduler(env.app().getJobQueue());
+        auto const journal = env.app().journal("SHAMapStoreTest");
+        try
+        {
+            SHAMapStoreImp restoreCheck(env.app(), scheduler, journal);
+
+            RangeSet<std::uint32_t> ranges;
+            ranges.insert(range(100u, 200u));
+            restoreCheck.setPinnedRanges(ranges);
+            restoreCheck.setPinnedRanges(RangeSet<std::uint32_t>{});
+
+            restoreCheck.start();
+            restoreCheck.stop();
+            pass();
+        }
+        catch (std::exception const& e)
+        {
+            fail(
+                std::string("restart with no pinned ranges threw: ") +
+                e.what());
+        }
+        BEAST_EXPECT(
+            env.app().getLedgerMaster().getPinnedLedgersRangeSet().empty());
+    }
+
+    // A crash between a pinned-range checkpoint and the backend committing
+    // the last ledgers leaves the recorded interval's tail missing. Startup
+    // trims it back to the last ledger present instead of refusing to start.
+    void
+    testPinnedRangeRestoreTrimsMissingTail()
+    {
+        testcase("pinned range restore trims a missing tail");
+
+        using namespace jtx;
+
+        beast::temp_dir tempDir;
+        auto const tempPath = boost::filesystem::path(tempDir.path());
+        auto const nodePath = (tempPath / "node").string();
+        auto const pinnedPath = (tempPath / "pinned").string();
+
+        Env env(*this, envconfig(pinnedInMemory, nodePath, pinnedPath));
+        for (int i = 0; i < 4; ++i)
+            env.close();
+
+        auto& rdb = env.app().getRelationalDatabase();
+        auto const last = env.app().getLedgerMaster().getValidLedgerIndex();
+        auto const first = last - 2;
+
+        // Ledger saves may complete asynchronously; wait for the SQL rows.
+        for (int i = 0; i < 100 && rdb.getHashByIndex(last).isZero(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (!BEAST_EXPECT(
+                rdb.getHashByIndex(first).isNonZero() &&
+                rdb.getHashByIndex(last).isNonZero()))
+            return;
+
+        NodeStoreScheduler scheduler(env.app().getJobQueue());
+        auto const journal = env.app().journal("SHAMapStoreTest");
+        try
+        {
+            SHAMapStoreImp restoreCheck(env.app(), scheduler, journal);
+
+            // Recorded through last + 10, but only [first, last] exist.
+            RangeSet<std::uint32_t> recorded;
+            recorded.insert(range(first, last + 10));
+            restoreCheck.setPinnedRanges(recorded);
+
+            restoreCheck.start();
+            restoreCheck.stop();
+        }
+        catch (std::exception const& e)
+        {
+            fail(std::string("restart with a missing tail threw: ") + e.what());
+            return;
+        }
+
+        RangeSet<std::uint32_t> expected;
+        expected.insert(range(first, last));
+        BEAST_EXPECT(
+            env.app().getLedgerMaster().getPinnedLedgersRangeSet() == expected);
+    }
+
     // Helper: compare two RangeSet<uint32_t> for set-equality. The
     // test cares about which sequences are in the result, not the
     // particular interval representation.
@@ -1302,6 +1424,8 @@ public:
         testNullFactoryDropsWrites();
         testRotate();
         testPinnedRangeRestoreRequiresPinnedData();
+        testPinnedRangeRestoreEmpty();
+        testPinnedRangeRestoreTrimsMissingTail();
     }
 };
 

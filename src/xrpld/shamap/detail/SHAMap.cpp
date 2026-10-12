@@ -1060,6 +1060,42 @@ SHAMap::updateGiveItem(
 }
 
 bool
+SHAMap::upsertGiveItem(
+    SHAMapNodeType type,
+    boost::intrusive_ptr<SHAMapItem const> item)
+{
+    XRPL_ASSERT(
+        state_ != SHAMapState::Immutable,
+        "ripple::SHAMap::upsertGiveItem : not immutable");
+
+    uint256 const tag = item->key();
+
+    SharedPtrNodeStack stack;
+    auto const leaf = walkTowardsKey(tag, &stack);
+
+    if (!leaf || leaf->peekItem()->key() != tag)
+        return addGiveItem(type, std::move(item));
+
+    // From here this mirrors updateGiveItem, reusing the walk above.
+    auto node = std::static_pointer_cast<SHAMapLeafNode>(stack.top().first);
+    auto const nodeID = stack.top().second;
+    stack.pop();
+
+    if (node->getType() != type)
+    {
+        JLOG(journal_.fatal()) << "SHAMap::upsertGiveItem: cross-type change!";
+        return false;
+    }
+
+    node = unshareNode(std::move(node), nodeID);
+
+    if (node->setItem(std::move(item)))
+        dirtyUp(stack, tag, node);
+
+    return true;
+}
+
+bool
 SHAMap::fetchRoot(SHAMapHash const& hash, SHAMapSyncFilter* filter)
 {
     if (hash == root_->getHash())
@@ -1107,42 +1143,6 @@ SHAMap::fetchRoot(SHAMapHash const& hash, SHAMapSyncFilter* filter)
     @note The node must have already been unshared by having the caller
           first call SHAMapTreeNode::unshare().
  */
-bool
-SHAMap::upsertGiveItem(
-    SHAMapNodeType type,
-    boost::intrusive_ptr<SHAMapItem const> item)
-{
-    XRPL_ASSERT(
-        state_ != SHAMapState::Immutable,
-        "ripple::SHAMap::upsertGiveItem : not immutable");
-
-    uint256 const tag = item->key();
-
-    SharedPtrNodeStack stack;
-    auto const leaf = walkTowardsKey(tag, &stack);
-
-    if (!leaf || leaf->peekItem()->key() != tag)
-        return addGiveItem(type, std::move(item));
-
-    // From here this mirrors updateGiveItem, reusing the walk above.
-    auto node = std::static_pointer_cast<SHAMapLeafNode>(stack.top().first);
-    auto const nodeID = stack.top().second;
-    stack.pop();
-
-    if (node->getType() != type)
-    {
-        JLOG(journal_.fatal()) << "SHAMap::upsertGiveItem: cross-type change!";
-        return false;
-    }
-
-    node = unshareNode(std::move(node), nodeID);
-
-    if (node->setItem(std::move(item)))
-        dirtyUp(stack, tag, node);
-
-    return true;
-}
-
 std::shared_ptr<SHAMapTreeNode>
 SHAMap::writeNode(
     NodeObjectType t,

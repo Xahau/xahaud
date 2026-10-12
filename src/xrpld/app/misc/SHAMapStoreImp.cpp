@@ -381,7 +381,9 @@ void
 SHAMapStoreImp::loadPinnedRanges()
 {
     auto rangesStr = state_db_.getPinnedRanges();
-    if (rangesStr.empty())
+    // "empty" is what to_string() renders for an empty set; accept it in
+    // case it was stored before setPinnedRanges() learned to write "".
+    if (rangesStr.empty() || rangesStr == "empty")
         return;
 
     auto const& nscfg = app_.config().section(ConfigSection::nodeDatabase());

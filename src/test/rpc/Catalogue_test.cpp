@@ -105,14 +105,28 @@ struct CatalogueEnvOpts
 };
 
 // envconfig with pinned_type set so catalogue_load passes the config guard.
-// Uses rwdb for in-process speed (allowed in standalone).
+//
+// envconfig() selects [node_db] type=rwdb, which is the tree-only null node
+// store: SHAMapStore never builds DatabasePinned on it, so catalogue_load
+// would refuse to run. Use the in-memory "memory" store for the hot side
+// instead. It is shared by path within the process, so each config gets its
+// own path (SHAMapStore creates the directory; nothing is written to it).
+// The pinned side uses rwdb, an in-memory persistent backend.
 inline std::unique_ptr<Config>
 catalogueEnvconfig(CatalogueEnvOpts const& opts = {})
 {
     auto cfg = test::jtx::envconfig();
     auto& nodeDb = cfg->section(ConfigSection::nodeDatabase());
     if (opts.withPinnedType)
+    {
+        nodeDb.set("type", "memory");
+        nodeDb.set(
+            "path",
+            (boost::filesystem::temp_directory_path() /
+             boost::filesystem::unique_path("catalogue-test-%%%%-%%%%-%%%%"))
+                .string());
         nodeDb.set("pinned_type", "rwdb");
+    }
     nodeDb.set("online_delete", opts.onlineDelete);
     return cfg;
 }
@@ -1294,6 +1308,17 @@ public:
             BEAST_EXPECT(result[jss::status] == jss::success);
             BEAST_EXPECT(result[jss::unpinned] == "empty");
             BEAST_EXPECT(result[jss::complete_ledgers_pinned] == "7-8");
+        }
+
+        // Unpinning the rest leaves nothing pinned. (state.db then records
+        // an empty set, which must not stop the next start; see
+        // SHAMapStore_test.)
+        {
+            auto const result = unpin(1, 100);
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result[jss::unpinned] == "7-8");
+            BEAST_EXPECT(result[jss::complete_ledgers_pinned] == "empty");
+            BEAST_EXPECT(lm.getPinnedLedgersRangeSet().empty());
         }
 
         // Re-loading the file pins it again
