@@ -2998,6 +2998,50 @@ static RPCCallTestData const rpcCallTestArray[] = {
      RPCCallTestData::bad_cast,
      R"()"},
 
+    // hook_validate
+    // ------------------------------------------------------------------------
+    {"hook_validate: minimal.",
+     __LINE__,
+     {"hook_validate", "0061736D01000000"},
+     RPCCallTestData::no_exception,
+     R"({
+    "method" : "hook_validate",
+    "params" : [
+      {
+         "api_version" : %API_VER%,
+         "code" : "0061736D01000000"
+      }
+    ]
+    })"},
+    {"hook_validate: too few arguments.",
+     __LINE__,
+     {"hook_validate"},
+     RPCCallTestData::no_exception,
+     R"({
+    "method" : "hook_validate",
+    "params" : [
+      {
+         "error" : "badSyntax",
+         "error_code" : 1,
+         "error_message" : "Syntax error."
+      }
+    ]
+    })"},
+    {"hook_validate: too many arguments.",
+     __LINE__,
+     {"hook_validate", "00", "00"},
+     RPCCallTestData::no_exception,
+     R"({
+    "method" : "hook_validate",
+    "params" : [
+      {
+         "error" : "badSyntax",
+         "error_code" : 1,
+         "error_message" : "Syntax error."
+      }
+    ]
+    })"},
+
     // json
     // ------------------------------------------------------------------------
     {"json: minimal.",

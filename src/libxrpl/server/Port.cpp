@@ -21,7 +21,10 @@
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/server/Port.h>
+#include <boost/algorithm/string/case_conv.hpp>
+#include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <boost/algorithm/string/split.hpp>
 #include <boost/algorithm/string/trim.hpp>
 #include <sstream>
 #include <stdexcept>
@@ -64,6 +67,14 @@ operator<<(std::ostream& os, Port const& p)
             os << net.to_string();
             os << ", ";
         }
+    }
+
+    if (!p.pwa_domains.empty())
+    {
+        os << "domains:";
+        for (auto const& d : p.pwa_domains)
+            os << " " << d;
+        os << ", ";
     }
 
     if (p.secure_gateway_nets_v4.size() || p.secure_gateway_nets_v6.size())
@@ -310,6 +321,64 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
         log,
         port.secure_gateway_nets_v4,
         port.secure_gateway_nets_v6);
+
+    // pwa ports: the zone(s) documents are served under, normalised like a
+    // Host header: lower case, no trailing dot, LDH labels of 1..63, with
+    // room left for the longest "pwa<AccountIndex>" label in front.
+    if (auto const optResult = section.get("domain"))
+    {
+        std::vector<std::string> domains;
+        boost::algorithm::split(
+            domains, *optResult, boost::algorithm::is_any_of(","));
+        for (auto& domain : domains)
+        {
+            boost::algorithm::trim(domain);
+            boost::algorithm::to_lower(domain);
+            if (!domain.empty() && domain.back() == '.')
+                domain.pop_back();
+            if (domain.empty())
+                continue;
+            bool valid = domain.size() + 24 <= 253;
+            std::vector<std::string> labels;
+            boost::algorithm::split(
+                labels, domain, boost::algorithm::is_any_of("."));
+            for (auto const& l : labels)
+                valid = valid && !l.empty() && l.size() <= 63 &&
+                    l.front() != '-' && l.back() != '-' &&
+                    l.find_first_not_of(
+                        "abcdefghijklmnopqrstuvwxyz0123456789-") ==
+                        std::string::npos;
+            if (!valid)
+            {
+                log << "Invalid value '" << domain << "' for key 'domain' in ["
+                    << section.name()
+                    << "]: expected a DNS zone such as pwapp.example";
+                Throw<std::exception>();
+            }
+            port.pwa_domains.insert(domain);
+        }
+    }
+
+    // Custom domains on pwa ports, and the IPv4 recursive resolver to use for
+    // their TXT records (default: the system resolver).
+    if (auto const v = section.get("custom_domains"))
+        if (!beast::lexicalCastChecked(port.pwa_custom_domains, *v))
+        {
+            log << "Invalid value '" << *v << "' for key 'custom_domains' in ["
+                << section.name() << "]: expected 0 or 1";
+            Throw<std::exception>();
+        }
+    if (auto const v = section.get("resolver"))
+    {
+        auto const ep = beast::IP::Endpoint::from_string_checked(*v);
+        if (!ep || !ep->is_v4() || ep->address().is_unspecified())
+        {
+            log << "Invalid value '" << *v << "' for key 'resolver' in ["
+                << section.name() << "]: expected an IPv4 address[:port]";
+            Throw<std::exception>();
+        }
+        port.pwa_resolver = ep->port() ? *ep : ep->at_port(53);
+    }
 
     set(port.user, "user", section);
     set(port.password, "password", section);
