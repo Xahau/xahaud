@@ -191,8 +191,17 @@ public:
     int RELAY_UNTRUSTED_VALIDATIONS = 1;
     int RELAY_UNTRUSTED_PROPOSALS = 0;
 
+    // While acquiring the first ledger, fetch and read the on-ledger manifests
+    // ahead of the rest of its state. See [early_manifest_sync].
+    bool EARLY_MANIFEST_SYNC = true;
+
     // True to ask peers not to relay current IP.
     bool PEER_PRIVATE = false;
+
+    // True to enable the Xahau UDP Superhighway (XUSH): a best-effort UDP
+    // transport on the peer port used to fan transactions out to other
+    // highway-enabled servers in addition to the normal peer relay.
+    bool UDP_HIGHWAY = false;
     // peers_max is a legacy configuration, which is going to be replaced
     // with individual inbound peers peers_in_max and outbound peers
     // peers_out_max configuration. for now we support both the legacy and
@@ -308,6 +317,9 @@ public:
 
     // Enable the beta API version
     bool BETA_RPC_API = false;
+
+    // Enable the hook_validate RPC (defaults to true in standalone mode).
+    bool HOOK_VALIDATE_RPC = false;
 
     // First, attempt to load the latest ledger directly from disk.
     bool FAST_LOAD = false;

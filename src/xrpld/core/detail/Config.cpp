@@ -533,6 +533,9 @@ Config::loadFromString(std::string const& fileContents)
     if (getSingleSection(secConfig, SECTION_PEER_PRIVATE, strTemp, j_))
         PEER_PRIVATE = beast::lexicalCastThrow<bool>(strTemp);
 
+    if (getSingleSection(secConfig, SECTION_UDP_HIGHWAY, strTemp, j_))
+        UDP_HIGHWAY = beast::lexicalCastThrow<bool>(strTemp);
+
     if (getSingleSection(secConfig, SECTION_PEERS_MAX, strTemp, j_))
     {
         PEERS_MAX = beast::lexicalCastThrow<std::size_t>(strTemp);
@@ -616,6 +619,9 @@ Config::loadFromString(std::string const& fileContents)
                 "Invalid value specified in [" SECTION_RELAY_VALIDATIONS
                 "] section");
     }
+
+    if (getSingleSection(secConfig, SECTION_EARLY_MANIFEST_SYNC, strTemp, j_))
+        EARLY_MANIFEST_SYNC = beast::lexicalCastThrow<bool>(strTemp);
 
     if (getSingleSection(secConfig, SECTION_RELAY_PROPOSALS, strTemp, j_))
     {
@@ -848,6 +854,12 @@ Config::loadFromString(std::string const& fileContents)
 
     if (getSingleSection(secConfig, SECTION_BETA_RPC_API, strTemp, j_))
         BETA_RPC_API = beast::lexicalCastThrow<bool>(strTemp);
+
+    // hook_validate RPC is opt-in on networked nodes, but on by default in
+    // standalone mode for local hook development.
+    HOOK_VALIDATE_RPC = RUN_STANDALONE;
+    if (getSingleSection(secConfig, SECTION_HOOK_VALIDATE_RPC, strTemp, j_))
+        HOOK_VALIDATE_RPC = beast::lexicalCastThrow<bool>(strTemp);
 
     // Do not load trusted validator configuration for standalone mode
     do

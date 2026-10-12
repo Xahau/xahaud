@@ -75,6 +75,8 @@ doGetCounts(RPC::JsonContext&);
 Json::Value
 doGetAggregatePrice(RPC::JsonContext&);
 Json::Value
+doHookValidate(RPC::JsonContext&);
+Json::Value
 doLedgerAccept(RPC::JsonContext&);
 Json::Value
 doLedgerCleaner(RPC::JsonContext&);
@@ -112,6 +114,10 @@ Json::Value
 doPeers(RPC::JsonContext&);
 Json::Value
 doPing(RPC::JsonContext&);
+Json::Value
+doPWAInfo(RPC::JsonContext&);
+Json::Value
+doPWAValidate(RPC::JsonContext&);
 Json::Value
 doPrint(RPC::JsonContext&);
 Json::Value

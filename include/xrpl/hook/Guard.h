@@ -1096,7 +1096,11 @@ validateGuards(
             {
                 int name_len = parseLeb128(wasm, i, &i);
                 CHECK_SHORT_HOOK();
-                if (name_len == 4)
+                // Only compare the name if all four bytes are in bounds. A
+                // name running past the end is rejected as a short hook below
+                // either way, so this does not change which hooks are valid.
+                if (name_len == 4 &&
+                    static_cast<std::size_t>(i) + 4 <= wasm.size())
                 {
                     if (wasm[i] == 'h' && wasm[i + 1] == 'o' &&
                         wasm[i + 2] == 'o' && wasm[i + 3] == 'k')

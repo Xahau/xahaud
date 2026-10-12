@@ -15,6 +15,7 @@
 #define uint256 std::string
 #define featureHooksUpdate1 "1"
 #define featureHooksUpdate2 "1"
+#define featureRNG "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
 namespace hook_api {
@@ -385,7 +386,9 @@ enum class hook_return_code : int64_t {
     MEM_OVERLAP = -43,   // one or more specified buffers are the same memory
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 256 modified state
                                          // entires in the combined hook chains
-    TOO_MANY_NAMESPACES = -45
+    TOO_MANY_NAMESPACES = -45,
+    TOO_LITTLE_ENTROPY = -46  // featureRNG: no seed for this ledger, or too few
+                              // validators contributed to it
 };
 
 enum class ExitType : uint8_t {
@@ -398,6 +401,7 @@ enum class ExitType : uint8_t {
 const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
 const uint8_t max_nonce = 255;
+const uint16_t max_rng_draws = 256;  // featureRNG, per Hook execution
 const uint8_t max_emit = 255;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;

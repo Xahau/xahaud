@@ -696,6 +696,44 @@ SHAMap::peekNextItem(uint256 const& id, SharedPtrNodeStack& stack) const
     return nullptr;
 }
 
+boost::intrusive_ptr<SHAMapItem const>
+SHAMap::peekItemPartial(
+    uint256 const& id,
+    std::optional<std::pair<SHAMapNodeID, uint256>>& missing) const
+{
+    missing.reset();
+
+    // Raw pointers, as in getMissingNodes(): every node visited is held by its
+    // parent, and the root by the map, for as long as the map lives.
+    SHAMapTreeNode* node = root_.get();
+    SHAMapNodeID nodeID;
+
+    while (node->isInner())
+    {
+        auto const inner = static_cast<SHAMapInnerNode*>(node);
+        auto const branch = selectBranch(nodeID, id);
+        if (inner->isEmptyBranch(branch))
+            return {};
+
+        auto const child = descend(inner, branch);
+        auto const childID = nodeID.getChildNodeID(branch);
+        if (!child)
+        {
+            missing.emplace(childID, inner->getChildHash(branch).as_uint256());
+            return {};
+        }
+
+        node = child;
+        nodeID = childID;
+    }
+
+    auto const& item = static_cast<SHAMapLeafNode*>(node)->peekItem();
+    if (!item || item->key() != id)
+        return {};
+
+    return item;
+}
+
 boost::intrusive_ptr<SHAMapItem const> const&
 SHAMap::peekItem(uint256 const& id) const
 {
