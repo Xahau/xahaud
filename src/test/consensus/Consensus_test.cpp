@@ -1053,6 +1053,67 @@ public:
     }
 
     void
+    testForcedInclusion()
+    {
+        using namespace csf;
+        using namespace std::chrono;
+        testcase("forced inclusion");
+
+        // Transaction n * 1000 + k belongs to peer n - 1. Each one is placed
+        // only in a single peer's open set and never relayed, so without
+        // forced inclusion it has one vote in five and stays out.
+        auto const owner = [](Tx const& tx) -> std::optional<PeerID> {
+            if (tx.id() < 1000)
+                return std::nullopt;
+            return PeerID{tx.id() / 1000 - 1};
+        };
+
+        auto const run = [&](bool withHook) {
+            ConsensusParms const parms{};
+            Sim sim;
+            PeerGroup peers = sim.createGroup(5);
+            peers.trustAndConnect(
+                peers, round<milliseconds>(0.2 * parms.ledgerGRANULARITY));
+
+            for (Peer* p : peers)
+            {
+                if (withHook)
+                    p->txOwner = owner;
+
+                std::uint32_t const base =
+                    (static_cast<std::uint32_t>(p->id) + 1) * 1000;
+                p->openTxs.insert(Tx{base + 1});
+                if (p->id == PeerID{4})
+                {
+                    // more of its own than it may force
+                    p->openTxs.insert(Tx{base + 2});
+                    p->openTxs.insert(Tx{base + 3});
+                    // one that names another owner, who does not hold it
+                    p->openTxs.insert(Tx{1999});
+                }
+            }
+
+            sim.run(1);
+            BEAST_EXPECT(sim.synchronized());
+            return peers[0]->lastClosedLedger.txs();
+        };
+
+        {
+            auto const txs = run(false);
+            BEAST_EXPECT(txs.empty());
+        }
+
+        {
+            auto const txs = run(true);
+            // every owner's own transaction, and only the lowest of the
+            // several peer 4 put in its position
+            TxSetType const expected{
+                Tx{1001}, Tx{2001}, Tx{3001}, Tx{4001}, Tx{5001}};
+            BEAST_EXPECTS(txs == expected, to_string(txs));
+        }
+    }
+
+    void
     run() override
     {
         testShouldCloseLedger();
@@ -1068,6 +1129,7 @@ public:
         testHubNetwork();
         testPreferredByBranch();
         testPauseForLaggards();
+        testForcedInclusion();
     }
 };
 
