@@ -34,10 +34,12 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/RippleLedgerHash.h>
+#include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/STValidation.h>
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -90,6 +92,11 @@ class RCLConsensus
 
         RCLCensorshipDetector<TxID, LedgerIndex> censorshipDetector_;
         NegativeUNLVote nUnlVote_;
+
+        // featureRNG: the secret behind the commitment in our most recent
+        // entropy contribution, as {commitment, secret}. Only touched by
+        // onClose, which runs under the consensus lock.
+        std::optional<std::pair<uint256, uint256>> rngSecret_;
 
     public:
         using Ledger_t = RCLCxLedger;
@@ -182,7 +189,23 @@ class RCLConsensus
             return parms_;
         }
 
+        /** featureRNG: if tx is a validator's entropy contribution for the
+            ledger after prevLedger, the NodeID of that validator.
+
+            Consensus votes for such a transaction while it is in its owner's
+            own position during the opening window of the establish phase.
+        */
+        std::optional<NodeID>
+        forcedTxOwner(RCLCxTx const& tx, RCLCxLedger const& prevLedger) const;
+
     private:
+        /** featureRNG: build our entropy contribution for the ledger after
+            prevLedger, revealing our previous secret if the ledger holds its
+            commitment, and committing to a fresh one.
+        */
+        std::optional<STTx>
+        makeEntropyTx(std::shared_ptr<Ledger const> const& prevLedger);
+
         //---------------------------------------------------------------------
         // The following members implement the generic Consensus requirements
         // and are marked private to indicate ONLY Consensus<Adaptor> will call
