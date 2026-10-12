@@ -129,7 +129,11 @@ apply(
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     // result of apply() if this is weak exec
-    std::shared_ptr<STObject const> const& provisionalMeta);
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    // fix20261005: the original emitted transaction for a ttEMIT_FAILURE
+    // callback, captured before the cleanup pseudo removed its
+    // ltEMITTED_TXN entry. Ignored before the fix.
+    std::optional<ripple::STObject> const& emitFailureTxn = std::nullopt);
 
 struct HookContext;
 

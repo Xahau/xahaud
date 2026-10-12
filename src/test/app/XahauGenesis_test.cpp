@@ -4676,11 +4676,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // validate account fields
         STAmount const postUser = preUser + netReward;
         bool const has240819 = env.current()->rules().enabled(fix240819);
+        bool const has20261005 = env.current()->rules().enabled(fix20261005);
         BEAST_EXPECT(expectAccountFields(
             env,
             user,
             preLedger,
-            has240819 ? preLedger : preLedger + 1,
+            (has240819 && !has20261005) ? preLedger : preLedger + 1,
             has240819 ? (preUser - feesXRP) : postUser,
             preTime));
     }
@@ -5679,8 +5680,99 @@ struct XahauGenesis_test : public beast::unit_test::suite
     }
 
     void
+    test20261005(FeatureBitset features)
+    {
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test fix20261005");
+
+        bool const has240819 = features[fix240819];
+        bool const has20261005 = features[fix20261005];
+        bool const nofix = !(has240819 && has20261005);
+
+        Env env{
+            *this, makeNetworkConfig(21337), features - featureXahauGenesis};
+
+        STAmount const feesXRP = XRP(1);
+
+        Account const user = Account("user");
+        env.fund(XRP(200), user);
+        env.close();
+
+        // setup governance
+        Account const alice = Account("alice");
+        Account const bob = Account("bob");
+        Account const carol = Account("carol");
+        Account const david = Account("david");
+        Account const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        {
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env, alice, bob, carol, david, edward, 'R', 'D', vote_data);
+        }
+
+        BEAST_EXPECT(hasUNLReport(env) == false);
+
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        env(noop(user),
+            fee(env.balance(user) - drops(500'000)),
+            ter(tesSUCCESS));
+        env.close();
+        BEAST_EXPECT(env.balance(user) == drops(500'000));
+        BEAST_EXPECT(env.balance(user) < XRP(1));
+
+        std::uint32_t const drainMarker =
+            env.le(keylet::account(user))->getFieldU32(sfRewardLgrLast);
+
+        for (int i = 0; i < 20; ++i)
+            env.close(10s);
+
+        BEAST_EXPECT(env.balance(user) < XRP(1));
+
+        env(pay(alice, user, XRP(1000)));
+        env.close();
+
+        std::uint32_t const fundMarker =
+            env.le(keylet::account(user))->getFieldU32(sfRewardLgrLast);
+
+        bool const markerFrozen = has240819 && !has20261005;
+        if (markerFrozen)
+            BEAST_EXPECT(fundMarker == drainMarker);
+        else
+            BEAST_EXPECT(fundMarker > drainMarker);
+
+        STAmount const preUser = env.balance(user);
+
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        env.close();
+
+        STAmount const postUser = env.balance(user);
+
+        if (nofix)
+            BEAST_EXPECT(postUser > preUser + XRP(1));
+        else
+            BEAST_EXPECT(postUser < preUser + XRP(1));
+    }
+
+    void
     testRewardHookWithFeats(FeatureBitset features)
     {
+        test20261005(features);
         testLastCloseTime(features);
         testInvalidRate0(features);
         testInvalidRateGreater1(features);
@@ -5724,6 +5816,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testRewardHookWithFeats(sa);
         testRewardHookWithFeats(sa - fix240819);
         testRewardHookWithFeats(sa - fix240819 - fix240911);
+        testRewardHookWithFeats(sa - fix20261005);
     }
 };
 

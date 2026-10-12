@@ -1541,6 +1541,21 @@ Transactor::doHookCallback(
     if (!emitDetails.isFieldPresent(sfEmitCallback))
         return;
 
+    bool const isEmitFailure = ctx_.tx.getTxnType() == ttEMIT_FAILURE;
+
+    // fix20261005: an emit failure callback is only meaningful with the
+    // original emitted transaction. If it wasn't in the ledger when this
+    // pseudo was applied there is nothing to report on, so skip rather than
+    // read the (already removed) entry.
+    if (isEmitFailure && view().rules().enabled(fix20261005) &&
+        !emitFailureTxn_)
+    {
+        JLOG(j_.warn()) << "HookError["
+                        << ctx_.tx.getFieldH256(sfTransactionHash)
+                        << "]: emitted txn missing on emit failure callback";
+        return;
+    }
+
     AccountID const& callbackAccountID =
         emitDetails.getAccountID(sfEmitCallback);
     uint256 const& callbackHookHash = emitDetails.getFieldH256(sfEmitHookHash);
@@ -1624,9 +1639,10 @@ Transactor::doHookCallback(
                 true,
                 true,
                 false,
-                ctx_.tx.getTxnType() == ttEMIT_FAILURE ? 1UL : 0UL,
+                isEmitFailure ? 1UL : 0UL,
                 hook_no - 1,
-                provisionalMeta);
+                provisionalMeta,
+                emitFailureTxn_);
 
             executedHookCount_++;
 
@@ -2089,6 +2105,24 @@ Transactor::operator()()
         }
     }
 
+    // fix20261005: a ttEMIT_FAILURE erases the expired ltEMITTED_TXN entry in
+    // doApply, but the Hook callback that runs afterwards (finishApply ->
+    // doHookCallback) needs the original emitted transaction. Capture it
+    // before base application mutates the view.
+    if (hooksEnabled && isTesSuccess(result) &&
+        ctx_.tx.getTxnType() == ttEMIT_FAILURE &&
+        view().rules().enabled(fix20261005))
+    {
+        if (auto const sle = view().read(
+                keylet::emittedTxn(ctx_.tx.getFieldH256(sfTransactionHash)));
+            sle && sle->isFieldPresent(sfEmittedTxn))
+        {
+            if (auto const inner = dynamic_cast<STObject const*>(
+                    sle->peekAtPField(sfEmittedTxn)))
+                emitFailureTxn_.emplace(*inner);
+        }
+    }
+
     // fall through allows normal apply
     if (isTesSuccess(result))
         result = apply();
@@ -2392,10 +2426,12 @@ Transactor::finishApply(
             if (!finalFields.isFieldPresent(sfBalance))
                 continue;
 
+            bool const has20261005 = view().rules().enabled(fix20261005);
+
             uint64_t bal =
                 finalFields.getFieldAmount(sfBalance).xrp().drops() / 1'000'000;
 
-            if (bal == 0)
+            if (!has20261005 && bal == 0)
                 continue;
 
             uint32_t lgrLast = sle->getFieldU32(sfRewardLgrLast);
@@ -2406,16 +2442,41 @@ Transactor::finishApply(
             if (!has240911 &&
                 (lgrElapsed > lgrCur || lgrElapsed > lgrLast ||
                  lgrElapsed == 0))
+            {
+                if (has20261005)
+                {
+                    sle->setFieldU32(sfRewardLgrLast, lgrCur);
+                    view().update(sle);
+                }
                 continue;
+            }
             if (has240911 && (lgrElapsed > lgrCur || lgrElapsed == 0))
+            {
+                if (has20261005)
+                {
+                    sle->setFieldU32(sfRewardLgrLast, lgrCur);
+                    view().update(sle);
+                }
                 continue;
+            }
 
             uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
+
+            // When bal == 0 there is no accumulator contribution to add, but
+            // the marker must still advance (handled below) so the stale span
+            // cannot be reused. accumNew == accum in that case.
             uint64_t accumNew = accum + bal * ((uint64_t)lgrElapsed);
 
             // check for overflow
             if (accumNew < accum)
+            {
+                if (has20261005)
+                {
+                    sle->setFieldU32(sfRewardLgrLast, lgrCur);
+                    view().update(sle);
+                }
                 continue;
+            }
 
             sle->setFieldU64(sfRewardAccumulator, accumNew);
             sle->setFieldU32(sfRewardLgrLast, lgrCur);
