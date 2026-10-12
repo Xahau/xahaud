@@ -5568,8 +5568,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // calculate rewards
-        bool const hasFix = env.current()->rules().enabled(fix240819) &&
-            env.current()->rules().enabled(fix240911);
+        bool const hasFix = env.current()->rules().enabled(fix240819);
         STAmount const netReward =
             rewardUserAmount(*acctSle, preLedger, rateDrops);
         BEAST_EXPECT(netReward == (hasFix ? XRP(3.329999) : XRP(3.329999)));
@@ -5660,8 +5659,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // calculate rewards
-        bool const hasFix = env.current()->rules().enabled(fix240819) &&
-            env.current()->rules().enabled(fix240911);
+        bool const hasFix = env.current()->rules().enabled(fix240819);
         STAmount const netReward =
             rewardUserAmount(*acctSle, preLedger, rateDrops);
         BEAST_EXPECT(netReward == (hasFix ? XRP(3.479999) : XRP(6.663333)));
@@ -5815,7 +5813,6 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testGovernHookWithFeats(sa);
         testRewardHookWithFeats(sa);
         testRewardHookWithFeats(sa - fix240819);
-        testRewardHookWithFeats(sa - fix240819 - fix240911);
         testRewardHookWithFeats(sa - fix20261005);
     }
 };

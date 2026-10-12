@@ -2306,7 +2306,6 @@ Transactor::finishApply(
         uint32_t lgrCur = view().seq();
 
         bool const has240819 = view().rules().enabled(fix240819);
-        bool const has240911 = view().rules().enabled(fix240911);
         bool const hasIOURewardClaim =
             view().rules().enabled(featureIOURewardClaim);
         auto const& sfRewardFields =
@@ -2439,18 +2438,7 @@ Transactor::finishApply(
             uint32_t lgrElapsed = lgrCur - lgrLast;
 
             // overflow safety
-            if (!has240911 &&
-                (lgrElapsed > lgrCur || lgrElapsed > lgrLast ||
-                 lgrElapsed == 0))
-            {
-                if (has20261005)
-                {
-                    sle->setFieldU32(sfRewardLgrLast, lgrCur);
-                    view().update(sle);
-                }
-                continue;
-            }
-            if (has240911 && (lgrElapsed > lgrCur || lgrElapsed == 0))
+            if (lgrElapsed > lgrCur || lgrElapsed == 0)
             {
                 if (has20261005)
                 {

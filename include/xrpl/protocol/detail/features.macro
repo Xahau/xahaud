@@ -90,7 +90,6 @@ XRPL_FIX    (ReduceImport,               Supported::yes, VoteBehavior::DefaultYe
 XRPL_FEATURE(Touch,                      Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(Remarks,                    Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (FloatDivide,                Supported::yes, VoteBehavior::DefaultYes)
-XRPL_FIX    (240911,                     Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (PageCap,                    Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (240819,                     Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FIX    (NSDelete,                   Supported::yes, VoteBehavior::DefaultNo)
@@ -166,6 +165,7 @@ XRPL_FEATURE(CryptoConditionsSuite, Supported::yes, VoteBehavior::Obsolete)
 // pre-amendment code has been removed and the identifiers are deprecated.
 // All known amendments and amendments that may appear in a validated
 // ledger must be registered either here or above with the "active" amendments
+XRPL_RETIRE(fix240911)
 XRPL_RETIRE(fixXahauV2)
 XRPL_RETIRE(fixXahauV1)
 XRPL_RETIRE(MultiSign)
