@@ -38,7 +38,7 @@ XRPL_FEATURE(RNG,                        Supported::yes, VoteBehavior::DefaultNo
 XRPL_FEATURE(PWALoader,                  Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (20261005,                   Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(EscrowDestinationCancel,    Supported::yes, VoteBehavior::DefaultNo)
-XRPL_FIX    (20260929,                   Supported::yes, VoteBehavior::DefaultNo)
+XRPL_FIX    (20260929,                   Supported::yes, VoteBehavior::DefaultYes)
 XRPL_FEATURE(HookOnV2_1,                 Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(OnChainManifests,           Supported::yes,  VoteBehavior::DefaultNo)
 XRPL_FIX    (HookMap,                    Supported::yes, VoteBehavior::DefaultYes)
