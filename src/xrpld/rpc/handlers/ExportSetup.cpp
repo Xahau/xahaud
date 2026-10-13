@@ -22,7 +22,6 @@
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/rpc/Context.h>
-#include <xrpld/rpc/detail/QRCode.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/json/to_string.h>
@@ -39,7 +38,6 @@ namespace ripple {
         quorum     SignerQuorum (default: 80% of the signers, rounded up)
         as_of      ripple epoch seconds: each validator's newest export key
                    recorded at or before then (default: the current keys)
-        qr_invert  draw the QR code's dark modules, for a light background
 
     Returns:
         tx_json          the SignerListSet. Xaman fills in Fee and Sequence.
@@ -49,9 +47,8 @@ namespace ripple {
         signers          the export keys it lists, and their validators
         export_keys_seq  UNLReport.ExportKeysSeq; the list needs updating
                          when this changes
-        xaman.url        a link Xaman opens tx_json from
-        xaman.qr         the link as a QR code, one line of UTF-8 half
-                         blocks per array entry, absent if too large
+        xaman_url        a link Xaman opens tx_json from; render it as a
+                         QR code to sign from a phone
 
     Hooks need none of this: xport() a SignerListSet without SignerEntries.
 */
@@ -115,16 +112,8 @@ doExportSetup(RPC::JsonContext& context)
         e[sfSignerEntry.jsonName][sfSignerWeight.jsonName] = 1;
     }
 
-    // Xaman reads a hex JSON template from its detect link. Uppercase hex
-    // packs into the QR code's alphanumeric mode.
-    Json::Value& xaman = result["xaman"] = Json::objectValue;
-    xaman[jss::url] = "https://xaman.app/detect/" + strHex(to_string(tx));
-    if (auto const code = qr::encode(xaman[jss::url].asString()); !code.empty())
-    {
-        Json::Value& lines = xaman["qr"] = Json::arrayValue;
-        for (auto& l : qr::render(code, params["qr_invert"].asBool()))
-            lines.append(std::move(l));
-    }
+    // Xaman reads a hex JSON template from its detect link
+    result["xaman_url"] = "https://xaman.app/detect/" + strHex(to_string(tx));
     return result;
 }
 

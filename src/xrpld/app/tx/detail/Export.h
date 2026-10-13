@@ -141,7 +141,10 @@ public:
     doApply() override;
 
     void
-    preCompute() override;
+    preCompute() override
+    {
+        // ttEXPORT_SIGN and ttEXPORT_FINAL have no account
+    }
 
     /** Sign (if holding a listed export key) and finalize pending exports.
         Called from TxQ::accept; returns true if the open view changed. */

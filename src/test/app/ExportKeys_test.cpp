@@ -73,13 +73,10 @@ class ExportKeys_test : public beast::unit_test::suite
                 .slice());
         return STTx(ttUNL_REPORT, [&](auto& obj) {
             obj.setFieldU32(sfLedgerSequence, seq);
-            obj.set(([&]() {
-                auto inner = std::make_unique<STObject>(sfExportKeyReport);
-                inner->setFieldVL(sfPublicKey, master);
-                inner->setFieldVL(sfExportKey, ek.first);
-                inner->setFieldVL(sfExportKeyProof, proof);
-                return inner;
-            })());
+            auto& r = obj.peekFieldObject(sfExportKeyReport);
+            r.setFieldVL(sfPublicKey, master);
+            r.setFieldVL(sfExportKey, ek.first);
+            r.setFieldVL(sfExportKeyProof, proof);
         });
     }
 
@@ -88,11 +85,8 @@ class ExportKeys_test : public beast::unit_test::suite
     {
         return STTx(ttUNL_REPORT, [&](auto& obj) {
             obj.setFieldU32(sfLedgerSequence, seq);
-            obj.set(([&]() {
-                auto inner = std::make_unique<STObject>(sfActiveValidator);
-                inner->setFieldVL(sfPublicKey, master);
-                return inner;
-            })());
+            obj.peekFieldObject(sfActiveValidator)
+                .setFieldVL(sfPublicKey, master);
         });
     }
 
@@ -209,13 +203,9 @@ class ExportKeys_test : public beast::unit_test::suite
                 pf(exportKeyReport(seq, mk.first, mk, nid)) == temMALFORMED);
 
             // export key reports travel alone
-            auto tx = exportKeyReport(seq, val.pk(), ek, nid);
-            STObject obj = tx;
-            obj.set(([&]() {
-                auto inner = std::make_unique<STObject>(sfActiveValidator);
-                inner->setFieldVL(sfPublicKey, val.pk());
-                return inner;
-            })());
+            STObject obj = exportKeyReport(seq, val.pk(), ek, nid);
+            obj.peekFieldObject(sfActiveValidator)
+                .setFieldVL(sfPublicKey, val.pk());
             Serializer s;
             obj.add(s);
             SerialIter sit(s.slice());
@@ -503,9 +493,9 @@ class ExportKeys_test : public beast::unit_test::suite
             BEAST_EXPECT(r[jss::tx_json][sfOperationLimit.jsonName] == nid);
             BEAST_EXPECT(r["export_keys_seq"] == 3);
 
-            // a Xaman link to the same transaction, and its QR code
+            // a Xaman link to the same transaction
             std::string const prefix = "https://xaman.app/detect/";
-            auto const url = r["xaman"][jss::url].asString();
+            auto const url = r["xaman_url"].asString();
             BEAST_EXPECT(url.starts_with(prefix));
             auto const json = strUnHex(url.substr(prefix.size()));
             Json::Value tx;
@@ -514,8 +504,6 @@ class ExportKeys_test : public beast::unit_test::suite
                 Json::Reader().parse(
                     std::string(json->begin(), json->end()), tx) &&
                 tx == r[jss::tx_json]);
-            BEAST_EXPECT(
-                r["xaman"]["qr"].isArray() && r["xaman"]["qr"].size() > 10);
         }
 
         {

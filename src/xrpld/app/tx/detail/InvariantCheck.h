@@ -121,7 +121,6 @@ class XRPNotCreated
     // Full-width running total so a wrap of a 64-bit accumulator cannot
     // hide XRP creation.
     boost::multiprecision::int128_t drops_ = 0;
-    std::uint32_t accountsCreated_ = 0;
     std::vector<AccountID> created_;
 
 public:

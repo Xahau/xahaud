@@ -214,42 +214,29 @@ NegativeUNLVote::addExportKeyTx(
     // One report per active validator, kept apart from its ActiveValidator
     // report so that disagreement over its export key (some proposers missing
     // its validation) can never cost it that entry.
-    for (auto const& entry : scoreTable)
+    for (auto const& [nid, score] : scoreTable)
     {
-        // no structured bindings: they cannot be captured by the lambdas
-        // below on every supported compiler
-        auto const ek = exportKeys.find(entry.first);
-        if (entry.second <= (FLAG_LEDGER_INTERVAL >> 1) ||
-            ek == exportKeys.end())
+        auto const ek = exportKeys.find(nid);
+        if (score <= (FLAG_LEDGER_INTERVAL >> 1) || ek == exportKeys.end())
             continue;
 
-        PublicKey const& master = nidToKeyMap.at(entry.first);
-        Blob const& key = ek->second.first;
-        Blob const& proof = ek->second.second;
-        STTx tx(ttUNL_REPORT, [&](auto& obj) {
-            obj.set(([&]() {
-                auto inner = std::make_unique<STObject>(sfExportKeyReport);
-                inner->setFieldVL(sfPublicKey, master);
-                inner->setFieldVL(sfExportKey, key);
-                inner->setFieldVL(sfExportKeyProof, proof);
-                return inner;
-            })());
+        STObject report(sfExportKeyReport);
+        report.setFieldVL(sfPublicKey, nidToKeyMap.at(nid));
+        report.setFieldVL(sfExportKey, ek->second.first);
+        report.setFieldVL(sfExportKeyProof, ek->second.second);
+        STTx const tx(ttUNL_REPORT, [&](auto& obj) {
+            obj.peekFieldObject(sfExportKeyReport) = std::move(report);
             obj.setFieldU32(sfLedgerSequence, seq);
         });
 
-        uint256 txID = tx.getTransactionID();
         Serializer s;
         tx.add(s);
-        if (!initalSet->addGiveItem(
-                SHAMapNodeType::tnTRANSACTION_NM,
-                make_shamapitem(txID, s.slice())))
-            JLOG(j_.warn()) << "R-UNL: ledger seq=" << seq
-                            << ", add ttUNL_REPORT (export_key) tx failed";
-        else
-            JLOG(j_.debug()) << "R-UNL: ledger seq=" << seq
-                             << ", add a ttUNL_REPORT (export_key) Tx with "
-                                "txID: "
-                             << txID;
+        bool const added = initalSet->addGiveItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(tx.getTransactionID(), s.slice()));
+        JLOG(added ? j_.debug() : j_.warn())
+            << "R-UNL: ledger seq=" << seq << ", add ttUNL_REPORT (export_key) "
+            << (added ? "tx " : "tx failed ") << tx.getTransactionID();
     }
 }
 

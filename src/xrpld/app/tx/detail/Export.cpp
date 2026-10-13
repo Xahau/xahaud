@@ -19,6 +19,7 @@
 
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Export.h>
@@ -94,18 +95,11 @@ setShadowTicket(
     std::optional<uint256> const& hook,
     beast::Journal j)
 {
-    auto const setHook = [&](SLE& st) {
-        if (hook)
-            st.setFieldH256(sfEmitHookHash, *hook);
-        else if (st.isFieldPresent(sfEmitHookHash))
-            st.makeFieldAbsent(sfEmitHookHash);
-    };
-
     auto const k = keylet::shadowTicket(acc, ticket);
     if (auto const st = view.peek(k))
     {
         st->setFieldH256(sfTransactionHash, txid);
-        setHook(*st);
+        (*st)[~sfEmitHookHash] = hook;
         view.update(st);
         return tesSUCCESS;
     }
@@ -126,7 +120,7 @@ setShadowTicket(
     st->setAccountID(sfAccount, acc);
     st->setFieldU32(sfTicketSequence, ticket);
     st->setFieldH256(sfTransactionHash, txid);
-    setHook(*st);
+    (*st)[~sfEmitHookHash] = hook;
     st->setFieldU64(sfOwnerNode, *page);
     view.insert(st);
     adjustOwnerCount(view, sle, 1, j);
@@ -147,36 +141,42 @@ exportKeyProofData(
     return s;
 }
 
-std::vector<ExportSigner>
-exportSigners(ReadView const& view, std::optional<std::uint32_t> asOf)
+// f(master, entry) for each export key of each UNLReport validator, newest
+// first, until it returns true
+static void
+forEachExportKey(ReadView const& view, auto&& f)
 {
-    std::vector<ExportSigner> out;
     auto const unl = view.read(keylet::UNLReport());
     if (!unl || !unl->isFieldPresent(sfActiveValidators))
-        return out;
-
+        return;
     for (auto const& v : unl->getFieldArray(sfActiveValidators))
     {
         PublicKey const master(v[sfPublicKey]);
         auto const acc = view.read(keylet::account(calcAccountID(master)));
-        if (!acc || !acc->isFieldPresent(sfExportKeys))
-            continue;
-
-        // newest first: the first at or before asOf
-        for (auto const& e : acc->getFieldArray(sfExportKeys))
-        {
-            auto const t = e.getFieldU32(sfCloseTime);
-            auto const key = e.getFieldVL(sfExportKey);
-            if (asOf && t > *asOf)
-                continue;
-            PublicKey const pk(makeSlice(key));
-            if (!std::any_of(out.begin(), out.end(), [&](auto const& s) {
-                    return s.key == pk;
-                }))
-                out.push_back({master, pk, t, calcAccountID(pk)});
-            break;
-        }
+        if (acc && acc->isFieldPresent(sfExportKeys))
+            for (auto const& e : acc->getFieldArray(sfExportKeys))
+                if (f(master, e))
+                    break;
     }
+}
+
+std::vector<ExportSigner>
+exportSigners(ReadView const& view, std::optional<std::uint32_t> asOf)
+{
+    std::vector<ExportSigner> out;
+    forEachExportKey(view, [&](PublicKey const& master, STObject const& e) {
+        auto const t = e.getFieldU32(sfCloseTime);
+        if (asOf && t > *asOf)
+            return false;
+        // the newest at or before asOf; the same key under two validators
+        // would list one account twice
+        PublicKey const pk(makeSlice(e.getFieldVL(sfExportKey)));
+        if (std::none_of(out.begin(), out.end(), [&](auto const& s) {
+                return s.key == pk;
+            }))
+            out.push_back({master, pk, t, calcAccountID(pk)});
+        return true;
+    });
 
     std::sort(out.begin(), out.end(), [](auto const& a, auto const& b) {
         return a.account < b.account;
@@ -189,22 +189,12 @@ exportSigners(ReadView const& view, std::optional<std::uint32_t> asOf)
 bool
 listsExportKey(ReadView const& view, STArray const& entries)
 {
-    auto const unl = view.read(keylet::UNLReport());
-    if (!unl || !unl->isFieldPresent(sfActiveValidators))
-        return false;
-    for (auto const& v : unl->getFieldArray(sfActiveValidators))
-    {
-        PublicKey const master(v[sfPublicKey]);
-        auto const acc = view.read(keylet::account(calcAccountID(master)));
-        if (acc && acc->isFieldPresent(sfExportKeys))
-            for (auto const& e : acc->getFieldArray(sfExportKeys))
-            {
-                auto const key = e.getFieldVL(sfExportKey);
-                if (listed(entries, calcAccountID(PublicKey(makeSlice(key)))))
-                    return true;
-            }
-    }
-    return false;
+    bool found = false;
+    forEachExportKey(view, [&](PublicKey const&, STObject const& e) {
+        PublicKey const pk(makeSlice(e.getFieldVL(sfExportKey)));
+        return found = listed(entries, calcAccountID(pk));
+    });
+    return found;
 }
 
 std::uint32_t
@@ -403,8 +393,7 @@ Export::doApply()
         sle->setFieldArray(
             sfSignerEntries, list->getFieldArray(sfSignerEntries));
         sle->setFieldU32(sfSignerQuorum, (*list)[sfSignerQuorum]);
-        if (hook)
-            sle->setFieldH256(sfEmitHookHash, *hook);
+        (*sle)[~sfEmitHookHash] = hook;
         view.insert(sle);
         if (bound)
             callback_ = HookCallback{account_, uint256{}, 0};
@@ -442,14 +431,6 @@ Export::doApply()
     return tesSUCCESS;
 }
 
-void
-Export::preCompute()
-{
-    XRPL_ASSERT(
-        (account_ == beast::zero) == (ctx_.tx.getTxnType() != ttEXPORT),
-        "ripple::Export::preCompute : account matches txn type");
-}
-
 bool
 Export::accept(Application& app, OpenView& view, beast::Journal j)
 {
@@ -460,9 +441,11 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
     auto const nid = app.config().NETWORK_ID;
     bool changed = false;
 
+    // flagged like other injected txns so OpenLedger does not relay them
     auto const inject = [&](TxType type, auto&& assemble) {
-        changed |=
-            ripple::apply(app, view, STTx(type, assemble), tapNONE, j).applied;
+        STTx const tx(type, assemble);
+        app.getHashRouter().setFlags(tx.getTransactionID(), SF_EMITTED);
+        changed |= ripple::apply(app, view, tx, tapNONE, j).applied;
     };
 
     // Only exports from closed ledgers: their keys sort below this ledger's.

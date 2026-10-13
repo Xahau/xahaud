@@ -145,10 +145,7 @@ XRPNotCreated::visitEntry(
     }
 
     if (!before && after->getType() == ltACCOUNT_ROOT)
-    {
-        accountsCreated_++;
         created_.push_back((*after)[sfAccount]);
-    }
 }
 
 bool
@@ -181,7 +178,7 @@ XRPNotCreated::finalize(
             ? inner->getFieldAmount(sfFee).xrp()  // burned in PoB
             : beast::zero;  // if the txn didnt burn a fee we add nothing
 
-        if (accountsCreated_ == 1)
+        if (created_.size() == 1)
             maxDropsAdded += Import::computeStartingBonus(view);
 
         JLOG(j.trace()) << "Invariant XRPNotCreated Import: "
@@ -225,6 +222,7 @@ XRPNotCreated::finalize(
 
         // featureExport: accounts created outside the destinations must be
         // UNLReport validators, each funded with validatorFundingDrops
+        auto const unl = view.read(keylet::UNLReport());
         for (auto const& id : created_)
         {
             if (std::any_of(dests.begin(), dests.end(), [&](auto const& d) {
@@ -232,7 +230,6 @@ XRPNotCreated::finalize(
                 }))
                 continue;
 
-            auto const unl = view.read(keylet::UNLReport());
             if (!view.rules().enabled(featureExport) || !unl ||
                 !unl->isFieldPresent(sfActiveValidators))
                 return false;
