@@ -814,7 +814,7 @@ bool
 hook::canHook(
     STTx const& tx,
     ripple::uint256 hookOn,
-    std::optional<ripple::Slice> hookName)
+    std::optional<ripple::Blob> hookName)
 {
     if (!canHookTT(tx.getTxnType(), hookOn))
         return false;
@@ -828,7 +828,7 @@ hook::canHook(
         // transaction, so we can't hook without the hook name
         return false;
 
-    return tx[sfHookName] == *hookName;
+    return tx.getFieldVL(sfHookName) == *hookName;
 }
 
 ripple::uint256
@@ -1042,8 +1042,29 @@ hook::apply(
     bool isStrong,
     uint32_t wasmParam,
     uint8_t hookChainPosition,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    std::optional<ripple::STObject> const& emitFailureTxn)
 {
+    std::optional<ripple::STObject> emitFailure;
+    if (isCallback && (wasmParam & 1))
+    {
+        if (applyCtx.view().rules().enabled(fix20261005))
+        {
+            // fix20261005: by the time the callback runs the ttEMIT_FAILURE
+            // pseudo has already erased the ltEMITTED_TXN entry from this
+            // view, so it can't be read back here. The caller captures the
+            // original emitted transaction before base application.
+            emitFailure = emitFailureTxn;
+        }
+        else
+        {
+            // pre-fix: reads the entry the pseudo has already erased
+            emitFailure = (*(applyCtx.view().peek(keylet::emittedTxn(
+                               applyCtx.tx.getFieldH256(sfTransactionHash)))))
+                              .downcast<STObject>();
+        }
+    }
+
     HookContext hookCtx = {
         .applyCtx = applyCtx,
         // we will return this context object (RVO / move constructed)
@@ -1075,12 +1096,7 @@ hook::apply(
              .foreignStateSetDisabled = false,
              .provisionalMeta = provisionalMeta,
              .foreignStateGrantCache = {}},
-        .emitFailure = isCallback && wasmParam & 1
-            ? std::optional<ripple::STObject>(
-                  (*(applyCtx.view().peek(keylet::emittedTxn(
-                       applyCtx.tx.getFieldH256(sfTransactionHash)))))
-                      .downcast<STObject>())
-            : std::optional<ripple::STObject>(),
+        .emitFailure = std::move(emitFailure),
         .module = nullptr,
         .api_ = nullptr};
 

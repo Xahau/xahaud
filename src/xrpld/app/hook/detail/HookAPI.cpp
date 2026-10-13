@@ -1584,6 +1584,18 @@ HookAPI::otxn_field(uint32_t field_id) const
     if (fieldType == sfInvalid)
         return Unexpected(INVALID_FIELD);
 
+    // fix20261005: on an emit failure callback the field is read from the
+    // original emitted transaction, so check presence there rather than on
+    // the ttEMIT_FAILURE pseudo (which carries sfLedgerSequence and
+    // sfTransactionHash the emitted txn lacks, and lacks most of its fields).
+    if (hookCtx.emitFailure &&
+        hookCtx.applyCtx.view().rules().enabled(fix20261005))
+    {
+        if (!hookCtx.emitFailure->isFieldPresent(fieldType))
+            return Unexpected(DOESNT_EXIST);
+        return &hookCtx.emitFailure->getField(fieldType);
+    }
+
     if (!hookCtx.applyCtx.tx.isFieldPresent(fieldType))
         return Unexpected(DOESNT_EXIST);
 
@@ -2987,11 +2999,19 @@ HookAPI::set_state_cache(
         if (availableForReserves < hookStateScale && modified)
             return Unexpected(RESERVE_INSUFFICIENT);
 
+        // Prior to fix20261005 the first-account branch charged write
+        // resources (a state modification, a reserve slot and, if needed, a
+        // namespace slot) even when the entry was only being read into the
+        // cache (modified == false). Every other branch only charges for
+        // writes. With the fix, reads into the cache are free; a later write
+        // of the same key is charged by the existing-key branch below.
+        bool const chargeWrite = modified || !view.rules().enabled(fix20261005);
+
         int64_t namespaceCount = accSLE->isFieldPresent(sfHookNamespaces)
             ? accSLE->getFieldV256(sfHookNamespaces).size()
             : 0;
 
-        if (createNamespace)
+        if (createNamespace && chargeWrite)
         {
             // overflow should never ever happen but check anyway
             if (namespaceCount + 1 < namespaceCount)
@@ -3001,15 +3021,20 @@ HookAPI::set_state_cache(
                 return Unexpected(TOO_MANY_NAMESPACES);
         }
 
-        stateMap.modified_entry_count++;
+        if (chargeWrite)
+        {
+            stateMap.modified_entry_count++;
 
-        // sanity check
-        if (view.rules().enabled(featureExtendedHookState) &&
-            availableForReserves < hookStateScale)
-            return Unexpected(INTERNAL_ERROR);
+            // sanity check
+            if (view.rules().enabled(featureExtendedHookState) &&
+                availableForReserves < hookStateScale)
+                return Unexpected(INTERNAL_ERROR);
+
+            availableForReserves -= hookStateScale;
+        }
 
         stateMap[acc] = {
-            availableForReserves - hookStateScale,
+            availableForReserves,
             namespaceCount,
             hookStateScale,
             {{ns, {{key, {modified, data}}}}}};

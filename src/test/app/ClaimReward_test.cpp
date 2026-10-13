@@ -578,6 +578,25 @@ public:
                     ter(tecNO_TARGET));
                 env.close();
             }
+            // HookName removed with a HookName-only update
+            // The sfHooks entry keeps an STI_NOTPRESENT placeholder for
+            // sfHookName, which preclaim must treat as "no name".
+            {
+                Json::Value jv;
+                jv[jss::Account] = issuer.human();
+                jv[jss::TransactionType] = jss::SetHook;
+                jv[jss::Flags] = 0;
+                jv[jss::Hooks] = Json::Value{Json::arrayValue};
+                jv[jss::Hooks][0U][jss::Hook][jss::HookName] = "";
+                env(jv, fee(XRP(1)));
+                env.close();
+
+                env(reward::claim(alice),
+                    reward::issuer(issuer),
+                    fee(XRP(1)),
+                    ter(tesSUCCESS));
+                env.close();
+            }
             // Vaild HookOn
             {
                 auto hookObj = hso(jtx::genesis::AcceptHook, overrideFlag);

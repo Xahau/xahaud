@@ -1740,7 +1740,15 @@ SetHook::setHook()
                 {
                     if (newHookName->size() == 0)
                     {
-                        newHook.makeFieldAbsent(sfHookName);
+                        // Erase the field outright rather than
+                        // makeFieldAbsent: newHook carries no template, so
+                        // makeFieldAbsent leaves an STI_NOTPRESENT
+                        // placeholder in the in-memory entry that every
+                        // reader must then special-case, and it throws
+                        // (-> tefEXCEPTION) when the hook has no name to
+                        // remove. delField matches the serialized form of
+                        // the entry and is a no-op on a nameless hook.
+                        newHook.delField(sfHookName);
                     }
                     else
                     {
