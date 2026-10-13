@@ -287,7 +287,9 @@ Transactor::calculateHookChainFee(
             // LCOV_EXCL_STOP
         }
 
-        auto const hookName = hookObj[~sfHookName];
+        std::optional<Blob> const hookName = hookObj.isFieldPresent(sfHookName)
+            ? std::optional<Blob>(hookObj.getFieldVL(sfHookName))
+            : std::nullopt;
 
         uint32_t flags = 0;
         if (hookObj.isFieldPresent(sfFlags))
@@ -1409,7 +1411,9 @@ Transactor::executeHookChain(
             // LCOV_EXCL_STOP
         }
 
-        auto const hookName = hookObj[~sfHookName];
+        std::optional<Blob> const hookName = hookObj.isFieldPresent(sfHookName)
+            ? std::optional<Blob>(hookObj.getFieldVL(sfHookName))
+            : std::nullopt;
 
         // check if the hook can fire
         uint256 hookOn = hook::getHookOn(
