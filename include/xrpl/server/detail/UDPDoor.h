@@ -114,8 +114,10 @@ public:
                         minSendBufferSize),
                     ec);
                 if (ec)
+                {
                     JLOG(j_.warn())
                         << "UDP set send_buffer_size failed: " << ec.message();
+                }
             }
             ec.clear();
         }
