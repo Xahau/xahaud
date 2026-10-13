@@ -61,6 +61,9 @@ private:
     std::vector<char> recv_buffer_;
     endpoint_type local_endpoint_;  // Store TCP-style endpoint
 
+    // Large enough for one maximum-size datagram (see do_send).
+    static constexpr int minSendBufferSize = 256 * 1024;
+
 public:
     UDPDoor(
         Handler& handler,
@@ -96,6 +99,25 @@ public:
                 << "UDP set reuse_address failed: " << ec.message();
             close();
             return;
+        }
+
+        // Some platforms (macOS: net.inet.udp.maxdgram = 9216) cap outgoing
+        // datagrams at SO_SNDBUF, so a full-size fragment fails with
+        // EMSGSIZE unless the send buffer is at least that large.
+        {
+            boost::asio::socket_base::send_buffer_size current;
+            socket_.get_option(current, ec);
+            if (!ec && current.value() < minSendBufferSize)
+            {
+                socket_.set_option(
+                    boost::asio::socket_base::send_buffer_size(
+                        minSendBufferSize),
+                    ec);
+                if (ec)
+                    JLOG(j_.warn())
+                        << "UDP set send_buffer_size failed: " << ec.message();
+            }
+            ec.clear();
         }
 
         socket_.bind(udp_endpoint, ec);

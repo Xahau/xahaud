@@ -574,6 +574,9 @@ public:
 
         boost::asio::io_context io;
         udp::socket client(io, udp::endpoint(addr, 0));
+        // Room for the full fragmented reply on platforms with small
+        // default socket buffers.
+        client.set_option(udp::socket::receive_buffer_size(512 * 1024));
         udp::endpoint const server(addr, port);
 
         // Receive one datagram, or nothing if the timeout expires.
