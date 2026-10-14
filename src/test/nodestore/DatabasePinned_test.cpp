@@ -34,9 +34,9 @@ namespace test {
 class DatabasePinned_test : public beast::unit_test::suite
 {
     // Build an Env whose nodestore is wired up as DatabasePinnedImp.
-    // The rotating store must persist (type=memory). type=rwdb is
-    // NullFactory and never builds DatabasePinnedImp. pinned_type=rwdb
-    // is allowed in standalone mode.
+    // The rotating store is the process-shared "memory" backend so the
+    // hot side keeps nodes across the test. pinned_type=rwdb is allowed
+    // in standalone mode.
     static std::unique_ptr<Config>
     pinnedEnvconfig(std::string const& nodePath)
     {
