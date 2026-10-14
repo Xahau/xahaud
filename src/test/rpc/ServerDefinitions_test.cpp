@@ -103,6 +103,35 @@ public:
                 BEAST_EXPECT(fieldNames.insert(name).second);
             }
         }
+
+        // hook api, keylet types and return codes
+        {
+            auto const& hook = result[jss::result][jss::HOOK];
+            BEAST_EXPECT(hook.isMember(jss::API));
+            BEAST_EXPECT(hook.isMember(jss::KEYLET_TYPES));
+            BEAST_EXPECT(hook.isMember(jss::RETURN_CODES));
+
+            auto const& accept = hook[jss::API]["accept"];
+            BEAST_EXPECT(accept["return"] == "int64_t");
+            BEAST_EXPECT(accept["params"].size() == 3);
+            BEAST_EXPECT(accept["params"][0u][jss::type] == "uint32_t");
+            BEAST_EXPECT(accept["params"][0u][jss::name] == "read_ptr");
+            BEAST_EXPECT(accept["params"][2u][jss::type] == "int64_t");
+            BEAST_EXPECT(accept["params"][2u][jss::name] == "error_code");
+            BEAST_EXPECT(!accept.isMember("amendment"));
+
+            auto const& burden = hook[jss::API]["etxn_burden"];
+            BEAST_EXPECT(burden["params"].size() == 0);
+
+            auto const& xpop = hook[jss::API]["xpop_slot"];
+            BEAST_EXPECT(xpop["amendment"] == "HooksUpdate1");
+
+            BEAST_EXPECT(hook[jss::KEYLET_TYPES]["HOOK"] == 1);
+            BEAST_EXPECT(hook[jss::KEYLET_TYPES]["MANIFEST"] == 37);
+            BEAST_EXPECT(hook[jss::RETURN_CODES]["SUCCESS"] == 0);
+            BEAST_EXPECT(hook[jss::RETURN_CODES]["INVALID_FLOAT"] == -10024);
+            BEAST_EXPECT(hook[jss::RETURN_CODES]["TOO_MANY_NAMESPACES"] == -45);
+        }
     }
 
     void
@@ -132,6 +161,7 @@ public:
             BEAST_EXPECT(
                 !result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(!result[jss::result].isMember(jss::TYPES));
+            BEAST_EXPECT(!result[jss::result].isMember(jss::HOOK));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }
 
@@ -156,6 +186,7 @@ public:
             BEAST_EXPECT(
                 result[jss::result].isMember(jss::TRANSACTION_FLAGS_INDICES));
             BEAST_EXPECT(result[jss::result].isMember(jss::TYPES));
+            BEAST_EXPECT(result[jss::result].isMember(jss::HOOK));
             BEAST_EXPECT(result[jss::result].isMember(jss::hash));
         }
     }

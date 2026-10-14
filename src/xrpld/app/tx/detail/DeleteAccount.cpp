@@ -292,6 +292,15 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
     if (sleAccount->getFlags() & lsfURITokenIssuer)
         return tecHAS_OBLIGATIONS;
 
+    // An on-ledger manifest outlives its account. Neither copy is in the owner
+    // directory, and the master copy stays listed in keylet::manifestDir() for
+    // good, so deleting the account would orphan both. A re-funded account
+    // could then never publish again: its first SetManifest would find the old
+    // master copy in the way, with no sfManifestID to say it is its own.
+    if (ctx.view.rules().enabled(featureOnChainManifests) &&
+        sleAccount->isFieldPresent(sfManifestID))
+        return tecHAS_OBLIGATIONS;
+
     if (ctx.view.rules().enabled(featureNonFungibleTokensV1))
     {
         // If an issuer has any issued NFTs resident in the ledger then it
@@ -427,6 +436,13 @@ DeleteAccount::doApply()
     // populated unless hooks is enabled so the rules do not need to be checked
     if (src->isFieldPresent(sfHookNamespaces) || src->isFieldPresent(sfHooks))
         return tecHAS_OBLIGATIONS;
+
+    // The AppLoader is in no owner directory, so the cleanup walk below never
+    // visits it; erase it here or AccountRootsDeletedClean fires on the
+    // orphan. Not gated on featurePWALoader: without it no such object can
+    // exist, and gating could only ever leave one behind.
+    if (auto sleLoader = view().peek(keylet::appLoader(account_)))
+        view().erase(sleLoader);
 
     // Delete all of the entries in the account directory.
     Keylet const ownerDirKeylet{keylet::ownerDir(account_)};

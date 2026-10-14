@@ -78,6 +78,9 @@ private:
     applyUNLReport();
 
     TER
+    applyEntropy();
+
+    TER
     applyExportKeyReport();
 };
 
@@ -86,6 +89,7 @@ using SetFee = Change;
 using UNLModify = Change;
 using EmitFailure = Change;
 using UNLReport = Change;
+using Entropy = Change;
 
 }  // namespace ripple
 

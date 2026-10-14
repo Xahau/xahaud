@@ -260,6 +260,11 @@ protected:
         touched_;  // fix20261005: accounts touched (featureTouch) in the
                    // current view. Never populated before the fix, emptied
                    // whenever the view is discarded.
+    std::optional<STObject>
+        emitFailureTxn_;  // fix20261005: for ttEMIT_FAILURE, the original
+                          // emitted transaction, captured before doApply
+                          // erases its ltEMITTED_TXN entry. Consumed by the
+                          // callback in doHookCallback.
 
     // The post-apply pipeline of operator(): tec handling (reset),
     // invariants, balance rewards, weak hooks and commit.

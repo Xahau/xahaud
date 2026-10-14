@@ -143,6 +143,14 @@ InnerObjectFormats::InnerObjectFormats()
             {sfAccount, soeOPTIONAL},
         });
 
+    add(sfRandomDigestEntry.jsonName,
+        sfRandomDigestEntry.getCode(),
+        {
+            {sfPublicKey, soeREQUIRED},
+            {sfNextRandomDigest, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+        });
+
     // featureExport: one validator's export key, as reported by the UNL
     add(sfExportKeyReport.jsonName,
         sfExportKeyReport.getCode(),

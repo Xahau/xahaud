@@ -94,22 +94,22 @@ saveManifests(
     soci::session& session,
     std::string const& dbTable,
     std::function<bool(PublicKey const&)> const& isTrusted,
-    hash_map<PublicKey, Manifest> const& map,
+    std::vector<Manifest> const& manifests,
     beast::Journal j)
 {
     soci::transaction tr(session);
     session << "DELETE FROM " << dbTable;
-    for (auto const& v : map)
+    for (auto const& m : manifests)
     {
         // Save all revocation manifests,
         // but only save trusted non-revocation manifests.
-        if (!v.second.revoked() && !isTrusted(v.second.masterKey))
+        if (!m.revoked() && !isTrusted(m.masterKey))
         {
             JLOG(j.info()) << "Untrusted manifest in cache not saved to db";
             continue;
         }
 
-        saveManifest(session, dbTable, v.second.serialized);
+        saveManifest(session, dbTable, m.serialized);
     }
     tr.commit();
 }

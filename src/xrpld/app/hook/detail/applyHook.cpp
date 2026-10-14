@@ -564,7 +564,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttFEE:
         case ttUNL_MODIFY:
         case ttEMIT_FAILURE:
-        case ttUNL_REPORT: {
+        case ttUNL_REPORT:
+        case ttENTROPY: {
             break;
         }
         default: {
@@ -819,7 +820,7 @@ bool
 hook::canHook(
     STTx const& tx,
     ripple::uint256 hookOn,
-    std::optional<ripple::Slice> hookName)
+    std::optional<ripple::Blob> hookName)
 {
     if (!canHookTT(tx.getTxnType(), hookOn))
         return false;
@@ -833,7 +834,7 @@ hook::canHook(
         // transaction, so we can't hook without the hook name
         return false;
 
-    return tx[sfHookName] == *hookName;
+    return tx.getFieldVL(sfHookName) == *hookName;
 }
 
 ripple::uint256
@@ -1047,8 +1048,29 @@ hook::apply(
     bool isStrong,
     uint32_t wasmParam,
     uint8_t hookChainPosition,
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    std::optional<ripple::STObject> const& emitFailureTxn)
 {
+    std::optional<ripple::STObject> emitFailure;
+    if (isCallback && (wasmParam & 1))
+    {
+        if (applyCtx.view().rules().enabled(fix20261005))
+        {
+            // fix20261005: by the time the callback runs the ttEMIT_FAILURE
+            // pseudo has already erased the ltEMITTED_TXN entry from this
+            // view, so it can't be read back here. The caller captures the
+            // original emitted transaction before base application.
+            emitFailure = emitFailureTxn;
+        }
+        else
+        {
+            // pre-fix: reads the entry the pseudo has already erased
+            emitFailure = (*(applyCtx.view().peek(keylet::emittedTxn(
+                               applyCtx.tx.getFieldH256(sfTransactionHash)))))
+                              .downcast<STObject>();
+        }
+    }
+
     HookContext hookCtx = {
         .applyCtx = applyCtx,
         // we will return this context object (RVO / move constructed)
@@ -1080,12 +1102,7 @@ hook::apply(
              .foreignStateSetDisabled = false,
              .provisionalMeta = provisionalMeta,
              .foreignStateGrantCache = {}},
-        .emitFailure = isCallback && wasmParam & 1
-            ? std::optional<ripple::STObject>(
-                  (*(applyCtx.view().peek(keylet::emittedTxn(
-                       applyCtx.tx.getFieldH256(sfTransactionHash)))))
-                      .downcast<STObject>())
-            : std::optional<ripple::STObject>(),
+        .emitFailure = std::move(emitFailure),
         .module = nullptr,
         .api_ = nullptr};
 
@@ -2899,6 +2916,49 @@ DEFINE_HOOK_FUNCTION(
 
     WRITE_WASM_MEMORY_AND_RETURN(
         write_ptr, 32, hash.data(), 32, memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+// featureRNG: a uniform integer in [0, sides)
+DEFINE_HOOK_FUNCTION(int64_t, dice, uint32_t sides)
+{
+    HOOK_SETUP();
+
+    auto const result = api.dice(sides);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+// featureRNG: write_len (1 to 512) random bytes
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    util_random,
+    uint32_t write_ptr,
+    uint32_t write_len)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const result = api.util_random(write_len);
+    if (!result)
+        return result.error();
+
+    auto const& bytes = result.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        write_len,
+        bytes.data(),
+        bytes.size(),
+        memory,
+        memory_length);
 
     HOOK_TEARDOWN();
 }

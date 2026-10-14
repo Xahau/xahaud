@@ -118,6 +118,10 @@ negativeUNL() noexcept;
 Keylet const&
 UNLReport() noexcept;
 
+/** The (fixed) index of the featureRNG random number generator object. */
+Keylet const&
+random() noexcept;
+
 /** The beginning of an order book */
 struct book_t
 {
@@ -328,6 +332,14 @@ xChainCreateAccountClaimID(STXChainBridge const& bridge, std::uint64_t seq);
 Keylet
 did(AccountID const& account) noexcept;
 
+/** An AppLoader belonging to an account.
+
+    There is at most one per account, so the key is derived from the owner's
+    AccountID alone.
+*/
+Keylet
+appLoader(AccountID const& account) noexcept;
+
 Keylet
 oracle(AccountID const& account, std::uint32_t const& documentID) noexcept;
 
@@ -376,6 +388,16 @@ permissionedDomain(uint256 const& domainID) noexcept;
 Keylet
 manifest(PublicKey const& pk) noexcept;
 
+/** The directory listing every master key's ltMANIFEST object.
+
+    One entry per master key, made when its first manifest is published and
+    kept for good: a newer manifest, a revocation included, replaces the object
+    at the same key and keeps its place. The copy at the ephemeral key is not
+    listed; it is named by the master object.
+*/
+Keylet const&
+manifestDir() noexcept;
+
 /** A pending export, ordered by creation ledger so TxQ can walk them. */
 Keylet
 exportedTxn(std::uint32_t seq, uint256 const& txid) noexcept;
@@ -414,7 +436,7 @@ struct keyletDesc
 
 // This list should include all of the keylet functions that take a single
 // AccountID parameter.
-std::array<keyletDesc<AccountID const&>, 6> const directAccountKeylets{
+std::array<keyletDesc<AccountID const&>, 7> const directAccountKeylets{
     {{&keylet::account, jss::AccountRoot, false},
      {&keylet::ownerDir, jss::DirectoryNode, true},
      {&keylet::signers, jss::SignerList, true},
@@ -422,7 +444,8 @@ std::array<keyletDesc<AccountID const&>, 6> const directAccountKeylets{
      // test it anyway, since the invariant checks for it.
      {&keylet::nftpage_min, jss::NFTokenPage, true},
      {&keylet::nftpage_max, jss::NFTokenPage, true},
-     {&keylet::did, jss::DID, true}}};
+     {&keylet::did, jss::DID, true},
+     {&keylet::appLoader, jss::AppLoader, true}}};
 
 MPTID
 makeMptID(std::uint32_t sequence, AccountID const& account);

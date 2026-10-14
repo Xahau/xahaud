@@ -74,6 +74,7 @@ TRANSACTION(ttACCOUNT_SET, 3, AccountSet, ({
     {sfTickSize, soeOPTIONAL},
     {sfNFTokenMinter, soeOPTIONAL},
     {sfHookStateScale, soeOPTIONAL},
+    {sfAppLoader, soeOPTIONAL},
 }))
 
 /** This transaction type cancels an existing escrow. */
@@ -509,7 +510,7 @@ TRANSACTION(ttEXPORT, 88, Export, ({
 
 /** A UNL validator's multisignature over a pending export. Deliberately not a
     pseudo-txn: disputed pseudo-txns are discarded, these are retried. */
-TRANSACTION(ttEXPORT_SIGN, 89, ExportSign, ({
+TRANSACTION(ttEXPORT_SIGN, 87, ExportSign, ({
     {sfLedgerSequence, soeREQUIRED},
     {sfTransactionHash, soeREQUIRED},
     {sfSigner, soeREQUIRED},
@@ -520,6 +521,22 @@ TRANSACTION(ttEXPORT_FINAL, 90, ExportFinal, ({
     {sfOwner, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
     {sfTransactionHash, soeREQUIRED},
+}))
+
+/** featureRNG: a validator's entropy contribution for one ledger.
+
+    Each proposing UNLReport validator places exactly one of these in its own
+    initial position when it closes the ledger. It reveals the secret behind
+    the validator's commitment currently stored in the Random object (if any)
+    and commits to the secret it will reveal next time. It never enters the
+    open ledger, so a reveal only becomes public after the revealing
+    validator's transaction set is locked.
+ */
+TRANSACTION(ttENTROPY, 89, Entropy, ({
+    {sfLedgerSequence, soeREQUIRED},
+    {sfPublicKey, soeREQUIRED},
+    {sfNextRandomDigest, soeREQUIRED},
+    {sfRandomData, soeOPTIONAL},
 }))
 
 /* sfAccount is supplied by TxFormats::commonFields; listing it here as well

@@ -28,6 +28,7 @@
 #include <xrpld/overlay/detail/Handshake.h>
 #include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpld/overlay/detail/TxMetrics.h>
+#include <xrpld/overlay/detail/XUSH.h>
 #include <xrpld/peerfinder/PeerfinderManager.h>
 #include <xrpld/rpc/ServerHandler.h>
 #include <xrpl/basics/Resolver.h>
@@ -40,6 +41,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/asio/basic_waitable_timer.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/ip/udp.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/container/flat_map.hpp>
@@ -134,6 +136,15 @@ private:
     std::optional<std::uint32_t> manifestListSeq_;
     // Protects the message and the sequence list of manifests
     std::mutex manifestLock_;
+
+    // XUSH (Xahau UDP Superhighway) transaction reassembly
+    std::mutex xushMutex_;
+    xush::Reassembler xushReassembler_;
+
+    // XUSH (Xahau UDP Superhighway) sockets used for sending
+    std::mutex xushSendMutex_;
+    boost::asio::ip::udp::socket xushSocket4_;
+    boost::asio::ip::udp::socket xushSocket6_;
 
     //--------------------------------------------------------------------------
 
@@ -442,6 +453,14 @@ public:
         txMetrics_.addMetrics(args...);
     }
 
+    void
+    processXUSH(
+        std::string const& message,
+        boost::asio::ip::tcp::endpoint const& remoteEndpoint) override;
+
+    void
+    publishTxXUSH(Slice const& tx, uint256 const& txid) override;
+
 private:
     void
     squelch(
@@ -617,6 +636,49 @@ private:
         }
         m_stats.peerDisconnects = getPeerDisconnect();
     }
+
+    //--------------------------------------------------------------------------
+    //
+    // XUSH (Xahau UDP Superhighway)
+    //
+    //--------------------------------------------------------------------------
+
+    /** Open the sockets used to send highway datagrams. */
+    void
+    openXUSH();
+
+    /** Close the sockets used to send highway datagrams. */
+    void
+    closeXUSH();
+
+    /** Advertise some highway endpoints to some highway peers. */
+    void
+    sendXUSHPeers();
+
+    /** Send every datagram to every target. Sends never block: datagrams
+        that can't be sent immediately are dropped. */
+    void
+    sendXUSH(
+        std::vector<Buffer> const& datagrams,
+        std::vector<beast::IP::Endpoint> const& targets);
+
+    void
+    onXUSHPeers(
+        Slice datagram,
+        beast::IP::Endpoint const& remote,
+        Resource::Consumer& usage);
+
+    void
+    onXUSHTxnFragment(
+        Slice datagram,
+        beast::IP::Endpoint const& remote,
+        Resource::Consumer& usage);
+
+    void
+    onXUSHTransaction(
+        Buffer const& blob,
+        uint256 const& txid,
+        Resource::Consumer& usage);
 };
 
 }  // namespace ripple

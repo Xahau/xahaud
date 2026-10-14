@@ -81,6 +81,7 @@ enum class LedgerNameSpace : std::uint16_t {
     IMPORT_VLSEQ = 'I',
     UNL_REPORT = 'R',
     CRON = 'L',
+    APP_LOADER = 'W',
     AMM = 'A',
     BRIDGE = LEDGER_NAMESPACE2(0x01, 'H'),
     XCHAIN_CLAIM_ID = 'Q',
@@ -90,8 +91,10 @@ enum class LedgerNameSpace : std::uint16_t {
     MPTOKEN_ISSUANCE = '~',
     MPTOKEN = 't',
     MANIFEST = 'M',
+    MANIFEST_DIR = LEDGER_NAMESPACE2(0x01, 'M'),
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
+    RANDOM = 0x526E,  // Rn
     EXPORTED_TXN = 'X',
     SHADOW_TICKET = 'Y',
 
@@ -275,6 +278,13 @@ UNLReport() noexcept
 {
     static Keylet const ret{
         ltUNL_REPORT, indexHash(LedgerNameSpace::UNL_REPORT)};
+    return ret;
+}
+
+Keylet const&
+random() noexcept
+{
+    static Keylet const ret{ltRANDOM, indexHash(LedgerNameSpace::RANDOM)};
     return ret;
 }
 
@@ -616,6 +626,12 @@ did(AccountID const& account) noexcept
 }
 
 Keylet
+appLoader(AccountID const& account) noexcept
+{
+    return {ltAPP_LOADER, indexHash(LedgerNameSpace::APP_LOADER, account)};
+}
+
+Keylet
 oracle(AccountID const& account, std::uint32_t const& documentID) noexcept
 {
     return {ltORACLE, indexHash(LedgerNameSpace::ORACLE, account, documentID)};
@@ -677,6 +693,14 @@ Keylet
 manifest(PublicKey const& pk) noexcept
 {
     return {ltMANIFEST, indexHash(LedgerNameSpace::MANIFEST, pk.slice())};
+}
+
+Keylet const&
+manifestDir() noexcept
+{
+    static Keylet const ret{
+        ltDIR_NODE, indexHash(LedgerNameSpace::MANIFEST_DIR)};
+    return ret;
 }
 
 Keylet
