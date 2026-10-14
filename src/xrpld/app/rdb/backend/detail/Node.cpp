@@ -258,42 +258,50 @@ saveValidatedLedger(
         ledger->info().txHash == ledger->txMap().getHash().as_uint256(),
         "ripple::detail::saveValidatedLedger : transaction hash match");
 
+    bool const pinned = app.getLedgerMaster().isPinned(seq);
+
     // Save the ledger header in the hashed object store
     {
         Serializer s(128);
         s.add32(HashPrefix::ledgerMaster);
         addRaw(ledger->info(), s);
         // Use pinnedLEDGER type for pinned ledgers, hotLEDGER for others
-        auto ledgerType =
-            app.getLedgerMaster().isPinned(seq) ? pinnedLEDGER : hotLEDGER;
+        auto ledgerType = pinned ? pinnedLEDGER : hotLEDGER;
         app.getNodeStore().store(
             ledgerType, std::move(s.modData()), ledger->info().hash, seq);
     }
 
+    // Pinned (catalogue) ledgers are saved in bulk: they are never cached
+    // or published from here, so their AcceptedLedger skips the per-tx JSON
+    // and is not built at all when there are no tx tables to fill.
     std::shared_ptr<AcceptedLedger> aLedger;
-    try
+    if (!pinned || app.config().useTxTables())
     {
-        aLedger = app.getAcceptedLedgerCache().fetch(ledger->info().hash);
-        if (!aLedger)
+        try
         {
-            aLedger = std::make_shared<AcceptedLedger>(ledger, app);
-
-            // Only cache if the ledger is NOT in the pinned range
-            if (!app.getLedgerMaster().isPinned(ledger->info().seq))
+            aLedger = app.getAcceptedLedgerCache().fetch(ledger->info().hash);
+            if (!aLedger)
             {
-                app.getAcceptedLedgerCache().canonicalize_replace_client(
-                    ledger->info().hash, aLedger);
+                aLedger = std::make_shared<AcceptedLedger>(
+                    ledger, app, /*withJson=*/!pinned);
+
+                // Only cache if the ledger is NOT in the pinned range
+                if (!pinned)
+                {
+                    app.getAcceptedLedgerCache().canonicalize_replace_client(
+                        ledger->info().hash, aLedger);
+                }
             }
         }
-    }
-    catch (std::exception const&)
-    {
-        JLOG(j.warn()) << "An accepted ledger was missing nodes";
-        app.getLedgerMaster().failedSave(seq, ledger->info().hash);
-        // Clients can now trust the database for information about this
-        // ledger sequence.
-        app.pendingSaves().finishWork(seq);
-        return false;
+        catch (std::exception const&)
+        {
+            JLOG(j.warn()) << "An accepted ledger was missing nodes";
+            app.getLedgerMaster().failedSave(seq, ledger->info().hash);
+            // Clients can now trust the database for information about this
+            // ledger sequence.
+            app.pendingSaves().finishWork(seq);
+            return false;
+        }
     }
 
     {

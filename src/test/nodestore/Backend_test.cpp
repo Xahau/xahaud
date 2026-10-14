@@ -66,6 +66,14 @@ public:
             // Write the batch
             storeBatch(*backend, batch);
 
+            // Durability on demand: RocksDB drains its write queue and
+            // syncs its WAL; in-memory backends have nothing to wait for;
+            // NuDB commits on its own thread and cannot promise it.
+            backend->store(batch.front());
+            bool const durable = backend->syncDurable();
+            BEAST_EXPECT(durable == (type != "nudb"));
+            backend->sync();
+
             {
                 // Read it back in
                 Batch copy;

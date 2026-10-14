@@ -291,6 +291,9 @@ public:
     void
     sync() override
     {
+        // NuDB commits on its context thread (about once a second) and
+        // offers no public barrier while that thread runs, so this cannot
+        // force durability; syncDurable() therefore reports false.
     }
 
     void
