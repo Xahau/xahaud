@@ -387,7 +387,8 @@ enum class hook_return_code : int64_t {
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 256 modified state
                                          // entires in the combined hook chains
     TOO_MANY_NAMESPACES = -45,
-    ALREADY_IN_SUBLEDGER = -46  // emit_atomic called by a hook executing
+    // -46 is taken by TOO_LITTLE_ENTROPY (featureRNG)
+    ALREADY_IN_SUBLEDGER = -47  // emit_atomic called by a hook executing
                                 // inside a subledger (an emit_atomic txn)
 };
 

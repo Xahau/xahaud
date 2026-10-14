@@ -89,6 +89,13 @@ public:
     void
     destroyXRP(XRPAmount const& fee);
 
+    /** The number of state entries this table would change in its base. */
+    std::size_t
+    size() const
+    {
+        return items_.size();
+    }
+
     std::unique_ptr<ReadView::sles_type::iter_base>
     slesBegin(ReadView const& base) const;
 

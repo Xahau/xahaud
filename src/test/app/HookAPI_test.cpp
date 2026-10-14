@@ -303,6 +303,18 @@ public:
             BEAST_EXPECT(
                 bobBalance(ov) == bobBefore->getFieldAmount(sfBalance));
 
+            // the subledger's changes (alice and bob) count towards the
+            // oversize cap even though the working view itself is empty
+            BEAST_EXPECT(applyCtx.size() == 2);
+
+            // the provisional metadata already lists the Subledger
+            {
+                auto const proMeta = applyCtx.generateProvisionalMeta();
+                BEAST_EXPECT(
+                    proMeta.hasSubledger() &&
+                    proMeta.getSubledger().size() == 1);
+            }
+
             // subledger_slot by txid and by index
             BEAST_EXPECT(
                 api.subledger_slot(0, pay.getTransactionID(), 0).has_value());

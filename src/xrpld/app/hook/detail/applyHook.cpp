@@ -2847,7 +2847,12 @@ DEFINE_HOOK_FUNCTION(
  * that is itself executing inside a subledger. Same blob format and rules as
  * emit(), plus: strong execution only, FirstLedgerSequence ==
  * LastLedgerSequence == the current ledger, at most hook_api::max_atomic_emit
- * attempts per transaction. */
+ * attempts per transaction.
+ *
+ * Hook state: this hook's own state_set() calls are still pending (they are
+ * written once every strong chain has run), so the inner txn's hooks do not
+ * see them, and a key written by both is left as this transaction's hooks
+ * wrote it. Reads through state() do see the inner txn's committed state. */
 DEFINE_HOOK_FUNCTION(
     int64_t,
     emit_atomic,

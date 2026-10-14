@@ -379,8 +379,10 @@ class View_test : public beast::unit_test::suite
         }
 
         // applyState propagates state (and destroyed drops) but no txns
+        BEAST_EXPECT(sandbox.stateSize() == 0);
         sandbox.rawInsert(sle(7, 7));
         sandbox.rawDestroyXRP(XRPAmount{5});
+        BEAST_EXPECT(sandbox.stateSize() == 1);
         sandbox.applyState(base);
         BEAST_EXPECT(base.exists(k(7)));
         BEAST_EXPECT(!base.txExists(uint256(2)));

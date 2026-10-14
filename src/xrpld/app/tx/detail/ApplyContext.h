@@ -153,8 +153,12 @@ public:
         return subledgerEntries_;
     }
 
-    /** Get the number of unapplied changes made by this transaction
-        (changes made by its subledger's transactions are not counted). */
+    /** Get the number of unapplied changes made by this transaction.
+
+        With a subledger this also counts the entries the subledger changes,
+        since apply() commits them as part of this transaction's metadata.
+        An entry changed by both is counted twice, which is conservative
+        (the count only feeds the oversizeMetaDataCap checks). */
     std::size_t
     size();
 
@@ -225,6 +229,10 @@ private:
 
     std::optional<TxMeta>
     commitSubledger(TER ter);
+
+    // copy subledgerEntries_ into the working view's Subledger metadata
+    void
+    syncSubledgerMetaData();
 
     OpenView& base_;
     ApplyFlags flags_;

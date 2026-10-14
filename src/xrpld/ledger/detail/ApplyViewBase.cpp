@@ -186,10 +186,12 @@ ApplyViewBase::flush(RawView& to)
 void
 ApplyViewBase::rebase(ReadView const* base)
 {
+    // size() excludes entries that were only cached by read-only peek()
+    // calls; clear() drops those too, as they belong to the old base
     XRPL_ASSERT(
         items_.size() == 0,
-        "ripple::detail::ApplyViewBase::rebase : nothing buffered");
-    // drops entries that were only cached by read-only peek() calls
+        "ripple::detail::ApplyViewBase::rebase : nothing buffered (flush "
+        "first)");
     items_.clear();
     base_ = base;
 }

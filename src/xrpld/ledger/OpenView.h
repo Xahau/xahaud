@@ -269,6 +269,13 @@ public:
     void
     applyState(RawView& to) const;
 
+    /** The number of state entries this view changes in its base. */
+    std::size_t
+    stateSize() const
+    {
+        return items_.size();
+    }
+
     // ReadView
 
     LedgerInfo const&

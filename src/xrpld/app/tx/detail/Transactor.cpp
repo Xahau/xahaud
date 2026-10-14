@@ -2451,10 +2451,10 @@ Transactor::finishApply(
     }
 
     // A subledger (emit_atomic) is only ever committed with a transaction
-    // that succeeds. The weak-phase oversize check above turns an applied
-    // transaction into a tec without resetting it; when it has a subledger,
-    // reset it now like any other tec, which drops the subledger and claims
-    // the fee only.
+    // that succeeds (ApplyContext::commitSubledger asserts this). The
+    // weak-phase oversize check above turns an applied transaction into a tec
+    // without resetting it; when it has a subledger, reset it now like any
+    // other tec, which drops the subledger and claims the fee only.
     if (applied && !isTesSuccess(result) && ctx_.hasSubledger())
     {
         auto const resetResult = reset(fee);

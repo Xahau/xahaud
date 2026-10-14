@@ -236,6 +236,9 @@ ApplyContext::applyToSubledger(std::shared_ptr<STTx const> const& stx)
     }
     entry->emplace_back(result.metadata->getAsObject());
     subledgerEntries_.push_back(entry);
+    // keep the provisional metadata (weak hooks, meta_slot, balance rewards)
+    // in step with what apply() will commit
+    syncSubledgerMetaData();
 
     JLOG(journal.trace()) << "Subledger[" << tx.getTransactionID()
                           << "]: " << id
@@ -247,27 +250,24 @@ std::optional<TxMeta>
 ApplyContext::commitSubledger(TER ter)
 {
     // Every path that turns a transaction with a subledger into a tec goes
-    // through discard() (see Transactor::finishApply), which drops it.
+    // through discard(), which drops it: reset() on a doApply tec, invariant
+    // failure or oversize, and the dedicated weak-phase oversize block in
+    // Transactor::finishApply.
     XRPL_ASSERT(
         isTesSuccess(ter),
         "ripple::ApplyContext::commitSubledger : transaction succeeded");
 
     // Fold the working view into the subledger, then the whole subledger
     // back into the working view re-layered on the base. The working view
-    // keeps its hook metadata and delivered amount, and its metadata now
-    // describes the net change against the base.
+    // keeps its hook metadata, Subledger metadata (see syncSubledgerMetaData)
+    // and delivered amount, and its AffectedNodes now describe the net change
+    // against the base.
     view_->flush(*subledger_);
     view_->rebase(&base_);
     {
         Unthreader to(*view_, base_, !base_.open());
         subledger_->applyState(to);
     }
-
-    std::vector<STObject> subledger;
-    subledger.reserve(subledgerEntries_.size());
-    for (auto const& entry : subledgerEntries_)
-        subledger.push_back(*entry);
-    view_->setSubledgerMetaData(std::move(subledger));
 
     // the working view no longer refers to it
     subledger_.reset();
@@ -276,10 +276,20 @@ ApplyContext::commitSubledger(TER ter)
     return view_->apply(base_, tx, ter, flags_ & tapDRY_RUN, journal);
 }
 
+void
+ApplyContext::syncSubledgerMetaData()
+{
+    std::vector<STObject> subledger;
+    subledger.reserve(subledgerEntries_.size());
+    for (auto const& entry : subledgerEntries_)
+        subledger.push_back(*entry);
+    view_->setSubledgerMetaData(std::move(subledger));
+}
+
 std::size_t
 ApplyContext::size()
 {
-    return view_->size();
+    return view_->size() + (subledger_ ? subledger_->stateSize() : 0);
 }
 
 void
