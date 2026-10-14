@@ -4723,6 +4723,359 @@ struct Escrow_test : public beast::unit_test::suite
     }
 
     void
+    testDestinationCancel(FeatureBitset features)
+    {
+        using namespace jtx;
+        using namespace std::chrono;
+
+        bool const enabled = features[featureEscrowDestinationCancel];
+        TER const destResult =
+            enabled ? TER{tesSUCCESS} : TER{tecNO_PERMISSION};
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+
+        auto const ownerDirEmpty = [](Env& env, Account const& acct) {
+            ripple::Dir dir(*env.current(), keylet::ownerDir(acct.id()));
+            return std::distance(dir.begin(), dir.end()) == 0;
+        };
+
+        {
+            testcase("Destination Cancel: before CancelAfter");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, bob, carol);
+            env.close();
+
+            auto const seq = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)),
+                finish_time(env.now() + 100s),
+                cancel_time(env.now() + 200s));
+            env.close();
+
+            // Neither the owner nor a third party may cancel early.
+            env(cancel(alice, alice, seq), ter(tecNO_PERMISSION));
+            env(cancel(carol, alice, seq), ter(tecNO_PERMISSION));
+            env.close();
+
+            STAmount const preAlice = env.balance(alice);
+            env(cancel(bob, alice, seq), ter(destResult));
+            env.close();
+
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+                // Funds go back to the owner, not the destination.
+                env.require(balance(alice, preAlice + XRP(1000)));
+                BEAST_EXPECT(env.ownerCount(alice) == 0);
+                BEAST_EXPECT(ownerDirEmpty(env, alice));
+                BEAST_EXPECT(ownerDirEmpty(env, bob));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+                // Rejected outright: nothing moves.
+                env.require(balance(alice, preAlice));
+                BEAST_EXPECT(env.ownerCount(alice) == 1);
+                BEAST_EXPECT(!ownerDirEmpty(env, bob));
+            }
+        }
+
+        {
+            testcase("Destination Cancel: after FinishAfter");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, bob);
+            env.close();
+
+            // Finishable, and with no CancelAfter, otherwise never cancellable.
+            auto const seq = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)), finish_time(env.now() + 1s));
+            env.close(5s);
+
+            env(cancel(alice, alice, seq), ter(tecNO_PERMISSION));
+            env(cancel(bob, alice, seq), ter(destResult));
+            env.close();
+
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+                env(finish(bob, alice, seq));
+                env.close();
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+            }
+        }
+
+        {
+            testcase("Destination Cancel: conditional");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, bob);
+            env.close();
+
+            // The destination does not need the fulfillment to decline.
+            auto const seq = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)),
+                condition(cb1),
+                cancel_time(env.now() + 200s));
+            env.close();
+
+            env(cancel(bob, alice, seq), ter(destResult));
+            env.close();
+
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+            }
+        }
+
+        {
+            testcase("Destination Cancel: self-escrow stays locked");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice);
+            env.close();
+
+            auto const seq = env.seq(alice);
+            env(escrow(alice, alice, XRP(1000)),
+                finish_time(env.now() + 100s),
+                cancel_time(env.now() + 200s));
+            env.close();
+
+            env(cancel(alice, alice, seq), ter(tecNO_PERMISSION));
+            env.close();
+
+            BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+        }
+
+        {
+            testcase("Destination Cancel: EscrowID");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, bob);
+            env.close();
+
+            uint256 const escrowId{keylet::escrow(alice, env.seq(alice)).key};
+            env(escrow(alice, bob, XRP(1000)),
+                finish_time(env.now() + 100s),
+                cancel_time(env.now() + 200s));
+            env.close();
+
+            env(cancel(bob, alice), escrow_id(escrowId), ter(destResult));
+            env.close();
+
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::unchecked(escrowId)));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::unchecked(escrowId)));
+            }
+        }
+
+        {
+            testcase("Destination Cancel: owner hook cannot block");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, bob, carol);
+            env.close();
+
+            auto const seq = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)),
+                finish_time(env.now() + 1s),
+                cancel_time(env.now() + 2s));
+            env.close();
+            env.close();
+
+            // Past CancelAfter, so only the owner's hook stands in the way.
+            env(jtx::hook(alice, {{hso(jtx::genesis::RollbackHook)}}, 0),
+                fee(XRP(2)));
+            env.close();
+
+            // The owner stays a strong tsh when a third party cancels.
+            env(cancel(carol, alice, seq), fee(XRP(1)), ter(tecHOOK_REJECTED));
+            env.close();
+
+            if (enabled)
+            {
+                env(cancel(bob, alice, seq), fee(XRP(1)));
+                env.close();
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+            }
+            else
+            {
+                env(cancel(bob, alice, seq),
+                    fee(XRP(1)),
+                    ter(tecHOOK_REJECTED));
+                env.close();
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+            }
+        }
+
+        {
+            testcase("Destination Cancel: IOU");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, bob, gw);
+            env.close();
+            env.trust(USD(10000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(5000)));
+            env.close();
+
+            auto const seq = env.seq(alice);
+            env(escrow(alice, bob, USD(1000)),
+                finish_time(env.now() + 100s),
+                cancel_time(env.now() + 200s));
+            env.close();
+            BEAST_EXPECT(-lockedAmount(env, alice, gw, USD) == USD(1000));
+
+            env(cancel(bob, alice, seq), ter(destResult));
+            env.close();
+
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq)));
+                BEAST_EXPECT(-lockedAmount(env, alice, gw, USD) == USD(0));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq)));
+                BEAST_EXPECT(-lockedAmount(env, alice, gw, USD) == USD(1000));
+            }
+            env.require(balance(alice, USD(5000)));
+            env.require(balance(bob, USD(0)));
+        }
+
+        {
+            testcase("Destination Cancel: issuer-owned IOU");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, gw);
+            env.close();
+            env.trust(USD(10000), alice);
+            env.close();
+
+            // An issuer escrowing its own IOU locks nothing, so the cancel
+            // only has to unwind the escrow itself.
+            auto const seq = env.seq(gw);
+            env(escrow(gw, alice, USD(1000)),
+                finish_time(env.now() + 100s),
+                cancel_time(env.now() + 200s));
+            env.close();
+            BEAST_EXPECT(env.ownerCount(gw) == 1);
+
+            env(cancel(gw, gw, seq), ter(tecNO_PERMISSION));
+            env(cancel(alice, gw, seq), ter(destResult));
+            env.close();
+
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(gw.id(), seq)));
+                BEAST_EXPECT(env.ownerCount(gw) == 0);
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(gw.id(), seq)));
+                BEAST_EXPECT(env.ownerCount(gw) == 1);
+            }
+            env.require(balance(alice, USD(0)));
+        }
+
+        {
+            testcase("Destination Cancel: owner hook chain not charged");
+            Env env{*this, features};
+            env.fund(XRP(5000), alice, bob, carol);
+            env.close();
+
+            auto const seq = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)),
+                finish_time(env.now() + 1s),
+                cancel_time(env.now() + 2s));
+            env.close();
+            env.close();
+
+            auto const feeFor = [&](Account const& acct) {
+                return calculateBaseFee(
+                    *env.current(), *env.jt(cancel(acct, alice, seq)).stx);
+            };
+
+            XRPAmount const bobBefore = feeFor(bob);
+            XRPAmount const carolBefore = feeFor(carol);
+
+            env(jtx::hook(alice, {{hso(jtx::genesis::RollbackHook)}}, 0),
+                fee(XRP(2)));
+            env.close();
+
+            // A third party still pays for the owner's (strong) hook chain.
+            BEAST_EXPECT(feeFor(carol) > carolBefore);
+
+            // The destination does too, but only without the amendment.
+            if (enabled)
+            {
+                BEAST_EXPECT(feeFor(bob) == bobBefore);
+            }
+            else
+            {
+                BEAST_EXPECT(feeFor(bob) > bobBefore);
+            }
+        }
+
+        {
+            // fix1571 is still a live (DefaultYes) amendment on Xahau, so the
+            // legacy CancelAfter check in EscrowCancel remains reachable.
+            testcase("Destination Cancel: without fix1571");
+            Env env{*this, features - fix1571};
+            env.fund(XRP(5000), alice, bob, carol);
+            env.close();
+
+            // No CancelAfter.
+            auto const seq1 = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)), finish_time(env.now() + 100s));
+
+            // CancelAfter in the future.
+            auto const seq2 = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)),
+                finish_time(env.now() + 100s),
+                cancel_time(env.now() + 200s));
+
+            // CancelAfter about to pass.
+            auto const seq3 = env.seq(alice);
+            env(escrow(alice, bob, XRP(1000)),
+                finish_time(env.now() + 1s),
+                cancel_time(env.now() + 2s));
+            env.close();
+
+            env(cancel(alice, alice, seq1), ter(tecNO_PERMISSION));
+            env(cancel(carol, alice, seq2), ter(tecNO_PERMISSION));
+            env(cancel(bob, alice, seq1), ter(destResult));
+            env(cancel(bob, alice, seq2), ter(destResult));
+            env.close();
+
+            if (enabled)
+            {
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq1)));
+                BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq2)));
+            }
+            else
+            {
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq1)));
+                BEAST_EXPECT(env.le(keylet::escrow(alice.id(), seq2)));
+            }
+
+            // Past CancelAfter anyone may cancel, with or without the
+            // amendment.
+            env(cancel(carol, alice, seq3));
+            env.close();
+            BEAST_EXPECT(!env.le(keylet::escrow(alice.id(), seq3)));
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnablement(features);
@@ -4770,12 +5123,17 @@ public:
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments() | featureCredentials};
-        testWithFeats(all - featurePaychanAndEscrowForTokens);
-        testWithFeats(all);
-        testIOUWithFeats(all - featureClawback);
-        testIOUWithFeats(all);
+        // The pre-existing suites assert that the destination cannot cancel
+        // early, so they run without featureEscrowDestinationCancel.
+        FeatureBitset const legacy{all - featureEscrowDestinationCancel};
+        testWithFeats(legacy - featurePaychanAndEscrowForTokens);
+        testWithFeats(legacy);
+        testIOUWithFeats(legacy - featureClawback);
+        testIOUWithFeats(legacy);
         testEscrowID(all);
         testCredentials(all);
+        testDestinationCancel(legacy);
+        testDestinationCancel(all);
     }
 };
 

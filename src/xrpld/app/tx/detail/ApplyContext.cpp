@@ -50,7 +50,31 @@ ApplyContext::ApplyContext(
 void
 ApplyContext::discard()
 {
+    // featureRNG: Hook draws are never undone. If this transaction drew from
+    // the RNG, its advanced state survives the discard (as does the record of
+    // what its Hooks were given), so a rollback cannot preserve an RNG state
+    // for whatever executes next.
+    std::optional<uint256> const randomData = view_->getRandomData();
+    std::optional<uint256> rngState;
+    if (randomData)
+    {
+        if (auto const sle = view_->read(keylet::random()))
+            rngState = sle->getFieldH256(sfRandomData);
+    }
+
     view_.emplace(&base_, flags_);
+
+    if (randomData)
+        view_->setRandomData(*randomData);
+
+    if (rngState)
+    {
+        if (auto sle = view_->peek(keylet::random()))
+        {
+            sle->setFieldH256(sfRandomData, *rngState);
+            view_->update(sle);
+        }
+    }
 }
 
 std::optional<TxMeta>

@@ -27,6 +27,7 @@ namespace ripple {
 
 NodeFamily::NodeFamily(Application& app, CollectorManager& cm)
     : app_(app)
+    , nullBackend_(app.config().nullBackend())
     , db_(app.getNodeStore())
     , j_(app.journal("NodeFamily"))
     , fbCache_(std::make_shared<FullBelowCache>(

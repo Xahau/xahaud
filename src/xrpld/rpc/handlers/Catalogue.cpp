@@ -232,7 +232,6 @@ class CatalogueSizePredictor
 private:
     uint32_t minLedger_;
     uint32_t maxLedger_;
-    [[maybe_unused]] uint64_t headerSize_;
 
     // Keep track of actual bytes
     uint64_t totalBytesWritten_;
@@ -248,7 +247,6 @@ public:
         uint64_t headerSize)
         : minLedger_(minLedger)
         , maxLedger_(maxLedger)
-        , headerSize_(headerSize)
         , totalBytesWritten_(headerSize)
         , firstLedgerSize_(0)
         , processedLedgers_(0)

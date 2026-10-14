@@ -491,6 +491,16 @@ public:
     Expected<uint256, HookReturnCode>
     ledger_nonce() const;
 
+    /// RNG APIs (featureRNG)
+
+    // A uniform integer in [0, sides).
+    Expected<uint64_t, HookReturnCode>
+    dice(uint32_t sides) const;
+
+    // len (1 to 512) random bytes.
+    Expected<Bytes, HookReturnCode>
+    util_random(uint32_t len) const;
+
     Expected<Keylet, HookReturnCode>
     ledger_keylet(Keylet const& klLo, Keylet const& klHi) const;
 
@@ -630,6 +640,10 @@ private:
         Rules const& rules,
         int recursion_depth = 0)  // used internally
         const;
+
+    // featureRNG: advance the ledger's RNG state and return one output block.
+    Expected<uint256, HookReturnCode>
+    rng_next() const;
 };
 
 }  // namespace hook

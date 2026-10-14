@@ -1203,6 +1203,96 @@ class UNLReportVoteNewValidator_test : public beast::unit_test::suite
     }
 };
 
+/*
+ * Regression test: UNLReport proposals must not be gated on the N-UNL local
+ * reliability threshold.
+ *
+ * The local node (validator 0) validates exactly `myVals` of the 256 scored
+ * ledgers, validator 1 validates none (so it is an N-UNL disable candidate and
+ * absent from the report), every other validator validates all of them.
+ *
+ * == myVals <= 128: not active ourselves -> no UNLReport, no UNLModify
+ * == 129 .. 229:    UNLReport proposed, not reliable enough to vote on N-UNL
+ * == >= 230:        UNLReport and one UNLModify (230 used to fall into the
+ *                   "Too many!" branch and fail)
+ */
+class UNLReportVoteLocalReliability_test : public beast::unit_test::suite
+{
+    void
+    testDoVoting()
+    {
+        testcase("Do Voting with local reliability below N-UNL threshold");
+
+        struct Case
+        {
+            std::uint32_t myVals;
+            bool expectReport;
+            bool expectModify;
+        };
+
+        std::array<Case, 6> const cases = {{
+            {128, false, false},
+            {129, true, false},
+            {229, true, false},
+            {230, true, true},
+            {231, true, true},
+            {256, true, true},
+        }};
+
+        for (bool const withVLImport : {true, false})
+        {
+            for (auto const& c : cases)
+            {
+                std::uint32_t const numNodes = 20;
+                URNetworkHistory history = {
+                    *this, {numNodes, 0, false, false, withVLImport, {}}};
+                BEAST_EXPECT(history.goodHistory);
+                if (!history.goodHistory)
+                    continue;
+
+                // scored ledgers are [lastSeq - 256, lastSeq - 1]
+                auto const lastSeq = history.lastLedger()->seq();
+                history.walkHistoryAndAddValidations(
+                    [&](std::shared_ptr<Ledger const> const& l,
+                        std::size_t idx) -> bool {
+                        if (idx == 1)
+                            return false;
+                        if (idx != 0)
+                            return true;
+                        return l->seq() + 256 < lastSeq + c.myVals;
+                    });
+
+                NegativeUNLVote vote(
+                    history.UNLNodeIDs[0],
+                    history.env.journal,
+                    history.env.app());
+                auto txSet = std::make_shared<SHAMap>(
+                    SHAMapType::TRANSACTION, history.env.app().getNodeFamily());
+                vote.doVoting(
+                    history.lastLedger(),
+                    history.UNLKeySet,
+                    history.validations,
+                    txSet);
+
+                std::size_t const expectReport =
+                    c.expectReport ? numNodes - 1 + (withVLImport ? 1 : 0) : 0;
+                std::size_t const expectModify = c.expectModify ? 1 : 0;
+                std::string const ctx = "myVals=" + std::to_string(c.myVals) +
+                    " withVLImport=" + std::to_string(withVLImport);
+
+                BEAST_EXPECTS(countUNLRTx(txSet) == expectReport, ctx);
+                BEAST_EXPECTS(unl::countTx(txSet) == expectModify, ctx);
+            }
+        }
+    }
+
+    void
+    run() override
+    {
+        testDoVoting();
+    }
+};
+
 BEAST_DEFINE_TESTSUITE(UNLReport, ledger, ripple);
 BEAST_DEFINE_TESTSUITE(UNLReportNoAmendment, ledger, ripple);
 BEAST_DEFINE_TESTSUITE(UNLReportFork, consensus, ripple);
@@ -1215,6 +1305,7 @@ BEAST_DEFINE_TESTSUITE_PRIO(
     ripple,
     1);
 BEAST_DEFINE_TESTSUITE(UNLReportVoteNewValidator, consensus, ripple);
+BEAST_DEFINE_TESTSUITE(UNLReportVoteLocalReliability, consensus, ripple);
 
 ///////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////

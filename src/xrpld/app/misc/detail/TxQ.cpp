@@ -106,17 +106,18 @@ TxQ::FeeMetrics::update(
     TxQ::Setup const& setup)
 {
     std::vector<FeeLevel64> feeLevels;
-    auto const txBegin = view.txs.begin();
-    auto const txEnd = view.txs.end();
-    auto const size = std::distance(txBegin, txEnd);
-    feeLevels.reserve(size);
-    std::for_each(txBegin, txEnd, [&](auto const& tx) {
+    for (auto const& tx : view.txs)
+    {
+        // featureRNG: every proposing validator puts a zero-fee ttENTROPY
+        // into every ledger. These are consensus plumbing, not demand for
+        // ledger space, so they must not raise the expected transaction count
+        // or drag down the median fee level used for escalation.
+        if (tx.first->getTxnType() == ttENTROPY)
+            continue;
         feeLevels.push_back(getFeeLevelPaid(view, *tx.first));
-    });
+    }
     std::sort(feeLevels.begin(), feeLevels.end());
-    XRPL_ASSERT(
-        size == feeLevels.size(),
-        "ripple::TxQ::FeeMetrics::update : fee levels size");
+    std::size_t const size = feeLevels.size();
 
     JLOG((timeLeap ? j_.warn() : j_.debug()))
         << "Ledger " << view.info().seq << " has " << size << " transactions. "
@@ -1658,11 +1659,9 @@ TxQ::accept(Application& app, OpenView& view)
                             [seq, txnHash, emitDetails](auto& obj) {
                                 obj[sfLedgerSequence] = seq;
                                 obj[sfTransactionHash] = txnHash;
-                                obj.emplace_back(emitDetails);
-                                /*std::unique_ptr<STBase> ed =
-                                    std::make_unique<STBase>(emitDetails);
-                                ed->setFName(sfEmitDetails);
-                                obj.set(std::move(ed));*/
+                                // replace the template slot rather than
+                                // appending a duplicate (bytes unchanged)
+                                obj.set(STObject(emitDetails));
                             });
 
                         uint256 txID = efTx.getTransactionID();

@@ -101,7 +101,7 @@ else
   # GH Action, runner
     if [[ "$(git rev-parse --abbrev-ref HEAD)" == "release" ]]; then
         echo "building on the release branch... placing it in builds/candidate"
-        mkdir /data/builds/candidate
+        mkdir -p /data/builds/candidate
         cp /io/release-build/xahaud /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
         cp /io/release-build/release.info /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
     else
