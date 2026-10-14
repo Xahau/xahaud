@@ -36,6 +36,7 @@
 #include <xrpl/beast/utility/instrumentation.h>
 #include <boost/iostreams/filtering_stream.hpp>
 #include <cassert>
+#include <functional>
 #include <stack>
 #include <vector>
 
@@ -212,12 +213,42 @@ public:
         SHAMapNodeType type,
         boost::intrusive_ptr<SHAMapItem const> item);
 
+    /** Replace the item with the same key if present, otherwise add it.
+
+        Equivalent to `hasItem(key) ? updateGiveItem(..) : addGiveItem(..)`
+        but walks the tree once when the key already exists.
+
+        @return false if the key exists with a different leaf type, or if
+                the add fails.
+    */
+    bool
+    upsertGiveItem(
+        SHAMapNodeType type,
+        boost::intrusive_ptr<SHAMapItem const> item);
+
     // Save a copy if you need to extend the life
     // of the SHAMapItem beyond this SHAMap
     boost::intrusive_ptr<SHAMapItem const> const&
     peekItem(uint256 const& id) const;
     boost::intrusive_ptr<SHAMapItem const> const&
     peekItem(uint256 const& id, SHAMapHash& hash) const;
+
+    /** Look up an item in a map that may not hold every node.
+
+        Unlike peekItem(), meeting a node that is neither in memory nor in the
+        node store is not an error. The ID and hash of the first such node on
+        the way to the key are returned in `missing` instead: what a peer would
+        be asked for next to read the key.
+
+        @param id Key to look up
+        @param missing Set to the first node not held on the path, if any
+
+        @return the item, or nullptr if the key is absent or `missing` is set
+    */
+    boost::intrusive_ptr<SHAMapItem const>
+    peekItemPartial(
+        uint256 const& id,
+        std::optional<std::pair<SHAMapNodeID, uint256>>& missing) const;
 
     // traverse functions
     /** Find the first item after the given item.
@@ -350,6 +381,26 @@ public:
     int
     flushDirty(NodeObjectType t);
 
+    /** Receives each node written by flushDirty(t, sink): the type passed
+        to flushDirty, the node serialized with its hash prefix, and its
+        hash.
+    */
+    using FlushSink =
+        std::function<void(NodeObjectType, Blob&&, uint256 const&)>;
+
+    /** Flush modified nodes to `sink` instead of the nodestore and convert
+        them to shared.
+
+        Unlike flushDirty(t), written nodes are NOT canonicalized into the
+        family's TreeNodeCache. Bulk writers of history (catalogue_load)
+        must use this: every cached inner node holds strong references to
+        its children, so canonicalizing pins every superseded node version
+        in memory until the cache sweeps it, which on a fast import grows
+        without practical bound.
+    */
+    int
+    flushDirty(NodeObjectType t, FlushSink const& sink);
+
     void
     walkMap(std::vector<SHAMapMissingNode>& missingNodes, int maxMissing) const;
     bool
@@ -432,9 +483,13 @@ private:
     std::shared_ptr<Node>
     preFlushNode(std::shared_ptr<Node> node) const;
 
-    /** write and canonicalize modified node */
+    /** write and canonicalize modified node; if `sink` is set, hand the
+        serialized node to it instead and do not canonicalize */
     std::shared_ptr<SHAMapTreeNode>
-    writeNode(NodeObjectType t, std::shared_ptr<SHAMapTreeNode> node) const;
+    writeNode(
+        NodeObjectType t,
+        std::shared_ptr<SHAMapTreeNode> node,
+        FlushSink const* sink = nullptr) const;
 
     // returns the first item at or below this node
     SHAMapLeafNode*
@@ -517,7 +572,10 @@ private:
         Delta& differences,
         int& maxCount) const;
     int
-    walkSubTree(bool doWrite, NodeObjectType t);
+    walkSubTree(
+        bool doWrite,
+        NodeObjectType t,
+        FlushSink const* sink = nullptr);
 
     // Structure to track information about call to
     // getMissingNodes while it's in progress

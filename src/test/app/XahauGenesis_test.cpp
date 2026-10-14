@@ -28,6 +28,7 @@
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -4676,11 +4677,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
         // validate account fields
         STAmount const postUser = preUser + netReward;
         bool const has240819 = env.current()->rules().enabled(fix240819);
+        bool const has20261005 = env.current()->rules().enabled(fix20261005);
         BEAST_EXPECT(expectAccountFields(
             env,
             user,
             preLedger,
-            has240819 ? preLedger : preLedger + 1,
+            (has240819 && !has20261005) ? preLedger : preLedger + 1,
             has240819 ? (preUser - feesXRP) : postUser,
             preTime));
     }
@@ -5567,8 +5569,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // calculate rewards
-        bool const hasFix = env.current()->rules().enabled(fix240819) &&
-            env.current()->rules().enabled(fix240911);
+        bool const hasFix = env.current()->rules().enabled(fix240819);
         STAmount const netReward =
             rewardUserAmount(*acctSle, preLedger, rateDrops);
         BEAST_EXPECT(netReward == (hasFix ? XRP(3.329999) : XRP(3.329999)));
@@ -5659,8 +5660,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // calculate rewards
-        bool const hasFix = env.current()->rules().enabled(fix240819) &&
-            env.current()->rules().enabled(fix240911);
+        bool const hasFix = env.current()->rules().enabled(fix240819);
         STAmount const netReward =
             rewardUserAmount(*acctSle, preLedger, rateDrops);
         BEAST_EXPECT(netReward == (hasFix ? XRP(3.479999) : XRP(6.663333)));
@@ -5679,8 +5679,195 @@ struct XahauGenesis_test : public beast::unit_test::suite
     }
 
     void
+    test20261005(FeatureBitset features)
+    {
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        testcase("test fix20261005");
+
+        bool const has240819 = features[fix240819];
+        bool const has20261005 = features[fix20261005];
+        bool const nofix = !(has240819 && has20261005);
+
+        Env env{
+            *this, makeNetworkConfig(21337), features - featureXahauGenesis};
+
+        STAmount const feesXRP = XRP(1);
+
+        Account const user = Account("user");
+        env.fund(XRP(200), user);
+        env.close();
+
+        // setup governance
+        Account const alice = Account("alice");
+        Account const bob = Account("bob");
+        Account const carol = Account("carol");
+        Account const david = Account("david");
+        Account const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        {
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env, alice, bob, carol, david, edward, 'R', 'D', vote_data);
+        }
+
+        BEAST_EXPECT(hasUNLReport(env) == false);
+
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        env(noop(user),
+            fee(env.balance(user) - drops(500'000)),
+            ter(tesSUCCESS));
+        env.close();
+        BEAST_EXPECT(env.balance(user) == drops(500'000));
+        BEAST_EXPECT(env.balance(user) < XRP(1));
+
+        std::uint32_t const drainMarker =
+            env.le(keylet::account(user))->getFieldU32(sfRewardLgrLast);
+
+        for (int i = 0; i < 20; ++i)
+            env.close(10s);
+
+        BEAST_EXPECT(env.balance(user) < XRP(1));
+
+        env(pay(alice, user, XRP(1000)));
+        env.close();
+
+        std::uint32_t const fundMarker =
+            env.le(keylet::account(user))->getFieldU32(sfRewardLgrLast);
+
+        bool const markerFrozen = has240819 && !has20261005;
+        if (markerFrozen)
+            BEAST_EXPECT(fundMarker == drainMarker);
+        else
+            BEAST_EXPECT(fundMarker > drainMarker);
+
+        STAmount const preUser = env.balance(user);
+
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+
+        env.close();
+
+        STAmount const postUser = env.balance(user);
+
+        if (nofix)
+            BEAST_EXPECT(postUser > preUser + XRP(1));
+        else
+            BEAST_EXPECT(postUser < preUser + XRP(1));
+    }
+
+    void
+    testRewardAccumulatorOverflow(FeatureBitset features)
+    {
+        using namespace jtx;
+        testcase("reward accumulator overflow");
+
+        bool const has20261005 = features[fix20261005];
+
+        Env env{
+            *this, makeNetworkConfig(21337), features - featureXahauGenesis};
+
+        STAmount const feesXRP = XRP(1);
+
+        Account const user = Account("user");
+        env.fund(XRP(10000), user);
+        env.close();
+
+        // setup governance
+        Account const alice = Account("alice");
+        Account const bob = Account("bob");
+        Account const carol = Account("carol");
+        Account const david = Account("david");
+        Account const edward = Account("edward");
+
+        env.fund(XRP(10000), alice, bob, carol, david, edward);
+        env.close();
+
+        std::vector<AccountID> initial_members_ids{
+            alice.id(), bob.id(), carol.id(), david.id(), edward.id()};
+
+        setupGov(env, initial_members_ids);
+
+        {
+            std::vector<uint8_t> vote_data{
+                0x00U, 0x80U, 0xC6U, 0xA4U, 0x7EU, 0x8DU, 0x03U, 0x55U};
+
+            updateTopic(
+                env, alice, bob, carol, david, edward, 'R', 'D', vote_data);
+        }
+
+        // opt in so the account carries the reward fields
+        env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
+        env.close();
+        env.close();
+
+        auto const preSle = env.le(keylet::account(user));
+        BEAST_REQUIRE(preSle);
+        BEAST_REQUIRE(preSle->isFieldPresent(sfRewardLgrLast));
+        BEAST_REQUIRE(preSle->isFieldPresent(sfRewardAccumulator));
+
+        std::uint32_t const preMarker = preSle->getFieldU32(sfRewardLgrLast);
+        BEAST_EXPECT(preMarker < env.current()->seq());
+
+        constexpr std::uint64_t maxAccum =
+            std::numeric_limits<std::uint64_t>::max();
+
+        // Push the accumulator to the brink in the open ledger so that any
+        // non-zero bal * lgrElapsed wraps around in finishApply.
+        env.app().openLedger().modify(
+            [&](OpenView& view, beast::Journal) -> bool {
+                auto const sle = view.read(keylet::account(user));
+                if (!sle)
+                    return false;
+                auto replacement = std::make_shared<SLE>(*sle);
+                replacement->setFieldU64(sfRewardAccumulator, maxAccum);
+                view.rawReplace(replacement);
+                return true;
+            });
+
+        BEAST_EXPECT(
+            env.le(keylet::account(user))->getFieldU64(sfRewardAccumulator) ==
+            maxAccum);
+
+        // Any balance change on user runs the reward block in finishApply.
+        env(pay(alice, user, XRP(1)), ter(tesSUCCESS));
+
+        // Check the open ledger before close() rebuilds it without the
+        // injected accumulator.
+        auto const postSle = env.le(keylet::account(user));
+        BEAST_REQUIRE(postSle);
+
+        // the overflowing contribution is never added
+        BEAST_EXPECT(postSle->getFieldU64(sfRewardAccumulator) == maxAccum);
+
+        // with the fix the marker advances so the span can't be reused;
+        // without it the marker is left behind
+        if (has20261005)
+            BEAST_EXPECT(
+                postSle->getFieldU32(sfRewardLgrLast) == env.current()->seq());
+        else
+            BEAST_EXPECT(postSle->getFieldU32(sfRewardLgrLast) == preMarker);
+
+        env.close();
+    }
+
+    void
     testRewardHookWithFeats(FeatureBitset features)
     {
+        test20261005(features);
+        testRewardAccumulatorOverflow(features);
         testLastCloseTime(features);
         testInvalidRate0(features);
         testInvalidRateGreater1(features);
@@ -5723,7 +5910,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testGovernHookWithFeats(sa);
         testRewardHookWithFeats(sa);
         testRewardHookWithFeats(sa - fix240819);
-        testRewardHookWithFeats(sa - fix240819 - fix240911);
+        testRewardHookWithFeats(sa - fix20261005);
     }
 };
 

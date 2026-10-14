@@ -41,6 +41,14 @@ public:
     static TxConsequences
     makeTxConsequences(PreflightContext const& ctx);
 
+    /** Adds appLoaderFeeDropsPerByte per byte of AppLoader document.
+
+        The AppLoader ledger object carries no owner reserve, so the cost of
+        the storage is recovered here instead.
+    */
+    static XRPAmount
+    calculateBaseFee(ReadView const& view, STTx const& tx);
+
     static NotTEC
     preflight(PreflightContext const& ctx);
 

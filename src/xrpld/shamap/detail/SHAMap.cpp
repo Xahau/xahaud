@@ -696,6 +696,44 @@ SHAMap::peekNextItem(uint256 const& id, SharedPtrNodeStack& stack) const
     return nullptr;
 }
 
+boost::intrusive_ptr<SHAMapItem const>
+SHAMap::peekItemPartial(
+    uint256 const& id,
+    std::optional<std::pair<SHAMapNodeID, uint256>>& missing) const
+{
+    missing.reset();
+
+    // Raw pointers, as in getMissingNodes(): every node visited is held by its
+    // parent, and the root by the map, for as long as the map lives.
+    SHAMapTreeNode* node = root_.get();
+    SHAMapNodeID nodeID;
+
+    while (node->isInner())
+    {
+        auto const inner = static_cast<SHAMapInnerNode*>(node);
+        auto const branch = selectBranch(nodeID, id);
+        if (inner->isEmptyBranch(branch))
+            return {};
+
+        auto const child = descend(inner, branch);
+        auto const childID = nodeID.getChildNodeID(branch);
+        if (!child)
+        {
+            missing.emplace(childID, inner->getChildHash(branch).as_uint256());
+            return {};
+        }
+
+        node = child;
+        nodeID = childID;
+    }
+
+    auto const& item = static_cast<SHAMapLeafNode*>(node)->peekItem();
+    if (!item || item->key() != id)
+        return {};
+
+    return item;
+}
+
 boost::intrusive_ptr<SHAMapItem const> const&
 SHAMap::peekItem(uint256 const& id) const
 {
@@ -1022,6 +1060,42 @@ SHAMap::updateGiveItem(
 }
 
 bool
+SHAMap::upsertGiveItem(
+    SHAMapNodeType type,
+    boost::intrusive_ptr<SHAMapItem const> item)
+{
+    XRPL_ASSERT(
+        state_ != SHAMapState::Immutable,
+        "ripple::SHAMap::upsertGiveItem : not immutable");
+
+    uint256 const tag = item->key();
+
+    SharedPtrNodeStack stack;
+    auto const leaf = walkTowardsKey(tag, &stack);
+
+    if (!leaf || leaf->peekItem()->key() != tag)
+        return addGiveItem(type, std::move(item));
+
+    // From here this mirrors updateGiveItem, reusing the walk above.
+    auto node = std::static_pointer_cast<SHAMapLeafNode>(stack.top().first);
+    auto const nodeID = stack.top().second;
+    stack.pop();
+
+    if (node->getType() != type)
+    {
+        JLOG(journal_.fatal()) << "SHAMap::upsertGiveItem: cross-type change!";
+        return false;
+    }
+
+    node = unshareNode(std::move(node), nodeID);
+
+    if (node->setItem(std::move(item)))
+        dirtyUp(stack, tag, node);
+
+    return true;
+}
+
+bool
 SHAMap::fetchRoot(SHAMapHash const& hash, SHAMapSyncFilter* filter)
 {
     if (hash == root_->getHash())
@@ -1070,10 +1144,24 @@ SHAMap::fetchRoot(SHAMapHash const& hash, SHAMapSyncFilter* filter)
           first call SHAMapTreeNode::unshare().
  */
 std::shared_ptr<SHAMapTreeNode>
-SHAMap::writeNode(NodeObjectType t, std::shared_ptr<SHAMapTreeNode> node) const
+SHAMap::writeNode(
+    NodeObjectType t,
+    std::shared_ptr<SHAMapTreeNode> node,
+    FlushSink const* sink) const
 {
     XRPL_ASSERT(
         node->cowid() == 0, "ripple::SHAMap::writeNode : valid input node");
+
+    if (sink)
+    {
+        // Bulk-write path: no TreeNodeCache, no direct store. The caller
+        // owns persistence (see flushDirty(t, sink)).
+        Serializer s;
+        node->serializeWithPrefix(s);
+        (*sink)(t, std::move(s.modData()), node->getHash().as_uint256());
+        return node;
+    }
+
     XRPL_ASSERT(backed_, "ripple::SHAMap::writeNode : is backed");
 
     canonicalize(node->getHash(), node);
@@ -1121,10 +1209,19 @@ SHAMap::flushDirty(NodeObjectType t)
 }
 
 int
-SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
+SHAMap::flushDirty(NodeObjectType t, FlushSink const& sink)
+{
+    // The sink decides where nodes go, so this writes whether or not the
+    // map is backed.
+    return walkSubTree(true, t, &sink);
+}
+
+int
+SHAMap::walkSubTree(bool doWrite, NodeObjectType t, FlushSink const* sink)
 {
     XRPL_ASSERT(
-        !doWrite || backed_, "ripple::SHAMap::walkSubTree : valid input");
+        !doWrite || backed_ || sink,
+        "ripple::SHAMap::walkSubTree : valid input");
 
     int flushed = 0;
 
@@ -1138,7 +1235,7 @@ SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
         root_->unshare();
 
         if (doWrite)
-            root_ = writeNode(t, std::move(root_));
+            root_ = writeNode(t, std::move(root_), sink);
 
         return 1;
     }
@@ -1207,7 +1304,7 @@ SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
                         child->unshare();
 
                         if (doWrite)
-                            child = writeNode(t, std::move(child));
+                            child = writeNode(t, std::move(child), sink);
 
                         node->shareChild(branch, child);
                     }
@@ -1223,7 +1320,7 @@ SHAMap::walkSubTree(bool doWrite, NodeObjectType t)
 
         if (doWrite)
             node = std::static_pointer_cast<SHAMapInnerNode>(
-                writeNode(t, std::move(node)));
+                writeNode(t, std::move(node), sink));
 
         ++flushed;
 

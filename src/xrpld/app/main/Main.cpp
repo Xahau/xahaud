@@ -159,6 +159,7 @@ printHelp(const po::options_description& desc)
            "     gateway_balances [<ledger>] <issuer_account> [ <hotwallet> [ "
            "<hotwallet> ]]\n"
            "     get_counts\n"
+           "     hook_validate <hex>\n"
            "     json <method> <json>\n"
            "     ledger [<id>|current|closed|validated] [full]\n"
            "     ledger_accept\n"

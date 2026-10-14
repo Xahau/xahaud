@@ -501,7 +501,9 @@ LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger, bool pin)
             std::lock_guard sl(mPinnedLock);
             mPinnedLedgers.insert(range(seq, seq));
         }
-        JLOG(m_journal.info()) << "Pinned ledger : " << seq;
+        // catalogue_load pins every ledger it imports; at info this would
+        // emit one line per ledger for the whole file.
+        JLOG(m_journal.debug()) << "Pinned ledger : " << seq;
     }
     return true;
 }
@@ -584,6 +586,19 @@ LedgerMaster::unpinLedger(std::uint32_t seq)
 {
     std::lock_guard sl(mPinnedLock);
     mPinnedLedgers.erase(range(seq, seq));
+}
+
+RangeSet<std::uint32_t>
+LedgerMaster::unpinLedgers(
+    RangeSet<std::uint32_t> const& ranges,
+    RangeSet<std::uint32_t> const& dropFromComplete)
+{
+    std::scoped_lock lock(mCompleteLock, mPinnedLock);
+    RangeSet<std::uint32_t> removed = mPinnedLedgers & ranges;
+    mPinnedLedgers -= removed;
+    if (!dropFromComplete.empty())
+        mCompleteLedgers -= (removed & dropFromComplete);
+    return removed;
 }
 
 bool

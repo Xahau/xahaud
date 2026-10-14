@@ -533,6 +533,15 @@ private:
         return jvRequest;
     }
 
+    // hook_validate <hex>
+    Json::Value
+    parseHookValidate(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+        jvRequest[jss::code] = jvParams[0u].asString();
+        return jvRequest;
+    }
+
     // sign_for <account> <secret> <json> offline
     // sign_for <account> <secret> <json>
     Json::Value
@@ -837,6 +846,22 @@ private:
             {
                 jvRequest[jss::ignore_hash] = true;
             }
+        }
+
+        return jvRequest;
+    }
+
+    // catalogue_unpin <ledger_index_min> <ledger_index_max>
+    Json::Value
+    parseCatalogueUnpin(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+
+        if (jvParams.size() >= 2)
+        {
+            // asUInt() throws on non-numeric input rather than yielding 0
+            jvRequest[jss::ledger_index_min] = jvParams[0u].asUInt();
+            jvRequest[jss::ledger_index_max] = jvParams[1u].asUInt();
         }
 
         return jvRequest;
@@ -1371,6 +1396,34 @@ private:
         return jvRequest;
     }
 
+    // pwa_info [reset] [flush_dns]
+    Json::Value
+    parsePWAInfo(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+        for (Json::UInt i = 0; i < jvParams.size(); ++i)
+        {
+            auto const param = jvParams[i].asString();
+            if ((param != "reset" && param != "flush_dns") ||
+                jvRequest.isMember(param))
+                return rpcError(rpcINVALID_PARAMS);
+            jvRequest[param] = true;
+        }
+        return jvRequest;
+    }
+
+    // pwa_validate <account> <hash> [<domain>]
+    Json::Value
+    parsePWAValidate(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+        jvRequest[jss::account] = jvParams[0u].asString();
+        jvRequest[jss::hash] = jvParams[1u].asString();
+        if (jvParams.size() > 2)
+            jvRequest[jss::domain] = jvParams[2u].asString();
+        return jvRequest;
+    }
+
     // server_info [counters]
     Json::Value
     parseServerInfo(Json::Value const& jvParams)
@@ -1433,6 +1486,7 @@ public:
             {"catalogue_create", &RPCParser::parseCatalogueCreate, 3, 4},
             {"catalogue_load", &RPCParser::parseCatalogueLoad, 1, 2},
             {"catalogue_status", &RPCParser::parseCatalogueStatus, 0, 0},
+            {"catalogue_unpin", &RPCParser::parseCatalogueUnpin, 2, 2},
             {"channel_authorize", &RPCParser::parseChannelAuthorize, 3, 4},
             {"channel_verify", &RPCParser::parseChannelVerify, 4, 4},
             {"connect", &RPCParser::parseConnect, 1, 2},
@@ -1443,6 +1497,7 @@ public:
             {"fetch_info", &RPCParser::parseFetchInfo, 0, 1},
             {"gateway_balances", &RPCParser::parseGatewayBalances, 1, -1},
             {"get_counts", &RPCParser::parseGetCounts, 0, 1},
+            {"hook_validate", &RPCParser::parseHookValidate, 1, 1},
             {"json", &RPCParser::parseJson, 2, 2},
             {"json2", &RPCParser::parseJson2, 1, 1},
             {"ledger", &RPCParser::parseLedger, 0, 2},
@@ -1459,6 +1514,8 @@ public:
             {"peers", &RPCParser::parseAsIs, 0, 0},
             {"ping", &RPCParser::parseAsIs, 0, 0},
             {"print", &RPCParser::parseAsIs, 0, 1},
+            {"pwa_info", &RPCParser::parsePWAInfo, 0, 2},
+            {"pwa_validate", &RPCParser::parsePWAValidate, 2, 3},
             //      {   "profile",              &RPCParser::parseProfile, 1,  9
             //      },
             {"random", &RPCParser::parseAsIs, 0, 0},

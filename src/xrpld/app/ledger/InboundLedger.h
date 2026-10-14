@@ -25,7 +25,11 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/overlay/PeerSet.h>
 #include <xrpl/basics/CountedObject.h>
+#include <xrpl/basics/UnorderedContainers.h>
+#include <xrpl/protocol/PublicKey.h>
+#include <atomic>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <utility>
 
@@ -175,6 +179,36 @@ private:
     clock_type::time_point mLastAction;
 
     std::shared_ptr<Ledger> mLedger;
+
+    /** Whether this ledger is to be read for manifests as soon as it can be:
+        early, before the rest of the state map, if [early_manifest_sync]
+        allows, and otherwise once it is complete. */
+    bool
+    wantManifests();
+
+    /** Read the manifests from the ledger, now that they can be.
+
+        Dispatches the read at most once per ledger, however many paths reach
+        here.
+
+        @param listed Master keys to read by key, whether or not the part of
+            the directory read lists them. If unseated, the master keys on the
+            validator lists are collected in the job, so that a caller holding
+            mtx_ need not take the validator list's lock.
+        @param maxPages Most manifest directory pages to read
+    */
+    void
+    syncManifests(
+        std::optional<hash_set<PublicKey>> listed,
+        std::uint64_t maxPages);
+
+    /** The manifests have been read, or are being, from this ledger.
+
+        Atomic because done() can be reached from trigger() after it has
+        released mtx_.
+    */
+    std::atomic<bool> mManifestsSynced{false};
+
     bool mHaveHeader;
     bool mHaveState;
     bool mHaveTransactions;

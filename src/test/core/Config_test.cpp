@@ -422,6 +422,72 @@ port_wss_admin
     }
 
     void
+    testEarlyManifestSync()
+    {
+        testcase("early_manifest_sync");
+
+        // On unless turned off.
+        {
+            Config c;
+            c.loadFromString("");
+            BEAST_EXPECT(c.EARLY_MANIFEST_SYNC);
+        }
+
+        std::vector<std::pair<std::string, bool>> const values{
+            {"0", false}, {"false", false}, {"1", true}, {"TRUE", true}};
+        for (auto const& [value, expected] : values)
+        {
+            Config c;
+            c.loadFromString("[early_manifest_sync]\n" + value + "\n");
+            BEAST_EXPECT(c.EARLY_MANIFEST_SYNC == expected);
+        }
+
+        try
+        {
+            Config c;
+            c.loadFromString("[early_manifest_sync]\nsometimes\n");
+            fail();
+        }
+        catch (std::exception const&)
+        {
+            pass();
+        }
+    }
+
+    void
+    testUdpHighway()
+    {
+        testcase("udp_highway");
+
+        // The UDP Superhighway is opt-in: off unless turned on.
+        {
+            Config c;
+            c.loadFromString("");
+            BEAST_EXPECT(!c.UDP_HIGHWAY);
+        }
+
+        std::vector<std::pair<std::string, bool>> const values{
+            {"0", false}, {"false", false}, {"1", true}, {"TRUE", true}};
+        for (auto const& [value, expected] : values)
+        {
+            Config c;
+            c.loadFromString("[udp_highway]\n" + value + "\n");
+            BEAST_EXPECT(c.UDP_HIGHWAY == expected);
+        }
+
+        try
+        {
+            Config c;
+            c.loadFromString("[udp_highway]\nsometimes\n");
+            fail();
+        }
+        catch (std::exception const&)
+        {
+            pass();
+        }
+    }
+
+    void
     testNetworkID()
     {
         testcase("network id");
@@ -1053,6 +1119,36 @@ trustthesevalidators.gov
             BEAST_EXPECT(config.LEDGER_HISTORY == 0);
             BEAST_EXPECT(
                 config.legacy("database_path").empty() == !explicitPath);
+        }
+    }
+
+    // Standalone forces ledger_history to zero, but [node_db] type=rwdb
+    // (the null node store) sizes its retained-ledger window from it and
+    // SHAMapStoreImp throws on zero. cfg/rippled.cfg ships exactly this
+    // configuration, and jtx never calls Config::setup, so pin it here.
+    void
+    testSetupStandaloneRwdb()
+    {
+        testcase("setup standalone rwdb keeps ledger_history");
+
+        for (std::string const type : {"rwdb", "NuDB"})
+        {
+            detail::RippledCfgGuard const cfg(
+                *this,
+                "testSetupStandaloneRwdb_" + type,
+                "",
+                "",
+                true,
+                "[node_db]\ntype=" + type + "\npath=main\n");
+            Config config;
+            config.setup(
+                cfg.configFile(),
+                /*bQuiet*/ true,
+                /* bSilent */ true,
+                /* bStandalone */ true);
+            BEAST_EXPECT(config.standalone());
+            BEAST_EXPECT(config.nullBackend() == (type == "rwdb"));
+            BEAST_EXPECT(config.LEDGER_HISTORY == (type == "rwdb" ? 256 : 0));
         }
     }
 
@@ -1747,6 +1843,7 @@ r.ripple.com:51235
         testValidatorsFile();
         testSetup(false);
         testSetup(true);
+        testSetupStandaloneRwdb();
         testPort();
         testZeroPort();
         testWhitespace();
@@ -1758,6 +1855,8 @@ r.ripple.com:51235
         testDatabasePinnedValidation();
         testOverlay();
         testNetworkID();
+        testEarlyManifestSync();
+        testUdpHighway();
     }
 };
 
