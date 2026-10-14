@@ -2821,9 +2821,9 @@ emit_txn(
 
     if (atomic)
     {
-        // Execute it now, in the subledger. The attempt (which may run the
-        // inner txn's hooks) is spent whatever its outcome.
-        api.recordEmission(tpTrans, true);
+        // Execute it now, in the subledger. apply_atomic() records the
+        // emission first: the attempt (which may run the inner txn's hooks)
+        // is spent whatever its outcome.
         if (auto const applied = api.apply_atomic(tpTrans); !applied)
             return applied.error();
         hookCtx.result.emittedAtomicTxn.push_back(tpTrans);

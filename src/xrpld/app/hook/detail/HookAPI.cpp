@@ -960,6 +960,13 @@ HookAPI::apply_atomic(std::shared_ptr<Transaction> const& tpTrans) const
     auto& applyCtx = hookCtx.applyCtx;
     auto j = applyCtx.app.journal("View");
 
+    // The attempt is spent whatever its outcome (it may already have run the
+    // inner txn's hooks): consume the nonce and bump the per-transaction
+    // emit_atomic counter before executing. Doing this here, rather than
+    // leaving it to the caller, means no path can apply an atomic emission
+    // without also making its nonce unusable for a second emission.
+    recordEmission(tpTrans, /*atomic=*/true);
+
     auto const r = applyCtx.applyToSubledger(tpTrans->getSTransaction());
     if (!r.entry)
     {

@@ -309,11 +309,17 @@ public:
             auto const bobBefore =
                 applyCtx.view().read(keylet::account(bob.id()));
             BEAST_EXPECT(!applyCtx.hasSubledger());
+            BEAST_EXPECT(applyCtx.atomicEmitCount == 0);
 
             auto const entry = api.apply_atomic(*tpTrans);
             BEAST_EXPECT(entry.has_value());
             if (!entry)
                 return;
+            // apply_atomic() did the emission bookkeeping itself
+            BEAST_EXPECT(applyCtx.atomicEmitCount == 1);
+            BEAST_EXPECT(
+                hookCtx.nonce_consumed.count(uint256(0)) == 1 &&
+                hookCtx.nonce_consumed[uint256(0)] == true);
             BEAST_EXPECT(applyCtx.hasSubledger());
             BEAST_EXPECT(applyCtx.subledgerEntries().size() == 1);
 

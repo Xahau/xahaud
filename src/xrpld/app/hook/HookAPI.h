@@ -359,14 +359,16 @@ public:
 
     // Bookkeeping for an emission: marks the nonce as consumed and, for
     // atomic emissions, bumps the per-transaction attempt counter on the
-    // ApplyContext. An atomic emission is recorded before it is executed, so
-    // an attempt that fails still counts.
+    // ApplyContext. Plain emit() callers must call this after queueing the
+    // txn; apply_atomic() calls it itself (before executing, so an attempt
+    // that fails still counts).
     void
     recordEmission(std::shared_ptr<Transaction> const& tpTrans, bool atomic)
         const;
 
     // emit_atomic: execute a txn accepted by emit(txBlob, true) in this
-    // transaction's subledger. On success the txn was applied (tes or tec)
+    // transaction's subledger. The emission is recorded (recordEmission)
+    // first, whatever the outcome. On success the txn was applied (tes or tec)
     // and its SubledgerTransaction entry is returned. Otherwise
     // EMISSION_FAILURE, and the subledger holds nothing from the txn.
     Expected<std::shared_ptr<STObject const>, HookReturnCode>
