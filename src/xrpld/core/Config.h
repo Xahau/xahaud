@@ -387,10 +387,14 @@ public:
         return isMem;
     }
 
-    /** True when [node_db] type=rwdb.
+    /** True when [node_db] type=rwdb and no pinned_type is configured.
 
         The app node store is the existing NullFactory (type=none).
         Nodes stay alive through Ledger and SHAMap pointers.
+
+        With pinned_type set, type=rwdb keeps its older meaning: the
+        in-memory RWDB backend is the rotating hot store under
+        DatabasePinnedImp and the durable pinned store holds history.
         The result is read from this configuration, so two
         applications in one process do not share it.
     */
@@ -399,7 +403,8 @@ public:
     {
         auto const& node = section(ConfigSection::nodeDatabase());
         return !node.empty() &&
-            boost::beast::iequals(get(node, "type"), "rwdb");
+            boost::beast::iequals(get(node, "type"), "rwdb") &&
+            !node.exists("pinned_type");
     }
 
     bool
