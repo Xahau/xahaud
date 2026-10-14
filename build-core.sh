@@ -50,8 +50,10 @@ export CMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
 export CMAKE_STATIC_LINKER_FLAGS="-static-libstdc++"
 
 git config --global --add safe.directory /io &&
+BRANCH=$(git rev-parse --abbrev-ref HEAD) &&
+VERSION="$(date +%Y).$(date +%-m).$(date +%-d)-${BRANCH}${4:+"+$4"}" &&
 git checkout src/libxrpl/protocol/BuildInfo.cpp &&
-sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)$(if [ -n "$4" ]; then echo "+$4"; fi)\"/g src/libxrpl/protocol/BuildInfo.cpp  &&
+sed -i "s/\"0.0.0\"/\"$VERSION\"/g" src/libxrpl/protocol/BuildInfo.cpp &&
 conan export external/snappy --version 1.1.10 --user xahaud --channel stable &&
 conan export external/soci --version 4.0.3 --user xahaud --channel stable &&
 cd release-build &&
@@ -99,18 +101,18 @@ elif [[ "$4" == "" ]]; then
   echo "Non GH, local building, no Action runner magic"
 else
   # GH Action, runner
-    if [[ "$(git rev-parse --abbrev-ref HEAD)" == "release" ]]; then
+    if [[ "$BRANCH" == "release" ]]; then
         echo "building on the release branch... placing it in builds/candidate"
         mkdir -p /data/builds/candidate
-        cp /io/release-build/xahaud /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
-        cp /io/release-build/release.info /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
+        cp /io/release-build/xahaud /data/builds/candidate/$VERSION
+        cp /io/release-build/release.info /data/builds/candidate/$VERSION.releaseinfo
     else
         echo "building non-release branch, placing it in builds root"
-        cp /io/release-build/xahaud /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
-        cp /io/release-build/release.info /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
+        cp /io/release-build/xahaud /data/builds/$VERSION
+        cp /io/release-build/release.info /data/builds/$VERSION.releaseinfo
     fi  
   echo "Published build to: http://build.xahau.tech/"
-  echo $(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
+  echo $VERSION
 fi
 
 cd /io;
