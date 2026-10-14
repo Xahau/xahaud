@@ -405,7 +405,11 @@ Config::setup(
 
     HTTPClient::initializeSSLContext(*this, j_);
 
-    if (RUN_STANDALONE)
+    // Standalone never fetches history, so ledger_history is normally
+    // meaningless there. The rwdb null node store (nullBackend) uses it
+    // to size the in-memory retained-ledger window, and SHAMapStoreImp
+    // rejects zero for it, so keep the configured value in that case.
+    if (RUN_STANDALONE && !nullBackend())
         LEDGER_HISTORY = 0;
 
     std::string ledgerTxDbType;
