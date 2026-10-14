@@ -353,6 +353,9 @@ prepare_atomic(
     uint32_t read_ptr,
     uint32_t read_len);
 
+extern int64_t
+subledger_slot(uint32_t slot_into, uint32_t read_ptr, uint32_t read_len);
+
 #ifdef __cplusplus
 }
 #endif

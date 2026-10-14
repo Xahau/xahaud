@@ -158,8 +158,8 @@ struct HookResult
     std::queue<std::shared_ptr<ripple::Transaction>>
         emittedTxn{};  // etx stored here until accept/rollback
     std::vector<std::shared_ptr<ripple::Transaction>>
-        emittedAtomicTxn{};  // emit_atomic txns, applied by the Transactor
-                             // inside the parent's application
+        emittedAtomicTxn{};  // emit_atomic txns this execution put in the
+                             // subledger (they share the etxn_reserve budget)
     HookStateMap& stateMap;
     uint16_t changedStateCount = 0;
     std::map<
@@ -219,7 +219,8 @@ struct HookContext
     int64_t expected_etxn_count{-1};  // make this a 64bit int so the uint32
                                       // from the hookapi cant overflow it
     std::map<ripple::uint256, bool> nonce_used{};
-    // nonces already spent by a successful emission in this execution:
+    // nonces already spent by an emission in this execution (by any
+    // emit_atomic attempt, or by a successful emit):
     // nonce -> true iff spent by emit_atomic (featureAtomicEmit)
     std::map<ripple::uint256, bool> nonce_consumed{};
     uint32_t generation =

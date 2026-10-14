@@ -54,9 +54,7 @@ public:
 
         After a call to `apply`, the only valid
         operation on this object is to call the
-        destructor. The emit_atomic rewind path in Transactor::operator()
-        still reads and rewrites the hook metadata vectors afterwards,
-        which is safe because the table is then discarded.
+        destructor.
     */
     std::optional<TxMeta>
     apply(
@@ -109,6 +107,15 @@ public:
         hookEmission_ = std::move(emissions);
     }
 
+    /** Set the Subledger metadata: one SubledgerTransaction for each
+        atomically emitted transaction applied as part of this one.
+    */
+    void
+    setSubledgerMetaData(std::vector<STObject>&& subledger)
+    {
+        subledger_ = std::move(subledger);
+    }
+
     void
     copyHookMetaData(
         std::vector<STObject>& execution /* in */,
@@ -124,11 +131,6 @@ public:
             std::back_inserter(emission));
     }
 
-    // NOTE: the emit_atomic rewind in Transactor::operator() restores the
-    // hook metadata to its strong-phase snapshot via setHookMetaData and
-    // relies on this index being derived from the vector size, so that the
-    // re-executed weak hooks get contiguous indices. Do not turn this into
-    // an independent counter.
     uint16_t
     nextHookExecutionIndex()
     {
@@ -155,6 +157,7 @@ private:
     std::optional<STAmount> deliver_;
     std::vector<STObject> hookExecution_;
     std::vector<STObject> hookEmission_;
+    std::vector<STObject> subledger_;
 };
 
 }  // namespace ripple

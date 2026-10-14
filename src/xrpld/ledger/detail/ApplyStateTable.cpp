@@ -51,6 +51,14 @@ ApplyStateTable::apply(RawView& to) const
     }
 }
 
+void
+ApplyStateTable::clear()
+{
+    items_.clear();
+    dropsDestroyed_ = XRPAmount{0};
+    originalThreadingState_.clear();
+}
+
 std::size_t
 ApplyStateTable::size() const
 {
@@ -118,6 +126,7 @@ ApplyStateTable::generateTxMeta(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
+    std::vector<STObject> const& subledger,
     beast::Journal j,
     bool isProvisional)
 {
@@ -130,6 +139,9 @@ ApplyStateTable::generateTxMeta(
 
     if (!hookEmission.empty())
         meta.setHookEmissions(STArray{hookEmission, sfHookEmissions});
+
+    if (!subledger.empty())
+        meta.setSubledger(STArray{subledger, sfSubledger});
 
     Mods newMod;
     for (auto& item : items_)
@@ -302,6 +314,7 @@ ApplyStateTable::apply(
     std::optional<STAmount> const& deliver,
     std::vector<STObject> const& hookExecution,
     std::vector<STObject> const& hookEmission,
+    std::vector<STObject> const& subledger,
     bool isDryRun,
     beast::Journal j)
 {
@@ -313,8 +326,8 @@ ApplyStateTable::apply(
     if (!to.open() || isDryRun)
     {
         // generate meta
-        auto [meta, newMod] =
-            generateTxMeta(to, tx, deliver, hookExecution, hookEmission, j);
+        auto [meta, newMod] = generateTxMeta(
+            to, tx, deliver, hookExecution, hookEmission, subledger, j);
 
         if (!isDryRun)
         {

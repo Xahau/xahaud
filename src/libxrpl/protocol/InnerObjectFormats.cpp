@@ -85,8 +85,15 @@ InnerObjectFormats::InnerObjectFormats()
         {{sfHookHash, soeREQUIRED},
          {sfHookAccount, soeREQUIRED},
          {sfEmittedTxnID, soeREQUIRED},
-         {sfEmitNonce, soeOPTIONAL},
-         {sfHookEmittedTransactionResult, soeOPTIONAL}});
+         {sfEmitNonce, soeOPTIONAL}});
+
+    // one atomically emitted (emit_atomic) transaction in the Subledger
+    // metadata of the transaction whose hook emitted it
+    add(sfSubledgerTransaction.jsonName,
+        sfSubledgerTransaction.getCode(),
+        {{sfEmittedTxnID, soeREQUIRED},
+         {sfEmittedTxn, soeREQUIRED},
+         {sfTransactionMetaData, soeREQUIRED}});
 
     add(sfHook.jsonName,
         sfHook.getCode(),

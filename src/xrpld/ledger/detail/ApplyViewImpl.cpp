@@ -37,7 +37,15 @@ ApplyViewImpl::apply(
     beast::Journal j)
 {
     return items_.apply(
-        to, tx, ter, deliver_, hookExecution_, hookEmission_, isDryRun, j);
+        to,
+        tx,
+        ter,
+        deliver_,
+        hookExecution_,
+        hookEmission_,
+        subledger_,
+        isDryRun,
+        j);
 }
 
 TxMeta
@@ -52,6 +60,7 @@ ApplyViewImpl::generateProvisionalMeta(
         deliver_,
         hookExecution_,
         hookEmission_,
+        subledger_,
         j,
         true);  // isProvisional = true
     return meta;

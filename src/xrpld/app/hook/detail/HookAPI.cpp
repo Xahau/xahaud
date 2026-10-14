@@ -564,14 +564,14 @@ HookAPI::emit(Slice const& txBlob, bool atomic) const
             return Unexpected(EMISSION_FAILURE);
         }
 
-        // No nesting. Every hook that runs while an atomic inner txn is
-        // being applied sees tapATOMIC_EMIT through the inner's ApplyContext.
+        // A subledger's txns cannot have subledgers of their own. Every
+        // hook that runs while an atomic inner txn is being applied sees
+        // tapATOMIC_EMIT through the inner's ApplyContext.
         if (applyCtx.flags() & tapATOMIC_EMIT)
         {
             JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                            << "]: emit_atomic cannot be nested inside an "
-                               "atomically emitted txn.";
-            return Unexpected(EMISSION_FAILURE);
+                            << "]: emit_atomic called inside a subledger.";
+            return Unexpected(ALREADY_IN_SUBLEDGER);
         }
 
         // Per outer transaction cap, shared across every hook execution
@@ -941,6 +941,27 @@ HookAPI::recordEmission(
     hookCtx.nonce_consumed[nonce] |= atomic;
     if (atomic)
         ++hookCtx.applyCtx.atomicEmitCount;
+}
+
+Expected<std::shared_ptr<STObject const>, HookReturnCode>
+HookAPI::apply_atomic(std::shared_ptr<Transaction> const& tpTrans) const
+{
+    auto& applyCtx = hookCtx.applyCtx;
+    auto j = applyCtx.app.journal("View");
+
+    auto const r = applyCtx.applyToSubledger(tpTrans->getSTransaction());
+    if (!r.entry)
+    {
+        JLOG(j.trace()) << "HookEmit[" << HC_ACC() << "]: emit_atomic txn "
+                        << tpTrans->getID() << " did not enter the subledger: "
+                        << transToken(r.ter);
+        return Unexpected(EMISSION_FAILURE);
+    }
+
+    JLOG(j.trace()) << "HookEmit[" << HC_ACC() << "]: emit_atomic txn "
+                    << tpTrans->getID()
+                    << " applied in the subledger: " << transToken(r.ter);
+    return r.entry;
 }
 
 Expected<uint64_t, HookReturnCode>
@@ -2537,6 +2558,54 @@ HookAPI::meta_slot(uint32_t slot_into) const
 
     hookCtx.slot[slot_into] =
         hook::SlotEntry{.storage = hookCtx.result.provisionalMeta, .entry = 0};
+
+    hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
+
+    return slot_into;
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::subledger_slot(
+    uint32_t slot_into,
+    std::optional<uint256> const& txid,
+    uint32_t index) const
+{
+    if (slot_into > hook_api::max_slots)
+        return Unexpected(INVALID_ARGUMENT);
+
+    auto const& entries = hookCtx.applyCtx.subledgerEntries();
+
+    std::shared_ptr<STObject const> found;
+    if (txid)
+    {
+        for (auto const& entry : entries)
+        {
+            if (entry->getFieldH256(sfEmittedTxnID) == *txid)
+            {
+                found = entry;
+                break;
+            }
+        }
+    }
+    else if (index < entries.size())
+        found = entries[index];
+
+    if (!found)
+        return Unexpected(DOESNT_EXIST);
+
+    // check if we can emplace the object to a slot
+    if (slot_into == 0 && no_free_slots())
+        return Unexpected(NO_FREE_SLOTS);
+
+    if (slot_into == 0)
+    {
+        if (auto free = get_free_slot(); free)
+            slot_into = *free;
+        else
+            return Unexpected(NO_FREE_SLOTS);
+    }
+
+    hookCtx.slot[slot_into] = hook::SlotEntry{.storage = found, .entry = 0};
 
     hookCtx.slot[slot_into].entry = &(*hookCtx.slot[slot_into].storage);
 
