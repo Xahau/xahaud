@@ -1004,11 +1004,13 @@ public:
         }
         {
             // R1: the fee floor is computed against the view being applied
+            // (fix20260929, which emit_atomic relies on: the inner is applied
+            // to that same view)
             auto hookCtx = makeStubHookContext(
                 applyCtx, alice.id(), alice.id(), {.expected_etxn_count = 1});
             auto const fee = hookCtx.api().etxn_fee_base(blob);
             BEAST_EXPECT(fee.has_value());
-            if (fee && enabled)
+            if (fee && env.current()->rules().enabled(fix20260929))
                 BEAST_EXPECT(
                     *fee ==
                     ripple::calculateBaseFee(applyCtx.view(), emitInvokeTx)
@@ -6097,6 +6099,8 @@ public:
         test_prepare(features);
         test_emit(features);
         test_emitted_txn_entry(features);
+        // exercises the amendment-off branches test_emit_atomic checks for
+        test_emit_atomic(features - featureAtomicEmit);
         test_emit_atomic(features);
         test_emit_atomic_subledger(features);
         test_emit_atomic_rng(features);

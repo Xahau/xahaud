@@ -586,10 +586,12 @@ HookAPI::emit(Slice const& txBlob, bool atomic) const
         // Per outer transaction cap, shared across every hook execution
         if (applyCtx.atomicEmitCount >= hook_api::max_atomic_emit)
         {
-            JLOG(j.trace()) << "HookEmit[" << HC_ACC()
-                            << "]: too many emit_atomic txns for this "
-                               "transaction (max "
-                            << hook_api::max_atomic_emit << ").";
+            // max_atomic_emit is a uint8_t: cast so it logs as a number
+            JLOG(j.trace())
+                << "HookEmit[" << HC_ACC()
+                << "]: too many emit_atomic txns for this "
+                   "transaction (max "
+                << static_cast<unsigned>(hook_api::max_atomic_emit) << ").";
             return Unexpected(EMISSION_FAILURE);
         }
     }
