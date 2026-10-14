@@ -228,6 +228,19 @@ public:
     isPinned(std::uint32_t seq);
     void
     unpinLedger(std::uint32_t seq);
+
+    /** Remove `ranges` from the pinned set.
+
+        @param dropFromComplete of the ledgers actually unpinned, those to
+               also remove from complete_ledgers now (used to roll back a
+               load). Otherwise unpinned ledgers stay complete until online
+               delete releases them.
+        @return the ledgers that were pinned and no longer are.
+    */
+    RangeSet<std::uint32_t>
+    unpinLedgers(
+        RangeSet<std::uint32_t> const& ranges,
+        RangeSet<std::uint32_t> const& dropFromComplete = {});
     bool
     isValidated(ReadView const& ledger);
     bool

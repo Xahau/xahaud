@@ -213,13 +213,19 @@ deserializeSHAMapFromStream(
     CatalogueInputStream& stream,
     SHAMapNodeType nodeType,
     NodeObjectType flushType,
+    SHAMap::FlushSink const* sink,
     bool allowRemoval,
     beast::Journal const& j)
 {
     try
     {
-        auto deserializeLeaf = [&shaMap, &stream, &j, nodeType, allowRemoval](
-                                   SHAMapNodeType& parsedType) -> bool {
+        // Reused across leaves: resize() keeps capacity, so steady-state
+        // parsing does no per-leaf allocation beyond the SHAMapItem itself.
+        std::vector<std::uint8_t> data;
+
+        auto deserializeLeaf =
+            [&shaMap, &stream, &j, &data, nodeType, allowRemoval](
+                SHAMapNodeType& parsedType) -> bool {
             stream.read(reinterpret_cast<char*>(&parsedType), 1);
 
             if (parsedType == SHAMapNodeType::tnTERMINAL)
@@ -248,7 +254,8 @@ deserializeSHAMapFromStream(
                     return false;
                 }
 
-                if (!shaMap.hasItem(key))
+                // delItem walks once and reports absence itself.
+                if (!shaMap.delItem(key))
                 {
                     JLOG(j.error())
                         << "Deserialization: removal of key " << to_string(key)
@@ -256,7 +263,6 @@ deserializeSHAMapFromStream(
                     return false;
                 }
 
-                shaMap.delItem(key);
                 return true;
             }
 
@@ -279,7 +285,7 @@ deserializeSHAMapFromStream(
                 return false;
             }
 
-            std::vector<std::uint8_t> data(size);
+            data.resize(size);
             stream.read(reinterpret_cast<char*>(data.data()), size);
 
             if (stream.fail())
@@ -290,11 +296,8 @@ deserializeSHAMapFromStream(
                 return false;
             }
 
-            auto item = make_shamapitem(key, makeSlice(data));
-            if (shaMap.hasItem(key))
-                return shaMap.updateGiveItem(nodeType, std::move(item));
-
-            return shaMap.addGiveItem(nodeType, std::move(item));
+            auto item = make_shamapitem(key, Slice(data.data(), size));
+            return shaMap.upsertGiveItem(nodeType, std::move(item));
         };
 
         auto lastParsed = SHAMapNodeType::tnREMOVE;
@@ -308,7 +311,10 @@ deserializeSHAMapFromStream(
             return false;
         }
 
-        shaMap.flushDirty(flushType);
+        if (sink)
+            shaMap.flushDirty(flushType, *sink);
+        else
+            shaMap.flushDirty(flushType);
         return true;
     }
     catch (std::exception const& e)
@@ -345,7 +351,13 @@ deserializeStateMapFromStream(
     beast::Journal const& j)
 {
     return deserializeSHAMapFromStream(
-        stateMap, stream, SHAMapNodeType::tnACCOUNT_STATE, flushType, true, j);
+        stateMap,
+        stream,
+        SHAMapNodeType::tnACCOUNT_STATE,
+        flushType,
+        nullptr,
+        true,
+        j);
 }
 
 bool
@@ -356,7 +368,47 @@ deserializeTxMapFromStream(
     beast::Journal const& j)
 {
     return deserializeSHAMapFromStream(
-        txMap, stream, SHAMapNodeType::tnTRANSACTION_MD, flushType, false, j);
+        txMap,
+        stream,
+        SHAMapNodeType::tnTRANSACTION_MD,
+        flushType,
+        nullptr,
+        false,
+        j);
+}
+
+bool
+deserializeStateMapFromStream(
+    SHAMap& stateMap,
+    CatalogueInputStream& stream,
+    SHAMap::FlushSink const& sink,
+    beast::Journal const& j)
+{
+    return deserializeSHAMapFromStream(
+        stateMap,
+        stream,
+        SHAMapNodeType::tnACCOUNT_STATE,
+        hotACCOUNT_NODE,
+        &sink,
+        true,
+        j);
+}
+
+bool
+deserializeTxMapFromStream(
+    SHAMap& txMap,
+    CatalogueInputStream& stream,
+    SHAMap::FlushSink const& sink,
+    beast::Journal const& j)
+{
+    return deserializeSHAMapFromStream(
+        txMap,
+        stream,
+        SHAMapNodeType::tnTRANSACTION_MD,
+        hotTRANSACTION_NODE,
+        &sink,
+        false,
+        j);
 }
 
 }  // namespace RPC

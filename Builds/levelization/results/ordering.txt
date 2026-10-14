@@ -127,6 +127,7 @@ test.rpc > xrpl.basics
 test.rpc > xrpld.app
 test.rpc > xrpld.core
 test.rpc > xrpld.net
+test.rpc > xrpld.nodestore
 test.rpc > xrpld.overlay
 test.rpc > xrpld.rpc
 test.rpc > xrpld.shamap

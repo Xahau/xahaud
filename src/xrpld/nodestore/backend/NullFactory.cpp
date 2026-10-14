@@ -81,6 +81,13 @@ public:
     {
     }
 
+    bool
+    syncDurable() override
+    {
+        // Nothing here outlives the process, so there is nothing to wait for.
+        return true;
+    }
+
     void
     for_each(std::function<void(std::shared_ptr<NodeObject>)> f) override
     {
