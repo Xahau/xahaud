@@ -95,6 +95,7 @@ enum class LedgerNameSpace : std::uint16_t {
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
     RANDOM = 0x526E,  // Rn
+    PUBLIC_KEY = LEDGER_NAMESPACE2(0x01, 'K'),
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -203,6 +204,12 @@ hookDefinition(uint256 const& hash) noexcept
 {
     return {
         ltHOOK_DEFINITION, indexHash(LedgerNameSpace::HOOK_DEFINITION, hash)};
+}
+
+Keylet
+pqPublicKey(AccountID const& id) noexcept
+{
+    return {ltPUBLIC_KEY, indexHash(LedgerNameSpace::PUBLIC_KEY, id)};
 }
 
 Keylet

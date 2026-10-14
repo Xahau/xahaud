@@ -632,7 +632,12 @@ transactionConstructImpl(
                     sttxNew->getTransactionID(),
                     Validity::SigGoodOnly);
             if (checkValidity(
-                    app.getHashRouter(), *sttxNew, rules, app.config())
+                    app.getHashRouter(),
+                    *sttxNew,
+                    rules,
+                    app.config(),
+                    tapNONE,
+                    app.openLedger().current())
                     .first != Validity::Valid)
             {
                 ret.first = RPC::make_error(rpcINTERNAL, "Invalid signature.");

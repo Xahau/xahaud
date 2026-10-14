@@ -31,6 +31,9 @@
 #include <boost/container/flat_set.hpp>
 
 #include <functional>
+#include <optional>
+#include <utility>
+#include <vector>
 
 namespace ripple {
 
@@ -120,9 +123,46 @@ public:
         @return `true` if valid signature. If invalid, the error message string.
     */
     enum class RequireFullyCanonicalSig : bool { no, yes };
+
+    /** Resolves a post-quantum key reference (featurePQSignatures).
+
+        Given the AccountID named by a 0xF1 reference, returns the key's
+        inline encoding (0xF0 | type | key) from a ledger, or std::nullopt
+        if that ledger holds no ltPUBLIC_KEY for it. */
+    using PQKeyLookup = std::function<std::optional<Blob>(AccountID const&)>;
+
+    /** How checkSign() treats a transaction whose SigningPubKey (or a
+        Signers entry's) is a post-quantum key *reference* when no lookup
+        is supplied: the signature cannot be verified without a ledger. */
+    enum class PQReferencePolicy : bool {
+        /// Report "Unverified PQ key reference": caller cannot verify here.
+        reject,
+        /// Treat as verified; the caller guarantees preclaim verifies it
+        /// against the ledger the transaction is applied to.
+        defer
+    };
+
+    /** Check the signature.
+        @param lookup resolves PQ key references; may be empty.
+        @return `true` if valid signature. If invalid, the error message string.
+    */
     Expected<void, std::string>
-    checkSign(RequireFullyCanonicalSig requireCanonicalSig, Rules const& rules)
-        const;
+    checkSign(
+        RequireFullyCanonicalSig requireCanonicalSig,
+        Rules const& rules,
+        PQKeyLookup const& lookup = {},
+        PQReferencePolicy policy = PQReferencePolicy::reject) const;
+
+    /** True if the transaction's SigningPubKey or any Signers entry's
+        SigningPubKey is a post-quantum key reference (0xF1 form). */
+    bool
+    usesPQKeyReference() const;
+
+    /** Inline post-quantum keys carried by this transaction: the
+        SigningPubKey and each Signers entry's SigningPubKey in 0xF0 form,
+        with the AccountID each hashes to. */
+    std::vector<std::pair<AccountID, Blob>>
+    inlinePQKeys() const;
 
     // SQL Functions with metadata.
     static std::string const&
@@ -141,12 +181,18 @@ public:
 
 private:
     Expected<void, std::string>
-    checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const;
+    checkSingleSign(
+        RequireFullyCanonicalSig requireCanonicalSig,
+        Rules const& rules,
+        PQKeyLookup const& lookup,
+        PQReferencePolicy policy) const;
 
     Expected<void, std::string>
     checkMultiSign(
         RequireFullyCanonicalSig requireCanonicalSig,
-        Rules const& rules) const;
+        Rules const& rules,
+        PQKeyLookup const& lookup,
+        PQReferencePolicy policy) const;
 
     STBase*
     copy(std::size_t n, void* buf) const override;

@@ -1,3 +1,26 @@
+# PQSignatures (unreleased, amendment, DefaultNo)
+
+Adds post-quantum transaction signatures using UOV OV(256,119,45) with
+compressed public keys (NIST additional-signatures round 3 candidate; pqov
+round-3 parameters). Everything is gated behind the `PQSignatures` amendment.
+
+- New `SigningPubKey` encodings: inline `0xF0 | type | key` (46,593 bytes) and
+  reference `0xF1 | AccountID` (21 bytes). Signatures are 135 raw bytes.
+- New ledger object `PublicKey` (`ltPUBLIC_KEY`, 0x004B), keyed by the key's
+  AccountID (`keylet::pqPublicKey`), with no owner and no owner directory. It
+  is created by the first transaction that signs with the key inline, costs one
+  drop per key byte (load-scaled, charged on `tes` and `tec`), and is
+  reference counted like `HookDefinition`: master key, `RegularKey` and
+  `SignerEntry` slots hold references; deleted at zero.
+- Reference-form signatures are verified at ingress against the open ledger
+  (never cached as bad) and again in preclaim against the applying view.
+- Hook API: `util_verify` accepts inline and reference PQ keys;
+  `util_keylet` adds `PQ_PUBLIC_KEY` (38). `ledger_entry` adds
+  `pq_public_key`.
+- Validator keys are unchanged (classical) in this release.
+- Vendors `external/pqov` with portable + AVX2 (x86-64) / NEON (aarch64)
+  builds selected at run time.
+
 # Release Notes
 
 This document contains the release notes for `xahaud`, the reference server implementation of the Xahau protocol. To learn more about how to build, run or update a `xahaud` server, visit https://docs.xahau.network/infrastructure/peering/connect-to-xahau-mainnet

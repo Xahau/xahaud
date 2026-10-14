@@ -25,6 +25,7 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
+#include <xrpld/app/tx/detail/PQKeyLedger.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
@@ -45,7 +46,8 @@ checkValidity(
     STTx const& tx,
     Rules const& rules,
     Config const& config,
-    ApplyFlags applyFlags)
+    ApplyFlags applyFlags,
+    std::shared_ptr<ReadView const> const& pqKeyLedger)
 {
     auto const id = tx.getTransactionID();
     auto const flags = router.getFlags(id);
@@ -111,7 +113,35 @@ checkValidity(
         // Signature is known bad
         return {Validity::SigBad, "Transaction has bad signature."};
 
-    if (!(flags & SF_SIGGOOD))
+    // featurePQSignatures: a post-quantum key *reference* can only be
+    // verified against a ledger. With one, verify here (ingress); without
+    // one, leave it to preclaim (Transactor::checkSign), which verifies
+    // against the exact view the transaction is applied to. Either way the
+    // result is never cached: the referenced object can appear or vanish
+    // between ledgers.
+    bool const pqReference =
+        rules.enabled(featurePQSignatures) && tx.usesPQKeyReference();
+
+    if (pqReference)
+    {
+        if (pqKeyLedger)
+        {
+            auto const requireCanonicalSig =
+                rules.enabled(featureRequireFullyCanonicalSig)
+                ? STTx::RequireFullyCanonicalSig::yes
+                : STTx::RequireFullyCanonicalSig::no;
+            auto const sigVerify = tx.checkSign(
+                requireCanonicalSig,
+                rules,
+                pqkey::makeLookup(*pqKeyLedger),
+                STTx::PQReferencePolicy::reject);
+            if (!sigVerify)
+                return {Validity::SigBad, sigVerify.error()};
+        }
+        // Deferred (or verified for this ledger only): fall through to the
+        // local checks without touching the signature flags.
+    }
+    else if (!(flags & SF_SIGGOOD))
     {
         // Don't know signature state. Check it.
         auto const requireCanonicalSig =

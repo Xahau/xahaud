@@ -739,6 +739,35 @@ public:
         beast::Journal const&);
 };
 
+/**
+ * @brief Invariant: every ltPUBLIC_KEY object is well formed.
+ *
+ * For every ltPUBLIC_KEY created or changed by a transaction:
+ * featurePQSignatures is enabled; its key is the keylet of the AccountID the
+ * stored key hashes to; the key data has the exact size for its type; and
+ * its ReferenceCount is at least one.
+ */
+class ValidPQPublicKey
+{
+    bool touched_ = false;
+    std::vector<std::shared_ptr<SLE const>> live_;
+
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&);
+};
+
 using InvariantChecks = std::tuple<
     TransactionFeeCheck,
     AccountRootsNotDeleted,
@@ -759,7 +788,8 @@ using InvariantChecks = std::tuple<
     ValidPermissionedDomain,
     ValidAMM,
     ValidLockedBalance,
-    ValidAppLoader>;
+    ValidAppLoader,
+    ValidPQPublicKey>;
 
 /**
  * @brief get a tuple of all invariant checks

@@ -19,6 +19,7 @@
 
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/Import.h>
+#include <xrpld/app/tx/detail/PQKeyLedger.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
@@ -1193,13 +1194,22 @@ Import::doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
         JLOG(ctx_.journal.trace()) << "Import: clearing SetRegularKey "
                                    << " acc: " << id;
         if (sle->isFieldPresent(sfRegularKey))
+        {
+            pqkey::removeReference(
+                ctx_.view(), sle->getAccountID(sfRegularKey), ctx_.journal);
             sle->makeFieldAbsent(sfRegularKey);
+        }
         return;
     }
 
     AccountID rk = stpTrans.getAccountID(sfRegularKey);
     JLOG(ctx_.journal.trace())
         << "Import: actioning SetRegularKey " << rk << " acc: " << id;
+    // featurePQSignatures: keep the key object reference counts in step.
+    std::vector<AccountID> const oldKey = sle->isFieldPresent(sfRegularKey)
+        ? std::vector<AccountID>{sle->getAccountID(sfRegularKey)}
+        : std::vector<AccountID>{};
+    pqkey::adjustReferences(ctx_.view(), oldKey, {rk}, ctx_.journal);
     sle->setAccountID(sfRegularKey, rk);
 
     // always set this flag if they have done any regular keying

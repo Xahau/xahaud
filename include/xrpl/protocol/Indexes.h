@@ -71,6 +71,11 @@ hook(AccountID const& id) noexcept;
 Keylet
 hookState(AccountID const& id, uint256 const& key, uint256 const& ns) noexcept;
 
+/** The ltPUBLIC_KEY object holding the post-quantum public key whose
+    AccountID is `id` (featurePQSignatures). */
+Keylet
+pqPublicKey(AccountID const& id) noexcept;
+
 Keylet
 hookStateDir(AccountID const& id, uint256 const& ns) noexcept;
 
