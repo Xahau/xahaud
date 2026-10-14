@@ -274,6 +274,15 @@ enum BridgeModifyFlags : uint32_t {
     tfClearAccountCreateAmount = 0x00010000,
 };
 constexpr std::uint32_t tfBridgeModifyMask = ~(tfUniversal | tfClearAccountCreateAmount);
+
+// SubledgerTransaction flags (featureAtomicEmit, metadata only):
+enum SubledgerTransactionFlags : uint32_t {
+    // the transaction's Hooks, or those of a transaction applied before it
+    // in the same subledger, drew from the RNG: the outcome the emitting
+    // Hook saw was drawn from a shadow RNG and may differ from the one
+    // committed
+    stfIndeterminate = 0x00000001,
+};
 // clang-format on
 
 }  // namespace ripple

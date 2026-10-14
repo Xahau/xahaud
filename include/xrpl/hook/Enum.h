@@ -18,6 +18,7 @@
 #define featureRNG "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
+#define featureAtomicEmit "1"
 namespace hook_api {
 struct Rules
 {
@@ -387,8 +388,10 @@ enum class hook_return_code : int64_t {
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 256 modified state
                                          // entires in the combined hook chains
     TOO_MANY_NAMESPACES = -45,
-    TOO_LITTLE_ENTROPY = -46  // featureRNG: no seed for this ledger, or too few
-                              // validators contributed to it
+    TOO_LITTLE_ENTROPY = -46,   // featureRNG: no seed for this ledger, or too
+                                // few validators contributed to it
+    ALREADY_IN_SUBLEDGER = -47  // emit_atomic called by a hook executing
+                                // inside a subledger (an emit_atomic txn)
 };
 
 enum class ExitType : uint8_t {
@@ -403,6 +406,10 @@ const uint8_t max_slots = 255;
 const uint8_t max_nonce = 255;
 const uint16_t max_rng_draws = 256;  // featureRNG, per Hook execution
 const uint8_t max_emit = 255;
+// maximum number of emit_atomic attempts per outer transaction, across all
+// hook executions. Every attempt that reaches execution counts, whether or not
+// the txn ends up in the subledger.
+const uint8_t max_atomic_emit = 8;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 

@@ -94,6 +94,18 @@ preflight0(PreflightContext const& ctx)
 NotTEC
 preflight1(PreflightContext const& ctx)
 {
+    // emit_atomic inner txn (tapATOMIC_EMIT): the flag bypasses the signature
+    // checks below and in checkSign, so refuse anything carrying it that is
+    // not an emitted txn or that carries signature material (same gate as
+    // checkSign, mirroring the SF_EMITTED/tapPREFLIGHT_EMIT pair).
+    if ((ctx.flags & tapATOMIC_EMIT) &&
+        (!hook::isEmittedTxn(ctx.tx) || !hook::hasNoSignatureMaterial(ctx.tx)))
+    {
+        JLOG(ctx.j.warn())
+            << "preflight1: tapATOMIC_EMIT on a non-emitted or signed txn";
+        return temINVALID;
+    }
+
     // This is inappropriate in preflight0, because only Change transactions
     // skip this function, and those do not allow an sfTicketSequence field.
     if (ctx.tx.isFieldPresent(sfTicketSequence) &&
@@ -128,7 +140,7 @@ preflight1(PreflightContext const& ctx)
     {
         if ((ctx.app.getHashRouter().getFlags(ctx.tx.getTransactionID()) &
              SF_EMITTED) ||
-            (ctx.flags & tapPREFLIGHT_EMIT))
+            (ctx.flags & tapPREFLIGHT_EMIT) || (ctx.flags & tapATOMIC_EMIT))
         {
             if (ctx.tx.getSeqProxy().isTicket() &&
                 ctx.tx.isFieldPresent(sfAccountTxnID))
@@ -706,7 +718,10 @@ Transactor::checkPriorTxAndLastLedger(PreclaimContext const& ctx)
     if (ctx.view.txExists(ctx.tx.getTransactionID()))
         return tefALREADY;
 
-    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks))
+    // emit_atomic inner txns never have an emitted directory entry: they are
+    // applied by their parent, not injected from the directory.
+    if (hook::isEmittedTxn(ctx.tx) && ctx.view.rules().enabled(featureHooks) &&
+        !(ctx.flags & tapATOMIC_EMIT))
     {
         // check if the emitted txn exists on ledger and is in the emission
         // directory if not that's a re-apply so discard
@@ -885,6 +900,16 @@ Transactor::apply()
 NotTEC
 Transactor::checkSign(PreclaimContext const& ctx)
 {
+    // emit_atomic inner txn: signature verification is bypassed here, so
+    // repeat the preflight1 gate.
+    if (ctx.flags & tapATOMIC_EMIT)
+    {
+        if (!hook::isEmittedTxn(ctx.tx) ||
+            !hook::hasNoSignatureMaterial(ctx.tx))
+            return temINVALID;
+        return tesSUCCESS;
+    }
+
     // hook emitted transactions do not have signatures
     if (ctx.view.rules().enabled(featureHooks) && hook::isEmittedTxn(ctx.tx))
     {
@@ -1537,6 +1562,16 @@ Transactor::doHookCallback(
     if (!ctx_.tx.isFieldPresent(sfEmitDetails))
         return;
 
+    // emit_atomic inner txns never run their callback (the field is still
+    // present because etxn_details() adds it for any hook with a cbak): the
+    // emitting hook inspects the result itself (subledger_slot), and the
+    // subledger can still be abandoned after this point.
+    if (ctx_.flags() & tapATOMIC_EMIT)
+    {
+        JLOG(j_.trace()) << "HookInfo: callback skipped for emit_atomic txn";
+        return;
+    }
+
     auto const& emitDetails = const_cast<ripple::STTx&>(ctx_.tx)
                                   .getField(sfEmitDetails)
                                   .downcast<STObject>();
@@ -2022,7 +2057,7 @@ Transactor::operator()()
     // here despite not being emitted here by a hook here.
     if ((ctx_.flags() & tapPREFLIGHT_EMIT) ||
         (view().flags() & tapPREFLIGHT_EMIT) ||
-        (ctx_.isEmittedTxn() &&
+        (ctx_.isEmittedTxn() && !(ctx_.flags() & tapATOMIC_EMIT) &&
          !(ctx_.app.getHashRouter().getFlags(ctx_.tx.getTransactionID()) &
            SF_EMITTED)))
         return {tecINTERNAL, false};
@@ -2081,6 +2116,14 @@ Transactor::operator()()
 
             result = doTSH(true, tsh, stateMap, hookResults, {});
         }
+
+        // featureAtomicEmit: the strong phase is over, nothing that runs from
+        // here on can roll this transaction back, so continue on the real
+        // subledger (the visible one only existed for the strong Hooks).
+        // Everything below, including the state the strong Hooks set, is
+        // applied on top of the real one.
+        if (isTesSuccess(result) && !ctx_.concretizeSubledger())
+            result = tecSUBLEDGER_DIVERGED;
 
         // write state if all chains executed successfully
         if (isTesSuccess(result))
@@ -2165,8 +2208,11 @@ Transactor::finishApply(
     // in place for the next transaction in the pass, and would draw again on
     // the final pass against a different state. Draws only exist when the
     // amendment is enabled, so this needs no separate gate.
+    // featureAtomicEmit: while there is a subledger, draws go to the real
+    // cursor (SubledgerRng) instead; an inner transaction's draws count.
     bool const rngDrawn =
-        dynamic_cast<ApplyViewImpl&>(ctx_.view()).getRandomData().has_value();
+        dynamic_cast<ApplyViewImpl&>(ctx_.view()).getRandomData().has_value() ||
+        ctx_.subledgerRngDrawn();
 
     if (isTecClaim(result) && (view().flags() & tapFAIL_HARD))
     {
@@ -2535,6 +2581,25 @@ Transactor::finishApply(
 
         if (ctx_.size() > oversizeMetaDataCap)
             result = tecOVERSIZE;
+    }
+
+    // A subledger (emit_atomic) is only ever committed with a transaction
+    // that succeeds (ApplyContext::commitSubledger asserts this). The
+    // weak-phase oversize check above turns an applied transaction into a tec
+    // without resetting it; when it has a subledger, reset it now like any
+    // other tec, which drops the subledger and claims the fee only.
+    if (applied && !isTesSuccess(result) && ctx_.hasSubledger())
+    {
+        auto const resetResult = reset(fee);
+        if (!isTesSuccess(resetResult.first))
+            result = resetResult.first;
+        fee = resetResult.second;
+
+        if (isTesSuccess(result) || isTecClaim(result))
+            result = ctx_.checkInvariants(result, fee);
+
+        if (!isTecClaim(result) && !isTesSuccess(result))
+            applied = false;
     }
 
     std::optional<TxMeta> metadata;

@@ -44,6 +44,7 @@ ApplyViewImpl::apply(
         hookExecution_,
         hookEmission_,
         randomData_,
+        subledger_,
         isDryRun,
         j);
 }
@@ -60,6 +61,7 @@ ApplyViewImpl::generateProvisionalMeta(
         deliver_,
         hookExecution_,
         hookEmission_,
+        subledger_,
         j,
         true);  // isProvisional = true
     return meta;
