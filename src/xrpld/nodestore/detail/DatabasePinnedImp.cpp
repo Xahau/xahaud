@@ -142,7 +142,11 @@ DatabasePinnedImp::fetchNodeObject(
         {
             // Try persistent backend first (pinned data)
             if (auto obj = tryPersistent(hash, fetchReport))
+            {
+                if (duplicate)
+                    copyToRotating(*obj, hash, ledgerSeq);
                 return obj;
+            }
 
             // Fallback: try rotating backends
             return rotating_.fetchNodeObject(
@@ -168,13 +172,22 @@ DatabasePinnedImp::fetchNodeObject(
     // switched the LCL to its last ledger); copy those too, so the hot
     // store becomes self-contained after one rotation and pinned history
     // can be unpinned and its store discarded without breaking live state.
+    // The pinned-first path above does the same, so the copy happens
+    // whichever backend is tried first.
     if (obj && duplicate)
-    {
-        Blob data(obj->getData());
-        rotating_.store(obj->getType(), std::move(data), hash, ledgerSeq);
-    }
+        copyToRotating(*obj, hash, ledgerSeq);
 
     return obj;
+}
+
+void
+DatabasePinnedImp::copyToRotating(
+    NodeObject const& obj,
+    uint256 const& hash,
+    std::uint32_t ledgerSeq)
+{
+    Blob data(obj.getData());
+    rotating_.store(obj.getType(), std::move(data), hash, ledgerSeq);
 }
 
 void

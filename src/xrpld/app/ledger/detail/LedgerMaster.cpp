@@ -501,7 +501,9 @@ LedgerMaster::storeLedger(std::shared_ptr<Ledger const> ledger, bool pin)
             std::lock_guard sl(mPinnedLock);
             mPinnedLedgers.insert(range(seq, seq));
         }
-        JLOG(m_journal.info()) << "Pinned ledger : " << seq;
+        // catalogue_load pins every ledger it imports; at info this would
+        // emit one line per ledger for the whole file.
+        JLOG(m_journal.debug()) << "Pinned ledger : " << seq;
     }
     return true;
 }

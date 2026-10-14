@@ -1393,11 +1393,17 @@ doCatalogueLoad(RPC::JsonContext& context)
         auto const unpin = loaded - pinnedBefore;
         if (unpin.empty())
             return;
-        ledgerMaster.unpinLedgers(unpin, unpin - completeBefore);
+        // unpinLedgers reports what was actually pinned and now is not:
+        // a second rollback in the same run (e.g. an untrusted tail followed
+        // by a checksum failure) finds nothing left to undo.
+        auto const removed =
+            ledgerMaster.unpinLedgers(unpin, unpin - completeBefore);
+        if (removed.empty())
+            return;
         app.getSHAMapStore().setPinnedRanges(
             ledgerMaster.getPinnedLedgersRangeSet());
         JLOG(j.warn()) << "Catalogue " << why << "; unpinned "
-                       << to_string(unpin) << " loaded by this run";
+                       << to_string(removed) << " loaded by this run";
     };
 
     // Every exit once loading has started goes through here, exactly once:

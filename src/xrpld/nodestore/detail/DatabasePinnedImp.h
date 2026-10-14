@@ -155,6 +155,14 @@ private:
     bool
     likelyPinned(std::uint32_t ledgerSeq) const;
 
+    /** Copy an object found only in persistent storage into the writable
+        rotating backend (the `duplicate` path of fetchNodeObject). */
+    void
+    copyToRotating(
+        NodeObject const& obj,
+        uint256 const& hash,
+        std::uint32_t ledgerSeq);
+
     std::shared_ptr<NodeObject>
     tryPersistent(uint256 const& hash, FetchReport& fetchReport);
 
