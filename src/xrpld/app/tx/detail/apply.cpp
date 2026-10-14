@@ -62,6 +62,12 @@ checkValidity(
         {
             // pass, this is a txn being preflighted emit api
         }
+        else if (applyFlags & tapATOMIC_EMIT)
+        {
+            // pass, this is an emit_atomic inner txn being applied into its
+            // parent's subledger (preflight2 reaches here for every non-dry-run
+            // txn)
+        }
         else if (flags & SF_EMITTED)
         {
             // pass, this txn came out of the emission directory

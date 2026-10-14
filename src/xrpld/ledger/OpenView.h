@@ -29,6 +29,7 @@
 #include <boost/container/pmr/polymorphic_allocator.hpp>
 
 #include <functional>
+#include <optional>
 #include <utility>
 
 namespace ripple {
@@ -45,6 +46,80 @@ struct open_ledger_t
 };
 
 extern open_ledger_t const open_ledger;
+
+/** Closed nested view construction tag.
+
+    A view constructed with this tag sits on top of another OpenView
+    and is always treated as a closed ledger, regardless of the base.
+    It is used to apply one atomically emitted hook transaction
+    (emit_atomic) on top of a subledger, so that the transaction can be
+    checked before it is merged into the subledger or thrown away.
+    See ApplyContext::applyToSubledger.
+*/
+struct closed_view_t
+{
+    explicit closed_view_t() = default;
+};
+
+extern closed_view_t const closed_view;
+
+/** Subledger construction tag.
+
+    A view constructed with this tag is the subledger of a transaction
+    whose hooks emitted transactions atomically (emit_atomic). It sits on
+    top of the view that transaction is being applied to and reports the
+    same open() as that view. Its own transactions are numbered from zero
+    and txExists() also consults the base. See ApplyContext.
+*/
+struct subledger_view_t
+{
+    explicit subledger_view_t() = default;
+};
+
+extern subledger_view_t const subledger_view;
+
+/** RNG cursors of a transaction that has a subledger (featureAtomicEmit).
+
+    While a transaction has a subledger, no Hook draws from the ledger's
+    Random object directly. Every draw goes through one of two cursors:
+
+    real    the RNG as it will be committed. Seeded from the Random object
+            on first use; it carries on from any draw made before the
+            subledger existed. The owning transaction's own Hooks, and the
+            real application of every inner transaction, draw from it. It is
+            written back to the Random object when the transaction is
+            committed or discarded, so draws are never undone.
+
+    shadow  forked off `real` (one-way) on the first draw made while an inner
+            transaction is applied to the subledger the emitting Hooks can
+            see. Outcomes drawn from it are never committed.
+
+    Neither cursor is ever stored in a ledger entry, so no inner transaction
+    modifies the Random object and none of its metadata can expose the state.
+    See ApplyContext::applyToSubledger.
+*/
+struct SubledgerRng
+{
+    explicit SubledgerRng(uint256 const& otxnID_, bool open_)
+        : otxnID(otxnID_), open(open_)
+    {
+    }
+
+    // the transaction that owns the subledger (input to the shadow fork)
+    uint256 const otxnID;
+    // whether that transaction is applied to an open ledger: inner
+    // transactions are applied to closed views, but their Hooks may draw on
+    // the same seed as the owning transaction (see HookAPI::rng_next)
+    bool const open;
+
+    std::optional<uint256> real;
+    std::optional<uint256> shadow;
+
+    // something drew from `real` (it must be written back)
+    bool realDrawn = false;
+    // something drew from `shadow` since this was last cleared
+    bool shadowDrawn = false;
+};
 
 //------------------------------------------------------------------------------
 
@@ -97,6 +172,18 @@ private:
     detail::RawStateTable items_;
     std::shared_ptr<void const> hold_;
     bool open_ = true;
+
+    // closed_view: number of transactions already in the base chain (so
+    // TransactionIndex continues from the base). closed_view and
+    // subledger_view: the base OpenView for txExists() delegation.
+    // Zero / nullptr for every other view.
+    std::size_t baseTxCount_ = 0;
+    OpenView const* baseTxs_ = nullptr;
+
+    // closed_view only: the RNG cursors Hooks of the transaction applied to
+    // this view draw from, and which one (see SubledgerRng)
+    SubledgerRng* rng_ = nullptr;
+    bool rngShadow_ = false;
 
 public:
     OpenView() = delete;
@@ -170,6 +257,60 @@ public:
     */
     OpenView(ReadView const* base, std::shared_ptr<void const> hold = nullptr);
 
+    /** Construct a sandbox view on top of another OpenView.
+
+        Effects:
+
+            The LedgerInfo and rules are copied from the base
+            (the sequence is NOT incremented).
+
+            The view always reports closed (open() == false), even
+            when the base is an open ledger, so that transactions
+            applied into it see consensus-side semantics.
+
+            txCount() continues from the base so that metadata
+            TransactionIndex values stay contiguous, and txExists()
+            also consults the base.
+
+            When `rng` is given, Hooks executed by the transaction applied to
+            this view draw from its shadow cursor if `shadow` is true and
+            from its real cursor otherwise, never from the Random object.
+    */
+    OpenView(
+        closed_view_t,
+        OpenView const& base,
+        SubledgerRng* rng = nullptr,
+        bool shadow = false);
+
+    /** The RNG cursors of a closed_view child (see SubledgerRng), or nullptr.
+     */
+    SubledgerRng*
+    subledgerRng() const
+    {
+        return rng_;
+    }
+
+    /** True iff draws in this view use the shadow cursor. */
+    bool
+    subledgerRngShadow() const
+    {
+        return rngShadow_;
+    }
+
+    /** Construct a subledger on top of another OpenView.
+
+        Effects:
+
+            The LedgerInfo, rules and open() are copied from the base
+            (the sequence is NOT incremented).
+
+            txCount() counts only this view's own transactions, so the
+            transactions applied into it are numbered from zero.
+
+            txExists() also consults the base.
+    */
+    OpenView(subledger_view_t, OpenView const& base);
+
     /** Returns true if this reflects an open ledger. */
     bool
     open() const override
@@ -188,6 +329,24 @@ public:
     /** Apply changes. */
     void
     apply(TxsRawView& to) const;
+
+    /** Apply state changes only (no transactions).
+
+        Also forwards the XRP destroyed in this view
+        (RawStateTable::apply calls to.rawDestroyXRP).
+        Used to fold a subledger into the transaction that owns
+        it: the subledger's transactions are recorded in that
+        transaction's metadata, not in the ledger's tx list.
+    */
+    void
+    applyState(RawView& to) const;
+
+    /** The number of state entries this view changes in its base. */
+    std::size_t
+    stateSize() const
+    {
+        return items_.size();
+    }
 
     // ReadView
 

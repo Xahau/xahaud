@@ -18,12 +18,17 @@
 //==============================================================================
 #include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <test/jtx/hook.h>
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/hook/applyHook.h>
+#include <xrpld/app/tx/applySteps.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
+#include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/digest.h>
 #include <limits>
 #include <tuple>
 #include <vector>
@@ -32,11 +37,44 @@ namespace ripple {
 
 namespace test {
 
+namespace {
+
+// accept()s with dice(0xFFFFFFFF) as the return code (copied from RNG_test)
+// (module
+//   (import "env" "_g" (func $_g (param i32 i32) (result i32)))
+//   (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
+//   (import "env" "dice" (func $dice (param i32) (result i64)))
+//   (memory 1)
+//   (func $hook (param i32) (result i64)
+//     (drop (call $_g (i32.const 1) (i32.const 1)))
+//     (call $accept (i32.const 0) (i32.const 0) (call $dice (i32.const -1))))
+//   (export "memory" (memory 0))
+//   (export "hook" (func $hook)))
+static std::vector<std::uint8_t> const diceMaxWasm = {
+    0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x13U, 0x03U,
+    0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7FU, 0x60U, 0x03U, 0x7FU, 0x7FU, 0x7EU,
+    0x01U, 0x7EU, 0x60U, 0x01U, 0x7FU, 0x01U, 0x7EU, 0x02U, 0x22U, 0x03U, 0x03U,
+    0x65U, 0x6EU, 0x76U, 0x02U, 0x5FU, 0x67U, 0x00U, 0x00U, 0x03U, 0x65U, 0x6EU,
+    0x76U, 0x06U, 0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x01U, 0x03U,
+    0x65U, 0x6EU, 0x76U, 0x04U, 0x64U, 0x69U, 0x63U, 0x65U, 0x00U, 0x02U, 0x03U,
+    0x02U, 0x01U, 0x02U, 0x05U, 0x03U, 0x01U, 0x00U, 0x01U, 0x07U, 0x11U, 0x02U,
+    0x06U, 0x6DU, 0x65U, 0x6DU, 0x6FU, 0x72U, 0x79U, 0x02U, 0x00U, 0x04U, 0x68U,
+    0x6FU, 0x6FU, 0x6BU, 0x00U, 0x03U, 0x0AU, 0x15U, 0x01U, 0x13U, 0x00U, 0x41U,
+    0x01U, 0x41U, 0x01U, 0x10U, 0x00U, 0x1AU, 0x41U, 0x00U, 0x41U, 0x00U, 0x41U,
+    0x7FU, 0x10U, 0x02U, 0x10U, 0x01U, 0x0BU,
+};
+
+}  // namespace
+
 class HookAPI_test : public beast::unit_test::suite
 {
 private:
     ApplyContext
-    createApplyContext(jtx::Env& env, OpenView& ov, STTx const& tx)
+    createApplyContext(
+        jtx::Env& env,
+        OpenView& ov,
+        STTx const& tx,
+        ApplyFlags flags = tapNONE)
     {
         ApplyContext applyCtx{
             env.app(),
@@ -44,7 +82,7 @@ private:
             tx,
             tesSUCCESS,
             env.current()->fees().base,
-            tapNONE,
+            flags,
             env.journal};
         return applyCtx;
     }
@@ -153,6 +191,867 @@ public:
             auto const result2 =
                 api.emit(Slice(result.value().data(), result.value().size()));
             BEAST_EXPECT(result2.has_value());
+        }
+
+        if (env.current()->rules().enabled(featureAtomicEmit))
+        {
+            // prepare_atomic: the ledger window is forced to the current
+            // ledger even when the blob already carries a different one, and
+            // the result is accepted by emit_atomic (but not by emit)
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                    .result = {.isStrong = true},
+                });
+            auto& api = hookCtx.api();
+            auto tx = emitInvokeTx;  // carries FLS = seq + 1, LLS = seq + 5
+            Serializer s = tx.getSerializer();
+            auto const result = api.prepare(s.slice(), /*atomic=*/true);
+            BEAST_EXPECT(result.has_value());
+
+            SerialIter sit(Slice(result.value().data(), result.value().size()));
+            STObject st(sit, sfGeneric);
+            auto const seq = applyCtx.view().info().seq;
+            BEAST_EXPECT(st.getFieldU32(sfFirstLedgerSequence) == seq);
+            BEAST_EXPECT(st.getFieldU32(sfLastLedgerSequence) == seq);
+            BEAST_EXPECT(st.getFieldAmount(sfFee) > XRPAmount(0));
+            BEAST_EXPECT(st.getFieldU32(sfSequence) == 0);
+            BEAST_EXPECT(st.isFieldPresent(sfEmitDetails));
+
+            Slice const prepared(result.value().data(), result.value().size());
+            BEAST_EXPECT(api.emit(prepared).error() == EMISSION_FAILURE);
+            BEAST_EXPECT(api.emit(prepared, /*atomic=*/true).has_value());
+        }
+    }
+
+    void
+    test_emit_atomic_subledger(FeatureBitset features)
+    {
+        testcase("Test emit_atomic subledger");
+        using namespace jtx;
+        using namespace hook_api;
+
+        if (!features[featureAtomicEmit])
+            return;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+
+        Env env{*this, features};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        // a closed base, so that committing generates metadata
+        auto const closed = env.closed();
+
+        // the transaction the (stub) hook is executing for
+        auto const makeOtxn = [&](XRPAmount fee) {
+            return STTx(ttINVOKE, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = env.seq(alice);
+                obj[sfSigningPubKey] = Slice{};
+                obj[sfFee] = fee;
+            });
+        };
+
+        // an atomically emitted payment from the hook account to bob
+        auto const makePayment =
+            [&](OpenView const& ov, STTx const& otxn, XRPAmount amount) {
+                return STTx(ttPAYMENT, [&](STObject& obj) {
+                    obj[sfAccount] = alice.id();
+                    obj[sfDestination] = bob.id();
+                    obj[sfAmount] = STAmount{amount};
+                    obj[sfSequence] = 0;
+                    obj[sfSigningPubKey] = Slice{};
+                    obj[sfFirstLedgerSequence] = ov.seq();
+                    obj[sfLastLedgerSequence] = ov.seq();
+                    obj[sfFee] = env.closed()->fees().base;
+
+                    auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
+                    emitDetails[sfEmitGeneration] = 1;
+                    emitDetails[sfEmitBurden] = 1;
+                    emitDetails[sfEmitParentTxnID] = otxn.getTransactionID();
+                    emitDetails[sfEmitNonce] = uint256();
+                    emitDetails[sfEmitHookHash] = uint256();
+                });
+            };
+
+        auto const bobBalance = [&](ReadView const& view) {
+            return view.read(keylet::account(bob.id()))
+                ->getFieldAmount(sfBalance);
+        };
+
+        {
+            // executed immediately, visible to the hook, inspectable, and
+            // committed as part of the transaction
+            STTx const otxn = makeOtxn(XRPAmount{10});
+            OpenView ov(&*closed);
+            ApplyContext applyCtx = createApplyContext(env, ov, otxn);
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            auto& api = hookCtx.api();
+
+            STTx const pay = makePayment(ov, otxn, XRP(100).value().xrp());
+            Serializer const ser = pay.getSerializer();
+            auto const tpTrans = api.emit(ser.slice(), /*atomic=*/true);
+            BEAST_EXPECT(tpTrans.has_value());
+            if (!tpTrans)
+                return;
+
+            auto const bobBefore =
+                applyCtx.view().read(keylet::account(bob.id()));
+            BEAST_EXPECT(!applyCtx.hasSubledger());
+
+            auto const entry = api.apply_atomic(*tpTrans);
+            BEAST_EXPECT(entry.has_value());
+            if (!entry)
+                return;
+            BEAST_EXPECT(applyCtx.hasSubledger());
+            BEAST_EXPECT(applyCtx.subledgerEntries().size() == 1);
+
+            STObject const& e = **entry;
+            BEAST_EXPECT(
+                e.getFieldH256(sfEmittedTxnID) == pay.getTransactionID());
+            auto const& innerMeta =
+                e.peekAtField(sfTransactionMetaData).downcast<STObject>();
+            BEAST_EXPECT(
+                innerMeta.getFieldU8(sfTransactionResult) ==
+                TERtoInt(tesSUCCESS));
+            BEAST_EXPECT(innerMeta.getFieldU32(sfTransactionIndex) == 0);
+
+            // the hook, and everything applied after it, reads through the
+            // subledger
+            BEAST_EXPECT(
+                bobBalance(applyCtx.view()) ==
+                bobBefore->getFieldAmount(sfBalance) + STAmount{XRP(100)});
+            BEAST_EXPECT(
+                bobBalance(ov) == bobBefore->getFieldAmount(sfBalance));
+
+            // the subledger's changes (alice and bob) count towards the
+            // oversize cap even though the working view itself is empty
+            BEAST_EXPECT(applyCtx.size() == 2);
+
+            // the provisional metadata already lists the Subledger
+            {
+                auto const proMeta = applyCtx.generateProvisionalMeta();
+                BEAST_EXPECT(
+                    proMeta.hasSubledger() &&
+                    proMeta.getSubledger().size() == 1);
+            }
+
+            // subledger_slot by txid and by index
+            BEAST_EXPECT(
+                api.subledger_slot(0, pay.getTransactionID(), 0).has_value());
+            BEAST_EXPECT(api.subledger_slot(0, std::nullopt, 0).has_value());
+            BEAST_EXPECT(
+                api.subledger_slot(0, std::nullopt, 1).error() == DOESNT_EXIST);
+            BEAST_EXPECT(
+                api.subledger_slot(0, uint256(7), 0).error() == DOESNT_EXIST);
+
+            // the same nonce cannot be used again
+            BEAST_EXPECT(
+                api.emit(ser.slice(), /*atomic=*/true).error() ==
+                EMISSION_FAILURE);
+
+            // commit: only the transaction enters the ledger, its
+            // AffectedNodes are the net change, threaded to it, and the
+            // payment is in its Subledger
+            auto const bobPrevTxn = bobBefore->getFieldH256(sfPreviousTxnID);
+            auto txMeta = applyCtx.apply(tesSUCCESS);
+            BEAST_EXPECT(txMeta.has_value());
+            BEAST_EXPECT(ov.txCount() == 1);
+            BEAST_EXPECT(ov.txExists(otxn.getTransactionID()));
+            BEAST_EXPECT(!ov.txExists(pay.getTransactionID()));
+            if (txMeta)
+            {
+                BEAST_EXPECT(
+                    txMeta->hasSubledger() &&
+                    txMeta->getSubledger().size() == 1);
+                bool found = false;
+                for (auto const& node : txMeta->getNodes())
+                {
+                    if (node.getFieldH256(sfLedgerIndex) !=
+                        keylet::account(bob.id()).key)
+                        continue;
+                    found = true;
+                    BEAST_EXPECT(node.getFName() == sfModifiedNode);
+                    BEAST_EXPECT(
+                        node.getFieldH256(sfPreviousTxnID) == bobPrevTxn);
+                }
+                BEAST_EXPECT(found);
+
+                // the Subledger survives a serialisation round trip
+                Serializer s;
+                txMeta->addRaw(s, tesSUCCESS, 0);
+                TxMeta const parsed(
+                    otxn.getTransactionID(), ov.seq(), s.peekData());
+                BEAST_EXPECT(
+                    parsed.hasSubledger() && parsed.getSubledger().size() == 1);
+            }
+            BEAST_EXPECT(
+                bobBalance(ov) ==
+                bobBefore->getFieldAmount(sfBalance) + STAmount{XRP(100)});
+            BEAST_EXPECT(
+                ov.read(keylet::account(bob.id()))
+                    ->getFieldH256(sfPreviousTxnID) == otxn.getTransactionID());
+        }
+
+        {
+            // abandoned: discard() (rollback, or any tec) drops the
+            // subledger
+            STTx const otxn = makeOtxn(XRPAmount{10});
+            OpenView ov(&*closed);
+            ApplyContext applyCtx = createApplyContext(env, ov, otxn);
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            auto& api = hookCtx.api();
+
+            STTx const pay = makePayment(ov, otxn, XRP(100).value().xrp());
+            Serializer const ser = pay.getSerializer();
+            auto const tpTrans = api.emit(ser.slice(), /*atomic=*/true);
+            BEAST_EXPECT(tpTrans.has_value());
+            if (tpTrans)
+            {
+                BEAST_EXPECT(api.apply_atomic(*tpTrans).has_value());
+                BEAST_EXPECT(applyCtx.hasSubledger());
+                applyCtx.discard();
+                BEAST_EXPECT(!applyCtx.hasSubledger());
+                BEAST_EXPECT(applyCtx.subledgerEntries().empty());
+                BEAST_EXPECT(
+                    bobBalance(applyCtx.view()) == bobBalance(*closed));
+                BEAST_EXPECT(
+                    api.subledger_slot(0, std::nullopt, 0).error() ==
+                    DOESNT_EXIST);
+            }
+        }
+
+        {
+            // the transaction's fee is charged after its subledger: an inner
+            // txn that would leave it unable to pay is refused
+            auto const aliceBalance = env.balance(alice).value().xrp();
+            STTx const otxn = makeOtxn(aliceBalance - XRP(100).value().xrp());
+            OpenView ov(&*closed);
+            ApplyContext applyCtx = createApplyContext(env, ov, otxn);
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            auto& api = hookCtx.api();
+
+            STTx const pay = makePayment(ov, otxn, XRP(1000).value().xrp());
+            Serializer const ser = pay.getSerializer();
+            auto const tpTrans = api.emit(ser.slice(), /*atomic=*/true);
+            BEAST_EXPECT(tpTrans.has_value());
+            if (tpTrans)
+            {
+                BEAST_EXPECT(
+                    api.apply_atomic(*tpTrans).error() == EMISSION_FAILURE);
+                BEAST_EXPECT(applyCtx.subledgerEntries().empty());
+                BEAST_EXPECT(
+                    bobBalance(applyCtx.view()) == bobBalance(*closed));
+            }
+        }
+    }
+
+    void
+    test_subledger_merge()
+    {
+        testcase("Test subledger entry merge");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+
+        auto const make = [&](XRPAmount balance, std::uint32_t ownerCount) {
+            auto sle = std::make_shared<SLE>(keylet::account(alice.id()));
+            sle->setAccountID(sfAccount, alice.id());
+            sle->setFieldAmount(sfBalance, STAmount{balance});
+            sle->setFieldU32(sfOwnerCount, ownerCount);
+            sle->setFieldU32(sfSequence, 5);
+            return sle;
+        };
+
+        auto const before = make(XRPAmount{100}, 0);
+
+        {
+            // disjoint fields: ours from ours, the rest from theirs
+            auto const ours = make(XRPAmount{100}, 1);
+            auto const theirs = make(XRPAmount{150}, 0);
+            auto const merged = subledger::mergeEntry(*before, *ours, *theirs);
+            BEAST_EXPECT(merged);
+            if (merged)
+            {
+                BEAST_EXPECT(
+                    merged->getFieldAmount(sfBalance) ==
+                    STAmount{XRPAmount{150}});
+                BEAST_EXPECT(merged->getFieldU32(sfOwnerCount) == 1);
+                BEAST_EXPECT(merged->getFieldU32(sfSequence) == 5);
+            }
+        }
+
+        {
+            // the same field changed on both sides conflicts
+            auto const ours = make(XRPAmount{90}, 0);
+            auto const theirs = make(XRPAmount{150}, 0);
+            BEAST_EXPECT(!subledger::mergeEntry(*before, *ours, *theirs));
+        }
+
+        {
+            // ... unless theirs did not change it
+            auto const ours = make(XRPAmount{90}, 0);
+            auto const theirs = make(XRPAmount{100}, 0);
+            auto const merged = subledger::mergeEntry(*before, *ours, *theirs);
+            BEAST_EXPECT(
+                merged &&
+                merged->getFieldAmount(sfBalance) == STAmount{XRPAmount{90}});
+        }
+
+        {
+            // optional fields: added by ours, removed by ours
+            auto const withKey = make(XRPAmount{100}, 0);
+            withKey->setAccountID(sfRegularKey, bob.id());
+
+            auto const ours = make(XRPAmount{100}, 0);
+            ours->setFieldVL(sfDomain, Slice{"x", 1});
+            auto const theirs = make(XRPAmount{150}, 0);
+            auto const merged = subledger::mergeEntry(*before, *ours, *theirs);
+            BEAST_EXPECT(merged && merged->isFieldPresent(sfDomain));
+
+            // removed by ours while theirs kept it
+            auto const theirsKey = make(XRPAmount{150}, 0);
+            theirsKey->setAccountID(sfRegularKey, bob.id());
+            auto const removed = subledger::mergeEntry(
+                *withKey, *make(XRPAmount{100}, 0), *theirsKey);
+            BEAST_EXPECT(removed && !removed->isFieldPresent(sfRegularKey));
+
+            // removed by ours while theirs changed it
+            auto const theirsOther = make(XRPAmount{100}, 0);
+            theirsOther->setAccountID(sfRegularKey, alice.id());
+            BEAST_EXPECT(!subledger::mergeEntry(
+                *withKey, *make(XRPAmount{100}, 0), *theirsOther));
+        }
+    }
+
+    void
+    test_emit_atomic_rng(FeatureBitset features)
+    {
+        testcase("Test emit_atomic RNG (shadow and real subledgers)");
+        using namespace jtx;
+        using namespace hook_api;
+
+        if (!features[featureAtomicEmit] || !features[featureRNG])
+            return;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        auto const carol = Account{"carol"};
+
+        // in standalone mode a validator contributes to every ledger it closes
+        Env env{*this, envconfig(validator, ""), features};
+        env.fund(XRP(10000), alice, bob, carol);
+        env.close();
+        // bob draws from the RNG on every transaction he is a stake holder in
+        env(hook(bob, {{hso(diceMaxWasm)}}, 0), fee(XRP(100)));
+        env.close();
+        env.close();
+
+        auto const closed = env.closed();
+        auto const seedSle = closed->read(keylet::random());
+        if (!BEAST_EXPECT(
+                seedSle &&
+                seedSle->getFieldU32(sfLedgerSequence) == closed->seq()))
+            return;
+        uint256 const seed = seedSle->getFieldH256(sfRandomData);
+
+        auto const step = [](uint256 const& s) {
+            return sha512Half(std::uint32_t{0x524E4749}, s);
+        };
+        auto const randomState = [](ReadView const& view) {
+            return view.read(keylet::random())->getFieldH256(sfRandomData);
+        };
+        auto const hookCode = [](STObject const& entry) -> std::uint64_t {
+            auto const& meta =
+                entry.peekAtField(sfTransactionMetaData).downcast<STObject>();
+            if (!meta.isFieldPresent(sfHookExecutions))
+                return 0;
+            auto const& execs = meta.getFieldArray(sfHookExecutions);
+            return execs.empty() ? 0 : execs[0].getFieldU64(sfHookReturnCode);
+        };
+        auto const noRngIn = [](STObject const& entry) {
+            auto const& meta =
+                entry.peekAtField(sfTransactionMetaData).downcast<STObject>();
+            if (meta.isFieldPresent(sfRandomData))
+                return false;
+            for (auto const& node : meta.getFieldArray(sfAffectedNodes))
+                if (node.getFieldU16(sfLedgerEntryType) == ltRANDOM)
+                    return false;
+            return true;
+        };
+
+        auto const makeOtxn = [&]() {
+            return STTx(ttINVOKE, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = env.seq(alice);
+                obj[sfSigningPubKey] = Slice{};
+                obj[sfFee] = XRPAmount{10};
+            });
+        };
+        auto const makePayment = [&](OpenView const& ov,
+                                     STTx const& otxn,
+                                     Account const& to,
+                                     std::uint8_t nonce) {
+            return std::make_shared<STTx const>(ttPAYMENT, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfDestination] = to.id();
+                obj[sfAmount] = STAmount{XRP(100).value().xrp()};
+                obj[sfSequence] = 0;
+                obj[sfSigningPubKey] = Slice{};
+                obj[sfFirstLedgerSequence] = ov.seq();
+                obj[sfLastLedgerSequence] = ov.seq();
+                // generous: covers bob's hook
+                obj[sfFee] = XRP(1).value().xrp();
+
+                auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
+                emitDetails[sfEmitGeneration] = 1;
+                emitDetails[sfEmitBurden] = 1;
+                emitDetails[sfEmitParentTxnID] = otxn.getTransactionID();
+                emitDetails[sfEmitNonce] = uint256(nonce);
+                emitDetails[sfEmitHookHash] = uint256();
+            });
+        };
+
+        {
+            // An inner whose Hooks draw forks the subledgers: the hook sees
+            // the shadow outcome, the real one is committed.
+            STTx const otxn = makeOtxn();
+            OpenView ov(&*closed);
+            ApplyContext applyCtx = createApplyContext(env, ov, otxn);
+
+            auto const r =
+                applyCtx.applyToSubledger(makePayment(ov, otxn, bob, 1));
+            if (!BEAST_EXPECT(r.entry))
+                return;
+            BEAST_EXPECT(isTesSuccess(r.ter));
+            BEAST_EXPECT(
+                r.entry->isFieldPresent(sfFlags) &&
+                r.entry->getFieldU32(sfFlags) == stfIndeterminate);
+            BEAST_EXPECT(noRngIn(*r.entry));
+            auto const visibleCode = hookCode(*r.entry);
+
+            // the Random object is not touched while there is a subledger
+            BEAST_EXPECT(randomState(applyCtx.view()) == seed);
+            BEAST_EXPECT(applyCtx.subledgerRngDrawn());
+
+            // a later inner that does not draw is tainted too
+            auto const r2 =
+                applyCtx.applyToSubledger(makePayment(ov, otxn, carol, 2));
+            BEAST_EXPECT(
+                r2.entry && r2.entry->isFieldPresent(sfFlags) &&
+                r2.entry->getFieldU32(sfFlags) == stfIndeterminate);
+
+            // a change this transaction makes on top of the visible
+            // subledger is merged into the real one
+            {
+                auto sle = applyCtx.view().peek(keylet::account(alice.id()));
+                sle->setFieldVL(sfDomain, Slice{"x", 1});
+                applyCtx.view().update(sle);
+            }
+
+            // end of the strong phase: continue on the real subledger
+            BEAST_EXPECT(applyCtx.concretizeSubledger());
+            BEAST_EXPECT(applyCtx.subledgerEntries().size() == 2);
+            if (applyCtx.subledgerEntries().size() == 2)
+            {
+                auto const& real = *applyCtx.subledgerEntries()[0];
+                BEAST_EXPECT(real.getFieldU32(sfFlags) == stfIndeterminate);
+                BEAST_EXPECT(noRngIn(real));
+                // drawn from a different state (2^-32 chance to collide)
+                BEAST_EXPECT(hookCode(real) != visibleCode);
+            }
+            BEAST_EXPECT(applyCtx.view()
+                             .read(keylet::account(alice.id()))
+                             ->isFieldPresent(sfDomain));
+
+            auto const txMeta = applyCtx.apply(tesSUCCESS);
+            BEAST_EXPECT(txMeta && txMeta->hasSubledger());
+            // the real cursor advanced once (bob's one draw), and was
+            // written back on commit
+            BEAST_EXPECT(randomState(ov) == step(seed));
+            BEAST_EXPECT(
+                ov.read(keylet::account(alice.id()))->isFieldPresent(sfDomain));
+            BEAST_EXPECT(
+                ov.read(keylet::account(carol.id()))
+                    ->getFieldAmount(sfBalance) ==
+                closed->read(keylet::account(carol.id()))
+                        ->getFieldAmount(sfBalance) +
+                    STAmount{XRP(100)});
+        }
+
+        {
+            // The owning transaction's own draws use the real cursor while it
+            // has a subledger, and survive a discard.
+            STTx const otxn = makeOtxn();
+            OpenView ov(&*closed);
+            ApplyContext applyCtx = createApplyContext(env, ov, otxn);
+
+            // carol has no hook: no draw, no fork
+            auto const r =
+                applyCtx.applyToSubledger(makePayment(ov, otxn, carol, 1));
+            if (!BEAST_EXPECT(r.entry))
+                return;
+            BEAST_EXPECT(!r.entry->isFieldPresent(sfFlags));
+            BEAST_EXPECT(!applyCtx.subledgerRngDrawn());
+
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.result = {.isStrong = true}});
+            auto& api = hookCtx.api();
+            auto const roll = api.dice(6);
+            BEAST_EXPECT(roll.has_value() && roll.value() < 6);
+
+            BEAST_EXPECT(applyCtx.subledgerRngDrawn());
+            BEAST_EXPECT(randomState(applyCtx.view()) == seed);
+            BEAST_EXPECT(
+                dynamic_cast<ApplyViewImpl&>(applyCtx.view()).getRandomData() ==
+                seed);
+
+            applyCtx.discard();
+            BEAST_EXPECT(!applyCtx.hasSubledger());
+            BEAST_EXPECT(randomState(applyCtx.view()) == step(seed));
+            BEAST_EXPECT(
+                dynamic_cast<ApplyViewImpl&>(applyCtx.view()).getRandomData() ==
+                seed);
+        }
+
+        {
+            // A shadow draw never touches the Random object or the real
+            // cursor, and records nothing in the inner's metadata.
+            STTx const otxn = makeOtxn();
+            OpenView ov(&*closed);
+            SubledgerRng rng(otxn.getTransactionID(), false);
+            auto const inner = makePayment(ov, otxn, carol, 1);
+
+            {
+                OpenView child(closed_view, ov, &rng, /*shadow=*/true);
+                ApplyContext innerCtx =
+                    createApplyContext(env, child, *inner, tapATOMIC_EMIT);
+                auto hookCtx = makeStubHookContext(
+                    innerCtx,
+                    carol.id(),
+                    alice.id(),
+                    {.result = {.isStrong = true}});
+                auto& api = hookCtx.api();
+                BEAST_EXPECT(api.dice(6).has_value());
+                BEAST_EXPECT(rng.shadowDrawn && !rng.realDrawn);
+                BEAST_EXPECT(rng.real == seed && rng.shadow);
+                BEAST_EXPECT(rng.shadow != seed && rng.shadow != step(seed));
+                BEAST_EXPECT(randomState(innerCtx.view()) == seed);
+                BEAST_EXPECT(!dynamic_cast<ApplyViewImpl&>(innerCtx.view())
+                                  .getRandomData());
+            }
+
+            {
+                OpenView child(closed_view, ov, &rng, /*shadow=*/false);
+                ApplyContext innerCtx =
+                    createApplyContext(env, child, *inner, tapATOMIC_EMIT);
+                auto hookCtx = makeStubHookContext(
+                    innerCtx,
+                    carol.id(),
+                    alice.id(),
+                    {.result = {.isStrong = true}});
+                auto& api = hookCtx.api();
+                BEAST_EXPECT(api.dice(6).has_value());
+                BEAST_EXPECT(rng.realDrawn);
+                BEAST_EXPECT(rng.real == step(seed));
+                BEAST_EXPECT(randomState(innerCtx.view()) == seed);
+                BEAST_EXPECT(!dynamic_cast<ApplyViewImpl&>(innerCtx.view())
+                                  .getRandomData());
+            }
+        }
+    }
+
+    void
+    test_emit_atomic(FeatureBitset features)
+    {
+        testcase("Test emit (atomic rules)");
+        using namespace jtx;
+
+        auto const alice = Account{"alice"};
+
+        using namespace hook_api;
+        Env env{*this, features};
+
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        // atomicBound == true: FirstLedgerSequence == LastLedgerSequence ==
+        // the ledger being built (required by emit_atomic); otherwise the
+        // usual emit() window
+        auto const makeEmitted = [&](TxType tt, bool atomicBound) {
+            return STTx(tt, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = 0;
+                obj[sfSigningPubKey] = Slice{};
+                obj[sfFirstLedgerSequence] =
+                    atomicBound ? ov.seq() : env.closed()->seq() + 1;
+                obj[sfLastLedgerSequence] =
+                    atomicBound ? ov.seq() : env.closed()->seq() + 5;
+                obj[sfFee] = env.closed()->fees().base;
+
+                auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
+                emitDetails[sfEmitGeneration] = 1;
+                emitDetails[sfEmitBurden] = 1;
+                emitDetails[sfEmitParentTxnID] = invokeTx.getTransactionID();
+                emitDetails[sfEmitNonce] = uint256();
+                emitDetails[sfEmitHookHash] = uint256();
+            });
+        };
+        STTx const emitInvokeTx = makeEmitted(ttINVOKE, false);
+        STTx const atomicInvokeTx = makeEmitted(ttINVOKE, true);
+        // getSerializer() returns by value: keep it alive for the slice
+        Serializer const emitInvokeSer = emitInvokeTx.getSerializer();
+        Serializer const atomicInvokeSer = atomicInvokeTx.getSerializer();
+        auto const blob = emitInvokeSer.slice();          // for emit()
+        auto const atomicBlob = atomicInvokeSer.slice();  // for emit_atomic()
+
+        bool const enabled = env.current()->rules().enabled(featureAtomicEmit);
+
+        {
+            // A1: a weak (default stub) execution may not emit atomically
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1, .nonce_used = {{uint256(0), true}}});
+            auto const result = hookCtx.api().emit(atomicBlob, /*atomic=*/true);
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            // A1: a strong execution may
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            auto const result = hookCtx.api().emit(atomicBlob, /*atomic=*/true);
+            BEAST_EXPECT(result.has_value());
+
+            // bookkeeping after a successful atomic emission
+            if (result)
+            {
+                hookCtx.api().recordEmission(*result, /*atomic=*/true);
+                BEAST_EXPECT(applyCtx.atomicEmitCount == 1);
+                BEAST_EXPECT(
+                    hookCtx.nonce_consumed.count(uint256(0)) == 1 &&
+                    hookCtx.nonce_consumed[uint256(0)] == true);
+            }
+            applyCtx.atomicEmitCount = 0;
+        }
+        {
+            // A1: a callback execution may not
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isCallback = true, .isStrong = true}});
+            auto const result = hookCtx.api().emit(atomicBlob, /*atomic=*/true);
+            BEAST_EXPECT(result.error() == EMISSION_FAILURE);
+        }
+        {
+            // A2: a hook running inside a subledger (on an emit_atomic txn)
+            // cannot start another one
+            ApplyContext nested =
+                createApplyContext(env, ov, invokeTx, tapATOMIC_EMIT);
+            auto hookCtx = makeStubHookContext(
+                nested,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob, /*atomic=*/true).error() ==
+                ALREADY_IN_SUBLEDGER);
+            // plain emit() is still fine there
+            BEAST_EXPECT(hookCtx.api().emit(blob).has_value());
+        }
+        {
+            // A4: per transaction cap
+            applyCtx.atomicEmitCount = hook_api::max_atomic_emit;
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob, /*atomic=*/true).error() ==
+                EMISSION_FAILURE);
+            // the cap does not apply to plain emit()
+            BEAST_EXPECT(hookCtx.api().emit(blob).has_value());
+            applyCtx.atomicEmitCount = hook_api::max_atomic_emit - 1;
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob, /*atomic=*/true).has_value());
+            applyCtx.atomicEmitCount = 0;
+        }
+        {
+            // A5: the etxn_reserve budget is shared between the two queues
+            std::string reason;
+            auto tx = std::make_shared<ripple::Transaction>(
+                std::make_shared<ripple::STTx const>(emitInvokeTx),
+                reason,
+                env.app());
+            std::queue<std::shared_ptr<ripple::Transaction>> q;
+            q.push(tx);
+            std::vector<std::shared_ptr<ripple::Transaction>> qv{tx};
+            {
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {.expected_etxn_count = 1,
+                     .nonce_used = {{uint256(0), true}},
+                     .result = {.emittedTxn = q, .isStrong = true}});
+                BEAST_EXPECT(
+                    hookCtx.api().emit(atomicBlob, /*atomic=*/true).error() ==
+                    TOO_MANY_EMITTED_TXN);
+            }
+            {
+                auto hookCtx = makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {.expected_etxn_count = 1,
+                     .nonce_used = {{uint256(0), true}},
+                     .result = {.emittedAtomicTxn = qv, .isStrong = true}});
+                BEAST_EXPECT(
+                    hookCtx.api().emit(blob).error() == TOO_MANY_EMITTED_TXN);
+            }
+        }
+        {
+            // R2: a nonce spent by any emission is refused for emit_atomic,
+            // a nonce spent atomically is refused for emit(); plain emit()
+            // reusing a plain emit() nonce is untouched (legacy)
+            auto mk = [&](bool spentAtomically) {
+                return makeStubHookContext(
+                    applyCtx,
+                    alice.id(),
+                    alice.id(),
+                    {.expected_etxn_count = 1,
+                     .nonce_used = {{uint256(0), true}},
+                     .nonce_consumed = {{uint256(0), spentAtomically}},
+                     .result = {.isStrong = true}});
+            };
+            {
+                auto hookCtx = mk(false);
+                BEAST_EXPECT(
+                    hookCtx.api()
+                        .emit(atomicBlob, /*atomic=*/true)
+                        .has_value() == !enabled);
+                BEAST_EXPECT(hookCtx.api().emit(blob).has_value());
+            }
+            {
+                auto hookCtx = mk(true);
+                BEAST_EXPECT(
+                    hookCtx.api()
+                        .emit(atomicBlob, /*atomic=*/true)
+                        .has_value() == !enabled);
+                BEAST_EXPECT(hookCtx.api().emit(blob).has_value() == !enabled);
+            }
+        }
+        {
+            // ledger window: emit_atomic requires FLS == LLS == current seq,
+            // and such a blob is in turn refused by plain emit()
+            auto hookCtx = makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {.expected_etxn_count = 1,
+                 .nonce_used = {{uint256(0), true}},
+                 .result = {.isStrong = true}});
+            BEAST_EXPECT(
+                hookCtx.api().emit(blob, /*atomic=*/true).error() ==
+                EMISSION_FAILURE);
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob).error() == EMISSION_FAILURE);
+            BEAST_EXPECT(
+                hookCtx.api().emit(atomicBlob, /*atomic=*/true).has_value());
+            BEAST_EXPECT(hookCtx.api().emit(blob).has_value());
+        }
+        {
+            // R1: the fee floor is computed against the view being applied
+            auto hookCtx = makeStubHookContext(
+                applyCtx, alice.id(), alice.id(), {.expected_etxn_count = 1});
+            auto const fee = hookCtx.api().etxn_fee_base(blob);
+            BEAST_EXPECT(fee.has_value());
+            if (fee && enabled)
+                BEAST_EXPECT(
+                    *fee ==
+                    ripple::calculateBaseFee(applyCtx.view(), emitInvokeTx)
+                        .drops());
+        }
+        {
+            // tapATOMIC_EMIT defensive checks in preflight1 / checkSign: the
+            // flag on anything that is not an unsigned emitted txn is
+            // refused; on a genuine emitted txn preflight passes without
+            // SF_EMITTED
+            auto const& rules = env.current()->rules();
+            STTx const plain = STTx(ttINVOKE, [&](STObject& obj) {
+                obj[sfAccount] = alice.id();
+                obj[sfSequence] = 1;
+                obj[sfSigningPubKey] = Slice{};
+                obj[sfFee] = env.closed()->fees().base;
+            });
+            BEAST_EXPECT(
+                preflight(env.app(), rules, plain, tapATOMIC_EMIT, env.journal)
+                    .ter == temINVALID);
+
+            STTx signedEmitted = emitInvokeTx;
+            signedEmitted.setFieldVL(
+                sfTxnSignature, std::vector<uint8_t>(64, 1));
+            BEAST_EXPECT(
+                preflight(
+                    env.app(),
+                    rules,
+                    signedEmitted,
+                    tapATOMIC_EMIT,
+                    env.journal)
+                    .ter == temINVALID);
+
+            STTx zeroKey = emitInvokeTx;
+            zeroKey.setFieldVL(sfSigningPubKey, std::vector<uint8_t>(33, 0));
+            BEAST_EXPECT(hook::hasNoSignatureMaterial(zeroKey));
+            BEAST_EXPECT(
+                preflight(
+                    env.app(), rules, zeroKey, tapATOMIC_EMIT, env.journal)
+                    .ter == tesSUCCESS);
+            BEAST_EXPECT(
+                preflight(env.app(), rules, zeroKey, tapNONE, env.journal)
+                    .ter == telNON_LOCAL_EMITTED_TXN);
         }
     }
 
@@ -5198,6 +6097,10 @@ public:
         test_prepare(features);
         test_emit(features);
         test_emitted_txn_entry(features);
+        test_emit_atomic(features);
+        test_emit_atomic_subledger(features);
+        test_emit_atomic_rng(features);
+        test_subledger_merge();
         test_etxn_burden(features);
         test_etxn_generation(features);
         test_otxn_burden(features);

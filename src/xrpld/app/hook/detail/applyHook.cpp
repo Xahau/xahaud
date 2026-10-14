@@ -16,6 +16,7 @@
 #include <xrpl/protocol/st.h>
 #include <xrpl/protocol/tokens.h>
 #include <boost/multiprecision/cpp_dec_float.hpp>
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -670,6 +671,22 @@ bool
 hook::isEmittedTxn(ripple::STTx const& tx)
 {
     return tx.isFieldPresent(ripple::sfEmitDetails);
+}
+
+bool
+hook::hasNoSignatureMaterial(ripple::STTx const& tx)
+{
+    if (tx.isFieldPresent(sfTxnSignature) || tx.isFieldPresent(sfSigners))
+        return false;
+    if (!tx.isFieldPresent(sfSigningPubKey))
+        return false;
+    auto const pk = tx.getSigningPubKey();
+    // prepare()/etxn_details() produce a 33 byte all-zero key; an empty key
+    // is also accepted (HookAPI::emit rule 2)
+    if (pk.size() != 0 && pk.size() != 33)
+        return false;
+    return std::all_of(
+        pk.begin(), pk.end(), [](std::uint8_t b) { return b == 0; });
 }
 
 int64_t
@@ -1597,6 +1614,11 @@ hook::finalizeHookResult(
                 }
             }
         }
+
+        // emit_atomic txns were already executed in the subledger, which the
+        // transaction's metadata records (Subledger). They are not written
+        // to the emitted directory and not listed in HookEmissions, which
+        // only lists txns that appear in later ledgers.
     }
 
     // add a metadata entry for this hook execution result
@@ -2707,12 +2729,11 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-/* Emit a transaction from this hook. Transaction must be in STObject form,
- * fully formed and valid. XRPLD does not modify transactions it only checks
- * them for validity. */
+/* Same as prepare() but for emit_atomic(): FirstLedgerSequence and
+ * LastLedgerSequence are set to the current ledger sequence. */
 DEFINE_HOOK_FUNCTION(
     int64_t,
-    emit,
+    prepare_atomic,
     uint32_t write_ptr,
     uint32_t write_len,
     uint32_t read_ptr,
@@ -2720,6 +2741,57 @@ DEFINE_HOOK_FUNCTION(
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
+
+    // see emit_atomic: the host function is registered regardless of the
+    // amendment, gate at runtime
+    if (!applyCtx.view().rules().enabled(featureAtomicEmit))
+        return NOT_IMPLEMENTED;  // LCOV_EXCL_LINE
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    ripple::Slice txBlob{
+        reinterpret_cast<const void*>(memory + read_ptr), read_len};
+
+    auto const res = api.prepare(txBlob, /*atomic=*/true);
+    if (!res)
+        return res.error();
+
+    auto tx_blob = res.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr,
+        tx_blob.size(),
+        tx_blob.data(),
+        tx_blob.size(),
+        memory,
+        memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+// Shared body of emit()/emit_atomic(): the two host functions differ only in
+// the amendment gate, the `atomic` argument and which queue the emitted txn
+// lands in. `memoryCtx` is needed (not just `memory`/`memory_length`)
+// because WRITE_WASM_MEMORY_AND_RETURN writes through it directly.
+inline std::variant<uint64_t, hook_api::hook_return_code>
+emit_txn(
+    hook::HookContext& hookCtx,
+    WasmEdge_MemoryInstanceContext* memoryCtx,
+    unsigned char* memory,
+    uint64_t memory_length,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    bool atomic)
+{
+    using enum hook_api::hook_return_code;
+    auto j = hookCtx.applyCtx.app.journal("View");
+    auto& api = hookCtx.api();
 
     if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
         return OUT_OF_BOUNDS;
@@ -2730,11 +2802,10 @@ DEFINE_HOOK_FUNCTION(
     if (write_len < 32)
         return TOO_SMALL;
 
-    // Delegate to decoupled HookAPI for emit logic
     ripple::Slice txBlob{
         reinterpret_cast<const void*>(memory + read_ptr), read_len};
 
-    auto const res = api.emit(txBlob);
+    auto const res = api.emit(txBlob, atomic);
 
     if (!res)
         return res.error();
@@ -2747,6 +2818,16 @@ DEFINE_HOOK_FUNCTION(
 
     if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
         return OUT_OF_BOUNDS;
+
+    if (atomic)
+    {
+        // Execute it now, in the subledger. The attempt (which may run the
+        // inner txn's hooks) is spent whatever its outcome.
+        api.recordEmission(tpTrans, true);
+        if (auto const applied = api.apply_atomic(tpTrans); !applied)
+            return applied.error();
+        hookCtx.result.emittedAtomicTxn.push_back(tpTrans);
+    }
 
     auto const write_txid =
         [&]() -> std::variant<uint64_t, hook_api::hook_return_code> {
@@ -2764,10 +2845,101 @@ DEFINE_HOOK_FUNCTION(
         return std::get<hook_api::hook_return_code>(result);
 
     auto const value = std::get<uint64_t>(result);
-    if (value == 32)
+    if (value == 32 && !atomic)
+    {
         hookCtx.result.emittedTxn.push(tpTrans);
+        api.recordEmission(tpTrans, false);
+    }
 
     return value;
+}
+
+/* Emit a transaction from this hook. Transaction must be in STObject form,
+ * fully formed and valid. XRPLD does not modify transactions it only checks
+ * them for validity. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    emit,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    return emit_txn(
+        hookCtx,
+        memoryCtx,
+        memory,
+        memory_length,
+        write_ptr,
+        write_len,
+        read_ptr,
+        read_len,
+        /*atomic=*/false);
+
+    HOOK_TEARDOWN();
+}
+
+/* Emit a transaction atomically with the transaction this hook is executing
+ * for. The emitted txn is executed immediately, in that transaction's
+ * subledger, before this call returns: it sees (and its effects are seen by)
+ * the ledger as this hook sees it. The subledger is committed as part of the
+ * transaction if the transaction succeeds, and abandoned if a hook rolls back
+ * or the transaction fails in any other way.
+ *
+ * Returns 32 (the txid, written to write_ptr) iff the txn was applied to the
+ * subledger, with tesSUCCESS or with a tec code (fee claimed only). Use
+ * subledger_slot() to inspect its result and metadata, and rollback() if the
+ * outcome is not acceptable. Returns EMISSION_FAILURE if it was invalid or not
+ * applied (tem/tef/tel/ter), and ALREADY_IN_SUBLEDGER when called by a hook
+ * that is itself executing inside a subledger. Same blob format and rules as
+ * emit(), plus: strong execution only, FirstLedgerSequence ==
+ * LastLedgerSequence == the current ledger, at most hook_api::max_atomic_emit
+ * attempts per transaction.
+ *
+ * Hook state: this hook's own state_set() calls are still pending (they are
+ * written once every strong chain has run), so the inner txn's hooks do not
+ * see them, and a key written by both is left as this transaction's hooks
+ * wrote it. Reads through state() do see the inner txn's committed state.
+ *
+ * RNG (featureRNG): if the inner txn's hooks draw from the RNG, what this
+ * hook sees (the return value, state(), subledger_slot()) was drawn from a
+ * shadow RNG and is not what will be committed: the same txn is also applied
+ * with the real RNG to a real subledger the hook cannot see, and that one is
+ * committed. The SubledgerTransaction of such a txn, and of every txn emitted
+ * atomically after it, carries stfIndeterminate in sfFlags. The hook may
+ * rollback(), or continue without knowing the real outcome. If the real
+ * subledger cannot follow what the hook saw (the txn is not applied there,
+ * or a change made by this transaction conflicts with it), the transaction
+ * fails with tecSUBLEDGER_DIVERGED at the end of the strong phase. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    emit_atomic,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    // The import whitelist only gates SetHook; the host function itself is
+    // registered regardless of amendment state, so gate at runtime too.
+    if (!applyCtx.view().rules().enabled(featureAtomicEmit))
+        return NOT_IMPLEMENTED;  // LCOV_EXCL_LINE
+
+    return emit_txn(
+        hookCtx,
+        memoryCtx,
+        memory,
+        memory_length,
+        write_ptr,
+        write_len,
+        read_ptr,
+        read_len,
+        /*atomic=*/true);
 
     HOOK_TEARDOWN();
 }
@@ -4024,6 +4196,45 @@ DEFINE_HOOK_FUNCTION(int64_t, meta_slot, uint32_t slot_into)
     HOOK_SETUP();
 
     auto const result = api.meta_slot(slot_into);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+/* Slot a SubledgerTransaction { EmittedTxnID, EmittedTxn, TransactionMetaData }
+ * from the subledger of the transaction this hook is executing for: the one
+ * whose txid is the 32 bytes at read_ptr, or, when read_len is 0, the one at
+ * index read_ptr (application order, 0 based). */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    subledger_slot,
+    uint32_t slot_into,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();
+
+    // the host function is registered regardless of the amendment
+    if (!applyCtx.view().rules().enabled(featureAtomicEmit))
+        return NOT_IMPLEMENTED;  // LCOV_EXCL_LINE
+
+    std::optional<ripple::uint256> txid;
+    uint32_t index = 0;
+    if (read_len == 32)
+    {
+        if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+            return OUT_OF_BOUNDS;
+        txid = ripple::uint256::fromVoid(memory + read_ptr);
+    }
+    else if (read_len == 0)
+        index = read_ptr;
+    else
+        return INVALID_ARGUMENT;
+
+    auto const result = api.subledger_slot(slot_into, txid, index);
     if (!result)
         return result.error();
 

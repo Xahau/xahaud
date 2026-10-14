@@ -55,6 +55,7 @@ struct StubHookResult
     ripple::uint256 const hookNamespace = ripple::uint256();
 
     std::queue<std::shared_ptr<ripple::Transaction>> emittedTxn{};
+    std::vector<std::shared_ptr<ripple::Transaction>> emittedAtomicTxn{};
     std::optional<hook::HookStateMap> stateMap = std::nullopt;
     uint16_t changedStateCount = 0;
     std::map<
@@ -92,6 +93,7 @@ struct StubHookContext
     uint16_t ledger_nonce_counter{0};
     int64_t expected_etxn_count{-1};
     std::map<ripple::uint256, bool> nonce_used{};
+    std::map<ripple::uint256, bool> nonce_consumed{};
     uint32_t generation = 0;
     uint64_t burden = 0;
     std::map<uint32_t, uint32_t> guard_map{};
