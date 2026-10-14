@@ -79,7 +79,10 @@ mv rippled xahaud &&
 echo "=== Full ldd output ===" &&
 ldd xahaud &&
 echo "=== Running libcheck ===" &&
-libcheck xahaud &&
+# Same check as holy-build-box's libcheck: fail if any shared library outside the
+# essential system set is linked (e.g. libstdc++ would mean -static-libstdc++ did not apply)
+NEEDED=$(readelf -d xahaud | grep -o 'Shared library: \[[^]]*\]') &&
+! echo "$NEEDED" | grep -vE '\[(linux-gate|linux-vdso|libpthread|librt|libdl|libcrypt|libm|libc|ld-linux.*|libutil|libnsl|libgcc_s|libresolv)\.so' &&
 echo "=== Checking GLIBC requirement (must be <= 2.28) ===" &&
 GLIBC_MAX=$(objdump -T xahaud | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1) &&
 echo "Max required: $GLIBC_MAX" &&
