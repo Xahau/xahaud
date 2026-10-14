@@ -97,7 +97,12 @@ struct Conn
         std::atomic<bool> const& stop)
         : stop(stop)
     {
-        ep = asio::ip::tcp::resolver(ioc).resolve(host, port)->endpoint();
+        // basic_resolver_results inherits its iterator privately (Boost 1.87+),
+        // so take the first entry explicitly
+        auto const r = asio::ip::tcp::resolver(ioc).resolve(host, port);
+        if (r.empty())
+            Throw<std::runtime_error>("no address for " + host);
+        ep = r.begin()->endpoint();
         io([&](auto h) {
             boost::beast::get_lowest_layer(s).async_connect(ep, h);
         });
