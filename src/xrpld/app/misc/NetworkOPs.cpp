@@ -1027,6 +1027,30 @@ NetworkOPsImp::processHeartbeatTimer()
                 << ", changing to " << strOperatingMode(newMode, true);
         }
         CLOG(clog.ss()) << ". ";
+
+        // A lite node holds no state to close a ledger from, so no
+        // consensus round ever runs. It tracks the network by the validated
+        // ledgers it fetches: in step while the last one is fresh.
+        if (app_.config().liteMode())
+        {
+            using namespace std::chrono_literals;
+            auto const age = m_ledgerMaster.getValidatedLedgerAge();
+            if (age < 1min)
+            {
+                if (mMode < OperatingMode::TRACKING)
+                    setMode(OperatingMode::TRACKING);
+            }
+            else if (mMode == OperatingMode::TRACKING)
+            {
+                setMode(OperatingMode::CONNECTED);
+            }
+            CLOG(clog.ss())
+                << "lite mode, validated ledger age " << age.count() << "s. ";
+            lock.unlock();
+            bootstrapManifests();
+            setHeartbeatTimer();
+            return;
+        }
     }
 
     mConsensus.timerEntry(app_.timeKeeper().closeTime(), clog.ss());
@@ -1566,9 +1590,28 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 
     batchLock.unlock();
 
+    // A lite node cannot apply a transaction: doing so reads the sender's
+    // root, the destination's, its hooks, directories and whatever else the
+    // transactor touches, nearly all of which it does not hold. It checks
+    // what can be checked without state (preflight, done by
+    // checkValidity() on the way in) and relays the rest to the network,
+    // reporting terLITE_RELAYED. The outcome is read from the validated
+    // ledger it turns up in, through `tx` or an account subscription.
+    bool const lite = app_.config().liteMode();
+
     {
         std::unique_lock masterLock{app_.getMasterMutex(), std::defer_lock};
         bool changed = false;
+        if (lite)
+        {
+            masterLock.lock();
+            for (TransactionStatus& e : transactions)
+            {
+                e.result = terLITE_RELAYED;
+                e.applied = false;
+            }
+        }
+        else
         {
             std::unique_lock ledgerLock{
                 m_ledgerMaster.peekMutex(), std::defer_lock};
@@ -1656,6 +1699,16 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 JLOG(m_journal.info()) << "Transaction is obsolete";
                 e.transaction->setStatus(OBSOLETE);
             }
+            else if (e.result == terLITE_RELAYED)
+            {
+                // Neither held nor kept: a lite node has nothing to retry
+                // it against, and LocalTxs::sweep() would read the sender
+                // on every validated ledger.
+                JLOG(m_journal.debug())
+                    << "Transaction relayed by lite node, not applied";
+                e.transaction->setStatus(HELD);
+                addLocal = false;
+            }
             else if (e.result == terQUEUED)
             {
                 JLOG(m_journal.debug())
@@ -1703,7 +1756,8 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
             if ((e.applied ||
                  ((mMode != OperatingMode::FULL) &&
                   (e.failType != FailHard::yes) && e.local) ||
-                 (e.result == terQUEUED)) &&
+                 (e.result == terQUEUED) ||
+                 (e.result == terLITE_RELAYED && e.local)) &&
                 !enforceFailHard)
             {
                 auto const toSkip =
@@ -1735,7 +1789,9 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 }
             }
 
-            if (validatedLedgerIndex)
+            // Not for a lite node: this reads the sender's root, which it
+            // holds only if the sender is watched.
+            if (validatedLedgerIndex && !lite)
             {
                 auto [fee, accountSeq, availableSeq] =
                     app_.getTxQ().getTxRequiredFeeAndSeq(
