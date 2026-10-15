@@ -157,7 +157,7 @@ class OverlayLifecycle_test : public beast::unit_test::suite
         tcp::endpoint endpoint)
     {
         auto& overlay = dynamic_cast<OverlayImpl&>(env.app().overlay());
-        auto const remote = beast::IPAddressConversion::from_asio(endpoint);
+        auto const remote = beast::IP::from_asio(endpoint);
         auto slot = overlay.peerFinder().new_outbound_slot(remote);
         if (!BEAST_EXPECT(slot != nullptr))
             return {};
@@ -316,9 +316,8 @@ class OverlayLifecycle_test : public beast::unit_test::suite
         auto stream = std::make_unique<stream_type>(ioc, *context_);
         stream->next_layer().socket().connect(acceptor.local_endpoint());
         acceptor.accept(remote.next_layer());
-        auto const endpoint =
-            beast::IPAddressConversion::from_asio(acceptor.local_endpoint());
-        auto const local = beast::IPAddressConversion::from_asio(
+        auto const endpoint = beast::IP::from_asio(acceptor.local_endpoint());
+        auto const local = beast::IP::from_asio(
             stream->next_layer().socket().local_endpoint());
         int handshakes = 0;
         remote.async_handshake(

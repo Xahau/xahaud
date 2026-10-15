@@ -21,7 +21,7 @@
 #define RIPPLE_APP_LEDGER_INBOUNDLEDGERS_H_INCLUDED
 
 #include <xrpld/app/ledger/InboundLedger.h>
-#include <xrpl/protocol/RippleLedgerHash.h>
+#include <xrpl/protocol/UintTypes.h>
 #include <memory>
 
 namespace ripple {

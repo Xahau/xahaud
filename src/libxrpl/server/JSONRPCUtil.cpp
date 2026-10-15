@@ -52,6 +52,13 @@ getHTTPHeaderTimestamp()
     return std::string(buffer);
 }
 
+static std::string const serverJsonRpc = []() {
+    std::string ret = "Server: ";
+    ret += systemName;
+    ret += "-json-rpc/";
+    return ret;
+}();
+
 void
 HTTPReply(
     int nStatus,
@@ -69,8 +76,8 @@ HTTPReply(
         // CHECKME this returns a different version than the replies below. Is
         //         this by design or an accident or should it be using
         //         BuildInfo::getFullVersionString () as well?
-        output("Server: " + systemName() + "-json-rpc/v1");
-        output("\r\n");
+        output(serverJsonRpc);
+        output("v1\r\n");
 
         // Be careful in modifying this! If you change the contents you MUST
         // update the Content-Length header as well to indicate the correct
@@ -147,11 +154,9 @@ HTTPReply(
         "\r\n"
         "Content-Type: application/json; charset=UTF-8\r\n");
 
-    output("Server: " + systemName() + "-json-rpc/");
+    output(serverJsonRpc);
     output(BuildInfo::getFullVersionString());
-    output(
-        "\r\n"
-        "\r\n");
+    output("\r\n\r\n");
     output(content);
     output("\r\n");
 }

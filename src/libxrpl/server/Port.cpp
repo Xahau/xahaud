@@ -225,7 +225,7 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
             {
                 log << "Invalid value '" << *optResult << "' for key 'ip' in ["
                     << section.name() << "]";
-                Rethrow();
+                throw;
             }
         }
     }
@@ -246,7 +246,7 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
             {
                 log << "Invalid value '" << *optResult << "' for key "
                     << "'port' in [" << section.name() << "]";
-                Rethrow();
+                throw;
             }
         }
     }
@@ -282,7 +282,7 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
             {
                 log << "Invalid value '" << lim << "' for key "
                     << "'limit' in [" << section.name() << "]";
-                Rethrow();
+                throw;
             }
         }
     }
@@ -304,7 +304,7 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
             {
                 log << "Invalid value '" << *optResult << "' for key "
                     << "'send_queue_limit' in [" << section.name() << "]";
-                Rethrow();
+                throw;
             }
         }
         else

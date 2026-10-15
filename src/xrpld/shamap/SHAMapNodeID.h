@@ -24,6 +24,7 @@
 #include <xrpl/basics/base_uint.h>
 #include <optional>
 #include <ostream>
+#include <span>
 #include <string>
 #include <tuple>
 
@@ -145,12 +146,12 @@ operator<<(std::ostream& out, SHAMapNodeID const& node)
  */
 /** @{ */
 [[nodiscard]] std::optional<SHAMapNodeID>
-deserializeSHAMapNodeID(void const* data, std::size_t size);
+deserializeSHAMapNodeID(std::span<std::byte const> data);
 
 [[nodiscard]] inline std::optional<SHAMapNodeID>
 deserializeSHAMapNodeID(std::string const& s)
 {
-    return deserializeSHAMapNodeID(s.data(), s.size());
+    return deserializeSHAMapNodeID(std::as_bytes(std::span(s)));
 }
 /** @} */
 

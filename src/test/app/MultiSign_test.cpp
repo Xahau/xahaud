@@ -1603,19 +1603,21 @@ public:
         Account const alice{"alice", KeyType::ed25519};
         env.fund(XRP(1000), alice);
         env.close();
-        uint8_t tag1[] = {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                          0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                          0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-                          0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
-
-        uint8_t tag2[] =
-            "hello world some ascii 32b long";  // including 1 byte for NUL
-
-        uint256 bogie_tag = ripple::base_uint<256>::fromVoid(tag1);
-        uint256 demon_tag = ripple::base_uint<256>::fromVoid(tag2);
 
         // Attach phantom signers to alice and use them for a transaction.
-        env(signers(alice, 1, {{bogie, 1, bogie_tag}, {demon, 1, demon_tag}}));
+        env(signers(
+            alice,
+            1,
+            {{bogie,
+              1,
+              uint256(
+                  "ddb37dce13f03e744bbc049358642186dbb70276ca2a6a0cc227477e4610"
+                  "213f")},
+             {demon,
+              1,
+              uint256(
+                  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852"
+                  "b855")}}));
         env.close();
         env.require(owners(alice, features[featureMultiSignReserve] ? 1 : 4));
 

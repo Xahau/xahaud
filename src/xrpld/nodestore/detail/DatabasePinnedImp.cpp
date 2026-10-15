@@ -313,7 +313,7 @@ DatabasePinnedImp::tryPersistent(uint256 const& hash, FetchReport& fetchReport)
     catch (std::exception const& e)
     {
         JLOG(j_.fatal()) << "Exception fetching from persistent: " << e.what();
-        Rethrow();
+        throw;
     }
 
     if (status == ok && nodeObject)

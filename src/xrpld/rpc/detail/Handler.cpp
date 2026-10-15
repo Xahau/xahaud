@@ -279,13 +279,13 @@ public:
         return i == range.second ? nullptr : &i->second;
     }
 
-    [[nodiscard]] std::set<char const*>
+    [[nodiscard]] std::vector<std::string_view>
     getHandlerNames() const
     {
-        std::set<char const*> ret;
+        std::vector<std::string_view> ret;
+        ret.reserve(table_.size());
         for (auto const& i : table_)
-            ret.insert(i.second.name_);
-
+            ret.push_back(i.second.name_);
         return ret;
     }
 
@@ -321,7 +321,7 @@ getHandler(unsigned version, bool betaEnabled, std::string const& name)
     return HandlerTable::instance().getHandler(version, betaEnabled, name);
 }
 
-std::set<char const*>
+std::vector<std::string_view>
 getHandlerNames()
 {
     return HandlerTable::instance().getHandlerNames();

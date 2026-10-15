@@ -292,6 +292,13 @@ struct DepositAuth_test : public beast::unit_test::suite
         IOU const USD1(gw1["USD"]);
         IOU const USD2(gw2["USD"]);
 
+        auto applyNoRipple = [](bool on) -> TrustSetFlags {
+            if (on)
+                return tfSetNoRipple;
+
+            return {};
+        };
+
         auto testIssuer = [&](FeatureBitset const& features,
                               bool noRipplePrev,
                               bool noRippleNext,
