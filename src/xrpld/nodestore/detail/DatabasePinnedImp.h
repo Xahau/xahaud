@@ -121,6 +121,20 @@ public:
         std::uint32_t ledgerSeq) override;
     void
     sync() override;
+
+    /** Write node objects of pinned history straight to the persistent
+        backend in one batch. Objects must carry hot (serializable) types.
+        Used by catalogue_load, which builds whole batches per ledger.
+    */
+    void
+    storePinnedBatch(Batch const& batch);
+
+    /** Make everything written to the persistent backend durable.
+        @return false if the backend cannot guarantee that on demand.
+    */
+    bool
+    syncPinned();
+
     bool
     storeLedger(std::shared_ptr<Ledger const> const& srcLedger) override;
     void
@@ -140,6 +154,14 @@ private:
 
     bool
     likelyPinned(std::uint32_t ledgerSeq) const;
+
+    /** Copy an object found only in persistent storage into the writable
+        rotating backend (the `duplicate` path of fetchNodeObject). */
+    void
+    copyToRotating(
+        NodeObject const& obj,
+        uint256 const& hash,
+        std::uint32_t ledgerSeq);
 
     std::shared_ptr<NodeObject>
     tryPersistent(uint256 const& hash, FetchReport& fetchReport);

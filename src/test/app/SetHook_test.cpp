@@ -2172,6 +2172,118 @@ public:
             }
         }
 
+        {
+            /// Rename and remove the HookName with HookName-only updates
+            Env env{*this, features};
+
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // Create with hook name
+            auto jvh = hso(accept_wasm);
+            jvh[jss::HookName] = "41424344";
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("Create named hook"),
+                HSFEE);
+            env.close();
+
+            auto const hookNameOnlyUpdate = [&](std::string const& name) {
+                Json::Value jv;
+                jv[jss::Account] = alice.human();
+                jv[jss::TransactionType] = jss::SetHook;
+                jv[jss::Flags] = 0;
+                jv[jss::Hooks] = Json::Value{Json::arrayValue};
+                Json::Value iv;
+                iv[jss::HookName] = name;
+                jv[jss::Hooks][0U][jss::Hook] = iv;
+                return jv;
+            };
+
+            // Rename: update carrying only a non-empty sfHookName
+            env(hookNameOnlyUpdate("4142434445"),
+                M("Rename hook with a HookName-only update"),
+                HSFEE);
+            env.close();
+            {
+                auto const hooks = env.le(keylet::hook(alice));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
+                BEAST_EXPECT(
+                    strHex(hooksArray[0].getFieldVL(sfHookName)) ==
+                    "4142434445");
+            }
+
+            // Remove: update carrying only an empty sfHookName
+            env(hookNameOnlyUpdate(""),
+                M("Remove hook name with a HookName-only update"),
+                HSFEE);
+
+            // In the same open ledger as the removal: the open view hands
+            // the next transaction the very sfHooks entry the SetHook just
+            // modified, so the fee calculation and the hook chain must
+            // tolerate the removed name. This is the path that crashed the
+            // node at submit, and crashed every validator replaying the
+            // pair while building the ledger.
+            {
+                auto jv = invoke::invoke(alice);
+                auto const expectedFee =
+                    calculateBaseFee(*env.current(), *env.jt(jv).stx);
+                BEAST_EXPECT(expectedFee == drops(19));
+                env(jv,
+                    M("Invoke in the same open ledger as the removal"),
+                    HSFEE);
+            }
+            env.close();
+            {
+                auto const hookExecutions =
+                    env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(hookExecutions.size() == 1);
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldH256(sfHookHash) == accept_hash);
+            }
+            {
+                auto const hooks = env.le(keylet::hook(alice));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(!hooksArray[0].isFieldPresent(sfHookName));
+            }
+
+            // The now non-named hook must still be charged for and
+            // executed by transactions in later ledgers, where the entry
+            // is re-read from its serialized form.
+            {
+                auto jv = invoke::invoke(alice);
+                auto const expectedFee =
+                    calculateBaseFee(*env.current(), *env.jt(jv).stx);
+                BEAST_EXPECT(expectedFee == drops(19));
+                env(jv, M("Invoke after removing the hook name"), HSFEE);
+                env.close();
+                auto const hookExecutions =
+                    env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(hookExecutions.size() == 1);
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldH256(sfHookHash) == accept_hash);
+            }
+
+            // Removing the name of a hook that has none must be a no-op,
+            // not a thrown FieldErr (-> tefEXCEPTION): makeFieldAbsent on
+            // the untemplated entry throws when the field is missing.
+            env(hookNameOnlyUpdate(""),
+                M("Remove hook name again (no-op)"),
+                HSFEE);
+            env.close();
+            {
+                auto const hooks = env.le(keylet::hook(alice));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(!hooksArray[0].isFieldPresent(sfHookName));
+            }
+        }
+
         // Install named hook
         auto jvh = hso(accept_wasm);
         jvh[jss::HookName] = "41424344";
