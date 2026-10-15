@@ -81,7 +81,8 @@ canHaveDeliveredAmountHelp(
 
     {
         TxType const tt{serializedTx->getTxnType()};
-        if (tt != ttPAYMENT && tt != ttCHECK_CASH && tt != ttACCOUNT_DELETE)
+        if (tt != ttPAYMENT && tt != ttCHECK_CASH && tt != ttACCOUNT_DELETE &&
+            tt != ttNOTE_CLAIM)
             return false;
 
         if (tt == ttCHECK_CASH && !getFix1623Enabled())
