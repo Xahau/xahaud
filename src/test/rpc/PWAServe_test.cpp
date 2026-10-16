@@ -34,6 +34,7 @@
 #include <xrpld/rpc/ServerHandler.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
+#include <xrpl/basics/chrono.h>
 #include <xrpl/beast/test/yield_to.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/SystemParameters.h>
@@ -47,6 +48,7 @@
 #include <boost/beast/http.hpp>
 
 #include <array>
+#include <chrono>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -802,7 +804,14 @@ class PWAServe_test : public beast::unit_test::suite,
         Account const nobody{"nobody"};
         env.fund(XRP(1000), nobody);
         env.close();
+        // The resource clock has one-second granularity and each tick
+        // decays ~1/32 of the balance, far more than the few-miss margin
+        // left below the drop threshold. Arm the client just after a tick
+        // so the misses normally land before the next one.
         auto nearDrop = [&](std::string const& ip, int misses) {
+            auto const t0 = stopwatch().now();
+            while (stopwatch().now() == t0)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
             auto c = env.app().getResourceManager().newInboundEndpoint(
                 beast::IP::Endpoint::from_string(ip));
             c.charge(Resource::Charge(
@@ -811,8 +820,10 @@ class PWAServe_test : public beast::unit_test::suite,
                         (20 + 400),  // feeReferenceRPC + feeMediumBurdenRPC
                 "test"));
         };
+        // Throttled (503) after at least one miss (404), well before the
+        // ~60 misses a decay tick would require.
         auto throttles = [&](std::string const& client) {
-            for (int i = 0; i < 50; ++i)
+            for (int i = 0; i < 10; ++i)
             {
                 auto const s =
                     getDoc(env, nobody, yield, {{"X-Forwarded-For", client}})
@@ -824,14 +835,29 @@ class PWAServe_test : public beast::unit_test::suite,
             }
             return false;
         };
-        nearDrop("198.51.100.9", 3);
-        BEAST_EXPECT(throttles("198.51.100.9"));
+        // On a loaded runner a tick can still land mid-attempt; retry with
+        // a fresh client (an armed one cannot be re-armed without starting
+        // over the threshold). A real regression fails every attempt.
+        auto eventually = [](auto&& attempt) {
+            for (int n = 0; n < 5; ++n)
+                if (attempt(n))
+                    return true;
+            return false;
+        };
+        BEAST_EXPECT(eventually([&](int n) {
+            auto const ip = "198.51.100." + std::to_string(9 + n);
+            nearDrop(ip, 3);
+            return throttles(ip);
+        }));
         BEAST_EXPECT(
             with({{"X-Forwarded-For", "203.0.113.7"}}) ==
             200);  // others unaffected
-        nearDrop("2001:db8:1:2::", 3);
-        BEAST_EXPECT(throttles("2001:db8:1:2:dead:beef::1"));  // same /64
-        BEAST_EXPECT(with({{"X-Forwarded-For", "2001:db8:1:3::1"}}) == 200);
+        BEAST_EXPECT(eventually([&](int n) {
+            auto const prefix = "2001:db8:1:" + std::to_string(2 + n) + ":";
+            nearDrop(prefix + ":", 3);
+            return throttles(prefix + "dead:beef::1");  // same /64
+        }));
+        BEAST_EXPECT(with({{"X-Forwarded-For", "2001:db8:2::1"}}) == 200);
     }
 
     void
