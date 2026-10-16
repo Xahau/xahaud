@@ -41,9 +41,11 @@
 #include <array>
 #include <bit>
 #include <compare>
+#include <cstddef>
 #include <cstring>
 #include <functional>
 #include <optional>
+#include <span>
 #include <type_traits>
 
 namespace ripple {
