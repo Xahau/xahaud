@@ -576,8 +576,10 @@ ExportKeys::save() const
     }
     boost::filesystem::rename(tmp, *file_, ec);
     if (ec)
+    {
         JLOG(j_.error()) << "ExportKeys: cannot replace " << *file_ << ": "
                          << ec.message();
+    }
 }
 
 std::optional<std::pair<PublicKey, Blob>>

@@ -3104,6 +3104,37 @@ private:
         pass();
     }
 
+    // Export, ExportSign, ExportFinal
+    // No TSHs: the exporting hook learns the outcome of its exports through
+    // cbak, not hook(). See getTransactionalStakeHolders and Export_test.
+
+    void
+    testExportTSH(FeatureBitset features)
+    {
+        testcase("export tsh");
+
+        // hook-emitted transaction
+        pass();
+    }
+
+    void
+    testExportSignTSH(FeatureBitset features)
+    {
+        testcase("export sign tsh");
+
+        // validator-injected transaction
+        pass();
+    }
+
+    void
+    testExportFinalTSH(FeatureBitset features)
+    {
+        testcase("export final tsh");
+
+        // pseudo transaction
+        pass();
+    }
+
     // GenesisMint
     // | otxn  | tsh |  mint |
     // |   A   |  A  |   S   |
