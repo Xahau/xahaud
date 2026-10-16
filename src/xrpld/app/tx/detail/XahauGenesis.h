@@ -115,6 +115,15 @@ inline std::vector<std::pair<std::string, XRPAmount>> const L1Membership{
      TableAmount},  // L2 Table Exchanges
 };
 
+// Governance seating used by fixXahauTestnetGenesis on the Xahau testnet
+// (NetworkID 21338). Only Evernode's L1 seat is filled, every other seat is
+// left empty and there are no L2 tables. The amount is unused: the fix does
+// not mint or burn anything.
+inline std::vector<std::pair<std::string, XRPAmount>> const TestnetL1Membership{
+    {"nHUetpkzTgf8c6A1DTGemRrhL4nMjsiJrtcsmmg75ufzV5EDMbWU",
+     InfraAmount},  // Evernode
+};
+
 // this data structure is used for testing the amendment only,
 // if the ttEnableAmendment has an optional flag (that cannot be added in
 // production) then whatever is in this array is used

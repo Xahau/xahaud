@@ -34,6 +34,10 @@
 // If you add an amendment here, then do not forget to increment `numFeatures`
 // in include/xrpl/protocol/Feature.h.
 
+// Xahau testnet (NetworkID 21338) only. Registered as unsupported here; the
+// server promotes it to Supported::yes / DefaultYes at startup if and only
+// if it is configured with network_id 21338 (see Application.cpp).
+XRPL_FIX    (XahauTestnetGenesis,        Supported::no,  VoteBehavior::DefaultNo)
 XRPL_FEATURE(RNG,                        Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FEATURE(PWALoader,                  Supported::yes, VoteBehavior::DefaultNo)
 XRPL_FIX    (20261005,                   Supported::yes, VoteBehavior::DefaultYes)

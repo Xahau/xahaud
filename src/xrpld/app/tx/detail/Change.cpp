@@ -988,6 +988,335 @@ Change::activateXahauGenesis()
     ctx_.rawView().rawDestroyXRP(destroyedXRP);
 }
 
+// fixXahauTestnetGenesis: one-off repair of the genesis account on the Xahau
+// testnet (NetworkID 21338). The genesis hooks there were never set up the
+// way featureXahauGenesis sets them up on mainnet, so reward claims misbehave.
+//
+// This runs exactly once: only from applyAmendment(), at the moment the
+// amendment is enabled, which is after the tefALREADY check on the
+// Amendments object. It is never reached from any rules().enabled() path.
+//
+// It resets the genesis account to the mainnet shape:
+//   - signer list removed, regular key blackholed, master disabled
+//   - every existing hook removed and every hook state entry wiped, so the
+//     governance hook re-runs its initial setup on the next Invoke
+//   - governance + reward hooks installed from the current binaries, with
+//     only Evernode's L1 seat filled (IMC = 1) and no L2 tables
+// Balances are not touched and nothing is minted or burned.
+void
+Change::activateXahauTestnetGenesisFix()
+{
+    JLOG(j_.warn()) << "fixXahauTestnetGenesis amendment activation starting";
+
+    using namespace XahauGenesis;
+
+    // Belt and braces: the amendment is only Supported on 21338, but never
+    // touch state on any other network even if it were somehow enabled.
+    if (ctx_.app.config().NETWORK_ID != 21338)
+    {
+        JLOG(j_.warn()) << "fixXahauTestnetGenesis: NetworkID is not 21338, "
+                           "no changes made";
+        return;
+    }
+
+    auto [ng_entries, l1_entries, l2_entries, gov_params] =
+        normalizeXahauGenesis(
+            {}, TestnetL1Membership, {}, GovernanceParameters, j_);
+
+    if (l1_entries.size() != 1 || !l2_entries.empty())
+    {
+        JLOG(j_.warn()) << "fixXahauTestnetGenesis: expected exactly one L1 "
+                           "seat and no L2 tables, bailing";
+        return;
+    }
+
+    std::vector<std::tuple<
+        uint256,               // hook on
+        std::vector<uint8_t>,  // hook code
+        std::vector<
+            std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>>> const
+        genesis_hooks = {
+            {GovernanceHookOn, GovernanceHook, gov_params},
+            {RewardHookOn, RewardHook, {}}};
+
+    Sandbox sb(&view());
+
+    static auto const accid = calcAccountID(
+        generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
+            .first);
+
+    if (!sb.exists(keylet::account(accid)))
+    {
+        JLOG(j_.warn()) << "fixXahauTestnetGenesis: genesis account doesn't "
+                           "exist, bailing";
+        return;
+    }
+
+    // Step 1: remove any signer list. This adjusts OwnerCount itself, so it
+    // happens before we start our own OwnerCount bookkeeping below.
+    if (sb.exists(keylet::signers(accid)))
+    {
+        if (auto const ter =
+                SetSignerList::removeFromLedger(ctx_.app, sb, accid, j_);
+            !isTesSuccess(ter))
+        {
+            JLOG(j_.warn()) << "fixXahauTestnetGenesis: could not remove "
+                               "signer list: "
+                            << transToken(ter) << ", bailing";
+            return;
+        }
+    }
+
+    auto sle = sb.peek(keylet::account(accid));
+    std::int64_t ownerCount = sle->getFieldU32(sfOwnerCount);
+
+    // Step 2: blackhole
+    sle->setAccountID(sfRegularKey, noAccount());
+    sle->setFieldU32(sfFlags, lsfDisableMaster);
+
+    // Step 3: release every existing hook. Definitions are only decremented
+    // here; zero-reference ones are erased after the new hooks are installed
+    // so a definition we are about to reuse is never erased and re-inserted.
+    std::set<uint256> releasedDefs;
+    auto sleHooks = sb.peek(keylet::hook(accid));
+    if (sleHooks && sleHooks->isFieldPresent(sfHooks))
+    {
+        for (auto const& h : sleHooks->getFieldArray(sfHooks))
+        {
+            ownerCount -= SetHook::computeHookReserve(h);
+
+            if (!h.isFieldPresent(sfHookHash))
+                continue;
+
+            auto const defKL =
+                keylet::hookDefinition(h.getFieldH256(sfHookHash));
+            auto def = sb.peek(defKL);
+            if (!def)
+                continue;
+
+            std::uint64_t const rc = def->isFieldPresent(sfReferenceCount)
+                ? def->getFieldU64(sfReferenceCount)
+                : 0;
+            def->setFieldU64(sfReferenceCount, rc > 0 ? rc - 1 : 0);
+            sb.update(def);
+            releasedDefs.emplace(defKL.key);
+        }
+    }
+
+    // Step 4: wipe all hook state, in every namespace
+    {
+        std::uint16_t const scale = sle->isFieldPresent(sfHookStateScale)
+            ? sle->getFieldU16(sfHookStateScale)
+            : 1;
+        std::uint32_t const stateCount = sle->isFieldPresent(sfHookStateCount)
+            ? sle->getFieldU32(sfHookStateCount)
+            : 0;
+
+        std::set<uint256> namespaces{uint256{beast::zero}};
+        if (sle->isFieldPresent(sfHookNamespaces))
+            for (auto const& ns : sle->getFieldV256(sfHookNamespaces))
+                namespaces.emplace(ns);
+
+        for (auto const& ns : namespaces)
+        {
+            auto const dirKL = keylet::hookStateDir(accid, ns);
+            if (!sb.exists(dirKL))
+                continue;
+
+            std::vector<uint256> entries;
+            std::shared_ptr<SLE const> page;
+            unsigned int index{0};
+            uint256 entry;
+            if (cdirFirst(sb, dirKL.key, page, index, entry))
+            {
+                do
+                {
+                    entries.push_back(entry);
+                } while (cdirNext(sb, dirKL.key, page, index, entry));
+            }
+
+            for (auto const& key : entries)
+            {
+                auto item = sb.peek(Keylet{ltHOOK_STATE, key});
+                if (!item)
+                {
+                    JLOG(j_.warn()) << "fixXahauTestnetGenesis: hook state "
+                                       "directory references a missing or "
+                                       "non-state entry, bailing";
+                    return;
+                }
+
+                if (!sb.dirRemove(dirKL, (*item)[sfOwnerNode], key, false))
+                {
+                    JLOG(j_.warn()) << "fixXahauTestnetGenesis: could not "
+                                       "remove hook state entry, bailing";
+                    return;
+                }
+                sb.erase(item);
+            }
+
+            // dirRemove drops the root once empty; this is just in case
+            if (auto dir = sb.peek(dirKL))
+                sb.erase(dir);
+        }
+
+        ownerCount -= static_cast<std::int64_t>(stateCount) * scale;
+
+        if (sle->isFieldPresent(sfHookStateCount))
+            sle->makeFieldAbsent(sfHookStateCount);
+        if (sle->isFieldPresent(sfHookStateScale))
+            sle->makeFieldAbsent(sfHookStateScale);
+        if (sle->isFieldPresent(sfHookNamespaces))
+            sle->makeFieldAbsent(sfHookNamespaces);
+    }
+
+    // Step 5: install governance + reward hooks
+    STArray hooks{sfHooks, genesis_hooks.size()};
+    std::int64_t hookReserve = 0;
+    for (auto const& [hookOn, wasmBytes, params] : genesis_hooks)
+    {
+        auto const hookHash = ripple::sha512Half_s(
+            ripple::Slice(wasmBytes.data(), wasmBytes.size()));
+        auto const defKL = keylet::hookDefinition(hookHash);
+
+        STObject hookObj{sfHook};
+        hookObj.setFieldH256(sfHookHash, hookHash);
+
+        if (auto def = sb.peek(defKL))
+        {
+            // Reuse the existing definition. It may have been created by an
+            // ordinary SetHook with other defaults, so pin the fields the
+            // genesis hooks depend on at the hook level where they differ.
+            std::uint64_t const rc = def->isFieldPresent(sfReferenceCount)
+                ? def->getFieldU64(sfReferenceCount)
+                : 0;
+            def->setFieldU64(sfReferenceCount, rc + 1);
+            sb.update(def);
+
+            if (!def->isFieldPresent(sfHookOn) ||
+                def->getFieldH256(sfHookOn) != hookOn ||
+                def->isFieldPresent(sfHookOnIncoming) ||
+                def->isFieldPresent(sfHookOnOutgoing))
+                hookObj.setFieldH256(sfHookOn, hookOn);
+
+            if (def->getFieldH256(sfHookNamespace) != beast::zero)
+                hookObj.setFieldH256(sfHookNamespace, uint256{beast::zero});
+
+            if (def->isFieldPresent(sfHookCanEmit))
+                hookObj.setFieldH256(sfHookCanEmit, UINT256_BIT[ttHOOK_SET]);
+        }
+        else
+        {
+            std::ostringstream loggerStream;
+            auto result = validateGuards(
+                wasmBytes,
+                loggerStream,
+                "rHb9CJAWyB4rj91VRWn96DkukG4bwdtyTh",
+                hook_api::getImportWhitelist(ctx_.view().rules()),
+                hook_api::getGuardRulesVersion(ctx_.view().rules()));
+
+            if (!result)
+            {
+                JLOG(j_.warn()) << "fixXahauTestnetGenesis: genesis hook "
+                                   "failed guard validation, bailing: "
+                                << loggerStream.str();
+                return;
+            }
+
+            if (auto err = hook::HookExecutor::validateWasm(
+                    wasmBytes.data(), (size_t)wasmBytes.size()))
+            {
+                JLOG(j_.warn()) << "fixXahauTestnetGenesis: genesis hook "
+                                   "failed wasm validation, bailing: "
+                                << *err;
+                return;
+            }
+
+            // def is null here (the peek above found nothing)
+            def = std::make_shared<SLE>(defKL);
+            def->setFieldH256(sfHookHash, hookHash);
+            def->setFieldH256(sfHookOn, hookOn);
+            def->setFieldH256(sfHookNamespace, uint256{beast::zero});
+            def->setFieldU16(sfHookApiVersion, 0);
+            def->setFieldVL(sfCreateCode, wasmBytes);
+            def->setFieldH256(sfHookSetTxnID, ctx_.tx.getTransactionID());
+            def->setFieldU64(sfReferenceCount, 1);
+            def->setFieldAmount(
+                sfFee, XRPAmount{hook::computeExecutionFee(result->first)});
+            if (result->second > 0)
+                def->setFieldAmount(
+                    sfHookCallbackFee,
+                    XRPAmount{hook::computeExecutionFee(result->second)});
+            sb.insert(def);
+        }
+
+        {
+            std::vector<STObject> vec;
+            for (auto const& [k, v] : params)
+            {
+                STObject param(sfHookParameter);
+                param.setFieldVL(sfHookParameterName, k);
+                param.setFieldVL(sfHookParameterValue, v);
+                vec.emplace_back(std::move(param));
+            }
+            hookObj.setFieldArray(
+                sfHookParameters, STArray(vec, sfHookParameters));
+        }
+
+        hookReserve += SetHook::computeHookReserve(hookObj);
+        hooks.push_back(hookObj);
+    }
+
+    if (sleHooks)
+    {
+        sleHooks->setFieldArray(sfHooks, hooks);
+        sb.update(sleHooks);
+    }
+    else
+    {
+        sleHooks = std::make_shared<SLE>(keylet::hook(accid));
+        sleHooks->setFieldArray(sfHooks, hooks);
+        sleHooks->setAccountID(sfAccount, accid);
+
+        auto const page = sb.dirInsert(
+            keylet::ownerDir(accid),
+            keylet::hook(accid),
+            describeOwnerDir(accid));
+        if (!page)
+        {
+            JLOG(j_.warn()) << "fixXahauTestnetGenesis: genesis directory full "
+                               "when inserting hooks object, bailing";
+            return;
+        }
+        sleHooks->setFieldU64(sfOwnerNode, *page);
+        sb.insert(sleHooks);
+    }
+
+    // Step 6: drop definitions nothing references any more
+    for (auto const& key : releasedDefs)
+    {
+        auto def = sb.peek(Keylet{ltHOOK_DEFINITION, key});
+        if (def && def->isFieldPresent(sfReferenceCount) &&
+            def->getFieldU64(sfReferenceCount) == 0)
+            sb.erase(def);
+    }
+
+    // Step 7: owner count
+    ownerCount += hookReserve;
+    if (ownerCount < 0)
+    {
+        JLOG(j_.warn()) << "fixXahauTestnetGenesis: owner count went negative ("
+                        << ownerCount << "), clamping to hook reserve";
+        ownerCount = hookReserve;
+    }
+    sle->setFieldU32(sfOwnerCount, static_cast<std::uint32_t>(ownerCount));
+    sb.update(sle);
+
+    sb.apply(ctx_.rawView());
+
+    JLOG(j_.warn()) << "fixXahauTestnetGenesis amendment executed successfully";
+}
+
 void
 Change::activateTrustLinesToSelfFix()
 {
@@ -1150,6 +1479,8 @@ Change::applyAmendment()
             activateTrustLinesToSelfFix();
         else if (amendment == featureXahauGenesis)
             activateXahauGenesis();
+        else if (amendment == fixXahauTestnetGenesis)
+            activateXahauTestnetGenesisFix();
 
         ctx_.app.getAmendmentTable().enable(amendment);
 

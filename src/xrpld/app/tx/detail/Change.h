@@ -62,6 +62,9 @@ private:
     void
     activateXahauGenesis();
 
+    void
+    activateXahauTestnetGenesisFix();
+
     TER
     applyAmendment();
 

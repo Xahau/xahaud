@@ -1242,10 +1242,10 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
 
     // Configure the amendments the server supports
     {
-        auto const supported = []() {
+        auto const supported = [this]() {
             auto const& amendments = detail::supportedAmendments();
             std::vector<AmendmentTable::FeatureInfo> supported;
-            supported.reserve(amendments.size());
+            supported.reserve(amendments.size() + 1);
             for (auto const& [a, vote] : amendments)
             {
                 auto const f = ripple::getRegisteredFeature(a);
@@ -1254,6 +1254,16 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
                 if (f)
                     supported.emplace_back(a, *f, vote);
             }
+
+            // fixXahauTestnetGenesis is registered Supported::no. It is only
+            // supported (and voted for) by servers configured for the Xahau
+            // testnet. Everywhere else it stays unsupported.
+            if (config_->NETWORK_ID == 21338)
+                supported.emplace_back(
+                    "fixXahauTestnetGenesis",
+                    fixXahauTestnetGenesis,
+                    VoteBehavior::DefaultYes);
+
             return supported;
         }();
         Section const& downVoted = config_->section(SECTION_VETO_AMENDMENTS);
