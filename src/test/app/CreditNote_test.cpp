@@ -39,10 +39,15 @@ struct CreditNote_test : public beast::unit_test::suite
     // helpers
 
     // The open ledger's parent close time in milliseconds since the ripple
-    // epoch: the clock NoteClaim checks the note's window against.
+    // epoch: the clock NoteClaim checks the note's window against. A fresh
+    // Env starts seconds after the epoch, too early to backdate a note from
+    // (the subtraction would wrap), so a young clock is first moved an hour on.
     static std::uint64_t
     nowMs(jtx::Env& env)
     {
+        using namespace std::chrono_literals;
+        if (env.current()->parentCloseTime().time_since_epoch() < 1h)
+            env.close(1h);
         return static_cast<std::uint64_t>(env.current()
                                               ->parentCloseTime()
                                               .time_since_epoch()

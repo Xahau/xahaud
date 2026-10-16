@@ -8454,6 +8454,9 @@ private:
         // A fresh ten-minute XAH note from `issuer`, issued a minute ago and
         // laid out the way CreditNote_test builds them.
         auto const makeNote = [](Env& env, Account const& issuer) {
+            // a fresh Env's clock is too young to backdate a note from
+            if (env.current()->parentCloseTime().time_since_epoch() < 1h)
+                env.close(1h);
             auto const nowMs =
                 static_cast<std::uint64_t>(env.current()
                                                ->parentCloseTime()
