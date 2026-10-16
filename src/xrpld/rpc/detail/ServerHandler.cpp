@@ -1126,6 +1126,10 @@ ServerHandler::onUDPMessage(
     if (port.has_peer())
         return app_.overlay().processXUSH(message, remoteEndpoint);
 
+    if (!ipAllowed(
+            remoteEndpoint.address(), port.admin_nets_v4, port.admin_nets_v6))
+        return;
+
     Json::Value jv;
     if (message.size() > RPC::Tuning::maxRequestSize ||
         !Json::Reader{}.parse(message, jv) || !jv.isObject())

@@ -37,6 +37,8 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -498,6 +500,151 @@ public:
         run(false);
     }
 
+    // Answers every datagram through sendResponse: "big" gets a reply too
+    // large for one datagram, anything else gets "pong".
+    struct UDPEchoHandler : TestHandler
+    {
+        // Two fragments: small enough not to overflow a default socket buffer.
+        static constexpr std::size_t bigSize = 100000;
+
+        void
+        onUDPMessage(
+            std::string const& message,
+            boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+            Port const& port,
+            std::function<void(std::string const&)> sendResponse)
+        {
+            if (message == "big")
+            {
+                std::string big(bigSize, '\0');
+                for (std::size_t i = 0; i < big.size(); ++i)
+                    big[i] = static_cast<char>('a' + (i % 26));
+                sendResponse(big);
+            }
+            else
+            {
+                sendResponse("pong");
+            }
+        }
+
+        static std::string
+        expectedBig()
+        {
+            std::string big(bigSize, '\0');
+            for (std::size_t i = 0; i < big.size(); ++i)
+                big[i] = static_cast<char>('a' + (i % 26));
+            return big;
+        }
+    };
+
+    // Exercises UDPDoor::do_send / send_datagram: a short reply goes out as
+    // one datagram, a long one is split into headered fragments.
+    void
+    udpResponseTests()
+    {
+        testcase("UDP RPC door responses");
+        using namespace std::chrono_literals;
+        using udp = boost::asio::ip::udp;
+
+        TestSink sink{*this};
+        TestThread thread;
+        sink.threshold(beast::severities::Severity::kAll);
+        beast::Journal journal{sink};
+
+        auto const addr = boost::asio::ip::make_address(getEnvLocalhostAddr());
+
+        // UDPDoor reports the configured port, not the bound one, so pick a
+        // free port up front.
+        std::uint16_t port = 0;
+        {
+            boost::asio::io_context io;
+            udp::socket probe(io, udp::endpoint(addr, 0));
+            port = probe.local_endpoint().port();
+        }
+
+        UDPEchoHandler handler;
+        auto s = make_Server(handler, thread.get_io_context(), journal);
+
+        std::vector<Port> ports(1);
+        ports.back().name = "udp_rpc";
+        ports.back().ip = addr;
+        ports.back().port = port;
+        ports.back().protocol.insert("udp");
+        s->ports(ports);
+
+        boost::asio::io_context io;
+        udp::socket client(io, udp::endpoint(addr, 0));
+        // Room for the full fragmented reply on platforms with small
+        // default socket buffers.
+        client.set_option(udp::socket::receive_buffer_size(512 * 1024));
+        udp::endpoint const server(addr, port);
+
+        // Receive one datagram, or nothing if the timeout expires.
+        auto receive = [&](std::chrono::milliseconds timeout)
+            -> std::optional<std::string> {
+            std::vector<char> buf(70000);
+            udp::endpoint from;
+            std::optional<std::string> result;
+            client.async_receive_from(
+                boost::asio::buffer(buf),
+                from,
+                [&](boost::system::error_code ec, std::size_t n) {
+                    if (!ec)
+                        result.emplace(buf.data(), n);
+                });
+            io.restart();
+            io.run_for(timeout);
+            if (!result)
+            {
+                client.cancel();
+                io.restart();
+                io.run();
+            }
+            return result;
+        };
+
+        // Single datagram reply
+        client.send_to(boost::asio::buffer(std::string("ping")), server);
+        if (auto const r = receive(5s); BEAST_EXPECT(r))
+            BEAST_EXPECT(*r == "pong");
+
+        // Fragmented reply
+        client.send_to(boost::asio::buffer(std::string("big")), server);
+        std::size_t constexpr headerSize = 16;
+        std::size_t constexpr payloadSize = 65487 - headerSize;
+        std::size_t const expectedPackets =
+            (UDPEchoHandler::bigSize + payloadSize - 1) / payloadSize;
+
+        std::map<std::uint16_t, std::string> fragments;
+        std::uint16_t total = 0;
+        while (fragments.size() < expectedPackets)
+        {
+            auto const r = receive(5s);
+            if (!BEAST_EXPECT(r) || !BEAST_EXPECT(r->size() > headerSize))
+                break;
+            auto const byte = [&](std::size_t i) {
+                return static_cast<std::uint16_t>(
+                    static_cast<unsigned char>((*r)[i]));
+            };
+            BEAST_EXPECT(byte(0) == 0 && byte(1) == 0);
+            BEAST_EXPECT(byte(2) == 0 && byte(3) == 0);
+            std::uint16_t const num = byte(4) | (byte(5) << 8);
+            total = byte(6) | (byte(7) << 8);
+            fragments[num] = r->substr(headerSize);
+        }
+
+        BEAST_EXPECT(total == expectedPackets);
+        if (BEAST_EXPECT(fragments.size() == expectedPackets))
+        {
+            std::string reassembled;
+            for (auto const& [num, data] : fragments)
+                reassembled += data;
+            BEAST_EXPECT(reassembled == UDPEchoHandler::expectedBig());
+        }
+
+        s = nullptr;
+    }
+
     void
     testBadConfig()
     {
@@ -642,6 +789,7 @@ public:
         basicTests();
         stressTest();
         udpHighwayTests();
+        udpResponseTests();
         testBadConfig();
     }
 };
