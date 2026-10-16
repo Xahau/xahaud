@@ -133,7 +133,6 @@ test.rpc > xrpld.rpc
 test.rpc > xrpld.shamap
 test.rpc > xrpl.hook
 test.rpc > xrpl.json
-test.rpc > xrpl.proto
 test.rpc > xrpl.protocol
 test.rpc > xrpl.resource
 test.server > test.jtx
@@ -158,7 +157,6 @@ xrpl.hook > xrpl.protocol
 xrpl.json > xrpl.basics
 xrpl.protocol > xrpl.basics
 xrpl.protocol > xrpl.json
-xrpl.protocol > xrpl.proto
 xrpl.resource > xrpl.basics
 xrpl.resource > xrpl.json
 xrpl.resource > xrpl.protocol
@@ -172,7 +170,6 @@ xrpld.app > xrpld.consensus
 xrpld.app > xrpld.perflog
 xrpld.app > xrpl.hook
 xrpld.app > xrpl.json
-xrpld.app > xrpl.proto
 xrpld.app > xrpl.resource
 xrpld.conditions > xrpl.basics
 xrpld.conditions > xrpl.protocol
@@ -217,7 +214,6 @@ xrpld.rpc > xrpld.nodestore
 xrpld.rpc > xrpld.shamap
 xrpld.rpc > xrpl.hook
 xrpld.rpc > xrpl.json
-xrpld.rpc > xrpl.proto
 xrpld.rpc > xrpl.protocol
 xrpld.rpc > xrpl.resource
 xrpld.rpc > xrpl.server
