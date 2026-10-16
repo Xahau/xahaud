@@ -33,36 +33,36 @@ JobQueue::JobQueue(
     beast::Journal journal,
     Logs& logs,
     perf::PerfLog& perfLog)
-    : journal_(journal)
+    : m_journal(journal)
     , data_([&]<std::size_t... I>(std::index_sequence<I...>) {
         return std::array<Data, sizeof...(I)>{
             Data{jobTypes[I], collector, logs}...};
     }(std::make_index_sequence<jobTypes.size()>()))
-    , workers_(*this, "JobQueue", threadCount)
+    , m_workers(*this, "JobQueue", threadCount)
     , perfLog_(perfLog)
-    , collector_(collector)
+    , m_collector(collector)
 {
-    JLOG(journal_.info()) << "Using " << threadCount << " threads";
+    JLOG(m_journal.info()) << "Using " << threadCount << " threads";
 
     // This is important to do before dispatching any jobs
     // so that the logger knows the number of threads.
     perfLog_.resizeJobs(threadCount);
 
-    hook_ = collector_->make_hook([this] { collect(); });
-    jobCountGauge_ = collector_->make_gauge("job_count");
+    hook = m_collector->make_hook([this] { collect(); });
+    job_count = m_collector->make_gauge("job_count");
 }
 
 JobQueue::~JobQueue()
 {
     // Must unhook before destroying
-    hook_ = beast::insight::Hook();
+    hook = beast::insight::Hook();
 }
 
 void
 JobQueue::collect()
 {
-    std::lock_guard lock(mutex_);
-    jobCountGauge_ = jobSet_.size();
+    std::lock_guard lock(m_mutex);
+    job_count = m_jobSet.size();
     activeThreadsGauge_ = activeThreads_;
 }
 
@@ -72,28 +72,28 @@ JobQueue::addRefCountedJob(
     std::string const& name,
     JobFunction func)
 {
-    JLOG(journal_.debug()) << "Adding job '" << name << "' (" << type << ")";
+    JLOG(m_journal.debug()) << "Adding job '" << name << "' (" << type << ")";
 
     // FIXME: Workaround incorrect client shutdown ordering
     // do not add jobs to a queue with no threads
     XRPL_ASSERT(
         (type >= jtCLIENT && type <= jtCLIENT_WEBSOCKET) ||
-            workers_.count() > 0,
+            m_workers.count() > 0,
         "ripple::JobQueue::addRefCountedJob : threads available or job "
         "requires no threads");
 
-    std::lock_guard lock(mutex_);
+    std::lock_guard lock(m_mutex);
 
     auto& d = data_[type];
 
-    auto r = jobSet_.emplace(
-        type, name, ++nextId_, d.load.sample(), std::move(func));
-    assert(r.second && jobSet_.find(*r.first) != jobSet_.end());
+    auto r = m_jobSet.emplace(
+        type, name, ++m_lastJob, d.load.sample(), std::move(func));
+    assert(r.second && m_jobSet.find(*r.first) != m_jobSet.end());
 
     perfLog_.jobQueue(type);
 
     if (d.waiting + d.running < jobTypes[type].limit)
-        workers_.addTask();
+        m_workers.addTask();
     else
         ++d.deferred;
 
@@ -105,14 +105,14 @@ JobQueue::addRefCountedJob(
 int
 JobQueue::getJobCount(JobType t) const
 {
-    std::lock_guard lock(mutex_);
+    std::lock_guard lock(m_mutex);
     return data_[t].waiting;
 }
 
 int
 JobQueue::getJobCountTotal(JobType t) const
 {
-    std::lock_guard lock(mutex_);
+    std::lock_guard lock(m_mutex);
     auto const& d = data_[t];
     return d.waiting + d.running;
 }
@@ -122,7 +122,7 @@ JobQueue::getJobCountGE(JobType t) const
 {
     int ret = 0;
 
-    std::lock_guard lock(mutex_);
+    std::lock_guard lock(m_mutex);
 
     for (std::size_t i = 0; i < data_.size(); ++i)
     {
@@ -134,7 +134,7 @@ JobQueue::getJobCountGE(JobType t) const
 }
 
 LoadEvent
-JobQueue::createLoadEvent(JobType t, std::string name)
+JobQueue::makeLoadEvent(JobType t, std::string name)
 {
     return {data_[t].load.sample(), std::move(name), true};
 }
@@ -159,13 +159,13 @@ JobQueue::getJson(int)
     using namespace std::chrono_literals;
     Json::Value ret(Json::objectValue);
 
-    ret["threads"] = workers_.count();
+    ret["threads"] = m_workers.count();
     ret["coro.suspended"] = suspendedCoroutines_.load();
     ret["coro.total"] = totalCoroutines_.load();
 
     Json::Value priorities = Json::arrayValue;
 
-    std::lock_guard lock(mutex_);
+    std::lock_guard lock(m_mutex);
 
     for (std::size_t i = 0; i < data_.size(); ++i)
     {
@@ -211,8 +211,8 @@ JobQueue::getJson(int)
 void
 JobQueue::rendezvous()
 {
-    std::unique_lock<std::mutex> lock(mutex_);
-    cv_.wait(lock, [this] { return activeThreads_ == 0 && jobSet_.empty(); });
+    std::unique_lock<std::mutex> lock(m_mutex);
+    cv_.wait(lock, [this] { return activeThreads_ == 0 && m_jobSet.empty(); });
 }
 
 void
@@ -226,20 +226,21 @@ JobQueue::stop()
         return;
     }
 
-    jobCounter_.join("JobQueue", std::chrono::seconds(1), journal_);
+    jobCounter_.join("JobQueue", std::chrono::seconds(1), m_journal);
 
     // All jobs have finished executing (i.e. returned from `Job::doJob`) and
     // no more are being accepted, but there may still be some threads between
     // the return of `Job::doJob` and the return of `JobQueue::processTask`.
     // That is why we must wait on the condition variable to make these
     // assertions.
-    std::unique_lock lock(mutex_);
-    cv_.wait(lock, [this] { return activeThreads_ == 0 && jobSet_.empty(); });
+    std::unique_lock lock(m_mutex);
+    cv_.wait(lock, [this] { return activeThreads_ == 0 && m_jobSet.empty(); });
 
     XRPL_ASSERT(
         activeThreads_ == 0,
         "ripple::JobQueue::stop : all processes completed");
-    XRPL_ASSERT(jobSet_.empty(), "ripple::JobQueue::stop : all jobs completed");
+    XRPL_ASSERT(
+        m_jobSet.empty(), "ripple::JobQueue::stop : all jobs completed");
     XRPL_ASSERT(
         suspendedCoroutines_ == 0,
         "ripple::JobQueue::stop : no coros suspended");
@@ -280,11 +281,11 @@ JobQueue::processTask(unsigned int instance)
 
     {
         Job job = [this] {
-            std::lock_guard lock(mutex_);
+            std::lock_guard lock(m_mutex);
 
-            assert(!jobSet_.empty());
+            assert(!m_jobSet.empty());
 
-            for (auto iter = jobSet_.begin(); iter != jobSet_.end(); ++iter)
+            for (auto iter = m_jobSet.begin(); iter != m_jobSet.end(); ++iter)
             {
                 JobType const t = iter->getType();
 
@@ -297,7 +298,7 @@ JobQueue::processTask(unsigned int instance)
                     --d.waiting;
                     ++d.running;
                     ++activeThreads_;
-                    return std::move(jobSet_.extract(*iter).value());
+                    return std::move(m_jobSet.extract(*iter).value());
                 }
             }
 
@@ -312,7 +313,7 @@ JobQueue::processTask(unsigned int instance)
         auto const q_time = ceil<microseconds>(start_time - job.queue_time());
         perfLog_.jobStart(type, q_time, start_time, instance);
 
-        JLOG(journal_.trace())
+        JLOG(m_journal.trace())
             << "Starting: " << jobTypes[type].name
             << " (q_time=" << q_time.count() << " microseconds)";
 
@@ -321,7 +322,7 @@ JobQueue::processTask(unsigned int instance)
         auto const x_time =
             ceil<microseconds>(Job::clock_type::now() - start_time);
 
-        JLOG(journal_.trace())
+        JLOG(m_journal.trace())
             << "Finished: " << jobTypes[type].name
             << " (x_time=" << x_time.count() << " microseconds)";
 
@@ -336,7 +337,7 @@ JobQueue::processTask(unsigned int instance)
         // Note that the Job object gets destroyed at this point.
     }
 
-    std::lock_guard lock(mutex_);
+    std::lock_guard lock(m_mutex);
 
     auto& d = data_[type];
 
@@ -346,12 +347,12 @@ JobQueue::processTask(unsigned int instance)
     {
         assert(d.running + d.waiting >= jobTypes[type].limit);
         --d.deferred;
-        workers_.addTask();
+        m_workers.addTask();
     }
 
     --d.running;
 
-    if (--activeThreads_ == 0 && jobSet_.empty())
+    if (--activeThreads_ == 0 && m_jobSet.empty())
         cv_.notify_all();
 }
 

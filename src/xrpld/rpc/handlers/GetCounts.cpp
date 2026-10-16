@@ -62,17 +62,13 @@ textTime(
 Json::Value
 getCountsJson(Application& app, int minObjectCount)
 {
+    auto objectCounts = CountedObjects::getInstance().getCounts(minObjectCount);
+
     Json::Value ret(Json::objectValue);
 
-    for (auto const& c : countedObjects)
+    for (auto const& [k, v] : objectCounts)
     {
-        if (c.count() >= minObjectCount)
-        {
-            Json::Value obj(Json::objectValue);
-            obj[jss::current] = c.count();
-            obj[jss::maximum] = c.max();
-            ret[c.name()] = std::move(obj);
-        }
+        ret[k] = v;
     }
 
     if (app.config().useTxTables())

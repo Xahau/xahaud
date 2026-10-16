@@ -102,7 +102,7 @@ DatabaseNodeImp::fetchNodeObject(
             JLOG(j_.fatal())
                 << "fetchNodeObject " << hash
                 << ": Exception fetching from backend: " << e.what();
-            throw;
+            Rethrow();
         }
 
         switch (status)

@@ -54,7 +54,8 @@ spin_pause() noexcept
 
 }  // namespace detail
 
-//------------------------------------------------------------------------------
+/** @{ */
+/** Classes to handle arrays of spinlocks packed into a single atomic integer:
 
 /** Attempt to acquire a spinlock without blocking.
 
@@ -222,7 +223,7 @@ public:
     packed_spinlock&
     operator=(packed_spinlock const&) = delete;
 
-    /** Construct a packed spinlock handle for a single bit.
+    /** A single spinlock packed inside the specified atomic
 
         @param lock The atomic integer inside which the spinlock is packed.
         @param index The index of the spinlock this object acquires.

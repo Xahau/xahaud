@@ -205,13 +205,13 @@ OverlayImpl::onHandoff(
     }
 
     auto consumer = m_resourceManager.newInboundEndpoint(
-        beast::IP::from_asio(remote_endpoint));
+        beast::IPAddressConversion::from_asio(remote_endpoint));
     if (consumer.disconnect(journal))
         return handoff;
 
     auto const slot = m_peerFinder->new_inbound_slot(
-        beast::IP::from_asio(local_endpoint),
-        beast::IP::from_asio(remote_endpoint));
+        beast::IPAddressConversion::from_asio(local_endpoint),
+        beast::IPAddressConversion::from_asio(remote_endpoint));
 
     if (slot == nullptr)
     {
@@ -426,7 +426,7 @@ OverlayImpl::connect(beast::IP::Endpoint const& remote_endpoint)
     auto const p = std::make_shared<ConnectAttempt>(
         app_,
         io_context_,
-        beast::IP::to_asio_endpoint(remote_endpoint),
+        beast::IPAddressConversion::to_asio_endpoint(remote_endpoint),
         usage,
         setup_.context,
         next_id_++,
@@ -1606,7 +1606,7 @@ OverlayImpl::processXUSH(
     if (!app_.config().UDP_HIGHWAY)
         return;
 
-    auto const remote = beast::IP::from_asio(remoteEndpoint);
+    auto const remote = beast::IPAddressConversion::from_asio(remoteEndpoint);
 
     // Datagrams are unauthenticated, so they are accounted for against the
     // sender's IP address exactly like an inbound peer connection.

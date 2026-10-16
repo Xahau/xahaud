@@ -79,14 +79,16 @@ public:
 #endif
 
     public:
+        // Private: Used in the implementation
         template <class F>
         Coro(
             JobQueue::CoroCreator,
-            JobQueue& jq,
-            JobType type,
-            std::string const& name,
-            F&& f);
+            JobQueue&,
+            JobType,
+            std::string const&,
+            F&&);
 
+        // Not copy-constructible or assignable
         Coro(Coro const&) = delete;
         Coro&
         operator=(Coro const&) = delete;
@@ -97,52 +99,47 @@ public:
 
         virtual ~Coro();
 
-        /** Suspend the execution of a running coroutine.
-
-            The coroutine's stack is saved and the job thread on which the
-            coroutine is executed is released back to its thread pool.
-
-            @note Calling this when the coroutine is already suspended will
-                  result in undefined behavior. A call to post() or resume()
-                  must come first.
+        /** Suspend coroutine execution.
+            Effects:
+              The coroutine's stack is saved.
+              The associated Job thread is released.
+            Note:
+              The associated Job function returns.
+              Undefined behavior if called consecutively without a corresponding
+           post.
         */
         void
         yield() const;
 
-        /** Schedule a job to execute the coroutine.
+        /** Schedule coroutine execution.
+            Effects:
+              Returns immediately.
+              A new job is scheduled to resume the execution of the coroutine.
+              When the job runs, the coroutine's stack is restored and execution
+                continues at the beginning of coroutine function or the
+           statement after the previous call to yield. Undefined behavior if
+           called after the coroutine has completed with a return (as opposed to
+           a yield()). Undefined behavior if post() or resume() called
+           consecutively without a corresponding yield.
 
-            Once the job starts running, the coroutine execution context is
-            set up and execution begins either at the start of the coroutine
-            or, if yield() was previous called, at the statement after that
-            yield().
-
-            @note Calling this can result in undefined behavior if
-                  - the coroutine has finished executing by using 'return'
-                    instead of a call to 'yield()'; or
-                  - the coroutine is either executing or scheduled for
-                    execution.
-
-            @return true if the coro was scheduled on the job queue; false
-                    otherwise.
+            @return true if the Coro's job is added to the JobQueue.
         */
         bool
         post();
 
-        /** Resume execution of a suspended coroutine on the current thread.
-
-            The coroutine will continues execution from where it last left,
-            i.e. in the statement following the yield() that the corooutine
-            executed last.
-
-            @note Calling this when the coroutine has either terminated its
-                  own execution (by calling `return` instead of doing a call
-                  to yield()) or is either scheduled for execution or is
-                  already executing will result in undefined behavior.
+        /** Resume coroutine execution.
+            Effects:
+               The coroutine continues execution from where it last left off
+                 using this same thread.
+            Undefined behavior if called after the coroutine has completed
+              with a return (as opposed to a yield()).
+            Undefined behavior if resume() or post() called consecutively
+              without a corresponding yield.
         */
         void
         resume();
 
-        /** true if the coroutine is still runnable (i.e. has not returned). */
+        /** Returns true if the Coro is still runnable (has not returned). */
         bool
         runnable() const;
 
@@ -201,23 +198,27 @@ public:
     std::shared_ptr<Coro>
     postCoro(JobType t, std::string const& name, F&& f);
 
-    /** Jobs waiting at this priority. */
+    /** Jobs waiting at this priority.
+     */
     int
     getJobCount(JobType t) const;
 
-    /** Jobs waiting plus running at this priority. */
+    /** Jobs waiting plus running at this priority.
+     */
     int
     getJobCountTotal(JobType t) const;
 
-    /** All waiting jobs at or greater than this priority. */
+    /** All waiting jobs at or greater than this priority.
+     */
     int
     getJobCountGE(JobType t) const;
 
     /** Returns a new load event for the particular job. */
     LoadEvent
-    createLoadEvent(JobType t, std::string name);
+    makeLoadEvent(JobType t, std::string name);
 
-    /** Add multiple load events. */
+    /** Add multiple load events.
+     */
     void
     addLoadEvents(JobType t, int count, std::chrono::milliseconds elapsed);
 
@@ -252,7 +253,7 @@ public:
     unsigned int
     thread_count() const noexcept
     {
-        return workers_.count();
+        return m_workers.count();
     }
 
 private:
@@ -293,10 +294,10 @@ private:
         operator=(Data&&) = delete;
     };
 
-    beast::Journal journal_;
-    mutable std::mutex mutex_;
-    std::uint64_t nextId_ = 0;
-    std::set<Job> jobSet_;
+    beast::Journal m_journal;
+    mutable std::mutex m_mutex;
+    std::uint64_t m_lastJob = 0;
+    std::set<Job> m_jobSet;
     JobCounter jobCounter_;
 
     enum class state : std::uint8_t { running = 0, stopping = 1, stopped = 2 };
@@ -313,13 +314,14 @@ private:
     // The number of suspended coroutines
     std::atomic<int> suspendedCoroutines_ = 0;
 
-    Workers workers_;
+    Workers m_workers;
 
     perf::PerfLog& perfLog_;
-    beast::insight::Collector::ptr collector_;
-    beast::insight::Gauge jobCountGauge_;
+    // Statistics tracking
+    beast::insight::Collector::ptr m_collector;
+    beast::insight::Gauge job_count;
     beast::insight::Gauge activeThreadsGauge_;
-    beast::insight::Hook hook_;
+    beast::insight::Hook hook;
 
     std::condition_variable cv_;
 
@@ -330,7 +332,8 @@ private:
     //
     //    param type The type of job.
     //    param name Name of the job.
-    //    param func A std::function<void()> that is called to do the work.
+    //    param func std::function with signature void (Job&).  Called when the
+    //    job is executed.
     //
     //    return true if func added to queue.
     bool
@@ -357,8 +360,7 @@ private:
     uncaughtException(unsigned int instance, std::exception_ptr eptr) override;
 };
 
-/** RPC command handling details:
-
+/*
     An RPC command is received and is handled via ServerHandler(HTTP) or
     Handler(websocket), depending on the connection type. The handler then calls
     the JobQueue::postCoro() method to create a coroutine and run it at a later
@@ -434,9 +436,8 @@ JobQueue::postCoro(JobType t, std::string const& name, F&& f)
 
     if (!coro->post())
     {
-        // The coroutine was not successfully posted, so we disable it. That
-        // way its destructor can run with no negative side effects; then we
-        // can destroy it.
+        // The Coro was not successfully posted.  Disable it so it's destructor
+        // can run with no negative side effects.  Then destroy it.
         coro->expectEarlyExit();
         coro.reset();
     }

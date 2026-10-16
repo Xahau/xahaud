@@ -426,7 +426,7 @@ class sized_allocator_t
     }
 
 public:
-    /** Construct a slab allocator.
+    /** Constructs a slab allocator able to allocate objects of a fixed size
 
         @param extra Extra bytes per item beyond sizeof(Type).
         @param minItems Minimum number of items per slab (rounded up to 2MB).
@@ -463,7 +463,7 @@ public:
         return itemSize_;
     }
 
-    /** Allocate a memory block.
+    /** Returns a suitably aligned pointer, if one is available.
 
         @return Pointer to allocated memory, or nullptr on failure.
 
@@ -489,7 +489,7 @@ public:
         return ret;
     }
 
-    /** Return a memory block to the allocator.
+    /** Returns the memory block to the allocator.
 
         @param ptr Pointer to memory block.
         @return true if the block belonged to this allocator and was freed.
@@ -636,7 +636,7 @@ public:
         return nullptr;
     }
 
-    /** Return memory to the allocator set.
+    /** Returns the memory block to the allocator.
 
         @param ptr Pointer to memory block.
         @return true if memory belonged to this set and was freed.

@@ -21,7 +21,9 @@
 #define XAHAU_PROTOCOL_KEYBASE_H_INCLUDED
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
+#include <span>
 
 namespace ripple {
 namespace detail {

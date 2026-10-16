@@ -653,7 +653,7 @@ Ledger::setup()
     catch (std::exception const& ex)
     {
         JLOG(j_.error()) << "Exception in " << __func__ << ": " << ex.what();
-        throw;
+        Rethrow();
     }
 
     try
@@ -710,7 +710,7 @@ Ledger::setup()
     catch (std::exception const& ex)
     {
         JLOG(j_.error()) << "Exception in " << __func__ << ": " << ex.what();
-        throw;
+        Rethrow();
     }
 
     return ret;

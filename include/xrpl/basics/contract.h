@@ -22,54 +22,60 @@
 
 #include <xrpl/beast/type_name.h>
 #include <exception>
-#include <string_view>
+#include <string>
 #include <type_traits>
+#include <typeinfo>
 #include <utility>
 
 namespace ripple {
 
-namespace detail {
+/*  Programming By Contract
 
-/** Throws an exception, logging its type and message before doing so. */
+    This routines are used when checking
+    preconditions, postconditions, and invariants.
+*/
+
+/** Generates and logs a call stack */
 void
-LogThrow(std::string_view type, std::string_view what);
+LogThrow(std::string const& title);
 
-}  // namespace detail
-/** Throws an exception, logging its type and message before doing so.
+/** Rethrow the exception currently being handled.
 
-    @tparam E    The exception type. Must derive from std::exception.
-    @tparam Args Constructor argument types for E.
+    When called from within a catch block, it will pass
+    control to the next matching exception handler, if any.
+    Otherwise, std::terminate will be called.
+*/
+[[noreturn]] inline void
+Rethrow()
+{
+    LogThrow("Re-throwing exception");
+    throw;
+}
 
-    @param args  Arguments forwarded to the constructor of E.
- */
 template <class E, class... Args>
 [[noreturn]] constexpr void
 Throw(Args&&... args)
 {
     static_assert(
-        std::derived_from<E, std::exception>,
+        std::is_convertible<E*, std::exception*>::value,
         "Exception must derive from std::exception.");
 
-    E e{std::forward<Args>(args)...};
+    E e(std::forward<Args>(args)...);
 
-    // This will avoid the logging call when we the call is being evaluated at
-    // compile time and logging would not be possible or helpful. This enables
-    // `Throw` to be called at from constexpr/consteval functions.
+    // Skip logging when evaluated at compile time, so that `Throw` can be
+    // called from constexpr/consteval functions.
     if (!std::is_constant_evaluated())
-        detail::LogThrow(beast::type_name<E>().c_str(), e.what());
+        LogThrow(
+            std::string(
+                "Throwing exception of type " + beast::type_name<E>() + ": ") +
+            e.what());
 
     throw e;
 }
 
-/** Logs a fatal message and terminates the process unconditionally.
-
-    This should be called when code detects a broken invariant
-    or a condition from which recovery is not possible.
-
-    @param msg A description of the error.
- */
+/** Called when faulty logic causes a broken invariant. */
 [[noreturn]] void
-LogicError(std::string_view msg) noexcept;
+LogicError(std::string const& how) noexcept;
 
 }  // namespace ripple
 

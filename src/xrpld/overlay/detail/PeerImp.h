@@ -512,6 +512,15 @@ private:
         bool eraseTxQueue,
         bool batch);
 
+    /** Handle protocol message with hashes of transactions that have not
+       been relayed by an upstream node down to its peers - request
+       transactions, which have not been relayed to this peer.
+       @param m protocol message with transactions' hashes
+     */
+    void
+    handleHaveTransactions(
+        std::shared_ptr<protocol::TMHaveTransactions> const& m);
+
     // Check if reduce-relay feature is enabled and
     // reduce_relay::WAIT_ON_BOOTUP time passed since the start
     bool
@@ -615,6 +624,18 @@ private:
         bool checkSignature,
         std::shared_ptr<STTx const> const& stx,
         bool batch);
+
+    void
+    checkPropose(
+        bool isTrusted,
+        std::shared_ptr<protocol::TMProposeSet> const& packet,
+        RCLCxPeerPos peerPos);
+
+    void
+    checkValidation(
+        std::shared_ptr<STValidation> const& val,
+        uint256 const& key,
+        std::shared_ptr<protocol::TMValidation> const& packet);
 
     void
     sendLedgerBase(

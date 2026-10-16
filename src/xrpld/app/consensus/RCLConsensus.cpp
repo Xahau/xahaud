@@ -49,6 +49,7 @@
 #include <xrpl/protocol/digest.h>
 
 #include <algorithm>
+#include <iomanip>
 #include <mutex>
 
 namespace ripple {
@@ -840,8 +841,8 @@ RCLConsensus::Adaptor::doAccept(
 
         for (auto const& [t, v] : rawCloseTimes.peers)
         {
-            JLOG(j_.debug())
-                << v << " time votes for " << t.time_since_epoch().count();
+            JLOG(j_.info()) << std::to_string(v) << " time votes for "
+                            << std::to_string(t.time_since_epoch().count());
             closeCount += v;
             closeTotal +=
                 std::chrono::duration_cast<usec64_t>(t.time_since_epoch()) * v;
@@ -1081,9 +1082,11 @@ RCLConsensus::timerEntry(
     catch (SHAMapMissingNode const& mn)
     {
         // This should never happen
-        JLOG(j_.error()) << "During consensus timerEntry: " << mn.what();
-        CLOG(clog) << "During consensus timerEntry: " << mn.what();
-        throw;
+        std::stringstream ss;
+        ss << "During consensus timerEntry: " << mn.what();
+        JLOG(j_.error()) << ss.str();
+        CLOG(clog) << ss.str();
+        Rethrow();
     }
 }
 
@@ -1099,7 +1102,7 @@ RCLConsensus::gotTxSet(NetClock::time_point const& now, RCLTxSet const& txSet)
     {
         // This should never happen
         JLOG(j_.error()) << "During consensus gotTxSet: " << mn.what();
-        throw;
+        Rethrow();
     }
 }
 

@@ -244,9 +244,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         }
 
         // lots of entries
-        std::array<uint8_t, 20> accid = {0,  0,  81, 82, 83, 84, 85,
-                                         86, 87, 88, 89, 90, 91, 92,
-                                         93, 94, 95, 96, 97, 98};
+        uint16_t accid[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
         std::vector<std::tuple<
             std::optional<AccountID>,
@@ -255,16 +253,12 @@ struct GenesisMint_test : public beast::unit_test::suite
             std::optional<uint256>>>
             mints;
 
-        while (mints.size() < 512)
+        for (uint16_t i = 0; i < 512; ++i)
         {
+            accid[0] = i;
+            AccountID acc = AccountID::fromVoid((void*)&accid);
             mints.emplace_back(
-                AccountID{accid},
-                XRP(mints.size() + 1).value(),
-                std::nullopt,
-                std::nullopt);
-
-            if (++accid[1] == 0)
-                ++accid[0];
+                acc, XRP(i + 1).value(), std::nullopt, std::nullopt);
         }
 
         env(invoke::invoke(invoker, env.master, genesis::makeBlob(mints)),
@@ -293,16 +287,16 @@ struct GenesisMint_test : public beast::unit_test::suite
         for (auto const& [acc, amt, _, __] : mints)
         {
             auto const le = env.le(keylet::account(*acc));
-            BEAST_EXPECT(le && le->getFieldAmount(sfBalance) == *amt * 2);
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == *amt * 2);
             BEAST_EXPECT(le->getAccountID(sfAccount) == acc);
         }
 
         // too many entries
-        if (++accid[1] == 0)
-            ++accid[0];
-
-        mints.emplace_back(
-            AccountID(accid), XRP(1).value(), std::nullopt, std::nullopt);
+        {
+            accid[0] = 512;
+            AccountID acc = AccountID::fromVoid((void*)&accid);
+            mints.emplace_back(acc, XRP(1).value(), std::nullopt, std::nullopt);
+        }
 
         env(invoke::invoke(invoker, env.master, genesis::makeBlob(mints)),
             fee(XRP(1)),
@@ -314,8 +308,7 @@ struct GenesisMint_test : public beast::unit_test::suite
         for (auto const& [acc, amt, _, __] : mints)
         {
             auto const le = env.le(keylet::account(*acc));
-            BEAST_EXPECT(le && le->getFieldAmount(sfBalance) == *amt * 2);
-
+            BEAST_EXPECT(!!le && le->getFieldAmount(sfBalance) == *amt * 2);
             if (++i == 512)
                 break;
         }

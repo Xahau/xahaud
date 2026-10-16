@@ -33,7 +33,7 @@ Json::Value
 doStop(RPC::JsonContext& context)
 {
     context.app.signalStop();
-    return RPC::makeObjectValue("Server stopping");
+    return RPC::makeObjectValue(std::string(systemName) + " server stopping");
 }
 
 }  // namespace ripple

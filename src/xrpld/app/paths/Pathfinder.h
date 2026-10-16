@@ -26,6 +26,7 @@
 #include <xrpl/basics/CountedObject.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/STPathSet.h>
+#include <optional>
 
 namespace ripple {
 
@@ -205,9 +206,8 @@ private:
     STAmount mRemainingAmount;
     bool convert_all_;
 
-    std::optional<LoadEvent> loadEvent_;
-
     std::shared_ptr<ReadView const> mLedger;
+    std::optional<LoadEvent> m_loadEvent;
     std::shared_ptr<RippleLineCache> mRLCache;
 
     STPathElement mSource;

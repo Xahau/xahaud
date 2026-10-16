@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <iterator>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace ripple {
 
@@ -107,7 +109,26 @@ public:
         Counter* current_;
     };
 
+    using List = std::vector<std::pair<std::string, int>>;
+
     constexpr CountedObjects() noexcept = default;
+
+    static CountedObjects&
+    getInstance() noexcept;
+
+    /** Returns the name and count of every counter with at least
+        `minimumThreshold` live instances. */
+    List
+    getCounts(int minimumThreshold) const
+    {
+        List ret;
+
+        for (auto c = head_.load(); c != nullptr; c = c->next_)
+            if (c->count() >= minimumThreshold)
+                ret.emplace_back(c->name(), c->count());
+
+        return ret;
+    }
 
     auto
     begin() const noexcept
@@ -127,6 +148,12 @@ private:
 };
 
 inline constinit CountedObjects countedObjects;
+
+inline CountedObjects&
+CountedObjects::getInstance() noexcept
+{
+    return countedObjects;
+}
 
 inline CountedObjects::Counter::Counter(std::string name) noexcept
     : name_(std::move(name))

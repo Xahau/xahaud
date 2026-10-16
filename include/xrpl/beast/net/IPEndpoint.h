@@ -24,10 +24,10 @@
 #include <xrpl/beast/hash/uhash.h>
 #include <xrpl/beast/net/IPAddress.h>
 
-#include <compare>
+#include <cstdint>
+#include <ios>
 #include <optional>
 #include <string>
-#include <string_view>
 
 namespace beast {
 namespace IP {
@@ -39,40 +39,19 @@ class Endpoint
 {
 public:
     /** Create an unspecified endpoint. */
-    Endpoint() noexcept = default;
+    Endpoint();
 
     /** Create an endpoint from the address and optional port. */
-    explicit Endpoint(
-        boost::asio::ip::address const& addr,
-        Port port = 0) noexcept
-        : m_addr(addr), m_port(port)
-    {
-    }
+    explicit Endpoint(Address const& addr, Port port = 0);
 
     /** Create an Endpoint from a string.
-
-        Supported formats:
-        - IPv4:                 `1.2.3.4`
-        - IPv4 with port:       `1.2.3.4:80` or `1.2.3.4 80`
-        - IPv6:                 `::1` or `2001:db8::1`
-        - IPv6 with port:       `::1 80` or `2001:db8::1 80`
-        - Bracketed IPv6:       `[::1]`
-        - Bracketed IPv6 port:  `[::1]:80`
-
-        Leading and trailing whitespace is ignored. If the port is
-        omitted, the endpoint will have a zero port.
-
-        @param s The string to parse
-        @return The parsed endpoint, or `std::nullopt` on failure
-     */
+        If the port is omitted, the endpoint will have a zero port.
+        @return An optional endpoint; will be `std::nullopt` on failure
+    */
     static std::optional<Endpoint>
-    from_string_checked(std::string_view s);
-
+    from_string_checked(std::string const& s);
     static Endpoint
-    from_string(std::string_view s)
-    {
-        return from_string_checked(s).value_or(Endpoint{});
-    }
+    from_string(std::string const& s);
 
     /** Returns a string representing the endpoint. */
     std::string
@@ -80,7 +59,7 @@ public:
 
     /** Returns the port number on the endpoint. */
     Port
-    port() const noexcept
+    port() const
     {
         return m_port;
     }
@@ -93,8 +72,8 @@ public:
     }
 
     /** Returns the address portion of this endpoint. */
-    boost::asio::ip::address const&
-    address() const noexcept
+    Address const&
+    address() const
     {
         return m_addr;
     }
@@ -111,15 +90,44 @@ public:
     {
         return m_addr.is_v6();
     }
-    boost::asio::ip::address_v4 const
+    AddressV4 const
     to_v4() const
     {
         return m_addr.to_v4();
     }
-    boost::asio::ip::address_v6 const
+    AddressV6 const
     to_v6() const
     {
         return m_addr.to_v6();
+    }
+    /** @} */
+
+    /** Arithmetic comparison. */
+    /** @{ */
+    friend bool
+    operator==(Endpoint const& lhs, Endpoint const& rhs);
+    friend bool
+    operator<(Endpoint const& lhs, Endpoint const& rhs);
+
+    friend bool
+    operator!=(Endpoint const& lhs, Endpoint const& rhs)
+    {
+        return !(lhs == rhs);
+    }
+    friend bool
+    operator>(Endpoint const& lhs, Endpoint const& rhs)
+    {
+        return rhs < lhs;
+    }
+    friend bool
+    operator<=(Endpoint const& lhs, Endpoint const& rhs)
+    {
+        return !(lhs > rhs);
+    }
+    friend bool
+    operator>=(Endpoint const& lhs, Endpoint const& rhs)
+    {
+        return !(rhs > lhs);
     }
     /** @} */
 
@@ -132,28 +140,9 @@ public:
     }
 
 private:
-    boost::asio::ip::address m_addr;
-    Port m_port = 0;
+    Address m_addr;
+    Port m_port;
 };
-
-/** Comparison operators. */
-[[nodiscard]] inline bool
-operator==(Endpoint const& lhs, Endpoint const& rhs) noexcept
-{
-    return lhs.address() == rhs.address() && lhs.port() == rhs.port();
-}
-
-[[nodiscard]] inline std::strong_ordering
-operator<=>(Endpoint const& lhs, Endpoint const& rhs) noexcept
-{
-    if (lhs.address() < rhs.address())
-        return std::strong_ordering::less;
-
-    if (rhs.address() < lhs.address())
-        return std::strong_ordering::greater;
-
-    return lhs.port() <=> rhs.port();
-}
 
 //------------------------------------------------------------------------------
 
@@ -163,21 +152,21 @@ operator<=>(Endpoint const& lhs, Endpoint const& rhs) noexcept
 inline bool
 is_loopback(Endpoint const& endpoint)
 {
-    return endpoint.address().is_loopback();
+    return is_loopback(endpoint.address());
 }
 
 /** Returns `true` if the endpoint is unspecified. */
 inline bool
 is_unspecified(Endpoint const& endpoint)
 {
-    return endpoint.address().is_unspecified();
+    return is_unspecified(endpoint.address());
 }
 
 /** Returns `true` if the endpoint is a multicast address. */
 inline bool
 is_multicast(Endpoint const& endpoint)
 {
-    return endpoint.address().is_multicast();
+    return is_multicast(endpoint.address());
 }
 
 /** Returns `true` if the endpoint is a private unroutable address. */
@@ -211,6 +200,10 @@ operator<<(OutputStream& os, Endpoint const& endpoint)
     os << to_string(endpoint);
     return os;
 }
+
+/** Input stream conversion. */
+std::istream&
+operator>>(std::istream& is, Endpoint& endpoint);
 
 }  // namespace IP
 }  // namespace beast

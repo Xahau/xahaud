@@ -274,7 +274,7 @@ class ConnectHandouts
 public:
     // Keeps track of addresses we have made outgoing connections
     // to, for the purposes of not connecting to them too frequently.
-    using Squelches = beast::aged_set<boost::asio::ip::address>;
+    using Squelches = beast::aged_set<beast::IP::Address>;
 
     using list_type = std::vector<beast::IP::Endpoint>;
 

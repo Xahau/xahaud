@@ -60,7 +60,7 @@ public:
         Callback&
         operator=(Callback const&) = delete;
 
-        /** Select and perform a task.
+        /** Perform a task.
 
             The function is invoked precisely once for every call to the
             thread pool's addTask method. It executes on one of the thread
@@ -91,7 +91,7 @@ public:
         }
     };
 
-    /** Create a new thread pool with the given number of worker threads.
+    /** Create the object.
 
         @param callback The task selection & execution algorithm.
         @param name The name for this pool (used to name threads)

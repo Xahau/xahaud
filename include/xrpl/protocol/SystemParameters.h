@@ -22,8 +22,8 @@
 
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/XRPAmount.h>
-
 #include <cstdint>
+#include <string>
 #include <string_view>
 
 namespace ripple {
@@ -33,15 +33,14 @@ namespace ripple {
 /* The name of the system. */
 inline constexpr std::string_view systemName = "xahau";
 
-/* The currency code for the native currency. */
-inline constexpr std::string_view systemCurrencyCode = "XAH";
+/** Configure the native currency. */
 
 /** Number of drops in the genesis account. */
-inline constexpr XRPAmount INITIAL_XRP{100'000'000'000 * DROPS_PER_XRP};
+constexpr XRPAmount INITIAL_XRP{100'000'000'000 * DROPS_PER_XRP};
 
 /** Returns true if the amount does not exceed the initial XRP in existence. */
 inline bool
-isLegalAmount(XRPAmount const& amount) noexcept
+isLegalAmount(XRPAmount const& amount)
 {
     return amount <= INITIAL_XRP;
 }
@@ -49,22 +48,25 @@ isLegalAmount(XRPAmount const& amount) noexcept
 /** Returns true if the absolute value of the amount does not exceed the initial
  * XRP in existence. */
 inline bool
-isLegalAmountSigned(XRPAmount const& amount) noexcept
+isLegalAmountSigned(XRPAmount const& amount)
 {
     return amount >= -INITIAL_XRP && amount <= INITIAL_XRP;
 }
 
+/* The currency code for the native currency. */
+inline constexpr std::string_view systemCurrencyCode = "XAH";
+
 /** The XRP ledger network's earliest allowed sequence */
-inline constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{1U};
+static constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{1U};
 
 /** The minimum amount of support an amendment should have.
 
     @note This value is used by legacy code and will become obsolete
           once the fixAmendmentMajorityCalc amendment activates.
 */
-inline constexpr std::ratio<204, 256> preFixAmendmentMajorityCalcThreshold;
+constexpr std::ratio<204, 256> preFixAmendmentMajorityCalcThreshold;
 
-inline constexpr std::ratio<80, 100> postFixAmendmentMajorityCalcThreshold;
+constexpr std::ratio<80, 100> postFixAmendmentMajorityCalcThreshold;
 
 /** The minimum amount of time an amendment must hold a majority */
 constexpr std::chrono::seconds const defaultAmendmentMajorityTime =

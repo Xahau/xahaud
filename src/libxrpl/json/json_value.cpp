@@ -226,10 +226,15 @@ Value::Value(double value) : type_(realValue)
     value_.real_ = value;
 }
 
-Value::Value(std::string_view value) : type_(stringValue), allocated_(true)
+Value::Value(const char* value) : type_(stringValue), allocated_(true)
 {
-    value_.string_ =
-        valueAllocator()->duplicateStringValue(value.data(), value.size());
+    value_.string_ = valueAllocator()->duplicateStringValue(value);
+}
+
+Value::Value(std::string const& value) : type_(stringValue), allocated_(true)
+{
+    value_.string_ = valueAllocator()->duplicateStringValue(
+        value.c_str(), (unsigned int)value.length());
 }
 
 Value::Value(const StaticString& value) : type_(stringValue), allocated_(false)
@@ -804,9 +809,9 @@ Value::operator[](UInt index) const
 }
 
 Value&
-Value::operator[](std::string_view key)
+Value::operator[](const char* key)
 {
-    return resolveReference(key.data(), false);
+    return resolveReference(key, false);
 }
 
 Value&
@@ -846,7 +851,7 @@ Value::isValidIndex(UInt index) const
 }
 
 const Value&
-Value::operator[](std::string_view key) const
+Value::operator[](const char* key) const
 {
     XRPL_ASSERT(
         type_ == nullValue || type_ == objectValue,
@@ -855,13 +860,25 @@ Value::operator[](std::string_view key) const
     if (type_ == nullValue)
         return null;
 
-    CZString actualKey(key.data(), CZString::noDuplication);
+    CZString actualKey(key, CZString::noDuplication);
     ObjectValues::const_iterator it = value_.map_->find(actualKey);
 
     if (it == value_.map_->end())
         return null;
 
     return (*it).second;
+}
+
+Value&
+Value::operator[](std::string const& key)
+{
+    return (*this)[key.c_str()];
+}
+
+const Value&
+Value::operator[](std::string const& key) const
+{
+    return (*this)[key.c_str()];
 }
 
 Value&

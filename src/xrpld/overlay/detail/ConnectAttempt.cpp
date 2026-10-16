@@ -219,7 +219,7 @@ ConnectAttempt::onHandshake(error_code ec)
     JLOG(journal_.trace()) << "onHandshake";
 
     if (!overlay_.peerFinder().onConnected(
-            slot_, beast::IP::from_asio(local_endpoint)))
+            slot_, beast::IPAddressConversion::from_asio(local_endpoint)))
         return fail("Duplicate connection");
 
     auto const sharedValue = makeSharedValue(*stream_ptr_, journal_);

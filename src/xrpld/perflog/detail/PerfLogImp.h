@@ -34,7 +34,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <string_view>
 #include <thread>
 #include <type_traits>
 #include <unordered_map>
@@ -117,8 +116,7 @@ class PerfLogImp : public PerfLog
         std::unordered_map<std::uint64_t, MethodStart> methods_;
         mutable std::mutex methodsMutex_;
 
-        Counters(std::vector<std::string_view> labels);
-
+        Counters(std::set<char const*> const& labels);
         Json::Value
         countersJson() const;
         Json::Value
@@ -129,7 +127,7 @@ class PerfLogImp : public PerfLog
     Application& app_;
     beast::Journal const j_;
     std::function<void()> const signalStop_;
-    Counters counters_;
+    Counters counters_{ripple::RPC::getHandlerNames()};
     std::ofstream logFile_;
     std::thread thread_;
     std::mutex mutex_;

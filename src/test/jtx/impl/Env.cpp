@@ -521,7 +521,7 @@ Env::acct_autofill(JTx& jt, Account const& account)
     catch (parse_error const&)
     {
         test.log << "parse failed:\n" << pretty(jv) << std::endl;
-        throw;
+        Rethrow();
     }
 }
 
@@ -551,7 +551,7 @@ Env::autofill(JTx& jt)
     {
         if (!parseFailureExpected_)
             test.log << "parse failed:\n" << pretty(jv) << std::endl;
-        throw;
+        Rethrow();
     }
 }
 
@@ -568,7 +568,7 @@ Env::st(JTx const& jt)
     catch (jtx::parse_error const&)
     {
         test.log << "Exception: parse_error\n" << pretty(jt.jv) << std::endl;
-        throw;
+        Rethrow();
     }
 
     try
@@ -594,7 +594,7 @@ Env::ust(JTx const& jt)
     catch (jtx::parse_error const&)
     {
         test.log << "Exception: parse_error\n" << pretty(jt.jv) << std::endl;
-        throw;
+        Rethrow();
     }
 
     try

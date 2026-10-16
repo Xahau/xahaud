@@ -1110,7 +1110,7 @@ struct LedgerReplayer_test : public beast::unit_test::suite
             if (serverResult != expecting)
                 return false;
 
-            boost::asio::ip::address addr =
+            beast::IP::Address addr =
                 boost::asio::ip::make_address("172.1.1.100");
             jtx::Env serverEnv(*this);
             serverEnv.app().config().LEDGER_REPLAY = server;

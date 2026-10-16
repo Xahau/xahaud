@@ -20,83 +20,60 @@
 #ifndef BEAST_RANDOM_RNGFILL_H_INCLUDED
 #define BEAST_RANDOM_RNGFILL_H_INCLUDED
 
-#include <algorithm>
+#include <xrpl/beast/utility/instrumentation.h>
 #include <array>
-#include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <span>
+#include <cstring>
 #include <type_traits>
 
 namespace beast {
 
 template <class Generator>
 void
-rngfill(std::span<std::byte> buf, Generator& g)
+rngfill(void* buffer, std::size_t bytes, Generator& g)
 {
-    if constexpr (std::is_invocable_r_v<
-                      void,
-                      Generator,
-                      decltype(buf.data()),
-                      decltype(buf.size())>)
-        return g(buf.data(), buf.size());
+    using result_type = typename Generator::result_type;
 
-    using result_type = decltype(g());
-    auto constexpr bs = sizeof(result_type);
-
-    auto fill_impl = [](std::span<std::byte> s, result_type v) {
-        std::copy_n(reinterpret_cast<std::byte const*>(&v), s.size(), s.data());
-    };
-
-    if (auto misalign =
-            reinterpret_cast<std::uintptr_t>(buf.data()) % alignof(result_type))
+    while (bytes >= sizeof(result_type))
     {
-        auto const prefix =
-            std::min(buf.size(), alignof(result_type) - misalign);
-        fill_impl(buf.first(prefix), g());
-        buf = buf.subspan(prefix);
+        auto const v = g();
+        std::memcpy(buffer, &v, sizeof(v));
+        buffer = reinterpret_cast<std::uint8_t*>(buffer) + sizeof(v);
+        bytes -= sizeof(v);
     }
 
-    auto const count = buf.size() / bs;
-    std::generate_n(
-        reinterpret_cast<result_type*>(buf.data()), count, std::ref(g));
-    buf = buf.subspan(count * bs);
+    XRPL_ASSERT(
+        bytes < sizeof(result_type), "beast::rngfill(void*) : maximum bytes");
 
-    if (!buf.empty())
-        fill_impl(buf, g());
+#ifdef __GNUC__
+    // gcc 11.1 (falsely) warns about an array-bounds overflow in release mode.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
+
+    if (bytes > 0)
+    {
+        auto const v = g();
+        std::memcpy(buffer, &v, bytes);
+    }
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif
 }
 
-template <class T, std::size_t Extent, class Generator>
-    requires std::is_integral_v<T>
+template <
+    class Generator,
+    std::size_t N,
+    class = std::enable_if_t<N % sizeof(typename Generator::result_type) == 0>>
 void
-rngfill(std::span<T, Extent> buf, Generator& g)
+rngfill(std::array<std::uint8_t, N>& a, Generator& g)
 {
-    rngfill(std::as_writable_bytes(buf), g);
-}
-
-template <class T, std::size_t N, class Generator>
-    requires std::is_integral_v<T> && (N != 0)
-void rngfill(std::array<T, N>& a, Generator& g)
-{
-    rngfill(std::as_writable_bytes(std::span{a}), g);
-}
-
-template <class T, std::size_t N, class Generator>
-    requires std::is_integral_v<T> && (N != 0)
-void rngfill(T (&a)[N], Generator& g)
-{
-    rngfill(std::as_writable_bytes(std::span{a}), g);
-}
-
-template <class T, class Generator>
-    requires(
-        std::is_same_v<T, std::byte> || std::is_same_v<T, char> ||
-        std::is_same_v<T, signed char> || std::is_same_v<T, unsigned char> ||
-        std::is_same_v<T, std::uint8_t>)
-void
-rngfill(T* ptr, std::size_t count, Generator& g)
-{
-    rngfill(std::as_writable_bytes(std::span{ptr, count}), g);
+    using result_type = typename Generator::result_type;
+    auto i = N / sizeof(result_type);
+    result_type* p = reinterpret_cast<result_type*>(a.data());
+    while (i--)
+        *p++ = g();
 }
 
 }  // namespace beast

@@ -43,7 +43,7 @@ class SHAMapItem : public CountedObject<SHAMapItem>
     intrusive_ptr_release(SHAMapItem const* x);
 
     // This is the interface for creating new instances of this class.
-    friend boost::intrusive_ptr<SHAMapItem const>
+    friend boost::intrusive_ptr<SHAMapItem>
     make_shamapitem(uint256 const& tag, Slice data);
 
 private:
@@ -153,14 +153,14 @@ intrusive_ptr_release(SHAMapItem const* x)
         // release the memory.
         std::destroy_at(x);
 
-        // If the slabber doesn't claim this pointer, it was allocated
+        // If the slabber doens't claim this pointer, it was allocated
         // manually, so we free it manually.
         if (!detail::slabber.deallocate(const_cast<std::uint8_t*>(p)))
             delete[] p;
     }
 }
 
-inline boost::intrusive_ptr<SHAMapItem const>
+inline boost::intrusive_ptr<SHAMapItem>
 make_shamapitem(uint256 const& tag, Slice data)
 {
     XRPL_ASSERT(
@@ -169,8 +169,8 @@ make_shamapitem(uint256 const& tag, Slice data)
 
     std::uint8_t* raw = detail::slabber.allocate(data.size());
 
-    // If we can't grab memory from the slab allocators, we use new to
-    // get a precisely-sized and properly aligned memory block:
+    // If we can't grab memory from the slab allocators, we fall back to
+    // the standard library and try to grab a precisely-sized memory block:
     if (raw == nullptr)
         raw = new (std::align_val_t(alignof(SHAMapItem)))
             std::uint8_t[sizeof(SHAMapItem) + data.size()];
@@ -186,7 +186,7 @@ make_shamapitem(uint256 const& tag, Slice data)
         false};
 }
 
-inline boost::intrusive_ptr<SHAMapItem const>
+inline boost::intrusive_ptr<SHAMapItem>
 make_shamapitem(SHAMapItem const& other)
 {
     return make_shamapitem(other.key(), other.slice());

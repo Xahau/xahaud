@@ -17,7 +17,8 @@
 */
 //==============================================================================
 
-// MODULES: ../impl/IPEndpoint.cpp
+// MODULES: ../impl/IPEndpoint.cpp ../impl/IPAddressV4.cpp
+// ../impl/IPAddressV6.cpp
 
 #include <test/beast/IPEndpointCommon.h>
 #include <xrpl/basics/random.h>
@@ -37,38 +38,132 @@ class IPEndpoint_test : public unit_test::suite
 {
 public:
     void
+    shouldParseAddrV4(
+        std::string const& s,
+        std::uint32_t value,
+        std::string const& normal = "")
+    {
+        boost::system::error_code ec;
+        Address const result{boost::asio::ip::make_address(s, ec)};
+        if (!BEAST_EXPECTS(!ec, ec.message()))
+            return;
+        if (!BEAST_EXPECTS(result.is_v4(), s + " not v4"))
+            return;
+        if (!BEAST_EXPECTS(
+                result.to_v4().to_uint() == value, s + " value mismatch"))
+            return;
+        BEAST_EXPECTS(
+            result.to_string() == (normal.empty() ? s : normal),
+            s + " as string");
+    }
+
+    void
+    failParseAddr(std::string const& s)
+    {
+        boost::system::error_code ec;
+        auto a = boost::asio::ip::make_address(s, ec);
+        BEAST_EXPECTS(ec, s + " parses as " + a.to_string());
+    }
+
+    void
     testAddressV4()
     {
-        testcase("IPv4 address private/public classification");
+        testcase("AddressV4");
 
-        using namespace boost::asio::ip;
+        BEAST_EXPECT(AddressV4{}.to_uint() == 0);
+        BEAST_EXPECT(is_unspecified(AddressV4{}));
+        BEAST_EXPECT(AddressV4{0x01020304}.to_uint() == 0x01020304);
 
-        // 10.0.0.0/8 range
-        BEAST_EXPECT(is_private(make_address_v4("10.0.0.0")));
-        BEAST_EXPECT(is_private(make_address_v4("10.255.255.255")));
-        BEAST_EXPECT(!is_private(make_address_v4("11.0.0.0")));
+        {
+            AddressV4::bytes_type d = {{1, 2, 3, 4}};
+            BEAST_EXPECT(AddressV4{d}.to_uint() == 0x01020304);
 
-        // 172.16.0.0/12 range
-        BEAST_EXPECT(is_private(make_address_v4("172.16.0.0")));
-        BEAST_EXPECT(is_private(make_address_v4("172.31.255.255")));
-        BEAST_EXPECT(!is_private(make_address_v4("172.15.255.255")));
-        BEAST_EXPECT(!is_private(make_address_v4("172.32.0.0")));
+            unexpected(is_unspecified(AddressV4{d}));
+        }
 
-        // 192.168.0.0/16 range
-        BEAST_EXPECT(is_private(make_address_v4("192.168.0.0")));
-        BEAST_EXPECT(is_private(make_address_v4("192.168.255.255")));
-        BEAST_EXPECT(!is_private(make_address_v4("192.167.255.255")));
+        AddressV4 const v1{1};
+        BEAST_EXPECT(AddressV4{v1}.to_uint() == 1);
 
-        // Loopback is considered private
-        BEAST_EXPECT(is_private(make_address_v4("127.0.0.1")));
+        {
+            AddressV4 v;
+            v = v1;
+            BEAST_EXPECT(v.to_uint() == v1.to_uint());
+        }
 
-        // Public addresses
-        BEAST_EXPECT(is_public(make_address_v4("8.8.8.8")));
-        BEAST_EXPECT(is_public(make_address_v4("1.1.1.1")));
+        {
+            AddressV4 v;
+            auto d = v.to_bytes();
+            d[0] = 1;
+            d[1] = 2;
+            d[2] = 3;
+            d[3] = 4;
+            v = AddressV4{d};
+            BEAST_EXPECT(v.to_uint() == 0x01020304);
+        }
 
-        // Multicast is not public (even though not private)
-        BEAST_EXPECT(!is_private(make_address_v4("224.0.0.1")));
-        BEAST_EXPECT(!is_public(make_address_v4("224.0.0.1")));
+        BEAST_EXPECT(AddressV4(0x01020304).to_string() == "1.2.3.4");
+
+        shouldParseAddrV4("1.2.3.4", 0x01020304);
+        shouldParseAddrV4("255.255.255.255", 0xffffffff);
+        shouldParseAddrV4("0.0.0.0", 0);
+
+        failParseAddr(".");
+        failParseAddr("..");
+        failParseAddr("...");
+        failParseAddr("....");
+#if BOOST_OS_WINDOWS
+        // WINDOWS bug in asio - I don't think these should parse
+        // at all, and in-fact they do not on mac/linux
+        shouldParseAddrV4("1", 0x00000001, "0.0.0.1");
+        shouldParseAddrV4("1.2", 0x01000002, "1.0.0.2");
+        shouldParseAddrV4("1.2.3", 0x01020003, "1.2.0.3");
+#else
+        failParseAddr("1");
+        failParseAddr("1.2");
+        failParseAddr("1.2.3");
+#endif
+        failParseAddr("1.");
+        failParseAddr("1.2.");
+        failParseAddr("1.2.3.");
+        failParseAddr("256.0.0.0");
+        failParseAddr("-1.2.3.4");
+    }
+
+    void
+    testAddressV4Proxy()
+    {
+        testcase("AddressV4::Bytes");
+
+        AddressV4::bytes_type d1 = {{10, 0, 0, 1}};
+        AddressV4 v4{d1};
+        BEAST_EXPECT(v4.to_bytes()[0] == 10);
+        BEAST_EXPECT(v4.to_bytes()[1] == 0);
+        BEAST_EXPECT(v4.to_bytes()[2] == 0);
+        BEAST_EXPECT(v4.to_bytes()[3] == 1);
+
+        BEAST_EXPECT((~((0xff) << 16)) == 0xff00ffff);
+
+        auto d2 = v4.to_bytes();
+        d2[1] = 10;
+        v4 = AddressV4{d2};
+        BEAST_EXPECT(v4.to_bytes()[0] == 10);
+        BEAST_EXPECT(v4.to_bytes()[1] == 10);
+        BEAST_EXPECT(v4.to_bytes()[2] == 0);
+        BEAST_EXPECT(v4.to_bytes()[3] == 1);
+    }
+
+    //--------------------------------------------------------------------------
+
+    void
+    testAddress()
+    {
+        testcase("Address");
+
+        boost::system::error_code ec;
+        Address result{boost::asio::ip::make_address("1.2.3.4", ec)};
+        AddressV4::bytes_type d = {{1, 2, 3, 4}};
+        BEAST_EXPECT(!ec);
+        BEAST_EXPECT(result.is_v4() && result.to_v4() == AddressV4{d});
     }
 
     //--------------------------------------------------------------------------
@@ -76,7 +171,7 @@ public:
     void
     shouldParseEPV4(
         std::string const& s,
-        boost::asio::ip::address_v4::bytes_type const& value,
+        AddressV4::bytes_type const& value,
         std::uint16_t p,
         std::string const& normal = "")
     {
@@ -85,9 +180,7 @@ public:
             return;
         if (!BEAST_EXPECT(result->address().is_v4()))
             return;
-        if (!BEAST_EXPECT(
-                result->address().to_v4() ==
-                boost::asio::ip::address_v4{value}))
+        if (!BEAST_EXPECT(result->address().to_v4() == AddressV4{value}))
             return;
 
         BEAST_EXPECT(result->port() == p);
@@ -97,7 +190,7 @@ public:
     void
     shouldParseEPV6(
         std::string const& s,
-        boost::asio::ip::address_v6::bytes_type const& value,
+        AddressV6::bytes_type const& value,
         std::uint16_t p,
         std::string const& normal = "")
     {
@@ -106,9 +199,7 @@ public:
             return;
         if (!BEAST_EXPECT(result->address().is_v6()))
             return;
-        if (!BEAST_EXPECT(
-                result->address().to_v6() ==
-                boost::asio::ip::address_v6{value}))
+        if (!BEAST_EXPECT(result->address().to_v6() == AddressV6{value}))
             return;
 
         BEAST_EXPECT(result->port() == p);
@@ -133,8 +224,6 @@ public:
     testEndpoint()
     {
         testcase("Endpoint");
-
-        using namespace boost::asio::ip;
 
         shouldParseEPV4("1.2.3.4", {{1, 2, 3, 4}}, 0);
         shouldParseEPV4("1.2.3.4:5", {{1, 2, 3, 4}}, 5);
@@ -164,8 +253,8 @@ public:
 
         Endpoint ep;
 
-        address_v4::bytes_type d = {{127, 0, 0, 1}};
-        ep = Endpoint(address_v4{d}, 80);
+        AddressV4::bytes_type d = {{127, 0, 0, 1}};
+        ep = Endpoint(AddressV4{d}, 80);
         BEAST_EXPECT(!is_unspecified(ep));
         BEAST_EXPECT(!is_public(ep));
         BEAST_EXPECT(is_private(ep));
@@ -173,7 +262,10 @@ public:
         BEAST_EXPECT(is_loopback(ep));
         BEAST_EXPECT(to_string(ep) == "127.0.0.1:80");
         // same address as v4 mapped in ipv6
-        ep = Endpoint(make_address_v6(v4_mapped, address_v4{d}), 80);
+        ep = Endpoint(
+            boost::asio::ip::make_address_v6(
+                boost::asio::ip::v4_mapped, AddressV4{d}),
+            80);
         BEAST_EXPECT(!is_unspecified(ep));
         BEAST_EXPECT(!is_public(ep));
         BEAST_EXPECT(is_private(ep));
@@ -182,7 +274,8 @@ public:
         BEAST_EXPECTS(to_string(ep) == "[::ffff:127.0.0.1]:80", to_string(ep));
 
         d = {{10, 0, 0, 1}};
-        ep = Endpoint(address_v4{d});
+        ep = Endpoint(AddressV4{d});
+        BEAST_EXPECT(get_class(ep.to_v4()) == 'A');
         BEAST_EXPECT(!is_unspecified(ep));
         BEAST_EXPECT(!is_public(ep));
         BEAST_EXPECT(is_private(ep));
@@ -190,7 +283,11 @@ public:
         BEAST_EXPECT(!is_loopback(ep));
         BEAST_EXPECT(to_string(ep) == "10.0.0.1");
         // same address as v4 mapped in ipv6
-        ep = Endpoint(make_address_v6(v4_mapped, address_v4{d}));
+        ep = Endpoint(boost::asio::ip::make_address_v6(
+            boost::asio::ip::v4_mapped, AddressV4{d}));
+        BEAST_EXPECT(
+            get_class(boost::asio::ip::make_address_v4(
+                boost::asio::ip::v4_mapped, ep.to_v6())) == 'A');
         BEAST_EXPECT(!is_unspecified(ep));
         BEAST_EXPECT(!is_public(ep));
         BEAST_EXPECT(is_private(ep));
@@ -199,7 +296,7 @@ public:
         BEAST_EXPECTS(to_string(ep) == "::ffff:10.0.0.1", to_string(ep));
 
         d = {{166, 78, 151, 147}};
-        ep = Endpoint(address_v4{d});
+        ep = Endpoint(AddressV4{d});
         BEAST_EXPECT(!is_unspecified(ep));
         BEAST_EXPECT(is_public(ep));
         BEAST_EXPECT(!is_private(ep));
@@ -207,7 +304,8 @@ public:
         BEAST_EXPECT(!is_loopback(ep));
         BEAST_EXPECT(to_string(ep) == "166.78.151.147");
         // same address as v4 mapped in ipv6
-        ep = Endpoint(make_address_v6(v4_mapped, address_v4{d}));
+        ep = Endpoint(boost::asio::ip::make_address_v6(
+            boost::asio::ip::v4_mapped, AddressV4{d}));
         BEAST_EXPECT(!is_unspecified(ep));
         BEAST_EXPECT(is_public(ep));
         BEAST_EXPECT(!is_private(ep));
@@ -216,9 +314,9 @@ public:
         BEAST_EXPECTS(to_string(ep) == "::ffff:166.78.151.147", to_string(ep));
 
         // a private IPv6
-        address_v6::bytes_type d2 = {
+        AddressV6::bytes_type d2 = {
             {253, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}};
-        ep = Endpoint(address_v6{d2});
+        ep = Endpoint(AddressV6{d2});
         BEAST_EXPECT(!is_unspecified(ep));
         BEAST_EXPECT(!is_public(ep));
         BEAST_EXPECT(is_private(ep));
@@ -227,30 +325,30 @@ public:
         BEAST_EXPECTS(to_string(ep) == "fd00::1", to_string(ep));
 
         // a link-local IPv6 is private
-        ep = Endpoint(make_address_v6("fe80::1"));
+        ep = Endpoint(boost::asio::ip::make_address_v6("fe80::1"));
         BEAST_EXPECT(!is_public(ep));
         BEAST_EXPECT(is_private(ep));
         BEAST_EXPECT(!is_loopback(ep));
 
         // the IPv6 loopback is private
-        ep = Endpoint(make_address_v6("::1"));
+        ep = Endpoint(boost::asio::ip::make_address_v6("::1"));
         BEAST_EXPECT(!is_public(ep));
         BEAST_EXPECT(is_private(ep));
         BEAST_EXPECT(is_loopback(ep));
 
         // a global unicast IPv6 is public
-        ep = Endpoint(make_address_v6("2001:db8::1"));
+        ep = Endpoint(boost::asio::ip::make_address_v6("2001:db8::1"));
         BEAST_EXPECT(!is_unspecified(ep));
         BEAST_EXPECT(is_public(ep));
         BEAST_EXPECT(!is_private(ep));
         BEAST_EXPECT(!is_multicast(ep));
 
         // multicast and unspecified IPv6 are neither public nor private
-        ep = Endpoint(make_address_v6("ff02::1"));
+        ep = Endpoint(boost::asio::ip::make_address_v6("ff02::1"));
         BEAST_EXPECT(!is_public(ep));
         BEAST_EXPECT(!is_private(ep));
         BEAST_EXPECT(is_multicast(ep));
-        ep = Endpoint(address_v6{});
+        ep = Endpoint(AddressV6{});
         BEAST_EXPECT(is_unspecified(ep));
         BEAST_EXPECT(!is_public(ep));
         BEAST_EXPECT(!is_private(ep));
@@ -292,7 +390,7 @@ public:
             ep = Endpoint::from_string("[::]:2017");
             BEAST_EXPECT(is_unspecified(ep));
             BEAST_EXPECT(ep.port() == 2017);
-            BEAST_EXPECT(ep.address() == address_v6{});
+            BEAST_EXPECT(ep.address() == AddressV6{});
         }
 
         // Failures:
@@ -338,16 +436,13 @@ public:
 
     //--------------------------------------------------------------------------
 
+    template <typename T>
     bool
-    parse(std::string const& text, Endpoint& t)
+    parse(std::string const& text, T& t)
     {
-        if (auto result = Endpoint::from_string_checked(text))
-        {
-            t = *result;
-            return true;
-        }
-
-        return false;
+        std::istringstream stream{text};
+        stream >> t;
+        return !stream.fail();
     }
 
     template <typename T>
@@ -411,6 +506,8 @@ public:
     run() override
     {
         testAddressV4();
+        testAddressV4Proxy();
+        testAddress();
         testEndpoint();
         testParse<Endpoint>("Parse Endpoint");
     }

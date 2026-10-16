@@ -868,7 +868,9 @@ NetworkOPsImp::getHostId(bool forAdmin)
     // For non-admin uses hash the node public key into a
     // single RFC1751 word:
     static std::string const shroudedHostId = [this]() {
-        return std::string{rfc1751::wordFromBlob(app_.nodeIdentity().first)};
+        auto const& id = app_.nodeIdentity();
+
+        return RFC1751::getWordFromBlob(id.first.data(), id.first.size());
     }();
 
     return shroudedHostId;
@@ -1366,7 +1368,7 @@ NetworkOPsImp::processTransaction(
     bool bLocal,
     FailHard failType)
 {
-    auto ev = m_job_queue.createLoadEvent(jtTXN_PROC, "ProcessTXN");
+    auto ev = m_job_queue.makeLoadEvent(jtTXN_PROC, "ProcessTXN");
 
     auto const view = m_ledgerMaster.getCurrentLedger();
 

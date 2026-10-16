@@ -111,13 +111,17 @@ private:
     static boost::asio::ip::tcp::endpoint
     parse_endpoint(std::string const& s, boost::system::error_code& ec)
     {
-        if (auto ep = beast::IP::Endpoint::from_string_checked(s))
-            return beast::IP::to_asio_endpoint(*ep);
+        beast::IP::Endpoint bep;
+        std::istringstream is(s);
+        is >> bep;
+        if (is.fail())
+        {
+            ec = boost::system::errc::make_error_code(
+                boost::system::errc::invalid_argument);
+            return boost::asio::ip::tcp::endpoint{};
+        }
 
-        ec = boost::system::errc::make_error_code(
-            boost::system::errc::invalid_argument);
-
-        return {};
+        return beast::IPAddressConversion::to_asio_endpoint(bep);
     }
 };
 

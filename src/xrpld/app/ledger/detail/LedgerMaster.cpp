@@ -1069,6 +1069,9 @@ void
 LedgerMaster::checkAccept(std::shared_ptr<Ledger const> const& ledger)
 {
     // Can we accept this ledger as our new last fully-validated ledger
+
+    JLOG(m_journal.info()) << "checkAccept (" << ledger->info().seq << ")\n";
+
     if (!canBeCurrent(ledger))
         return;
 
@@ -1077,14 +1080,7 @@ LedgerMaster::checkAccept(std::shared_ptr<Ledger const> const& ledger)
     std::lock_guard ml(m_mutex);
 
     if (ledger->info().seq <= mValidLedgerSeq)
-    {
-        JLOG(m_journal.trace())
-            << "checkAccept (" << ledger->info().seq
-            << "): mValidLedgerSeq already at " << mValidLedgerSeq;
         return;
-    }
-
-    JLOG(m_journal.debug()) << "checkAccept (" << ledger->info().seq << ")";
 
     auto const minVal = getNeededValidations();
     auto validations = app_.validators().negativeUNLFilter(
@@ -1094,20 +1090,20 @@ LedgerMaster::checkAccept(std::shared_ptr<Ledger const> const& ledger)
     if (tvc < minVal)  // nothing we can do
     {
         JLOG(m_journal.trace())
-            << "checkAccept (" << ledger->info().seq << "): only " << tvc
-            << " validations for " << ledger->info().hash;
+            << "Only " << tvc << " validations for " << ledger->info().hash;
         return;
     }
 
-    JLOG(m_journal.info()) << "checkAccept (" << ledger->info().seq
-                           << "): advancing accepted ledger to "
-                           << ledger->info().hash << " with >= " << minVal
+    JLOG(m_journal.info()) << "Advancing accepted ledger to "
+                           << ledger->info().seq << " with >= " << minVal
                            << " validations";
 
     ledger->setValidated();
     ledger->setFull();
     setValidLedger(ledger);
 
+    JLOG(m_journal.info()) << "checkAccept (" << ledger->info().seq
+                           << ") = validated\n";
     if (!mPubLedger)
     {
         pendSaveValidated(app_, ledger, true, true);
@@ -1116,40 +1112,32 @@ LedgerMaster::checkAccept(std::shared_ptr<Ledger const> const& ledger)
     }
 
     std::uint32_t const base = app_.getFeeTrack().getLoadBase();
-
     auto fees = app_.getValidations().fees(ledger->info().hash, base);
-
     {
         auto fees2 =
             app_.getValidations().fees(ledger->info().parentHash, base);
         fees.reserve(fees.size() + fees2.size());
         std::copy(fees2.begin(), fees2.end(), std::back_inserter(fees));
     }
-
-    std::uint32_t fee = base;
-
+    std::uint32_t fee;
     if (!fees.empty())
     {
         std::sort(fees.begin(), fees.end());
-
-        fee = fees[fees.size() / 2];  // median
-
         if (auto stream = m_journal.debug())
         {
-            std::string s;
-
-            for (auto const f : fees)
+            std::stringstream s;
+            s << "Received fees from validations: (" << fees.size() << ") ";
+            for (auto const fee1 : fees)
             {
-                if (!s.empty())
-                    s += ", ";
-
-                s += std::to_string(f);
+                s << " " << fee1;
             }
-
-            stream << "checkAccept (" << ledger->info().seq
-                   << "): median fee=" + std::to_string(fee) << " from "
-                   << fees.size() << " options { " + s + " }";
+            stream << s.str();
         }
+        fee = fees[fees.size() / 2];  // median
+    }
+    else
+    {
+        fee = base;
     }
 
     app_.getFeeTrack().setRemoteFee(fee);
@@ -1159,59 +1147,72 @@ LedgerMaster::checkAccept(std::shared_ptr<Ledger const> const& ledger)
     if (ledger->seq() % 256 == 0)
     {
         // Check if the majority of validators run a higher version rippled
-        // software. If so print a warning (at most once every week).
-        if (auto const currentTime = app_.timeKeeper().now();
-            currentTime - upgradeWarningPrevTime_ >= weeks{1})
+        // software. If so print a warning.
+        //
+        // Once the HardenedValidations amendment is enabled, validators include
+        // their rippled software version in the validation messages of every
+        // (flag - 1) ledger. We wait for one ledger time before checking the
+        // version information to accumulate more validation messages.
+
+        auto currentTime = app_.timeKeeper().now();
+        bool needPrint = false;
+
+        // The variable upgradeWarningPrevTime_ will be set when and only when
+        // the warning is printed.
+        if (upgradeWarningPrevTime_ == TimeKeeper::time_point())
         {
+            // Have not printed the warning before, check if need to print.
             auto const vals = app_.getValidations().getTrustedForLedger(
                 ledger->info().parentHash, ledger->info().seq - 1);
-
             std::size_t higherVersionCount = 0;
             std::size_t rippledCount = 0;
-
             for (auto const& v : vals)
             {
                 if (v->isFieldPresent(sfServerVersion))
                 {
                     auto version = v->getFieldU64(sfServerVersion);
-
-                    if (BuildInfo::isNewerVersion(version))
-                        ++higherVersionCount;
-
-                    if (BuildInfo::isRippledVersion(version))
-                        ++rippledCount;
+                    higherVersionCount +=
+                        BuildInfo::isNewerVersion(version) ? 1 : 0;
+                    rippledCount +=
+                        BuildInfo::isRippledVersion(version) ? 1 : 0;
                 }
             }
-
             // We report only if (1) we have accumulated validation messages
             // from 90% validators from the UNL, (2) 60% of validators
             // running the rippled implementation have higher version numbers,
             // and (3) the calculation won't cause divide-by-zero.
-            if (higherVersionCount != 0 && rippledCount != 0)
+            if (higherVersionCount > 0 && rippledCount > 0)
             {
                 constexpr std::size_t reportingPercent = 90;
                 constexpr std::size_t cutoffPercent = 60;
-
-                auto const unlSize =
-                    app_.validators().getQuorumKeys().second.size();
-
-                if (unlSize != 0 &&
+                auto const unlSize{
+                    app_.validators().getQuorumKeys().second.size()};
+                needPrint = unlSize > 0 &&
                     calculatePercent(vals.size(), unlSize) >=
                         reportingPercent &&
                     calculatePercent(higherVersionCount, rippledCount) >=
-                        cutoffPercent)
-                {
-                    auto const upgradeMsg =
-                        "Check for upgrade: A majority of trusted validators "
-                        "are running a newer version.";
-                    std::cerr << upgradeMsg << std::endl;
-                    JLOG(m_journal.error())
-                        << "checkAccept (" << ledger->info().seq
-                        << "): " << upgradeMsg;
-
-                    upgradeWarningPrevTime_ = currentTime;
-                }
+                        cutoffPercent;
             }
+        }
+        // To throttle the warning messages, instead of printing a warning
+        // every flag ledger, we print every week.
+        else if (currentTime - upgradeWarningPrevTime_ >= weeks{1})
+        {
+            // Printed the warning before, and assuming most validators
+            // do not downgrade, we keep printing the warning
+            // until the local server is restarted.
+            needPrint = true;
+        }
+
+        if (needPrint)
+        {
+            upgradeWarningPrevTime_ = currentTime;
+            auto const upgradeMsg =
+                "Check for upgrade: "
+                "A majority of trusted validators are "
+                "running a newer version.";
+            std::cerr << upgradeMsg << std::endl;
+            JLOG(m_journal.error()) << upgradeMsg;
         }
     }
 }

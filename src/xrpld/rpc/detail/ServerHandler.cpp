@@ -250,14 +250,16 @@ ServerHandler::onHandoff(
         }
 
         auto is{std::make_shared<WSInfoSub>(m_networkOPs, ws)};
+        auto const beast_remote_address =
+            beast::IPAddressConversion::from_asio(remote_address);
         is->getConsumer() = requestInboundEndpoint(
             m_resourceManager,
-            beast::IP::from_asio(remote_address),
+            beast_remote_address,
             requestRole(
                 Role::GUEST,
                 session.port(),
                 Json::Value(),
-                remote_address.address(),
+                beast_remote_address,
                 is->user()),
             is->user(),
             is->forwarded_for());
@@ -664,7 +666,7 @@ ServerHandler::onPWARequest(Session& session)
 
     // Meter the client, never the proxy.
     auto usage = m_resourceManager.newInboundEndpoint(
-        beast::IP::Endpoint{pwaBillingAddress(*forwarded)});
+        beast::IPAddressConversion::from_asio(pwaBillingAddress(*forwarded)));
     if (usage.disconnect(m_journal))
     {
         count(Outcome::throttled);
@@ -1407,7 +1409,7 @@ ServerHandler::processSession(
             required,
             session->port(),
             jv,
-            session->remote_endpoint().address(),
+            beast::IP::from_asio(session->remote_endpoint().address()),
             is->user());
         if (Role::FORBID == role)
         {
@@ -1644,17 +1646,13 @@ ServerHandler::processRequest(
                 required,
                 port,
                 jsonRPC[jss::params][Json::UInt(0)],
-                remoteIPAddress.address(),
+                remoteIPAddress,
                 user);
         }
         else
         {
             role = requestRole(
-                required,
-                port,
-                Json::objectValue,
-                remoteIPAddress.address(),
-                user);
+                required, port, Json::objectValue, remoteIPAddress, user);
         }
 
         Resource::Consumer usage;
@@ -1973,20 +1971,6 @@ ServerHandler::processRequest(
 
 //------------------------------------------------------------------------------
 
-static std::string const serverOkayBody = []() {
-    std::string s;
-
-    s.append("<!DOCTYPE html><html><head><title>Test page for ");
-    s.append(systemName);
-    s.append("</title></head><body><h1>");
-    s.append(systemName);
-    s.append(
-        "</h1><p>This page shows http(s) connectivity is "
-        "working.</p></body></html>");
-
-    return s;
-}();
-
 /*  This response is used with load balancing.
     If the server is overloaded, status 500 is reported. Otherwise status 200
     is reported, meaning the server can accept more connections.
@@ -2000,12 +1984,17 @@ ServerHandler::statusResponse(http_request_type const& request) const
     std::string reason;
     if (app_.serverOkay(reason))
     {
-        msg.result(status::ok);
-        msg.body() = serverOkayBody;
+        msg.result(boost::beast::http::status::ok);
+        msg.body() = "<!DOCTYPE html><html><head><title>" +
+            std::string(systemName) +
+            " Test page for rippled</title></head><body><h1>" +
+            std::string(systemName) +
+            " Test</h1><p>This page shows rippled http(s) "
+            "connectivity is working.</p></body></html>";
     }
     else
     {
-        msg.result(status::internal_server_error);
+        msg.result(boost::beast::http::status::internal_server_error);
         msg.body() = "<HTML><BODY>Server cannot accept clients: " + reason +
             "</BODY></HTML>";
     }
@@ -2240,7 +2229,7 @@ setup_Client(ServerHandler::Setup& setup)
     if (iter == setup.ports.cend())
         return;
     setup.client.secure = iter->protocol.count("https") > 0;
-    setup.client.ip = iter->ip.is_unspecified()
+    setup.client.ip = beast::IP::is_unspecified(iter->ip)
         ?
         // VFALCO HACK! to make localhost work
         (iter->ip.is_v6() ? "::1" : "127.0.0.1")

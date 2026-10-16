@@ -436,7 +436,7 @@ private:
                 static_cast<uint32_t>(entry.first);
         }
 
-        ret[jss::native_currency_code] = systemCurrencyCode;
+        ret[jss::native_currency_code] = std::string(systemCurrencyCode);
 
         // Hook API: enough to regenerate hook/extern.h, hookapi.h keylet
         // constants and error.h without the xahaud source tree.

@@ -408,6 +408,8 @@ private:
     getDebugCounters()
     {
         DebugCounters counters;
+        ObjectCountMap objectCounts =
+            CountedObjects::getInstance().getCounts(1);
 
         // Database metrics if applicable
         if (app_.config().useTxTables())
@@ -454,15 +456,7 @@ private:
         counters.nodeFetchHitCount = app_.getNodeStore().getFetchHitCount();
         counters.nodeFetchSize = app_.getNodeStore().getFetchSize();
 
-        return {counters, []() {
-                    std::vector<std::pair<std::string, int>> result;
-
-                    for (auto const& c : countedObjects)
-                        if (c.count())
-                            result.emplace_back(c.name(), c.count());
-
-                    return result;
-                }()};
+        return {counters, objectCounts};
     }
 
     uint32_t
@@ -713,16 +707,9 @@ private:
         size_t totalSize = sizeof(ServerInfoHeader) +
             (validRangeCount * sizeof(LgrRange)) + (64 * obj_count_map.size());
 
-        // Allocate memory and instantiate the header inside it. Since we use
-        // placement new, we do not need to call delete. If the destructor is
-        // trivial. we do not need to directly invoke it.
-        std::vector<uint8_t> buffer(totalSize, 0);
-
-        static_assert(
-            std::is_trivially_destructible_v<ServerInfoHeader>,
-            "ServerInfoHeader must be trivially destructible");
-
-        auto* header = new (buffer.data()) ServerInfoHeader{};
+        // Allocate zero-initialized buffer and map the header onto it
+        std::vector<uint8_t> buffer(totalSize);
+        auto* header = reinterpret_cast<ServerInfoHeader*>(buffer.data());
 
         // Set magic number and version
         header->magic = SERVER_INFO_MAGIC;

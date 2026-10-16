@@ -299,19 +299,6 @@ public:
         }
     }
 
-    auto
-    make_string_vector(std::vector<std::string_view> input)
-    {
-        std::vector<std::string> output;
-        output.reserve(input.size());
-        std::transform(
-            input.begin(),
-            input.end(),
-            std::back_inserter(output),
-            [](std::string_view const& s) { return std::string(s); });
-        return output;
-    }
-
     void
     testRPC(WithFile withFile)
     {
@@ -323,7 +310,8 @@ public:
 
         // Get the all the labels we can use for RPC interfaces without
         // causing an assert.
-        auto labels = make_string_vector(ripple::RPC::getHandlerNames());
+        std::vector<char const*> labels =
+            test::jtx::make_vector(ripple::RPC::getHandlerNames());
         std::shuffle(labels.begin(), labels.end(), default_prng());
 
         // Get two IDs to associate with each label.  Errors tend to happen at
@@ -531,9 +519,10 @@ public:
         struct JobName
         {
             JobType type;
-            std::string_view typeName;
+            std::string typeName;
 
-            JobName(JobType t, std::string_view name) : type(t), typeName(name)
+            JobName(JobType t, std::string name)
+                : type(t), typeName(std::move(name))
             {
             }
         };
@@ -543,7 +532,7 @@ public:
             jobs.reserve(jobTypes.size());
             for (auto const& job : jobTypes)
             {
-                jobs.emplace_back(job.type, job.name);
+                jobs.emplace_back(job.type, std::string(job.name));
             }
         }
         std::shuffle(jobs.begin(), jobs.end(), default_prng());

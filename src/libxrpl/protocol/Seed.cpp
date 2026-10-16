@@ -97,10 +97,11 @@ parseGenericSeed(std::string const& str, bool rfc1751)
 
     if (rfc1751)
     {
-        if (auto key = rfc1751::keyFromEnglish(str))
+        std::string key;
+        if (RFC1751::getKeyFromEnglish(key, str) == 1)
         {
-            std::reverse(key->begin(), key->end());
-            return Seed{*key};
+            Blob const blob(key.rbegin(), key.rend());
+            return Seed{makeSlice(blob)};
         }
     }
 
@@ -110,9 +111,13 @@ parseGenericSeed(std::string const& str, bool rfc1751)
 std::string
 seedAs1751(Seed const& seed)
 {
-    std::array<std::uint8_t, 16> key;
-    std::reverse_copy(seed.begin(), seed.end(), key.begin());
-    return rfc1751::englishFromKey(key).value_or("");
+    std::string key;
+
+    std::reverse_copy(seed.data(), seed.data() + 16, std::back_inserter(key));
+
+    std::string encodedKey;
+    RFC1751::getEnglishFromKey(encodedKey, key);
+    return encodedKey;
 }
 
 }  // namespace ripple

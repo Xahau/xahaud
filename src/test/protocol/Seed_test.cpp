@@ -51,7 +51,7 @@ public:
 
             for (std::uint8_t i = 0; i < 64; i++)
             {
-                beast::rngfill(src, default_prng());
+                beast::rngfill(src, sizeof(src), default_prng());
                 Seed const seed(src);
                 BEAST_EXPECT(memcmp(seed.data(), src, sizeof(src)) == 0);
             }

@@ -43,7 +43,8 @@ public:
     {
         auto const& h = ws->request();
         if (ipAllowed(
-                beast::IP::from_asio(ws->remote_endpoint()).address(),
+                beast::IPAddressConversion::from_asio(ws->remote_endpoint())
+                    .address(),
                 ws->port().secure_gateway_nets_v4,
                 ws->port().secure_gateway_nets_v6))
         {

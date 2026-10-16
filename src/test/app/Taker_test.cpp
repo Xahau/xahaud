@@ -217,11 +217,6 @@ private:
         else
             cross_type = CrossType::IouToIou;
 
-        OfferCreateFlags takerFlags = {};
-
-        if (sell)
-            takerFlags = tfSell;
-
         // FIXME: We are always invoking the IOU-to-IOU taker. We should select
         // the correct type dynamically.
         TestTaker taker(

@@ -69,7 +69,7 @@ public:
         explicit Setup() = default;
 
         std::shared_ptr<boost::asio::ssl::context> context;
-        boost::asio::ip::address public_ip;
+        beast::IP::Address public_ip;
         int ipLimit = 0;
         std::uint32_t crawlOptions = 0;
         std::optional<std::uint32_t> networkID;

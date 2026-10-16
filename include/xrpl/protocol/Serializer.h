@@ -458,18 +458,18 @@ template <std::size_t Bits, class Tag>
 base_uint<Bits, Tag>
 SerialIter::getBitString()
 {
-    auto constexpr N = base_uint<Bits, Tag>::bytes;
+    auto const n = Bits / 8;
 
-    if (remain_ < N)
+    if (remain_ < n)
         Throw<std::runtime_error>("invalid SerialIter getBitString");
 
     auto const x = p_;
 
-    p_ += N;
-    used_ += N;
-    remain_ -= N;
+    p_ += n;
+    used_ += n;
+    remain_ -= n;
 
-    return base_uint<Bits, Tag>(std::span<uint8_t const, N>{x, N});
+    return base_uint<Bits, Tag>::fromVoid(x);
 }
 
 }  // namespace ripple

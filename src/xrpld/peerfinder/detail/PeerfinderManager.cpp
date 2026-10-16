@@ -215,7 +215,7 @@ public:
                 auto const now = m_clock.now();
                 for (auto const& ep : eps)
                     learnHighwayPeer(
-                        beast::IP::from_asio(ep),
+                        beast::IPAddressConversion::from_asio(ep),
                         HighwaySource::authenticated,
                         now);
             }

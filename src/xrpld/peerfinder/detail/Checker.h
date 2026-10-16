@@ -215,7 +215,7 @@ Checker<Protocol>::async_connect(
         list_.push_back(*op);
     }
     op->socket_.async_connect(
-        beast::IP::to_asio_endpoint(endpoint),
+        beast::IPAddressConversion::to_asio_endpoint(endpoint),
         std::bind(&basic_async_op::operator(), op, std::placeholders::_1));
 }
 

@@ -36,7 +36,6 @@
 
 #include <boost/endian/conversion.hpp>
 #include <boost/functional/hash.hpp>
-#include <boost/predef.h>
 #include <algorithm>
 
 #include <array>
@@ -46,21 +45,6 @@
 #include <functional>
 #include <optional>
 #include <type_traits>
-
-#if BOOST_COMP_MSVC
-#include <intrin.h>
-#endif
-
-// __builtin_addc / __builtin_addcll exist in Clang, but only in GCC >= 14.
-// Detect them rather than assuming every GNUC-compatible compiler has them.
-#if defined(__has_builtin)
-#if __has_builtin(__builtin_addc) && __has_builtin(__builtin_addcll)
-#define RIPPLE_HAS_BUILTIN_ADDC 1
-#endif
-#endif
-#ifndef RIPPLE_HAS_BUILTIN_ADDC
-#define RIPPLE_HAS_BUILTIN_ADDC 0
-#endif
 
 namespace ripple {
 
@@ -153,70 +137,18 @@ parseHex(std::string_view sv, std::span<T> out) noexcept
     return true;
 }
 
-[[nodiscard]] inline std::uint64_t
-add_carry(
-    std::uint64_t a,
-    std::uint64_t b,
-    std::uint64_t carry_in,
-    std::uint64_t& carry_out) noexcept
+/** Adds a + b + carry_in, returning the sum and setting carry_out.
+    Compilers recognise this pattern and emit an add/adc sequence. */
+template <typename T>
+    requires(
+        std::is_same_v<T, std::uint32_t> || std::is_same_v<T, std::uint64_t>)
+[[nodiscard]] constexpr T
+add_carry(T a, T b, T carry_in, T& carry_out) noexcept
 {
-#if RIPPLE_HAS_BUILTIN_ADDC
-    unsigned long long co;
-    auto const result = __builtin_addcll(a, b, carry_in, &co);
-    carry_out = co;
+    T const sum = a + carry_in;
+    T const result = sum + b;
+    carry_out = static_cast<T>(sum < a) + static_cast<T>(result < sum);
     return result;
-#elif BOOST_COMP_GNUC || BOOST_COMP_CLANG
-    // GCC < 14 has no __builtin_addc*; the overflow builtins are available
-    // since GCC 5 and still compile down to add/adc.
-    std::uint64_t result;
-    bool const c1 = __builtin_add_overflow(a, b, &result);
-    bool const c2 = __builtin_add_overflow(result, carry_in, &result);
-    carry_out = static_cast<std::uint64_t>(c1 || c2);
-    return result;
-#elif BOOST_COMP_MSVC
-    std::uint64_t result;
-    carry_out =
-        _addcarry_u64(static_cast<unsigned char>(carry_in), a, b, &result);
-    return result;
-#else
-    // Portable fallback — manual carry detection.
-    std::uint64_t sum = a + carry_in;
-    std::uint64_t c = sum < a;
-    std::uint64_t result = sum + b;
-    carry_out = c + (result < sum);
-    return result;
-#endif
-}
-
-[[nodiscard]] inline std::uint32_t
-add_carry(
-    std::uint32_t a,
-    std::uint32_t b,
-    std::uint32_t carry_in,
-    std::uint32_t& carry_out) noexcept
-{
-#if RIPPLE_HAS_BUILTIN_ADDC
-    unsigned co;
-    auto const result = __builtin_addc(a, b, carry_in, &co);
-    carry_out = co;
-    return result;
-#elif BOOST_COMP_GNUC || BOOST_COMP_CLANG
-    std::uint32_t result;
-    bool const c1 = __builtin_add_overflow(a, b, &result);
-    bool const c2 = __builtin_add_overflow(result, carry_in, &result);
-    carry_out = static_cast<std::uint32_t>(c1 || c2);
-    return result;
-#elif BOOST_COMP_MSVC
-    std::uint32_t result;
-    carry_out =
-        _addcarry_u32(static_cast<unsigned char>(carry_in), a, b, &result);
-    return result;
-#else
-    // Portable fallback — widen to 64 bits.
-    std::uint64_t sum = static_cast<std::uint64_t>(a) + b + carry_in;
-    carry_out = static_cast<std::uint32_t>(sum >> 32);
-    return static_cast<std::uint32_t>(sum);
-#endif
 }
 
 template <typename T, std::size_t N>
@@ -284,7 +216,7 @@ assign(std::array<std::uint32_t, N>& data, std::uint64_t v) noexcept
 
 }  // namespace detail
 
-/** Arbitrarily long unsigned integers.
+/** Integers of any length that is a multiple of 32-bits
 
     @note This class stores its values internally in big-endian form and
           that internal representation is part of the binary protocol of
@@ -812,10 +744,8 @@ inline std::size_t
 extract(uint256 const& key)
 {
     std::size_t result;
-
-    // We use memcpy to avoid potential UB in reinterpreting the leading
-    // bytes of the buffer as std::size_t, not because of concerns about
-    // data alignment. This will likely optimize away to a single load.
+    // Use memcpy to avoid unaligned UB
+    // (will optimize to equivalent code)
     std::memcpy(&result, key.data(), sizeof(std::size_t));
     return result;
 }

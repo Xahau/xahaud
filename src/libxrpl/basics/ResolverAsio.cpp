@@ -297,7 +297,8 @@ public:
         {
             while (iter != results.end())
             {
-                addresses.push_back(beast::IP::from_asio(*iter));
+                addresses.push_back(
+                    beast::IPAddressConversion::from_asio(*iter));
                 ++iter;
             }
         }

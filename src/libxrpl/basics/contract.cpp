@@ -20,35 +20,28 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/beast/utility/instrumentation.h>
-
+#include <cstdlib>
 #include <iostream>
 
 namespace ripple {
 
-namespace detail {
-
 void
-LogThrow(std::string_view type, std::string_view what)
+LogThrow(std::string const& title)
 {
-    JLOG(debugLog().warn())
-        << "Throwing exception of type " << type << ": " << what;
+    JLOG(debugLog().warn()) << title;
 }
 
-}  // namespace detail
-
-void
-LogicError(std::string_view msg) noexcept
+[[noreturn]] void
+LogicError(std::string const& s) noexcept
 {
-    JLOG(debugLog().fatal()) << "LogicError: " << msg;
-    std::cerr << "Logic error: " << msg << std::endl;
-
+    JLOG(debugLog().fatal()) << s;
+    std::cerr << "Logic error: " << s << std::endl;
     // Use a non-standard contract naming here (without namespace) because
     // it's the only location where various unrelated execution paths may
     // register an error; this is also why the "message" parameter is passed
     // here.
     // For the above reasons, we want this contract to stand out.
     UNREACHABLE("LogicError", {{"message", s}});
-
     std::abort();
 }
 

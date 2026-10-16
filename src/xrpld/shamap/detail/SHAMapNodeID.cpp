@@ -29,11 +29,11 @@ namespace ripple {
 static uint256 const&
 depthMask(unsigned int depth)
 {
-    constexpr auto mask_size = SHAMap::leafDepth + 1;
+    enum { mask_size = 65 };
 
     struct masks_t
     {
-        uint256 entry[SHAMap::leafDepth + 1];
+        uint256 entry[mask_size];
 
         masks_t()
         {
@@ -106,17 +106,16 @@ SHAMapNodeID::getChildNodeID(unsigned int m) const
 }
 
 [[nodiscard]] std::optional<SHAMapNodeID>
-deserializeSHAMapNodeID(std::span<std::byte const> data)
+deserializeSHAMapNodeID(void const* data, std::size_t size)
 {
     std::optional<SHAMapNodeID> ret;
 
-    if (data.size() == 33)
+    if (size == 33)
     {
-        if (auto depth = static_cast<unsigned int>(data[32]);
-            depth <= SHAMap::leafDepth)
+        unsigned int depth = *(static_cast<unsigned char const*>(data) + 32);
+        if (depth <= SHAMap::leafDepth)
         {
-            auto const id = uint256(std::span<std::uint8_t const, 32>(
-                reinterpret_cast<std::uint8_t const*>(data.data()), 32));
+            auto const id = uint256::fromVoid(data);
 
             if (id == (id & depthMask(depth)))
                 ret.emplace(depth, id);
