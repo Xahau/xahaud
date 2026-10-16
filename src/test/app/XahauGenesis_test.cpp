@@ -18,6 +18,7 @@
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
@@ -5891,6 +5892,236 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testNoClaimLate(features);
     }
 
+    // inject an enabling ttAMENDMENT pseudo for `amendment` and close
+    void
+    injectAmendment(jtx::Env& env, uint256 const& amendment)
+    {
+        uint32_t const seq =
+            env.app().getLedgerMaster().getClosedLedger()->info().seq + 1;
+        env.app().openLedger().modify(
+            [&](OpenView& view, beast::Journal j) -> bool {
+                STTx tx(ttAMENDMENT, [&](auto& obj) {
+                    obj.setAccountID(sfAccount, AccountID());
+                    obj.setFieldH256(sfAmendment, amendment);
+                    obj.setFieldU32(sfLedgerSequence, seq);
+                });
+                uint256 txID = tx.getTransactionID();
+                auto s = std::make_shared<ripple::Serializer>();
+                tx.add(*s);
+                env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                view.rawTxInsert(txID, std::move(s), nullptr);
+                return true;
+            });
+        env.close();
+    }
+
+    // check the genesis account is in the shape fixXahauTestnetGenesis
+    // leaves it in: blackholed, governance + reward hooks, Evernode-only seat,
+    // no hook state
+    void
+    checkTestnetGenesis(jtx::Env& env, AccountID const& evernode)
+    {
+        auto const acc = env.le(keylet::account(genesisAccID));
+        BEAST_REQUIRE(!!acc);
+        BEAST_EXPECT(acc->getAccountID(sfRegularKey) == noAccount());
+        BEAST_EXPECT(acc->getFieldU32(sfFlags) == lsfDisableMaster);
+        BEAST_EXPECT(!acc->isFieldPresent(sfHookStateCount));
+        BEAST_EXPECT(!acc->isFieldPresent(sfHookNamespaces));
+        // governance: 1 + IRR, IRD, IS\0, IMC; reward: 1
+        BEAST_EXPECT(acc->getFieldU32(sfOwnerCount) == 6);
+        BEAST_EXPECT(!env.le(keylet::signers(genesisAccID)));
+        BEAST_EXPECT(!env.le(keylet::hookStateDir(genesisAccID, beast::zero)));
+
+        auto const hooksLE = env.le(keylet::hook(genesisAccID));
+        BEAST_REQUIRE(!!hooksLE);
+        auto const& hooks = hooksLE->getFieldArray(sfHooks);
+        BEAST_REQUIRE(hooks.size() == 2);
+        BEAST_EXPECT(hooks[0].getFieldH256(sfHookHash) == governHookHash);
+        BEAST_EXPECT(hooks[1].getFieldH256(sfHookHash) == rewardHookHash);
+
+        std::vector<std::pair<std::vector<uint8_t>, std::vector<uint8_t>>>
+            expected{XahauGenesis::GovernanceParameters};
+        expected.emplace_back(
+            std::vector<uint8_t>{'I', 'S', 0},
+            std::vector<uint8_t>(evernode.data(), evernode.data() + 20));
+        expected.emplace_back(
+            std::vector<uint8_t>{'I', 'M', 'C'}, std::vector<uint8_t>{1});
+
+        auto const& params = hooks[0].getFieldArray(sfHookParameters);
+        BEAST_REQUIRE(params.size() == expected.size());
+        for (std::size_t i = 0; i < expected.size(); ++i)
+        {
+            BEAST_EXPECT(
+                params[i].getFieldVL(sfHookParameterName) == expected[i].first);
+            BEAST_EXPECT(
+                params[i].getFieldVL(sfHookParameterValue) ==
+                expected[i].second);
+        }
+        BEAST_EXPECT(hooks[1].getFieldArray(sfHookParameters).empty());
+
+        for (auto const& h : {governHookHash, rewardHookHash})
+        {
+            auto const def = env.le(keylet::hookDefinition(h));
+            BEAST_EXPECT(def && def->getFieldU64(sfReferenceCount) == 1);
+        }
+    }
+
+    void
+    testXahauTestnetGenesisFix(FeatureBitset features)
+    {
+        using namespace jtx;
+        testcase("fixXahauTestnetGenesis");
+
+        auto const evernodePK = parseBase58<PublicKey>(
+            TokenType::NodePublic,
+            "nHUetpkzTgf8c6A1DTGemRrhL4nMjsiJrtcsmmg75ufzV5EDMbWU");
+        BEAST_REQUIRE(!!evernodePK);
+        AccountID const evernode = calcAccountID(*evernodePK);
+
+        auto stateAt = [&](Env& env, std::vector<uint8_t> const& k) {
+            uint8_t key[32]{};
+            std::copy(k.begin(), k.end(), key + 32 - k.size());
+            return env.le(keylet::hookState(
+                genesisAccID, uint256::fromVoid(key), beast::zero));
+        };
+        std::vector<uint8_t> const mcKey{'M', 'C'};
+
+        // only supported on 21338
+        {
+            Env env{*this, makeNetworkConfig(21337), features};
+            BEAST_EXPECT(!env.app().getAmendmentTable().isSupported(
+                fixXahauTestnetGenesis));
+        }
+        {
+            Env env{*this, makeNetworkConfig(21338), features};
+            BEAST_EXPECT(env.app().getAmendmentTable().isSupported(
+                fixXahauTestnetGenesis));
+        }
+
+        // wrongly seated governance with stale hook state gets reset
+        {
+            Env env{
+                *this,
+                makeNetworkConfig(21338),
+                features - featureXahauGenesis};
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const invoker = Account("invoker");
+            auto const user = Account("user");
+            env.fund(XRP(10000), alice, bob, invoker, user);
+            env.close();
+
+            XahauGenesis::TestNonGovernanceDistribution.clear();
+            XahauGenesis::TestL1Membership.clear();
+            XahauGenesis::TestL2Membership.clear();
+            XahauGenesis::TestL1Membership.emplace_back(
+                alice.human(), XRPAmount(10000000000));
+            XahauGenesis::TestL1Membership.emplace_back(
+                bob.human(), XRPAmount(10000000000));
+            activate(__LINE__, env, true, false, true, {}, 2 + 3 + 2);
+            XahauGenesis::TestL1Membership.clear();
+
+            Json::Value invoke;
+            invoke[jss::TransactionType] = "Invoke";
+            invoke[jss::Account] = invoker.human();
+            invoke[jss::Destination] = env.master.human();
+            env(invoke, fee(XRP(10)));
+            env.close();
+
+            {
+                auto const mc = stateAt(env, mcKey);
+                BEAST_REQUIRE(!!mc);
+                BEAST_EXPECT(
+                    mc->getFieldVL(sfHookStateData) == std::vector<uint8_t>{2});
+            }
+
+            injectAmendment(env, fixXahauTestnetGenesis);
+            BEAST_EXPECT(
+                env.current()->rules().enabled(fixXahauTestnetGenesis));
+
+            checkTestnetGenesis(env, evernode);
+            BEAST_EXPECT(!stateAt(env, mcKey));
+
+            // governance re-initialises from the new parameters
+            env(invoke, fee(XRP(10)));
+            env.close();
+            {
+                auto const mc = stateAt(env, mcKey);
+                BEAST_REQUIRE(!!mc);
+                BEAST_EXPECT(
+                    mc->getFieldVL(sfHookStateData) == std::vector<uint8_t>{1});
+                auto const seat = stateAt(
+                    env,
+                    std::vector<uint8_t>(
+                        evernode.data(), evernode.data() + 20));
+                BEAST_EXPECT(
+                    seat &&
+                    seat->getFieldVL(sfHookStateData) ==
+                        std::vector<uint8_t>{0});
+                BEAST_EXPECT(!stateAt(
+                    env,
+                    std::vector<uint8_t>(
+                        alice.id().data(), alice.id().data() + 20)));
+            }
+
+            // alice no longer holds a seat
+            env(vote(
+                    __LINE__,
+                    alice,
+                    env.master,
+                    'R',
+                    'R',
+                    {1, 2, 3, 4, 5, 6, 7, 8}),
+                fee(XRP(1)),
+                ter(tecHOOK_REJECTED));
+            env.close();
+
+            // reward claim reaches the reward hook
+            env(claimReward(user, env.master), fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
+
+            // enabling it again is refused and nothing is reset
+            auto const ownerCount = env.le(keylet::account(genesisAccID))
+                                        ->getFieldU32(sfOwnerCount);
+            injectAmendment(env, fixXahauTestnetGenesis);
+            BEAST_EXPECT(stateAt(env, mcKey));
+            BEAST_EXPECT(
+                env.le(keylet::account(genesisAccID))
+                    ->getFieldU32(sfOwnerCount) == ownerCount);
+        }
+
+        // never-configured genesis with a regular key, signer list and a
+        // foreign hook gets configured and blackholed
+        {
+            Env env{*this, makeNetworkConfig(21338), features};
+            auto const alice = Account("alice");
+            auto const user = Account("user");
+            env.fund(XRP(10000), alice, user);
+            env.memoize(env.master);
+            env(genesis::setAcceptHook(env.master), fee(XRP(10)));
+            env(signers(env.master, 1, {{alice, 1}}));
+            env(regkey(env.master, alice));
+            env.close();
+            BEAST_EXPECT(env.le(keylet::hookDefinition(acceptHookHash)));
+
+            injectAmendment(env, fixXahauTestnetGenesis);
+
+            checkTestnetGenesis(env, evernode);
+            BEAST_EXPECT(!env.le(keylet::hookDefinition(acceptHookHash)));
+
+            env(claimReward(user, env.master), fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
+        }
+
+        // never touches state off 21338 even if enabled
+        {
+            Env env{*this, makeNetworkConfig(21337), features};
+            injectAmendment(env, fixXahauTestnetGenesis);
+            BEAST_EXPECT(!env.le(keylet::hook(genesisAccID)));
+        }
+    }
+
     void
     testGovernHookWithFeats(FeatureBitset features)
     {
@@ -5900,6 +6131,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         testWithRegularKey(features);
         testGovernanceL1(features);
         testGovernanceL2(features);
+        testXahauTestnetGenesisFix(features);
     }
 
     void
