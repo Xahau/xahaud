@@ -45,11 +45,21 @@
 #include <cstring>
 #include <functional>
 #include <optional>
-#include <rocksdb/thread_status.h>
 #include <type_traits>
 
 #if BOOST_COMP_MSVC
 #include <intrin.h>
+#endif
+
+// __builtin_addc / __builtin_addcll exist in Clang, but only in GCC >= 14.
+// Detect them rather than assuming every GNUC-compatible compiler has them.
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_addc) && __has_builtin(__builtin_addcll)
+#define RIPPLE_HAS_BUILTIN_ADDC 1
+#endif
+#endif
+#ifndef RIPPLE_HAS_BUILTIN_ADDC
+#define RIPPLE_HAS_BUILTIN_ADDC 0
 #endif
 
 namespace ripple {
@@ -150,10 +160,18 @@ add_carry(
     std::uint64_t carry_in,
     std::uint64_t& carry_out) noexcept
 {
-#if BOOST_COMP_GNUC || BOOST_COMP_CLANG
+#if RIPPLE_HAS_BUILTIN_ADDC
     unsigned long long co;
     auto const result = __builtin_addcll(a, b, carry_in, &co);
     carry_out = co;
+    return result;
+#elif BOOST_COMP_GNUC || BOOST_COMP_CLANG
+    // GCC < 14 has no __builtin_addc*; the overflow builtins are available
+    // since GCC 5 and still compile down to add/adc.
+    std::uint64_t result;
+    bool const c1 = __builtin_add_overflow(a, b, &result);
+    bool const c2 = __builtin_add_overflow(result, carry_in, &result);
+    carry_out = static_cast<std::uint64_t>(c1 || c2);
     return result;
 #elif BOOST_COMP_MSVC
     std::uint64_t result;
@@ -177,10 +195,16 @@ add_carry(
     std::uint32_t carry_in,
     std::uint32_t& carry_out) noexcept
 {
-#if BOOST_COMP_GNUC || BOOST_COMP_CLANG
+#if RIPPLE_HAS_BUILTIN_ADDC
     unsigned co;
     auto const result = __builtin_addc(a, b, carry_in, &co);
     carry_out = co;
+    return result;
+#elif BOOST_COMP_GNUC || BOOST_COMP_CLANG
+    std::uint32_t result;
+    bool const c1 = __builtin_add_overflow(a, b, &result);
+    bool const c2 = __builtin_add_overflow(result, carry_in, &result);
+    carry_out = static_cast<std::uint32_t>(c1 || c2);
     return result;
 #elif BOOST_COMP_MSVC
     std::uint32_t result;

@@ -371,7 +371,8 @@ parityBits(std::span<std::uint8_t const, 9> buf) noexcept
 }
 
 // Normalize a word to uppercase with common substitutions (1->L, 0->O, 5->S).
-[[nodiscard]] constexpr std::string
+// Not constexpr: constexpr std::string requires GCC >= 12 (CI uses GCC 11).
+[[nodiscard]] std::string
 normalize(std::string word)
 {
     for (auto& ch : word)
@@ -428,7 +429,7 @@ bytesToEnglish(std::span<std::uint8_t const, 8> data)
 }
 
 // Decode 6 words into 8 bytes. Returns true on success.
-[[nodiscard]] constexpr bool
+[[nodiscard]] bool
 englishToBytes(
     std::span<std::uint8_t, 8> out,
     std::span<std::string const, 6> words)
