@@ -501,6 +501,28 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
+/** Emitted by a hook (see xport()): have the export keys in the account's
+    sfExportSignerList multisign sfExportedTxn, a transaction for another
+    network from the hook's account. See Export.h. */
+TRANSACTION(ttEXPORT, 88, Export, ({
+    {sfExportedTxn, soeREQUIRED},
+}))
+
+/** A UNL validator's multisignature over a pending export. Deliberately not a
+    pseudo-txn: disputed pseudo-txns are discarded, these are retried. */
+TRANSACTION(ttEXPORT_SIGN, 87, ExportSign, ({
+    {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionHash, soeREQUIRED},
+    {sfSigner, soeREQUIRED},
+}))
+
+/** A pseudo-txn closing an export's signing window. */
+TRANSACTION(ttEXPORT_FINAL, 90, ExportFinal, ({
+    {sfOwner, soeREQUIRED},
+    {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionHash, soeREQUIRED},
+}))
+
 /** featureRNG: a validator's entropy contribution for one ledger.
 
     Each proposing UNLReport validator places exactly one of these in its own
@@ -628,4 +650,5 @@ TRANSACTION(ttUNL_REPORT, 104, UNLReport, ({
     {sfLedgerSequence, soeREQUIRED},
     {sfActiveValidator, soeOPTIONAL},
     {sfImportVLKey, soeOPTIONAL},
+    {sfExportKeyReport, soeOPTIONAL},
 }))

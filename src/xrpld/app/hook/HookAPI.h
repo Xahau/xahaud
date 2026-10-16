@@ -351,6 +351,11 @@ public:
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
     emit(Slice const& txBlob) const;
 
+    // featureExport: emit a ttEXPORT carrying txBlob, a transaction for the
+    // other network (Account and SigningPubKey filled in if absent)
+    Expected<std::shared_ptr<Transaction>, HookReturnCode>
+    xport(Slice const& txBlob) const;
+
     Expected<uint64_t, HookReturnCode>
     etxn_burden() const;
 
