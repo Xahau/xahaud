@@ -209,7 +209,7 @@ class LiteWatch_test : public beast::unit_test::suite
         // nothing resolves from a shared cache or store: what a lite node
         // holds after the root reply. Feed it what a peer would answer, one
         // round per level, until every watched key reads.
-        TestNodeFamily family{env.journal};
+        tests::TestNodeFamily family{env.journal};
         SHAMap partial{SHAMapType::STATE, family};
         partial.setSynching();
         {
