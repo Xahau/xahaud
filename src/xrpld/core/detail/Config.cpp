@@ -27,6 +27,7 @@
 #include <xrpl/beast/core/LexicalCast.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/SystemParameters.h>
 #include <boost/algorithm/string.hpp>
 #include <boost/format.hpp>
@@ -254,6 +255,29 @@ Config::Config()
     : j_(beast::Journal::getNullSink())
     , ramSize_(detail::getMemorySize() / (1024 * 1024 * 1024))
 {
+}
+
+std::optional<std::pair<std::optional<AccountID>, uint256>>
+parseLiteWatchLine(std::string const& line, std::string& error)
+{
+    std::string s = line;
+    boost::algorithm::trim(s);
+
+    if (s.empty())
+    {
+        error = "empty line";
+        return std::nullopt;
+    }
+
+    if (auto const id = parseBase58<AccountID>(s))
+        return std::make_pair(id, keylet::account(*id).key);
+
+    uint256 key;
+    if (s.size() == 64 && key.parseHex(s))
+        return std::make_pair(std::nullopt, key);
+
+    error = "not a base58 account or a 64 hex digit key: " + s;
+    return std::nullopt;
 }
 
 void
@@ -693,6 +717,50 @@ Config::loadFromString(std::string const& fileContents)
         PATH_SEARCH_FAST = beast::lexicalCastThrow<int>(strTemp);
     if (getSingleSection(secConfig, SECTION_PATH_SEARCH_MAX, strTemp, j_))
         PATH_SEARCH_MAX = beast::lexicalCastThrow<int>(strTemp);
+
+    if (getSingleSection(secConfig, SECTION_LITE_MODE, strTemp, j_))
+        LITE_MODE = beast::lexicalCastThrow<bool>(strTemp);
+
+    if (LITE_MODE)
+    {
+        if (RUN_STANDALONE)
+            Throw<std::runtime_error>(
+                "[" SECTION_LITE_MODE
+                "] cannot be combined with standalone "
+                "mode: a lite node follows validations and builds nothing");
+
+        if (exists(SECTION_VALIDATION_SEED) || exists(SECTION_VALIDATOR_TOKEN))
+            Throw<std::runtime_error>(
+                "[" SECTION_LITE_MODE
+                "] cannot be combined with [" SECTION_VALIDATION_SEED
+                "] or [" SECTION_VALIDATOR_TOKEN
+                "]: a lite node does not hold the state it would validate");
+
+        if (getSingleSection(secConfig, SECTION_LITE_DISCOVER, strTemp, j_))
+            LITE_DISCOVER = beast::lexicalCastThrow<bool>(strTemp);
+
+        LITE_WATCH = section(SECTION_LITE_WATCH).lines();
+        for (auto const& line : LITE_WATCH)
+        {
+            std::string err;
+            if (!parseLiteWatchLine(line, err))
+                Throw<std::runtime_error>("[" SECTION_LITE_WATCH "]: " + err);
+        }
+
+        // A lite node never has the order books or the paths to search.
+        PATH_SEARCH_MAX = 0;
+
+        // Partial state maps are held only by the retained Ledger objects.
+        // The rwdb null node store is the one that keeps nothing on disk
+        // and pins a ledger_history window in memory, so default to it, and
+        // refuse a persistent store that would be fed partial trees.
+        Section& nodeDb{section(ConfigSection::nodeDatabase())};
+        if (nodeDb.empty())
+            nodeDb.set("type", "rwdb");
+        else if (!nullBackend())
+            Throw<std::runtime_error>("[" SECTION_LITE_MODE
+                                      "] requires [node_db] type=rwdb");
+    }
 
     if (getSingleSection(secConfig, SECTION_DEBUG_LOGFILE, strTemp, j_))
         DEBUG_LOGFILE = strTemp;
