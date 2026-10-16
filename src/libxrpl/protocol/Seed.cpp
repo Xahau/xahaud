@@ -39,28 +39,12 @@ Seed::~Seed()
     secure_erase(buf_.data(), buf_.size());
 }
 
-Seed::Seed(Slice const& slice)
-{
-    if (slice.size() != buf_.size())
-        LogicError("Seed::Seed: invalid size");
-    std::memcpy(buf_.data(), slice.data(), buf_.size());
-}
-
-Seed::Seed(uint128 const& seed)
-{
-    if (seed.size() != buf_.size())
-        LogicError("Seed::Seed: invalid size");
-    std::memcpy(buf_.data(), seed.data(), buf_.size());
-}
-
-//------------------------------------------------------------------------------
-
 Seed
 randomSeed()
 {
     std::array<std::uint8_t, 16> buffer;
-    beast::rngfill(buffer.data(), buffer.size(), crypto_prng());
-    Seed seed(makeSlice(buffer));
+    beast::rngfill(buffer, crypto_prng());
+    Seed seed(buffer);
     secure_erase(buffer.data(), buffer.size());
     return seed;
 }
@@ -117,7 +101,7 @@ parseGenericSeed(std::string const& str, bool rfc1751)
         if (RFC1751::getKeyFromEnglish(key, str) == 1)
         {
             Blob const blob(key.rbegin(), key.rend());
-            return Seed{uint128{blob}};
+            return Seed{makeSlice(blob)};
         }
     }
 
