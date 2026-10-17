@@ -1563,7 +1563,9 @@ checkXUSHTransaction(
                 app.getHashRouter(),
                 *stx,
                 app.getLedgerMaster().getValidatedRules(),
-                app.config());
+                app.config(),
+                tapNONE,
+                app.openLedger().current());
             validity != Validity::Valid)
         {
             JLOG(j.trace())

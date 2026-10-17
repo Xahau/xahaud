@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/tx/detail/PQKeyLedger.h>
 #include <xrpld/app/tx/detail/SetRegularKey.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
@@ -82,9 +83,17 @@ SetRegularKey::doApply()
     if (!minimumFee(ctx_.app, ctx_.baseFee, view().fees(), view().flags()))
         sle->setFlag(lsfPasswordSpent);
 
+    // featurePQSignatures: the RegularKey slot is a reference to a
+    // post-quantum key object (if one exists for that AccountID).
+    std::vector<AccountID> const oldKey = sle->isFieldPresent(sfRegularKey)
+        ? std::vector<AccountID>{sle->getAccountID(sfRegularKey)}
+        : std::vector<AccountID>{};
+    std::vector<AccountID> newKey;
+
     if (ctx_.tx.isFieldPresent(sfRegularKey))
     {
         sle->setAccountID(sfRegularKey, ctx_.tx.getAccountID(sfRegularKey));
+        newKey.push_back(ctx_.tx.getAccountID(sfRegularKey));
     }
     else
     {
@@ -97,6 +106,7 @@ SetRegularKey::doApply()
     }
 
     ctx_.view().update(sle);
+    pqkey::adjustReferences(view(), oldKey, newKey, j_);
 
     return tesSUCCESS;
 }

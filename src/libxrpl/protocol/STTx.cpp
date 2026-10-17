@@ -25,6 +25,7 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
+#include <xrpl/protocol/PQPublicKey.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/STAccount.h>
@@ -212,7 +213,9 @@ STTx::sign(PublicKey const& publicKey, SecretKey const& secretKey)
 Expected<void, std::string>
 STTx::checkSign(
     RequireFullyCanonicalSig requireCanonicalSig,
-    Rules const& rules) const
+    Rules const& rules,
+    PQKeyLookup const& lookup,
+    PQReferencePolicy policy) const
 {
     try
     {
@@ -221,14 +224,111 @@ STTx::checkSign(
         // multi-signing.  Otherwise we're single-signing.
         Blob const& signingPubKey = getFieldVL(sfSigningPubKey);
         return signingPubKey.empty()
-            ? checkMultiSign(requireCanonicalSig, rules)
-            : checkSingleSign(requireCanonicalSig);
+            ? checkMultiSign(requireCanonicalSig, rules, lookup, policy)
+            : checkSingleSign(requireCanonicalSig, rules, lookup, policy);
     }
     catch (std::exception const&)
     {
     }
     return Unexpected("Internal signature check failure.");
 }
+
+bool
+STTx::usesPQKeyReference() const
+{
+    if (pq::isKeyReference(makeSlice(getSigningPubKey())))
+        return true;
+    if (isFieldPresent(sfSigners))
+        for (auto const& signer : getFieldArray(sfSigners))
+            if (signer.isFieldPresent(sfSigningPubKey) &&
+                pq::isKeyReference(
+                    makeSlice(signer.getFieldVL(sfSigningPubKey))))
+                return true;
+    return false;
+}
+
+std::vector<std::pair<AccountID, Blob>>
+STTx::inlinePQKeys() const
+{
+    std::vector<std::pair<AccountID, Blob>> keys;
+    auto consider = [&keys](Blob const& spk) {
+        auto const s = makeSlice(spk);
+        if (pq::isInlineKey(s))
+            keys.emplace_back(pq::calcAccountID(s), spk);
+    };
+    consider(getSigningPubKey());
+    if (isFieldPresent(sfSigners))
+        for (auto const& signer : getFieldArray(sfSigners))
+            if (signer.isFieldPresent(sfSigningPubKey))
+                consider(signer.getFieldVL(sfSigningPubKey));
+    return keys;
+}
+
+namespace {
+
+/** Verify one signature with a key in any of the supported encodings.
+
+    Returns an error string, or std::nullopt when the signature verified
+    (or was deferred under PQReferencePolicy::defer). */
+std::optional<std::string>
+verifyAnyKey(
+    Blob const& spk,
+    Slice const& data,
+    Blob const& signature,
+    bool fullyCanonical,
+    bool isWildcardNetwork,
+    Rules const& rules,
+    STTx::PQKeyLookup const& lookup,
+    STTx::PQReferencePolicy policy)
+{
+    auto const key = makeSlice(spk);
+
+    if (publicKeyType(key))
+    {
+        if (isWildcardNetwork ||
+            verify(PublicKey(key), data, makeSlice(signature), fullyCanonical))
+            return std::nullopt;
+        return std::string("Invalid signature.");
+    }
+
+    if (!rules.enabled(featurePQSignatures))
+        return std::string("Invalid signature.");
+
+    if (pq::isInlineKey(key))
+    {
+        if (isWildcardNetwork || pq::verify(key, data, makeSlice(signature)))
+            return std::nullopt;
+        return std::string("Invalid signature.");
+    }
+
+    if (pq::isKeyReference(key))
+    {
+        if (isWildcardNetwork)
+            return std::nullopt;
+        if (!lookup)
+        {
+            if (policy == STTx::PQReferencePolicy::defer)
+                return std::nullopt;
+            return std::string("Unverified PQ key reference.");
+        }
+        auto const resolved = lookup(pq::referenceAccountID(key));
+        if (!resolved)
+            return std::string("Unknown PQ key reference.");
+        auto const inlineKey = makeSlice(*resolved);
+        // The ledger (or whoever answered the lookup) is not trusted: the
+        // key must hash to the AccountID the reference names.
+        if (!pq::isInlineKey(inlineKey) ||
+            pq::calcAccountID(inlineKey) != pq::referenceAccountID(key))
+            return std::string("PQ key reference does not match key.");
+        if (pq::verify(inlineKey, data, makeSlice(signature)))
+            return std::nullopt;
+        return std::string("Invalid signature.");
+    }
+
+    return std::string("Invalid signature.");
+}
+
+}  // namespace
 
 Json::Value
 STTx::getJson(JsonOptions options) const
@@ -310,7 +410,11 @@ STTx::getMetaSQL(
 }
 
 Expected<void, std::string>
-STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
+STTx::checkSingleSign(
+    RequireFullyCanonicalSig requireCanonicalSig,
+    Rules const& rules,
+    PQKeyLookup const& lookup,
+    PQReferencePolicy policy) const
 {
     // We don't allow both a non-empty sfSigningPubKey and an sfSigners.
     // That would allow the transaction to be signed two ways.  So if both
@@ -322,33 +426,33 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
     bool const isWildcardNetwork =
         isFieldPresent(sfNetworkID) && getFieldU32(sfNetworkID) == 65535;
 
-    bool validSig = false;
+    std::optional<std::string> failure = "Invalid signature.";
     try
     {
         bool const fullyCanonical = (getFlags() & tfFullyCanonicalSig) ||
             (requireCanonicalSig == RequireFullyCanonicalSig::yes);
 
         auto const spk = getFieldVL(sfSigningPubKey);
+        Blob const signature = getFieldVL(sfTxnSignature);
+        Blob const data = getSigningData(*this);
 
-        if (publicKeyType(makeSlice(spk)))
-        {
-            Blob const signature = getFieldVL(sfTxnSignature);
-            Blob const data = getSigningData(*this);
-
-            validSig = isWildcardNetwork ||
-                verify(PublicKey(makeSlice(spk)),
-                       makeSlice(data),
-                       makeSlice(signature),
-                       fullyCanonical);
-        }
+        failure = verifyAnyKey(
+            spk,
+            makeSlice(data),
+            signature,
+            fullyCanonical,
+            isWildcardNetwork,
+            rules,
+            lookup,
+            policy);
     }
     catch (std::exception const&)
     {
         // Assume it was a signature failure.
-        validSig = false;
+        failure = "Invalid signature.";
     }
-    if (validSig == false)
-        return Unexpected("Invalid signature.");
+    if (failure)
+        return Unexpected(*failure);
     // Signature was verified.
     return {};
 }
@@ -356,7 +460,9 @@ STTx::checkSingleSign(RequireFullyCanonicalSig requireCanonicalSig) const
 Expected<void, std::string>
 STTx::checkMultiSign(
     RequireFullyCanonicalSig requireCanonicalSig,
-    Rules const& rules) const
+    Rules const& rules,
+    PQKeyLookup const& lookup,
+    PQReferencePolicy policy) const
 {
     // Make sure the MultiSigners are present.  Otherwise they are not
     // attempting multi-signing and we just have a bad SigningPubKey.
@@ -413,35 +519,40 @@ STTx::checkMultiSign(
         lastAccountID = accountID;
 
         // Verify the signature.
-        bool validSig = false;
+        std::optional<std::string> failure = "Invalid signature.";
         try
         {
             Serializer s = dataStart;
             finishMultiSigningData(accountID, s);
 
             auto spk = signer.getFieldVL(sfSigningPubKey);
+            Blob const signature = signer.getFieldVL(sfTxnSignature);
 
-            if (publicKeyType(makeSlice(spk)))
-            {
-                Blob const signature = signer.getFieldVL(sfTxnSignature);
-
-                // wildcard network gets a free pass
-                validSig = isWildcardNetwork ||
-                    verify(PublicKey(makeSlice(spk)),
-                           s.slice(),
-                           makeSlice(signature),
-                           fullyCanonical);
-            }
+            failure = verifyAnyKey(
+                spk,
+                s.slice(),
+                signature,
+                fullyCanonical,
+                isWildcardNetwork,
+                rules,
+                lookup,
+                policy);
         }
         catch (std::exception const&)
         {
             // We assume any problem lies with the signature.
-            validSig = false;
+            failure = "Invalid signature.";
         }
-        if (!validSig)
+        if (failure)
+        {
+            if (*failure == "Invalid signature.")
+                return Unexpected(
+                    std::string("Invalid signature on account ") +
+                    toBase58(accountID) + ".");
             return Unexpected(
-                std::string("Invalid signature on account ") +
-                toBase58(accountID) + ".");
+                *failure + std::string(" Account ") + toBase58(accountID) +
+                ".");
+        }
     }
     // All signatures verified.
     return {};

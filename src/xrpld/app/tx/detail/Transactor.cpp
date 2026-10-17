@@ -24,6 +24,7 @@
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/app/tx/detail/PQKeyLedger.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
 #include <xrpld/app/tx/detail/Transactor.h>
@@ -37,6 +38,7 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/PQPublicKey.h>
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/UintTypes.h>
@@ -439,6 +441,19 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
                 accumulator += charCount;
             }
         }
+    }
+
+    // featurePQSignatures: publishing a post-quantum public key to the
+    // ledger costs one drop per byte, charged on the transaction that
+    // first carries the key inline. Like memo bytes it is part of the
+    // accumulator and therefore scales with the load fee.
+    if (view.rules().enabled(featurePQSignatures))
+    {
+        XRPAmount const keyBytes{
+            static_cast<std::int64_t>(pqkey::unrevealedKeyBytes(view, tx))};
+        if (accumulator + keyBytes < accumulator)
+            return XRPAmount{INITIAL_XRP.drops()};
+        accumulator += keyBytes;
     }
 
     // RH NOTE: hookExecutionFee = 0, burden = 1 if hooks is not enabled
@@ -877,6 +892,13 @@ Transactor::apply()
             sle->setFieldH256(sfAccountTxnID, ctx_.tx.getTransactionID());
 
         view().update(sle);
+
+        // featurePQSignatures: the byte fee was just paid, so publish any
+        // inline post-quantum keys now. reset() repeats this on the tec
+        // path so that a claimed fee always buys the key object.
+        result = pqkey::reveal(view(), ctx_.tx, j_);
+        if (!isTesSuccess(result))
+            return result;
     }
 
     return doApply();
@@ -931,12 +953,62 @@ Transactor::checkSign(PreclaimContext const& ctx)
     return checkSingleSign(ctx);
 }
 
+// featurePQSignatures. The AccountID a signing key stands for, in any of
+// the supported encodings, or std::nullopt if the key is not acceptable.
+// For a post-quantum key *reference* the ledger object must exist; its
+// signature is then verified here, against this view, because the
+// signature check at ingress / preflight could not (see checkValidity).
+static std::optional<AccountID>
+signerAccountID(
+    PreclaimContext const& ctx,
+    Blob const& spk,
+    std::function<Expected<void, std::string>(STTx::PQKeyLookup const&)>
+        verifyWithLedger)
+{
+    auto const key = makeSlice(spk);
+    if (publicKeyType(key))
+        return calcAccountID(PublicKey(key));
+
+    if (!ctx.view.rules().enabled(featurePQSignatures))
+        return std::nullopt;
+
+    if (pq::isInlineKey(key))
+        return pq::calcAccountID(key);
+
+    if (pq::isKeyReference(key))
+    {
+        auto const id = pq::referenceAccountID(key);
+        if (!pqkey::read(ctx.view, id))
+        {
+            JLOG(ctx.j.trace())
+                << "PQ key reference " << toBase58(id) << " not in ledger";
+            return std::nullopt;
+        }
+        if (!(ctx.flags & tapDRY_RUN))
+        {
+            auto const ok = verifyWithLedger(pqkey::makeLookup(ctx.view));
+            if (!ok)
+            {
+                JLOG(ctx.j.trace())
+                    << "PQ key reference signature: " << ok.error();
+                return std::nullopt;
+            }
+        }
+        return id;
+    }
+    return std::nullopt;
+}
+
 NotTEC
 Transactor::checkSingleSign(PreclaimContext const& ctx)
 {
     // Check that the value in the signing key slot is a public key.
     auto const pkSigner = ctx.tx.getSigningPubKey();
-    if (!(ctx.flags & tapDRY_RUN) && !publicKeyType(makeSlice(pkSigner)))
+    bool const pqEnabled = ctx.view.rules().enabled(featurePQSignatures);
+    if (!(ctx.flags & tapDRY_RUN) && !publicKeyType(makeSlice(pkSigner)) &&
+        !(pqEnabled &&
+          (pq::isInlineKey(makeSlice(pkSigner)) ||
+           pq::isKeyReference(makeSlice(pkSigner)))))
     {
         JLOG(ctx.j.trace())
             << "checkSingleSign: signing public key type is unknown";
@@ -954,9 +1026,25 @@ Transactor::checkSingleSign(PreclaimContext const& ctx)
     XRPL_ASSERT(
         (ctx.flags & tapDRY_RUN) || !pkSigner.empty(),
         "ripple::Transactor::checkSingleSign : non-empty signer or simulation");
-    auto const idSigner = pkSigner.empty()
-        ? idAccount
-        : calcAccountID(PublicKey(makeSlice(pkSigner)));
+    std::optional<AccountID> idSignerOpt;
+    if (pkSigner.empty())
+        idSignerOpt = idAccount;
+    else
+        idSignerOpt = signerAccountID(
+            ctx, pkSigner, [&ctx](STTx::PQKeyLookup const& lookup) {
+                auto const requireCanonicalSig =
+                    ctx.view.rules().enabled(featureRequireFullyCanonicalSig)
+                    ? STTx::RequireFullyCanonicalSig::yes
+                    : STTx::RequireFullyCanonicalSig::no;
+                return ctx.tx.checkSign(
+                    requireCanonicalSig,
+                    ctx.view.rules(),
+                    lookup,
+                    STTx::PQReferencePolicy::reject);
+            });
+    if (!idSignerOpt)
+        return tefBAD_AUTH;
+    auto const idSigner = *idSignerOpt;
     bool const isMasterDisabled = sleAccount->isFlag(lsfDisableMaster);
 
     if (ctx.view.rules().enabled(fixMasterKeyAsRegularKey))
@@ -1078,8 +1166,12 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
         // need to compute the accountID that is associated with the signer's
         // public key.
         auto const spk = txSigner.getFieldVL(sfSigningPubKey);
+        bool const pqEnabled = ctx.view.rules().enabled(featurePQSignatures);
 
-        if (!(ctx.flags & tapDRY_RUN) && !publicKeyType(makeSlice(spk)))
+        if (!(ctx.flags & tapDRY_RUN) && !publicKeyType(makeSlice(spk)) &&
+            !(pqEnabled &&
+              (pq::isInlineKey(makeSlice(spk)) ||
+               pq::isKeyReference(makeSlice(spk)))))
         {
             JLOG(ctx.j.trace())
                 << "checkMultiSign: signing public key type is unknown";
@@ -1091,9 +1183,29 @@ Transactor::checkMultiSign(PreclaimContext const& ctx)
             (ctx.flags & tapDRY_RUN) || !spk.empty(),
             "ripple::Transactor::checkMultiSign : non-empty signer or "
             "simulation");
-        AccountID const signingAcctIDFromPubKey = spk.empty()
-            ? txSignerAcctID
-            : calcAccountID(PublicKey(makeSlice(spk)));
+        std::optional<AccountID> fromPubKey;
+        if (spk.empty())
+            fromPubKey = txSignerAcctID;
+        else
+            fromPubKey = signerAccountID(
+                ctx, spk, [&ctx](STTx::PQKeyLookup const& lookup) {
+                    // Verifies every signer; the whole Signers array is
+                    // checked once per reference-form signer, which is
+                    // cheap next to the verification itself.
+                    auto const requireCanonicalSig =
+                        ctx.view.rules().enabled(
+                            featureRequireFullyCanonicalSig)
+                        ? STTx::RequireFullyCanonicalSig::yes
+                        : STTx::RequireFullyCanonicalSig::no;
+                    return ctx.tx.checkSign(
+                        requireCanonicalSig,
+                        ctx.view.rules(),
+                        lookup,
+                        STTx::PQReferencePolicy::reject);
+                });
+        if (!fromPubKey)
+            return tefBAD_SIGNATURE;
+        AccountID const signingAcctIDFromPubKey = *fromPubKey;
 
         // Verify that the signingAcctID and the signingAcctIDFromPubKey
         // belong together.  Here are the rules:
@@ -1361,7 +1473,14 @@ Transactor::reset(XRPAmount fee)
         isTesSuccess(ter), "ripple::Transactor::reset : result is tesSUCCESS");
 
     if (isTesSuccess(ter))
+    {
         view().update(txnAcct);
+        // featurePQSignatures: the view was discarded, so the inline key
+        // objects created in apply() are gone; recreate them, the fee for
+        // them has just been charged again.
+        if (TER const r = pqkey::reveal(view(), ctx_.tx, j_); !isTesSuccess(r))
+            return {r, fee};
+    }
 
     return {ter, fee};
 }

@@ -23,6 +23,7 @@
 #include <xrpld/app/tx/detail/DeleteOracle.h>
 #include <xrpld/app/tx/detail/DepositPreauth.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/app/tx/detail/PQKeyLedger.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
@@ -492,6 +493,14 @@ DeleteAccount::doApply()
     // Re-arm the password change fee if we can and need to.
     if (mSourceBalance > XRPAmount(0) && dst->isFlag(lsfPasswordSpent))
         dst->clearFlag(lsfPasswordSpent);
+
+    // featurePQSignatures: release the references held by this account's
+    // master key (if enabled) and regular key slots. The signer list's
+    // entries were released when the list was deleted above.
+    if (!src->isFlag(lsfDisableMaster))
+        pqkey::removeReference(view(), account_, j_);
+    if (src->isFieldPresent(sfRegularKey))
+        pqkey::removeReference(view(), src->getAccountID(sfRegularKey), j_);
 
     view().update(dst);
     view().erase(src);

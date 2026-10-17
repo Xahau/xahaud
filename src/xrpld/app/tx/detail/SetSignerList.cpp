@@ -201,7 +201,8 @@ SetSignerList::removeSignersFromLedger(
     Keylet const& accountKeylet,
     Keylet const& ownerDirKeylet,
     Keylet const& signerListKeylet,
-    beast::Journal j)
+    beast::Journal j,
+    bool releasePQReferences)
 {
     // We have to examine the current SignerList so we know how much to
     // reduce the OwnerCount.
@@ -210,6 +211,11 @@ SetSignerList::removeSignersFromLedger(
     // If the signer list doesn't exist we've already succeeded in deleting it.
     if (!signers)
         return tesSUCCESS;
+
+    // featurePQSignatures: each entry held a reference to its key object.
+    if (releasePQReferences)
+        for (auto const& e : signers->getFieldArray(sfSignerEntries))
+            pqkey::removeReference(view, e.getAccountID(sfAccount), j);
 
     // There are two different ways that the OwnerCount could be managed.
     // If the lsfOneOwnerCount bit is set then remove just one owner count.

@@ -21,6 +21,7 @@
 #define RIPPLE_TX_SETSIGNERLIST_H_INCLUDED
 
 #include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/tx/detail/PQKeyLedger.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/basics/Log.h>
@@ -78,7 +79,8 @@ public:
         Keylet const& accountKeylet,
         Keylet const& ownerDirKeylet,
         Keylet const& signerListKeylet,
-        beast::Journal j);
+        beast::Journal j,
+        bool releasePQReferences = true);
 
     static int
     signerCountBasedOwnerCountDelta(std::size_t entryCount, Rules const& rules);
@@ -132,11 +134,26 @@ public:
         auto const ownerDirKeylet = keylet::ownerDir(acc);
         auto const signerListKeylet = keylet::signers(acc);
 
+        // featurePQSignatures: the signer entries are references to
+        // post-quantum key objects. Adjust by the net change, so that
+        // replacing a list with one that keeps a signer does not drop (and
+        // possibly delete) that signer's key object only to re-reference it.
+        std::vector<AccountID> oldSigners;
+        if (auto const old = view.read(signerListKeylet))
+            for (auto const& e : old->getFieldArray(sfSignerEntries))
+                oldSigners.push_back(e.getAccountID(sfAccount));
+
         // This may be either a create or a replace.  Preemptively remove any
         // old signer list.  May reduce the reserve, so this is done before
         // checking the reserve.
         if (TER const ter = removeSignersFromLedger(
-                app, view, accountKeylet, ownerDirKeylet, signerListKeylet, j))
+                app,
+                view,
+                accountKeylet,
+                ownerDirKeylet,
+                signerListKeylet,
+                j,
+                /*releasePQReferences=*/false))
             return ter;
 
         auto const sle = view.peek(accountKeylet);
@@ -186,6 +203,12 @@ public:
         // If we succeeded, the new entry counts against the
         // creator's reserve.
         adjustOwnerCount(view, sle, addedOwnerCount, j);
+
+        std::vector<AccountID> newSigners;
+        for (auto const& e : signers)
+            newSigners.push_back(e.account);
+        pqkey::adjustReferences(
+            view, std::move(oldSigners), std::move(newSigners), j);
         return tesSUCCESS;
     }
 };

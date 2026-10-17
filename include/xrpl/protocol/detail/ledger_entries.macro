@@ -150,6 +150,25 @@ LEDGER_ENTRY(ltIMPORT_VLSEQ, 0x0049, ImportVLSequence, import_vlseq, ({
     DeleteAccount erases it explicitly. AppLoaderSequence equals the owner's
     AccountRoot AppLoaderSequence as of the AccountSet that wrote it.
  */
+/** featurePQSignatures: a post-quantum public key stored once in the ledger.
+
+    Content-addressed: keyed by the AccountID of the key (see
+    keylet::pqPublicKey and pq::calcAccountID). Like ltHOOK_DEFINITION it has
+    no owner and no owner directory; it is created by the first transaction
+    that signs with the key inline, paid for per byte, reference counted by
+    the AccountRoot / RegularKey / SignerEntry slots that name the key, and
+    deleted when the count reaches zero.
+
+    \sa keylet::pqPublicKey
+*/
+LEDGER_ENTRY(ltPUBLIC_KEY, 0x004B, PublicKey, pq_public_key, ({
+    {sfPublicKeyType,        soeREQUIRED},
+    {sfPublicKeyData,        soeREQUIRED},
+    {sfReferenceCount,       soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 LEDGER_ENTRY(ltAPP_LOADER, 0x004c, AppLoader, app_loader, ({
     {sfOwner,                soeREQUIRED},
     {sfAppLoader,            soeREQUIRED},

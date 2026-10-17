@@ -58,6 +58,18 @@ enum class Validity {
     @return `std::pair`, where `.first` is the status, and
             `.second` is the reason if appropriate.
 
+    @param pqKeyLedger A ledger used to resolve post-quantum key
+        *references* (featurePQSignatures, SigningPubKey of the form
+        0xF1 | AccountID). Every ingress path (network, RPC submit, sign)
+        must pass its open ledger, so that unverifiable transactions are
+        not relayed. A reference whose key is missing from that ledger is
+        reported SigBad but is NOT cached as bad: the key may exist in the
+        ledger the transaction is eventually applied to. When no ledger is
+        given (the transactor engine's preflight), reference signatures are
+        deferred to preclaim, where Transactor::checkSign verifies them
+        against the view the transaction is applied to; inline keys are
+        verified here as usual.
+
     @see Validity
 */
 std::pair<Validity, std::string>
@@ -66,7 +78,8 @@ checkValidity(
     STTx const& tx,
     Rules const& rules,
     Config const& config,
-    ApplyFlags const flags = tapNONE);
+    ApplyFlags const flags = tapNONE,
+    std::shared_ptr<ReadView const> const& pqKeyLedger = nullptr);
 
 /** Ingress fee outcome for a manifest-authorized SetManifest.
 

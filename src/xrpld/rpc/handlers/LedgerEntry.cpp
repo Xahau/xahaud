@@ -683,6 +683,20 @@ parseDID(Json::Value const& params, Json::Value& jvResult)
     return keylet::did(*account).key;
 }
 
+// featurePQSignatures: "pq_public_key": "<r-address of the key>"
+static std::optional<uint256>
+parsePQPublicKey(Json::Value const& params, Json::Value& jvResult)
+{
+    auto const account = parseBase58<AccountID>(params.asString());
+    if (!account || account->isZero())
+    {
+        jvResult[jss::error] = "malformedAddress";
+        return std::nullopt;
+    }
+
+    return keylet::pqPublicKey(*account).key;
+}
+
 static std::optional<uint256>
 parseOracle(Json::Value const& params, Json::Value& jvResult)
 {
@@ -1153,6 +1167,7 @@ doLedgerEntry(RPC::JsonContext& context)
         {jss::permissioned_domain,
          parsePermissionedDomains,
          ltPERMISSIONED_DOMAIN},
+        {jss::pq_public_key, parsePQPublicKey, ltPUBLIC_KEY},
         {jss::random, parseRandom, ltRANDOM},
         {jss::ripple_state, parseRippleState, ltRIPPLE_STATE},
         // This is an alias, since the `ledger_data` filter uses jss::state

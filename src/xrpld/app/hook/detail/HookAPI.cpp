@@ -4,7 +4,9 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/Import.h>
+#include <xrpld/app/tx/detail/PQKeyLedger.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
+#include <xrpl/protocol/PQPublicKey.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <algorithm>
 #include <limits>
@@ -43,14 +45,36 @@ Expected<bool, HookReturnCode>
 HookAPI::util_verify(Slice const& data, Slice const& sig, Slice const& key)
     const
 {
-    if (key.size() != 33)
-        return Unexpected(INVALID_KEY);
-
     if (data.size() == 0)
         return Unexpected(TOO_SMALL);
 
     if (sig.size() < 30)
         return Unexpected(TOO_SMALL);
+
+    auto const& view = hookCtx.applyCtx.view();
+    if (view.rules().enabled(featurePQSignatures) && key.size() != 33)
+    {
+        if (pq::isInlineKey(key))
+            return pq::verify(key, data, sig);
+
+        if (pq::isKeyReference(key))
+        {
+            auto const id = pq::referenceAccountID(key);
+            auto const inlineKey = pqkey::readInlineKey(view, id);
+            if (!inlineKey)
+                return Unexpected(DOESNT_EXIST);
+            // Never trust the stored bytes blindly: they must hash to the
+            // AccountID the reference names.
+            if (pq::calcAccountID(makeSlice(*inlineKey)) != id)
+                return Unexpected(INVALID_KEY);
+            return pq::verify(makeSlice(*inlineKey), data, sig);
+        }
+
+        return Unexpected(INVALID_KEY);
+    }
+
+    if (key.size() != 33)
+        return Unexpected(INVALID_KEY);
 
     if (!publicKeyType(key))
         return Unexpected(INVALID_KEY);
