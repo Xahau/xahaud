@@ -107,6 +107,7 @@ private:
 
     std::uint32_t deleteInterval_ = 0;
     bool advisoryDelete_ = false;
+    bool isNullBackend_ = false;
     std::uint32_t deleteBatch_ = 100;
     std::chrono::milliseconds backOff_{100};
     std::chrono::seconds ageThreshold_{60};
@@ -183,9 +184,11 @@ public:
     void
     setPinnedRanges(RangeSet<std::uint32_t> const& ranges) override
     {
-        // Save pinned ranges to database for persistence
-        std::string rangesStr = to_string(ranges);
-        state_db_.setPinnedRanges(rangesStr);
+        // Save pinned ranges to database for persistence. to_string()
+        // renders an empty set as "empty", which from_string() rejects, so
+        // store "" instead: loadPinnedRanges() treats that as nothing pinned.
+        state_db_.setPinnedRanges(
+            ranges.empty() ? std::string{} : to_string(ranges));
     }
 
     void

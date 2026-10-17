@@ -239,7 +239,9 @@ public:
             boost::system::error_code ec;
             mSocket.lowest_layer().close(ec);
             if (ec)
+            {
                 JLOG(j_.trace()) << "Deadline close error: " << ec.message();
+            }
         }
     }
 

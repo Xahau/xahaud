@@ -15,6 +15,7 @@
 #define uint256 std::string
 #define featureHooksUpdate1 "1"
 #define featureHooksUpdate2 "1"
+#define featureRNG "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
 namespace hook_api {
@@ -385,7 +386,9 @@ enum class hook_return_code : int64_t {
     MEM_OVERLAP = -43,   // one or more specified buffers are the same memory
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 256 modified state
                                          // entires in the combined hook chains
-    TOO_MANY_NAMESPACES = -45
+    TOO_MANY_NAMESPACES = -45,
+    TOO_LITTLE_ENTROPY = -46  // featureRNG: no seed for this ledger, or too few
+                              // validators contributed to it
 };
 
 enum class ExitType : uint8_t {
@@ -398,11 +401,24 @@ enum class ExitType : uint8_t {
 const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
 const uint8_t max_nonce = 255;
+const uint16_t max_rng_draws = 256;  // featureRNG, per Hook execution
 const uint8_t max_emit = 255;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 
 using APIWhitelist = std::map<std::string, std::vector<uint8_t>>;
+
+namespace detail {
+template <class T>
+constexpr uint8_t wasmTypeCode = sizeof(T) == 8 ? 0x7EU : 0x7FU;
+
+template <class R, class... Args>
+std::vector<uint8_t>
+wasmSignature(R (*)(Args...))
+{
+    return {wasmTypeCode<R>, wasmTypeCode<Args>...};
+}
+}  // namespace detail
 
 // RH NOTE: Find descriptions of api functions in ./impl/applyHook.cpp and
 // hookapi.h (include for hooks) this is a map of the api name to its return
@@ -415,25 +431,15 @@ getImportWhitelist(Rules const& rules)
 #pragma push_macro("HOOK_API_DEFINITION")
 #undef HOOK_API_DEFINITION
 
-#define int64_t 0x7EU
-#define int32_t 0x7FU
-#define uint32_t 0x7FU
-
-#define HOOK_WRAP_PARAMS(...) __VA_ARGS__
-
 #define HOOK_API_DEFINITION(                                \
     RETURN_TYPE, FUNCTION_NAME, PARAMS_TUPLE, AMENDMENT)    \
     if (AMENDMENT == uint256{} || rules.enabled(AMENDMENT)) \
-        whitelist[#FUNCTION_NAME] = {                       \
-            RETURN_TYPE, HOOK_WRAP_PARAMS PARAMS_TUPLE};
+        whitelist[#FUNCTION_NAME] =                         \
+            detail::wasmSignature((RETURN_TYPE(*) PARAMS_TUPLE) nullptr);
 
 #include "hook_api.macro"
 
 #undef HOOK_API_DEFINITION
-#undef HOOK_WRAP_PARAMS
-#undef int64_t
-#undef int32_t
-#undef uint32_t
 #pragma pop_macro("HOOK_API_DEFINITION")
 
     return whitelist;

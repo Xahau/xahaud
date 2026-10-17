@@ -118,7 +118,7 @@ sizedItems
     {SizedItem::txnDBCache,         {{      4,      12,      24,      64,     128 }}},
     {SizedItem::lgrDBCache,         {{      4,       8,      16,      32,     128 }}},
     {SizedItem::openFinalLimit,     {{      8,      16,      32,      64,     128 }}},
-    {SizedItem::burstSize,          {{      4,       8,      16,      32,      64*1024*1024 }}},
+    {SizedItem::burstSize,          {{      4,       8,      16,      32,      64 }}},
     {SizedItem::ramSizeGB,          {{      8,      12,      16,      24,      32 }}},
     {SizedItem::accountIdCacheSize, {{  20047,   50053,   77081,  150061,  300007 }}}
 }};
@@ -405,7 +405,11 @@ Config::setup(
 
     HTTPClient::initializeSSLContext(*this, j_);
 
-    if (RUN_STANDALONE)
+    // Standalone never fetches history, so ledger_history is normally
+    // meaningless there. The rwdb null node store (nullBackend) uses it
+    // to size the in-memory retained-ledger window, and SHAMapStoreImp
+    // rejects zero for it, so keep the configured value in that case.
+    if (RUN_STANDALONE && !nullBackend())
         LEDGER_HISTORY = 0;
 
     std::string ledgerTxDbType;
@@ -533,6 +537,9 @@ Config::loadFromString(std::string const& fileContents)
     if (getSingleSection(secConfig, SECTION_PEER_PRIVATE, strTemp, j_))
         PEER_PRIVATE = beast::lexicalCastThrow<bool>(strTemp);
 
+    if (getSingleSection(secConfig, SECTION_UDP_HIGHWAY, strTemp, j_))
+        UDP_HIGHWAY = beast::lexicalCastThrow<bool>(strTemp);
+
     if (getSingleSection(secConfig, SECTION_PEERS_MAX, strTemp, j_))
     {
         PEERS_MAX = beast::lexicalCastThrow<std::size_t>(strTemp);
@@ -616,6 +623,9 @@ Config::loadFromString(std::string const& fileContents)
                 "Invalid value specified in [" SECTION_RELAY_VALIDATIONS
                 "] section");
     }
+
+    if (getSingleSection(secConfig, SECTION_EARLY_MANIFEST_SYNC, strTemp, j_))
+        EARLY_MANIFEST_SYNC = beast::lexicalCastThrow<bool>(strTemp);
 
     if (getSingleSection(secConfig, SECTION_RELAY_PROPOSALS, strTemp, j_))
     {
@@ -849,6 +859,12 @@ Config::loadFromString(std::string const& fileContents)
     if (getSingleSection(secConfig, SECTION_BETA_RPC_API, strTemp, j_))
         BETA_RPC_API = beast::lexicalCastThrow<bool>(strTemp);
 
+    // hook_validate RPC is opt-in on networked nodes, but on by default in
+    // standalone mode for local hook development.
+    HOOK_VALIDATE_RPC = RUN_STANDALONE;
+    if (getSingleSection(secConfig, SECTION_HOOK_VALIDATE_RPC, strTemp, j_))
+        HOOK_VALIDATE_RPC = beast::lexicalCastThrow<bool>(strTemp);
+
     // Do not load trusted validator configuration for standalone mode
     do
     {
@@ -1060,24 +1076,6 @@ Config::loadFromString(std::string const& fileContents)
                 "the maximum number of allowed peers (peers_max)");
         }
     }
-
-    if (!RUN_STANDALONE)
-    {
-        auto db_section = section(ConfigSection::nodeDatabase());
-        if (auto type = get(db_section, "type", ""); type == "rwdb")
-        {
-            if (auto delete_interval = get(db_section, "online_delete", 0);
-                delete_interval == 0)
-            {
-                Throw<std::runtime_error>(
-                    "RWDB (in-memory backend) requires online_delete to "
-                    "prevent OOM "
-                    "Exception: standalone mode (used by tests) doesn't need "
-                    "online_delete");
-            }
-        }
-    }
-
     // DatabasePinned validation (applies to all modes including standalone)
     auto db_section = section(ConfigSection::nodeDatabase());
     if (db_section.exists("pinned_type"))
@@ -1087,6 +1085,16 @@ Config::loadFromString(std::string const& fileContents)
         {
             Throw<std::runtime_error>(
                 "type must be specified when using pinned_type");
+        }
+
+        // type=rwdb is the tree-only null node store. SHAMapStore never
+        // builds DatabasePinned for it, so pinned (and catalogue) data
+        // would be accepted and then silently dropped.
+        if (nullBackend())
+        {
+            Throw<std::runtime_error>(
+                "pinned_type is not supported with [node_db] type=rwdb "
+                "(the rwdb node store does not persist nodes)");
         }
 
         // Ensure pinned_path is specified for filesystem-backed types.

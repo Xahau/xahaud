@@ -114,6 +114,7 @@ Handler const handlerArray[]{
      byRef(&doGetAggregatePrice),
      Role::USER,
      NO_CONDITION},
+    {"hook_validate", byRef(&doHookValidate), Role::USER, NO_CONDITION},
     {"inject", byRef(&doInject), Role::ADMIN, NEEDS_CURRENT_LEDGER},
     {"ledger_accept",
      byRef(&doLedgerAccept),
@@ -143,6 +144,8 @@ Handler const handlerArray[]{
     {"path_find", byRef(&doPathFind), Role::USER, NEEDS_CURRENT_LEDGER},
     {"ping", byRef(&doPing), Role::USER, NO_CONDITION},
     {"print", byRef(&doPrint), Role::ADMIN, NO_CONDITION},
+    {"pwa_info", byRef(&doPWAInfo), Role::ADMIN, NO_CONDITION},
+    {"pwa_validate", byRef(&doPWAValidate), Role::USER, NO_CONDITION},
     //      {   "profile",              byRef (&doProfile), Role::USER,
     //      NEEDS_CURRENT_LEDGER  },
     {"random", byRef(&doRandom), Role::USER, NO_CONDITION},
@@ -196,6 +199,7 @@ Handler const handlerArray[]{
     {"catalogue_create", byRef(&doCatalogueCreate), Role::ADMIN, NO_CONDITION},
     {"catalogue_status", byRef(&doCatalogueStatus), Role::ADMIN, NO_CONDITION},
     {"catalogue_load", byRef(&doCatalogueLoad), Role::ADMIN, NO_CONDITION},
+    {"catalogue_unpin", byRef(&doCatalogueUnpin), Role::ADMIN, NO_CONDITION},
 };
 
 class HandlerTable

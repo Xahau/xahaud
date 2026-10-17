@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <queue>
+#include <set>
 #include <utility>
 #include <vector>
 #include <wasmedge/wasmedge.h>
@@ -85,7 +86,7 @@ bool
 canHook(
     STTx const& tx,
     ripple::uint256 hookOn,
-    std::optional<ripple::Slice> hookName);
+    std::optional<ripple::Blob> hookName);
 
 bool
 canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit);
@@ -128,7 +129,11 @@ apply(
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     // result of apply() if this is weak exec
-    std::shared_ptr<STObject const> const& provisionalMeta);
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    // fix20261005: the original emitted transaction for a ttEMIT_FAILURE
+    // callback, captured before the cleanup pseudo removed its
+    // ltEMITTED_TXN entry. Ignored before the fix.
+    std::optional<ripple::STObject> const& emitFailureTxn = std::nullopt);
 
 struct HookContext;
 
@@ -206,6 +211,7 @@ struct HookContext
     uint16_t emit_nonce_counter{
         0};  // incremented whenever nonce is called to ensure unique nonces
     uint16_t ledger_nonce_counter{0};
+    uint16_t rng_draws{0};  // featureRNG: dice/random calls this execution
     int64_t expected_etxn_count{-1};  // make this a 64bit int so the uint32
                                       // from the hookapi cant overflow it
     std::map<ripple::uint256, bool> nonce_used{};
@@ -257,11 +263,15 @@ finalizeHookResult(
     bool doEmit);
 
 // write state map to ledger
+// if `written` is supplied, every account whose hook state was successfully
+// written is inserted into it (own and foreign namespaces alike); deleting an
+// entry that does not exist is not a write
 ripple::TER
 finalizeHookState(
     HookStateMap const&,
     ripple::ApplyContext&,
-    ripple::uint256 const&);
+    ripple::uint256 const&,
+    std::set<ripple::AccountID>* written = nullptr);
 
 // if the txn being executed was an emitted txn then this removes it from the
 // emission directory

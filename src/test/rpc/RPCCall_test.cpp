@@ -1934,6 +1934,56 @@ static RPCCallTestData const rpcCallTestArray[] = {
      RPCCallTestData::bad_cast,
      R"()"},
 
+    // catalogue_unpin
+    // ------------------------------------------------------------
+    {"catalogue_unpin: minimal.",
+     __LINE__,
+     {"catalogue_unpin", "5000001", "6000000"},
+     RPCCallTestData::no_exception,
+     R"({
+    "method" : "catalogue_unpin",
+    "params" : [
+      {
+         "api_version" : %API_VER%,
+         "ledger_index_max" : 6000000,
+         "ledger_index_min" : 5000001
+      }
+    ]
+    })"},
+    {"catalogue_unpin: too few arguments.",
+     __LINE__,
+     {"catalogue_unpin", "5000001"},
+     RPCCallTestData::no_exception,
+     R"({
+    "method" : "catalogue_unpin",
+    "params" : [
+      {
+         "error" : "badSyntax",
+         "error_code" : 1,
+         "error_message" : "Syntax error."
+      }
+    ]
+    })"},
+    {"catalogue_unpin: too many arguments.",
+     __LINE__,
+     {"catalogue_unpin", "1", "2", "3"},
+     RPCCallTestData::no_exception,
+     R"({
+    "method" : "catalogue_unpin",
+    "params" : [
+      {
+         "error" : "badSyntax",
+         "error_code" : 1,
+         "error_message" : "Syntax error."
+      }
+    ]
+    })"},
+    {"catalogue_unpin: non-integer bound.",
+     __LINE__,
+     {"catalogue_unpin", "first", "6000000"},
+     RPCCallTestData::bad_cast,
+     R"()"},
+
     // channel_authorize
     // -----------------------------------------------------------
     {"channel_authorize: minimal.",
@@ -2997,6 +3047,50 @@ static RPCCallTestData const rpcCallTestArray[] = {
      {"get_counts", "4294967296"},
      RPCCallTestData::bad_cast,
      R"()"},
+
+    // hook_validate
+    // ------------------------------------------------------------------------
+    {"hook_validate: minimal.",
+     __LINE__,
+     {"hook_validate", "0061736D01000000"},
+     RPCCallTestData::no_exception,
+     R"({
+    "method" : "hook_validate",
+    "params" : [
+      {
+         "api_version" : %API_VER%,
+         "code" : "0061736D01000000"
+      }
+    ]
+    })"},
+    {"hook_validate: too few arguments.",
+     __LINE__,
+     {"hook_validate"},
+     RPCCallTestData::no_exception,
+     R"({
+    "method" : "hook_validate",
+    "params" : [
+      {
+         "error" : "badSyntax",
+         "error_code" : 1,
+         "error_message" : "Syntax error."
+      }
+    ]
+    })"},
+    {"hook_validate: too many arguments.",
+     __LINE__,
+     {"hook_validate", "00", "00"},
+     RPCCallTestData::no_exception,
+     R"({
+    "method" : "hook_validate",
+    "params" : [
+      {
+         "error" : "badSyntax",
+         "error_code" : 1,
+         "error_message" : "Syntax error."
+      }
+    ]
+    })"},
 
     // json
     // ------------------------------------------------------------------------

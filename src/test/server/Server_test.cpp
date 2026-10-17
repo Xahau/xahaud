@@ -36,6 +36,8 @@
 #include <boost/utility/in_place_factory.hpp>
 
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <optional>
 #include <stdexcept>
 #include <thread>
@@ -158,6 +160,7 @@ public:
         onUDPMessage(
             std::string const& message,
             boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+            Port const& port,
             std::function<void(std::string const&)> sendResponse)
         {
         }
@@ -371,6 +374,7 @@ public:
             onUDPMessage(
                 std::string const& message,
                 boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+                Port const& port,
                 std::function<void(std::string const&)> sendResponse)
             {
             }
@@ -402,6 +406,96 @@ public:
             s->ports(serverPort);
         }
         pass();
+    }
+
+    // Records the datagrams delivered to onUDPMessage
+    struct UDPHandler : TestHandler
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::vector<std::pair<std::string, bool>> received;
+
+        void
+        onUDPMessage(
+            std::string const& message,
+            boost::asio::ip::tcp::endpoint const& remoteEndpoint,
+            Port const& port,
+            std::function<void(std::string const&)> sendResponse)
+        {
+            std::lock_guard lock(mutex);
+            received.emplace_back(message, port.has_peer());
+            cv.notify_all();
+        }
+
+        bool
+        wait(std::size_t count, std::chrono::milliseconds timeout)
+        {
+            std::unique_lock lock(mutex);
+            return cv.wait_for(
+                lock, timeout, [&] { return received.size() >= count; });
+        }
+    };
+
+    // A peer port with udp_highway set also accepts UDP datagrams on the
+    // same port number; one without it does not.
+    void
+    udpHighwayTests()
+    {
+        testcase("UDP Superhighway door");
+        using namespace std::chrono_literals;
+        using udp = boost::asio::ip::udp;
+
+        TestSink sink{*this};
+        TestThread thread;
+        sink.threshold(beast::severities::Severity::kAll);
+        beast::Journal journal{sink};
+
+        auto const addr = boost::asio::ip::make_address(getEnvLocalhostAddr());
+
+        auto run = [&](bool highway) {
+            UDPHandler handler;
+            auto s = make_Server(handler, thread.get_io_context(), journal);
+
+            std::vector<Port> ports(1);
+            ports.back().name = "peer";
+            ports.back().ip = addr;
+            ports.back().port = 0;
+            ports.back().protocol.insert("peer");
+            ports.back().udp_highway = highway;
+
+            auto const eps = s->ports(ports);
+            if (!BEAST_EXPECT(eps.size() == 1))
+                return;
+
+            // The TCP door picked the port number; the UDP door shares it.
+            auto const port = eps.begin()->second.port();
+            BEAST_EXPECT(port != 0);
+
+            boost::asio::io_context io;
+            udp::socket client(io, udp::endpoint(addr, 0));
+            std::string const message = "XUSHTEST";
+            client.send_to(
+                boost::asio::buffer(message), udp::endpoint(addr, port));
+
+            if (highway)
+            {
+                if (BEAST_EXPECT(handler.wait(1, 5s)))
+                {
+                    std::lock_guard lock(handler.mutex);
+                    BEAST_EXPECT(handler.received.front().first == message);
+                    BEAST_EXPECT(handler.received.front().second);
+                }
+            }
+            else
+            {
+                BEAST_EXPECT(!handler.wait(1, 200ms));
+            }
+
+            s = nullptr;
+        };
+
+        run(true);
+        run(false);
     }
 
     void
@@ -547,6 +641,7 @@ public:
     {
         basicTests();
         stressTest();
+        udpHighwayTests();
         testBadConfig();
     }
 };

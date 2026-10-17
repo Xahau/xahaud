@@ -29,6 +29,7 @@
 #include <xrpl/protocol/UintTypes.h>
 #include <boost/container/flat_map.hpp>
 #include <memory>
+#include <optional>
 
 namespace ripple {
 
@@ -112,6 +113,19 @@ public:
     */
     void
     unVote(NodeID_t const& peer);
+
+    /** A peer's vote, if we have one.
+
+        @param peer Identifier of peer.
+    */
+    std::optional<bool>
+    getVote(NodeID_t const& peer) const
+    {
+        auto const it = votes_.find(peer);
+        if (it == votes_.end())
+            return std::nullopt;
+        return it->second;
+    }
 
     /** Update our vote given progression of consensus.
 

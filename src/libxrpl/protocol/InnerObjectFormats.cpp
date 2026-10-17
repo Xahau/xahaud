@@ -143,6 +143,14 @@ InnerObjectFormats::InnerObjectFormats()
             {sfAccount, soeOPTIONAL},
         });
 
+    add(sfRandomDigestEntry.jsonName,
+        sfRandomDigestEntry.getCode(),
+        {
+            {sfPublicKey, soeREQUIRED},
+            {sfNextRandomDigest, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+        });
+
     add(sfAmountEntry.jsonName,
         sfAmountEntry.getCode(),
         {
