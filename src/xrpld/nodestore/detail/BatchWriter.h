@@ -74,13 +74,16 @@ public:
     int
     getWriteLoad();
 
+    /** Block until every object passed to store() so far has been handed
+        to the callback's writeBatch(). */
+    void
+    waitForWriting();
+
 private:
     void
     performScheduledTask() override;
     void
     writeBatch();
-    void
-    waitForWriting();
 
 private:
     using LockType = std::recursive_mutex;

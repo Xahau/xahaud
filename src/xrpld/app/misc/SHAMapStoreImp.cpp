@@ -134,7 +134,39 @@ SHAMapStoreImp::SHAMapStoreImp(
             section.set("filter_bits", "10");
     }
 
-    get_if_exists(section, "online_delete", deleteInterval_);
+    // An explicit online_delete=0 disables cleanup. Only a missing
+    // key is defaulted below. get_if_exists cannot tell those apart.
+    bool const onlineDeleteConfigured = section.exists("online_delete");
+    if (onlineDeleteConfigured)
+        get_if_exists(section, "online_delete", deleteInterval_);
+    isNullBackend_ = config.nullBackend();
+
+    if (isNullBackend_)
+    {
+        // Ledgers stay resident through LedgerMaster's retained window,
+        // which is ledger_history long. Zero keeps nothing alive, and
+        // "full" (uint32 max) never trims, so memory grows without bound.
+        if (config.LEDGER_HISTORY == 0 ||
+            config.LEDGER_HISTORY == std::numeric_limits<std::uint32_t>::max())
+        {
+            Throw<std::runtime_error>(
+                "RWDB null mode requires a finite ledger_history > 0");
+        }
+        JLOG(journal_.info())
+            << "RWDB null mode: node store is ephemeral, " << "retaining "
+            << config.LEDGER_HISTORY << " ledgers in memory";
+    }
+
+    // For RWDB, default online_delete to ledger_history only when the
+    // key is absent.  Clamp to the minimum so an implicit value never
+    // triggers the "online_delete must be at least …" throw.
+    if (isNullBackend_ && !onlineDeleteConfigured)
+    {
+        auto const minInterval = config.standalone()
+            ? minimumDeletionIntervalSA_
+            : minimumDeletionInterval_;
+        deleteInterval_ = std::max(config.LEDGER_HISTORY, minInterval);
+    }
 
     // Always initialize state database for pinned ranges persistence
     state_db_.init(config, dbName_);
@@ -175,7 +207,7 @@ SHAMapStoreImp::SHAMapStoreImp(
                 std::to_string(config.LEDGER_HISTORY) + ")");
         }
 
-        if (!config.mem_backend())
+        if (!isNullBackend_)
             dbPaths();
     }
 }
@@ -200,7 +232,25 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
 
     std::unique_ptr<NodeStore::Database> db;
 
-    if (deleteInterval_)
+    if (isNullBackend_)
+    {
+        // Tree-only: use the existing NullFactory (type=none). No
+        // DatabaseRotatingImp, no rotation thread, no object cache.
+        // A cached header would look like a full acquire and cannot
+        // be rebuilt from this backend.
+        nscfg.set("type", "none");
+        nscfg.set("cache_size", "0");
+        nscfg.set("cache_age", "0");
+        db = NodeStore::Manager::instance().make_Database(
+            megabytes(
+                app_.config().getValueFor(SizedItem::burstSize, std::nullopt)),
+            scheduler_,
+            readThreads,
+            nscfg,
+            app_.logs().journal(nodeStoreName_));
+        fdRequired_ += db->fdRequired();
+    }
+    else if (deleteInterval_)
     {
         SavedState state = state_db_.getState();
 
@@ -331,7 +381,9 @@ void
 SHAMapStoreImp::loadPinnedRanges()
 {
     auto rangesStr = state_db_.getPinnedRanges();
-    if (rangesStr.empty())
+    // "empty" is what to_string() renders for an empty set; accept it in
+    // case it was stored before setPinnedRanges() learned to write "".
+    if (rangesStr.empty() || rangesStr == "empty")
         return;
 
     auto const& nscfg = app_.config().section(ConfigSection::nodeDatabase());
@@ -361,22 +413,62 @@ SHAMapStoreImp::loadPinnedRanges()
             static_cast<bool>(app_.getNodeStore().fetchNodeObject(hash, seq));
     };
 
+    //
+    // catalogue_load records ranges at checkpoints, after handing the pinned
+    // backend every node of the recorded ledgers, but not every backend can
+    // make those writes durable on demand (NuDB commits on its own thread).
+    // A crash can therefore leave the tail of an interval recorded but not
+    // on disk. Each ledger's nodes reach the backend before its header, and
+    // ledgers in sequence, so what survives is a prefix: trim the upper bound
+    // back to the last ledger whose header is present instead of refusing to
+    // start. A missing lower bound still means the configured pinned store
+    // is not the one these ranges were loaded into.
+    constexpr std::uint32_t maxTailTrim = 65536;
+
+    RangeSet<std::uint32_t> verified;
     for (auto const& interval : persistedRanges)
     {
-        if (!hasLedgerData(interval.lower()) ||
-            !hasLedgerData(interval.upper()))
-        {
-            Throw<std::runtime_error>(
-                "Persisted pinned interval " +
-                std::to_string(interval.lower()) + "-" +
+        auto const lower = interval.lower();
+        auto upper = interval.upper();
+
+        auto const notPresent = [&]() {
+            return std::runtime_error(
+                "Persisted pinned interval " + std::to_string(lower) + "-" +
                 std::to_string(interval.upper()) +
                 " is not present in the currently configured pinned store");
+        };
+
+        if (!hasLedgerData(lower))
+            Throw<std::runtime_error>(notPresent());
+
+        std::uint32_t trimmed = 0;
+        while (upper > lower && !hasLedgerData(upper))
+        {
+            if (++trimmed > maxTailTrim)
+                Throw<std::runtime_error>(notPresent());
+            --upper;
         }
+
+        if (trimmed)
+        {
+            JLOG(journal_.warn())
+                << "Pinned interval " << lower << "-" << interval.upper()
+                << " was recorded but its last " << trimmed
+                << " ledger(s) are not in the pinned store (likely an "
+                   "interrupted catalogue_load); trimmed to "
+                << lower << "-" << upper
+                << ". Re-run catalogue_load to restore them.";
+        }
+
+        verified.insert(range(lower, upper));
     }
 
+    if (verified != persistedRanges)
+        state_db_.setPinnedRanges(to_string(verified));
+
     JLOG(journal_.info()) << "Loaded pinned ranges from database: "
-                          << rangesStr;
-    app_.getLedgerMaster().setPinnedLedgersRangeSet(persistedRanges);
+                          << to_string(verified);
+    app_.getLedgerMaster().setPinnedLedgersRangeSet(verified);
 }
 
 void
@@ -421,8 +513,10 @@ SHAMapStoreImp::run()
             state_db_.setLastRotated(lastRotated);
         }
 
-        bool const readyToRotate =
-            validatedSeq >= lastRotated + deleteInterval_ &&
+        // Widen the sum: an online_delete near uint32 max would wrap a
+        // 32-bit add and make this true on every ledger.
+        bool const readyToRotate = std::uint64_t{validatedSeq} >=
+                std::uint64_t{lastRotated} + deleteInterval_ &&
             canDelete_ >= lastRotated - 1 && healthWait() == keepGoing;
 
         // will delete up to (not including) lastRotated
@@ -438,6 +532,18 @@ SHAMapStoreImp::run()
             clearPrior(lastRotated);
             if (healthWait() == stopping)
                 return;
+
+            if (isNullBackend_)
+            {
+                // Null node store: nothing to copy or rotate. Resident
+                // trees are kept alive by LedgerMaster's retained window,
+                // so only the SQL cleanup above applies.
+                lastRotated = validatedSeq;
+                state_db_.setLastRotated(lastRotated);
+                JLOG(journal_.info())
+                    << "finished null-mode cleanup " << validatedSeq;
+                continue;
+            }
 
             JLOG(journal_.debug()) << "copying ledger " << validatedSeq;
             std::uint64_t nodeCount = 0;

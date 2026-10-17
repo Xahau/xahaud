@@ -155,6 +155,12 @@ LedgerHistory::getLedgerByHash(LedgerHash const& hash)
     return ret;
 }
 
+std::shared_ptr<Ledger const>
+LedgerHistory::getCachedLedger(LedgerHash const& hash)
+{
+    return m_ledgers_by_hash.fetch(hash);
+}
+
 static void
 log_one(
     ReadView const& ledger,

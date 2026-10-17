@@ -224,7 +224,7 @@ private:
             taker_offer,
             taker_quality,
             parse_amount(funds, issue_in),
-            sell ? tfSell : 0,
+            sell ? std::uint32_t(tfSell) : 0,
             rate_in,
             rate_out);
 

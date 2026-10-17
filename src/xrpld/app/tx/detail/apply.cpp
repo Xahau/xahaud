@@ -17,10 +17,15 @@
 */
 //==============================================================================
 
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
+#include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 
@@ -75,12 +80,17 @@ checkValidity(
     }
 
     if (rules.enabled(featureOnChainManifests) &&
-        tx.getTxnType() == ttMANIFEST_SET &&
-        tx.isFieldPresent(sfTxnSignature) &&
-        tx.getFieldVL(sfTxnSignature).empty() &&
-        tx.isFieldPresent(sfSigningPubKey) &&
-        tx.getFieldVL(sfSigningPubKey).empty() && tx.isFieldPresent(sfManifest))
+        hasManifestAuthorityMarkers(tx) && tx.isFieldPresent(sfManifest))
     {
+        // Structural nonsense must not buy manifest signature checks. The Fee
+        // depends on ledger fee state, which this function does not have;
+        // ingress callers pin it first with checkManifestIngressFee(), and the
+        // transactor pins it against the applying view in checkFee().
+        if (!hasCanonicalSetManifestShape(tx, config.NETWORK_ID))
+            return {
+                Validity::SigBad,
+                "Manifest-authorized envelope is not canonical"};
+
         // perform alternative signature check over manifest
         STObject const& manObj = const_cast<ripple::STTx&>(tx)
                                      .getField(sfManifest)
@@ -219,6 +229,58 @@ applyTransaction(
         JLOG(j.warn()) << "Throws: " << ex.what();
         return ApplyTransactionResult::Fail;
     }
+}
+
+std::pair<ManifestIngressFee, std::string>
+checkManifestIngressFee(Application& app, STTx const& tx)
+{
+    auto const open = app.openLedger().current();
+    if (!open->rules().enabled(featureOnChainManifests) ||
+        !hasManifestAuthorityMarkers(tx))
+        return {ManifestIngressFee::NotApplicable, {}};
+
+    // A non-canonical shape can never become valid, so it is not a fee miss:
+    // leave it to checkValidity(), which rejects it as a bad envelope.
+    if (!hasCanonicalSetManifestShape(tx, app.config().NETWORK_ID))
+        return {ManifestIngressFee::NotApplicable, {}};
+
+    // An amendment-blocked node's open ledger may sit on history the network
+    // is not validating, and with no validated ledger there is no agreed base
+    // at all. Neither is a reason to spend manifest crypto finding out.
+    if (app.getOPs().isAmendmentBlocked())
+        return {ManifestIngressFee::Refused, "server is amendment blocked"};
+    auto const validated = app.getLedgerMaster().getValidatedLedger();
+    if (!validated)
+        return {ManifestIngressFee::Refused, "no validated ledger"};
+
+    try
+    {
+        auto const fee = tx[sfFee].xrp();
+        auto const& manifest =
+            const_cast<STTx&>(tx).getField(sfManifest).downcast<STObject>();
+
+        // A transaction is priced from the parent of the ledger it is applied
+        // to. Here that is the open ledger, whose fees() are its parent's:
+        // exactly what preclaim enforces. A wrapper priced for any other fee
+        // setting cannot apply on this server, so it is not worth verifying,
+        // and no remembered setting widens the set of txids that reach
+        // manifest signature checks.
+        if (auto const canonical =
+                canonicalSetManifestFee(open->fees().base, manifest);
+            canonical && *canonical == fee)
+            return {ManifestIngressFee::Canonical, {}};
+    }
+    catch (std::exception const&)
+    {
+        // Malformed Fee or manifest: leave it to checkValidity()'s shape
+        // check, which rejects it as a bad envelope.
+        return {ManifestIngressFee::NotApplicable, {}};
+    }
+
+    return {
+        ManifestIngressFee::Refused,
+        "Fee is not the canonical SetManifest fee for this server's open "
+        "ledger"};
 }
 
 }  // namespace ripple

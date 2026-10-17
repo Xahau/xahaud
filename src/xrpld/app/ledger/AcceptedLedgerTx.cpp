@@ -28,7 +28,8 @@ namespace ripple {
 AcceptedLedgerTx::AcceptedLedgerTx(
     std::shared_ptr<ReadView const> const& ledger,
     std::shared_ptr<STTx const> const& txn,
-    std::shared_ptr<STObject const> const& met)
+    std::shared_ptr<STObject const> const& met,
+    bool withJson)
     : mTxn(txn)
     , mMeta(txn->getTransactionID(), ledger->seq(), *met)
     , mAffected(mMeta.getAffectedAccounts())
@@ -40,6 +41,11 @@ AcceptedLedgerTx::AcceptedLedgerTx(
     Serializer s;
     met->add(s);
     mRawMeta = std::move(s.modData());
+
+    // The JSON (full tx + meta + hex raw meta per transaction) is only
+    // needed for publishing. Bulk SQL saves of pinned history skip it.
+    if (!withJson)
+        return;
 
     mJson = Json::objectValue;
     mJson[jss::transaction] = mTxn->getJson(JsonOptions::none);

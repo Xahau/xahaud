@@ -30,6 +30,7 @@
 #include <boost/asio/buffers_iterator.hpp>
 #include <boost/system/error_code.hpp>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <type_traits>
@@ -285,8 +286,23 @@ parseMessageContent(MessageHeader const& header, Buffers const& buffers)
         if (payloadSize == 0 || !m->ParseFromArray(payload.data(), payloadSize))
             return {};
     }
-    else if (!m->ParseFromZeroCopyStream(&stream))
-        return {};
+    else
+    {
+        // The buffer sequence handed to us is the peer's whole read buffer,
+        // which may hold further frames after this one (several frames are
+        // routinely coalesced into a single read). Parse exactly the declared
+        // payload: an unbounded parse would run on into the next frame's
+        // header and payload, either rejecting a valid message or merging
+        // foreign bytes into it, and would disagree with the
+        // total_wire_size that the caller consumes.
+        //
+        // payload_wire_size is at most 26 bits wide for uncompressed frames
+        // and was already checked against maximiumMessageSize, so it fits.
+        static_assert(maximiumMessageSize <= std::numeric_limits<int>::max());
+        if (!m->ParseFromBoundedZeroCopyStream(
+                &stream, static_cast<int>(header.payload_wire_size)))
+            return {};
+    }
 
     return m;
 }

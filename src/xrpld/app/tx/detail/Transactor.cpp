@@ -287,7 +287,9 @@ Transactor::calculateHookChainFee(
             // LCOV_EXCL_STOP
         }
 
-        auto const hookName = hookObj[~sfHookName];
+        std::optional<Blob> const hookName = hookObj.isFieldPresent(sfHookName)
+            ? std::optional<Blob>(hookObj.getFieldVL(sfHookName))
+            : std::nullopt;
 
         uint32_t flags = 0;
         if (hookObj.isFieldPresent(sfFlags))
@@ -853,9 +855,9 @@ Transactor::apply()
     // that allow zero account. (and ttIMPORT)
     XRPL_ASSERT(
         sle != nullptr || account_ == beast::zero ||
-            view().rules().enabled(featureImport) &&
-                ctx_.tx.getTxnType() == ttIMPORT &&
-                !ctx_.tx.isFieldPresent(sfIssuer),
+            (view().rules().enabled(featureImport) &&
+             ctx_.tx.getTxnType() == ttIMPORT &&
+             !ctx_.tx.isFieldPresent(sfIssuer)),
         "ripple::Transactor::apply : non-null SLE or zero account");
 
     if (sle)
@@ -1198,6 +1200,46 @@ touchAccount(ApplyView& view, AccountID const& id)
     view.update(sle);
 }
 
+void
+Transactor::touchOnce(AccountID const& id)
+{
+    auto& view = ctx_.view();
+
+    // before fix20261005 every request touches, and touched_ stays empty
+    if (!view.rules().enabled(fix20261005))
+    {
+        touchAccount(view, id);
+        return;
+    }
+
+    if (touched_.insert(id).second)
+        touchAccount(view, id);
+}
+
+void
+Transactor::touchHookStateOwners(std::set<AccountID> const& written)
+{
+    if (!view().rules().enabled(fix20261005))
+        return;
+
+    // A hook may write into another account's namespace (state_foreign_set
+    // under a HookGrant) without that account being a transactional
+    // stakeholder. Touch it so the transaction threads to its AccountRoot.
+    for (auto const& acc : written)
+        touchOnce(acc);
+}
+
+void
+Transactor::discardView()
+{
+    ctx_.discard();
+
+    // The touches touched_ records were discarded with the view. touched_ is
+    // only populated under fix20261005, so before the fix this is a no-op and
+    // needs no amendment guard.
+    touched_.clear();
+}
+
 static void
 removeUnfundedOffers(
     ApplyView& view,
@@ -1284,7 +1326,7 @@ Transactor::reset(XRPAmount fee)
     std::vector<STObject> executions;
     std::vector<STObject> emissions;
     avi.copyHookMetaData(executions, emissions);
-    ctx_.discard();
+    discardView();
     ApplyViewImpl& avi2 = dynamic_cast<ApplyViewImpl&>(ctx_.view());
     avi2.setHookMetaData(std::move(executions), std::move(emissions));
 
@@ -1369,7 +1411,9 @@ Transactor::executeHookChain(
             // LCOV_EXCL_STOP
         }
 
-        auto const hookName = hookObj[~sfHookName];
+        std::optional<Blob> const hookName = hookObj.isFieldPresent(sfHookName)
+            ? std::optional<Blob>(hookObj.getFieldVL(sfHookName))
+            : std::nullopt;
 
         // check if the hook can fire
         uint256 hookOn = hook::getHookOn(
@@ -1501,6 +1545,21 @@ Transactor::doHookCallback(
     if (!emitDetails.isFieldPresent(sfEmitCallback))
         return;
 
+    bool const isEmitFailure = ctx_.tx.getTxnType() == ttEMIT_FAILURE;
+
+    // fix20261005: an emit failure callback is only meaningful with the
+    // original emitted transaction. If it wasn't in the ledger when this
+    // pseudo was applied there is nothing to report on, so skip rather than
+    // read the (already removed) entry.
+    if (isEmitFailure && view().rules().enabled(fix20261005) &&
+        !emitFailureTxn_)
+    {
+        JLOG(j_.warn()) << "HookError["
+                        << ctx_.tx.getFieldH256(sfTransactionHash)
+                        << "]: emitted txn missing on emit failure callback";
+        return;
+    }
+
     AccountID const& callbackAccountID =
         emitDetails.getAccountID(sfEmitCallback);
     uint256 const& callbackHookHash = emitDetails.getFieldH256(sfEmitHookHash);
@@ -1584,9 +1643,10 @@ Transactor::doHookCallback(
                 true,
                 true,
                 false,
-                ctx_.tx.getTxnType() == ttEMIT_FAILURE ? 1UL : 0UL,
+                isEmitFailure ? 1UL : 0UL,
                 hook_no - 1,
-                provisionalMeta);
+                provisionalMeta,
+                emitFailureTxn_);
 
             executedHookCount_++;
 
@@ -1595,8 +1655,12 @@ Transactor::doHookCallback(
 
             // write any state changes if cbak resulted in accept()
             if (success)
+            {
+                std::set<AccountID> written;
                 hook::finalizeHookState(
-                    stateMap, ctx_, ctx_.tx.getTransactionID());
+                    stateMap, ctx_, ctx_.tx.getTransactionID(), &written);
+                touchHookStateOwners(written);
+            }
 
             // write the final result
             ripple::TER result =
@@ -1707,7 +1771,10 @@ Transactor::doTSH(
         if ((!canRollback && strong) || (canRollback && !strong))
             continue;
 
-        touchAccount(view, tshAccountID);
+        // under fix20261005 an account is touched at most once per
+        // transaction (a foreign state write in the strong pass or a callback
+        // may already have touched an account that is a weak TSH)
+        touchOnce(tshAccountID);
 
         if (view.rules().enabled(fixHookAPI20251128))
         {
@@ -2017,7 +2084,12 @@ Transactor::operator()()
 
         // write state if all chains executed successfully
         if (isTesSuccess(result))
-            hook::finalizeHookState(stateMap, ctx_, ctx_.tx.getTransactionID());
+        {
+            std::set<AccountID> written;
+            hook::finalizeHookState(
+                stateMap, ctx_, ctx_.tx.getTransactionID(), &written);
+            touchHookStateOwners(written);
+        }
 
         // write hook results
         // this happens irrespective of whether final result was a tesSUCCESS
@@ -2034,6 +2106,24 @@ Transactor::operator()()
                 else
                     aawMap[hookResult.account].emplace(hookResult.hookHash);
             }
+        }
+    }
+
+    // fix20261005: a ttEMIT_FAILURE erases the expired ltEMITTED_TXN entry in
+    // doApply, but the Hook callback that runs afterwards (finishApply ->
+    // doHookCallback) needs the original emitted transaction. Capture it
+    // before base application mutates the view.
+    if (hooksEnabled && isTesSuccess(result) &&
+        ctx_.tx.getTxnType() == ttEMIT_FAILURE &&
+        view().rules().enabled(fix20261005))
+    {
+        if (auto const sle = view().read(
+                keylet::emittedTxn(ctx_.tx.getFieldH256(sfTransactionHash)));
+            sle && sle->isFieldPresent(sfEmittedTxn))
+        {
+            if (auto const inner = dynamic_cast<STObject const*>(
+                    sle->peekAtPField(sfEmittedTxn)))
+                emitFailureTxn_.emplace(*inner);
         }
     }
 
@@ -2067,17 +2157,29 @@ Transactor::finishApply(
     if (ctx_.size() > oversizeMetaDataCap)
         result = tecOVERSIZE;
 
+    // featureRNG: a transaction whose Hooks drew from the RNG is never
+    // retried on a tec. Under tapRETRY (the first closed-ledger pass, and
+    // open-ledger retries) a tec would otherwise drop the view without going
+    // through reset(), so the RNG state would not be rolled forward: a Hook
+    // that rolled back (tecHOOK_REJECTED) would leave the state it drew from
+    // in place for the next transaction in the pass, and would draw again on
+    // the final pass against a different state. Draws only exist when the
+    // amendment is enabled, so this needs no separate gate.
+    bool const rngDrawn =
+        dynamic_cast<ApplyViewImpl&>(ctx_.view()).getRandomData().has_value();
+
     if (isTecClaim(result) && (view().flags() & tapFAIL_HARD))
     {
         // If the tapFAIL_HARD flag is set, a tec result
         // must not do anything
-        ctx_.discard();
+        discardView();
         applied = false;
     }
     else if (
         (result == tecOVERSIZE) || (result == tecKILLED) ||
         (result == tecINCOMPLETE) || (result == tecEXPIRED) ||
-        (isTecClaimHardFail(result, view().flags())))
+        (isTecClaimHardFail(result, view().flags())) ||
+        (rngDrawn && isTecClaim(result)))
     {
         JLOG(j_.trace()) << "reapplying because of " << transToken(result);
 
@@ -2208,7 +2310,6 @@ Transactor::finishApply(
         uint32_t lgrCur = view().seq();
 
         bool const has240819 = view().rules().enabled(fix240819);
-        bool const has240911 = view().rules().enabled(fix240911);
         bool const hasIOURewardClaim =
             view().rules().enabled(featureIOURewardClaim);
         auto const& sfRewardFields =
@@ -2328,10 +2429,12 @@ Transactor::finishApply(
             if (!finalFields.isFieldPresent(sfBalance))
                 continue;
 
+            bool const has20261005 = view().rules().enabled(fix20261005);
+
             uint64_t bal =
                 finalFields.getFieldAmount(sfBalance).xrp().drops() / 1'000'000;
 
-            if (bal == 0)
+            if (!has20261005 && bal == 0)
                 continue;
 
             uint32_t lgrLast = sle->getFieldU32(sfRewardLgrLast);
@@ -2339,19 +2442,33 @@ Transactor::finishApply(
             uint32_t lgrElapsed = lgrCur - lgrLast;
 
             // overflow safety
-            if (!has240911 &&
-                (lgrElapsed > lgrCur || lgrElapsed > lgrLast ||
-                 lgrElapsed == 0))
+            if (lgrElapsed > lgrCur || lgrElapsed == 0)
+            {
+                if (has20261005)
+                {
+                    sle->setFieldU32(sfRewardLgrLast, lgrCur);
+                    view().update(sle);
+                }
                 continue;
-            if (has240911 && (lgrElapsed > lgrCur || lgrElapsed == 0))
-                continue;
+            }
 
             uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
+
+            // When bal == 0 there is no accumulator contribution to add, but
+            // the marker must still advance (handled below) so the stale span
+            // cannot be reused. accumNew == accum in that case.
             uint64_t accumNew = accum + bal * ((uint64_t)lgrElapsed);
 
             // check for overflow
             if (accumNew < accum)
+            {
+                if (has20261005)
+                {
+                    sle->setFieldU32(sfRewardLgrLast, lgrCur);
+                    view().update(sle);
+                }
                 continue;
+            }
 
             sle->setFieldU64(sfRewardAccumulator, accumNew);
             sle->setFieldU32(sfRewardLgrLast, lgrCur);
@@ -2407,7 +2524,12 @@ Transactor::finishApply(
             doAgainAsWeak(accID, hookHashes, stateMap, weakResults, proMeta);
 
         // write hook results
-        hook::finalizeHookState(stateMap, ctx_, ctx_.tx.getTransactionID());
+        {
+            std::set<AccountID> written;
+            hook::finalizeHookState(
+                stateMap, ctx_, ctx_.tx.getTransactionID(), &written);
+            touchHookStateOwners(written);
+        }
         for (auto& weakResult : weakResults)
             hook::finalizeHookResult(weakResult, ctx_, isTesSuccess(result));
 

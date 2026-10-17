@@ -153,6 +153,7 @@ transResults()
         MAKE_ERROR(tefINVALID_LEDGER_FIX_TYPE,     "The LedgerFixType field has an invalid value."),
         MAKE_ERROR(tefPAST_MANIFEST_SEQ,           "The submitted manifest's sequence is not newer than the current."),
         MAKE_ERROR(tefREVOKED_MANIFEST,            "The submitted manifest is for a revoked master key."),
+        MAKE_ERROR(tefMANIFEST_KEY_IN_USE,         "A key the submitted manifest names is already in use by another manifest."),
 
         MAKE_ERROR(telLOCAL_ERROR,            "Local failure."),
         MAKE_ERROR(telBAD_DOMAIN,             "Domain too long."),
@@ -174,6 +175,7 @@ transResults()
         MAKE_ERROR(telIMPORT_VL_KEY_NOT_RECOGNISED, "Import vl key was not recognized."),
         MAKE_ERROR(telCAN_NOT_QUEUE_IMPORT,   "Import transaction was not able to be directly applied and cannot be queued."),
         MAKE_ERROR(telENV_RPC_FAILED,         "Unit test RPC failure."),
+        MAKE_ERROR(telMANIFEST_FEE_MISMATCH,  "Unsigned SetManifest fee is not, or cannot be confirmed as, canonical for this server's ledger fee settings."),
 
         MAKE_ERROR(temMALFORMED,                 "Malformed transaction."),
         MAKE_ERROR(temBAD_AMM_TOKENS,            "Malformed: Invalid LPTokens."),

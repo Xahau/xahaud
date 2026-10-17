@@ -228,11 +228,7 @@ public:
 
     boost::asio::signal_set m_signals;
 
-    // Once we get C++20, we could use `std::atomic_flag` for `isTimeToStop`
-    // and eliminate the need for the condition variable and the mutex.
-    std::condition_variable stoppingCondition_;
-    mutable std::mutex stoppingMutex_;
-    std::atomic<bool> isTimeToStop = false;
+    std::atomic_flag isTimeToStop;
 
     std::atomic<bool> checkSigs_;
 
@@ -1264,13 +1260,29 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
 
         Section const& upVoted = config_->section(SECTION_AMENDMENTS);
 
+        Section const& ignored = config_->section(SECTION_IGNORE_AMENDMENTS);
+
+        // [ignore_amendments] exists to keep long-lived test networks syncable
+        // after an amendment they activated is removed from the codebase. It
+        // must never be usable on a production network.
+        if (!ignored.lines().empty() &&
+            (config_->NETWORK_ID == 0 || config_->NETWORK_ID == 21337))
+        {
+            JLOG(m_journal.fatal()) << "[" SECTION_IGNORE_AMENDMENTS
+                                       "] is not permitted on "
+                                       "network_id "
+                                    << config_->NETWORK_ID;
+            return false;
+        }
+
         m_amendmentTable = make_AmendmentTable(
             *this,
             config().AMENDMENT_MAJORITY_TIME,
             supported,
             upVoted,
             downVoted,
-            logs_->journal("Amendments"));
+            logs_->journal("Amendments"),
+            ignored);
     }
 
     Pathfinder::initPathTable();
@@ -1585,10 +1597,7 @@ ApplicationImp::run()
         getLoadManager().activateDeadlockDetector();
     }
 
-    {
-        std::unique_lock<std::mutex> lk{stoppingMutex_};
-        stoppingCondition_.wait(lk, [this] { return isTimeToStop.load(); });
-    }
+    isTimeToStop.wait(false, std::memory_order_relaxed);
 
     JLOG(m_journal.debug()) << "Application stopping";
 
@@ -1675,14 +1684,14 @@ ApplicationImp::run()
 void
 ApplicationImp::signalStop(std::string msg)
 {
-    if (!isTimeToStop.exchange(true))
+    if (!isTimeToStop.test_and_set(std::memory_order_acquire))
     {
         if (msg.empty())
             JLOG(m_journal.warn()) << "Server stopping";
         else
             JLOG(m_journal.warn()) << "Server stopping: " << msg;
 
-        stoppingCondition_.notify_all();
+        isTimeToStop.notify_all();
     }
 }
 
@@ -1701,7 +1710,7 @@ ApplicationImp::checkSigs(bool check)
 bool
 ApplicationImp::isStopping() const
 {
-    return isTimeToStop.load();
+    return isTimeToStop.test(std::memory_order_relaxed);
 }
 
 int

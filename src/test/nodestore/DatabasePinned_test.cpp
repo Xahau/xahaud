@@ -25,6 +25,7 @@
 #include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/basics/Slice.h>
+#include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/digest.h>
 
 namespace ripple {
@@ -33,13 +34,16 @@ namespace test {
 class DatabasePinned_test : public beast::unit_test::suite
 {
     // Build an Env whose nodestore is wired up as DatabasePinnedImp.
-    // pinned_type=rwdb is allowed in standalone mode (the catalogue
-    // tests do the same).
+    // The rotating store must persist (type=memory). type=rwdb is
+    // NullFactory and never builds DatabasePinnedImp. pinned_type=rwdb
+    // is allowed in standalone mode.
     static std::unique_ptr<Config>
-    pinnedEnvconfig()
+    pinnedEnvconfig(std::string const& nodePath)
     {
         auto cfg = jtx::envconfig();
         auto& nodeDb = cfg->section(ConfigSection::nodeDatabase());
+        nodeDb.set("type", "memory");
+        nodeDb.set("path", nodePath);
         nodeDb.set("pinned_type", "rwdb");
         nodeDb.set("online_delete", "256");
         return cfg;
@@ -84,7 +88,8 @@ class DatabasePinned_test : public beast::unit_test::suite
         testcase("store routing by NodeObjectType");
 
         using namespace jtx;
-        Env env{*this, pinnedEnvconfig()};
+        beast::temp_dir td;
+        Env env{*this, pinnedEnvconfig(td.path())};
         auto* db = getPinnedDb(env);
         if (!db)
             return;
@@ -136,7 +141,8 @@ class DatabasePinned_test : public beast::unit_test::suite
         testcase("store/fetch round-trip across both backends");
 
         using namespace jtx;
-        Env env{*this, pinnedEnvconfig()};
+        beast::temp_dir td;
+        Env env{*this, pinnedEnvconfig(td.path())};
         auto& nodeStore = env.app().getNodeStore();
 
         // Store one object of each type with distinct content so the

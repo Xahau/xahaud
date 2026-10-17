@@ -191,7 +191,7 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
             fullBelow = false;
         }
         else if (
-            !backed_ ||
+            !backed_ || f_.isNullBackend() ||
             !f_.getFullBelowCache()->touch_if_exists(childHash.as_uint256()))
         {
             bool pending = false;
@@ -248,7 +248,7 @@ SHAMap::gmn_ProcessNodes(MissingNodes& mn, MissingNodes::StackEntry& se)
     if (fullBelow)
     {  // No partial node encountered below this node
         node->setFullBelowGen(mn.generation_);
-        if (backed_)
+        if (backed_ && !f_.isNullBackend())
         {
             f_.getFullBelowCache()->insert(node->getHash().as_uint256());
         }
@@ -605,7 +605,8 @@ SHAMap::addKnownNode(
         }
 
         auto childHash = inner->getChildHash(branch);
-        if (f_.getFullBelowCache()->touch_if_exists(childHash.as_uint256()))
+        if (!f_.isNullBackend() &&
+            f_.getFullBelowCache()->touch_if_exists(childHash.as_uint256()))
         {
             return SHAMapAddNode::duplicate();
         }

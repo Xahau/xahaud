@@ -5055,7 +5055,15 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        // featureRNG is excluded: makeConfig() runs as a validator whenever
+        // voting settings are given, and a validator puts a ttENTROPY with a
+        // fresh random commitment into every ledger. That makes the
+        // transaction set hash, and so the canonical order in which
+        // different accounts' transactions apply when the ledger closes,
+        // differ from run to run, which breaks tests that assert balances
+        // depending on that order (e.g. unexpected balance change).
+        FeatureBitset const all{
+            supported_amendments() - featureXahauGenesis - featureRNG};
         testQueueSeq(all);
         testQueueTicket(all);
         testTecResult(all);
@@ -5082,7 +5090,15 @@ public:
     runMetaInfo()
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        // featureRNG is excluded: makeConfig() runs as a validator whenever
+        // voting settings are given, and a validator puts a ttENTROPY with a
+        // fresh random commitment into every ledger. That makes the
+        // transaction set hash, and so the canonical order in which
+        // different accounts' transactions apply when the ledger closes,
+        // differ from run to run, which breaks tests that assert balances
+        // depending on that order (e.g. unexpected balance change).
+        FeatureBitset const all{
+            supported_amendments() - featureXahauGenesis - featureRNG};
         testAcctInQueueButEmpty(all);
         testRPC(all);
         testExpirationReplacement(all);
