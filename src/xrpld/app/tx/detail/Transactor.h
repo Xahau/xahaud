@@ -174,7 +174,7 @@ public:
 
     // Hooks
 
-    static XRPAmount
+    static std::pair<XRPAmount, uint64_t>
     calculateHookChainFee(
         ReadView const& view,
         STTx const& tx,
