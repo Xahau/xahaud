@@ -21,6 +21,11 @@
 #include <xrpld/core/JobQueue.h>
 #include <xrpl/beast/unit_test.h>
 
+#include <future>
+#include <mutex>
+#include <string>
+#include <vector>
+
 namespace ripple {
 namespace test {
 
@@ -140,10 +145,62 @@ class JobQueue_test : public beast::unit_test::suite
         BEAST_EXPECT(coro == nullptr);
     }
 
+    void
+    testPriority()
+    {
+        testcase("priority order");
+
+        jtx::Env env{*this};
+        JobQueue& jQueue = env.app().getJobQueue();
+
+        // A standalone Env runs the JobQueue on a single worker, which makes
+        // dispatch order deterministic.
+        if (!BEAST_EXPECT(jQueue.thread_count() == 1))
+            return;
+
+        std::promise<void> started;
+        auto startedFuture = started.get_future();
+        std::promise<void> release;
+        std::shared_future<void> const releaseFuture =
+            release.get_future().share();
+
+        // Occupy the only worker so the jobs below queue up behind it.
+        BEAST_EXPECT(
+            jQueue.addJob(jtCLIENT, "blocker", [&started, releaseFuture]() {
+                started.set_value();
+                releaseFuture.wait();
+            }));
+        startedFuture.wait();
+
+        std::mutex m;
+        std::vector<std::string> order;
+        auto record = [&](std::string tag) {
+            return [&m, &order, tag]() {
+                std::lock_guard lock(m);
+                order.push_back(tag);
+            };
+        };
+
+        BEAST_EXPECT(jQueue.addJob(jtCLIENT, "low1", record("low1")));
+        BEAST_EXPECT(jQueue.addJob(jtPUBLEDGER, "high", record("high")));
+        BEAST_EXPECT(jQueue.addJob(jtCLIENT, "low2", record("low2")));
+        BEAST_EXPECT(jQueue.addJob(jtADMIN, "highest", record("highest")));
+
+        release.set_value();
+        jQueue.rendezvous();
+
+        // Higher job types run first; equal types run in FIFO order.
+        std::vector<std::string> const expected{
+            "highest", "high", "low1", "low2"};
+        std::lock_guard lock(m);
+        BEAST_EXPECT(order == expected);
+    }
+
 public:
     void
     run() override
     {
+        testPriority();
         testAddJob();
         testPostCoro();
     }

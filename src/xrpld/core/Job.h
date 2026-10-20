@@ -124,12 +124,14 @@ public:
     void
     execute();
 
-    // Sort jobs in priority order
+    // Sort jobs in dispatch order: JobQueue runs the first runnable job in
+    // the set, so higher-priority types (later in the JobType enum) must sort
+    // first, and jobs of the same type run in the order they were queued.
     auto
     operator<=>(Job const& other) const
     {
         if (type_ != other.type_)
-            return type_ <=> other.type_;
+            return other.type_ <=> type_;
         return index_ <=> other.index_;
     }
 
