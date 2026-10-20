@@ -1642,9 +1642,17 @@ hook::finalizeHookResult(
             ripple::Slice{
                 hookResult.exitReason.data(), hookResult.exitReason.size()});
         meta.setFieldU64(sfHookInstructionCount, hookResult.instructionCount);
+        // emit_atomic txns are emissions too (they share etxn_reserve), but
+        // they only exist if the transaction commits its subledger, which
+        // doEmit is the gate for. They are never in HookEmissions (that
+        // array lists txns that will appear in later ledgers); see the
+        // Subledger array of the transaction's metadata instead.
+        std::size_t const emitCount = emission_txnid.size() +
+            (doEmit ? hookResult.emittedAtomicTxn.size() : 0);
         meta.setFieldU16(
             sfHookEmitCount,
-            emission_txnid.size());  // this will never wrap, hard limit
+            static_cast<std::uint16_t>(
+                emitCount));  // this will never wrap, hard limit
         meta.setFieldU16(sfHookExecutionIndex, exec_index);
         meta.setFieldU16(sfHookStateChangeCount, hookResult.changedStateCount);
         meta.setFieldH256(sfHookHash, hookResult.hookHash);

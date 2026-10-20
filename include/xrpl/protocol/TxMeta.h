@@ -180,7 +180,11 @@ public:
     STArray const&
     getSubledger() const
     {
-        return *mSubledger;
+        // unlike the Hook arrays this is read by callers that only know the
+        // transaction had hooks (explorers, subledger_slot on a parent that
+        // never emitted): never dereference an empty optional
+        static STArray const empty{sfSubledger};
+        return mSubledger ? *mSubledger : empty;
     }
 
     void
