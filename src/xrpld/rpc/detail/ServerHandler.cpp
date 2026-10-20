@@ -44,7 +44,6 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/SystemParameters.h>
@@ -905,7 +904,7 @@ pwaPermitted(
         return false;
     if (lists.allow.count(account) > 0)
         return true;
-    if (view && view->rules().enabled(featurePWAHookLists))
+    if (view)
     {
         uint256 key;
         std::copy(account.begin(), account.end(), key.end() - account.size());

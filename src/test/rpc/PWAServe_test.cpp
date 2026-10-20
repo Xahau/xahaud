@@ -947,10 +947,10 @@ class PWAServe_test : public beast::unit_test::suite,
         using namespace jtx;
         Account const alice{"alice"}, bob{"bob"}, carol{"carol"}, dave{"dave"},
             p1{"p1"}, p2{"p2"};
-        auto check = [&](FeatureBitset features,
-                         PWALists const& lists,
-                         std::array<bool, 4> expect) {
-            Env env{*this, features};
+        auto check = [&](PWALists const& lists,
+                         std::array<bool, 4> expect,
+                         bool withView = true) {
+            Env env{*this};
             Port port;
             port.pwa_list_providers = {p1.id(), p2.id()};
             env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
@@ -971,18 +971,20 @@ class PWAServe_test : public beast::unit_test::suite,
                 int i = 0;
                 for (auto const& a : {alice, bob, carol, dave})
                     BEAST_EXPECTS(
-                        pwaPermitted(lists, port, &view, a.id()) == expect[i++],
+                        pwaPermitted(
+                            lists, port, withView ? &view : nullptr, a.id()) ==
+                            expect[i++],
                         a.name());
                 return false;
             });
         };
-        auto const all = supported_amendments();
         // First provider with an entry wins; no entry passes through.
-        check(all, {}, {false, true, false, true});
-        // cfg lists first; listed nowhere falls to the allowlist rule.
-        check(all, {{alice.id()}, {bob.id()}}, {true, false, false, false});
-        // Inert without the amendment.
-        check(all - featurePWAHookLists, {}, {true, true, true, true});
+        check({}, {false, true, false, true});
+        // Local lists first; listed nowhere falls to the allowlist rule.
+        check({{alice.id()}, {bob.id()}}, {true, false, false, false});
+        // Without a view (the I/O thread's early check) providers are not
+        // consulted, so nothing they say is refused there.
+        check({}, {true, true, true, true}, false);
     }
 
     void

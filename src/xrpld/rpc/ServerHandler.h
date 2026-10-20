@@ -397,8 +397,8 @@ setup_ServerHandler(Config const& c, std::ostream&& log);
 
 class ReadView;
 
-/** Whether a pwa port may serve `account`: the PWA lists, then (with a
-    view and featurePWAHookLists) the port's hook list providers. */
+/** Whether a pwa port may serve `account`: the PWA lists, then (given a
+    view) the port's hook list providers. */
 bool
 pwaPermitted(
     PWALists const& lists,
