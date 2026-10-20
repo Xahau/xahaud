@@ -60,8 +60,6 @@ struct Port
     std::vector<boost::asio::ip::network_v6> secure_gateway_nets_v6;
     // "pwa" ports only; see the "pwa ports" section of xahaud-example.cfg.
     std::set<std::string> pwa_domains;  // zones, lower case, no trailing dot
-    std::set<AccountID> pwa_allowlist;  // if non-empty, only these are served
-    std::set<AccountID> pwa_blocklist;  // never served; wins over allowlist
     bool pwa_custom_domains = false;    // serve hosts named by TXT records
     std::optional<beast::IP::Endpoint> pwa_resolver;  // for those; else system
     std::vector<AccountID> pwa_list_providers;        // hook lists, first wins

@@ -1412,6 +1412,30 @@ private:
         return jvRequest;
     }
 
+    // pwa_list [reload] [allow|block|unallow|unblock <account>]...
+    Json::Value
+    parsePWAList(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+        for (Json::UInt i = 0; i < jvParams.size(); ++i)
+        {
+            auto const op = jvParams[i].asString();
+            if (op == "reload" && !jvRequest.isMember(op))
+            {
+                jvRequest[op] = true;
+                continue;
+            }
+            if ((op != "allow" && op != "block" && op != "unallow" &&
+                 op != "unblock") ||
+                ++i == jvParams.size())
+                return rpcError(rpcINVALID_PARAMS);
+            if (!jvRequest.isMember(op))
+                jvRequest[op] = Json::arrayValue;
+            jvRequest[op].append(jvParams[i].asString());
+        }
+        return jvRequest;
+    }
+
     // pwa_validate <account> <hash> [<domain>]
     Json::Value
     parsePWAValidate(Json::Value const& jvParams)
@@ -1515,6 +1539,7 @@ public:
             {"ping", &RPCParser::parseAsIs, 0, 0},
             {"print", &RPCParser::parseAsIs, 0, 1},
             {"pwa_info", &RPCParser::parsePWAInfo, 0, 2},
+            {"pwa_list", &RPCParser::parsePWAList, 0, -1},
             {"pwa_validate", &RPCParser::parsePWAValidate, 2, 3},
             //      {   "profile",              &RPCParser::parseProfile, 1,  9
             //      },

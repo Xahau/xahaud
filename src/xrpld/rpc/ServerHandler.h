@@ -33,6 +33,7 @@
 
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
+#include <boost/filesystem/path.hpp>
 #include <boost/utility/string_view.hpp>
 
 #include <array>
@@ -40,7 +41,9 @@
 #include <chrono>
 #include <condition_variable>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <set>
 #include <vector>
 
 namespace ripple {
@@ -50,6 +53,16 @@ operator<(Port const& lhs, Port const& rhs)
 {
     return lhs.name < rhs.name;
 }
+
+/** [pwa_allowlist] and [pwa_blocklist]: every pwa port applies them. */
+struct PWALists
+{
+    std::set<AccountID> allow;  // if non-empty, only these are served
+    std::set<AccountID> block;  // never served; wins over allowlist
+
+    bool
+    operator==(PWALists const&) const = default;
+};
 
 class ServerHandler
 {
@@ -116,6 +129,12 @@ public:
         // Configuration for the Overlay
         boost::asio::ip::tcp::endpoint overlay;
 
+        // PWA lists as read at startup: those in xahaud.cfg are fixed, those
+        // in pwaListsFile (empty: none) the pwa_list RPC edits.
+        PWALists pwaCfgLists;
+        PWALists pwaFileLists;
+        boost::filesystem::path pwaListsFile;
+
         void
         makeContexts();
     };
@@ -164,6 +183,15 @@ private:
     std::set<std::string> pwaDnsInFlight_;
     static constexpr std::size_t maxPWADnsInFlight = 4;
     static constexpr std::size_t maxPWADnsEntries = 10'000;
+
+    // The effective PWA lists, cfg + file, replaced whole on each edit so a
+    // request sees one consistent snapshot. pwaListsEditMutex_ serialises
+    // edits (and so the file write); pwaListsMutex_ guards only the pointer.
+    std::mutex pwaListsEditMutex_;
+    PWALists pwaFileLists_;
+    mutable std::mutex pwaListsMutex_;
+    std::shared_ptr<PWALists const> pwaLists_ =
+        std::make_shared<PWALists const>();
 
     void
     resolvePWADomain(
@@ -227,6 +255,19 @@ public:
     {
         return pwaStats_;
     }
+
+    std::shared_ptr<PWALists const>
+    pwaLists() const
+    {
+        std::lock_guard lock(pwaListsMutex_);
+        return pwaLists_;
+    }
+
+    /** The pwa_list RPC: optionally reread the lists file, take `remove`
+        off and then put `add` on its lists, write the file if that changed
+        it, then apply the result. All or nothing. Returns the RPC result. */
+    Json::Value
+    pwaListsEdit(PWALists const& add, PWALists const& remove, bool reload);
 
     /** Drop every cached custom domain answer; returns how many. */
     std::size_t
@@ -323,8 +364,8 @@ private:
     void
     onPWARequest(Session& session);
 
-    /** Apply the allowlist and blocklist, then post the ledger read to the
-        job queue as jtCLIENT_PWA. Callable from any thread. */
+    /** Refuse what the PWA lists alone settle, then post the ledger read
+        to the job queue as jtCLIENT_PWA. Callable from any thread. */
     void
     queuePWALookup(
         std::shared_ptr<Session> const& session,
@@ -356,10 +397,14 @@ setup_ServerHandler(Config const& c, std::ostream&& log);
 
 class ReadView;
 
-/** Whether a pwa port may serve `account`: its cfg lists, then (with a
-    view and featurePWAHookLists) its hook list providers. */
+/** Whether a pwa port may serve `account`: the PWA lists, then (with a
+    view and featurePWAHookLists) the port's hook list providers. */
 bool
-pwaPermitted(Port const& port, ReadView const* view, AccountID const& account);
+pwaPermitted(
+    PWALists const& lists,
+    Port const& port,
+    ReadView const* view,
+    AccountID const& account);
 
 std::unique_ptr<ServerHandler>
 make_ServerHandler(

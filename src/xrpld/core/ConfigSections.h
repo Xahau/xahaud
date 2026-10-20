@@ -80,6 +80,7 @@ struct ConfigSection
 #define SECTION_PWA_ALLOWLIST "pwa_allowlist"
 #define SECTION_PWA_BLOCKLIST "pwa_blocklist"
 #define SECTION_PWA_LIST_PROVIDERS "pwa_list_providers"
+#define SECTION_PWA_LISTS_FILE "pwa_lists_file"
 #define SECTION_PREFETCH_WORKERS "prefetch_workers"
 #define SECTION_REDUCE_RELAY "reduce_relay"
 #define SECTION_RELATIONAL_DB "relational_db"
