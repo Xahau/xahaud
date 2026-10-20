@@ -105,6 +105,9 @@ struct ConfigSection
 #define SECTION_VALIDATORS "validators"
 #define SECTION_VALIDATOR_TOKEN "validator_token"
 #define SECTION_VETO_AMENDMENTS "veto_amendments"
+// Testnet-only: amendments enabled on-ledger that this node should not treat
+// as unsupported (i.e. should not become amendment blocked over).
+#define SECTION_IGNORE_AMENDMENTS "ignore_amendments"
 #define SECTION_WORKERS "workers"
 
 }  // namespace ripple
