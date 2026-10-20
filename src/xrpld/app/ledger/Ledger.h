@@ -352,6 +352,13 @@ public:
     void
     updateSkipList();
 
+    /** featureHistoryTree: append this ledger's transactions, in
+        TransactionIndex order, to the history MMR kept in ltHISTORY_TREE.
+        Called once at close after all transactions are applied.
+    */
+    void
+    updateHistoryTree();
+
     bool
     walkLedger(beast::Journal j, bool parallel = false) const;
 

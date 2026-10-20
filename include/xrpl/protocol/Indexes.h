@@ -122,6 +122,10 @@ UNLReport() noexcept;
 Keylet const&
 random() noexcept;
 
+/** The (fixed) index of the featureHistoryTree history tree object. */
+Keylet const&
+historyTree() noexcept;
+
 /** The beginning of an order book */
 struct book_t
 {

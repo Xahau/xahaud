@@ -517,6 +517,22 @@ TRANSACTION(ttENTROPY, 89, Entropy, ({
     {sfRandomData, soeOPTIONAL},
 }))
 
+/** featureHistoryTree: a host proves it holds one leaf of the history tree.
+
+    sfHistoryProof carries the leaf (tx + meta) and its sibling path and is
+    verified against the ltHISTORY_TREE peaks in preclaim. It is transient:
+    excluded from the signature and the txid (sfHistoryProofDigest stands in
+    for it) and clipped from the stored transaction, so history does not grow
+    with proofs of history. Hooks on sfDestination (strong TSH) see the full
+    transaction and may call history_verify on it.
+ */
+TRANSACTION(ttHISTORY_PROOF, 90, HistoryProof, ({
+    {sfHistoryLeafIndex, soeREQUIRED},
+    {sfHistoryProofDigest, soeREQUIRED},
+    {sfHistoryProof, soeOPTIONAL},
+    {sfDestination, soeOPTIONAL},
+}))
+
 /* sfAccount is supplied by TxFormats::commonFields; listing it here as well
    makes the SOTemplate reject the format at construction. */
 TRANSACTION(ttMANIFEST_SET, 91, SetManifest, ({

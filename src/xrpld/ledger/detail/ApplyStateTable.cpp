@@ -313,8 +313,9 @@ ApplyStateTable::apply(
     beast::Journal j)
 {
     // Build metadata and insert
+    // featureHistoryTree: transient fields are clipped from the stored form.
     auto const sTx = std::make_shared<Serializer>();
-    tx.add(*sTx);
+    tx.addStorable(*sTx);
     std::shared_ptr<Serializer> sMeta;
     std::optional<TxMeta> metadata;
     if (!to.open() || isDryRun)

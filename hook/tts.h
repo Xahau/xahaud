@@ -62,6 +62,7 @@
 #define ttPERMISSIONED_DOMAIN_SET 71
 #define ttPERMISSIONED_DOMAIN_DELETE 72
 #define ttENTROPY 89
+#define ttHISTORY_PROOF 90
 #define ttMANIFEST_SET 91
 #define ttCRON 92
 #define ttCRON_SET 93

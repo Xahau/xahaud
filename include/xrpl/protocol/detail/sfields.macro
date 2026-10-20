@@ -160,6 +160,9 @@ TYPED_SFIELD(sfTouchCount,               UINT64,    97)
 TYPED_SFIELD(sfAccountIndex,             UINT64,    98)
 TYPED_SFIELD(sfAccountCount,             UINT64,    99)
 TYPED_SFIELD(sfRewardAccumulator,        UINT64,   100)
+// featureHistoryTree
+TYPED_SFIELD(sfHistoryLeafIndex,         UINT64,   101)
+TYPED_SFIELD(sfHistoryLeafCount,         UINT64,   102)
 
 // 128-bit
 TYPED_SFIELD(sfEmailHash,                UINT128,    1)
@@ -224,6 +227,8 @@ TYPED_SFIELD(sfHookCanEmit,              UINT256,   96)
 TYPED_SFIELD(sfEmittedTxnID,             UINT256,   97)
 TYPED_SFIELD(sfGovernanceMarks,          UINT256,   98)
 TYPED_SFIELD(sfGovernanceFlags,          UINT256,   99)
+// featureHistoryTree: sha512Half of sfHistoryProof, signed and part of the txid
+TYPED_SFIELD(sfHistoryProofDigest,       UINT256,  100)
 
 // number (common)
 TYPED_SFIELD(sfNumber,                   NUMBER,     1)
@@ -304,6 +309,9 @@ TYPED_SFIELD(sfAppLoader,                VL,        96)
 TYPED_SFIELD(sfHookName,                 VL,        97)
 TYPED_SFIELD(sfRemarkValue,              VL,        98)
 TYPED_SFIELD(sfRemarkName,               VL,        99)
+// featureHistoryTree: transient. Not signed, not part of the txid, clipped from
+// the stored transaction (see STTx::isTransientField).
+TYPED_SFIELD(sfHistoryProof,             VL,       100, SField::sMD_Default, SField::notSigning)
 
 // account (common)
 TYPED_SFIELD(sfAccount,                  ACCOUNT,    1)
@@ -337,6 +345,7 @@ TYPED_SFIELD(sfNFTokenOffers,            VECTOR256,  4)
 TYPED_SFIELD(sfHookNamespaces,           VECTOR256,  5)
 TYPED_SFIELD(sfCredentialIDs,            VECTOR256,  6)
 TYPED_SFIELD(sfURITokenIDs,              VECTOR256, 99)
+TYPED_SFIELD(sfHistoryPeaks,             VECTOR256, 100)
 
 // path set
 UNTYPED_SFIELD(sfPaths,                  PATHSET,    1)

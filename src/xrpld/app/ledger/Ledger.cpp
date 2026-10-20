@@ -43,6 +43,8 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
+#include <xrpl/protocol/HistoryTree.h>
+#include <algorithm>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SecretKey.h>
@@ -986,6 +988,71 @@ Ledger::updateSkipList()
     hashes.push_back(info_.parentHash);
     sle->setFieldV256(sfHashes, STVector256(hashes));
     sle->setFieldU32(sfLastLedgerSequence, prevIndex);
+    if (created)
+        rawInsert(sle);
+    else
+        rawReplace(sle);
+}
+
+// featureHistoryTree
+void
+Ledger::updateHistoryTree()
+{
+    if (!rules().enabled(featureHistoryTree))
+        return;
+
+    auto const k = keylet::historyTree();
+    auto sle = peek(k);
+    bool const created = !sle;
+    if (created)
+    {
+        sle = std::make_shared<SLE>(k);
+        sle->setFieldU64(sfHistoryLeafCount, 0);
+    }
+
+    // Leaves are appended in TransactionIndex order, which is the order the
+    // transactions were applied, so every node computes the same tree.
+    std::vector<std::pair<std::uint32_t, uint256>> leaves;
+    for (auto const& item : txMap_)
+    {
+        SerialIter sit(item.slice());
+        Slice const tx = sit.getSlice(sit.getVLDataLength());
+        Slice const meta = sit.getSlice(sit.getVLDataLength());
+
+        std::uint32_t index = 0;
+        {
+            SerialIter ms(meta);
+            STObject const m(ms, sfMetadata);
+            index = m.getFieldU32(sfTransactionIndex);
+        }
+
+        leaves.emplace_back(
+            index, history::leafHash(info_.seq, index, tx, meta));
+    }
+
+    if (leaves.empty() && !created)
+        return;
+
+    std::sort(leaves.begin(), leaves.end(), [](auto const& a, auto const& b) {
+        return a.first < b.first;
+    });
+
+    std::vector<uint256> peaks;
+    if (sle->isFieldPresent(sfHistoryPeaks))
+        peaks = static_cast<std::vector<uint256>>(
+            sle->getFieldV256(sfHistoryPeaks));
+    std::uint64_t count = sle->getFieldU64(sfHistoryLeafCount);
+
+    for (auto const& [index, leaf] : leaves)
+        history::append(peaks, count, leaf);
+
+    sle->setFieldU64(sfHistoryLeafCount, count);
+    sle->setFieldU32(sfLedgerSequence, info_.seq);
+    if (peaks.empty())
+        sle->makeFieldAbsent(sfHistoryPeaks);
+    else
+        sle->setFieldV256(sfHistoryPeaks, STVector256(peaks));
+
     if (created)
         rawInsert(sle);
     else

@@ -45,6 +45,7 @@
 #include <xrpld/app/tx/detail/Escrow.h>
 #include <xrpld/app/tx/detail/GenesisMint.h>
 #include <xrpld/app/tx/detail/Import.h>
+#include <xrpld/app/tx/detail/HistoryProof.h>
 #include <xrpld/app/tx/detail/Invoke.h>
 #include <xrpld/app/tx/detail/LedgerStateFix.h>
 #include <xrpld/app/tx/detail/MPTokenAuthorize.h>

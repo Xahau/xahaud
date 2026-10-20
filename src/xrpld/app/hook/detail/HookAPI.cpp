@@ -1,6 +1,10 @@
 // Implementation of decoupled Hook APIs for emit and related helpers.
 
 #include <xrpld/app/hook/HookAPI.h>
+#include <xrpld/app/tx/detail/HistoryProof.h>
+#include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/SecretKey.h>
+#include <xrpl/protocol/Seed.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/Import.h>
@@ -1989,6 +1993,43 @@ HookAPI::rng_next() const
 
     ++hookCtx.rng_draws;
     return out;
+}
+
+// featureHistoryTree
+Expected<uint256, HookReturnCode>
+HookAPI::history_verify(Slice blob, uint64_t leafIndex) const
+{
+    auto& applyCtx = hookCtx.applyCtx;
+    auto const& view = applyCtx.view();
+
+    if (!view.rules().enabled(featureHistoryTree))
+        return Unexpected(NOT_IMPLEMENTED);
+
+    // Until per-API billing exists only the genesis account's Hooks may pay
+    // for a native verification.
+    static auto const genesisAccountId = calcAccountID(
+        generateKeyPair(KeyType::secp256k1, generateSeed("masterpassphrase"))
+            .first);
+    if (hookCtx.result.account != genesisAccountId)
+        return Unexpected(NOT_AUTHORIZED);
+
+    Blob own;
+    if (blob.empty())
+    {
+        auto const& tx = applyCtx.tx;
+        if (tx.getTxnType() != ttHISTORY_PROOF ||
+            !tx.isFieldPresent(sfHistoryProof))
+            return Unexpected(INVALID_TXN);
+        own = tx.getFieldVL(sfHistoryProof);
+        blob = makeSlice(own);
+        leafIndex = tx.getFieldU64(sfHistoryLeafIndex);
+    }
+
+    auto const leaf = HistoryProof::verify(view, leafIndex, blob);
+    if (!leaf)
+        return Unexpected(DOES_NOT_MATCH);
+
+    return *leaf;
 }
 
 Expected<uint64_t, HookReturnCode>

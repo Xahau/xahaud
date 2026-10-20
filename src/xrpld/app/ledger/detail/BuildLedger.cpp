@@ -64,6 +64,7 @@ buildLedgerImpl(
     }
 
     built->updateSkipList();
+    built->updateHistoryTree();
     {
         // Write the final version of all modified SHAMap
         // nodes to the node store to preserve the new LCL
@@ -271,7 +272,13 @@ buildLedger(
         j,
         [&](OpenView& accum, std::shared_ptr<Ledger> const& built) {
             for (auto& tx : replayData.orderedTxns())
-                applyTransaction(app, accum, *tx.second, false, applyFlags, j);
+                applyTransaction(
+                    app,
+                    accum,
+                    *tx.second,
+                    false,
+                    applyFlags | tapHISTORY_REPLAY,
+                    j);
         });
 }
 

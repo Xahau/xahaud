@@ -501,6 +501,14 @@ public:
     Expected<Bytes, HookReturnCode>
     util_random(uint32_t len) const;
 
+    /// featureHistoryTree (genesis Hook only until per-API billing exists)
+
+    // Verify a history tree proof against the current ltHISTORY_TREE peaks
+    // and return the leaf hash. An empty blob means "the originating
+    // transaction's own sfHistoryProof and sfHistoryLeafIndex".
+    Expected<uint256, HookReturnCode>
+    history_verify(Slice blob, uint64_t leafIndex) const;
+
     Expected<Keylet, HookReturnCode>
     ledger_keylet(Keylet const& klLo, Keylet const& klHi) const;
 

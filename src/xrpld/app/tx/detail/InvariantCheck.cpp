@@ -605,6 +605,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltIMPORT_VLSEQ:
             case ltUNL_REPORT:
             case ltRANDOM:
+            case ltHISTORY_TREE:
             case ltAMM:
             case ltBRIDGE:
             case ltXCHAIN_OWNED_CLAIM_ID:
