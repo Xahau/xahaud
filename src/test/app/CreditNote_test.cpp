@@ -255,14 +255,15 @@ struct CreditNote_test : public beast::unit_test::suite
         Env env{*this, supported_amendments()};
         Account const alice{"alice", KeyType::ed25519};
         Account const bob{"bob"};
-        Account const carol{"carol"};
+        Account const carol{"carol"};                  // secp256k1
+        Account const dave{"dave", KeyType::ed25519};  // never funded
         env.fund(XRP(10000), alice, bob, carol);
         env.close();
 
         auto const text = freshNote(env, alice, "10000000");
 
-        // signature by a key the issuer does not hold
-        env(claim(bob, text, carol), ter(tecNO_PERMISSION));
+        // a well-formed ed25519 signature by a key the issuer does not hold
+        env(claim(bob, text, dave), ter(tecNO_PERMISSION));
 
         // signature over different bytes
         {
@@ -272,11 +273,7 @@ struct CreditNote_test : public beast::unit_test::suite
         }
 
         // not ed25519
-        {
-            auto jv = claim(bob, text, carol);
-            jv[sfNoteSignature.fieldName] = strHex(noteSign(carol, text));
-            env(jv, ter(temMALFORMED));
-        }
+        env(claim(bob, text, carol), ter(temMALFORMED));
 
         // wrong network
         {
@@ -353,6 +350,10 @@ struct CreditNote_test : public beast::unit_test::suite
         // an ed25519 key she does not hold yet
         env(claim(bob, freshNote(env, alice, "1000000"), alie),
             ter(tecNO_PERMISSION));
+        // Close before the regkey: a tec stays in the open ledger and is
+        // re-applied at close in canonical order, where it could land after
+        // the regkey and redeem.
+        env.close();
 
         // as her regular key it signs for her
         env(regkey(alice, alie));
@@ -398,12 +399,17 @@ struct CreditNote_test : public beast::unit_test::suite
         // more than alice holds
         env(claim(bob, freshNote(env, alice, iou(USD, "101")), alice),
             ter(tecUNFUNDED_PAYMENT));
+        env.close();
 
         // frozen line
         env(trust(gw, bob["USD"](0), tfSetFreeze));
         env.close();
         env(claim(bob, freshNote(env, alice, iou(USD, "10")), alice),
             ter(tecFROZEN));
+        // The rejected claim must close before the unfreeze: otherwise the
+        // close re-applies both in canonical order and, with the unfreeze
+        // first, the note redeems after all.
+        env.close();
         env(trust(gw, bob["USD"](0), tfClearFreeze));
         env.close();
 
