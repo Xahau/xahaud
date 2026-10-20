@@ -718,6 +718,31 @@ public:
             replayer.deltas_.size() == deltas;
     }
 
+    /**
+     * Sweep finished tasks and wait until all sub-tasks are gone.
+     *
+     * A finished task can still be briefly referenced by a JobQueue worker
+     * (e.g. the timer job that delivered the final reply is still unwinding
+     * and holds a locked shared_ptr to the sub-task). The replayer only
+     * tracks sub-tasks by weak_ptr, so a single sweep racing with that
+     * worker can leave an entry behind until the next sweep. Production
+     * sweeps periodically, so retry here instead of asserting on one sweep.
+     */
+    bool
+    sweepAndWaitForEmpty()
+    {
+        int totalRound = 100;
+        for (int i = 0; i < totalRound; ++i)
+        {
+            replayer.sweep();
+            if (countsAsExpected(0, 0, 0))
+                return true;
+            if (i < totalRound - 1)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        return false;
+    }
+
     std::shared_ptr<SkipListAcquire>
     findSkipListAcquire(uint256 const& hash)
     {
@@ -1175,8 +1200,7 @@ struct LedgerReplayer_test : public beast::unit_test::suite
             deltaStatuses));
 
         // sweep
-        net.client.replayer.sweep();
-        BEAST_EXPECT(net.client.countsAsExpected(0, 0, 0));
+        BEAST_EXPECT(net.client.sweepAndWaitForEmpty());
     }
 
     void
@@ -1205,8 +1229,7 @@ struct LedgerReplayer_test : public beast::unit_test::suite
             deltaStatuses));
 
         // sweep
-        net.client.replayer.sweep();
-        BEAST_EXPECT(net.client.countsAsExpected(0, 0, 0));
+        BEAST_EXPECT(net.client.sweepAndWaitForEmpty());
     }
 
     void
@@ -1257,8 +1280,7 @@ struct LedgerReplayer_test : public beast::unit_test::suite
         BEAST_EXPECT(net.client.waitForLedgers(finalHash, totalReplay));
 
         // sweep
-        net.client.replayer.sweep();
-        BEAST_EXPECT(net.client.countsAsExpected(0, 0, 0));
+        BEAST_EXPECT(net.client.sweepAndWaitForEmpty());
     }
 
     void
@@ -1453,8 +1475,7 @@ struct LedgerReplayer_test : public beast::unit_test::suite
         BEAST_EXPECT(net.client.countsAsExpected(5, 3, totalReplay * 3 - 1));
 
         // sweep
-        net.client.replayer.sweep();
-        BEAST_EXPECT(net.client.countsAsExpected(0, 0, 0));
+        BEAST_EXPECT(net.client.sweepAndWaitForEmpty());
     }
 
     void
@@ -1509,8 +1530,7 @@ struct LedgerReplayerTimeout_test : public beast::unit_test::suite
 
         // sweep
         BEAST_EXPECT(net.client.countsAsExpected(1, 1, 0));
-        net.client.replayer.sweep();
-        BEAST_EXPECT(net.client.countsAsExpected(0, 0, 0));
+        BEAST_EXPECT(net.client.sweepAndWaitForEmpty());
     }
 
     void
@@ -1543,8 +1563,7 @@ struct LedgerReplayerTimeout_test : public beast::unit_test::suite
 
         // sweep
         BEAST_EXPECT(net.client.countsAsExpected(1, 1, totalReplay - 1));
-        net.client.replayer.sweep();
-        BEAST_EXPECT(net.client.countsAsExpected(0, 0, 0));
+        BEAST_EXPECT(net.client.sweepAndWaitForEmpty());
     }
 
     void
@@ -1607,8 +1626,7 @@ struct LedgerReplayerLong_test : public beast::unit_test::suite
             rounds, rounds, rounds * (totalReplay - 1)));
 
         // sweep
-        net.client.replayer.sweep();
-        BEAST_EXPECT(net.client.countsAsExpected(0, 0, 0));
+        BEAST_EXPECT(net.client.sweepAndWaitForEmpty());
     }
 };
 
