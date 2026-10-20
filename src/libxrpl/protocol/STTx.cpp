@@ -31,9 +31,9 @@
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/Sign.h>
-#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/UintTypes.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/format.hpp>
 
@@ -155,7 +155,8 @@ STTx::checkTransientFields() const
     if (!isFieldPresent(sfHistoryProofDigest) ||
         sha512Half(makeSlice(getFieldVL(sfHistoryProof))) !=
             getFieldH256(sfHistoryProofDigest))
-        Throw<std::runtime_error>("Transaction transient field digest mismatch");
+        Throw<std::runtime_error>(
+            "Transaction transient field digest mismatch");
 }
 
 uint256

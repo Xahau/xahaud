@@ -94,7 +94,7 @@ enum class LedgerNameSpace : std::uint16_t {
     MANIFEST_DIR = LEDGER_NAMESPACE2(0x01, 'M'),
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
-    RANDOM = 0x526E,  // Rn
+    RANDOM = 0x526E,        // Rn
     HISTORY_TREE = 0x4874,  // Ht
 
     // No longer used or supported. Left here to reserve the space

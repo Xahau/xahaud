@@ -45,7 +45,11 @@ HistoryProof::verify(ReadView const& view, std::uint64_t leafIndex, Slice blob)
 
     uint256 leaf;
     if (!history::verifyProof(
-            peaks, sle->getFieldU64(sfHistoryLeafCount), leafIndex, *proof, &leaf))
+            peaks,
+            sle->getFieldU64(sfHistoryLeafCount),
+            leafIndex,
+            *proof,
+            &leaf))
         return std::nullopt;
 
     return leaf;
@@ -83,7 +87,8 @@ HistoryProof::preflight(PreflightContext const& ctx)
 
         // STTx's constructors already enforce this; keep it as a belt for
         // transactions assembled in-process.
-        if (sha512Half(makeSlice(blob)) != tx.getFieldH256(sfHistoryProofDigest))
+        if (sha512Half(makeSlice(blob)) !=
+            tx.getFieldH256(sfHistoryProofDigest))
             return temMALFORMED;
 
         if (!history::parseProof(makeSlice(blob)))
@@ -103,8 +108,7 @@ HistoryProof::preclaim(PreclaimContext const& ctx)
 
     if (tx.isFieldPresent(sfDestination))
     {
-        auto const sleDest =
-            ctx.view.read(keylet::account(tx[sfDestination]));
+        auto const sleDest = ctx.view.read(keylet::account(tx[sfDestination]));
         if (!sleDest)
             return tecNO_TARGET;
     }
@@ -146,8 +150,8 @@ HistoryProof::calculateBaseFee(ReadView const& view, STTx const& tx)
     // rather than ledger space: one drop per 32 bytes.
     XRPAmount extra{0};
     if (tx.isFieldPresent(sfHistoryProof))
-        extra = XRPAmount{
-            static_cast<std::int64_t>(tx.getFieldVL(sfHistoryProof).size() / 32)};
+        extra = XRPAmount{static_cast<std::int64_t>(
+            tx.getFieldVL(sfHistoryProof).size() / 32)};
 
     return Transactor::calculateBaseFee(view, tx) + extra;
 }
