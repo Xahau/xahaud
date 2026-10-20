@@ -42,6 +42,9 @@ LedgerReplayMsgHandler::processProofPathRequest(
     protocol::TMProofPathRequest& packet = *msg;
     protocol::TMProofPathResponse reply;
 
+    if (packet.has_requestid())
+        reply.set_requestid(packet.requestid());
+
     if (!packet.has_key() || !packet.has_ledgerhash() || !packet.has_type() ||
         packet.ledgerhash().size() != uint256::size() ||
         packet.key().size() != uint256::size() ||
@@ -181,6 +184,9 @@ LedgerReplayMsgHandler::processReplayDeltaRequest(
 {
     protocol::TMReplayDeltaRequest& packet = *msg;
     protocol::TMReplayDeltaResponse reply;
+
+    if (packet.has_requestid())
+        reply.set_requestid(packet.requestid());
 
     if (!packet.has_ledgerhash() ||
         packet.ledgerhash().size() != uint256::size())
