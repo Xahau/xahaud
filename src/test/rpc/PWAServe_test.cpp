@@ -742,6 +742,59 @@ class PWAServe_test : public beast::unit_test::suite,
     }
 
     void
+    testHookLists()
+    {
+        testcase("hook-controlled list providers");
+        using namespace jtx;
+        Account const alice{"alice"}, bob{"bob"}, carol{"carol"}, dave{"dave"},
+            p1{"p1"}, p2{"p2"};
+        auto check = [&](FeatureBitset features,
+                         std::function<void(Port&)> const& tweak,
+                         std::array<bool, 4> expect) {
+            Env env{*this, features};
+            Port port;
+            port.pwa_list_providers = {p1.id(), p2.id()};
+            if (tweak)
+                tweak(port);
+            env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+                // What each provider's hook would state_set.
+                auto put = [&](Account const& p, Account const& a, Blob v) {
+                    uint256 key;
+                    std::copy(a.id().begin(), a.id().end(), key.end() - 20);
+                    auto sle = std::make_shared<SLE>(
+                        keylet::hookState(p.id(), key, pwaListNamespace));
+                    sle->setFieldH256(sfHookStateKey, key);
+                    sle->setFieldVL(sfHookStateData, v);
+                    view.rawInsert(sle);
+                };
+                put(p1, alice, {0, 0});
+                put(p1, bob, {0, 1});
+                put(p2, alice, {1});
+                put(p2, carol, {0});
+                int i = 0;
+                for (auto const& a : {alice, bob, carol, dave})
+                    BEAST_EXPECTS(
+                        pwaPermitted(port, &view, a.id()) == expect[i++],
+                        a.name());
+                return false;
+            });
+        };
+        auto const all = supported_amendments();
+        // First provider with an entry wins; no entry passes through.
+        check(all, {}, {false, true, false, true});
+        // cfg lists first; listed nowhere falls to the allowlist rule.
+        check(
+            all,
+            [&](Port& p) {
+                p.pwa_allowlist = {alice.id()};
+                p.pwa_blocklist = {bob.id()};
+            },
+            {true, false, false, false});
+        // Inert without the amendment.
+        check(all - featurePWAHookLists, {}, {true, true, true, true});
+    }
+
+    void
     testProxy(boost::asio::yield_context& yield)
     {
         testcase("proxy, X-Forwarded-For and metering");
@@ -1003,6 +1056,7 @@ public:
     run() override
     {
         testConfigValidation();
+        testHookLists();
         yield_to([&](boost::asio::yield_context& yield) {
             testServe(yield);
             testRouting(yield);

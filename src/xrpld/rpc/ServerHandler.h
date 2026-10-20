@@ -354,6 +354,13 @@ private:
 ServerHandler::Setup
 setup_ServerHandler(Config const& c, std::ostream&& log);
 
+class ReadView;
+
+/** Whether a pwa port may serve `account`: its cfg lists, then (with a
+    view and featurePWAHookLists) its hook list providers. */
+bool
+pwaPermitted(Port const& port, ReadView const* view, AccountID const& account);
+
 std::unique_ptr<ServerHandler>
 make_ServerHandler(
     Application& app,

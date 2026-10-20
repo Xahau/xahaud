@@ -64,6 +64,7 @@ struct Port
     std::set<AccountID> pwa_blocklist;  // never served; wins over allowlist
     bool pwa_custom_domains = false;    // serve hosts named by TXT records
     std::optional<beast::IP::Endpoint> pwa_resolver;  // for those; else system
+    std::vector<AccountID> pwa_list_providers;        // hook lists, first wins
     std::string user;
     std::string password;
     std::string admin_user;

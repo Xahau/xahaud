@@ -43,6 +43,7 @@
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/SystemParameters.h>
@@ -866,15 +867,42 @@ ServerHandler::resolvePWADomain(
     pwaDnsCache_[host] = dns;
 }
 
+// [pwa_blocklist], then [pwa_allowlist], then each [pwa_list_providers]
+// entry in order: the first with a hook state entry for the account decides.
+// Listed nowhere: served unless [pwa_allowlist] is non-empty.
+bool
+pwaPermitted(Port const& port, ReadView const* view, AccountID const& account)
+{
+    if (port.pwa_blocklist.count(account) > 0)
+        return false;
+    if (port.pwa_allowlist.count(account) > 0)
+        return true;
+    if (view && view->rules().enabled(featurePWAHookLists))
+    {
+        uint256 key;
+        std::copy(account.begin(), account.end(), key.end() - account.size());
+        for (auto const& provider : port.pwa_list_providers)
+            if (auto const sle = view->read(
+                    keylet::hookState(provider, key, pwaListNamespace)))
+            {
+                auto const v = sle->getFieldVL(sfHookStateData);
+                return std::any_of(
+                    v.begin(), v.end(), [](auto b) { return b != 0; });
+            }
+    }
+    return port.pwa_allowlist.empty();
+}
+
 void
 ServerHandler::queuePWALookup(
     std::shared_ptr<Session> const& session,
     PWALookup const& lookup)
 {
+    // Refuse early what the cfg lists settle; providers need the ledger.
     auto const& port = session->port();
-    if (port.pwa_blocklist.count(lookup.account) > 0 ||
-        (!port.pwa_allowlist.empty() &&
-         port.pwa_allowlist.count(lookup.account) == 0))
+    if (!pwaPermitted(port, nullptr, lookup.account) &&
+        (port.pwa_list_providers.empty() ||
+         port.pwa_blocklist.count(lookup.account) > 0))
     {
         ++pwaStats_.outcomes[std::size_t(Outcome::blocked)];
         return pwaError(*session, 403, lookup.head);
@@ -929,6 +957,11 @@ ServerHandler::processPWARequest(
             index = (*root)[~sfAccountIndex];
         if (!ledger)
         {
+        }
+        else if (!pwaPermitted(session->port(), ledger.get(), account))
+        {
+            outcome = Outcome::blocked;
+            status = 403;
         }
         else if (!lookup.redirectTail.empty())
         {
@@ -2115,7 +2148,7 @@ parse_Ports(Config const& config, std::ostream& log)
     // through a reverse proxy. [pwa_allowlist] and [pwa_blocklist], one
     // r-address per line, apply to all of them.
     auto accounts = [&](char const* name) {
-        std::set<AccountID> out;
+        std::vector<AccountID> out;
         for (auto const& line : config.section(name).values())
         {
             auto const account = parseBase58<AccountID>(line);
@@ -2124,12 +2157,16 @@ parse_Ports(Config const& config, std::ostream& log)
                 log << "Invalid r-address '" << line << "' in [" << name << "]";
                 Throw<std::exception>();
             }
-            out.insert(*account);
+            out.push_back(*account);
         }
         return out;
     };
-    auto const allowlist = accounts(SECTION_PWA_ALLOWLIST);
-    auto const blocklist = accounts(SECTION_PWA_BLOCKLIST);
+    auto const toSet = [](auto const& v) {
+        return std::set<AccountID>(v.begin(), v.end());
+    };
+    auto const allowlist = toSet(accounts(SECTION_PWA_ALLOWLIST));
+    auto const blocklist = toSet(accounts(SECTION_PWA_BLOCKLIST));
+    auto const providers = accounts(SECTION_PWA_LIST_PROVIDERS);
     for (auto const& a : allowlist)
         if (blocklist.count(a) > 0)
         {
@@ -2177,6 +2214,7 @@ parse_Ports(Config const& config, std::ostream& log)
             fail("pwa port cannot have admin, credentials or TLS");
         p.pwa_allowlist = allowlist;
         p.pwa_blocklist = blocklist;
+        p.pwa_list_providers = providers;
     }
 
     if (config.standalone())
