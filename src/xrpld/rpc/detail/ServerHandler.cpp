@@ -155,26 +155,15 @@ ServerHandler::~ServerHandler()
     m_server = nullptr;
 }
 
-// The effective PWA lists: the cfg's and the lists file's together.
-static std::shared_ptr<PWALists const>
-pwaMerge(PWALists const& cfg, PWALists const& file)
-{
-    auto out = std::make_shared<PWALists>(cfg);
-    out->allow.insert(file.allow.begin(), file.allow.end());
-    out->block.insert(file.block.begin(), file.block.end());
-    return out;
-}
-
 void
 ServerHandler::setup(Setup const& setup, beast::Journal journal)
 {
     setup_ = setup;
     {
-        std::lock_guard editLock(pwaListsEditMutex_);
-        pwaFileLists_ = setup.pwaFileLists;
-        auto lists = pwaMerge(setup.pwaCfgLists, pwaFileLists_);
-        std::lock_guard lock(pwaListsMutex_);
-        pwaLists_ = std::move(lists);
+        std::lock_guard editLock(pwaEditMutex_);
+        auto policy = std::make_shared<PWAPolicy const>(setup.pwaPolicy);
+        std::lock_guard lock(pwaPolicyMutex_);
+        pwaPolicy_ = std::move(policy);
     }
     endpoints_ = m_server->ports(setup.ports);
 
@@ -890,25 +879,24 @@ ServerHandler::resolvePWADomain(
     pwaDnsCache_[host] = dns;
 }
 
-// [pwa_blocklist], then [pwa_allowlist], then each [pwa_list_providers]
-// entry in order: the first with a hook state entry for the account decides.
-// Listed nowhere: served unless [pwa_allowlist] is non-empty.
-bool
-pwaPermitted(
-    PWALists const& lists,
-    Port const& port,
-    ReadView const* view,
-    AccountID const& account)
+std::optional<bool>
+PWAPolicy::verdict(ReadView const* view, AccountID const& account) const
 {
-    if (lists.block.count(account) > 0)
+    auto const on = [&](std::set<AccountID> PWALists::*list) {
+        return (cfg.*list).count(account) > 0 ||
+            (file.*list).count(account) > 0;
+    };
+    if (on(&PWALists::block))
         return false;
-    if (lists.allow.count(account) > 0)
+    if (on(&PWALists::allow))
         return true;
-    if (view)
+    if (!providers.empty())
     {
+        if (!view)
+            return std::nullopt;
         uint256 key;
         std::copy(account.begin(), account.end(), key.end() - account.size());
-        for (auto const& provider : port.pwa_list_providers)
+        for (auto const& provider : providers)
             if (auto const sle = view->read(
                     keylet::hookState(provider, key, pwaListNamespace)))
             {
@@ -917,7 +905,18 @@ pwaPermitted(
                     v.begin(), v.end(), [](auto b) { return b != 0; });
             }
     }
-    return lists.allow.empty();
+    return cfg.allow.empty() && file.allow.empty();
+}
+
+std::set<AccountID>
+PWAPolicy::conflicts() const
+{
+    std::set<AccountID> out;
+    for (auto const* allow : {&cfg.allow, &file.allow})
+        for (auto const& a : *allow)
+            if (cfg.block.count(a) > 0 || file.block.count(a) > 0)
+                out.insert(a);
+    return out;
 }
 
 // The lists file: [pwa_allowlist] and [pwa_blocklist] sections of one
@@ -1039,13 +1038,16 @@ ServerHandler::pwaListsEdit(
     auto const name = [](List l) {
         return std::string(l == &PWALists::allow ? "allow" : "block");
     };
-    auto const& cfg = setup_.pwaCfgLists;
     auto const& path = setup_.pwaListsFile;
     bool const edit = !(add == PWALists{} && remove == PWALists{});
     if ((edit || reload) && path.empty())
         return RPC::make_error(
             rpcNOT_SUPPORTED,
-            "No lists file to edit: set [" SECTION_PWA_LISTS_FILE "]");
+            "No lists file to edit: set [" SECTION_PWA_LIST_FILE "]");
+
+    std::lock_guard editLock(pwaEditMutex_);
+    auto const current = pwaPolicy();
+    auto const& cfg = current->cfg;
     for (auto const l : lists)
         for (auto const& a : remove.*l)
         {
@@ -1059,57 +1061,55 @@ ServerHandler::pwaListsEdit(
                     "list] in the cfg file, which this cannot change");
         }
 
-    std::lock_guard editLock(pwaListsEditMutex_);
     // Every edit starts from the file as it is now, so hand edits made since
     // the last write are kept rather than overwritten.
-    PWALists onDisk = pwaFileLists_;
+    PWALists onDisk = current->file;
     if (edit || reload)
         if (auto const why = readPWAListsFile(path, onDisk))
             return RPC::make_error(rpcINTERNAL, *why);
-    PWALists next = onDisk;
+    PWAPolicy next = *current;
+    next.file = onDisk;
     for (auto const l : lists)
     {
         for (auto const& a : remove.*l)
-            (next.*l).erase(a);
+            (next.file.*l).erase(a);
         for (auto const& a : add.*l)
             if ((cfg.*l).count(a) == 0)
-                (next.*l).insert(a);
+                (next.file.*l).insert(a);
     }
-    for (auto const& a : next.allow)
-        if (next.block.count(a) > 0 || cfg.block.count(a) > 0)
-            return RPC::make_param_error(
-                toBase58(a) + " would be on both lists");
-    for (auto const& a : next.block)
-        if (cfg.allow.count(a) > 0)
-            return RPC::make_param_error(
-                toBase58(a) + " would be on both lists");
+    if (auto const both = next.conflicts(); !both.empty())
+        return RPC::make_param_error(
+            toBase58(*both.begin()) + " would be on both lists");
 
     // Persist first: if the write fails nothing has changed.
-    if (next != onDisk)
-        if (auto const why = replaceFile(path, pwaListsText(next)))
+    if (next.file != onDisk)
+        if (auto const why = replaceFile(path, pwaListsText(next.file)))
             return RPC::make_error(
                 rpcINTERNAL, "Cannot write the lists file: " + *why);
-    bool const changed = next != pwaFileLists_;
+    bool const changed = next != *current;
+    auto published = current;
     if (changed)
     {
-        auto merged = pwaMerge(cfg, next);
-        pwaFileLists_ = std::move(next);
-        std::lock_guard lock(pwaListsMutex_);
-        pwaLists_ = std::move(merged);
+        published = std::make_shared<PWAPolicy const>(std::move(next));
+        std::lock_guard lock(pwaPolicyMutex_);
+        pwaPolicy_ = published;
     }
 
+    auto const& shown = *published;
     Json::Value ret(Json::objectValue);
-    auto const put = [&](char const* key, std::set<AccountID> const& v) {
+    auto const put = [&](char const* key, auto const& v) {
         Json::Value& out = ret[key] = Json::arrayValue;
         for (auto const& a : v)
             out.append(toBase58(a));
     };
-    put("allowlist", pwaFileLists_.allow);
-    put("blocklist", pwaFileLists_.block);
-    if (!cfg.allow.empty())
-        put("cfg_allowlist", cfg.allow);
-    if (!cfg.block.empty())
-        put("cfg_blocklist", cfg.block);
+    put("allowlist", shown.file.allow);
+    put("blocklist", shown.file.block);
+    if (!shown.cfg.allow.empty())
+        put("cfg_allowlist", shown.cfg.allow);
+    if (!shown.cfg.block.empty())
+        put("cfg_blocklist", shown.cfg.block);
+    if (!shown.providers.empty())
+        put("providers", shown.providers);
     if (!path.empty())
         ret["file"] = path.string();
     ret["changed"] = changed;
@@ -1121,12 +1121,9 @@ ServerHandler::queuePWALookup(
     std::shared_ptr<Session> const& session,
     PWALookup const& lookup)
 {
-    // Refuse early what the lists settle; providers need the ledger.
-    auto const& port = session->port();
-    auto const lists = pwaLists();
-    if (!pwaPermitted(*lists, port, nullptr, lookup.account) &&
-        (port.pwa_list_providers.empty() ||
-         lists->block.count(lookup.account) > 0))
+    // Refuse early what the policy settles without a ledger; providers are
+    // consulted in the job, against the validated ledger.
+    if (auto const v = pwaPolicy()->verdict(nullptr, lookup.account); v && !*v)
     {
         ++pwaStats_.outcomes[std::size_t(Outcome::blocked)];
         return pwaError(*session, 403, lookup.head);
@@ -1182,8 +1179,7 @@ ServerHandler::processPWARequest(
         if (!ledger)
         {
         }
-        else if (!pwaPermitted(
-                     *pwaLists(), session->port(), ledger.get(), account))
+        else if (!*pwaPolicy()->verdict(ledger.get(), account))
         {
             outcome = Outcome::blocked;
             status = 403;
@@ -2370,20 +2366,8 @@ parse_Ports(Config const& config, std::ostream& log)
     }
 
     // PWA ports host third-party content and must only ever be reached
-    // through a reverse proxy. [pwa_list_providers], one r-address per
-    // line, apply to all of them, as do the lists (setup_PWALists).
-    std::vector<AccountID> providers;
-    for (auto const& line : config.section(SECTION_PWA_LIST_PROVIDERS).values())
-    {
-        auto const account = parseBase58<AccountID>(line);
-        if (!account || account->isZero())
-        {
-            log << "Invalid r-address '" << line
-                << "' in [" SECTION_PWA_LIST_PROVIDERS "]";
-            Throw<std::exception>();
-        }
-        providers.push_back(*account);
-    }
+    // through a reverse proxy. Which accounts they serve is node-global,
+    // not per port: see setup_PWAPolicy.
     for (auto& p : result)
     {
         auto fail = [&](char const* why) {
@@ -2421,7 +2405,6 @@ parse_Ports(Config const& config, std::ostream& log)
             !p.user.empty() || !p.password.empty() || !p.ssl_key.empty() ||
             !p.ssl_cert.empty() || !p.ssl_chain.empty())
             fail("pwa port cannot have admin, credentials or TLS");
-        p.pwa_list_providers = providers;
     }
 
     if (config.standalone())
@@ -2500,13 +2483,14 @@ setup_Overlay(ServerHandler::Setup& setup)
     setup.overlay = {iter->ip, iter->port};
 }
 
-// [pwa_allowlist] and [pwa_blocklist], one r-address per line, from the cfg
-// file (fixed) and from the lists file (edited by the pwa_list RPC): the one
-// named by [pwa_lists_file], relative to the cfg file's directory, else
-// pwa-lists.txt beside the cfg file. Like validators-xahau.txt, but it need
-// not exist yet: the RPC creates it.
+// The three sources of the PWA policy, one r-address per line each:
+// [pwa_allowlist] and [pwa_blocklist] in the cfg file (fixed) and in the
+// lists file (edited by the pwa_list RPC), and [pwa_list_providers] in the
+// cfg file. The lists file is opt-in: the one named by [pwa_list_file],
+// relative to the cfg file's directory. It need not exist yet (the RPC
+// creates it), but its directory must.
 static void
-setup_PWALists(
+setup_PWAPolicy(
     Config const& config,
     ServerHandler::Setup& setup,
     std::ostream& log)
@@ -2515,24 +2499,32 @@ setup_PWALists(
         log << why;
         Throw<std::exception>();
     };
-    auto const read = [&](char const* name, std::set<AccountID>& out) {
+    auto const read = [&](char const* name, auto&& put) {
         for (auto const& line : config.section(name).values())
         {
             auto const a = parseBase58<AccountID>(line);
             if (!a || a->isZero())
                 fail("Invalid r-address '" + line + "' in [" + name + "]");
-            out.insert(*a);
+            put(*a);
         }
     };
-    read(SECTION_PWA_ALLOWLIST, setup.pwaCfgLists.allow);
-    read(SECTION_PWA_BLOCKLIST, setup.pwaCfgLists.block);
+    auto& policy = setup.pwaPolicy;
+    read(SECTION_PWA_ALLOWLIST, [&](auto const& a) {
+        policy.cfg.allow.insert(a);
+    });
+    read(SECTION_PWA_BLOCKLIST, [&](auto const& a) {
+        policy.cfg.block.insert(a);
+    });
+    read(SECTION_PWA_LIST_PROVIDERS, [&](auto const& a) {
+        policy.providers.push_back(a);
+    });
 
     auto& path = setup.pwaListsFile;
-    if (config.exists(SECTION_PWA_LISTS_FILE))
+    if (config.exists(SECTION_PWA_LIST_FILE))
     {
-        path = config.section(SECTION_PWA_LISTS_FILE).legacy();
+        path = config.section(SECTION_PWA_LIST_FILE).legacy();
         if (path.empty())
-            fail("Invalid path in [" SECTION_PWA_LISTS_FILE "]");
+            fail("Invalid path in [" SECTION_PWA_LIST_FILE "]");
         if (path.is_relative() && !config.CONFIG_DIR.empty())
             path = config.CONFIG_DIR / path;
         // Catch a mistyped path now rather than at the first edit.
@@ -2540,22 +2532,17 @@ setup_PWALists(
         auto const dir = boost::filesystem::absolute(path).parent_path();
         if (!boost::filesystem::is_directory(dir, ec))
             fail(
-                "[" SECTION_PWA_LISTS_FILE "]: no such directory: " +
+                "[" SECTION_PWA_LIST_FILE "]: no such directory: " +
                 dir.string());
-    }
-    else if (!config.CONFIG_DIR.empty())
-        path = config.CONFIG_DIR / "pwa-lists.txt";
-    if (!path.empty())
-        if (auto const why = readPWAListsFile(path, setup.pwaFileLists))
+        if (auto const why = readPWAListsFile(path, policy.file))
             fail(*why);
+    }
 
-    auto const all = pwaMerge(setup.pwaCfgLists, setup.pwaFileLists);
-    for (auto const& a : all->allow)
-        if (all->block.count(a) > 0)
-            fail(
-                "Account " + toBase58(a) +
-                " is in both [" SECTION_PWA_ALLOWLIST
-                "] and [" SECTION_PWA_BLOCKLIST "]");
+    if (auto const both = policy.conflicts(); !both.empty())
+        fail(
+            "Account " + toBase58(*both.begin()) +
+            " is in both [" SECTION_PWA_ALLOWLIST
+            "] and [" SECTION_PWA_BLOCKLIST "]");
 }
 
 ServerHandler::Setup
@@ -2563,7 +2550,7 @@ setup_ServerHandler(Config const& config, std::ostream&& log)
 {
     ServerHandler::Setup setup;
     setup.ports = parse_Ports(config, log);
-    setup_PWALists(config, setup, log);
+    setup_PWAPolicy(config, setup, log);
 
     if (config.UDP_HIGHWAY)
     {

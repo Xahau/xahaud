@@ -51,6 +51,7 @@
 #include <array>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -472,7 +473,7 @@ class PWAServe_test : public beast::unit_test::suite,
             boost::system::error_code ec;
             writeFileContents(ec, f, text);
             return accepts([&](Config& c) {
-                c[SECTION_PWA_LISTS_FILE].legacy(f);
+                c[SECTION_PWA_LIST_FILE].legacy(f);
                 if (more)
                     more(c);
             });
@@ -492,13 +493,13 @@ class PWAServe_test : public beast::unit_test::suite,
             "[pwa_allowlist]\n" + a.human() + "\n",
             [&](Config& c) { c["pwa_blocklist"].append(a.human()); }));
         BEAST_EXPECT(accepts([&](Config& c) {
-            c[SECTION_PWA_LISTS_FILE].legacy(td.file("absent.txt"));
+            c[SECTION_PWA_LIST_FILE].legacy(td.file("absent.txt"));
         }));
         BEAST_EXPECT(!accepts([&](Config& c) {
-            c[SECTION_PWA_LISTS_FILE].legacy(td.file("absent/lists.txt"));
+            c[SECTION_PWA_LIST_FILE].legacy(td.file("absent/lists.txt"));
         }));
         BEAST_EXPECT(!accepts(
-            [&](Config& c) { c[SECTION_PWA_LISTS_FILE].legacy(td.path()); }));
+            [&](Config& c) { c[SECTION_PWA_LIST_FILE].legacy(td.path()); }));
     }
 
     void
@@ -797,7 +798,7 @@ class PWAServe_test : public beast::unit_test::suite,
         auto const file = td.file("pwa-lists.txt");
         auto const cfg = [&] {
             return pwaConfig([&](Config& c) {
-                c[SECTION_PWA_LISTS_FILE].legacy(file);
+                c[SECTION_PWA_LIST_FILE].legacy(file);
                 c["pwa_blocklist"].append(carol.human());
             });
         };
@@ -947,12 +948,12 @@ class PWAServe_test : public beast::unit_test::suite,
         using namespace jtx;
         Account const alice{"alice"}, bob{"bob"}, carol{"carol"}, dave{"dave"},
             p1{"p1"}, p2{"p2"};
-        auto check = [&](PWALists const& lists,
-                         std::array<bool, 4> expect,
+        using V = std::optional<bool>;
+        constexpr V ask = std::nullopt;
+        auto check = [&](PWAPolicy policy,
+                         std::array<V, 4> expect,
                          bool withView = true) {
             Env env{*this};
-            Port port;
-            port.pwa_list_providers = {p1.id(), p2.id()};
             env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
                 // What each provider's hook would state_set.
                 auto put = [&](Account const& p, Account const& a, Blob v) {
@@ -971,20 +972,41 @@ class PWAServe_test : public beast::unit_test::suite,
                 int i = 0;
                 for (auto const& a : {alice, bob, carol, dave})
                     BEAST_EXPECTS(
-                        pwaPermitted(
-                            lists, port, withView ? &view : nullptr, a.id()) ==
+                        policy.verdict(withView ? &view : nullptr, a.id()) ==
                             expect[i++],
                         a.name());
                 return false;
             });
         };
+        auto const providers = [&](PWALists cfg, PWALists file = {}) {
+            PWAPolicy p;
+            p.cfg = std::move(cfg);
+            p.file = std::move(file);
+            p.providers = {p1.id(), p2.id()};
+            return p;
+        };
         // First provider with an entry wins; no entry passes through.
-        check({}, {false, true, false, true});
-        // Local lists first; listed nowhere falls to the allowlist rule.
-        check({{alice.id()}, {bob.id()}}, {true, false, false, false});
+        check(providers({}), {false, true, false, true});
+        // Local lists first, cfg and file alike; listed nowhere falls to
+        // the allowlist rule.
+        check(
+            providers({{alice.id()}, {bob.id()}}), {true, false, false, false});
+        check(
+            providers({{}, {bob.id()}}, {{alice.id()}, {}}),
+            {true, false, false, false});
         // Without a view (the I/O thread's early check) providers are not
-        // consulted, so nothing they say is refused there.
-        check({}, {true, true, true, true}, false);
+        // consulted: what the lists settle is settled, the rest is open.
+        check(providers({}), {ask, ask, ask, ask}, false);
+        check(
+            providers({{alice.id()}, {bob.id()}}),
+            {true, false, ask, ask},
+            false);
+        // With no providers the lists settle everything, view or not.
+        PWAPolicy local;
+        local.file = {{alice.id()}, {bob.id()}};
+        check(local, {true, false, false, false}, false);
+        check(local, {true, false, false, false});
+        check(PWAPolicy{}, {true, true, true, true}, false);
     }
 
     void

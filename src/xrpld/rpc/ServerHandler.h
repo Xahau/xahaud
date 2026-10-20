@@ -43,6 +43,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <set>
 #include <vector>
 
@@ -54,7 +55,9 @@ operator<(Port const& lhs, Port const& rhs)
     return lhs.name < rhs.name;
 }
 
-/** [pwa_allowlist] and [pwa_blocklist]: every pwa port applies them. */
+class ReadView;
+
+/** A [pwa_allowlist] and a [pwa_blocklist], from one source. */
 struct PWALists
 {
     std::set<AccountID> allow;  // if non-empty, only these are served
@@ -62,6 +65,39 @@ struct PWALists
 
     bool
     operator==(PWALists const&) const = default;
+};
+
+/** Which accounts' loaders the pwa ports serve. Node-global: every pwa
+    port applies the same policy. It has three sources, and `verdict`
+    consults them in this order:
+
+      1. the blocklists (cfg and file): refused;
+      2. the allowlists (cfg and file): served;
+      3. `providers`, in order: the first with a hook state entry for the
+         account under pwaListNamespace decides (all-zero data refuses,
+         anything else serves). Needs a ledger;
+      4. listed nowhere: served, unless an allowlist is non-empty.
+
+    A snapshot is immutable once built; ServerHandler replaces it whole. */
+struct PWAPolicy
+{
+    PWALists cfg;                      // from xahaud.cfg: fixed
+    PWALists file;                     // from the lists file: pwa_list edits
+    std::vector<AccountID> providers;  // [pwa_list_providers], first wins
+
+    bool
+    operator==(PWAPolicy const&) const = default;
+
+    /** Whether `account` may be served. With a view the answer is always
+        settled. Without one the providers are not consulted, so nullopt
+        means "listed nowhere; ask again with a ledger". */
+    std::optional<bool>
+    verdict(ReadView const* view, AccountID const& account) const;
+
+    /** Accounts on both an allowlist and a blocklist, cfg and file
+        counted together. Non-empty is a configuration error. */
+    std::set<AccountID>
+    conflicts() const;
 };
 
 class ServerHandler
@@ -129,10 +165,9 @@ public:
         // Configuration for the Overlay
         boost::asio::ip::tcp::endpoint overlay;
 
-        // PWA lists as read at startup: those in xahaud.cfg are fixed, those
-        // in pwaListsFile (empty: none) the pwa_list RPC edits.
-        PWALists pwaCfgLists;
-        PWALists pwaFileLists;
+        // The PWA policy as read at startup; pwaListsFile (empty: none) is
+        // where the pwa_list RPC persists its edits to policy.file.
+        PWAPolicy pwaPolicy;
         boost::filesystem::path pwaListsFile;
 
         void
@@ -184,14 +219,13 @@ private:
     static constexpr std::size_t maxPWADnsInFlight = 4;
     static constexpr std::size_t maxPWADnsEntries = 10'000;
 
-    // The effective PWA lists, cfg + file, replaced whole on each edit so a
-    // request sees one consistent snapshot. pwaListsEditMutex_ serialises
-    // edits (and so the file write); pwaListsMutex_ guards only the pointer.
-    std::mutex pwaListsEditMutex_;
-    PWALists pwaFileLists_;
-    mutable std::mutex pwaListsMutex_;
-    std::shared_ptr<PWALists const> pwaLists_ =
-        std::make_shared<PWALists const>();
+    // The live PWA policy, replaced whole on each edit so a request sees
+    // one consistent snapshot. pwaEditMutex_ serialises edits (and so the
+    // lists file write); pwaPolicyMutex_ guards only the pointer.
+    std::mutex pwaEditMutex_;
+    mutable std::mutex pwaPolicyMutex_;
+    std::shared_ptr<PWAPolicy const> pwaPolicy_ =
+        std::make_shared<PWAPolicy const>();
 
     void
     resolvePWADomain(
@@ -256,16 +290,17 @@ public:
         return pwaStats_;
     }
 
-    std::shared_ptr<PWALists const>
-    pwaLists() const
+    std::shared_ptr<PWAPolicy const>
+    pwaPolicy() const
     {
-        std::lock_guard lock(pwaListsMutex_);
-        return pwaLists_;
+        std::lock_guard lock(pwaPolicyMutex_);
+        return pwaPolicy_;
     }
 
     /** The pwa_list RPC: optionally reread the lists file, take `remove`
-        off and then put `add` on its lists, write the file if that changed
-        it, then apply the result. All or nothing. Returns the RPC result. */
+        off and then put `add` on the file's lists, write the file if that
+        changed it, then publish the new policy. All or nothing. Returns the
+        RPC result. */
     Json::Value
     pwaListsEdit(PWALists const& add, PWALists const& remove, bool reload);
 
@@ -364,8 +399,9 @@ private:
     void
     onPWARequest(Session& session);
 
-    /** Refuse what the PWA lists alone settle, then post the ledger read
-        to the job queue as jtCLIENT_PWA. Callable from any thread. */
+    /** Refuse what the PWA policy settles without a ledger, then post the
+        ledger read to the job queue as jtCLIENT_PWA. Callable from any
+        thread. */
     void
     queuePWALookup(
         std::shared_ptr<Session> const& session,
@@ -394,17 +430,6 @@ private:
 
 ServerHandler::Setup
 setup_ServerHandler(Config const& c, std::ostream&& log);
-
-class ReadView;
-
-/** Whether a pwa port may serve `account`: the PWA lists, then (given a
-    view) the port's hook list providers. */
-bool
-pwaPermitted(
-    PWALists const& lists,
-    Port const& port,
-    ReadView const* view,
-    AccountID const& account);
 
 std::unique_ptr<ServerHandler>
 make_ServerHandler(

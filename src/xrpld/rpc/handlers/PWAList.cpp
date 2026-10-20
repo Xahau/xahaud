@@ -30,7 +30,7 @@ namespace ripple {
     "unblock" take them off it; each is an r-address or an array of them.
     Removals apply first, so {"unblock": a, "allow": a} moves a in one step,
     and the request applies whole or not at all. Changes are written to the
-    lists file ([pwa_lists_file]) before they take effect, starting from the
+    lists file ([pwa_list_file]) before they take effect, starting from the
     file as it is now so hand edits are kept; {"reload": true} just rereads
     it. Entries from the cfg file are fixed.
 
