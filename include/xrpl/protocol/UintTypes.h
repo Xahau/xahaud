@@ -112,8 +112,11 @@ inline constexpr Currency badCurrency = []() consteval {
 // We take advantage of the fact that an ASCII value in the [a-z] range
 // transforms into the equivalent character in the [A-Z] range when you
 // AND it with 0xDF, so we can compare against all possible variants of
-// "XAH" in one go:
-inline constexpr Currency badCurrencyCodeMask{0xDFDFDF0000000000};
+// "XAH" in one go. Every byte outside the ISO code position is kept as-is
+// by the mask, so a currency is only "bad" when those bytes are all zero
+// (i.e. the value is exactly one of the case variants of the code).
+inline constexpr Currency badCurrencyCodeMask =
+    isoMaskBits | Currency{0xDFDFDF0000000000};
 
 }  // namespace detail
 

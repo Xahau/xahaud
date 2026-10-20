@@ -586,7 +586,15 @@ public:
     [[nodiscard]] constexpr bool
     parseHex(std::string_view sv) noexcept
     {
-        return detail::parseHex(sv, std::span<limb_type>{data_});
+        // Parse into a temporary so that a failed parse leaves the
+        // current value untouched.
+        decltype(data_) tmp{};
+
+        if (!detail::parseHex(sv, std::span<limb_type>{tmp}))
+            return false;
+
+        data_ = tmp;
+        return true;
     }
 
     constexpr static std::size_t

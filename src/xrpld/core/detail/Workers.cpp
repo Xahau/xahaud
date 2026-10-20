@@ -57,15 +57,20 @@ Workers::Workers(
 
                     assert((h == 0) || (h >= t));
 
-                    beast::setCurrentThreadName(n + " [zZz]");
-
-                    while (h == t)
+                    if (h == t)
                     {
-                        // This will block until we're notified.
-                        head_.wait(h);
+                        // Only pay for the thread rename when we are
+                        // actually about to go to sleep.
+                        beast::setCurrentThreadName(n + " [zZz]");
 
-                        t = tail_.load();
-                        h = head_.load();
+                        while (h == t)
+                        {
+                            // This will block until we're notified.
+                            head_.wait(h);
+
+                            t = tail_.load();
+                            h = head_.load();
+                        }
                     }
 
                     // As long as we aren't stopping and there is a task

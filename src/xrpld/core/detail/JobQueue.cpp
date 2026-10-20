@@ -298,7 +298,7 @@ JobQueue::processTask(unsigned int instance)
                     --d.waiting;
                     ++d.running;
                     ++activeThreads_;
-                    return std::move(m_jobSet.extract(*iter).value());
+                    return std::move(m_jobSet.extract(iter).value());
                 }
             }
 

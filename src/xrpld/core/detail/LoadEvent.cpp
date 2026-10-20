@@ -43,7 +43,7 @@ LoadEvent::LoadEvent(LoadEvent&& other)
     , timeWaiting_(other.timeWaiting_)
     , timeRunning_(other.timeRunning_)
     , running_(other.running_)
-    , neutered_(false)
+    , neutered_(other.neutered_)
 {
     other.running_ = false;
     other.neutered_ = true;
@@ -54,12 +54,18 @@ LoadEvent::operator=(LoadEvent&& other)
 {
     if (this != &other)
     {
+        // If we are currently measuring something, report it before we
+        // take over the other event, so that the sample isn't lost.
+        if (running_)
+            stop();
+
         name_ = std::move(other.name_);
         callback_ = other.callback_;
         running_ = other.running_;
         mark_ = other.mark_;
         timeWaiting_ = other.timeWaiting_;
         timeRunning_ = other.timeRunning_;
+        neutered_ = other.neutered_;
 
         // Leave the moved-from object in a sane but "neutered" state.
         other.running_ = false;

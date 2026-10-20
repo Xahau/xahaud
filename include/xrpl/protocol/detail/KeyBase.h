@@ -31,7 +31,7 @@ namespace detail {
 /** Common base for fixed-size key and seed types.
 
     This CRTP base provides storage, accessors, and equality comparison
-    for types like seeds and secret/public keys, whichwrap a fixed-size
+    for types like seeds and secret/public keys, which wrap a fixed-size
     byte array. The Derived parameter ensures that unrelated types with
     the same size do not implicitly interoperate with one another.
 

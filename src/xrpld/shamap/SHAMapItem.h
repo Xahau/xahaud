@@ -153,10 +153,13 @@ intrusive_ptr_release(SHAMapItem const* x)
         // release the memory.
         std::destroy_at(x);
 
-        // If the slabber doens't claim this pointer, it was allocated
-        // manually, so we free it manually.
+        // If the slabber doesn't claim this pointer, it was allocated
+        // manually (with the aligned operator new[] in make_shamapitem),
+        // so we free it manually with the matching aligned delete.
         if (!detail::slabber.deallocate(const_cast<std::uint8_t*>(p)))
-            delete[] p;
+            ::operator delete[](
+                const_cast<std::uint8_t*>(p),
+                std::align_val_t(alignof(SHAMapItem)));
     }
 }
 

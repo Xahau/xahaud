@@ -33,6 +33,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
 #include <type_traits>
@@ -110,8 +111,7 @@ class PerfLogImp : public PerfLog
         // keys and values are created before more threads are started.
         std::unordered_map<std::string, Locked<Rpc>> rpc_;
         std::unordered_map<JobType, Locked<Jq>> jq_;
-        std::vector<std::optional<std::pair<std::string, steady_time_point>>>
-            jobs_;
+        std::vector<std::optional<std::pair<JobType, steady_time_point>>> jobs_;
         mutable std::mutex jobsMutex_;
         std::unordered_map<std::uint64_t, MethodStart> methods_;
         mutable std::mutex methodsMutex_;

@@ -186,7 +186,7 @@ PerfLogImp::Counters::currentJson() const
         if (!j)
             continue;
         Json::Value jobj(Json::objectValue);
-        jobj[jss::job] = j->first;
+        jobj[jss::job] = std::string(jobTypes[j->first].name);
         jobj[jss::duration_us] = std::to_string(
             std::chrono::duration_cast<microseconds>(present - j->second)
                 .count());
@@ -412,7 +412,7 @@ PerfLogImp::jobStart(
     }
     std::lock_guard lock(counters_.jobsMutex_);
     if (instance >= 0 && instance < counters_.jobs_.size())
-        counters_.jobs_[instance].emplace(jobTypes[type].name, startTime);
+        counters_.jobs_[instance].emplace(type, startTime);
 }
 
 void

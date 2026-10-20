@@ -54,9 +54,6 @@ spin_pause() noexcept
 
 }  // namespace detail
 
-/** @{ */
-/** Classes to handle arrays of spinlocks packed into a single atomic integer:
-
 /** Attempt to acquire a spinlock without blocking.
 
     @tparam T An unsigned integral type.
