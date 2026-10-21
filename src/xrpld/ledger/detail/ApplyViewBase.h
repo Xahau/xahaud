@@ -126,6 +126,21 @@ public:
     std::map<std::tuple<AccountID, AccountID, Currency>, STAmount>
     balanceChanges(ReadView const& view) const;
 
+    /** Move every pending change (and the XRP destroyed so far) into `to`,
+        leaving this view with nothing buffered. Entries obtained from
+        peek() before the call must not be passed to update() or erase()
+        afterwards.
+    */
+    void
+    flush(RawView& to);
+
+    /** Continue on top of a different base. Nothing may be buffered: call
+        flush() first. Used to layer a transaction's working view on its
+        subledger and back (see ApplyContext).
+    */
+    void
+    rebase(ReadView const* base);
+
 protected:
     ApplyFlags flags_;
     ReadView const* base_;

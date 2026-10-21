@@ -23,6 +23,8 @@
 namespace ripple {
 
 open_ledger_t const open_ledger{};
+closed_view_t const closed_view{};
+subledger_view_t const subledger_view{};
 
 class OpenView::txs_iter_impl : public txs_type::iter_base
 {
@@ -86,7 +88,11 @@ OpenView::OpenView(OpenView const& rhs)
     , base_{rhs.base_}
     , items_{rhs.items_}
     , hold_{rhs.hold_}
-    , open_{rhs.open_} {};
+    , open_{rhs.open_}
+    , baseTxCount_{rhs.baseTxCount_}
+    , baseTxs_{rhs.baseTxs_}
+    , rng_{rhs.rng_}
+    , rngShadow_{rhs.rngShadow_} {};
 
 OpenView::OpenView(
     open_ledger_t,
@@ -120,10 +126,35 @@ OpenView::OpenView(ReadView const* base, std::shared_ptr<void const> hold)
 {
 }
 
+OpenView::OpenView(
+    closed_view_t,
+    OpenView const& base,
+    SubledgerRng* rng,
+    bool shadow)
+    : OpenView(&base)
+{
+    rng_ = rng;
+    rngShadow_ = rng != nullptr && shadow;
+    // Always a closed view: inner (atomically emitted) transactions must
+    // see the same rules as during consensus ledger construction even when
+    // the parent is being applied against the open ledger.
+    open_ = false;
+    baseTxCount_ = base.txCount();
+    baseTxs_ = &base;
+}
+
+OpenView::OpenView(subledger_view_t, OpenView const& base) : OpenView(&base)
+{
+    // open() is inherited from the base: the transaction that owns the
+    // subledger is applied on top of it and keeps its own semantics. The
+    // subledger's transactions are numbered from zero.
+    baseTxs_ = &base;
+}
+
 std::size_t
 OpenView::txCount() const
 {
-    return txs_.size();
+    return baseTxCount_ + txs_.size();
 }
 
 void
@@ -132,6 +163,12 @@ OpenView::apply(TxsRawView& to) const
     items_.apply(to);
     for (auto const& item : txs_)
         to.rawTxInsert(item.first, item.second.txn, item.second.meta);
+}
+
+void
+OpenView::applyState(RawView& to) const
+{
+    items_.apply(to);
 }
 
 //---
@@ -207,7 +244,12 @@ OpenView::txsEnd() const -> std::unique_ptr<txs_type::iter_base>
 bool
 OpenView::txExists(key_type const& key) const
 {
-    return txs_.find(key) != txs_.end();
+    if (txs_.find(key) != txs_.end())
+        return true;
+    // closed_view / subledger_view: a duplicate of a transaction already in
+    // the base view must be detected here (tefALREADY) rather than in
+    // rawTxInsert (LogicError) when the view is applied to its base.
+    return baseTxs_ != nullptr && baseTxs_->txExists(key);
 }
 
 auto

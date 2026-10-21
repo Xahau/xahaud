@@ -172,6 +172,33 @@ public:
         return *mRandomData;
     }
 
+    /** The Subledger: the atomically emitted (emit_atomic) transactions
+        that were applied as part of this one, each as a
+        SubledgerTransaction { EmittedTxnID, EmittedTxn, TransactionMetaData }.
+        This transaction's AffectedNodes already include their effects.
+    */
+    STArray const&
+    getSubledger() const
+    {
+        // unlike the Hook arrays this is read by callers that only know the
+        // transaction had hooks (explorers, subledger_slot on a parent that
+        // never emitted): never dereference an empty optional
+        static STArray const empty{sfSubledger};
+        return mSubledger ? *mSubledger : empty;
+    }
+
+    void
+    setSubledger(STArray const& subledger)
+    {
+        mSubledger = subledger;
+    }
+
+    bool
+    hasSubledger() const
+    {
+        return static_cast<bool>(mSubledger);
+    }
+
     STAmount
     getDeliveredAmount() const
     {
@@ -197,6 +224,7 @@ private:
     std::optional<STArray> mHookExecutions;
     std::optional<STArray> mHookEmissions;
     std::optional<uint256> mRandomData;
+    std::optional<STArray> mSubledger;
 
     STArray mNodes;
 };
