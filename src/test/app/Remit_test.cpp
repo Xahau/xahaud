@@ -2845,6 +2845,183 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    testURITokenTransferFee(FeatureBitset features)
+    {
+        testcase("uritoken transfer fee");
+        using namespace test::jtx;
+
+        // Remit with TransferFee, amendment disabled
+        {
+            auto const noXferFee = features - featureURITokenTransferFee;
+            Env env{*this, noXferFee};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            std::string const uri(8, '?');
+            env(remit::remit(alice, bob),
+                remit::uri(uri, std::nullopt, std::nullopt, 5000),
+                ter(temDISABLED));
+        }
+
+        // Remit with TransferFee = 0 or > 50000 fails
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            std::string const uri(4, '?');
+            for (auto const fee : {0, 50001})
+            {
+                env(remit::remit(alice, bob),
+                    remit::uri(uri, std::nullopt, std::nullopt, fee),
+                    ter(temBAD_TRANSFER_FEE));
+            }
+        }
+
+        // Remit with TransferFeeRecipient but no TransferFee
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+
+            std::string const uri(6, '?');
+            env(remit::remit(alice, bob),
+                remit::uri(
+                    uri, std::nullopt, std::nullopt, std::nullopt, carol),
+                ter(temMALFORMED));
+        }
+
+        // Remit with TransferFeeRecipient non-existent account
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const phantom = Account("phantom");
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            std::string const uri(7, '?');
+            env(remit::remit(alice, bob),
+                remit::uri(uri, std::nullopt, std::nullopt, 2500, phantom),
+                ter(tecNO_TARGET));
+        }
+
+        // Remit with MintURIToken including TransferFee
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+
+            std::string const uri(2, '?');
+            auto const tid =
+                keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key;
+
+            // Remit with inline mint including TransferFee
+            env(remit::remit(alice, bob),
+                remit::uri(uri, std::nullopt, std::nullopt, 5000));
+            env.close();
+
+            // Verify the minted URIToken has TransferFee
+            auto const sleU = env.le(Keylet{ltURI_TOKEN, tid});
+            BEAST_EXPECT(sleU);
+            BEAST_EXPECT(sleU->isFieldPresent(sfTransferFee));
+            BEAST_EXPECT(sleU->getFieldU16(sfTransferFee) == 5000);
+            BEAST_EXPECT(sleU->getAccountID(sfIssuer) == alice.id());
+            BEAST_EXPECT(sleU->getAccountID(sfOwner) == bob.id());
+
+            // Resale of the remit-minted token pays the 5% fee to alice
+            auto const tidStr = to_string(tid);
+            env(uritoken::sell(bob, tidStr), uritoken::amt(XRP(1000)));
+            env.close();
+            auto const preAlice = env.balance(alice);
+            auto const preBob = env.balance(bob);
+            env(uritoken::buy(carol, tidStr), uritoken::amt(XRP(1000)));
+            env.close();
+            BEAST_EXPECT(env.balance(alice) == preAlice + XRP(50));
+            BEAST_EXPECT(env.balance(bob) == preBob + XRP(950));
+        }
+
+        // Remit with TransferFee and TransferFeeRecipient
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(10000), alice, bob, carol);
+            env.close();
+
+            std::string const uri(3, '?');
+            auto const tid =
+                keylet::uritoken(alice, Blob(uri.begin(), uri.end())).key;
+
+            env(remit::remit(alice, bob),
+                remit::uri(uri, std::nullopt, std::nullopt, 10000, carol));
+            env.close();
+
+            auto const sleU = env.le(Keylet{ltURI_TOKEN, tid});
+            BEAST_EXPECT(sleU);
+            BEAST_EXPECT(sleU->isFieldPresent(sfTransferFee));
+            BEAST_EXPECT(sleU->getFieldU16(sfTransferFee) == 10000);
+            BEAST_EXPECT(sleU->isFieldPresent(sfTransferFeeRecipient));
+            BEAST_EXPECT(
+                sleU->getAccountID(sfTransferFeeRecipient) == carol.id());
+        }
+
+        // Remit with TransferFeeRecipient same as the source account
+        {
+            Env env{*this, features};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            std::string const uri(9, '?');
+            env(remit::remit(alice, bob),
+                remit::uri(uri, std::nullopt, std::nullopt, 5000, alice),
+                ter(temMALFORMED));
+        }
+
+        // Remit with TransferFeeRecipient that is an AMM account
+        {
+            Env env{*this, features | featureAMM};
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const gw = Account("gw");
+            auto const USD = gw["USD"];
+            env.fund(XRP(10'000'000), alice, bob, gw);
+            env.close();
+
+            env.trust(USD(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(100'000)));
+            env.close();
+
+            AMM ammAlice(env, alice, XRP(10'000), USD(10'000));
+
+            std::string const uri(10, '?');
+            env(
+                remit::remit(alice, bob),
+                remit::uri(uri, std::nullopt, std::nullopt, 2500),
+                [&](Env&, JTx& jt) {
+                    jt.jv[sfMintURIToken.jsonName]
+                         [sfTransferFeeRecipient.jsonName] =
+                        to_string(ammAlice.ammAccount());
+                },
+                ter(tecNO_PERMISSION));
+        }
+    }
+
+    void
     testOptionals(FeatureBitset features)
     {
         testcase("optionals");
@@ -2944,6 +3121,7 @@ struct Remit_test : public beast::unit_test::suite
         testTLDeepFreeze(features);
         testRippling(features);
         testURIToken(features);
+        testURITokenTransferFee(features);
         testOptionals(features);
         testDestAMM(features);
     }
