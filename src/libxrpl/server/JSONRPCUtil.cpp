@@ -69,7 +69,7 @@ HTTPReply(
         // CHECKME this returns a different version than the replies below. Is
         //         this by design or an accident or should it be using
         //         BuildInfo::getFullVersionString () as well?
-        output("Server: " + systemName() + "-json-rpc/v1");
+        output("Server: " + std::string(systemName) + "-json-rpc/v1");
         output("\r\n");
 
         // Be careful in modifying this! If you change the contents you MUST
@@ -147,7 +147,7 @@ HTTPReply(
         "\r\n"
         "Content-Type: application/json; charset=UTF-8\r\n");
 
-    output("Server: " + systemName() + "-json-rpc/");
+    output("Server: " + std::string(systemName) + "-json-rpc/");
     output(BuildInfo::getFullVersionString());
     output(
         "\r\n"
