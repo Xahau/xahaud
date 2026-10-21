@@ -216,6 +216,20 @@ LEDGER_ENTRY(ltRANDOM, 0x526E, Random, random, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
+/** featureHistoryTree: the history Merkle Mountain Range.
+
+    A singleton. Validators append one leaf per applied transaction at ledger
+    close (Ledger::updateHistoryTree) and keep only the peaks. Hooks may load
+    it; the genesis Hook drives the retention game from sfHistoryLeafCount.
+
+    \sa keylet::historyTree
+ */
+LEDGER_ENTRY(ltHISTORY_TREE, 0x4874, HistoryTree, history_tree, ({
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfHistoryLeafCount,     soeREQUIRED},
+    {sfHistoryPeaks,         soeOPTIONAL},
+}))
+
 /** A ledger object which contains a signer list for an account.
 
     \sa keylet::signers

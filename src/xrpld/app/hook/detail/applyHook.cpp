@@ -340,7 +340,8 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttCHECK_CREATE:
         case ttACCOUNT_DELETE:
         case ttPAYCHAN_CREATE:
-        case ttINVOKE: {
+        case ttINVOKE:
+        case ttHISTORY_PROOF: {
             if (destAcc)
                 ADD_TSH(*destAcc, tshSTRONG);
             break;
@@ -2922,6 +2923,39 @@ DEFINE_HOOK_FUNCTION(
         bytes.size(),
         memory,
         memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+// featureHistoryTree: verify a proof (read_len == 0: the otxn's own proof)
+// and write the 32 byte leaf hash
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    history_verify,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint64_t leaf_index)
+{
+    HOOK_SETUP();
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length) ||
+        NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const result = api.history_verify(
+        ripple::Slice{memory + read_ptr, read_len}, leaf_index);
+    if (!result)
+        return result.error();
+
+    auto const& leaf = result.value();
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, 32, leaf.data(), 32, memory, memory_length);
 
     HOOK_TEARDOWN();
 }

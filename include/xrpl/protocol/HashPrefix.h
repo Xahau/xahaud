@@ -96,6 +96,12 @@ enum class HashPrefix : std::uint32_t {
 
     /** Credentials signature */
     credential = detail::make_hash_prefix('C', 'R', 'D'),
+
+    /** featureHistoryTree: history tree leaf */
+    historyLeaf = detail::make_hash_prefix('H', 'L', 'F'),
+
+    /** featureHistoryTree: history tree interior node */
+    historyNode = detail::make_hash_prefix('H', 'N', 'D'),
 };
 
 template <class Hasher>

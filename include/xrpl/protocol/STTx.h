@@ -48,6 +48,9 @@ class STTx final : public STObject, public CountedObject<STTx>
     uint256 tid_;
     TxType tx_type_;
 
+    uint256
+    computeTransactionID() const;
+
 public:
     static std::size_t const minMultiSigners = 1;
 
@@ -106,6 +109,32 @@ public:
 
     uint256
     getTransactionID() const;
+
+    /** featureHistoryTree: transient fields.
+
+        A transient field travels with the transaction on the wire and is
+        visible to transactors and Hooks while it applies, but is not signed,
+        is not part of the transaction ID, and is clipped from the form stored
+        in the ledger (see addStorable). Its content is bound to the ID by a
+        digest field that is signed. Only sfHistoryProof is transient.
+    */
+    static bool
+    isTransientField(SField const& f);
+
+    /// True if this transaction carries any transient field.
+    bool
+    hasTransientFields() const;
+
+    /// Serialize the storable form: everything except transient fields.
+    void
+    addStorable(Serializer& s) const;
+
+    /** Throw if a transient field is present and its digest does not match.
+        Called by the constructors so a tampered relay copy never reaches the
+        HashRouter under the real transaction's ID.
+    */
+    void
+    checkTransientFields() const;
 
     Json::Value
     getJson(JsonOptions options) const override;

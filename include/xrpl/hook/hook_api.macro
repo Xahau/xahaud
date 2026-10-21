@@ -306,4 +306,8 @@ HOOK_API_DEFINITION(
 HOOK_API_DEFINITION(
   int64_t, util_random, (uint32_t write_ptr, uint32_t write_len),
   featureRNG)
+
+HOOK_API_DEFINITION(
+  int64_t, history_verify, (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len, uint64_t leaf_index),
+  featureHistoryTree)
 // clang-format on

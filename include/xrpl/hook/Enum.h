@@ -16,6 +16,7 @@
 #define featureHooksUpdate1 "1"
 #define featureHooksUpdate2 "1"
 #define featureRNG "1"
+#define featureHistoryTree "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
 namespace hook_api {

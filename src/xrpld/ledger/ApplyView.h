@@ -46,7 +46,12 @@ enum ApplyFlags : std::uint32_t {
 
     // Transaction shouldn't be applied
     // Signatures shouldn't be checked
-    tapDRY_RUN = 0x1000
+    tapDRY_RUN = 0x1000,
+
+    // featureHistoryTree: a validated ledger is being replayed from its
+    // stored (clipped) transactions; trust that transient fields were present
+    // and verified when the ledger was first built.
+    tapHISTORY_REPLAY = 0x2000
 };
 
 constexpr ApplyFlags

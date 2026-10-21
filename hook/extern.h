@@ -345,6 +345,14 @@ dice(uint32_t sides);
 extern int64_t
 util_random(uint32_t write_ptr, uint32_t write_len);
 
+extern int64_t
+history_verify(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint64_t leaf_index);
+
 #ifdef __cplusplus
 }
 #endif

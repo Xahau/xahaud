@@ -94,7 +94,8 @@ enum class LedgerNameSpace : std::uint16_t {
     MANIFEST_DIR = LEDGER_NAMESPACE2(0x01, 'M'),
     CREDENTIAL = LEDGER_NAMESPACE2(0x01, 'D'),
     PERMISSIONED_DOMAIN = 'm',
-    RANDOM = 0x526E,  // Rn
+    RANDOM = 0x526E,        // Rn
+    HISTORY_TREE = 0x4874,  // Ht
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -283,6 +284,14 @@ Keylet const&
 random() noexcept
 {
     static Keylet const ret{ltRANDOM, indexHash(LedgerNameSpace::RANDOM)};
+    return ret;
+}
+
+Keylet const&
+historyTree() noexcept
+{
+    static Keylet const ret{
+        ltHISTORY_TREE, indexHash(LedgerNameSpace::HISTORY_TREE)};
     return ret;
 }
 

@@ -33,6 +33,7 @@
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/UintTypes.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/format.hpp>
 
@@ -62,7 +63,8 @@ STTx::STTx(STObject&& object) : STObject(std::move(object))
 {
     tx_type_ = safe_cast<TxType>(getFieldU16(sfTransactionType));
     applyTemplate(getTxFormat(tx_type_)->getSOTemplate());  //  may throw
-    tid_ = getHash(HashPrefix::transactionID);
+    checkTransientFields();
+    tid_ = computeTransactionID();
 }
 
 STTx::STTx(SerialIter& sit) : STObject(sfTransaction)
@@ -78,7 +80,8 @@ STTx::STTx(SerialIter& sit) : STObject(sfTransaction)
     tx_type_ = safe_cast<TxType>(getFieldU16(sfTransactionType));
 
     applyTemplate(getTxFormat(tx_type_)->getSOTemplate());  // May throw
-    tid_ = getHash(HashPrefix::transactionID);
+    checkTransientFields();
+    tid_ = computeTransactionID();
 }
 
 STTx::STTx(TxType type, std::function<void(STObject&)> assembler)
@@ -96,7 +99,70 @@ STTx::STTx(TxType type, std::function<void(STObject&)> assembler)
     if (tx_type_ != type)
         LogicError("Transaction type was mutated during assembly");
 
-    tid_ = getHash(HashPrefix::transactionID);
+    checkTransientFields();
+    tid_ = computeTransactionID();
+}
+
+namespace {
+uint256
+computeStorableTxID(STTx const& tx)
+{
+    if (!tx.hasTransientFields())
+        return tx.getHash(HashPrefix::transactionID);
+
+    // The ID is the hash of the storable form, so the clipped transaction
+    // stored in the ledger hashes to the same ID it was relayed and applied
+    // under. The digest field inside that form commits to the clipped data.
+    Serializer s;
+    s.add32(HashPrefix::transactionID);
+    tx.addStorable(s);
+    return s.getSHA512Half();
+}
+}  // namespace
+
+bool
+STTx::isTransientField(SField const& f)
+{
+    return f == sfHistoryProof;
+}
+
+bool
+STTx::hasTransientFields() const
+{
+    return isFieldPresent(sfHistoryProof);
+}
+
+void
+STTx::addStorable(Serializer& s) const
+{
+    if (!hasTransientFields())
+    {
+        add(s);
+        return;
+    }
+
+    STObject clipped(*this);
+    clipped.makeFieldAbsent(sfHistoryProof);
+    clipped.add(s);
+}
+
+void
+STTx::checkTransientFields() const
+{
+    if (!isFieldPresent(sfHistoryProof))
+        return;
+
+    if (!isFieldPresent(sfHistoryProofDigest) ||
+        sha512Half(makeSlice(getFieldVL(sfHistoryProof))) !=
+            getFieldH256(sfHistoryProofDigest))
+        Throw<std::runtime_error>(
+            "Transaction transient field digest mismatch");
+}
+
+uint256
+STTx::computeTransactionID() const
+{
+    return computeStorableTxID(*this);
 }
 
 STBase*
@@ -206,7 +272,7 @@ STTx::sign(PublicKey const& publicKey, SecretKey const& secretKey)
     auto const sig = ripple::sign(publicKey, secretKey, makeSlice(data));
 
     setFieldVL(sfTxnSignature, sig);
-    tid_ = getHash(HashPrefix::transactionID);
+    tid_ = computeTransactionID();
 }
 
 Expected<void, std::string>
