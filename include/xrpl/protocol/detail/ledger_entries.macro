@@ -300,6 +300,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfAMMID,                soeOPTIONAL},
     {sfAppLoaderSequence,    soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
+    {sfLastTxnTime,          soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.
