@@ -302,6 +302,15 @@ struct AmendmentState
     /** Indicates an amendment that this server has code support for. */
     bool supported = false;
 
+    /** Indicates an amendment listed in [ignore_amendments]. The server has
+        no code for it, but must not become amendment blocked if it is (or
+        becomes) enabled on the ledger. Such an amendment is reported as
+        `supported` internally so every blocking check (LedgerMaster,
+        NetworkOPs, Change) passes, but is never voted for and is shown as
+        unsupported + ignored over RPC.
+    */
+    bool ignored = false;
+
     /** The name of this amendment, possibly empty. */
     std::string name;
 
@@ -476,7 +485,8 @@ public:
         std::vector<FeatureInfo> const& supported,
         Section const& enabled,
         Section const& vetoed,
-        beast::Journal journal);
+        beast::Journal journal,
+        Section const& ignored);
 
     uint256
     find(std::string const& name) const override;
@@ -543,7 +553,8 @@ AmendmentTableImpl::AmendmentTableImpl(
     std::vector<FeatureInfo> const& supported,
     Section const& enabled,
     Section const& vetoed,
-    beast::Journal journal)
+    beast::Journal journal,
+    Section const& ignored)
     : lastUpdateSeq_(0)
     , majorityTime_(majorityTime)
     , unsupportedEnabled_(false)
@@ -584,6 +595,59 @@ AmendmentTableImpl::AmendmentTableImpl(
                          << ") is supported and will be "
                          << (s.vote == AmendmentVote::up ? "up" : "down")
                          << " voted by default if not enabled on the ledger.";
+    }
+
+    // Parse ignored amendments from config. Each line is either a registered
+    // feature name (e.g. "HookOnV2") or "<64 hex amendment ID> [name]". These
+    // are deliberately NOT persisted to wallet.db: removing the line from the
+    // config must restore normal amendment-blocking behaviour.
+    for (auto const& line : ignored.lines())
+    {
+        std::string const trimmed = boost::algorithm::trim_copy(line);
+        if (trimmed.empty())
+            continue;
+
+        std::vector<std::string> parts;
+        boost::algorithm::split(
+            parts,
+            trimmed,
+            boost::algorithm::is_space(),
+            boost::algorithm::token_compress_on);
+
+        uint256 id;
+        std::string name;
+        if (id.parseHex(parts[0]))
+            name = parts.size() > 1 ? parts[1] : std::string{};
+        else if (auto const f = getRegisteredFeature(parts[0]))
+        {
+            id = *f;
+            name = parts[0];
+        }
+        else
+            Throw<std::runtime_error>(
+                "Invalid entry '" + line + "' in [" + ignored.name() +
+                "]: expected a registered feature name or amendment ID");
+
+        AmendmentState& s = add(id, lock);
+        if (s.supported)
+        {
+            JLOG(j_.warn()) << "[" << ignored.name() << "] lists amendment "
+                            << id << " (" << s.name
+                            << ") which this server supports; entry has no "
+                               "effect.";
+            continue;
+        }
+
+        if (!name.empty())
+            s.name = name;
+        s.supported = true;
+        s.ignored = true;
+        s.vote = AmendmentVote::obsolete;
+
+        JLOG(j_.warn()) << "Amendment " << id << " (" << s.name
+                        << ") is unsupported but listed in [" << ignored.name()
+                        << "]: this server will NOT become amendment blocked "
+                           "if it is enabled on the ledger.";
     }
 
     hash_set<uint256> detect_conflict;
@@ -775,7 +839,12 @@ AmendmentTableImpl::enable(uint256 const& amendment)
 
     s.enabled = true;
 
-    if (!s.supported)
+    if (s.ignored)
+    {
+        JLOG(j_.warn()) << "Ignored unsupported amendment " << amendment << " ("
+                        << s.name << ") is enabled on the ledger.";
+    }
+    else if (!s.supported)
     {
         JLOG(j_.error()) << "Unsupported amendment " << amendment
                          << " activated.";
@@ -1044,7 +1113,9 @@ AmendmentTableImpl::injectJson(
     if (!fs.name.empty())
         v[jss::name] = fs.name;
 
-    v[jss::supported] = fs.supported;
+    v[jss::supported] = fs.supported && !fs.ignored;
+    if (fs.ignored)
+        v["ignored"] = true;
     if (!fs.enabled && isAdmin)
     {
         if (fs.vote == AmendmentVote::obsolete)
@@ -1113,10 +1184,11 @@ make_AmendmentTable(
     std::vector<AmendmentTable::FeatureInfo> const& supported,
     Section const& enabled,
     Section const& vetoed,
-    beast::Journal journal)
+    beast::Journal journal,
+    Section const& ignored)
 {
     return std::make_unique<AmendmentTableImpl>(
-        app, majorityTime, supported, enabled, vetoed, journal);
+        app, majorityTime, supported, enabled, vetoed, journal, ignored);
 }
 
 }  // namespace ripple
