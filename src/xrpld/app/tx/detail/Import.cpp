@@ -124,25 +124,28 @@ Import::getInnerTxn(
     }
 }
 
+uint32_t
+Import::getFlagsMask(PreflightContext const& ctx)
+{
+    return 0;
+}
+
+bool
+Import::checkExtraFeatures(PreflightContext const& ctx)
+{
+    return ctx.rules.enabled(featureHooksUpdate1) ||
+        !ctx.tx.isFieldPresent(sfIssuer);
+}
+
 NotTEC
 Import::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureImport))
-        return temDISABLED;
-
-    if (!ctx.rules.enabled(featureHooksUpdate1) &&
-        ctx.tx.isFieldPresent(sfIssuer))
-        return temDISABLED;
-
     if (ctx.tx.isFieldPresent(sfIssuer) &&
         ctx.tx.getAccountID(sfIssuer) == ctx.tx.getAccountID(sfAccount))
     {
         JLOG(ctx.j.warn()) << "Import: Issuer cannot be the source account.";
         return temMALFORMED;
     }
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
 
     auto& tx = ctx.tx;
 
@@ -882,7 +885,7 @@ Import::preflight(PreflightContext const& ctx)
         return temBAD_FEE;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

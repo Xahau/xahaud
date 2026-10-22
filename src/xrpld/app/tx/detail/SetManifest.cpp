@@ -156,20 +156,8 @@ SetManifest::makeTxConsequences(PreflightContext const& ctx)
 NotTEC
 SetManifest::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureOnChainManifests))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto& tx = ctx.tx;
     auto& j = ctx.j;
-
-    if (tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(j.warn()) << "SetManifest: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
 
     // The envelope carries no account signature: authority comes solely from
     // the manifest's own master and ephemeral signatures, which do not cover
@@ -221,7 +209,7 @@ SetManifest::preflight(PreflightContext const& ctx)
     // 3. not already revoked will be checked in preclaim because it depends on
     // lgr state
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

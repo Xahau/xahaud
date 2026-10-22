@@ -39,22 +39,19 @@ CreateOffer::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, calculateMaxXRPSpend(ctx.tx)};
 }
 
+std::uint32_t
+CreateOffer::getFlagsMask(PreflightContext const& ctx)
+{
+    return tfOfferCreateMask;
+}
+
 NotTEC
 CreateOffer::preflight(PreflightContext const& ctx)
 {
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto& tx = ctx.tx;
     auto& j = ctx.j;
 
     std::uint32_t const uTxFlags = tx.getFlags();
-
-    if (uTxFlags & tfOfferCreateMask)
-    {
-        JLOG(j.debug()) << "Malformed transaction: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
 
     bool const bImmediateOrCancel(uTxFlags & tfImmediateOrCancel);
     bool const bFillOrKill(uTxFlags & tfFillOrKill);
@@ -131,7 +128,7 @@ CreateOffer::preflight(PreflightContext const& ctx)
         return temBAD_ISSUER;
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

@@ -20,7 +20,10 @@
 #ifndef RIPPLE_PROTOCOL_TXFORMATS_H_INCLUDED
 #define RIPPLE_PROTOCOL_TXFORMATS_H_INCLUDED
 
+#include <xrpl/basics/base_uint.h>
 #include <xrpl/protocol/KnownFormats.h>
+
+#include <optional>
 
 namespace ripple {
 
@@ -59,7 +62,7 @@ enum TxType : std::uint16_t
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, fields) tag = value,
+#define TRANSACTION(tag, value, name, amendment, fields) tag = value,
 
 #include <xrpl/protocol/detail/transactions.macro>
 
@@ -91,6 +94,12 @@ public:
     static TxFormats const&
     getInstance();
 };
+
+/** Amendment that gates this transaction type, if any (from
+    transactions.macro).
+*/
+std::optional<uint256>
+txRequiredFeature(TxType txType);
 
 }  // namespace ripple
 

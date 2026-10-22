@@ -686,7 +686,8 @@ isTesSuccess(T x)
 inline bool
 isTesSuccess(TER x)
 {
-    return ((x) >= tesSUCCESS) && (x) < tecCLAIM;
+    // Makes use of TERSubset::operator bool()
+    return !(x);
 }
 
 inline bool
