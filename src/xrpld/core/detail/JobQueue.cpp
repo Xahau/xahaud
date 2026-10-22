@@ -208,6 +208,14 @@ JobQueue::isOverloaded()
     });
 }
 
+bool
+JobQueue::isOverloadedWithBacklog()
+{
+    return std::any_of(m_jobData.begin(), m_jobData.end(), [](auto& entry) {
+        return entry.second.load().isOver() && entry.second.waiting > 0;
+    });
+}
+
 Json::Value
 JobQueue::getJson(int c)
 {
