@@ -30,22 +30,35 @@
 
 namespace ripple {
 
+uint32_t
+ClaimReward::getFlagsMask(PreflightContext const& ctx)
+{
+    if (ctx.rules.enabled(fixRewardClaimFlags))
+        return tfClaimRewardMask;
+    return 0;
+}
+
+bool
+ClaimReward::checkExtraFeatures(PreflightContext const& ctx)
+{
+    // IOU RewardClaim
+    return ctx.rules.enabled(featureIOURewardClaim) ||
+        !ctx.tx.isFieldPresent(sfClaimCurrency);
+}
+
 NotTEC
 ClaimReward::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureBalanceRewards))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     // can have flag 1 set to opt-out of rewards
-    auto const invalidFlags = ctx.rules.enabled(fixRewardClaimFlags)
-        ? (ctx.tx.getFlags() & tfClaimRewardMask)
-        : (ctx.tx.isFieldPresent(sfFlags) &&
-           ctx.tx.getFieldU32(sfFlags) > tfOptOut);
-    if (invalidFlags)
-        return temINVALID_FLAG;
+    if (!ctx.rules.enabled(fixRewardClaimFlags))
+    {
+        if ((ctx.tx.isFieldPresent(sfFlags) &&
+             ctx.tx.getFieldU32(sfFlags) > tfOptOut))
+        {
+            JLOG(ctx.j.warn()) << "ClaimReward: Invalid flags set.";
+            return temINVALID_FLAG;
+        }
+    }
 
     if (ctx.tx.isFieldPresent(sfIssuer) &&
         ctx.tx.getAccountID(sfIssuer) == ctx.tx.getAccountID(sfAccount))
@@ -58,9 +71,6 @@ ClaimReward::preflight(PreflightContext const& ctx)
     if (ctx.tx.isFieldPresent(sfClaimCurrency))
     {
         // IOU RewardClaim
-        if (!ctx.rules.enabled(featureIOURewardClaim))
-            return temDISABLED;
-
         auto const claimAsset = ctx.tx[sfClaimCurrency];
         bool const isMPT = claimAsset.holds<MPTIssue>();
 
@@ -106,7 +116,7 @@ ClaimReward::preflight(PreflightContext const& ctx)
             }
         }
     }
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

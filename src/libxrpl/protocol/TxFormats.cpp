@@ -19,6 +19,7 @@
 
 #include <xrpl/protocol/TxFormats.h>
 
+#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/SOTemplate.h>
 #include <xrpl/protocol/jss.h>
@@ -57,7 +58,7 @@ TxFormats::TxFormats()
 #undef TRANSACTION
 
 #define UNWRAP(...) __VA_ARGS__
-#define TRANSACTION(tag, value, name, fields) \
+#define TRANSACTION(tag, value, name, amendment, fields) \
     add(jss::name, tag, UNWRAP fields, commonFields);
 
 #include <xrpl/protocol/detail/transactions.macro>
@@ -66,6 +67,29 @@ TxFormats::TxFormats()
 #pragma pop_macro("TRANSACTION")
 #undef UNWRAP
 #pragma pop_macro("UNWRAP")
+}
+
+std::optional<uint256>
+txRequiredFeature(TxType txType)
+{
+#pragma push_macro("TRANSACTION")
+#undef TRANSACTION
+
+#define TRANSACTION(tag, value, name, amendment, fields) \
+    case tag:                                            \
+        if (amendment == uint256{})                      \
+            return std::nullopt;                         \
+        return amendment;
+
+    switch (txType)
+    {
+#include <xrpl/protocol/detail/transactions.macro>
+        default:
+            return std::nullopt;
+    }
+
+#undef TRANSACTION
+#pragma pop_macro("TRANSACTION")
 }
 
 TxFormats const&
