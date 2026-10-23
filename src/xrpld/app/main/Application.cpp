@@ -24,6 +24,7 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/ledger/LedgerReplayer.h>
 #include <xrpld/app/ledger/LedgerToJson.h>
+#include <xrpld/app/ledger/LiteWatch.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/OrderBookDB.h>
 #include <xrpld/app/ledger/PendingSaves.h>
@@ -217,6 +218,7 @@ public:
     RCLValidations mValidations;
     std::unique_ptr<LoadManager> m_loadManager;
     std::unique_ptr<TxQ> txQ_;
+    std::unique_ptr<LiteWatch> liteWatch_;
     ClosureCounter<void, boost::system::error_code const&> waitHandlerCounter_;
     boost::asio::steady_timer sweepTimer_;
     boost::asio::steady_timer entropyTimer_;
@@ -456,6 +458,10 @@ public:
 
         , txQ_(
               std::make_unique<TxQ>(setup_TxQ(*config_), logs_->journal("TxQ")))
+
+        , liteWatch_(std::make_unique<LiteWatch>(
+              *config_,
+              logs_->journal("LiteWatch")))
 
         , sweepTimer_(get_io_context())
 
@@ -809,6 +815,15 @@ public:
             txQ_,
             "ripple::ApplicationImp::getTxQ : non-null transaction queue");
         return *txQ_;
+    }
+
+    LiteWatch&
+    getLiteWatch() override
+    {
+        XRPL_ASSERT(
+            liteWatch_,
+            "ripple::ApplicationImp::getLiteWatch : non-null lite watch");
+        return *liteWatch_;
     }
 
     RelationalDatabase&

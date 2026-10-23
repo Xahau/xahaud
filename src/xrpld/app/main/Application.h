@@ -79,6 +79,7 @@ class Ledger;
 class LedgerMaster;
 class LedgerCleaner;
 class LedgerReplayer;
+class LiteWatch;
 class LoadManager;
 class ManifestCache;
 class ValidatorKeys;
@@ -190,6 +191,8 @@ public:
     overlay() = 0;
     virtual TxQ&
     getTxQ() = 0;
+    virtual LiteWatch&
+    getLiteWatch() = 0;
     virtual ValidatorList&
     validators() = 0;
     virtual ValidatorSite&

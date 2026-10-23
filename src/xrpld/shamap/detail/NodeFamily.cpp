@@ -20,6 +20,7 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/Tuning.h>
+#include <xrpld/core/Config.h>
 #include <xrpld/shamap/NodeFamily.h>
 #include <sstream>
 
@@ -69,6 +70,16 @@ NodeFamily::reset()
 void
 NodeFamily::missingNodeAcquireBySeq(std::uint32_t seq, uint256 const& nodeHash)
 {
+    // A lite ledger is missing almost everything by design, and is as
+    // complete as it will get: acquiring it again would fetch the same
+    // paths. Reads of unwatched keys surface as SHAMapMissingNode instead.
+    if (app_.config().liteMode())
+    {
+        JLOG(j_.trace()) << "Lite mode: unwatched node " << nodeHash << " in "
+                         << seq;
+        return;
+    }
+
     JLOG(j_.error()) << "Missing node in " << seq;
     std::unique_lock<std::mutex> lock(maxSeqMutex_);
     if (maxSeq_ == 0)

@@ -447,6 +447,11 @@ private:
     // ledgers are retained in memory (see mRetainedLedgers).
     bool const nullBackend_;
 
+    // [lite_mode]: ledgers hold only the state paths to the watched keys.
+    // They are never marked full, never backfilled, and the validated
+    // ledger doubles as the closed ledger since no consensus round runs.
+    bool const liteMode_;
+
     std::uint32_t const ledger_fetch_size_;
 
     TaggedCache<uint256, Blob> fetch_packs_;

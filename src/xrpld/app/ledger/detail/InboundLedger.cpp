@@ -21,6 +21,7 @@
 #include <xrpld/app/ledger/InboundLedger.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/LiteWatch.h>
 #include <xrpld/app/ledger/ManifestSync.h>
 #include <xrpld/app/ledger/TransactionStateSF.h>
 #include <xrpld/app/main/Application.h>
@@ -244,8 +245,31 @@ InboundLedger::neededTxHashes(int max, SHAMapSyncFilter* filter) const
 std::vector<uint256>
 InboundLedger::neededStateHashes(int max, SHAMapSyncFilter* filter) const
 {
+    if (app_.config().liteMode())
+    {
+        // Only the paths to the watched keys are wanted, so a walk of the
+        // whole map (which would also mark subtrees full below) is never
+        // the right question to ask of it.
+        std::vector<uint256> ret;
+        if (mLedger->info().accountHash.isNonZero())
+        {
+            if (mLedger->stateMap().getHash().isZero())
+                ret.push_back(mLedger->info().accountHash);
+            else
+                for (auto const& n : liteMissingStateNodes(max))
+                    ret.push_back(n.second);
+        }
+        return ret;
+    }
+
     return neededHashes(
         mLedger->info().accountHash, mLedger->stateMap(), max, filter);
+}
+
+std::vector<std::pair<SHAMapNodeID, uint256>>
+InboundLedger::liteMissingStateNodes(std::size_t max) const
+{
+    return app_.getLiteWatch().missingNodes(mLedger->stateMap(), max);
 }
 
 // See how much of the ledger data is stored locally
@@ -638,6 +662,12 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
     else
         tmGL.set_querydepth(1);
 
+    if (app_.config().liteMode())
+    {
+        liteTrigger(sl, peer, reason, tmGL);
+        return;
+    }
+
     // Get the state data first because it's the most likely to be useful
     // if we wind up abandoning this fetch.
     if (mHaveHeader && !mHaveState && !failed_)
@@ -675,50 +705,8 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
             // key as well as through the directory. They are what a node with
             // no manifests at all needs, and reading them by key does not
             // depend on how long the directory has grown.
-            if (!mManifestsSynced && app_.config().EARLY_MANIFEST_SYNC &&
-                wantManifests())
-            {
-                sl.unlock();
-                auto listed = listedMasterKeys(app_);
-                std::vector<uint256> targets;
-                targets.reserve(listed.size());
-                for (auto const& pk : listed)
-                    targets.push_back(keylet::manifest(pk).key);
-                auto nodes = missingManifestNodes(
-                    mLedger->stateMap(),
-                    missingNodesFind,
-                    targets,
-                    manifestSyncPages);
-                sl.lock();
-
-                if (!failed_ && !complete_ && !mHaveState && !mManifestsSynced)
-                {
-                    if (nodes.empty())
-                    {
-                        syncManifests(std::move(listed), manifestSyncPages);
-                    }
-                    else
-                    {
-                        filterNodes(nodes, reason);
-
-                        // All recently asked for: fall through to the rest of
-                        // the map rather than wait on them.
-                        if (!nodes.empty())
-                        {
-                            tmGL.set_itype(protocol::liAS_NODE);
-                            for (auto const& id : nodes)
-                                *(tmGL.add_nodeids()) = id.first.getRawString();
-
-                            JLOG(journal_.trace())
-                                << "Sending manifest node request ("
-                                << nodes.size() << ") to "
-                                << (peer ? "selected peer" : "all peers");
-                            mPeerSet->sendRequest(tmGL, peer);
-                            return;
-                        }
-                    }
-                }
-            }
+            if (earlyManifestSync(sl, peer, reason, tmGL))
+                return;
 
             AccountStateSF filter(
                 mLedger->stateMap().family().db(), app_.getLedgerMaster());
@@ -843,6 +831,216 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
         JLOG(journal_.debug())
             << "Done:" << (complete_ ? " complete" : "")
             << (failed_ ? " failed " : " ") << mLedger->info().seq;
+        sl.unlock();
+        done();
+    }
+}
+
+bool
+InboundLedger::earlyManifestSync(
+    ScopedLockType& sl,
+    std::shared_ptr<Peer> const& peer,
+    TriggerReason reason,
+    protocol::TMGetLedger& tmGL)
+{
+    if (mManifestsSynced || !app_.config().EARLY_MANIFEST_SYNC ||
+        !wantManifests())
+        return false;
+
+    sl.unlock();
+    auto listed = listedMasterKeys(app_);
+    std::vector<uint256> targets;
+    targets.reserve(listed.size());
+    for (auto const& pk : listed)
+        targets.push_back(keylet::manifest(pk).key);
+    auto nodes = missingManifestNodes(
+        mLedger->stateMap(), missingNodesFind, targets, manifestSyncPages);
+    sl.lock();
+
+    // Make sure nothing happened while we released the lock
+    if (failed_ || complete_ || mHaveState || mManifestsSynced)
+        return false;
+
+    if (nodes.empty())
+    {
+        syncManifests(std::move(listed), manifestSyncPages);
+        return false;
+    }
+
+    filterNodes(nodes, reason);
+
+    // All recently asked for: fall through to the rest of the map rather
+    // than wait on them.
+    if (nodes.empty())
+        return false;
+
+    tmGL.set_itype(protocol::liAS_NODE);
+    for (auto const& id : nodes)
+        *(tmGL.add_nodeids()) = id.first.getRawString();
+
+    JLOG(journal_.trace()) << "Sending manifest node request (" << nodes.size()
+                           << ") to " << (peer ? "selected peer" : "all peers");
+    mPeerSet->sendRequest(tmGL, peer);
+    return true;
+}
+
+void
+InboundLedger::liteTrigger(
+    ScopedLockType& sl,
+    std::shared_ptr<Peer> const& peer,
+    TriggerReason reason,
+    protocol::TMGetLedger& tmGL)
+{
+    XRPL_ASSERT(
+        failed_ || (mHaveHeader && mLedger),
+        "ripple::InboundLedger::liteTrigger : header held");
+
+    // Transactions first, and all of them. They are what the watchers are
+    // waiting to see, and they name the objects this ledger created for the
+    // watched accounts, which must be known before the state paths are
+    // asked for if they are to be read from this ledger.
+    if (!mHaveTransactions && !failed_)
+    {
+        if (!mLedger->txMap().isValid())
+        {
+            failed_ = true;
+        }
+        else if (mLedger->txMap().getHash().isZero())
+        {
+            tmGL.set_itype(protocol::liTX_NODE);
+            *(tmGL.add_nodeids()) = SHAMapNodeID().getRawString();
+            JLOG(journal_.trace()) << "Lite: sending TX root request to "
+                                   << (peer ? "selected peer" : "all peers");
+            mPeerSet->sendRequest(tmGL, peer);
+            return;
+        }
+        else
+        {
+            TransactionStateSF filter(
+                mLedger->txMap().family().db(), app_.getLedgerMaster());
+
+            auto nodes =
+                mLedger->txMap().getMissingNodes(missingNodesFind, &filter);
+
+            if (nodes.empty())
+            {
+                if (!mLedger->txMap().isValid())
+                    failed_ = true;
+                else
+                    mHaveTransactions = true;
+            }
+            else
+            {
+                filterNodes(nodes, reason);
+
+                if (!nodes.empty())
+                {
+                    tmGL.set_itype(protocol::liTX_NODE);
+                    for (auto const& n : nodes)
+                        *(tmGL.add_nodeids()) = n.first.getRawString();
+
+                    JLOG(journal_.trace())
+                        << "Lite: sending TX node request (" << nodes.size()
+                        << ") to " << (peer ? "selected peer" : "all peers");
+                    mPeerSet->sendRequest(tmGL, peer);
+                    return;
+                }
+
+                JLOG(journal_.trace()) << "Lite: all TX nodes filtered";
+            }
+        }
+    }
+
+    // Grow the watch set by what this ledger's transactions did to the
+    // watched accounts. Reading the complete transaction map is what
+    // getMissingNodes() just did, so the lock can be released for it.
+    if (mHaveTransactions && !mLiteDiscovered && !failed_)
+    {
+        mLiteDiscovered = true;
+        sl.unlock();
+        auto const added = app_.getLiteWatch().discover(*mLedger);
+        sl.lock();
+
+        if (added != 0)
+        {
+            JLOG(journal_.debug()) << "Lite: ledger " << mLedger->info().seq
+                                   << " adds " << added << " watched keys";
+        }
+    }
+
+    if (mHaveTransactions && !mHaveState && !failed_)
+    {
+        if (!mLedger->stateMap().isValid())
+        {
+            failed_ = true;
+        }
+        else if (mLedger->stateMap().getHash().isZero())
+        {
+            tmGL.set_itype(protocol::liAS_NODE);
+            *tmGL.add_nodeids() = SHAMapNodeID().getRawString();
+            JLOG(journal_.trace()) << "Lite: sending AS root request to "
+                                   << (peer ? "selected peer" : "all peers");
+            mPeerSet->sendRequest(tmGL, peer);
+            return;
+        }
+        else
+        {
+            // Before the first validated ledger the manifests are what
+            // decide which validations to believe; they are a few paths
+            // more, read the same way.
+            if (earlyManifestSync(sl, peer, reason, tmGL))
+                return;
+
+            // The paths to the watched keys, and nothing else. Unchanged
+            // paths resolve from the tree node cache, which is keyed by
+            // hash, so in steady state this costs the nodes near the root
+            // that every ledger rewrites.
+            sl.unlock();
+            auto nodes = liteMissingStateNodes(missingNodesFind);
+            sl.lock();
+
+            // Make sure nothing happened while we released the lock
+            if (!failed_ && !complete_ && !mHaveState)
+            {
+                if (nodes.empty())
+                {
+                    mHaveState = true;
+                    complete_ = true;
+                }
+                else
+                {
+                    filterNodes(nodes, reason);
+
+                    if (!nodes.empty())
+                    {
+                        tmGL.set_itype(protocol::liAS_NODE);
+                        for (auto const& id : nodes)
+                            *(tmGL.add_nodeids()) = id.first.getRawString();
+
+                        JLOG(journal_.trace())
+                            << "Lite: sending AS path request (" << nodes.size()
+                            << ") to "
+                            << (peer ? "selected peer" : "all peers");
+                        mPeerSet->sendRequest(tmGL, peer);
+                        return;
+                    }
+
+                    JLOG(journal_.trace()) << "Lite: all AS nodes filtered";
+                }
+            }
+        }
+    }
+    else if (mHaveTransactions && mHaveState && !failed_)
+    {
+        // A ledger with no state root, or one tryDB() found whole.
+        complete_ = true;
+    }
+
+    if (complete_ || failed_)
+    {
+        JLOG(journal_.debug()) << "Lite done:" << (complete_ ? " complete" : "")
+                               << (failed_ ? " failed " : " ")
+                               << (mLedger ? mLedger->info().seq : mSeq);
         sl.unlock();
         done();
     }

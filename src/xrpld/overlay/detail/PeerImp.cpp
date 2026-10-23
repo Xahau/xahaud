@@ -1414,6 +1414,16 @@ PeerImp::handleTransaction(
 void
 PeerImp::onMessage(std::shared_ptr<protocol::TMGetLedger> const& m)
 {
+    // A lite node holds partial ledgers and builds no transaction sets. It
+    // never advertises a ledger range, so a request here is a peer guessing
+    // from its closed-ledger hash; answer with silence rather than with a
+    // tree that would throw on the first node it does not hold.
+    if (app_.config().liteMode())
+    {
+        JLOG(p_journal_.trace()) << "TMGetLedger: ignored in lite mode";
+        return;
+    }
+
     auto badData = [&](std::string const& msg) {
         fee_.update(Resource::feeInvalidData, "get_ledger " + msg);
         JLOG(p_journal_.warn()) << "TMGetLedger: " << msg;
@@ -2459,6 +2469,17 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMGetObjectByHash> const& m)
         if (send_queue_.size() >= Tuning::dropSendQueue)
         {
             JLOG(p_journal_.debug()) << "GetObject: Large send queue";
+            return;
+        }
+
+        // A lite node has no fetch packs to build and no node store to
+        // look objects up in. Transaction requests (reduce-relay) are still
+        // served from the transaction master.
+        if (app_.config().liteMode() &&
+            packet.type() != protocol::TMGetObjectByHash::otTRANSACTIONS)
+        {
+            JLOG(p_journal_.trace())
+                << "TMGetObjectByHash: ignored in lite mode";
             return;
         }
 
