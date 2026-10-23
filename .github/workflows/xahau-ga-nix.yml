@@ -336,7 +336,7 @@ jobs:
               parent="parent_pid=$pp schedstat=[$(cat /proc/$pp/schedstat)] threads=[$(awk '{print $3}' /proc/$pp/task/*/stat 2>/dev/null | sort | uniq -c | tr -s ' \n' ' ')] ctxsw=[$(awk '/ctxt_switches/{printf "%s ", $2}' /proc/$pp/status)]"
             fi
             percpu=$(awk '/^cpu[0-9]/{printf "%d,", $2+$3+$4+$5+$6+$7+$8+$9}' /proc/stat)
-            echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct cpu_delivered=$delivered jiffies=$total psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr$parent percpu_jiffies=$percpu" >> "$out"
+            echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct steal_total=$st cpu_delivered=$delivered jiffies=$total psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr$parent percpu_jiffies=$percpu" >> "$out"
             sleep 5
           done
           EOF
@@ -376,7 +376,7 @@ jobs:
           stdlib: ${{ matrix.stdlib }}
           # Coverage builds are slower due to instrumentation; use fewer parallel jobs to avoid flakiness.
           # Use *_FLAGS_DEBUG so the build action's stdlib flag (e.g. -stdlib=libc++) in CMAKE_CXX_FLAGS isn't clobbered.
-          cmake-args: '-Dcoverage=ON -Dcoverage_tool=${{ matrix.coverage_tool }} -Dcoverage_format=${{ matrix.coverage_format }} -Dcoverage_test_parallelism=$(($(nproc)/2)) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0"'
+          cmake-args: '-Dcoverage=ON -Dcoverage_tool=${{ matrix.coverage_tool }} -Dcoverage_format=${{ matrix.coverage_format }} -Dcoverage_test_parallelism=$(nproc) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0"'
           cmake-target: 'coverage'
           ccache_max_size: '100G'
 
@@ -395,9 +395,9 @@ jobs:
           pkill -f sampler.sh || true
           pkill -x stall_probe || true
           for f in sleep spin3 spin17; do
-            echo "---- probe-$f: $(grep -c ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null) gaps >100ms; gaps >=500ms or without a context switch:"
-            grep -E ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null | awk '{g=$3; sub("gap=","",g); sub("ms","",g); if (g+0>=500 || $6=="nivcsw+=0") print}' | head -60
-            grep ' alive ' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null | tail -1
+            echo "---- probe-$f: $(grep -c ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true) gaps >100ms; gaps >=500ms or without a context switch:"
+            { grep -E ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true; } | awk '{g=$3; sub("gap=","",g); sub("ms","",g); if (g+0>=500 || $6=="nivcsw+=0") print}' | head -60 || true
+            { grep ' alive ' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true; } | tail -1 || true
           done
           echo "---- host samples"
           cat "$RUNNER_TEMP/host-samples.log" || echo "no samples recorded"
