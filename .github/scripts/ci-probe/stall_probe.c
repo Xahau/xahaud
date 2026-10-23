@@ -6,7 +6,8 @@
 // Each gap line carries the thread's voluntary/involuntary context switch deltas:
 // a spin gap with nivcsw+=0 means the thread stayed on its CPU from the guest's
 // point of view, i.e. the vCPU itself was not running (hypervisor), while
-// nivcsw>0 is ordinary in-guest preemption.
+// nivcsw>0 is ordinary in-guest preemption. Counters are read every
+// iteration so the deltas cover exactly the reported gap.
 #define _GNU_SOURCE
 #include <sched.h>
 #include <stdio.h>
@@ -67,12 +68,14 @@ main(int argc, char** argv)
         }
         double const t = now_ms();
         double const gap = t - prev - (spin ? 0 : arg);
+        // Track the switch counters continuously so a gap's delta covers
+        // only that gap (a syscall per iteration is fine for a probe).
+        getrusage(RUSAGE_THREAD, &ru);
+        long const dv = ru.ru_nvcsw - pv, di = ru.ru_nivcsw - pi;
+        pv = ru.ru_nvcsw;
+        pi = ru.ru_nivcsw;
         if (gap > thr)
         {
-            getrusage(RUSAGE_THREAD, &ru);
-            long const dv = ru.ru_nvcsw - pv, di = ru.ru_nivcsw - pi;
-            pv = ru.ru_nvcsw;
-            pi = ru.ru_nivcsw;
             utc(b, sizeof b);
             printf(
                 "%s %s gap=%.0fms cpu=%d nvcsw+=%ld nivcsw+=%ld\n",

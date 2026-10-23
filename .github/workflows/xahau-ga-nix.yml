@@ -315,10 +315,15 @@ jobs:
             fi
             prev_up=$now_up
             prev_total=$total; prev_steal=$st
-            nr=0
+            nr=0; nl=0
             for c in /proc/[0-9]*/comm; do
-              read -r name < "$c" 2>/dev/null && [ "$name" = rippled ] && nr=$((nr+1))
+              read -r name < "$c" 2>/dev/null || continue
+              [ "$name" = rippled ] && nr=$((nr+1))
+              case "$name" in llvm*) nl=$((nl+1));; esac
             done
+            # block I/O: sectors written and ms spent doing I/O, summed over whole disks
+            disk=$(awk '$3 ~ /^(sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+)$/ {w+=$10; t+=$13} END{printf "wr_sectors=%d io_ms=%d", w, t}' /proc/diskstats)
+            vm=$(awk '/^(pgpgout|nr_dirty|nr_writeback|pgfault|thp_fault_alloc) /{printf "%s=%s ", $1, $2}' /proc/vmstat)
             thr=$(grep -E '^(nr_throttled|throttled_usec)' /sys/fs/cgroup/cpu.stat 2>/dev/null | tr '\n' ' ')
             # the multi_runner parent: the rippled whose cmdline has --unittest but not --unittest-child
             pp=""
@@ -336,7 +341,7 @@ jobs:
               parent="parent_pid=$pp schedstat=[$(cat /proc/$pp/schedstat)] threads=[$(awk '{print $3}' /proc/$pp/task/*/stat 2>/dev/null | sort | uniq -c | tr -s ' \n' ' ')] ctxsw=[$(awk '/ctxt_switches/{printf "%s ", $2}' /proc/$pp/status)]"
             fi
             percpu=$(awk '/^cpu[0-9]/{printf "%d,", $2+$3+$4+$5+$6+$7+$8+$9}' /proc/stat)
-            echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct steal_total=$st cpu_delivered=$delivered jiffies=$total psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr$parent percpu_jiffies=$percpu" >> "$out"
+            echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct steal_total=$st cpu_delivered=$delivered jiffies=$total psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^some/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr llvm_procs=$nl $disk $vm$thr$parent percpu_jiffies=$percpu" >> "$out"
             sleep 5
           done
           EOF
@@ -363,6 +368,9 @@ jobs:
           if ${{ matrix.cc }} -O2 -o "$RUNNER_TEMP/memtouch" .github/scripts/ci-probe/memtouch.c; then
             setsid nohup "$RUNNER_TEMP/memtouch" 512 120 > "$RUNNER_TEMP/probe-mem512.log" 2>&1 &
             setsid nohup "$RUNNER_TEMP/memtouch" 64 10 > "$RUNNER_TEMP/probe-mem64.log" 2>&1 &
+          fi
+          if ${{ matrix.cc }} -O2 -o "$RUNNER_TEMP/memfresh" .github/scripts/ci-probe/memfresh.c; then
+            setsid nohup "$RUNNER_TEMP/memfresh" 512 90 > "$RUNNER_TEMP/probe-memfresh.log" 2>&1 &
           fi
           echo "clockevent=$(cat /sys/devices/system/clockevents/clockevent0/current_device 2>/dev/null) available_clocksource=$(cat /sys/devices/system/clocksource/clocksource0/available_clocksource 2>/dev/null) thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null) virtio_drivers=$(ls /sys/bus/virtio/drivers 2>/dev/null | tr '\n' ',')"
 
@@ -391,7 +399,18 @@ jobs:
       - name: Idle stall observation (coverage)
         if: always() && matrix.job_type == 'coverage'
         shell: bash
-        run: sleep 720
+        run: |
+          # 3 min quiet baseline, then a controlled 2 GB fdatasync write every 3 min
+          # (does a guest write burst coincide with vCPU stalls?), 12 min in total.
+          log="$RUNNER_TEMP/iotest.log"
+          sleep 180
+          for i in 1 2 3; do
+            s=$(date -u +%FT%T.%3NZ); t0=$SECONDS
+            dd if=/dev/zero of="$RUNNER_TEMP/iotest.bin" bs=1M count=2048 conv=fdatasync 2>/dev/null
+            echo "$s dd 2GB fdatasync start, took $((SECONDS-t0))s, ended $(date -u +%FT%T.%3NZ)" >> "$log"
+            rm -f "$RUNNER_TEMP/iotest.bin"
+            sleep 180
+          done
 
       # [TEST PR] see "Start host sampler" above.
       - name: Show host samples (coverage)
@@ -406,7 +425,9 @@ jobs:
             { grep ' alive ' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true; } | tail -1 || true
           done
           pkill -x memtouch || true
-          for f in mem512 mem64; do
+          pkill -x memfresh || true
+          echo "---- controlled writes:"; cat "$RUNNER_TEMP/iotest.log" 2>/dev/null || true
+          for f in mem512 mem64 memfresh; do
             echo "---- probe-$f (all lines):"
             cat "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true
           done
