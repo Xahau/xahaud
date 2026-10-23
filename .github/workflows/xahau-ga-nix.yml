@@ -335,7 +335,8 @@ jobs:
               # schedstat: on-cpu ns, runqueue-wait ns, timeslices; thread states (R/S/D counts)
               parent="parent_pid=$pp schedstat=[$(cat /proc/$pp/schedstat)] threads=[$(awk '{print $3}' /proc/$pp/task/*/stat 2>/dev/null | sort | uniq -c | tr -s ' \n' ' ')] ctxsw=[$(awk '/ctxt_switches/{printf "%s ", $2}' /proc/$pp/status)]"
             fi
-            echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct cpu_delivered=$delivered jiffies=$total psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr$parent" >> "$out"
+            percpu=$(awk '/^cpu[0-9]/{printf "%d,", $2+$3+$4+$5+$6+$7+$8+$9}' /proc/stat)
+            echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct cpu_delivered=$delivered jiffies=$total psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr$parent percpu_jiffies=$percpu" >> "$out"
             sleep 5
           done
           EOF
@@ -345,6 +346,19 @@ jobs:
           grep -E '^(model name|cpu MHz)' /proc/cpuinfo | sort | uniq -c | head -4
           setsid nohup "$RUNNER_TEMP/sampler.sh" "$RUNNER_TEMP/host-samples.log" > /dev/null 2>&1 &
           echo "sampler pid $!"
+          # Probes (see .github/scripts/ci-probe/*.c): hypervisor features once, then a
+          # 10ms sleeper (timer wake-up latency, the parent heartbeat's situation) and
+          # two spinners pinned to CPUs 3 and 17 (vCPU not running vs in-guest preemption).
+          ${{ matrix.cc }} -O2 -o "$RUNNER_TEMP/hv_info" .github/scripts/ci-probe/hv_info.c && "$RUNNER_TEMP/hv_info" || echo "hv_info unavailable"
+          cat /sys/class/dmi/id/bios_vendor /sys/class/dmi/id/bios_version /sys/class/dmi/id/product_version 2>/dev/null | tr '\n' ' '; echo
+          if ${{ matrix.cc }} -O2 -o "$RUNNER_TEMP/stall_probe" .github/scripts/ci-probe/stall_probe.c; then
+            setsid nohup "$RUNNER_TEMP/stall_probe" sleep 10 100 > "$RUNNER_TEMP/probe-sleep.log" 2>&1 &
+            setsid nohup "$RUNNER_TEMP/stall_probe" spin 3 100 > "$RUNNER_TEMP/probe-spin3.log" 2>&1 &
+            setsid nohup "$RUNNER_TEMP/stall_probe" spin 17 100 > "$RUNNER_TEMP/probe-spin17.log" 2>&1 &
+            echo "probes started"
+          else
+            echo "stall_probe build failed; continuing without probes"
+          fi
 
       - name: Build (Coverage)
         if: matrix.job_type == 'coverage'
@@ -366,12 +380,26 @@ jobs:
           cmake-target: 'coverage'
           ccache_max_size: '100G'
 
+      # [TEST PR] Keep the slot for 12 more minutes with nothing but the sampler and
+      # probes running, to see whether the stalls also happen on an idle guest.
+      - name: Idle stall observation (coverage)
+        if: always() && matrix.job_type == 'coverage'
+        shell: bash
+        run: sleep 720
+
       # [TEST PR] see "Start host sampler" above.
       - name: Show host samples (coverage)
         if: always() && matrix.job_type == 'coverage'
         shell: bash
         run: |
           pkill -f sampler.sh || true
+          pkill -x stall_probe || true
+          for f in sleep spin3 spin17; do
+            echo "---- probe-$f: $(grep -c ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null) gaps >100ms; gaps >=500ms or without a context switch:"
+            grep -E ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null | awk '{g=$3; sub("gap=","",g); sub("ms","",g); if (g+0>=500 || $6=="nivcsw+=0") print}' | head -60
+            grep ' alive ' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null | tail -1
+          done
+          echo "---- host samples"
           cat "$RUNNER_TEMP/host-samples.log" || echo "no samples recorded"
           echo "---- kernel messages (if readable) mentioning timers/clock/lockups/kvm, last 40"
           dmesg 2>&1 | grep -iE "hrtimer|clocksource|rcu|lockup|stall|kvm|hung task|steal" | tail -40 || true
