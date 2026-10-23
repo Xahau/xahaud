@@ -359,6 +359,12 @@ jobs:
           else
             echo "stall_probe build failed; continuing without probes"
           fi
+          # Host paging probe: 512 MB re-touched after 120 s idle, and 64 MB after 10 s (control).
+          if ${{ matrix.cc }} -O2 -o "$RUNNER_TEMP/memtouch" .github/scripts/ci-probe/memtouch.c; then
+            setsid nohup "$RUNNER_TEMP/memtouch" 512 120 > "$RUNNER_TEMP/probe-mem512.log" 2>&1 &
+            setsid nohup "$RUNNER_TEMP/memtouch" 64 10 > "$RUNNER_TEMP/probe-mem64.log" 2>&1 &
+          fi
+          echo "clockevent=$(cat /sys/devices/system/clockevents/clockevent0/current_device 2>/dev/null) available_clocksource=$(cat /sys/devices/system/clocksource/clocksource0/available_clocksource 2>/dev/null) thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null) virtio_drivers=$(ls /sys/bus/virtio/drivers 2>/dev/null | tr '\n' ',')"
 
       - name: Build (Coverage)
         if: matrix.job_type == 'coverage'
@@ -398,6 +404,11 @@ jobs:
             echo "---- probe-$f: $(grep -c ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true) gaps >100ms; gaps >=500ms or without a context switch:"
             { grep -E ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true; } | awk '{g=$3; sub("gap=","",g); sub("ms","",g); if (g+0>=500 || $6=="nivcsw+=0") print}' | head -60 || true
             { grep ' alive ' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true; } | tail -1 || true
+          done
+          pkill -x memtouch || true
+          for f in mem512 mem64; do
+            echo "---- probe-$f (all lines):"
+            cat "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true
           done
           echo "---- host samples"
           cat "$RUNNER_TEMP/host-samples.log" || echo "no samples recorded"
