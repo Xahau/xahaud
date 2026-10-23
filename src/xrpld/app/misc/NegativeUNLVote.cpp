@@ -234,7 +234,7 @@ NegativeUNLVote::addExportKeyTx(
         bool const added = initalSet->addGiveItem(
             SHAMapNodeType::tnTRANSACTION_NM,
             make_shamapitem(tx.getTransactionID(), s.slice()));
-        JLOG(added ? j_.debug() : j_.warn())
+        JLOG((added ? j_.debug() : j_.warn()))
             << "R-UNL: ledger seq=" << seq << ", add ttUNL_REPORT (export_key) "
             << (added ? "tx " : "tx failed ") << tx.getTransactionID();
     }
