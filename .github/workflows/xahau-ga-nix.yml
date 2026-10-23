@@ -390,7 +390,7 @@ jobs:
           stdlib: ${{ matrix.stdlib }}
           # Coverage builds are slower due to instrumentation; use fewer parallel jobs to avoid flakiness.
           # Use *_FLAGS_DEBUG so the build action's stdlib flag (e.g. -stdlib=libc++) in CMAKE_CXX_FLAGS isn't clobbered.
-          cmake-args: '-Dcoverage=ON -Dcoverage_tool=${{ matrix.coverage_tool }} -Dcoverage_format=${{ matrix.coverage_format }} -Dcoverage_test_parallelism=$(nproc) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0"'
+          cmake-args: '-Dcoverage=ON -Dcoverage_tool=${{ matrix.coverage_tool }} -Dcoverage_format=${{ matrix.coverage_format }} -Dcoverage_test_parallelism=$(($(nproc)/2)) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0"'
           cmake-target: 'coverage'
           ccache_max_size: '100G'
 
