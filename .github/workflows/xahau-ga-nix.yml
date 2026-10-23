@@ -360,10 +360,9 @@ jobs:
           cache_version: ${{ env.CACHE_VERSION }}
           main_branch: ${{ env.MAIN_BRANCH_NAME }}
           stdlib: ${{ matrix.stdlib }}
-          # [TEST PR] experiment: 2x the usual test parallelism (nproc instead of nproc/2) to provoke scheduler stalls.
           # Coverage builds are slower due to instrumentation; use fewer parallel jobs to avoid flakiness.
           # Use *_FLAGS_DEBUG so the build action's stdlib flag (e.g. -stdlib=libc++) in CMAKE_CXX_FLAGS isn't clobbered.
-          cmake-args: '-Dcoverage=ON -Dcoverage_tool=${{ matrix.coverage_tool }} -Dcoverage_format=${{ matrix.coverage_format }} -Dcoverage_test_parallelism=$(nproc) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0"'
+          cmake-args: '-Dcoverage=ON -Dcoverage_tool=${{ matrix.coverage_tool }} -Dcoverage_format=${{ matrix.coverage_format }} -Dcoverage_test_parallelism=$(($(nproc)/2)) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0"'
           cmake-target: 'coverage'
           ccache_max_size: '100G'
 
