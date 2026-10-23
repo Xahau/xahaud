@@ -35,10 +35,7 @@ fi
 BUILD_TYPE=Release
 
 mv cmake/deps/WasmEdge.cmake cmake/deps/WasmEdge.old &&
-echo "find_package(LLVM REQUIRED CONFIG)
-message(STATUS \"Found LLVM \${LLVM_PACKAGE_VERSION}\")
-message(STATUS \"Using LLVMConfig.cmake in: \${LLVM_DIR}\")
-add_library (wasmedge STATIC IMPORTED GLOBAL)
+echo "add_library (wasmedge STATIC IMPORTED GLOBAL)
 set_target_properties(wasmedge PROPERTIES IMPORTED_LOCATION \${WasmEdge_LIB})
 target_link_libraries (ripple_libs INTERFACE wasmedge)
 add_library (wasmedge::wasmedge ALIAS wasmedge)
@@ -69,7 +66,6 @@ cmake .. -G Ninja \
   -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
   -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
   -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++" \
-  -DLLVM_DIR=$LLVM_DIR \
   -DWasmEdge_LIB=$WasmEdge_LIB \
   -Dxrpld=TRUE \
   -Dtests=TRUE &&
