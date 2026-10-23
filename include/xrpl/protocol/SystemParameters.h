@@ -24,18 +24,14 @@
 #include <xrpl/protocol/XRPAmount.h>
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace ripple {
 
 // Various protocol and system specific constant globals.
 
 /* The name of the system. */
-static inline std::string const&
-systemName()
-{
-    static std::string const name = "xahau";
-    return name;
-}
+inline constexpr std::string_view systemName = "xahau";
 
 /** Configure the native currency. */
 
@@ -58,12 +54,7 @@ isLegalAmountSigned(XRPAmount const& amount)
 }
 
 /* The currency code for the native currency. */
-static inline std::string const&
-systemCurrencyCode()
-{
-    static std::string const code = "XAH";
-    return code;
-}
+inline constexpr std::string_view systemCurrencyCode = "XAH";
 
 /** The XRP ledger network's earliest allowed sequence */
 static constexpr std::uint32_t XRP_LEDGER_EARLIEST_SEQ{1U};
