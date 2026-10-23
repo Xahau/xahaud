@@ -66,6 +66,17 @@ parent_pid()
 #endif
 }
 
+// One line to stderr in a single write, so reports from the parent and
+// many children sharing the same pipe do not interleave mid-line.
+template <class... Ts>
+static void
+say(Ts const&... ts)
+{
+    std::ostringstream oss;
+    (oss << ... << ts) << '\n';
+    std::cerr << oss.str();
+}
+
 // Report when a step of a watchdog-relevant thread took longer than
 // `threshold`; returns the elapsed time.
 template <class F>
@@ -82,8 +93,14 @@ timed(
     auto const elapsed =
         duration_cast<milliseconds>(steady_clock::now() - start);
     if (elapsed > threshold)
-        std::cerr << who << ": " << what << " took " << elapsed.count()
-                  << "ms (ended " << now_str() << ")\n";
+        say(who,
+            ": ",
+            what,
+            " took ",
+            elapsed.count(),
+            "ms (ended ",
+            now_str(),
+            ")");
     return elapsed;
 }
 
@@ -611,10 +628,15 @@ multi_runner_child::multi_runner_child(
 
                 if (parent_pid_ != 0 && detail::parent_pid() != parent_pid_)
                 {
-                    std::cerr << "multi_runner_child " << job_index_
-                              << ": parent pid " << parent_pid_
-                              << " is gone (ppid now " << detail::parent_pid()
-                              << "), exiting. " << detail::now_str() << "\n";
+                    detail::say(
+                        "multi_runner_child ",
+                        job_index_,
+                        ": parent pid ",
+                        parent_pid_,
+                        " is gone (ppid now ",
+                        detail::parent_pid(),
+                        "), exiting. ",
+                        detail::now_str());
                     std::exit(EXIT_FAILURE);
                 }
 
@@ -623,12 +645,14 @@ multi_runner_child::multi_runner_child(
                 if (cur_count != last_count)
                 {
                     if (warned)
-                        std::cerr
-                            << "multi_runner_child " << job_index_
-                            << ": keep-alive resumed after "
-                            << duration_cast<milliseconds>(now - last_change)
-                                   .count()
-                            << "ms. " << detail::now_str() << "\n";
+                        detail::say(
+                            "multi_runner_child ",
+                            job_index_,
+                            ": keep-alive resumed after ",
+                            duration_cast<milliseconds>(now - last_change)
+                                .count(),
+                            "ms. ",
+                            detail::now_str());
                     last_count = cur_count;
                     last_change = now;
                     warned = false;
@@ -639,20 +663,26 @@ multi_runner_child::multi_runner_child(
                     duration_cast<milliseconds>(now - last_change);
                 if (!warned && stalled >= warn_after)
                 {
-                    std::cerr
-                        << "multi_runner_child " << job_index_
-                        << ": no keep-alive from parent for " << stalled.count()
-                        << "ms"
-                        << (parent_pid_ ? " but its pid is still alive" : "")
-                        << "; continuing. " << detail::now_str() << "\n";
+                    detail::say(
+                        "multi_runner_child ",
+                        job_index_,
+                        ": no keep-alive from parent for ",
+                        stalled.count(),
+                        "ms",
+                        parent_pid_ ? " but its pid is still alive" : "",
+                        "; continuing. ",
+                        detail::now_str());
                     warned = true;
                 }
                 if (stalled >= grace)
                 {
-                    std::cerr << "multi_runner_child " << job_index_
-                              << ": Assuming parent died (no keep-alive for "
-                              << stalled.count() << "ms), exiting. "
-                              << detail::now_str() << "\n";
+                    detail::say(
+                        "multi_runner_child ",
+                        job_index_,
+                        ": Assuming parent died (no keep-alive for ",
+                        stalled.count(),
+                        "ms), exiting. ",
+                        detail::now_str());
                     std::exit(EXIT_FAILURE);
                 }
             }

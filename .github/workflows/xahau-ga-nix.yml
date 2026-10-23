@@ -310,12 +310,28 @@ jobs:
               read -r name < "$c" 2>/dev/null && [ "$name" = rippled ] && nr=$((nr+1))
             done
             thr=$(grep -E '^(nr_throttled|throttled_usec)' /sys/fs/cgroup/cpu.stat 2>/dev/null | tr '\n' ' ')
-            echo "$(date -u +%FT%TZ) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr" >> "$out"
-            sleep 20
+            # the multi_runner parent: the rippled whose cmdline has --unittest but not --unittest-child
+            pp=""
+            for d in /proc/[0-9]*; do
+              cl=$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null) || continue
+              case "$cl" in
+                *rippled*--unittest*--unittest-child*) ;;
+                *rippled*--unittest*) pp=${d#/proc/}; break ;;
+              esac
+            done
+            parent=""
+            if [ -n "$pp" ] && [ -r "/proc/$pp/schedstat" ]; then
+              # schedstat: on-cpu ns, runqueue-wait ns, timeslices; thread states (R/S/D counts)
+              parent="parent_pid=$pp schedstat=[$(cat /proc/$pp/schedstat)] threads=[$(awk '{print $3}' /proc/$pp/task/*/stat 2>/dev/null | sort | uniq -c | tr -s ' \n' ' ')] ctxsw=[$(awk '/ctxt_switches/{printf "%s ", $2}' /proc/$pp/status)]"
+            fi
+            echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct jiffies=$total psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr$parent" >> "$out"
+            sleep 5
           done
           EOF
           chmod +x "$RUNNER_TEMP/sampler.sh"
           echo "nproc=$(nproc) cpu.max=$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo n/a) cpuset=$(cat /sys/fs/cgroup/cpuset.cpus.effective 2>/dev/null || echo n/a)"
+          echo "kernel=$(uname -r) clocksource=$(cat /sys/devices/system/clocksource/clocksource0/current_clocksource 2>/dev/null) hypervisor_flag=$(grep -c -w hypervisor /proc/cpuinfo) dmi=$(cat /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_name 2>/dev/null | tr '\n' ' ') dmesg_restrict=$(cat /proc/sys/kernel/dmesg_restrict 2>/dev/null)"
+          grep -E '^(model name|cpu MHz)' /proc/cpuinfo | sort | uniq -c | head -4
           setsid nohup "$RUNNER_TEMP/sampler.sh" "$RUNNER_TEMP/host-samples.log" > /dev/null 2>&1 &
           echo "sampler pid $!"
 
@@ -347,6 +363,8 @@ jobs:
         run: |
           pkill -f sampler.sh || true
           cat "$RUNNER_TEMP/host-samples.log" || echo "no samples recorded"
+          echo "---- kernel messages (if readable) mentioning timers/clock/lockups/kvm, last 40"
+          dmesg 2>&1 | grep -iE "hrtimer|clocksource|rcu|lockup|stall|kvm|hung task|steal" | tail -40 || true
 
       - name: Set artifact name
         if: matrix.job_type == 'build'
