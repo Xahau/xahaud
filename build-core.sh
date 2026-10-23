@@ -35,10 +35,7 @@ fi
 BUILD_TYPE=Release
 
 mv cmake/deps/WasmEdge.cmake cmake/deps/WasmEdge.old &&
-echo "find_package(LLVM REQUIRED CONFIG)
-message(STATUS \"Found LLVM \${LLVM_PACKAGE_VERSION}\")
-message(STATUS \"Using LLVMConfig.cmake in: \${LLVM_DIR}\")
-add_library (wasmedge STATIC IMPORTED GLOBAL)
+echo "add_library (wasmedge STATIC IMPORTED GLOBAL)
 set_target_properties(wasmedge PROPERTIES IMPORTED_LOCATION \${WasmEdge_LIB})
 target_link_libraries (ripple_libs INTERFACE wasmedge)
 add_library (wasmedge::wasmedge ALIAS wasmedge)
@@ -60,13 +57,15 @@ cd release-build &&
 # The tool_requires('b2/5.3.2') in conanfile.py should force b2 to build from source
 # with the correct toolchain, avoiding the GLIBCXX_3.4.29 issue
 echo "=== Installing dependencies ===" &&
-conan install .. --output-folder . --build missing --settings build_type=$BUILD_TYPE \
+# m4 is a tool_requires of autoconf (pulled in by libcurl's autoreconf step).
+# ConanCenter's prebuilt m4 needs glibc >= 2.33 and cannot run on the glibc
+# 2.28 of this image, so always build it from source here.
+conan install .. --output-folder . --build missing --build="m4/*" --settings build_type=$BUILD_TYPE \
   -o with_wasmedge=False -o tool_requires_b2=True &&
 cmake .. -G Ninja \
   -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
   -DCMAKE_TOOLCHAIN_FILE:FILEPATH=build/generators/conan_toolchain.cmake \
   -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++" \
-  -DLLVM_DIR=$LLVM_DIR \
   -DWasmEdge_LIB=$WasmEdge_LIB \
   -Dxrpld=TRUE \
   -Dtests=TRUE &&
