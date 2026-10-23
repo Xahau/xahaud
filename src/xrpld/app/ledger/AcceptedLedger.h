@@ -44,9 +44,15 @@ namespace ripple {
 class AcceptedLedger : public CountedObject<AcceptedLedger>
 {
 public:
+    /** @param withJson build each transaction's publishable JSON. Pass
+               false only for ledgers that will never be published from this
+               object (e.g. pinned catalogue history being saved to SQL);
+               getJson() on such transactions returns a null value.
+    */
     AcceptedLedger(
         std::shared_ptr<ReadView const> const& ledger,
-        Application& app);
+        Application& app,
+        bool withJson = true);
 
     std::shared_ptr<ReadView const> const&
     getLedger() const

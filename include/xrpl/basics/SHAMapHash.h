@@ -113,7 +113,7 @@ template <>
 inline std::size_t
 extract(SHAMapHash const& key)
 {
-    return *reinterpret_cast<std::size_t const*>(key.as_uint256().data());
+    return extract(key.as_uint256());
 }
 
 }  // namespace ripple

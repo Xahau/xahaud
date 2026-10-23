@@ -367,15 +367,15 @@ Config::setup(
                 strXdgDataHome = strHome + "/.local/share";
             }
 
-            CONFIG_DIR = strXdgConfigHome + "/" + systemName();
+            CONFIG_DIR = strXdgConfigHome + "/" + std::string(systemName);
             CONFIG_FILE = CONFIG_DIR / strConfFile;
-            dataDir = strXdgDataHome + "/" + systemName();
+            dataDir = strXdgDataHome + "/" + std::string(systemName);
 
             if (!boost::filesystem::exists(CONFIG_FILE))
             {
-                CONFIG_DIR = "/etc/opt/" + systemName();
+                CONFIG_DIR = "/etc/opt/" + std::string(systemName);
                 CONFIG_FILE = CONFIG_DIR / strConfFile;
-                dataDir = "/var/opt/" + systemName();
+                dataDir = "/var/opt/" + std::string(systemName);
             }
         }
     }
@@ -405,7 +405,11 @@ Config::setup(
 
     HTTPClient::initializeSSLContext(*this, j_);
 
-    if (RUN_STANDALONE)
+    // Standalone never fetches history, so ledger_history is normally
+    // meaningless there. The rwdb null node store (nullBackend) uses it
+    // to size the in-memory retained-ledger window, and SHAMapStoreImp
+    // rejects zero for it, so keep the configured value in that case.
+    if (RUN_STANDALONE && !nullBackend())
         LEDGER_HISTORY = 0;
 
     std::string ledgerTxDbType;

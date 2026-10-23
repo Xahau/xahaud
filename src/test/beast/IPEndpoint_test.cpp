@@ -324,6 +324,35 @@ public:
         BEAST_EXPECT(!is_loopback(ep));
         BEAST_EXPECTS(to_string(ep) == "fd00::1", to_string(ep));
 
+        // a link-local IPv6 is private
+        ep = Endpoint(boost::asio::ip::make_address_v6("fe80::1"));
+        BEAST_EXPECT(!is_public(ep));
+        BEAST_EXPECT(is_private(ep));
+        BEAST_EXPECT(!is_loopback(ep));
+
+        // the IPv6 loopback is private
+        ep = Endpoint(boost::asio::ip::make_address_v6("::1"));
+        BEAST_EXPECT(!is_public(ep));
+        BEAST_EXPECT(is_private(ep));
+        BEAST_EXPECT(is_loopback(ep));
+
+        // a global unicast IPv6 is public
+        ep = Endpoint(boost::asio::ip::make_address_v6("2001:db8::1"));
+        BEAST_EXPECT(!is_unspecified(ep));
+        BEAST_EXPECT(is_public(ep));
+        BEAST_EXPECT(!is_private(ep));
+        BEAST_EXPECT(!is_multicast(ep));
+
+        // multicast and unspecified IPv6 are neither public nor private
+        ep = Endpoint(boost::asio::ip::make_address_v6("ff02::1"));
+        BEAST_EXPECT(!is_public(ep));
+        BEAST_EXPECT(!is_private(ep));
+        BEAST_EXPECT(is_multicast(ep));
+        ep = Endpoint(AddressV6{});
+        BEAST_EXPECT(is_unspecified(ep));
+        BEAST_EXPECT(!is_public(ep));
+        BEAST_EXPECT(!is_private(ep));
+
         {
             ep = Endpoint::from_string("192.0.2.112");
             BEAST_EXPECT(!is_unspecified(ep));

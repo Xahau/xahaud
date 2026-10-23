@@ -46,7 +46,8 @@ public:
     AcceptedLedgerTx(
         std::shared_ptr<ReadView const> const& ledger,
         std::shared_ptr<STTx const> const&,
-        std::shared_ptr<STObject const> const&);
+        std::shared_ptr<STObject const> const&,
+        bool withJson = true);
 
     std::shared_ptr<STTx const> const&
     getTxn() const
@@ -88,6 +89,7 @@ public:
     std::string
     getEscMeta() const;
 
+    /** Null if constructed with withJson == false. */
     Json::Value const&
     getJson() const
     {

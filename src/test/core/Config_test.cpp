@@ -1122,6 +1122,36 @@ trustthesevalidators.gov
         }
     }
 
+    // Standalone forces ledger_history to zero, but [node_db] type=rwdb
+    // (the null node store) sizes its retained-ledger window from it and
+    // SHAMapStoreImp throws on zero. cfg/rippled.cfg ships exactly this
+    // configuration, and jtx never calls Config::setup, so pin it here.
+    void
+    testSetupStandaloneRwdb()
+    {
+        testcase("setup standalone rwdb keeps ledger_history");
+
+        for (std::string const type : {"rwdb", "NuDB"})
+        {
+            detail::RippledCfgGuard const cfg(
+                *this,
+                "testSetupStandaloneRwdb_" + type,
+                "",
+                "",
+                true,
+                "[node_db]\ntype=" + type + "\npath=main\n");
+            Config config;
+            config.setup(
+                cfg.configFile(),
+                /*bQuiet*/ true,
+                /* bSilent */ true,
+                /* bStandalone */ true);
+            BEAST_EXPECT(config.standalone());
+            BEAST_EXPECT(config.nullBackend() == (type == "rwdb"));
+            BEAST_EXPECT(config.LEDGER_HISTORY == (type == "rwdb" ? 256 : 0));
+        }
+    }
+
     void
     testPort()
     {
@@ -1813,6 +1843,7 @@ r.ripple.com:51235
         testValidatorsFile();
         testSetup(false);
         testSetup(true);
+        testSetupStandaloneRwdb();
         testPort();
         testZeroPort();
         testWhitespace();
