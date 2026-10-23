@@ -378,6 +378,11 @@ jobs:
             setsid nohup "$RUNNER_TEMP/memfresh" 512 90 > "$RUNNER_TEMP/probe-memfresh.log" 2>&1 &
           fi
           echo "clockevent=$(cat /sys/devices/system/clockevents/clockevent0/current_device 2>/dev/null) available_clocksource=$(cat /sys/devices/system/clocksource/clocksource0/available_clocksource 2>/dev/null) thp=$(cat /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null) virtio_drivers=$(ls /sys/bus/virtio/drivers 2>/dev/null | tr '\n' ',')"
+          # Is idle time in /proc/stat wall-clock based (NO_HZ idle) or tick based? Decides
+          # whether lost per-vCPU jiffies on an idle guest mean "halted vCPU not woken" or
+          # "vCPU frozen while running". Plus the TSC flags behind the missing tsc clocksource.
+          echo "cmdline=$(cat /proc/cmdline) nohz_full=$(cat /sys/devices/system/cpu/nohz_full 2>/dev/null) $(grep -E '^CONFIG_(NO_HZ|HZ=|VIRT_CPU_ACCOUNTING|TICK_CPU_ACCOUNTING|IRQ_TIME_ACCOUNTING)' /boot/config-$(uname -r) 2>/dev/null | tr '\n' ' ') tsc_flags=$(grep -m1 '^flags' /proc/cpuinfo | grep -o -w -E 'constant_tsc|nonstop_tsc|tsc_known_freq|tsc_reliable|rdtscp|tsc_adjust|hypervisor' | tr '\n' ',')"
+          grep -m2 -E "nohz_mode|hres_active|Clock Event Device" /proc/timer_list 2>/dev/null || echo "timer_list not readable"
 
       - name: Build (Coverage)
         if: matrix.job_type == 'coverage'
