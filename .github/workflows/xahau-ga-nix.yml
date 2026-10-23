@@ -353,13 +353,18 @@ jobs:
           echo "sampler pid $!"
           # Probes (see .github/scripts/ci-probe/*.c): hypervisor features once, then a
           # 10ms sleeper (timer wake-up latency, the parent heartbeat's situation) and
-          # two spinners pinned to CPUs 3 and 17 (vCPU not running vs in-guest preemption).
+          # two spinners pinned to CPUs 3 and 17 (vCPU not running vs in-guest preemption),
+          # two cpuid loops pinned to CPUs 5 and 11 (is a vCPU stuck returning from a VM
+          # exit?) and a fresh-page toucher pinned to CPU 9 (is it the page-fault path?).
           ${{ matrix.cc }} -O2 -o "$RUNNER_TEMP/hv_info" .github/scripts/ci-probe/hv_info.c && "$RUNNER_TEMP/hv_info" || echo "hv_info unavailable"
           cat /sys/class/dmi/id/bios_vendor /sys/class/dmi/id/bios_version /sys/class/dmi/id/product_version 2>/dev/null | tr '\n' ' '; echo
           if ${{ matrix.cc }} -O2 -o "$RUNNER_TEMP/stall_probe" .github/scripts/ci-probe/stall_probe.c; then
             setsid nohup "$RUNNER_TEMP/stall_probe" sleep 10 100 > "$RUNNER_TEMP/probe-sleep.log" 2>&1 &
             setsid nohup "$RUNNER_TEMP/stall_probe" spin 3 100 > "$RUNNER_TEMP/probe-spin3.log" 2>&1 &
             setsid nohup "$RUNNER_TEMP/stall_probe" spin 17 100 > "$RUNNER_TEMP/probe-spin17.log" 2>&1 &
+            setsid nohup "$RUNNER_TEMP/stall_probe" exit 5 100 > "$RUNNER_TEMP/probe-exit5.log" 2>&1 &
+            setsid nohup "$RUNNER_TEMP/stall_probe" exit 11 100 > "$RUNNER_TEMP/probe-exit11.log" 2>&1 &
+            setsid nohup "$RUNNER_TEMP/stall_probe" fault 9 100 > "$RUNNER_TEMP/probe-fault9.log" 2>&1 &
             echo "probes started"
           else
             echo "stall_probe build failed; continuing without probes"
@@ -419,7 +424,7 @@ jobs:
         run: |
           pkill -f sampler.sh || true
           pkill -x stall_probe || true
-          for f in sleep spin3 spin17; do
+          for f in sleep spin3 spin17 exit5 exit11 fault9; do
             echo "---- probe-$f: $(grep -c ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true) gaps >100ms; gaps >=500ms or without a context switch:"
             { grep -E ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true; } | awk '{g=$3; sub("gap=","",g); sub("ms","",g); if (g+0>=500 || $6=="nivcsw+=0") print}' | head -60 || true
             { grep ' alive ' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true; } | tail -1 || true
