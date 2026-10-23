@@ -76,10 +76,12 @@ doHookValidate(RPC::JsonContext& context)
     std::optional<std::pair<uint64_t, uint64_t>> result;
     try
     {
+        auto const returnCost = rules.enabled(featureHookFeeV2);
         result = validateGuards(
             *blob,
             logger,
             "",
+            returnCost,
             hook_api::getImportWhitelist(rules),
             hook_api::getGuardRulesVersion(rules));
     }
