@@ -54,6 +54,11 @@ utc(char* buf, size_t n)
 enum mode { SPIN, SLEEP, EXIT, FAULT };
 
 // One unit of work for the exit/fault modes; returns its duration in ms.
+// For fault mode the three phases are timed separately so a slow unit can
+// be attributed to mmap (guest VMA work), the touches (guest page fault +
+// EPT fault in the host) or munmap (TLB shootdown / PV flush).
+static double g_map, g_touch, g_unmap;
+
 static double
 work(enum mode m)
 {
@@ -73,12 +78,19 @@ work(enum mode m)
             MAP_PRIVATE | MAP_ANONYMOUS,
             -1,
             0);
+        double const t1 = now_ms();
         if (p != MAP_FAILED)
         {
             for (size_t i = 0; i < n; i += 4096)
                 p[i] = 1;
-            munmap(p, n);
         }
+        double const t2 = now_ms();
+        if (p != MAP_FAILED)
+            munmap(p, n);
+        double const t3 = now_ms();
+        g_map = t1 - t0;
+        g_touch = t2 - t1;
+        g_unmap = t3 - t2;
     }
     return now_ms() - t0;
 }
@@ -137,14 +149,18 @@ main(int argc, char** argv)
         {
             utc(b, sizeof b);
             printf(
-                "%s %s gap=%.0fms cpu=%d nvcsw+=%ld nivcsw+=%ld work=%.0fms\n",
+                "%s %s gap=%.0fms cpu=%d nvcsw+=%ld nivcsw+=%ld work=%.0fms "
+                "map/touch/unmap=%.0f/%.0f/%.0f\n",
                 b,
                 argv[1],
                 gap,
                 sched_getcpu(),
                 dv,
                 di,
-                w);
+                w,
+                g_map,
+                g_touch,
+                g_unmap);
             ++gaps;
             if (spin && di == 0)
                 ++gaps_no_switch;

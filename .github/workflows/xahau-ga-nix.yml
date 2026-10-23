@@ -383,6 +383,10 @@ jobs:
           # "vCPU frozen while running". Plus the TSC flags behind the missing tsc clocksource.
           echo "cmdline=$(cat /proc/cmdline) nohz_full=$(cat /sys/devices/system/cpu/nohz_full 2>/dev/null) $(grep -E '^CONFIG_(NO_HZ|HZ=|VIRT_CPU_ACCOUNTING|TICK_CPU_ACCOUNTING|IRQ_TIME_ACCOUNTING)' /boot/config-$(uname -r) 2>/dev/null | tr '\n' ' ') tsc_flags=$(grep -m1 '^flags' /proc/cpuinfo | grep -o -w -E 'constant_tsc|nonstop_tsc|tsc_known_freq|tsc_reliable|rdtscp|tsc_adjust|hypervisor' | tr '\n' ',')"
           grep -m2 -E "nohz_mode|hres_active|Clock Event Device" /proc/timer_list 2>/dev/null || echo "timer_list not readable"
+          # Are the guest's free pages handed back to the host (balloon / free page reporting)?
+          # If so every fresh page costs a host-side allocation, which is where the fault probe stalls.
+          for d in /sys/bus/virtio/drivers/virtio_balloon/virtio*; do echo "balloon $(basename $d) features=$(cat $d/features 2>/dev/null)"; done
+          grep -E "^(balloon_|thp_fault_alloc|thp_collapse_alloc|compact_stall|compact_fail|pgmigrate_success)" /proc/vmstat | tr '\n' ' '; echo
 
       - name: Build (Coverage)
         if: matrix.job_type == 'coverage'
