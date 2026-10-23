@@ -78,7 +78,7 @@ RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
         snappy snappy-devel \
         zlib zlib-devel zlib-static \
         libasan \
-        python3 python3-pip \
+        python3.11 python3.11-pip \
         ccache \
         ninja-build \
         mold \
@@ -93,7 +93,7 @@ RUN /hbb_exe/activate-exec bash -c "dnf install -y epel-release && \
     dnf clean all"
 
 # Install Conan 2 and CMake
-RUN /hbb_exe/activate-exec pip3 install "conan>=2.0,<3.0" && \
+RUN /hbb_exe/activate-exec pip3.11 install "conan>=2.0,<3.0" && \
     /hbb_exe/activate-exec wget -q https://github.com/Kitware/CMake/releases/download/v3.25.3/cmake-3.25.3-linux-x86_64.tar.gz -O cmake.tar.gz && \
     mkdir cmake && \
     tar -xzf cmake.tar.gz --strip-components=1 -C cmake && \
