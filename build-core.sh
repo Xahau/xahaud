@@ -60,7 +60,10 @@ cd release-build &&
 # The tool_requires('b2/5.3.2') in conanfile.py should force b2 to build from source
 # with the correct toolchain, avoiding the GLIBCXX_3.4.29 issue
 echo "=== Installing dependencies ===" &&
-conan install .. --output-folder . --build missing --settings build_type=$BUILD_TYPE \
+# m4 is a tool_requires of autoconf (pulled in by libcurl's autoreconf step).
+# ConanCenter's prebuilt m4 needs glibc >= 2.33 and cannot run on the glibc
+# 2.28 of this image, so always build it from source here.
+conan install .. --output-folder . --build missing --build="m4/*" --settings build_type=$BUILD_TYPE \
   -o with_wasmedge=False -o tool_requires_b2=True &&
 cmake .. -G Ninja \
   -DCMAKE_BUILD_TYPE=$BUILD_TYPE \
