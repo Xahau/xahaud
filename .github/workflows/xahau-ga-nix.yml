@@ -297,13 +297,23 @@ jobs:
           cat > "$RUNNER_TEMP/sampler.sh" <<'EOF'
           #!/bin/bash
           out="$1"
-          prev_total=0; prev_steal=0
+          prev_total=0; prev_steal=0; prev_up=""
           while true; do
             read -r _ u n s i w q sq st _ < /proc/stat
             total=$((u+n+s+i+w+q+sq+st))
             dt=$((total-prev_total)); ds=$((st-prev_steal))
             steal_pct=0
             [ "$prev_total" -gt 0 ] && [ "$dt" -gt 0 ] && steal_pct=$((100*ds/dt))
+            # Fraction of guest CPU time actually accounted over the interval:
+            # jiffies delta / (wall delta * ncpu * HZ). Well below 100% with
+            # steal%=0 means the vCPUs were not running (hypervisor), which the
+            # guest cannot see as steal on this VM.
+            now_up=$(cut -d' ' -f1 /proc/uptime)
+            delivered="n/a"
+            if [ -n "$prev_up" ]; then
+              delivered=$(awk -v dj="$dt" -v du="$(awk -v a="$now_up" -v b="$prev_up" 'BEGIN{print a-b}')" -v n="$(nproc)" 'BEGIN{ if (du>0) printf "%d%%", 100*dj/(du*n*100); else print "n/a"}')
+            fi
+            prev_up=$now_up
             prev_total=$total; prev_steal=$st
             nr=0
             for c in /proc/[0-9]*/comm; do
@@ -313,10 +323,11 @@ jobs:
             # the multi_runner parent: the rippled whose cmdline has --unittest but not --unittest-child
             pp=""
             for d in /proc/[0-9]*; do
+              read -r name < "$d/comm" 2>/dev/null && [ "$name" = rippled ] || continue
               cl=$(tr '\0' ' ' < "$d/cmdline" 2>/dev/null) || continue
               case "$cl" in
-                *rippled*--unittest*--unittest-child*) ;;
-                *rippled*--unittest*) pp=${d#/proc/}; break ;;
+                *--unittest-child*) ;;
+                *--unittest*) pp=${d#/proc/}; break ;;
               esac
             done
             parent=""
@@ -324,7 +335,7 @@ jobs:
               # schedstat: on-cpu ns, runqueue-wait ns, timeslices; thread states (R/S/D counts)
               parent="parent_pid=$pp schedstat=[$(cat /proc/$pp/schedstat)] threads=[$(awk '{print $3}' /proc/$pp/task/*/stat 2>/dev/null | sort | uniq -c | tr -s ' \n' ' ')] ctxsw=[$(awk '/ctxt_switches/{printf "%s ", $2}' /proc/$pp/status)]"
             fi
-            echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct jiffies=$total psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr$parent" >> "$out"
+            echo "$(date -u +%FT%TZ) up=$(cut -d' ' -f1 /proc/uptime) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct cpu_delivered=$delivered jiffies=$total psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr$parent" >> "$out"
             sleep 5
           done
           EOF
