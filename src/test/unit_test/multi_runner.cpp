@@ -24,15 +24,68 @@
 #include <boost/lexical_cast.hpp>
 
 #include <algorithm>
+#include <ctime>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
 #include <vector>
 
+#ifndef _WIN32
+#include <unistd.h>
+#endif
+
 namespace ripple {
 namespace test {
 
 namespace detail {
+
+// UTC wall clock, for correlating stall reports with CI/host logs.
+static std::string
+now_str()
+{
+    auto const t =
+        std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+    std::tm tm{};
+#ifdef _WIN32
+    gmtime_s(&tm, &t);
+#else
+    gmtime_r(&t, &tm);
+#endif
+    std::stringstream ss;
+    ss << std::put_time(&tm, "%FT%TZ");
+    return ss.str();
+}
+
+static long
+parent_pid()
+{
+#ifdef _WIN32
+    return 0;
+#else
+    return static_cast<long>(getppid());
+#endif
+}
+
+// Report when a step of a watchdog-relevant thread took longer than
+// `threshold`; returns the elapsed time.
+template <class F>
+static std::chrono::milliseconds
+timed(
+    char const* who,
+    char const* what,
+    F&& f,
+    std::chrono::milliseconds threshold)
+{
+    using namespace std::chrono;
+    auto const start = steady_clock::now();
+    f();
+    auto const elapsed =
+        duration_cast<milliseconds>(steady_clock::now() - start);
+    if (elapsed > threshold)
+        std::cerr << who << ": " << what << " took " << elapsed.count()
+                  << "ms (ended " << now_str() << ")\n";
+    return elapsed;
+}
 
 std::string
 fmtdur(typename clock_type::duration const& d)
@@ -392,20 +445,32 @@ multi_runner_base<IsParent>::add_failures(std::size_t failures)
 
 multi_runner_parent::multi_runner_parent() : os_(std::cout)
 {
+    // Heartbeat: a dedicated thread so the children only stop seeing
+    // increments when this process really is not running. A sleep that
+    // overran by more than a second is reported: that is the parent process
+    // itself being starved by the host, not a blocked I/O.
+    keep_alive_thread_ = std::thread([this] {
+        using namespace std::chrono;
+        while (this->continue_keep_alive_)
+        {
+            this->inc_keep_alive_count();
+            detail::timed(
+                "multi_runner_parent",
+                "heartbeat sleep(100ms)",
+                [] { std::this_thread::sleep_for(milliseconds(100)); },
+                milliseconds(1000));
+        }
+    });
+
     message_queue_thread_ = std::thread([this] {
+        using namespace std::chrono;
         std::vector<char> buf(1 << 20);
         while (this->continue_message_queue_ ||
                this->message_queue_->get_num_msg())
         {
-            // let children know the parent is still alive
-            this->inc_keep_alive_count();
             if (!this->message_queue_->get_num_msg())
             {
-                // If a child does not see the keep alive count incremented,
-                // it will assume the parent has died. This sleep time needs
-                // to be small enough so the child will see increments from
-                // a live parent.
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                std::this_thread::sleep_for(milliseconds(100));
                 continue;
             }
             try
@@ -419,16 +484,32 @@ multi_runner_parent::multi_runner_parent() : os_(std::cout)
                 assert(recvd_size == 1);
                 MessageType mt{*reinterpret_cast<MessageType*>(buf.data())};
 
-                this->message_queue_->receive(
-                    buf.data(), buf.size(), recvd_size, priority);
+                // Blocks until the sending child finishes its second send();
+                // report if that child was stalled for long.
+                detail::timed(
+                    "multi_runner_parent",
+                    "receive(body)",
+                    [&] {
+                        this->message_queue_->receive(
+                            buf.data(), buf.size(), recvd_size, priority);
+                    },
+                    milliseconds(1000));
                 if (recvd_size)
                 {
                     std::string s{buf.data(), recvd_size};
                     switch (mt)
                     {
                         case MessageType::log:
-                            this->os_ << s;
-                            this->os_.flush();
+                            // Blocks if whoever reads our stdout (e.g. ninja)
+                            // is not draining the pipe.
+                            detail::timed(
+                                "multi_runner_parent",
+                                "stdout write+flush",
+                                [&] {
+                                    this->os_ << s;
+                                    this->os_.flush();
+                                },
+                                milliseconds(1000));
                             break;
                         case MessageType::test_start:
                             running_suites_.insert(std::move(s));
@@ -462,6 +543,8 @@ multi_runner_parent::~multi_runner_parent()
 
     continue_message_queue_ = false;
     message_queue_thread_.join();
+    continue_keep_alive_ = false;
+    keep_alive_thread_.join();
 
     print_results(os_);
 
@@ -509,29 +592,69 @@ multi_runner_child::multi_runner_child(
 {
     if (num_jobs_ > 1)
     {
+        parent_pid_ = detail::parent_pid();
         keep_alive_thread_ = std::thread([this] {
-            std::size_t last_count = get_keep_alive_count();
+            using namespace std::chrono;
+            // A dead parent is detected within one tick through the ppid
+            // check. The heartbeat is the fallback for a parent that is alive
+            // but wedged (and for Windows, which has no ppid here), so its
+            // grace period must exceed any scheduling stall a loaded CI host
+            // can produce. The old 2.5s limit fired on live parents.
+            constexpr auto grace = seconds(60);
+            constexpr auto warn_after = milliseconds(2500);
+            auto last_count = this->get_keep_alive_count();
+            auto last_change = steady_clock::now();
+            bool warned = false;
             while (this->continue_keep_alive_)
             {
-                // Use a small sleep time so in the normal case the child
-                // process may shutdown quickly. However, to protect against
-                // false alarms, use a longer sleep time later on.
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-                auto cur_count = this->get_keep_alive_count();
-                if (cur_count == last_count)
+                std::this_thread::sleep_for(milliseconds(500));
+
+                if (parent_pid_ != 0 && detail::parent_pid() != parent_pid_)
                 {
-                    // longer sleep time to protect against false alarms
-                    std::this_thread::sleep_for(std::chrono::seconds(2));
-                    cur_count = this->get_keep_alive_count();
-                    if (cur_count == last_count)
-                    {
-                        // assume parent process is no longer alive
-                        std::cerr << "multi_runner_child " << job_index_
-                                  << ": Assuming parent died, exiting.\n";
-                        std::exit(EXIT_FAILURE);
-                    }
+                    std::cerr << "multi_runner_child " << job_index_
+                              << ": parent pid " << parent_pid_
+                              << " is gone (ppid now " << detail::parent_pid()
+                              << "), exiting. " << detail::now_str() << "\n";
+                    std::exit(EXIT_FAILURE);
                 }
-                last_count = cur_count;
+
+                auto const cur_count = this->get_keep_alive_count();
+                auto const now = steady_clock::now();
+                if (cur_count != last_count)
+                {
+                    if (warned)
+                        std::cerr
+                            << "multi_runner_child " << job_index_
+                            << ": keep-alive resumed after "
+                            << duration_cast<milliseconds>(now - last_change)
+                                   .count()
+                            << "ms. " << detail::now_str() << "\n";
+                    last_count = cur_count;
+                    last_change = now;
+                    warned = false;
+                    continue;
+                }
+
+                auto const stalled =
+                    duration_cast<milliseconds>(now - last_change);
+                if (!warned && stalled >= warn_after)
+                {
+                    std::cerr
+                        << "multi_runner_child " << job_index_
+                        << ": no keep-alive from parent for " << stalled.count()
+                        << "ms"
+                        << (parent_pid_ ? " but its pid is still alive" : "")
+                        << "; continuing. " << detail::now_str() << "\n";
+                    warned = true;
+                }
+                if (stalled >= grace)
+                {
+                    std::cerr << "multi_runner_child " << job_index_
+                              << ": Assuming parent died (no keep-alive for "
+                              << stalled.count() << "ms), exiting. "
+                              << detail::now_str() << "\n";
+                    std::exit(EXIT_FAILURE);
+                }
             }
         });
     }

@@ -223,6 +223,11 @@ private:
     std::ostream& os_;
     std::atomic<bool> continue_message_queue_{true};
     std::thread message_queue_thread_;
+    // Heartbeat for the children runs on its own thread so a blocking
+    // receive() or a blocked stdout write in message_queue_thread_ cannot
+    // make the children believe the parent died.
+    std::atomic<bool> continue_keep_alive_{true};
+    std::thread keep_alive_thread_;
     // track running suites so if a child crashes the culprit can be flagged
     std::set<std::string> running_suites_;
 
@@ -263,6 +268,8 @@ private:
     bool quiet_{false};
     bool print_log_{true};
 
+    // pid of the parent at construction; 0 where unavailable (Windows)
+    long parent_pid_{0};
     std::atomic<bool> continue_keep_alive_{true};
     std::thread keep_alive_thread_;
 
