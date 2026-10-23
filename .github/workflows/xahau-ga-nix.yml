@@ -286,6 +286,39 @@ jobs:
           clang_gcc_toolchain: ${{ matrix.clang_gcc_toolchain || '' }}
           ccache_max_size: '100G'
 
+      # [TEST PR] Host sampler: every 20s record load, PSI, steal time, cgroup
+      # CPU throttling and the number of rippled processes for the whole
+      # coverage build+test run, so a multi_runner stall report can be
+      # correlated with host state. Detached; printed by the step after Build.
+      - name: Start host sampler (coverage)
+        if: matrix.job_type == 'coverage'
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/sampler.sh" <<'EOF'
+          #!/bin/bash
+          out="$1"
+          prev_total=0; prev_steal=0
+          while true; do
+            read -r _ u n s i w q sq st _ < /proc/stat
+            total=$((u+n+s+i+w+q+sq+st))
+            dt=$((total-prev_total)); ds=$((st-prev_steal))
+            steal_pct=0
+            [ "$prev_total" -gt 0 ] && [ "$dt" -gt 0 ] && steal_pct=$((100*ds/dt))
+            prev_total=$total; prev_steal=$st
+            nr=0
+            for c in /proc/[0-9]*/comm; do
+              read -r name < "$c" 2>/dev/null && [ "$name" = rippled ] && nr=$((nr+1))
+            done
+            thr=$(grep -E '^(nr_throttled|throttled_usec)' /sys/fs/cgroup/cpu.stat 2>/dev/null | tr '\n' ' ')
+            echo "$(date -u +%FT%TZ) load=$(cut -d' ' -f1-3 /proc/loadavg) steal%=$steal_pct psi_cpu=$(awk '/^some/{print $2}' /proc/pressure/cpu 2>/dev/null) psi_mem=$(awk '/^full/{print $2}' /proc/pressure/memory 2>/dev/null) psi_io=$(awk '/^full/{print $2}' /proc/pressure/io 2>/dev/null) memavail_mb=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo) rippled_procs=$nr $thr" >> "$out"
+            sleep 20
+          done
+          EOF
+          chmod +x "$RUNNER_TEMP/sampler.sh"
+          echo "nproc=$(nproc) cpu.max=$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || echo n/a) cpuset=$(cat /sys/fs/cgroup/cpuset.cpus.effective 2>/dev/null || echo n/a)"
+          setsid nohup "$RUNNER_TEMP/sampler.sh" "$RUNNER_TEMP/host-samples.log" > /dev/null 2>&1 &
+          echo "sampler pid $!"
+
       - name: Build (Coverage)
         if: matrix.job_type == 'coverage'
         uses: ./.github/actions/xahau-ga-build
@@ -305,6 +338,14 @@ jobs:
           cmake-args: '-Dcoverage=ON -Dcoverage_tool=${{ matrix.coverage_tool }} -Dcoverage_format=${{ matrix.coverage_format }} -Dcoverage_test_parallelism=$(($(nproc)/2)) -DCODE_COVERAGE_VERBOSE=ON -DCMAKE_CXX_FLAGS_DEBUG="-g -O0" -DCMAKE_C_FLAGS_DEBUG="-g -O0"'
           cmake-target: 'coverage'
           ccache_max_size: '100G'
+
+      # [TEST PR] see "Start host sampler" above.
+      - name: Show host samples (coverage)
+        if: always() && matrix.job_type == 'coverage'
+        shell: bash
+        run: |
+          pkill -f sampler.sh || true
+          cat "$RUNNER_TEMP/host-samples.log" || echo "no samples recorded"
 
       - name: Set artifact name
         if: matrix.job_type == 'build'
