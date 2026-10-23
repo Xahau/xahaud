@@ -323,7 +323,7 @@ jobs:
             done
             # block I/O: sectors written and ms spent doing I/O, summed over whole disks
             disk=$(awk '$3 ~ /^(sd[a-z]+|vd[a-z]+|nvme[0-9]+n[0-9]+)$/ {w+=$10; t+=$13} END{printf "wr_sectors=%d io_ms=%d", w, t}' /proc/diskstats)
-            vm=$(awk '/^(pgpgout|nr_dirty|nr_writeback|pgfault|thp_fault_alloc) /{printf "%s=%s ", $1, $2}' /proc/vmstat)
+            vm=$(awk '/^(pgpgout|nr_dirty|nr_writeback|pgfault|thp_fault_alloc|thp_fault_fallback|compact_stall|compact_fail|pgmigrate_success|pgalloc_normal|pgfree|nr_free_pages|balloon_inflate|balloon_deflate) /{printf "%s=%s ", $1, $2}' /proc/vmstat)
             thr=$(grep -E '^(nr_throttled|throttled_usec)' /sys/fs/cgroup/cpu.stat 2>/dev/null | tr '\n' ' ')
             # the multi_runner parent: the rippled whose cmdline has --unittest but not --unittest-child
             pp=""
@@ -365,6 +365,7 @@ jobs:
             setsid nohup "$RUNNER_TEMP/stall_probe" exit 5 100 > "$RUNNER_TEMP/probe-exit5.log" 2>&1 &
             setsid nohup "$RUNNER_TEMP/stall_probe" exit 11 100 > "$RUNNER_TEMP/probe-exit11.log" 2>&1 &
             setsid nohup "$RUNNER_TEMP/stall_probe" fault 9 100 > "$RUNNER_TEMP/probe-fault9.log" 2>&1 &
+            setsid nohup "$RUNNER_TEMP/stall_probe" big 13 100 > "$RUNNER_TEMP/probe-big13.log" 2>&1 &
             echo "probes started"
           else
             echo "stall_probe build failed; continuing without probes"
@@ -387,6 +388,7 @@ jobs:
           # If so every fresh page costs a host-side allocation, which is where the fault probe stalls.
           for d in /sys/bus/virtio/drivers/virtio_balloon/virtio*; do echo "balloon $(basename $d) features=$(cat $d/features 2>/dev/null)"; done
           grep -E "^(balloon_|thp_fault_alloc|thp_collapse_alloc|compact_stall|compact_fail|pgmigrate_success)" /proc/vmstat | tr '\n' ' '; echo
+          echo "page_reporting_order=$(cat /sys/module/page_reporting/parameters/page_reporting_order 2>/dev/null) thp_defrag=$(cat /sys/kernel/mm/transparent_hugepage/defrag 2>/dev/null) khugepaged_defrag=$(cat /sys/kernel/mm/transparent_hugepage/khugepaged/defrag 2>/dev/null) compaction_proactiveness=$(cat /proc/sys/vm/compaction_proactiveness 2>/dev/null) numa_balancing=$(cat /proc/sys/kernel/numa_balancing 2>/dev/null) nodes=$(ls -d /sys/devices/system/node/node* 2>/dev/null | wc -l)"
 
       - name: Build (Coverage)
         if: matrix.job_type == 'coverage'
@@ -433,7 +435,7 @@ jobs:
         run: |
           pkill -f sampler.sh || true
           pkill -x stall_probe || true
-          for f in sleep spin3 spin17 exit5 exit11 fault9; do
+          for f in sleep spin3 spin17 exit5 exit11 fault9 big13; do
             echo "---- probe-$f: $(grep -c ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true) gaps >100ms; gaps >=500ms or without a context switch:"
             { grep -E ' gap=' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true; } | awk '{g=$3; sub("gap=","",g); sub("ms","",g); if (g+0>=500 || $6=="nivcsw+=0") print}' | head -60 || true
             { grep ' alive ' "$RUNNER_TEMP/probe-$f.log" 2>/dev/null || true; } | tail -1 || true

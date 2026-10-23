@@ -51,7 +51,7 @@ utc(char* buf, size_t n)
     snprintf(buf + l, n - l, ".%03ldZ", ts.tv_nsec / 1000000);
 }
 
-enum mode { SPIN, SLEEP, EXIT, FAULT };
+enum mode { SPIN, SLEEP, EXIT, FAULT, BIG };
 
 // One unit of work for the exit/fault modes; returns its duration in ms.
 // For fault mode the three phases are timed separately so a slow unit can
@@ -68,9 +68,9 @@ work(enum mode m)
         unsigned a, b, c, d;
         __cpuid(0, a, b, c, d);
     }
-    else if (m == FAULT)
+    else if (m == FAULT || m == BIG)
     {
-        size_t const n = 2u << 20;
+        size_t const n = m == BIG ? 64u << 20 : 2u << 20;
         char* p = mmap(
             NULL,
             n,
@@ -103,9 +103,10 @@ main(int argc, char** argv)
     enum mode const m = strcmp(argv[1], "spin") == 0 ? SPIN
         : strcmp(argv[1], "sleep") == 0              ? SLEEP
         : strcmp(argv[1], "exit") == 0               ? EXIT
-                                                     : FAULT;
+        : strcmp(argv[1], "fault") == 0              ? FAULT
+                                                     : BIG;
     int const spin = m != SLEEP;
-    double const pace = m == EXIT ? 1 : m == FAULT ? 5 : 0;
+    double const pace = m == EXIT ? 1 : m == FAULT ? 5 : m == BIG ? 1000 : 0;
     int const arg = atoi(argv[2]);
     double const thr = atof(argv[3]);
     setvbuf(stdout, NULL, _IOLBF, 0);
