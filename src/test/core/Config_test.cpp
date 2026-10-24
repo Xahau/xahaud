@@ -1707,9 +1707,10 @@ r.ripple.com:51235
             }
         }
 
-        // Test 5: type=rwdb with pinned_type (should throw, even in
-        // standalone). The rwdb node store is tree-only, so pinned data
-        // would be accepted and then dropped.
+        // Test 5: type=rwdb with pinned_type (should succeed in both
+        // modes). pinned_type opts the rwdb store out of null mode: it
+        // becomes the in-memory rotating hot store under DatabasePinned,
+        // with no [node_db] path required.
         for (bool const standalone : {false, true})
         {
             Config c;
@@ -1723,13 +1724,14 @@ r.ripple.com:51235
             try
             {
                 c.loadFromString(toLoad);
-                fail("Expected exception for pinned_type with type=rwdb");
+                BEAST_EXPECT(!c.nullBackend());
             }
             catch (std::runtime_error const& e)
             {
-                BEAST_EXPECT(
-                    std::string(e.what()).find("type=rwdb") !=
-                    std::string::npos);
+                fail(
+                    std::string("Should not throw for pinned_type with "
+                                "type=rwdb: ") +
+                    e.what());
             }
         }
 

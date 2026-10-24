@@ -207,7 +207,11 @@ SHAMapStoreImp::SHAMapStoreImp(
                 std::to_string(config.LEDGER_HISTORY) + ")");
         }
 
-        if (!isNullBackend_)
+        // Only on-disk rotating backends keep files under [node_db] path.
+        // The null node store has none, and neither does type=rwdb used
+        // as the rotating hot store under DatabasePinned (pinned_type
+        // set), which was never required to configure a path.
+        if (!isNullBackend_ && !boost::iequals(get(section, "type"), "rwdb"))
             dbPaths();
     }
 }
@@ -425,6 +429,16 @@ SHAMapStoreImp::loadPinnedRanges()
     // is not the one these ranges were loaded into.
     constexpr std::uint32_t maxTailTrim = 65536;
 
+    // [relational_db] backend=rwdb keeps the SQL tables in memory, so the
+    // seq -> hash index behind hasLedgerData() starts empty on every run
+    // even when the pinned node store still holds every node. An interval
+    // the index cannot resolve is unreachable rather than evidence of a
+    // mismatched pinned store: drop it and have the operator re-run
+    // catalogue_load (node writes de-duplicate; only SQL is rebuilt).
+    auto const& rdb = app_.config().section(SECTION_RELATIONAL_DB);
+    bool const sqlPersistent =
+        rdb.empty() || !boost::iequals(get(rdb, "backend"), "rwdb");
+
     RangeSet<std::uint32_t> verified;
     for (auto const& interval : persistedRanges)
     {
@@ -439,7 +453,18 @@ SHAMapStoreImp::loadPinnedRanges()
         };
 
         if (!hasLedgerData(lower))
-            Throw<std::runtime_error>(notPresent());
+        {
+            if (sqlPersistent)
+                Throw<std::runtime_error>(notPresent());
+
+            JLOG(journal_.warn())
+                << "Dropping pinned interval " << lower << "-"
+                << interval.upper()
+                << ": [relational_db] backend=rwdb does not persist the "
+                   "ledger index across restarts, so it cannot be served. "
+                   "Re-run catalogue_load to restore it.";
+            continue;
+        }
 
         std::uint32_t trimmed = 0;
         while (upper > lower && !hasLedgerData(upper))
@@ -464,7 +489,7 @@ SHAMapStoreImp::loadPinnedRanges()
     }
 
     if (verified != persistedRanges)
-        state_db_.setPinnedRanges(to_string(verified));
+        setPinnedRanges(verified);
 
     JLOG(journal_.info()) << "Loaded pinned ranges from database: "
                           << to_string(verified);
