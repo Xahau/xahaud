@@ -172,9 +172,9 @@ LoadManager::run()
         }
         bool change;
 
-        if (app_.getJobQueue().isOverloaded())
+        if (app_.getJobQueue().isOverloadedWithBacklog())
         {
-            JLOG(journal_.info()) << "Raising local fee (JQ overload): "
+            JLOG(journal_.info()) << "Raising local fee (JQ overload with backlog): "
                                   << app_.getJobQueue().getJson(0);
             change = app_.getFeeTrack().raiseLocalFee();
         }
