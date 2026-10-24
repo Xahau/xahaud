@@ -215,6 +215,13 @@ public:
     bool
     isOverloaded();
 
+    // Returns true only if a job type is over its latency target AND has
+    // waiting jobs. Prevents fee escalation when queues are empty but EMA
+    // is still elevated (overshoot fix).
+    // Cannot be const because LoadMonitor has no const methods.
+    bool
+    isOverloadedWithBacklog();
+
     // Cannot be const because LoadMonitor has no const methods.
     Json::Value
     getJson(int c = 0);
