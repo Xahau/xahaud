@@ -2134,6 +2134,118 @@ public:
             }
         }
 
+        {
+            /// Rename and remove the HookName with HookName-only updates
+            Env env{*this, features};
+
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // Create with hook name
+            auto jvh = hso(accept_wasm);
+            jvh[jss::HookName] = "41424344";
+            env(ripple::test::jtx::hook(alice, {{jvh}}, 0),
+                M("Create named hook"),
+                HSFEE);
+            env.close();
+
+            auto const hookNameOnlyUpdate = [&](std::string const& name) {
+                Json::Value jv;
+                jv[jss::Account] = alice.human();
+                jv[jss::TransactionType] = jss::SetHook;
+                jv[jss::Flags] = 0;
+                jv[jss::Hooks] = Json::Value{Json::arrayValue};
+                Json::Value iv;
+                iv[jss::HookName] = name;
+                jv[jss::Hooks][0U][jss::Hook] = iv;
+                return jv;
+            };
+
+            // Rename: update carrying only a non-empty sfHookName
+            env(hookNameOnlyUpdate("4142434445"),
+                M("Rename hook with a HookName-only update"),
+                HSFEE);
+            env.close();
+            {
+                auto const hooks = env.le(keylet::hook(alice));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(hooksArray[0].isFieldPresent(sfHookName));
+                BEAST_EXPECT(
+                    strHex(hooksArray[0].getFieldVL(sfHookName)) ==
+                    "4142434445");
+            }
+
+            // Remove: update carrying only an empty sfHookName
+            env(hookNameOnlyUpdate(""),
+                M("Remove hook name with a HookName-only update"),
+                HSFEE);
+
+            // In the same open ledger as the removal: the open view hands
+            // the next transaction the very sfHooks entry the SetHook just
+            // modified, so the fee calculation and the hook chain must
+            // tolerate the removed name. This is the path that crashed the
+            // node at submit, and crashed every validator replaying the
+            // pair while building the ledger.
+            {
+                auto jv = invoke::invoke(alice);
+                auto const expectedFee =
+                    calculateBaseFee(*env.current(), *env.jt(jv).stx);
+                BEAST_EXPECT(expectedFee == drops(19));
+                env(jv,
+                    M("Invoke in the same open ledger as the removal"),
+                    HSFEE);
+            }
+            env.close();
+            {
+                auto const hookExecutions =
+                    env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(hookExecutions.size() == 1);
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldH256(sfHookHash) == accept_hash);
+            }
+            {
+                auto const hooks = env.le(keylet::hook(alice));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(!hooksArray[0].isFieldPresent(sfHookName));
+            }
+
+            // The now non-named hook must still be charged for and
+            // executed by transactions in later ledgers, where the entry
+            // is re-read from its serialized form.
+            {
+                auto jv = invoke::invoke(alice);
+                auto const expectedFee =
+                    calculateBaseFee(*env.current(), *env.jt(jv).stx);
+                BEAST_EXPECT(expectedFee == drops(19));
+                env(jv, M("Invoke after removing the hook name"), HSFEE);
+                env.close();
+                auto const hookExecutions =
+                    env.meta()->getFieldArray(sfHookExecutions);
+                BEAST_EXPECT(hookExecutions.size() == 1);
+                BEAST_EXPECT(
+                    hookExecutions[0].getFieldH256(sfHookHash) == accept_hash);
+            }
+
+            // Removing the name of a hook that has none must be a no-op,
+            // not a thrown FieldErr (-> tefEXCEPTION): makeFieldAbsent on
+            // the untemplated entry throws when the field is missing.
+            env(hookNameOnlyUpdate(""),
+                M("Remove hook name again (no-op)"),
+                HSFEE);
+            env.close();
+            {
+                auto const hooks = env.le(keylet::hook(alice));
+                BEAST_EXPECT(hooks && hooks->isFieldPresent(sfHooks));
+                auto const& hooksArray = hooks->getFieldArray(sfHooks);
+                BEAST_EXPECT(hooksArray.size() == 1);
+                BEAST_EXPECT(!hooksArray[0].isFieldPresent(sfHookName));
+            }
+        }
+
         // Install named hook
         auto jvh = hso(accept_wasm);
         jvh[jss::HookName] = "41424344";
@@ -4676,6 +4788,218 @@ public:
     }
 
     void
+    test_emit_failure_callback(FeatureBitset features)
+    {
+        testcase("Test emit failure callback");
+        using namespace jtx;
+
+        // An emitted txn that is never applied expires into a ttEMIT_FAILURE
+        // cleanup pseudo, which removes its ltEMITTED_TXN entry and then
+        // runs the emitting Hook's cbak. Before fix20261005 the callback
+        // re-read that (already erased) entry and dereferenced null, taking
+        // the process down, so only the fixed behaviour can be run here.
+        Env env{*this, features | fix20261005};
+
+        auto const alice = Account{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        TestHook hook_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t emit     (uint32_t write_ptr, uint32_t write_len, uint32_t read_ptr, uint32_t read_len);
+            extern int64_t hook_account (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t etxn_reserve (uint32_t);
+            extern int64_t etxn_fee_base (uint32_t read_ptr, uint32_t read_len);
+            extern int64_t etxn_details (uint32_t write_ptr, uint32_t write_len);
+            extern int64_t ledger_seq (void);
+            extern int64_t otxn_id (uint32_t, uint32_t, uint32_t);
+            extern int64_t otxn_type (void);
+            extern int64_t otxn_field (uint32_t write_ptr, uint32_t write_len, uint32_t field_id);
+            extern int64_t state_set (uint32_t, uint32_t, uint32_t, uint32_t);
+            #define SBUF(x) (uint32_t)(x), sizeof(x)
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), __LINE__);
+            #define DOESNT_EXIST (-5)
+            #define ttINVOKE 99
+            #define sfAccount ((8U << 16U) + 1U)
+            #define sfLedgerSequence ((2U << 16U) + 6U)
+
+            uint8_t key[32] = { [31] = 1U };
+
+            // an Invoke from the hook account, emitted with a callback
+            uint8_t txn[229] =
+            {
+                /* size, upto, field name               */
+                /*    3,    0, tt = Invoke              */   0x12U, 0x00U, 0x63U,
+                /*    5,    3, flags                    */   0x22U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    5,    8, sequence                 */   0x24U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   13, firstledgersequence      */   0x20U, 0x1AU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    6,   19, lastledgersequence       */   0x20U, 0x1BU, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*    9,   25, fee                      */   0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U,
+                /*   35,   34, signingpubkey            */   0x73U, 0x21U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*   22,   69, account                  */   0x81U, 0x14U, 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+                /*  138,   91, emit details             */
+                /*    0,  229,                          */
+            };
+            #define FLS_OUT (txn + 15U)
+            #define LLS_OUT (txn + 21U)
+            #define FEE_OUT (txn + 26U)
+            #define ACCOUNT_OUT (txn + 71U)
+            #define EMIT_OUT (txn + 91U)
+            #define SET_UINT32(ptr, value)\
+                {\
+                    uint32_t v = (value);\
+                    (ptr)[0] = v >> 24U; (ptr)[1] = v >> 16U; (ptr)[2] = v >> 8U; (ptr)[3] = v;\
+                }
+            #define SET_NATIVE_AMOUNT(ptr, amount)\
+                {\
+                    uint64_t a = (amount);\
+                    (ptr)[0] = 0x40U + ((a >> 56U) & 0x3FU);\
+                    (ptr)[1] = a >> 48U; (ptr)[2] = a >> 40U; (ptr)[3] = a >> 32U;\
+                    (ptr)[4] = a >> 24U; (ptr)[5] = a >> 16U; (ptr)[6] = a >> 8U; (ptr)[7] = a;\
+                }
+            #define ACC_EQ(a, b)\
+                (*(uint64_t*)(a) == *(uint64_t*)(b) &&\
+                 *(uint64_t*)((a) + 8U) == *(uint64_t*)((b) + 8U) &&\
+                 *(uint32_t*)((a) + 16U) == *(uint32_t*)((b) + 16U))
+
+            int64_t cbak(uint32_t r)
+            {
+                _g(1,1);
+
+                // 1 = the emitted txn failed (ttEMIT_FAILURE)
+                ASSERT(r == 1);
+
+                // the otxn is the original emitted txn, not the pseudo
+                ASSERT(otxn_type() == ttINVOKE);
+
+                uint8_t me[20];
+                ASSERT(hook_account(SBUF(me)) == 20);
+                uint8_t acc[20];
+                ASSERT(otxn_field(SBUF(acc), sfAccount) == 20);
+                ASSERT(ACC_EQ(acc, me));
+
+                // carried by the pseudo but not by the emitted txn
+                ASSERT(otxn_field(0, 0, sfLedgerSequence) == DOESNT_EXIST);
+
+                // record the id of the emitted txn that failed
+                uint8_t id[32];
+                ASSERT(otxn_id(SBUF(id), 0) == 32);
+                ASSERT(state_set(SBUF(id), SBUF(key)) == 32);
+
+                return accept(0,0,0);
+            }
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                ASSERT(etxn_reserve(1) == 1);
+
+                // FirstLedgerSequence is the current ledger, so by the time
+                // the emission directory is processed for the next ledger it
+                // has already passed: the txn is never applied and expires
+                // once LastLedgerSequence is behind the ledger
+                uint32_t seq = (uint32_t)ledger_seq();
+                SET_UINT32(FLS_OUT, seq);
+                SET_UINT32(LLS_OUT, seq + 1);
+                ASSERT(hook_account(ACCOUNT_OUT, 20) == 20);
+                ASSERT(etxn_details(EMIT_OUT, 138U) == 138);
+                int64_t fee = etxn_fee_base(SBUF(txn));
+                ASSERT(fee > 0);
+                SET_NATIVE_AMOUNT(FEE_OUT, fee);
+
+                uint8_t emithash[32];
+                ASSERT(emit(SBUF(emithash), SBUF(txn)) == 32);
+
+                return accept(0,0,0);
+            }
+        )[test.hook]"];
+
+        HASH_WASM(hook);
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+            M("set emit failure callback"),
+            HSFEE);
+        env.close();
+
+        env(invoke::invoke(alice),
+            M("emit failure callback: emit"),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+
+        // the emitted txn, from the ltEMITTED_TXN this created
+        std::optional<uint256> emittedID;
+        {
+            auto const meta = env.meta();  // closes the ledger
+            BEAST_REQUIRE(meta);
+            for (auto const& node : meta->getFieldArray(sfAffectedNodes))
+            {
+                if (node.getFName() != sfCreatedNode ||
+                    node.getFieldU16(sfLedgerEntryType) != ltEMITTED_TXN)
+                    continue;
+                auto const& nf = const_cast<ripple::STObject&>(node)
+                                     .getField(sfNewFields)
+                                     .downcast<STObject>();
+                auto const& et = const_cast<ripple::STObject&>(nf)
+                                     .getField(sfEmittedTxn)
+                                     .downcast<STObject>();
+                Serializer s;
+                et.add(s);
+                SerialIter sit(s.slice());
+                emittedID = STTx(sit).getTransactionID();
+            }
+        }
+        BEAST_REQUIRE(emittedID);
+        auto const emittedKeylet = keylet::emittedTxn(*emittedID);
+        BEAST_REQUIRE(env.le(emittedKeylet));
+
+        // close until the cleanup pseudo has been applied
+        std::shared_ptr<STObject const> failureMeta;
+        for (int i = 0; i < 5 && !failureMeta; ++i)
+        {
+            env.close();
+            for (auto const& [tx, meta] : env.closed()->txs)
+            {
+                // the emitted txn itself never makes it into a ledger
+                BEAST_EXPECT(tx->getTransactionID() != *emittedID);
+                if (tx->getTxnType() == ttEMIT_FAILURE &&
+                    tx->getFieldH256(sfTransactionHash) == *emittedID)
+                    failureMeta = meta;
+            }
+        }
+        BEAST_REQUIRE(failureMeta);
+
+        // the cleanup removed the entry and its directory slot
+        BEAST_EXPECT(!env.le(emittedKeylet));
+        BEAST_EXPECT(!env.le(keylet::emittedDir()));
+
+        // the callback ran to accept() with the original emitted txn
+        BEAST_REQUIRE(failureMeta->isFieldPresent(sfHookExecutions));
+        auto const hookExecutions =
+            failureMeta->getFieldArray(sfHookExecutions);
+        BEAST_REQUIRE(hookExecutions.size() == 1);
+        BEAST_EXPECT(hookExecutions[0].getFieldH256(sfHookHash) == hook_hash);
+        BEAST_EXPECT(
+            hookExecutions[0].getAccountID(sfHookAccount) == alice.id());
+        BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 0);
+        BEAST_EXPECT(hookExecutions[0].getFieldU8(sfHookResult) == 3);
+
+        uint256 key;
+        key.data()[31] = 1;
+        auto const state =
+            env.le(keylet::hookState(alice.id(), key, uint256{beast::zero}));
+        BEAST_REQUIRE(state);
+        BEAST_EXPECT(
+            state->getFieldVL(sfHookStateData) ==
+            Blob(emittedID->begin(), emittedID->end()));
+    }
+
+    void
     test_etxn_details(FeatureBitset features)
     {
         // mainly tested in test_emit
@@ -6482,7 +6806,10 @@ public:
     {
         testcase("Test float_set");
         using namespace jtx;
-        Env env{*this, features};
+        // this hook asserts the pre-fix20261005 INVALID_FLOAT result for an
+        // out of range exponent; the amended EXPONENT_UNDERSIZED/OVERSIZED
+        // behaviour is covered in HookAPI_test
+        Env env{*this, features - fix20261005};
 
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
@@ -13262,7 +13589,9 @@ public:
         testcase("Test sto_validate");
         using namespace jtx;
 
-        Env env{*this, features};
+        // this hook asserts the pre-fix20261005 TOO_SMALL result for a short
+        // buffer; the amended behaviour is covered by the param hook below
+        Env env{*this, features - fix20261005};
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -13517,6 +13846,45 @@ public:
                 // STI_CURRENCY
                 testSTI(
                     "011A0000000000000000000000005553440000000000", hasEnabled);
+            }
+
+            // a buffer shorter than two bytes can't be a valid STObject:
+            // fix20261005 returns 0 (invalid) instead of TOO_SMALL
+            for (bool const withFix : {true, false})
+            {
+                Env env{
+                    *this,
+                    withFix ? features | fix20261005 : features - fix20261005};
+
+                env.fund(XRP(10000), alice, bob);
+                env.close();
+
+                // install the hook on alice
+                env(ripple::test::jtx::hook(
+                        alice, {{hso(hook, overrideFlag)}}, 0),
+                    M("set sto_validate"),
+                    HSFEE);
+                env.close();
+
+                auto payJv = pay(bob, alice, XRP(1));
+                Json::Value params{Json::arrayValue};
+                auto& param = params[0U][jss::HookParameter];
+                param[jss::HookParameterName] = strHex(std::string("V"));
+                param[jss::HookParameterValue] = "E1";
+                payJv[jss::HookParameters] = params;
+
+                env(payJv, M("test sto_validate short buffer"), fee(XRP(1)));
+                env.close();
+
+                auto const result =
+                    env.meta()->getFieldArray(sfHookExecutions)[0].getFieldU64(
+                        sfHookReturnCode);
+
+                // negative exit codes are recorded with the MSB set
+                BEAST_EXPECT(
+                    result ==
+                    (withFix ? 0ULL
+                             : 0x8000000000000000ULL + 4ULL /*TOO_SMALL*/));
             }
         }
     }
@@ -16148,6 +16516,7 @@ public:
         testGuards(features);
 
         test_emit(features);  //
+        test_emit_failure_callback(features);
         test_prepare(features);
         // test_etxn_burden(features);       // tested above
         // test_etxn_generation(features);   // tested above

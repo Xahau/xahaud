@@ -47,6 +47,7 @@ JSS(AL_hit_rate);    // out: GetCounts
 JSS(AcceptedCredentials);  // out: AccountObjects
 JSS(Account);        // in: TransactionSign; field.
 JSS(AMMID);          // field
+JSS(API);            // out: RPC server_definitions (HOOK)
 JSS(Amount);         // in: TransactionSign; field.
 JSS(Authorize);      // field
 JSS(Amount2);        // in/out: AMM IOU/XRP pool, deposit, withdraw amount
@@ -68,6 +69,9 @@ JSS(Destination);      // in: TransactionSign; field.
 JSS(EPrice);           // in: AMM Deposit option
 JSS(Fee);              // in/out: TransactionSign; field.
 JSS(FIELDS);           // out: RPC server_definitions
+JSS(HOOK);             // out: RPC server_definitions
+JSS(KEYLET_TYPES);     // out: RPC server_definitions (HOOK)
+JSS(RETURN_CODES);     // out: RPC server_definitions (HOOK)
 JSS(Flags);            // in/out: TransactionSign; field.
 JSS(GenesisMints);
 JSS(GovernanceMarks);
@@ -167,6 +171,7 @@ JSS(amendment_blocked);           // out: NetworkOPs
 JSS(amm_account);                 // in: amm_info
 JSS(amount);                      // out: AccountChannels, amm_info
 JSS(amount2);                     // out: amm_info
+JSS(anchored_through);            // out: CatalogueLoad
 JSS(api_version);                 // in: many, out: Version
 JSS(api_version_low);             // out: Version
 JSS(applied);                     // out: SubmitTransaction
@@ -234,7 +239,7 @@ JSS(closed);                 // out: NetworkOPs, LedgerToJson,
                              //      handlers/Ledger
 JSS(closed_ledger);          // out: NetworkOPs
 JSS(cluster);                // out: PeerImp
-JSS(code);                   // out: errors
+JSS(code);                   // in: HookValidate; out: errors
 JSS(command);                // in: RPCHandler
 JSS(complete);               // out: NetworkOPs, InboundLedger
 JSS(complete_ledgers);       // out: NetworkOPs, PeerImp
@@ -374,6 +379,8 @@ JSS(index);    // in: LedgerEntry,
                //      LedgerEntry, TxHistory, LedgerData
 JSS(info);     // out: ServerInfo, ConsensusInfo, FetchInfo
 JSS(initial_sync_duration_us);
+JSS(instruction_count_cbak);  // out: HookValidate
+JSS(instruction_count_hook);  // out: HookValidate
 JSS(internal_command);     // in: Internal
 JSS(invalid_API_version);  // out: Many, when a request has an invalid
                            //      version
@@ -447,6 +454,7 @@ JSS(local);                   // out: resource/Logic.h
 JSS(local_txs);               // out: GetCounts
 JSS(local_static_keys);       // out: ValidatorList
 JSS(locked_balance);          // out: AccountLines
+JSS(log);                     // out: HookValidate
 JSS(low);                     // out: BookChanges
 JSS(lock_count);              // out: AccountLines
 JSS(lowest_sequence);         // out: AccountInfo
@@ -585,7 +593,6 @@ JSS(queue_data);        // out: AccountInfo
 JSS(queued);            // out: SubmitTransaction
 JSS(queued_duration_us);
 JSS(quote_asset);           // in: get_aggregate_price
-JSS(random);                // out: Random
 JSS(raw_meta);              // out: AcceptedLedgerTx
 JSS(receive_currencies);    // out: AccountCurrencies
 JSS(reference_level);       // out: TxQ
@@ -603,6 +610,7 @@ JSS(reserve_base_native);   // out: NetworkOPs
 JSS(reserve_inc);           // out: NetworkOPs
 JSS(reserve_inc_xrp);       // out: NetworkOPs
 JSS(reserve_inc_native);    // out: NetworkOPs
+JSS(reset);                 // in/out: PWAInfo
 JSS(response);              // websocket
 JSS(result);                // RPC
 JSS(ripple_lines);          // out: NetworkOPs
@@ -737,6 +745,7 @@ JSS(TRANSACTION_FLAGS_INDICES);  // out: RPC server_definitions
 JSS(type_hex);                   // out: STPathSet
 JSS(unl);                        // out: UnlList
 JSS(unlimited);                  // out: Connection.h
+JSS(unpinned);                   // out: CatalogueUnpin
 JSS(uptime);                     // out: GetCounts
 JSS(uri);                        // out: ValidatorSites
 JSS(url);                        // in/out: Subscribe, Unsubscribe
@@ -744,6 +753,7 @@ JSS(url_password);               // in: Subscribe
 JSS(url_username);               // in: Subscribe
 JSS(urlgravatar);                //
 JSS(username);                   // in: Subscribe
+JSS(valid);                      // out: HookValidate
 JSS(validated);                  // out: NetworkOPs, RPCHelpers, AccountTx*
                                  //      Tx
 JSS(validator_list_expires);     // out: NetworkOps, ValidatorList
@@ -765,6 +775,7 @@ JSS(validator_sites);  // out: ValidatorSites
 JSS(value);            // out: STAmount
 JSS(version);          // out: RPCVersion
 JSS(vetoed);           // out: AmendmentTableImpl
+JSS(vm_error);         // out: HookValidate
 JSS(volume_a);         // out: BookChanges
 JSS(volume_b);         // out: BookChanges
 JSS(vote);             // in: Feature

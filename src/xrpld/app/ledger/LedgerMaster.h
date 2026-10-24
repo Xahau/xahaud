@@ -37,6 +37,8 @@
 #include <xrpl/protocol/RippleLedgerHash.h>
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/messages.h>
+#include <deque>
+#include <functional>
 #include <optional>
 
 #include <mutex>
@@ -186,6 +188,21 @@ public:
     std::shared_ptr<Ledger const>
     getLedgerByHash(uint256 const& hash);
 
+    /** Return a ledger that is already resident in memory.
+
+        Looks in the ledger history cache, the closed and validated
+        ledgers and the null-mode retained window. Unlike getLedgerByHash
+        and getLedgerBySeq this never loads from SQL or the node store and
+        never edits the complete-ledger set, so it is safe to call with
+        values supplied by a peer.
+    */
+    std::shared_ptr<Ledger const>
+    getResidentLedgerByHash(uint256 const& hash);
+
+    /** Sequence-number form of getResidentLedgerByHash. */
+    std::shared_ptr<Ledger const>
+    getResidentLedgerBySeq(std::uint32_t seq);
+
     void
     setLedgerRangePresent(
         std::uint32_t minV,
@@ -211,6 +228,19 @@ public:
     isPinned(std::uint32_t seq);
     void
     unpinLedger(std::uint32_t seq);
+
+    /** Remove `ranges` from the pinned set.
+
+        @param dropFromComplete of the ledgers actually unpinned, those to
+               also remove from complete_ledgers now (used to roll back a
+               load). Otherwise unpinned ledgers stay complete until online
+               delete releases them.
+        @return the ledgers that were pinned and no longer are.
+    */
+    RangeSet<std::uint32_t>
+    unpinLedgers(
+        RangeSet<std::uint32_t> const& ranges,
+        RangeSet<std::uint32_t> const& dropFromComplete = {});
     bool
     isValidated(ReadView const& ledger);
     bool
@@ -323,6 +353,10 @@ private:
     void
     doAdvance(std::unique_lock<std::recursive_mutex>&);
 
+    // Closed, validated, then retained ledgers; never loads.
+    std::shared_ptr<Ledger const>
+    findResidentLedger(std::function<bool(LedgerInfo const&)> const& match);
+
     std::vector<std::shared_ptr<Ledger const>>
     findNewLedgersToPublish(std::unique_lock<std::recursive_mutex>&);
 
@@ -353,6 +387,14 @@ private:
 
     // The last ledger we handled fetching history
     std::shared_ptr<Ledger const> mHistLedger;
+
+    // Sliding window of the last ledger_history published ledgers, pinned
+    // so their SHAMaps stay reachable via shared_ptr. Only populated when
+    // [node_db] type=rwdb (null node store), where nothing else can bring
+    // a dropped tree back. Has its own lock so peer requests that consult
+    // it do not contend on m_mutex.
+    std::mutex mutable mRetainedLock;
+    std::deque<std::shared_ptr<Ledger const>> mRetainedLedgers;
 
     // Fully validated ledger, whether or not we have the ledger resident.
     std::pair<uint256, LedgerIndex> mLastValidLedger{uint256(), 0};
@@ -400,6 +442,10 @@ private:
 
     // How much history do we want to keep
     std::uint32_t const ledger_history_;
+
+    // [node_db] type=rwdb: the node store keeps nothing, so recent
+    // ledgers are retained in memory (see mRetainedLedgers).
+    bool const nullBackend_;
 
     std::uint32_t const ledger_fetch_size_;
 

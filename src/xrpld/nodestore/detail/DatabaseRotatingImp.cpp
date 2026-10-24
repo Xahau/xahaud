@@ -22,6 +22,8 @@
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
 #include <xrpl/protocol/HashPrefix.h>
 
+#include <shared_mutex>
+
 namespace ripple {
 namespace NodeStore {
 
@@ -59,10 +61,13 @@ DatabaseRotatingImp::rotate(
     // deleted.
     std::shared_ptr<NodeStore::Backend> oldArchiveBackend;
     {
-        std::lock_guard lock(mutex_);
+        std::unique_lock const lock(mutex_);
 
-        // Mark the archive backend for deletion
-        archiveBackend_->setDeletePath();
+        // Do NOT call setDeletePath() inside this lock. For in-memory
+        // backends, setDeletePath() calls close() which destructs the entire
+        // table_ map while the lock is held and starves consensus reads.
+        // Pinned history is preserved by DatabasePinned, not by copying
+        // ledgers into the writable backend during rotation.
         oldArchiveBackend = std::move(archiveBackend_);
 
         // Complete the rotation
@@ -72,20 +77,23 @@ DatabaseRotatingImp::rotate(
         writableBackend_ = std::move(newBackend);
     }
 
+    // Lock released — clear the old archive now without blocking fetches.
+    oldArchiveBackend->setDeletePath();
+
     f(newWritableBackendName, newArchiveBackendName);
 }
 
 std::string
 DatabaseRotatingImp::getName() const
 {
-    std::lock_guard lock(mutex_);
+    std::shared_lock const lock(mutex_);
     return writableBackend_->getName();
 }
 
 std::int32_t
 DatabaseRotatingImp::getWriteLoad() const
 {
-    std::lock_guard lock(mutex_);
+    std::shared_lock const lock(mutex_);
     return writableBackend_->getWriteLoad();
 }
 
@@ -93,7 +101,7 @@ void
 DatabaseRotatingImp::importDatabase(Database& source)
 {
     auto const backend = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return writableBackend_;
     }();
 
@@ -104,7 +112,7 @@ bool
 DatabaseRotatingImp::storeLedger(std::shared_ptr<Ledger const> const& srcLedger)
 {
     auto const backend = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return writableBackend_;
     }();
 
@@ -114,7 +122,7 @@ DatabaseRotatingImp::storeLedger(std::shared_ptr<Ledger const> const& srcLedger)
 void
 DatabaseRotatingImp::sync()
 {
-    std::lock_guard lock(mutex_);
+    std::unique_lock const lock(mutex_);
     writableBackend_->sync();
 }
 
@@ -128,7 +136,7 @@ DatabaseRotatingImp::store(
     auto nObj = NodeObject::createObject(type, std::move(data), hash);
 
     auto const backend = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return writableBackend_;
     }();
 
@@ -182,7 +190,7 @@ DatabaseRotatingImp::fetchNodeObject(
     std::shared_ptr<NodeObject> nodeObject;
 
     auto [writable, archive] = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return std::make_pair(writableBackend_, archiveBackend_);
     }();
 
@@ -196,12 +204,17 @@ DatabaseRotatingImp::fetchNodeObject(
         {
             {
                 // Refresh the writable backend pointer
-                std::lock_guard lock(mutex_);
+                std::shared_lock const lock(mutex_);
                 writable = writableBackend_;
             }
 
-            // Update writable backend with data from the archive backend
-            // if (duplicate)
+            // Promote every archive hit into the writable backend.
+            // Ordinary reads pass duplicate=false; the rotation copy
+            // pass passes true. Both must copy. The next rotation
+            // deletes this archive, and copyNode only walks the state
+            // tree, so an unpromoted header or transaction node
+            // disappears while SQL still names it.
+            (void)duplicate;
             writable->store(nodeObject);
         }
     }
@@ -217,7 +230,7 @@ DatabaseRotatingImp::for_each(
     std::function<void(std::shared_ptr<NodeObject>)> f)
 {
     auto [writable, archive] = [&] {
-        std::lock_guard lock(mutex_);
+        std::shared_lock const lock(mutex_);
         return std::make_pair(writableBackend_, archiveBackend_);
     }();
 

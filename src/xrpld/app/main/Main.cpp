@@ -132,7 +132,7 @@ void
 printHelp(const po::options_description& desc)
 {
     std::cerr
-        << systemName() << "d [options] <command> <params>\n"
+        << systemName << "d [options] <command> <params>\n"
         << desc << std::endl
         << "Commands: \n"
            "     account_currencies <account> [<ledger>]\n"
@@ -159,6 +159,7 @@ printHelp(const po::options_description& desc)
            "     gateway_balances [<ledger>] <issuer_account> [ <hotwallet> [ "
            "<hotwallet> ]]\n"
            "     get_counts\n"
+           "     hook_validate <hex>\n"
            "     json <method> <json>\n"
            "     ledger [<id>|current|closed|validated] [full]\n"
            "     ledger_accept\n"

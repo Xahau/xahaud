@@ -352,6 +352,24 @@ parseRippleState(Json::Value const& jvRippleState, Json::Value& jvResult)
     return keylet::line(*id1, *id2, uCurrency).key;
 }
 
+// featureRNG: the Random object is a singleton, so `"random": true` selects
+// it.
+// A string is an explicit index, as for the other types.
+static std::optional<uint256>
+parseRandom(Json::Value const& params, Json::Value& jvResult)
+{
+    if (params.isString())
+        return parseIndex(params, jvResult);
+
+    if (!params.isBool() || !params.asBool())
+    {
+        jvResult[jss::error] = "malformedRequest";
+        return std::nullopt;
+    }
+
+    return keylet::random().key;
+}
+
 static std::optional<uint256>
 parseTicket(Json::Value const& params, Json::Value& jvResult)
 {
@@ -631,6 +649,25 @@ parseXChainOwnedCreateAccountClaimID(
     }
 
     return std::nullopt;
+}
+
+static std::optional<uint256>
+parseAppLoader(Json::Value const& params, Json::Value& jvResult)
+{
+    if (!params.isString())
+    {
+        jvResult[jss::error] = "malformedAddress";
+        return std::nullopt;
+    }
+
+    auto const account = parseBase58<AccountID>(params.asString());
+    if (!account || account->isZero())
+    {
+        jvResult[jss::error] = "malformedAddress";
+        return std::nullopt;
+    }
+
+    return keylet::appLoader(*account).key;
 }
 
 static std::optional<uint256>
@@ -1090,6 +1127,7 @@ doLedgerEntry(RPC::JsonContext& context)
         {jss::account_root, parseAccountRoot, ltACCOUNT_ROOT},
         // TODO: add amendments
         {jss::amm, parseAMM, ltAMM},
+        {jss::app_loader, parseAppLoader, ltAPP_LOADER},
         {jss::bridge, parseBridge, ltBRIDGE},
         {jss::check, parseCheck, ltCHECK},
         {jss::credential, parseCredential, ltCREDENTIAL},
@@ -1115,6 +1153,7 @@ doLedgerEntry(RPC::JsonContext& context)
         {jss::permissioned_domain,
          parsePermissionedDomains,
          ltPERMISSIONED_DOMAIN},
+        {jss::random, parseRandom, ltRANDOM},
         {jss::ripple_state, parseRippleState, ltRIPPLE_STATE},
         // This is an alias, since the `ledger_data` filter uses jss::state
         {jss::state, parseRippleState, ltRIPPLE_STATE},

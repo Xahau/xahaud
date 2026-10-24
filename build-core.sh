@@ -88,7 +88,7 @@ git remote -v >> release.info &&
 echo "Git status:" >> release.info &&
 git status -v >> release.info &&
 echo "Git log [last 20]:" >> release.info &&
-git log -n 20 >> release.info;
+git log -n 20 >> release.info || exit 1
 
 if [[ "$4" == "" ]]; then
   # Non GH, local building
@@ -97,7 +97,7 @@ else
   # GH Action, runner
     if [[ "$(git rev-parse --abbrev-ref HEAD)" == "release" ]]; then
         echo "building on the release branch... placing it in builds/candidate"
-        mkdir /data/builds/candidate
+        mkdir -p /data/builds/candidate
         cp /io/release-build/xahaud /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
         cp /io/release-build/release.info /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
     else

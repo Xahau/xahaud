@@ -21,6 +21,7 @@
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
+#include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
@@ -53,6 +54,25 @@ SetAccount::makeTxConsequences(PreflightContext const& ctx)
     };
 
     return TxConsequences{ctx.tx, getTxConsequencesCategory(ctx.tx)};
+}
+
+XRPAmount
+SetAccount::calculateBaseFee(ReadView const& view, STTx const& tx)
+{
+    XRPAmount extraFee{0};
+
+    if (view.rules().enabled(featurePWALoader))
+    {
+        if (auto const loader = tx[~sfAppLoader])
+        {
+            // One drop per byte, on every AccountSet carrying the field;
+            // removal carries an empty blob and so costs nothing extra.
+            extraFee += XRPAmount{static_cast<std::int64_t>(
+                loader->size() * appLoaderFeeDropsPerByte)};
+        }
+    }
+
+    return Transactor::calculateBaseFee(view, tx) + extraFee;
 }
 
 NotTEC
@@ -182,6 +202,28 @@ SetAccount::preflight(PreflightContext const& ctx)
         if (uClearFlag == asfAuthorizedNFTokenMinter &&
             tx.isFieldPresent(sfNFTokenMinter))
             return temMALFORMED;
+    }
+
+    // AppLoader
+    if (auto const loader = tx[~sfAppLoader])
+    {
+        if (!ctx.rules.enabled(featurePWALoader))
+            return temDISABLED;
+
+        // An empty blob is the removal sentinel, matching Domain and
+        // MessageKey. It is not validated as a document.
+        if (!loader->empty())
+        {
+            auto const result =
+                appLoader::validate(loader->data(), loader->size());
+
+            if (result != appLoader::Result::ok)
+            {
+                JLOG(j.trace()) << "Malformed transaction: AppLoader: "
+                                << appLoader::to_string(result);
+                return temMALFORMED;
+            }
+        }
     }
 
     // HookStateScale
@@ -562,6 +604,42 @@ SetAccount::doApply()
         {
             JLOG(j_.trace()) << "set domain";
             sle->setFieldVL(sfDomain, domain);
+        }
+    }
+
+    // AppLoader: its own ltAPP_LOADER object (no directory entry, no
+    // reserve; the per-byte fee from calculateBaseFee pays for it). Every
+    // AccountSet carrying the field, removal included, advances the owner's
+    // AppLoaderSequence, and a written object records the sequence it was
+    // written at, so a reader can tell whether a copy is current.
+    if (view().rules().enabled(featurePWALoader) &&
+        tx.isFieldPresent(sfAppLoader))
+    {
+        Blob const loader = tx.getFieldVL(sfAppLoader);
+        Keylet const klLoader = keylet::appLoader(account_);
+        auto sleLoader = view().peek(klLoader);
+        std::uint32_t const seq = (*sle)[~sfAppLoaderSequence].value_or(0) + 1;
+        (*sle)[sfAppLoaderSequence] = seq;
+
+        if (loader.empty())
+        {
+            if (sleLoader)
+                view().erase(sleLoader);
+        }
+        else
+        {
+            bool const create = !sleLoader;
+            if (create)
+            {
+                sleLoader = std::make_shared<SLE>(klLoader);
+                (*sleLoader)[sfOwner] = account_;
+            }
+            sleLoader->setFieldVL(sfAppLoader, loader);
+            (*sleLoader)[sfAppLoaderSequence] = seq;
+            if (create)
+                view().insert(sleLoader);
+            else
+                view().update(sleLoader);
         }
     }
 

@@ -142,6 +142,22 @@ LEDGER_ENTRY(ltIMPORT_VLSEQ, 0x0049, ImportVLSequence, import_vlseq, ({
     {sfPreviousTxnLgrSeq,    soeOPTIONAL},
 }))
 
+/** The bootstrap document of a Progressive Web App (featurePWALoader).
+
+    At most one per account, keyed on the owner alone (keylet::appLoader).
+    It is in no owner directory and takes no reserve: its storage is paid
+    for by a per-byte fee on the AccountSet that writes it, and
+    DeleteAccount erases it explicitly. AppLoaderSequence equals the owner's
+    AccountRoot AppLoaderSequence as of the AccountSet that wrote it.
+ */
+LEDGER_ENTRY(ltAPP_LOADER, 0x004c, AppLoader, app_loader, ({
+    {sfOwner,                soeREQUIRED},
+    {sfAppLoader,            soeREQUIRED},
+    {sfAppLoaderSequence,    soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** The ledger object which tracks the current negative UNL state.
 
     \note This is a singleton: only one such object exists in the ledger.
@@ -176,6 +192,26 @@ LEDGER_ENTRY(ltNFTOKEN_PAGE, 0x0050, NFTokenPage, nft_page, ({
 LEDGER_ENTRY_DUPLICATE(ltUNL_REPORT, 0x0052, UNLReport, unl_report, ({
     {sfImportVLKeys,         soeOPTIONAL},
     {sfActiveValidators,     soeOPTIONAL},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+/** featureRNG: the consensus random number generator.
+
+    A singleton. sfRandomData is seeded from validator reveals by the
+    ttENTROPY transactions applied at the start of each ledger, and then
+    iterated by every Hook API draw for the rest of that ledger.
+    sfRandomData and sfRandomDigests are never written to metadata, and
+    Hooks cannot load this object.
+
+    \sa keylet::random
+ */
+LEDGER_ENTRY(ltRANDOM, 0x526E, Random, random, ({
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfRandomData,           soeREQUIRED},
+    {sfEntropyCount,         soeREQUIRED},
+    {sfEntropyDenominator,   soeREQUIRED},
+    {sfRandomDigests,        soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
@@ -262,6 +298,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfHookStateScale,       soeOPTIONAL},
     {sfCron,                 soeOPTIONAL},
     {sfAMMID,                soeOPTIONAL},
+    {sfAppLoaderSequence,    soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
 }))
 
@@ -609,6 +646,7 @@ LEDGER_ENTRY(ltMANIFEST, 0x004D, Manifest, manifest_entry, ({
     {sfMasterSignature,     soeREQUIRED},
     {sfSignature,           soeOPTIONAL}, /* absent if the master is revoked */
     {sfManifestID,          soeOPTIONAL}, /* pointer to the identical other copy on the other key */
+    {sfOwnerNode,           soeOPTIONAL}, /* master copy only: its page in keylet::manifestDir() */
     {sfPreviousTxnID,       soeREQUIRED},
     {sfPreviousTxnLgrSeq,   soeREQUIRED},
 }))
