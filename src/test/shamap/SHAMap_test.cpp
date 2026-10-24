@@ -29,7 +29,9 @@
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/Serializer.h>
 
+#include <algorithm>
 #include <optional>
+#include <vector>
 
 namespace ripple {
 namespace tests {
@@ -131,6 +133,7 @@ public:
         testCanonicalizeMergesInnerChildren(journal);
         testCanonicalizeSharesDuplicateContent(journal);
         testGetLinkedNode(journal);
+        testUpsertAndFlushToSink(journal);
     }
 
     void
@@ -282,6 +285,82 @@ public:
             }
         }
         BEAST_EXPECT(liveLinked > 0);
+    }
+
+    void
+    testUpsertAndFlushToSink(beast::Journal const& journal)
+    {
+        testcase("upsertGiveItem and flushDirty to a sink");
+
+        tests::TestNodeFamily f(journal);
+        SHAMap a{SHAMapType::FREE, f};  // built with upsertGiveItem
+        SHAMap b{SHAMapType::FREE, f};  // reference: addItem/updateGiveItem
+
+        // Distinct first nibbles: a root with three leaf children.
+        constexpr uint256 h1(
+            "092891fe4ef6cee585fdc6fda0e09eb4d386363158ec3321b8123e5a772c6ca7");
+        constexpr uint256 h2(
+            "436ccbac3347baa1f1e53baeef1f43334da88f1f6d70d963b833afd6dfa289fe");
+        constexpr uint256 h3(
+            "b92891fe4ef6cee585fdc6fda1e09eb4d386363158ec3321b8123e5a772c6ca8");
+        auto const nm = SHAMapNodeType::tnTRANSACTION_NM;
+
+        // Absent keys are added.
+        BEAST_EXPECT(a.upsertGiveItem(nm, make_shamapitem(h1, IntToVUC(1))));
+        BEAST_EXPECT(a.upsertGiveItem(nm, make_shamapitem(h2, IntToVUC(2))));
+        BEAST_EXPECT(a.upsertGiveItem(nm, make_shamapitem(h3, IntToVUC(3))));
+        // A present key has its data replaced.
+        BEAST_EXPECT(a.upsertGiveItem(nm, make_shamapitem(h2, IntToVUC(20))));
+        // A change of leaf type is refused and leaves the item untouched.
+        BEAST_EXPECT(!a.upsertGiveItem(
+            SHAMapNodeType::tnTRANSACTION_MD,
+            make_shamapitem(h1, IntToVUC(10))));
+
+        BEAST_EXPECT(b.addItem(nm, make_shamapitem(h1, IntToVUC(1))));
+        BEAST_EXPECT(b.addItem(nm, make_shamapitem(h2, IntToVUC(2))));
+        BEAST_EXPECT(b.addItem(nm, make_shamapitem(h3, IntToVUC(3))));
+        BEAST_EXPECT(b.updateGiveItem(nm, make_shamapitem(h2, IntToVUC(20))));
+
+        {
+            auto const v20 = IntToVUC(20);
+            auto const& item = a.peekItem(h2);
+            BEAST_EXPECT(
+                item && item->slice() == Slice(v20.data(), v20.size()));
+            auto const v1 = IntToVUC(1);
+            auto const& item1 = a.peekItem(h1);
+            BEAST_EXPECT(
+                item1 && item1->slice() == Slice(v1.data(), v1.size()));
+        }
+
+        // Flush to a sink. Do not call getHash() on `a` first: it unshares
+        // the map and the flush would then have nothing to write.
+        auto const cacheBefore = f.getTreeNodeCache()->size();
+        std::vector<uint256> written;
+        bool sinkArgsOk = true;
+        SHAMap::FlushSink const sink =
+            [&](NodeObjectType t, Blob&& data, uint256 const& hash) {
+                sinkArgsOk =
+                    sinkArgsOk && t == hotTRANSACTION_NODE && !data.empty();
+                written.push_back(hash);
+            };
+        a.flushDirty(hotTRANSACTION_NODE, sink);
+
+        BEAST_EXPECT(sinkArgsOk);
+        BEAST_EXPECT(written.size() == 4);  // root + three leaves
+        // Unlike flushDirty(t), nothing was canonicalized into the cache.
+        BEAST_EXPECT(f.getTreeNodeCache()->size() == cacheBefore);
+
+        // The upserted map matches the reference, and its root was written.
+        BEAST_EXPECT(a.getHash() == b.getHash());
+        BEAST_EXPECT(
+            std::find(
+                written.begin(), written.end(), a.getHash().as_uint256()) !=
+            written.end());
+
+        // Everything is now shared: a second flush writes nothing.
+        written.clear();
+        a.flushDirty(hotTRANSACTION_NODE, sink);
+        BEAST_EXPECT(written.empty());
     }
 
     void

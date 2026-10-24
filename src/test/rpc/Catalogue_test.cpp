@@ -18,16 +18,22 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/core/ConfigSections.h>
+#include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/jss.h>
 #include <boost/filesystem.hpp>
 #include <chrono>
+#include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <grpc/impl/codegen/compression_types.h>
+#include <iterator>
+#include <optional>
 #include <thread>
 
 namespace ripple {
@@ -102,14 +108,28 @@ struct CatalogueEnvOpts
 };
 
 // envconfig with pinned_type set so catalogue_load passes the config guard.
-// Uses rwdb for in-process speed (allowed in standalone).
+//
+// envconfig() selects [node_db] type=rwdb, which is the tree-only null node
+// store: SHAMapStore never builds DatabasePinned on it, so catalogue_load
+// would refuse to run. Use the in-memory "memory" store for the hot side
+// instead. It is shared by path within the process, so each config gets its
+// own path (SHAMapStore creates the directory; nothing is written to it).
+// The pinned side uses rwdb, an in-memory persistent backend.
 inline std::unique_ptr<Config>
 catalogueEnvconfig(CatalogueEnvOpts const& opts = {})
 {
     auto cfg = test::jtx::envconfig();
     auto& nodeDb = cfg->section(ConfigSection::nodeDatabase());
     if (opts.withPinnedType)
+    {
+        nodeDb.set("type", "memory");
+        nodeDb.set(
+            "path",
+            (boost::filesystem::temp_directory_path() /
+             boost::filesystem::unique_path("catalogue-test-%%%%-%%%%-%%%%"))
+                .string());
         nodeDb.set("pinned_type", "rwdb");
+    }
     nodeDb.set("online_delete", opts.onlineDelete);
     return cfg;
 }
@@ -1067,6 +1087,621 @@ class Catalogue_test : public beast::unit_test::suite
     }
 
 public:
+    // ---- Editing uncompressed catalogues -----------------------------------
+    //
+    // Ledger record: seq, hash, txHash, accountHash, parentHash, drops,
+    // closeFlags, closeTimeResolution, closeTime, parentCloseTime; then the
+    // state map and the tx map, each a run of leaf records ending in
+    // tnTERMINAL. A leaf record is type (1), key (32), and, unless it is a
+    // tnREMOVE, size (4) and data.
+
+    static constexpr std::size_t catLedgerHeaderSize =
+        4 + 32 * 4 + 8 + sizeof(int) + 4 + 8 + 8;
+
+    struct CatLedgerRecord
+    {
+        std::size_t header;  // first byte of the ledger header
+        std::size_t state;   // first byte of the state map
+        std::size_t tx;      // first byte of the tx map
+        std::size_t end;     // one past the tx map's tnTERMINAL
+    };
+
+    // Position just past the map that starts at `pos`.
+    static std::size_t
+    skipCatalogueMap(std::vector<std::uint8_t> const& bytes, std::size_t pos)
+    {
+        while (pos < bytes.size())
+        {
+            auto const type = bytes[pos++];
+            if (type == 255)  // tnTERMINAL
+                return pos;
+            pos += 32;
+            if (type == 254)  // tnREMOVE
+                continue;
+            if (pos + 4 > bytes.size())
+                break;
+            std::uint32_t size = 0;
+            std::memcpy(&size, &bytes[pos], 4);
+            pos += 4 + size;
+        }
+        return bytes.size();
+    }
+
+    // Position of the size field of the first leaf (not a removal) in the
+    // map that starts at `pos`, if the map has one.
+    static std::optional<std::size_t>
+    firstLeafSizeField(std::vector<std::uint8_t> const& bytes, std::size_t pos)
+    {
+        while (pos < bytes.size())
+        {
+            auto const type = bytes[pos];
+            if (type == 255)
+                return std::nullopt;
+            if (type != 254)
+                return pos + 1 + 32;
+            pos += 1 + 32;
+        }
+        return std::nullopt;
+    }
+
+    static std::vector<CatLedgerRecord>
+    indexCatalogue(std::vector<std::uint8_t> const& bytes)
+    {
+        std::vector<CatLedgerRecord> records;
+        std::size_t pos = sizeof(TestCATLHeader);
+        while (pos + catLedgerHeaderSize <= bytes.size())
+        {
+            CatLedgerRecord r;
+            r.header = pos;
+            r.state = pos + catLedgerHeaderSize;
+            r.tx = skipCatalogueMap(bytes, r.state);
+            r.end = skipCatalogueMap(bytes, r.tx);
+            records.push_back(r);
+            pos = r.end;
+        }
+        return records;
+    }
+
+    static std::vector<std::uint8_t>
+    readCatalogue(std::string const& path)
+    {
+        std::ifstream in(path, std::ios::binary);
+        return {
+            std::istreambuf_iterator<char>(in),
+            std::istreambuf_iterator<char>()};
+    }
+
+    static void
+    writeCatalogue(std::string const& path, std::vector<std::uint8_t> const& b)
+    {
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<char const*>(b.data()), b.size());
+    }
+
+    static Json::Value
+    loadCatalogue(test::jtx::Env& env, std::string const& path, bool ignoreHash)
+    {
+        Json::Value params{Json::objectValue};
+        params[jss::input_file] = path;
+        if (ignoreHash)
+            params[jss::ignore_hash] = true;
+        return env.client().invoke("catalogue_load", params)[jss::result];
+    }
+
+    static bool
+    errorContains(Json::Value const& result, std::string const& what)
+    {
+        return result[jss::status] == "error" &&
+            result[jss::error_message].asString().find(what) !=
+            std::string::npos;
+    }
+
+    void
+    testCatalogueLoadFailures(FeatureBitset features)
+    {
+        testcase("catalogue_load: failures part way through a file");
+        using namespace test::jtx;
+        using beast::severities::kDisabled;
+
+        boost::filesystem::path tempDir =
+            boost::filesystem::temp_directory_path() /
+            boost::filesystem::unique_path();
+        boost::filesystem::create_directories(tempDir);
+        auto const goodPath = (tempDir / "good.catl").string();
+
+        // An uncompressed catalogue of ledgers 3-6, so records can be edited.
+        {
+            Env env{*this, catalogueEnvconfig(), features, nullptr, kDisabled};
+            prepareLedgerData(env, 3);
+
+            Json::Value params{Json::objectValue};
+            params[jss::min_ledger] = 3;
+            params[jss::max_ledger] = 6;
+            params[jss::output_file] = goodPath;
+            params[jss::compression_level] = 0;
+            auto const result =
+                env.client().invoke("catalogue_create", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+        }
+
+        auto const good = readCatalogue(goodPath);
+        auto const records = indexCatalogue(good);
+        if (!BEAST_EXPECT(
+                records.size() == 4 && records.back().end == good.size()))
+            return;
+
+        // Write `bytes` to a new file, load it into a fresh server, and hand
+        // the result and the resulting pinned set to `check`.
+        int fileNo = 0;
+        auto loadEdited = [&](std::vector<std::uint8_t> const& bytes,
+                              bool ignoreHash,
+                              auto&& check) {
+            auto const path =
+                (tempDir / ("edited" + std::to_string(++fileNo) + ".catl"))
+                    .string();
+            writeCatalogue(path, bytes);
+            Env env{*this, catalogueEnvconfig(), features, nullptr, kDisabled};
+            auto const result = loadCatalogue(env, path, ignoreHash);
+            check(
+                result, env.app().getLedgerMaster().getPinnedLedgersRangeSet());
+        };
+
+        auto const hashField = offsetof(TestCATLHeader, hash);
+        auto const maxLedgerField = offsetof(TestCATLHeader, max_ledger);
+        // Offsets within a ledger header record.
+        constexpr std::size_t accountHashAt = 4 + 32 * 2;
+        constexpr std::size_t dropsAt = 4 + 32 * 4;
+
+        // The stored checksum is wrong but every ledger is intact: all four
+        // load, then the whole-file check fails and the run is rolled back.
+        {
+            auto bytes = good;
+            bytes[hashField] ^= 0xff;
+            loadEdited(
+                bytes, false, [&](auto const& result, auto const& pinned) {
+                    BEAST_EXPECT(errorContains(
+                        result, "catalogue hash verification failed"));
+                    BEAST_EXPECT(pinned.empty());
+                });
+        }
+
+        // A ledger part way through is corrupt. The load stops there, the
+        // rest of the file is still hashed, the checksum fails, and the
+        // ledgers loaded before it are rolled back too.
+        {
+            auto bytes = good;
+            bytes[records[2].header + dropsAt] ^= 0x01;
+            loadEdited(
+                bytes, false, [&](auto const& result, auto const& pinned) {
+                    BEAST_EXPECT(errorContains(
+                        result, "catalogue hash verification failed"));
+                    BEAST_EXPECT(pinned.empty());
+                });
+        }
+
+        // A checksum failure only rolls back what this run added: ledgers
+        // that were already pinned stay pinned.
+        {
+            auto bytes = good;
+            bytes[hashField] ^= 0xff;
+            auto const badPath = (tempDir / "badsum.catl").string();
+            writeCatalogue(badPath, bytes);
+
+            Env env{*this, catalogueEnvconfig(), features, nullptr, kDisabled};
+            BEAST_EXPECT(
+                loadCatalogue(env, goodPath, false)[jss::status] ==
+                jss::success);
+            BEAST_EXPECT(errorContains(
+                loadCatalogue(env, badPath, false),
+                "catalogue hash verification failed"));
+            auto& lm = env.app().getLedgerMaster();
+            BEAST_EXPECT(to_string(lm.getPinnedLedgersRangeSet()) == "3-6");
+
+            // The pinned store: an empty batch is a no-op, an in-memory
+            // backend is durable on demand, and a fetch made for
+            // online_delete's copy pass (duplicate == true) finds nodes
+            // that exist only in the pinned store.
+            auto* const pinnedDb = dynamic_cast<NodeStore::DatabasePinnedImp*>(
+                &env.app().getNodeStore());
+            if (BEAST_EXPECT(pinnedDb))
+            {
+                pinnedDb->storePinnedBatch({});
+                BEAST_EXPECT(pinnedDb->syncPinned());
+                auto const stateRoot =
+                    uint256::fromVoid(&good[records[0].header + accountHashAt]);
+                BEAST_EXPECT(env.app().getNodeStore().fetchNodeObject(
+                    stateRoot, 0, NodeStore::FetchType::synchronous, true));
+            }
+        }
+
+        // Out of sequence: ledger 4's record claims to be ledger 9.
+        {
+            auto bytes = good;
+            std::uint32_t const nine = 9;
+            std::memcpy(&bytes[records[1].header], &nine, 4);
+            loadEdited(
+                bytes, true, [&](auto const& result, auto const& pinned) {
+                    BEAST_EXPECT(errorContains(result, "out of sequence"));
+                    BEAST_EXPECT(boost::icl::contains(pinned, 3u));
+                    BEAST_EXPECT(!boost::icl::contains(pinned, 4u));
+                });
+        }
+
+        // The header promises a ledger 7 the file does not contain. Ledgers
+        // 3-6 load (hash checks are off) before the file runs out.
+        {
+            auto bytes = good;
+            std::uint32_t const seven = 7;
+            std::memcpy(&bytes[maxLedgerField], &seven, 4);
+            loadEdited(
+                bytes, true, [&](auto const& result, auto const& pinned) {
+                    BEAST_EXPECT(errorContains(
+                        result, "Unexpected end of catalogue file"));
+                    BEAST_EXPECT(to_string(pinned) == "3-6");
+                });
+        }
+
+        // An absurd leaf size in each kind of map is rejected while parsing.
+        auto withHugeLeaf = [&](std::size_t sizeField) {
+            auto bytes = good;
+            std::uint32_t const huge = 0xFFFFFFFF;
+            std::memcpy(&bytes[sizeField], &huge, 4);
+            return bytes;
+        };
+
+        // ... in the base ledger's state map.
+        if (auto const field = firstLeafSizeField(good, records[0].state);
+            BEAST_EXPECT(field))
+        {
+            loadEdited(
+                withHugeLeaf(*field),
+                true,
+                [&](auto const& result, auto const& pinned) {
+                    BEAST_EXPECT(errorContains(
+                        result, "Failed to load base ledger state"));
+                    BEAST_EXPECT(pinned.empty());
+                });
+        }
+
+        // ... in a later ledger's state delta.
+        {
+            std::optional<std::size_t> index;
+            std::optional<std::size_t> field;
+            for (std::size_t i = 1; i < records.size() && !field; ++i)
+                if ((field = firstLeafSizeField(good, records[i].state)))
+                    index = i;
+            if (BEAST_EXPECT(field))
+            {
+                std::uint32_t const seq = 3 + *index;
+                loadEdited(
+                    withHugeLeaf(*field),
+                    true,
+                    [&](auto const& result, auto const& pinned) {
+                        BEAST_EXPECT(errorContains(
+                            result, "Failed to apply ledger delta"));
+                        BEAST_EXPECT(boost::icl::contains(pinned, seq - 1));
+                        BEAST_EXPECT(!boost::icl::contains(pinned, seq));
+                    });
+            }
+        }
+
+        // ... in a ledger's transaction map.
+        {
+            std::optional<std::size_t> index;
+            std::optional<std::size_t> field;
+            for (std::size_t i = 0; i < records.size() && !field; ++i)
+                if ((field = firstLeafSizeField(good, records[i].tx)))
+                    index = i;
+            if (BEAST_EXPECT(field))
+            {
+                std::uint32_t const seq = 3 + *index;
+                loadEdited(
+                    withHugeLeaf(*field),
+                    true,
+                    [&](auto const& result, auto const& pinned) {
+                        BEAST_EXPECT(errorContains(
+                            result, "Failed to apply ledger delta"));
+                        BEAST_EXPECT(!boost::icl::contains(pinned, seq));
+                    });
+            }
+        }
+
+        boost::filesystem::remove_all(tempDir);
+    }
+
+    void
+    testCataloguePinnedStoreRequired(FeatureBitset features)
+    {
+        testcase("catalogue_load / catalogue_unpin: pinned store required");
+        using namespace test::jtx;
+        using beast::severities::kDisabled;
+
+        // pinned_type is set, but [node_db] type=rwdb is the null node
+        // store, on which SHAMapStore never builds the pinned store.
+        {
+            auto cfg = test::jtx::envconfig();
+            auto& nodeDb = cfg->section(ConfigSection::nodeDatabase());
+            nodeDb.set("pinned_type", "rwdb");
+            nodeDb.set("online_delete", "256");
+            Env env{*this, std::move(cfg), features, nullptr, kDisabled};
+
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = "/nonexistent.catl";
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(
+                errorContains(result, "requires the pinned node store"));
+        }
+
+        // catalogue_unpin needs pinned_type configured at all.
+        {
+            Env env{
+                *this,
+                catalogueEnvconfig({.withPinnedType = false}),
+                features,
+                nullptr,
+                kDisabled};
+
+            Json::Value params{Json::objectValue};
+            params[jss::ledger_index_min] = 1;
+            params[jss::ledger_index_max] = 2;
+            auto const result =
+                env.client().invoke("catalogue_unpin", params)[jss::result];
+            BEAST_EXPECT(errorContains(result, "pinned_type"));
+        }
+    }
+
+    void
+    testCatalogueChainLinkage(FeatureBitset features)
+    {
+        testcase("catalogue_load: Ledgers must chain");
+        using namespace test::jtx;
+
+        Env env{
+            *this,
+            catalogueEnvconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled,
+        };
+        prepareLedgerData(env, 3);
+
+        boost::filesystem::path tempDir =
+            boost::filesystem::temp_directory_path() /
+            boost::filesystem::unique_path();
+        boost::filesystem::create_directories(tempDir);
+        auto cataloguePath = (tempDir / "test.catl").string();
+
+        // Uncompressed, so ledger records can be located and edited.
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::min_ledger] = 3;
+            params[jss::max_ledger] = 6;
+            params[jss::output_file] = cataloguePath;
+            params[jss::compression_level] = 0;
+            auto const result =
+                env.client().invoke("catalogue_create", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+        }
+
+        std::vector<std::uint8_t> bytes;
+        {
+            std::ifstream in(cataloguePath, std::ios::binary);
+            bytes.assign(
+                std::istreambuf_iterator<char>(in),
+                std::istreambuf_iterator<char>());
+        }
+
+        // Ledger record: seq, hash, txHash, accountHash, parentHash, drops,
+        // closeFlags, closeTimeResolution, closeTime, parentCloseTime; then
+        // the state map and tx map as leaf records ending in tnTERMINAL.
+        constexpr std::size_t ledgerHeaderSize =
+            4 + 32 * 4 + 8 + sizeof(int) + 4 + 8 + 8;
+        auto skipMap = [&](std::size_t pos) -> std::size_t {
+            while (pos < bytes.size())
+            {
+                auto const type = bytes[pos++];
+                if (type == 255)  // tnTERMINAL
+                    return pos;
+                pos += 32;
+                if (type == 254)  // tnREMOVE
+                    continue;
+                if (pos + 4 > bytes.size())
+                    break;
+                std::uint32_t size = 0;
+                std::memcpy(&size, &bytes[pos], 4);
+                pos += 4 + size;
+            }
+            return bytes.size();
+        };
+
+        // Skip the base ledger (3) to reach ledger 4.
+        std::size_t pos = sizeof(TestCATLHeader) + ledgerHeaderSize;
+        pos = skipMap(skipMap(pos));
+        if (!BEAST_EXPECT(pos + ledgerHeaderSize <= bytes.size()))
+            return;
+
+        LedgerInfo info;
+        std::size_t p = pos;
+        auto take = [&](void* dst, std::size_t n) {
+            std::memcpy(dst, &bytes[p], n);
+            p += n;
+        };
+        std::uint64_t drops = 0, closeTime = 0, parentCloseTime = 0;
+        std::uint32_t resolution = 0;
+        take(&info.seq, 4);
+        std::size_t const hashOffset = p;
+        take(info.hash.data(), 32);
+        take(info.txHash.data(), 32);
+        take(info.accountHash.data(), 32);
+        std::size_t const parentOffset = p;
+        take(info.parentHash.data(), 32);
+        take(&drops, 8);
+        take(&info.closeFlags, sizeof(info.closeFlags));
+        take(&resolution, 4);
+        take(&closeTime, 8);
+        take(&parentCloseTime, 8);
+        info.drops = drops;
+        info.closeTime = NetClock::time_point{NetClock::duration{closeTime}};
+        info.parentCloseTime =
+            NetClock::time_point{NetClock::duration{parentCloseTime}};
+        info.closeTimeResolution = NetClock::duration{resolution};
+
+        BEAST_EXPECT(info.seq == 4);
+        // Sanity: the record parses to a ledger whose hash checks out.
+        BEAST_EXPECT(calculateLedgerHash(info) == info.hash);
+
+        // Re-parent ledger 4 and fix up its hash, so the file stays
+        // internally consistent ledger by ledger; only the chain check can
+        // catch it.
+        info.parentHash = ~info.parentHash;
+        info.hash = calculateLedgerHash(info);
+        std::memcpy(&bytes[parentOffset], info.parentHash.data(), 32);
+        std::memcpy(&bytes[hashOffset], info.hash.data(), 32);
+        {
+            std::ofstream out(
+                cataloguePath, std::ios::binary | std::ios::trunc);
+            out.write(
+                reinterpret_cast<char const*>(bytes.data()), bytes.size());
+        }
+
+        Env loadEnv{
+            *this,
+            catalogueEnvconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled,
+        };
+
+        Json::Value params{Json::objectValue};
+        params[jss::input_file] = cataloguePath;
+        params[jss::ignore_hash] = true;  // the file was edited
+        auto const result =
+            loadEnv.client().invoke("catalogue_load", params)[jss::result];
+        BEAST_EXPECT(result[jss::status] == "error");
+        BEAST_EXPECT(
+            result[jss::error_message].asString().find(
+                "does not chain to its predecessor") != std::string::npos);
+
+        // The base ledger verified and stays pinned; nothing after it does.
+        auto const pinned =
+            loadEnv.app().getLedgerMaster().getPinnedLedgersRangeSet();
+        BEAST_EXPECT(boost::icl::contains(pinned, 3u));
+        BEAST_EXPECT(!boost::icl::contains(pinned, 4u));
+
+        boost::filesystem::remove_all(tempDir);
+    }
+
+    void
+    testCatalogueUnpin(FeatureBitset features)
+    {
+        testcase("catalogue_unpin");
+        using namespace test::jtx;
+
+        Env env{
+            *this,
+            catalogueEnvconfig(),
+            features,
+            nullptr,
+            beast::severities::kDisabled,
+        };
+        prepareLedgerData(env, 5);
+
+        boost::filesystem::path tempDir =
+            boost::filesystem::temp_directory_path() /
+            boost::filesystem::unique_path();
+        boost::filesystem::create_directories(tempDir);
+        auto cataloguePath = (tempDir / "test.catl").string();
+
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::min_ledger] = 3;
+            params[jss::max_ledger] = 8;
+            params[jss::output_file] = cataloguePath;
+            auto const result =
+                env.client().invoke("catalogue_create", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+        }
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = cataloguePath;
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+        }
+
+        auto& lm = env.app().getLedgerMaster();
+        BEAST_EXPECT(to_string(lm.getPinnedLedgersRangeSet()) == "3-8");
+
+        auto unpin = [&](std::optional<Json::Value> min,
+                         std::optional<Json::Value> max) {
+            Json::Value params{Json::objectValue};
+            if (min)
+                params[jss::ledger_index_min] = *min;
+            if (max)
+                params[jss::ledger_index_max] = *max;
+            return env.client().invoke("catalogue_unpin", params)[jss::result];
+        };
+
+        // Bad parameters
+        BEAST_EXPECT(unpin({}, {})[jss::status] == "error");
+        BEAST_EXPECT(unpin(5, {})[jss::status] == "error");
+        BEAST_EXPECT(unpin(6, 5)[jss::status] == "error");
+        BEAST_EXPECT(unpin(-1, 5)[jss::status] == "error");
+        BEAST_EXPECT(unpin("x", 5)[jss::status] == "error");
+        BEAST_EXPECT(to_string(lm.getPinnedLedgersRangeSet()) == "3-8");
+
+        // Cut a hole
+        {
+            auto const result = unpin(5, 6);
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result[jss::unpinned] == "5-6");
+            BEAST_EXPECT(result[jss::complete_ledgers_pinned] == "3-4,7-8");
+            BEAST_EXPECT(lm.isPinned(4) && lm.isPinned(7));
+            BEAST_EXPECT(!lm.isPinned(5) && !lm.isPinned(6));
+        }
+
+        // A range only partly pinned unpins just the pinned part
+        {
+            auto const result = unpin(1, 4);
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result[jss::unpinned] == "3-4");
+            BEAST_EXPECT(result[jss::complete_ledgers_pinned] == "7-8");
+        }
+
+        // Nothing pinned in range: success, nothing unpinned. (Unsigned
+        // JSON values are accepted as well as non-negative signed ones.)
+        {
+            auto const result = unpin(Json::UInt(5), Json::UInt(6));
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result[jss::unpinned] == "empty");
+            BEAST_EXPECT(result[jss::complete_ledgers_pinned] == "7-8");
+        }
+
+        // Unpinning the rest leaves nothing pinned. (state.db then records
+        // an empty set, which must not stop the next start; see
+        // SHAMapStore_test.)
+        {
+            auto const result = unpin(1, 100);
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(result[jss::unpinned] == "7-8");
+            BEAST_EXPECT(result[jss::complete_ledgers_pinned] == "empty");
+            BEAST_EXPECT(lm.getPinnedLedgersRangeSet().empty());
+        }
+
+        // Re-loading the file pins it again
+        {
+            Json::Value params{Json::objectValue};
+            params[jss::input_file] = cataloguePath;
+            auto const result =
+                env.client().invoke("catalogue_load", params)[jss::result];
+            BEAST_EXPECT(result[jss::status] == jss::success);
+            BEAST_EXPECT(to_string(lm.getPinnedLedgersRangeSet()) == "3-8");
+        }
+
+        boost::filesystem::remove_all(tempDir);
+    }
+
     void
     run() override
     {
@@ -1081,6 +1716,10 @@ public:
         testCatalogueFileSize(all);
         testCatalogueCompression(all);
         testCatalogueStatus(all);
+        testCatalogueChainLinkage(all);
+        testCatalogueUnpin(all);
+        testCatalogueLoadFailures(all);
+        testCataloguePinnedStoreRequired(all);
     }
 };
 

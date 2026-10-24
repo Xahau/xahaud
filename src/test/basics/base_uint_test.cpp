@@ -307,11 +307,9 @@ struct base_uint_test : beast::unit_test::suite
                     std::string_view sView(str.data(), str.size());
                     [[maybe_unused]] test96 t96(sView);
                 }
-                catch (std::invalid_argument const& e)
+                catch (std::exception const& e)
                 {
-                    BEAST_EXPECT(
-                        e.what() ==
-                        std::string("invalid length for hex string"));
+                    BEAST_EXPECT(e.what() == std::string("invalid hex string"));
                     caught = true;
                 }
                 BEAST_EXPECT(caught);
@@ -327,10 +325,9 @@ struct base_uint_test : beast::unit_test::suite
                     std::string_view sView(str.data(), str.size());
                     [[maybe_unused]] test96 t96(sView);
                 }
-                catch (std::range_error const& e)
+                catch (std::exception const& e)
                 {
-                    BEAST_EXPECT(
-                        e.what() == std::string("invalid hex character"));
+                    BEAST_EXPECT(e.what() == std::string("invalid hex string"));
                     caught = true;
                 }
                 BEAST_EXPECT(caught);

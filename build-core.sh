@@ -88,7 +88,7 @@ git remote -v >> release.info &&
 echo "Git status:" >> release.info &&
 git status -v >> release.info &&
 echo "Git log [last 20]:" >> release.info &&
-git log -n 20 >> release.info;
+git log -n 20 >> release.info || exit 1
 
 if [[ "$4" == "" ]]; then
   # Non GH, local building

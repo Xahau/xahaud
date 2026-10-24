@@ -538,7 +538,7 @@ pwaReply(
 {
     std::string out =
         "HTTP/1.1 " + std::to_string(status) + " " + pwaReason(status) + "\r\n";
-    out += "Server: " + systemName() +
+    out += "Server: " + std::string(systemName) +
         "\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
         "Referrer-Policy: no-referrer\r\n";
     for (auto const& h : headers)
@@ -1989,8 +1989,10 @@ ServerHandler::statusResponse(http_request_type const& request) const
     if (app_.serverOkay(reason))
     {
         msg.result(boost::beast::http::status::ok);
-        msg.body() = "<!DOCTYPE html><html><head><title>" + systemName() +
-            " Test page for rippled</title></head><body><h1>" + systemName() +
+        msg.body() = "<!DOCTYPE html><html><head><title>" +
+            std::string(systemName) +
+            " Test page for rippled</title></head><body><h1>" +
+            std::string(systemName) +
             " Test</h1><p>This page shows rippled http(s) "
             "connectivity is working.</p></body></html>";
     }
