@@ -24,11 +24,21 @@
 /**
  * TRANSACTION(tag, value, name, fields)
  *
+ * To ease maintenance, you may replace any unneeded values with "..."
+ * e.g. #define TRANSACTION(tag, value, name, ...)
+ *
  * You must define a transactor class in the `ripple` namespace named `name`,
- * and include its header in `src/xrpld/app/tx/detail/applySteps.cpp`.
+ * and include its header alongside the TRANSACTOR definition using this
+ * format:
+ * #if TRANSACTION_INCLUDE
+ * #   include <xrpld/app/tx/detail/HEADER.h>
+ * #endif
  */
 
 /** This transaction type executes a payment. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Payment.h>
+#endif
 TRANSACTION(ttPAYMENT, 0, Payment, ({
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED, soeMPTSupported},
@@ -41,6 +51,9 @@ TRANSACTION(ttPAYMENT, 0, Payment, ({
 }))
 
 /** This transaction type creates an escrow object. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Escrow.h>
+#endif
 TRANSACTION(ttESCROW_CREATE, 1, EscrowCreate, ({
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -62,6 +75,9 @@ TRANSACTION(ttESCROW_FINISH, 2, EscrowFinish, ({
 
 
 /** This transaction type adjusts various account settings. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetAccount.h>
+#endif
 TRANSACTION(ttACCOUNT_SET, 3, AccountSet, ({
     {sfEmailHash, soeOPTIONAL},
     {sfWalletLocator, soeOPTIONAL},
@@ -85,6 +101,9 @@ TRANSACTION(ttESCROW_CANCEL, 4, EscrowCancel, ({
 }))
 
 /** This transaction type sets or clears an account's "regular key". */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetRegularKey.h>
+#endif
 TRANSACTION(ttREGULAR_KEY_SET, 5, SetRegularKey, ({
     {sfRegularKey, soeOPTIONAL},
 }))
@@ -92,6 +111,9 @@ TRANSACTION(ttREGULAR_KEY_SET, 5, SetRegularKey, ({
 // 6 deprecated
 
 /** This transaction type creates an offer to trade one asset for another. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CreateOffer.h>
+#endif
 TRANSACTION(ttOFFER_CREATE, 7, OfferCreate, ({
     {sfTakerPays, soeREQUIRED},
     {sfTakerGets, soeREQUIRED},
@@ -101,6 +123,9 @@ TRANSACTION(ttOFFER_CREATE, 7, OfferCreate, ({
 }))
 
 /** This transaction type cancels existing offers to trade one asset for another. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CancelOffer.h>
+#endif
 TRANSACTION(ttOFFER_CANCEL, 8, OfferCancel, ({
     {sfOfferSequence, soeOPTIONAL},
     {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
@@ -109,6 +134,9 @@ TRANSACTION(ttOFFER_CANCEL, 8, OfferCancel, ({
 // 9 deprecated
 
 /** This transaction type creates a new set of tickets. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CreateTicket.h>
+#endif
 TRANSACTION(ttTICKET_CREATE, 10, TicketCreate, ({
     {sfTicketCount, soeREQUIRED},
 }))
@@ -118,12 +146,18 @@ TRANSACTION(ttTICKET_CREATE, 10, TicketCreate, ({
 /** This transaction type modifies the signer list associated with an account. */
 // The SignerEntries are optional because a SignerList is deleted by
 // setting the SignerQuorum to zero and omitting SignerEntries.
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetSignerList.h>
+#endif
 TRANSACTION(ttSIGNER_LIST_SET, 12, SignerListSet, ({
     {sfSignerQuorum, soeREQUIRED},
     {sfSignerEntries, soeOPTIONAL},
 }))
 
 /** This transaction type creates a new unidirectional XRP payment channel. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/PayChan.h>
+#endif
 TRANSACTION(ttPAYCHAN_CREATE, 13, PaymentChannelCreate, ({
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -151,6 +185,9 @@ TRANSACTION(ttPAYCHAN_CLAIM, 15, PaymentChannelClaim, ({
 }))
 
 /** This transaction type creates a new check. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CreateCheck.h>
+#endif
 TRANSACTION(ttCHECK_CREATE, 16, CheckCreate, ({
     {sfDestination, soeREQUIRED},
     {sfSendMax, soeREQUIRED},
@@ -160,6 +197,9 @@ TRANSACTION(ttCHECK_CREATE, 16, CheckCreate, ({
 }))
 
 /** This transaction type cashes an existing check. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CashCheck.h>
+#endif
 TRANSACTION(ttCHECK_CASH, 17, CheckCash, ({
     {sfCheckID, soeREQUIRED},
     {sfAmount, soeOPTIONAL},
@@ -167,11 +207,17 @@ TRANSACTION(ttCHECK_CASH, 17, CheckCash, ({
 }))
 
 /** This transaction type cancels an existing check. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CancelCheck.h>
+#endif
 TRANSACTION(ttCHECK_CANCEL, 18, CheckCancel, ({
     {sfCheckID, soeREQUIRED},
 }))
 
 /** This transaction type grants or revokes authorization to transfer funds. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/DepositPreauth.h>
+#endif
 TRANSACTION(ttDEPOSIT_PREAUTH, 19, DepositPreauth, ({
     {sfAuthorize, soeOPTIONAL},
     {sfUnauthorize, soeOPTIONAL},
@@ -180,6 +226,9 @@ TRANSACTION(ttDEPOSIT_PREAUTH, 19, DepositPreauth, ({
 }))
 
 /** This transaction type modifies a trustline between two accounts. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetTrust.h>
+#endif
 TRANSACTION(ttTRUST_SET, 20, TrustSet, ({
     {sfLimitAmount, soeOPTIONAL},
     {sfQualityIn, soeOPTIONAL},
@@ -187,6 +236,9 @@ TRANSACTION(ttTRUST_SET, 20, TrustSet, ({
 }))
 
 /** This transaction type deletes an existing account. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/DeleteAccount.h>
+#endif
 TRANSACTION(ttACCOUNT_DELETE, 21, AccountDelete, ({
     {sfDestination, soeREQUIRED},
     {sfDestinationTag, soeOPTIONAL},
@@ -194,11 +246,17 @@ TRANSACTION(ttACCOUNT_DELETE, 21, AccountDelete, ({
 }))
 
 /** This transaction type installs a hook. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetHook.h>
+#endif
 TRANSACTION(ttHOOK_SET, 22, SetHook, ({
     {sfHooks, soeREQUIRED},
 }))
 
 /** This transaction mints a new NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenMint.h>
+#endif
 TRANSACTION(ttNFTOKEN_MINT, 25, NFTokenMint, ({
     {sfNFTokenTaxon, soeREQUIRED},
     {sfTransferFee, soeOPTIONAL},
@@ -210,12 +268,18 @@ TRANSACTION(ttNFTOKEN_MINT, 25, NFTokenMint, ({
 }))
 
 /** This transaction burns (i.e. destroys) an existing NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenBurn.h>
+#endif
 TRANSACTION(ttNFTOKEN_BURN, 26, NFTokenBurn, ({
     {sfNFTokenID, soeREQUIRED},
     {sfOwner, soeOPTIONAL},
 }))
 
 /** This transaction creates a new offer to buy or sell an NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenCreateOffer.h>
+#endif
 TRANSACTION(ttNFTOKEN_CREATE_OFFER, 27, NFTokenCreateOffer, ({
     {sfNFTokenID, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -225,11 +289,17 @@ TRANSACTION(ttNFTOKEN_CREATE_OFFER, 27, NFTokenCreateOffer, ({
 }))
 
 /** This transaction cancels an existing offer to buy or sell an existing NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenCancelOffer.h>
+#endif
 TRANSACTION(ttNFTOKEN_CANCEL_OFFER, 28, NFTokenCancelOffer, ({
     {sfNFTokenOffers, soeREQUIRED},
 }))
 
 /** This transaction accepts an existing offer to buy or sell an existing  NFT. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenAcceptOffer.h>
+#endif
 TRANSACTION(ttNFTOKEN_ACCEPT_OFFER, 29, NFTokenAcceptOffer, ({
     {sfNFTokenBuyOffer, soeOPTIONAL},
     {sfNFTokenSellOffer, soeOPTIONAL},
@@ -237,12 +307,18 @@ TRANSACTION(ttNFTOKEN_ACCEPT_OFFER, 29, NFTokenAcceptOffer, ({
 }))
 
 /** This transaction claws back issued tokens. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Clawback.h>
+#endif
 TRANSACTION(ttCLAWBACK, 30, Clawback, ({
     {sfAmount, soeREQUIRED, soeMPTSupported},
     {sfHolder, soeOPTIONAL},
 }))
 
 /** This transaction claws back tokens from an AMM pool. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMClawback.h>
+#endif
 TRANSACTION(ttAMM_CLAWBACK, 31, AMMClawback, ({
     {sfHolder, soeREQUIRED},
     {sfAsset, soeREQUIRED},
@@ -251,6 +327,9 @@ TRANSACTION(ttAMM_CLAWBACK, 31, AMMClawback, ({
 }))
 
 /** This transaction type creates an AMM instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMCreate.h>
+#endif
 TRANSACTION(ttAMM_CREATE, 35, AMMCreate, ({
     {sfAmount, soeREQUIRED},
     {sfAmount2, soeREQUIRED},
@@ -258,6 +337,9 @@ TRANSACTION(ttAMM_CREATE, 35, AMMCreate, ({
 }))
 
 /** This transaction type deposits into an AMM instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMDeposit.h>
+#endif
 TRANSACTION(ttAMM_DEPOSIT, 36, AMMDeposit, ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
@@ -269,6 +351,9 @@ TRANSACTION(ttAMM_DEPOSIT, 36, AMMDeposit, ({
 }))
 
 /** This transaction type withdraws from an AMM instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMWithdraw.h>
+#endif
 TRANSACTION(ttAMM_WITHDRAW, 37, AMMWithdraw, ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
@@ -279,6 +364,9 @@ TRANSACTION(ttAMM_WITHDRAW, 37, AMMWithdraw, ({
 }))
 
 /** This transaction type votes for the trading fee */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMVote.h>
+#endif
 TRANSACTION(ttAMM_VOTE, 38, AMMVote, ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
@@ -286,6 +374,9 @@ TRANSACTION(ttAMM_VOTE, 38, AMMVote, ({
 }))
 
 /** This transaction type bids for the auction slot */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMBid.h>
+#endif
 TRANSACTION(ttAMM_BID, 39, AMMBid, ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
@@ -295,12 +386,18 @@ TRANSACTION(ttAMM_BID, 39, AMMBid, ({
 }))
 
 /** This transaction type deletes AMM in the empty state */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/AMMDelete.h>
+#endif
 TRANSACTION(ttAMM_DELETE, 40, AMMDelete, ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
 }))
 
 /** This transaction mints/burns/buys/sells a URI TOKEN */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/URIToken.h>
+#endif
 TRANSACTION(ttURITOKEN_MINT, 45, URITokenMint, ({
     {sfURI, soeREQUIRED},
     {sfDigest, soeOPTIONAL},
@@ -328,6 +425,9 @@ TRANSACTION(ttURITOKEN_CANCEL_SELL_OFFER, 49, URITokenCancelSellOffer, ({
 }))
 
 /** This transactions creates a crosschain sequence number */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/XChainBridge.h>
+#endif
 TRANSACTION(ttXCHAIN_CREATE_CLAIM_ID, 50, XChainCreateClaimID, ({
     {sfXChainBridge, soeREQUIRED},
     {sfSignatureReward, soeREQUIRED},
@@ -407,6 +507,9 @@ TRANSACTION(ttXCHAIN_CREATE_BRIDGE, 57, XChainCreateBridge, ({
 }))
 
 /** This transaction type creates or updates a DID */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/DID.h>
+#endif
 TRANSACTION(ttDID_SET, 58, DIDSet, ({
     {sfDIDDocument, soeOPTIONAL},
     {sfURI, soeOPTIONAL},
@@ -417,6 +520,9 @@ TRANSACTION(ttDID_SET, 58, DIDSet, ({
 TRANSACTION(ttDID_DELETE, 59, DIDDelete, ({}))
 
 /** This transaction type creates an Oracle instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetOracle.h>
+#endif
 TRANSACTION(ttORACLE_SET, 60, OracleSet, ({
     {sfOracleDocumentID, soeREQUIRED},
     {sfProvider, soeOPTIONAL},
@@ -427,17 +533,26 @@ TRANSACTION(ttORACLE_SET, 60, OracleSet, ({
 }))
 
 /** This transaction type deletes an Oracle instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/DeleteOracle.h>
+#endif
 TRANSACTION(ttORACLE_DELETE, 61, OracleDelete, ({
     {sfOracleDocumentID, soeREQUIRED},
 }))
 
 /** This transaction type fixes a problem in the ledger state */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/LedgerStateFix.h>
+#endif
 TRANSACTION(ttLEDGER_STATE_FIX, 62, LedgerStateFix, ({
     {sfLedgerFixType, soeREQUIRED},
     {sfOwner, soeOPTIONAL},
 }))
 
 /** This transaction type creates a MPTokensIssuance instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/MPTokenIssuanceCreate.h>
+#endif
 TRANSACTION(ttMPTOKEN_ISSUANCE_CREATE, 63, MPTokenIssuanceCreate, ({
     {sfAssetScale, soeOPTIONAL},
     {sfTransferFee, soeOPTIONAL},
@@ -446,23 +561,35 @@ TRANSACTION(ttMPTOKEN_ISSUANCE_CREATE, 63, MPTokenIssuanceCreate, ({
 }))
 
 /** This transaction type destroys a MPTokensIssuance instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/MPTokenIssuanceDestroy.h>
+#endif
 TRANSACTION(ttMPTOKEN_ISSUANCE_DESTROY, 64, MPTokenIssuanceDestroy, ({
     {sfMPTokenIssuanceID, soeREQUIRED},
 }))
 
 /** This transaction type sets flags on a MPTokensIssuance or MPToken instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/MPTokenIssuanceSet.h>
+#endif
 TRANSACTION(ttMPTOKEN_ISSUANCE_SET, 65, MPTokenIssuanceSet, ({
     {sfMPTokenIssuanceID, soeREQUIRED},
     {sfHolder, soeOPTIONAL},
 }))
 
 /** This transaction type authorizes a MPToken instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/MPTokenAuthorize.h>
+#endif
 TRANSACTION(ttMPTOKEN_AUTHORIZE, 66, MPTokenAuthorize, ({
     {sfMPTokenIssuanceID, soeREQUIRED},
     {sfHolder, soeOPTIONAL},
 }))
 
 /** This transaction type create an Credential instance */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Credentials.h>
+#endif
 TRANSACTION(ttCREDENTIAL_CREATE, 67, CredentialCreate, ({
     {sfSubject, soeREQUIRED},
     {sfCredentialType, soeREQUIRED},
@@ -484,6 +611,9 @@ TRANSACTION(ttCREDENTIAL_DELETE, 69, CredentialDelete, ({
 }))
 
 /** This transaction type modify a NFToken */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/NFTokenModify.h>
+#endif
 TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify, ({
     {sfNFTokenID, soeREQUIRED},
     {sfOwner, soeOPTIONAL},
@@ -491,12 +621,18 @@ TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify, ({
 }))
 
 /** This transaction type creates or modifies a Permissioned Domain */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/PermissionedDomainSet.h>
+#endif
 TRANSACTION(ttPERMISSIONED_DOMAIN_SET, 71, PermissionedDomainSet, ({
     {sfDomainID, soeOPTIONAL},
     {sfAcceptedCredentials, soeREQUIRED},
 }))
 
 /** This transaction type deletes a Permissioned Domain */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/PermissionedDomainDelete.h>
+#endif
 TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
@@ -510,6 +646,9 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     open ledger, so a reveal only becomes public after the revealing
     validator's transaction set is locked.
  */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Change.h>
+#endif
 TRANSACTION(ttENTROPY, 89, Entropy, ({
     {sfLedgerSequence, soeREQUIRED},
     {sfPublicKey, soeREQUIRED},
@@ -519,17 +658,26 @@ TRANSACTION(ttENTROPY, 89, Entropy, ({
 
 /* sfAccount is supplied by TxFormats::commonFields; listing it here as well
    makes the SOTemplate reject the format at construction. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetManifest.h>
+#endif
 TRANSACTION(ttMANIFEST_SET, 91, SetManifest, ({
     {sfManifest, soeREQUIRED},
 }))
 
 /* A pseudo-txn alarm signal for invoking a hook, emitted by validators after alarm set conditions are met */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Cron.h>
+#endif
 TRANSACTION(ttCRON, 92, Cron, ({
     {sfOwner, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
 }))
 
 /* Sechedule an alarm for later */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/CronSet.h>
+#endif
 TRANSACTION(ttCRON_SET, 93, CronSet, ({
     {sfDelaySeconds, soeOPTIONAL},
     {sfRepeatCount, soeOPTIONAL},
@@ -537,6 +685,9 @@ TRANSACTION(ttCRON_SET, 93, CronSet, ({
 }))
 
 /* A note attaching transactor that allows the owner or issuer (on a object by object basis) to attach remarks */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/SetRemarks.h>
+#endif
 TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({
     {sfObjectID, soeREQUIRED},
     {sfRemarks, soeREQUIRED},
@@ -544,6 +695,9 @@ TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({
 
 /* A payment transactor that delivers only the exact amounts specified, creating accounts and TLs as needed 
   * that the sender pays for. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Remit.h>
+#endif
 TRANSACTION(ttREMIT, 95, Remit, ({
     {sfDestination, soeREQUIRED},
     {sfAmounts, soeOPTIONAL},
@@ -558,12 +712,18 @@ TRANSACTION(ttREMIT, 95, Remit, ({
 /** This transaction can only be used by the genesis account, which is controlled exclusively by
   * rewards/governance hooks, to print new XRP to be delivered directly to an array of destinations,
   * according to reward schedule */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/GenesisMint.h>
+#endif
 TRANSACTION(ttGENESIS_MINT, 96, GenesisMint, ({
     {sfGenesisMints, soeREQUIRED},
 }))
 
 /** This transaction accepts a proof of burn from an external network as a basis
   * for minting according to featureImport */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Import.h>
+#endif
 TRANSACTION(ttIMPORT, 97, Import, ({
     {sfBlob, soeREQUIRED},
     {sfIssuer, soeOPTIONAL},
@@ -571,12 +731,18 @@ TRANSACTION(ttIMPORT, 97, Import, ({
 
 /** This transaction resets accumulator/counters and claims a reward for holding an average balance
   * from a specified hook */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/ClaimReward.h>
+#endif
 TRANSACTION(ttCLAIM_REWARD, 98, ClaimReward, ({
     {sfIssuer, soeOPTIONAL},
     {sfClaimCurrency, soeOPTIONAL},
 }))
 
 /** This transaction invokes a hook, providing arbitrary data. Essentially as a 0 drop payment. **/
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Invoke.h>
+#endif
 TRANSACTION(ttINVOKE, 99, Invoke, ({
     {sfBlob, soeOPTIONAL},
     {sfDestination, soeOPTIONAL},
