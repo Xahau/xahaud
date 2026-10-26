@@ -19,6 +19,8 @@
 
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/Database.h>
 #include <xrpld/nodestore/NodeObject.h>
@@ -34,9 +36,9 @@ namespace test {
 class DatabasePinned_test : public beast::unit_test::suite
 {
     // Build an Env whose nodestore is wired up as DatabasePinnedImp.
-    // The rotating store must persist (type=memory). type=rwdb is
-    // NullFactory and never builds DatabasePinnedImp. pinned_type=rwdb
-    // is allowed in standalone mode.
+    // The rotating store is the process-shared "memory" backend so the
+    // hot side keeps nodes across the test. pinned_type=rwdb is allowed
+    // in standalone mode.
     static std::unique_ptr<Config>
     pinnedEnvconfig(std::string const& nodePath)
     {
@@ -186,12 +188,59 @@ class DatabasePinned_test : public beast::unit_test::suite
         }
     }
 
+    // The relational RWDB backend (envconfig's default) must route a
+    // pinned ledger's header to the persistent backend, as the SQLite
+    // backend does. As hotLEDGER it lands in the rotating hot store and is
+    // dropped by the second online_delete rotation while the SQL index
+    // still names it.
+    void
+    testRWDBRelationalPinsLedgerHeader()
+    {
+        testcase("RWDB relational backend pins ledger headers");
+
+        using namespace jtx;
+        beast::temp_dir td;
+        Env env{*this, pinnedEnvconfig(td.path())};
+        auto* db = getPinnedDb(env);
+        if (!db)
+            return;
+
+        env.close();
+        auto const ledger = env.app().getLedgerMaster().getValidatedLedger();
+        if (!BEAST_EXPECT(ledger))
+            return;
+
+        auto* rdb =
+            dynamic_cast<SQLiteDatabase*>(&env.app().getRelationalDatabase());
+        if (!BEAST_EXPECT(rdb))
+            return;
+
+        // Not pinned: the header is stored as a hot object.
+        {
+            auto const pinnedBefore = db->pinnedStoreCount();
+            BEAST_EXPECT(rdb->saveValidatedLedger(ledger, false));
+            BEAST_EXPECT(db->pinnedStoreCount() == pinnedBefore);
+        }
+
+        // Pinned: the header goes to the persistent backend. Only the
+        // pinned* types count there, and nothing else in this test
+        // stores one, so the delta is exactly the header.
+        env.app().getLedgerMaster().storeLedger(ledger, true);
+        BEAST_EXPECT(env.app().getLedgerMaster().isPinned(ledger->info().seq));
+        {
+            auto const pinnedBefore = db->pinnedStoreCount();
+            BEAST_EXPECT(rdb->saveValidatedLedger(ledger, false));
+            BEAST_EXPECT(db->pinnedStoreCount() == pinnedBefore + 1);
+        }
+    }
+
 public:
     void
     run() override
     {
         testStoreRoutingByType();
         testStoreFetchRoundTrip();
+        testRWDBRelationalPinsLedgerHeader();
     }
 };
 
