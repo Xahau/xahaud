@@ -984,6 +984,8 @@ public:
                         if (findLedger == ledgerSeq && findSeq == txnSeq)
                         {
                             lookingForMarker = false;
+                            ++txnSeq;
+                            continue;
                         }
                         else
                         {
@@ -1041,6 +1043,8 @@ public:
                         if (findLedger == ledgerSeq && findSeq == txnSeq)
                         {
                             lookingForMarker = false;
+                            --txnSeq;
+                            continue;
                         }
                         else
                         {

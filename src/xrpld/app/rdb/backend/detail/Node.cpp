@@ -1188,6 +1188,7 @@ accountTxPage(
                     findSeq == txnSeq.value_or(0))
                 {
                     lookingForMarker = false;
+                    continue;
                 }
                 else
                     continue;
