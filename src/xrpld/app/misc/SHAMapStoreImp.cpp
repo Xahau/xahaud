@@ -489,7 +489,27 @@ SHAMapStoreImp::loadPinnedRanges()
     }
 
     if (verified != persistedRanges)
-        setPinnedRanges(verified);
+    {
+        if (sqlPersistent)
+        {
+            // A trimmed tail is gone from the pinned store for good, so
+            // the record in state.db should say so.
+            setPinnedRanges(verified);
+        }
+        else
+        {
+            // With an in-memory relational index the mismatch above is
+            // the expected state after every restart, not evidence that
+            // the pinned store is wrong, and state.db is the only durable
+            // record of what catalogue_load put there. Keep that record:
+            // the intervals are merely not advertised by this process
+            // until catalogue_load rebuilds the index (and replaces the
+            // record with whatever it loads).
+            JLOG(journal_.warn()) << "Persisted pinned ranges " << rangesStr
+                                  << " left unchanged in state.db; serving "
+                                  << to_string(verified) << " this run.";
+        }
+    }
 
     JLOG(journal_.info()) << "Loaded pinned ranges from database: "
                           << to_string(verified);
