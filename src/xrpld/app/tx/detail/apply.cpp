@@ -100,10 +100,24 @@ checkValidity(
             router.setFlags(id, SF_SIGGOOD);
         }
 
+        // The same local-check cache as the binary path below, so a
+        // forceValidity(Valid) from a trusted source is honoured here too and
+        // passesLocalChecks does not run again on every relay of a
+        // known-good transaction. Like the signature flags, these are a
+        // function of the transaction alone.
+        if (flags & SF_LOCALBAD)
+            return {Validity::SigGoodOnly, "Local checks failed."};
+
+        if (flags & SF_LOCALGOOD)
+            return {Validity::Valid, ""};
+
         std::string reason;
         if (!passesLocalChecks(tx, reason))
+        {
+            router.setFlags(id, SF_LOCALBAD);
             return {Validity::SigGoodOnly, reason};
-
+        }
+        router.setFlags(id, SF_LOCALGOOD);
         return {Validity::Valid, ""};
     }
 

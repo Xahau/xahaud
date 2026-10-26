@@ -151,14 +151,12 @@ preflight1(PreflightContext const& ctx)
     // and inserting over an existing key is a LogicError on every node that
     // builds the ledger. So they need a real Sequence or a Ticket.
     //
-    // Time-sequenced transactions are new with featureJsonTx and refused
-    // unconditionally. Refusing the emitted case changes existing behaviour,
-    // so it waits for fix20260929. (Neither feature is supported yet, so
-    // neither case is reachable on a live network today.)
+    // This needs no amendment gate: MPTokensV1 and PermissionedDomains are
+    // both Supported::no, so neither transaction type has ever reached a
+    // ledger on any network, and there is no prior behaviour to preserve.
     if ((ctx.tx.getTxnType() == ttMPTOKEN_ISSUANCE_CREATE ||
          ctx.tx.getTxnType() == ttPERMISSIONED_DOMAIN_SET) &&
-        ctx.tx.getSeqProxy() == SeqProxy::sequence(0) &&
-        (ctx.tx.isTimeSequenced() || ctx.rules.enabled(fix20260929)))
+        ctx.tx.getSeqProxy() == SeqProxy::sequence(0))
         return temBAD_SEQUENCE;
 
     auto const ret = preflight0(ctx);

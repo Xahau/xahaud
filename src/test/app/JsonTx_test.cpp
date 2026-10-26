@@ -1057,10 +1057,9 @@ struct JsonTx_test : public beast::unit_test::suite
                 keylet::nftoffer(alice.id(), stx(o2).getTransactionID())));
         }
 
-        // The two raw-sequence creators refuse an emitted transaction under
-        // fix20260929. Before it the emitted-transaction path is reached as
-        // it always was (and refuses this one for not coming out of the
-        // emission directory).
+        // The two raw-sequence creators refuse an emitted transaction
+        // outright, before the emitted-transaction path (which would refuse
+        // this one for not coming out of the emission directory) is reached.
         {
             auto const emitted = [](AccountID const& a, TxType type) {
                 return std::make_shared<STTx const>(type, [&](STObject& o) {
@@ -1074,8 +1073,9 @@ struct JsonTx_test : public beast::unit_test::suite
             for (auto const type :
                  {ttMPTOKEN_ISSUANCE_CREATE, ttPERMISSIONED_DOMAIN_SET})
             {
+                for (auto const& feats : {all, all - fix20260929})
                 {
-                    Env env{*this, all};
+                    Env env{*this, feats};
                     Account const alice{"alice"};
                     env.fund(XRP(10000), alice);
                     env.close();
@@ -1083,23 +1083,13 @@ struct JsonTx_test : public beast::unit_test::suite
                         applyDirect(env, emitted(alice.id(), type)) ==
                         temBAD_SEQUENCE);
                 }
-                {
-                    Env env{*this, all - fix20260929};
-                    Account const alice{"alice"};
-                    env.fund(XRP(10000), alice);
-                    env.close();
-                    BEAST_EXPECT(
-                        applyDirect(env, emitted(alice.id(), type)) ==
-                        telNON_LOCAL_EMITTED_TXN);
-                }
             }
         }
 
         // Tickets. MPTokenIssuanceCreate always took the Ticket number;
-        // PermissionedDomainSet took the raw Sequence - 0 for every ticketed
-        // transaction - until fix20260929. (The unfixed path is not run
-        // here: its second domain collides with the first, which is a
-        // LogicError when the ledger is built.)
+        // PermissionedDomainSet now does too (it used to take the raw
+        // Sequence - 0 for every ticketed transaction - so a second ticketed
+        // domain collided with the first).
         {
             Env env{*this, all};
             Account const alice{"alice"};
