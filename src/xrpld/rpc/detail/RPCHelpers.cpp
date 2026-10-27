@@ -148,6 +148,10 @@ isRelatedToAccount(
         // the Destination account's directory.
         return sle->getAccountID(sfOwner) == accountID;
     }
+    else if (sle->getType() == ltURI_TOKEN)
+    {
+        return sle->getAccountID(sfOwner) == accountID;
+    }
 
     return false;
 }
