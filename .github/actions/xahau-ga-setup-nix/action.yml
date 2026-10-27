@@ -44,6 +44,11 @@ runs:
           echo "GIT_SSL_CAINFO=${CA_BUNDLE}" >> "${GITHUB_ENV}"
         fi
 
+        # Linux: zlib for the prebuilt libwasmedge.so.0 (see runtimeLibs in flake.nix).
+        if [ -d "${ENV_PATH}/lib/xahaud-runtime" ]; then
+          echo "LD_LIBRARY_PATH=${ENV_PATH}/lib/xahaud-runtime" >> "${GITHUB_ENV}"
+        fi
+
         # nixpkgs ships CMake 4; several Conan dependencies (soci, snappy,
         # libarchive, ...) still declare cmake_minimum_required < 3.5.
         echo "CMAKE_POLICY_VERSION_MINIMUM=3.5" >> "${GITHUB_ENV}"

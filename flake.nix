@@ -31,6 +31,17 @@
             conan export ${./external/wasmedge} --version 0.11.2 --user xahaud --channel stable -verror
           '';
 
+          # The Conan wasmedge recipe ships a prebuilt libwasmedge.so.0 that
+          # needs the system libz.so.1; the Nix glibc loader never looks in
+          # /lib. Exposed under its own name so LD_LIBRARY_PATH carries zlib
+          # only and shadows nothing else. Linux only: macOS links Apple's.
+          runtimeLibs = pkgs.linkFarm "xahaud-runtime-libs" [
+            {
+              name = "lib/xahaud-runtime";
+              path = "${pkgs.zlib}/lib";
+            }
+          ];
+
           # Everything a CI job needs besides the compiler. Conan builds the
           # library dependencies, so this is only tooling.
           tools = with pkgs; [
@@ -47,7 +58,8 @@
             ninja
             perl # openssl build
             python3
-          ];
+          ]
+          ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isLinux runtimeLibs;
 
           # Nix exposes compilers under unsuffixed names only. The workflow
           # matrix (cc/cxx) and Conan's boost recipe (g++-<major>) use suffixed
@@ -72,7 +84,8 @@
               pathsToLink = [
                 "/bin"
                 "/etc/ssl/certs"
-              ];
+              ]
+              ++ pkgs.lib.optional pkgs.stdenv.hostPlatform.isLinux "/lib/xahaud-runtime";
             };
 
           # Outside a Nix stdenv nothing puts libc++'s lib dir on the link line
@@ -131,6 +144,8 @@
             shellHook = ''
               export CONAN_HOME=~/.conan2-xahaud-nix
               xahaud-conan-init
+              # see runtimeLibs
+              [ -d ${env}/lib/xahaud-runtime ] && export LD_LIBRARY_PATH=${env}/lib/xahaud-runtime''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
             '';
           }
         ) envs.${system}
