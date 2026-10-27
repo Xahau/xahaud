@@ -100,6 +100,8 @@ jobs:
       volumes:
         - /home/runner/.conan-cache:/.conan-cache
         - /home/runner/.ccache-cache:/github/home/.ccache-cache
+        # Nix store across jobs; the installer runs once and is skipped after.
+        - /home/runner/.nix:/nix
     defaults:
       run:
         shell: bash

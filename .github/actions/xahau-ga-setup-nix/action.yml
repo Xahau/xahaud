@@ -12,16 +12,14 @@ inputs:
 runs:
   using: composite
   steps:
-    # Idempotent: skipped when the runner already has Nix (self-hosted macOS).
-    # Inside the ubuntu container it installs fresh every job, as root, with
-    # init=none (no systemd) and without the build sandbox (no CAP_SYS_ADMIN).
+    # Skipped when /nix already holds an install: the macOS runner's, or the
+    # Linux container's /nix volume from an earlier job. In the container it
+    # runs as root with init=none (no systemd).
     - name: Install Nix
       uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       with:
         determinate: false
         kvm: false
-        extra-conf: |
-          sandbox = false
 
     - name: Build the CI environment
       shell: bash
@@ -29,6 +27,11 @@ runs:
         # --out-link doubles as a GC root for the length of the job.
         OUT_LINK: ${{ runner.temp }}/xahaud-ci-env
       run: |
+        # Container: no CAP_SYS_ADMIN for the sandbox, and the nixbld users the
+        # installer created live in a previous job's container, so build as root.
+        if [ "${RUNNER_OS}" = "Linux" ]; then
+          export NIX_CONFIG=$'sandbox = false\nbuild-users-group ='
+        fi
         # --extra-experimental-features: flakes may not be on in the runner's nix.conf.
         nix --extra-experimental-features "nix-command flakes" \
             build ".#${{ inputs.env }}" --out-link "${OUT_LINK}" --print-build-logs
