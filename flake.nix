@@ -20,9 +20,21 @@
         let
           pkgs = nixpkgs.legacyPackages.${system};
 
+          # The recipes conanfile.py needs under @xahaud/stable, exported into
+          # the active CONAN_HOME. Idempotent; run on dev-shell entry and by
+          # xahau-ga-dependencies after it has pointed Conan at its cache.
+          conanInit = pkgs.writeShellScriptBin "xahaud-conan-init" ''
+            set -e
+            conan profile detect --exist-ok -verror
+            conan export ${./external/snappy} --version 1.1.10 --user xahaud --channel stable -verror
+            conan export ${./external/soci} --version 4.0.3 --user xahaud --channel stable -verror
+            conan export ${./external/wasmedge} --version 0.11.2 --user xahaud --channel stable -verror
+          '';
+
           # Everything a CI job needs besides the compiler. Conan builds the
           # library dependencies, so this is only tooling.
           tools = with pkgs; [
+            conanInit
             cacert # TLS trust store for the nix-built git/curl/conan
             ccache
             cmake
@@ -115,6 +127,11 @@
           nixpkgs.legacyPackages.${system}.mkShellNoCC {
             packages = [ env ];
             CMAKE_POLICY_VERSION_MINIMUM = "3.5";
+            # Own Conan home: the Nix conan must not migrate a system conan's cache.
+            shellHook = ''
+              export CONAN_HOME=~/.conan2-xahaud-nix
+              xahaud-conan-init
+            '';
           }
         ) envs.${system}
       );
