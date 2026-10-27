@@ -35,37 +35,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Add Homebrew to PATH
-        run: |
-          echo "/opt/homebrew/bin" >> "$GITHUB_PATH"
-          echo "/opt/homebrew/sbin" >> "$GITHUB_PATH"
-
-      - name: Install Coreutils
-        run: |
-          brew install coreutils
-          echo "Num proc: $(nproc)"
-
-      # To isolate environments for each Runner, instead of installing globally with brew, 
-      # use mise to isolate environments for each Runner directory.
-      - name: Setup toolchain (mise)
-        uses: jdx/mise-action@v3.6.1
+      # Tools (cmake, conan, ninja, ccache, python) come from flake.nix so the
+      # runner needs nothing installed globally; the compiler is the runner's
+      # Apple Clang.
+      - name: Setup Nix environment
+        uses: ./.github/actions/xahau-ga-setup-nix
         with:
-          cache: false
-          install: true
-          mise_toml: |
-            [tools]
-            cmake = "3.25.3"
-            python = "3.12"
-            pipx = "latest"
-            conan = "2"
-            ninja = "latest"
-            ccache = "latest"
-
-      - name: Install tools via mise
-        run: |
-          mise install
-          mise reshim
-          echo "$HOME/.local/share/mise/shims" >> "$GITHUB_PATH"
+          env: apple-clang
 
       - name: Check environment
         run: |

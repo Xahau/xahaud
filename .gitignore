@@ -129,3 +129,7 @@ generated
 
 # Suggested in-tree build directory
 /.build/
+
+# nix build output link
+result
+result-*

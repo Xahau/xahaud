@@ -1,0 +1,64 @@
+name: setup-nix
+description: 'Installs Nix, builds one of the CI environments from flake.nix and puts it on PATH'
+
+# Exported onto PATH rather than entered with `nix develop`: the composite
+# actions run plain bash steps and would escape a dev shell.
+
+inputs:
+  env:
+    description: 'packages.<system> attribute of flake.nix to build (the matrix compiler_id on Linux, apple-clang on macOS)'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # Idempotent: skipped when the runner already has Nix (self-hosted macOS).
+    # Inside the ubuntu container it installs fresh every job, as root, with
+    # init=none (no systemd) and without the build sandbox (no CAP_SYS_ADMIN).
+    - name: Install Nix
+      uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      with:
+        determinate: false
+        kvm: false
+        extra-conf: |
+          sandbox = false
+
+    - name: Build the CI environment
+      shell: bash
+      env:
+        # --out-link doubles as a GC root for the length of the job.
+        OUT_LINK: ${{ runner.temp }}/xahaud-ci-env
+      run: |
+        # --extra-experimental-features: flakes may not be on in the runner's nix.conf.
+        nix --extra-experimental-features "nix-command flakes" \
+            build ".#${{ inputs.env }}" --out-link "${OUT_LINK}" --print-build-logs
+        ENV_PATH="$(readlink -f "${OUT_LINK}")"
+        echo "${ENV_PATH}/bin" >> "${GITHUB_PATH}"
+
+        # The nix-built git/curl/conan read these, not the host trust store
+        # (which the ubuntu container does not have). macOS keeps its own.
+        CA_BUNDLE="${ENV_PATH}/etc/ssl/certs/ca-bundle.crt"
+        echo "NIX_SSL_CERT_FILE=${CA_BUNDLE}" >> "${GITHUB_ENV}"
+        if [ "${RUNNER_OS}" = "Linux" ]; then
+          echo "SSL_CERT_FILE=${CA_BUNDLE}" >> "${GITHUB_ENV}"
+          echo "GIT_SSL_CAINFO=${CA_BUNDLE}" >> "${GITHUB_ENV}"
+        fi
+
+        # nixpkgs ships CMake 4; several Conan dependencies (soci, snappy,
+        # libarchive, ...) still declare cmake_minimum_required < 3.5.
+        echo "CMAKE_POLICY_VERSION_MINIMUM=3.5" >> "${GITHUB_ENV}"
+
+    - name: Verify the tools resolve into the Nix store
+      shell: bash
+      run: |
+        for tool in cmake ninja conan ccache python3 git; do
+          path="$(command -v "${tool}" || true)"
+          echo "${tool} -> ${path:-<not found>}"
+          case "${path}" in
+            /nix/store/*) ;;
+            *)
+              echo "::error::${tool} does not resolve into the Nix store"
+              exit 1
+              ;;
+          esac
+        done
