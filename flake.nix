@@ -14,9 +14,8 @@
         "aarch64-linux"
         "aarch64-darwin"
       ];
-    in
-    {
-      packages = forEachSystem (
+
+      envs = forEachSystem (
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
@@ -107,6 +106,27 @@
           };
         in
         if pkgs.stdenv.hostPlatform.isLinux then linux else darwin
+      );
+    in
+    {
+      packages = envs;
+
+      # `nix develop .#<env>` for local work; same contents as the CI env.
+      # NoCC: the stdenv compiler must not shadow the env's (or Apple Clang).
+      devShells = forEachSystem (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        builtins.mapAttrs (
+          name: env:
+          pkgs.mkShellNoCC {
+            packages = [ env ];
+            # nixpkgs ships CMake 4; several Conan dependencies declare
+            # cmake_minimum_required < 3.5 (same as the CI action exports).
+            CMAKE_POLICY_VERSION_MINIMUM = "3.5";
+          }
+        ) envs.${system}
       );
     };
 }
