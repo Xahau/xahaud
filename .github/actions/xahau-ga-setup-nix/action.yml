@@ -12,29 +12,33 @@ inputs:
 runs:
   using: composite
   steps:
-    # The ubuntu image has no CA store at all; nix-installer cannot verify
-    # releases.nixos.org without one. Only until Nix is in: afterwards the
-    # env's own cacert is used (see below).
-    - name: Install a CA store for the Nix installer
+    # Linux runs in the ubuntu container with /nix on a host volume shared by
+    # the jobs of one host. nix-installer has no locking and leaves a receipt
+    # behind when it fails, so install it ourselves: one job at a time, only
+    # when no nix is there yet, after sweeping any half-finished install.
+    - name: Install Nix (container)
       if: runner.os == 'Linux'
       shell: bash
       run: |
-        if [ ! -e /etc/ssl/certs/ca-certificates.crt ] && command -v apt-get >/dev/null; then
+        NIX_BIN=/nix/var/nix/profiles/default/bin
+        exec 9>/nix/.install.lock
+        flock 9
+        if [ ! -x "${NIX_BIN}/nix" ]; then
+          rm -rf /nix/receipt.json /nix/nix-installer /nix/var /nix/store /nix/temp-install-dir
+          # The image has no CA store; nix-installer needs one for releases.nixos.org.
           apt-get update -qq
-          apt-get install -y -qq --no-install-recommends ca-certificates
+          apt-get install -y -qq --no-install-recommends ca-certificates curl
+          curl -sSfL "https://install.determinate.systems/nix/tag/v3.24.1/nix-installer-$(uname -m)-linux" -o /tmp/nix-installer
+          chmod +x /tmp/nix-installer
+          # init none: no systemd; upstream Nix, not Determinate's.
+          /tmp/nix-installer install linux --init none --no-confirm --prefer-upstream-nix
         fi
+        echo "${NIX_BIN}" >> "${GITHUB_PATH}"
 
-        # A failed install leaves /nix/receipt.json (but no nix) on the /nix
-        # volume, and the installer action takes the receipt as "installed".
-        if [ -e /nix/receipt.json ] && [ ! -x /nix/var/nix/profiles/default/bin/nix ]; then
-          echo "Removing a half-finished Nix install from /nix"
-          rm -rf /nix/receipt.json /nix/nix-installer /nix/var /nix/store
-        fi
-
-    # Skipped when /nix already holds an install: the macOS runner's, or the
-    # Linux container's /nix volume from an earlier job. In the container it
-    # runs as root with init=none (no systemd).
-    - name: Install Nix
+    # macOS: no container, nothing shared, Nix stays on the runner. The action
+    # is skipped when it is already there.
+    - name: Install Nix (macOS)
+      if: runner.os == 'macOS'
       uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
       with:
         determinate: false
