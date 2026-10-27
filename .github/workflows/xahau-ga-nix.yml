@@ -170,7 +170,6 @@ jobs:
           cxx: ${{ matrix.cxx }}
           stdlib: ${{ matrix.stdlib }}
           conan_deps_cxxflags: ${{ matrix.conan_deps_cxxflags && toJson(matrix.conan_deps_cxxflags) || '{}' }}
-          gha_cache_enabled: 'false' # Disable caching for self hosted runner
 
       - name: Build
         if: matrix.job_type == 'build'

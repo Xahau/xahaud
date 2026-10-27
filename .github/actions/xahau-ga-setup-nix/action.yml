@@ -52,13 +52,8 @@ runs:
       shell: bash
       run: |
         for tool in cmake ninja conan ccache python3 git; do
-          path="$(command -v "${tool}" || true)"
-          echo "${tool} -> ${path:-<not found>}"
-          case "${path}" in
+          case "$(command -v "${tool}")" in
             /nix/store/*) ;;
-            *)
-              echo "::error::${tool} does not resolve into the Nix store"
-              exit 1
-              ;;
+            *) echo "::error::${tool} is not from the Nix store"; exit 1 ;;
           esac
         done
