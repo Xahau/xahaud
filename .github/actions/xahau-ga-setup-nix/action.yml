@@ -24,6 +24,13 @@ runs:
           apt-get install -y -qq --no-install-recommends ca-certificates
         fi
 
+        # A failed install leaves /nix/receipt.json (but no nix) on the /nix
+        # volume, and the installer action takes the receipt as "installed".
+        if [ -e /nix/receipt.json ] && [ ! -x /nix/var/nix/profiles/default/bin/nix ]; then
+          echo "Removing a half-finished Nix install from /nix"
+          rm -rf /nix/receipt.json /nix/nix-installer /nix/var /nix/store
+        fi
+
     # Skipped when /nix already holds an install: the macOS runner's, or the
     # Linux container's /nix volume from an earlier job. In the container it
     # runs as root with init=none (no systemd).
