@@ -12,6 +12,18 @@ inputs:
 runs:
   using: composite
   steps:
+    # The ubuntu image has no CA store at all; nix-installer cannot verify
+    # releases.nixos.org without one. Only until Nix is in: afterwards the
+    # env's own cacert is used (see below).
+    - name: Install a CA store for the Nix installer
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        if [ ! -e /etc/ssl/certs/ca-certificates.crt ] && command -v apt-get >/dev/null; then
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates
+        fi
+
     # Skipped when /nix already holds an install: the macOS runner's, or the
     # Linux container's /nix volume from an earlier job. In the container it
     # runs as root with init=none (no systemd).
