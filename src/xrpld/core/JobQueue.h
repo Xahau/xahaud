@@ -216,6 +216,10 @@ public:
     isOverloaded();
 
     // Cannot be const because LoadMonitor has no const methods.
+    bool
+    isOverloadedWithBacklog();
+
+    // Cannot be const because LoadMonitor has no const methods.
     Json::Value
     getJson(int c = 0);
 
