@@ -20,14 +20,20 @@
 #include <test/jtx.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/core/ConfigSections.h>
+#include <xrpld/ledger/OpenView.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/STValidation.h>
+#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/jss.h>
+#include <boost/filesystem.hpp>
+#include <fstream>
 
 namespace ripple {
 namespace test {
@@ -440,6 +446,186 @@ class ExportKeys_test : public beast::unit_test::suite
     }
 
     void
+    testKeyFile()
+    {
+        testcase("export key file");
+        using namespace jtx;
+        namespace fs = boost::filesystem;
+
+        auto const dir = fs::temp_directory_path() /
+            fs::unique_path("xahaud-export-keys-%%%%%%%%");
+        fs::create_directories(dir);
+        struct Cleanup
+        {
+            fs::path dir;
+            ~Cleanup()
+            {
+                boost::system::error_code ec;
+                fs::remove_all(dir, ec);
+            }
+        } const cleanup{dir};
+        auto const file = (dir / "export_keys.txt").string();
+
+        auto cfg = envconfig(validator, "");
+        cfg->section(SECTION_EXPORT_KEY_FILE).append(file);
+        Env env{*this, std::move(cfg), supported_amendments() | featureExport};
+        auto const& config = env.app().config();
+        ValidatorKeys const vk(config, env.journal);
+        if (!BEAST_EXPECT(vk.keys))
+            return;
+        auto const master = vk.keys->masterPublicKey;
+        auto const id = calcAccountID(master);
+
+        auto const lines = [&]() {
+            std::vector<std::string> out;
+            std::ifstream in(file);
+            for (std::string l; std::getline(in, l);)
+                if (!l.empty())
+                    out.push_back(l);
+            return out;
+        };
+        auto const entries = [](std::vector<AccountID> const& accs) {
+            STArray a(sfSignerEntries);
+            for (auto const& acc : accs)
+            {
+                a.push_back(STObject::makeInnerObject(sfSignerEntry));
+                a.back()[sfAccount] = acc;
+                a.back()[sfSignerWeight] = 1;
+            }
+            return a;
+        };
+        // a view of the closed ledger whose validator account lists `keys`,
+        // newest first, each stamped with its close time
+        auto const ledgerWith =
+            [&](std::vector<std::pair<Blob, std::uint32_t>> const& keys) {
+                auto view = std::make_shared<OpenView>(
+                    env.closed().get(), env.closed());
+                auto acc = std::make_shared<SLE>(keylet::account(id));
+                acc->setAccountID(sfAccount, id);
+                acc->setFieldAmount(sfBalance, XRPAmount{100'000'000});
+                acc->setFieldU32(sfSequence, 1);
+                if (!keys.empty())
+                {
+                    STArray a(sfExportKeys);
+                    for (auto const& [k, t] : keys)
+                    {
+                        a.push_back(
+                            STObject::makeInnerObject(sfExportKeyEntry));
+                        a.back().setFieldVL(sfExportKey, k);
+                        a.back().setFieldU32(sfCloseTime, t);
+                    }
+                    acc->setFieldArray(sfExportKeys, a);
+                }
+                if (view->exists(keylet::account(id)))
+                    view->rawReplace(acc);
+                else
+                    view->rawInsert(acc);
+                return view;
+            };
+
+        auto const P = Export::keyRotationPeriod;
+        std::uint32_t const b0 = (closeTime(env) / P + 1) * P;
+        closeAt(env, b0 + 100);
+
+        // nothing persisted: the first nomination makes a key and the file
+        std::optional<PublicKey> k1;
+        {
+            ExportKeys ek(config, vk, env.journal);
+            auto const n = ek.nominate(*ledgerWith({}));
+            if (!BEAST_EXPECT(n))
+                return;
+            k1 = n->first;
+            BEAST_EXPECT(lines().size() == 1);
+            BEAST_EXPECT(verify(
+                *k1,
+                exportKeyProofData(master, *k1, config.NETWORK_ID).slice(),
+                makeSlice(n->second),
+                true));
+
+            // recorded on ledger in this epoch: the same key again
+            auto const again =
+                ek.nominate(*ledgerWith({{blob(*k1), b0 + 100}}));
+            BEAST_EXPECT(again && again->first == *k1);
+            BEAST_EXPECT(lines().size() == 1);
+        }
+
+        // reloaded from the file, with the secret
+        {
+            ExportKeys ek(config, vk, env.journal);
+            auto const n = ek.nominate(*ledgerWith({}));
+            BEAST_EXPECT(n && n->first == *k1);
+            BEAST_EXPECT(
+                ek.signersFor(entries({calcAccountID(*k1)})).size() == 1);
+            BEAST_EXPECT(ek.signersFor(entries({})).empty());
+        }
+
+        // a new epoch rotates: both keys held, the newest nominated
+        closeAt(env, b0 + P + 100);
+        std::optional<PublicKey> k2;
+        {
+            ExportKeys ek(config, vk, env.journal);
+            auto const n = ek.nominate(*ledgerWith({{blob(*k1), b0 + 100}}));
+            if (!BEAST_EXPECT(n && n->first != *k1))
+                return;
+            k2 = n->first;
+            BEAST_EXPECT(lines().size() == 2);
+            BEAST_EXPECT(
+                ek.signersFor(entries({calcAccountID(*k1), calcAccountID(*k2)}))
+                    .size() == 2);
+        }
+
+        // another server validating with this token nominated a newer key:
+        // ours is no longer the head on ledger, so rotate again
+        {
+            ExportKeys ek(config, vk, env.journal);
+            auto const foreign = randomKeyPair(KeyType::ed25519).first;
+            auto const n = ek.nominate(*ledgerWith(
+                {{blob(foreign), b0 + P + 100},
+                 {blob(*k2), b0 + P + 100},
+                 {blob(*k1), b0 + 100}}));
+            BEAST_EXPECT(n && n->first != *k1 && n->first != *k2);
+            BEAST_EXPECT(lines().size() == 3);
+        }
+
+        // keys the account no longer lists are forgotten, except the nominee
+        {
+            ExportKeys ek(config, vk, env.journal);
+            auto const n =
+                ek.nominate(*ledgerWith({{blob(*k2), b0 + P + 100}}));
+            BEAST_EXPECT(n && n->first != *k2);
+            BEAST_EXPECT(lines().size() == 2);
+            BEAST_EXPECT(ek.signersFor(entries({calcAccountID(*k1)})).empty());
+            BEAST_EXPECT(
+                ek.signersFor(entries({calcAccountID(*k2)})).size() == 1);
+        }
+
+        // a malformed line refuses to start rather than silently rotating
+        {
+            std::ofstream out(file, std::ios::app);
+            out << "not a key\n";
+        }
+        BEAST_EXPECT(([&] {
+            try
+            {
+                ExportKeys ek(config, vk, env.journal);
+                return false;
+            }
+            catch (std::runtime_error const&)
+            {
+                return true;
+            }
+        })());
+
+        // not a validator: nothing to nominate
+        {
+            auto plain = envconfig();
+            ValidatorKeys const none(*plain, env.journal);
+            ExportKeys ek(*plain, none, env.journal);
+            BEAST_EXPECT(!ek.nominate(*ledgerWith({})));
+        }
+    }
+
+    void
     testSignerListRPC()
     {
         testcase("export_setup");
@@ -552,6 +738,7 @@ public:
         testRotation();
         testReportReset();
         testRotationCron();
+        testKeyFile();
         testSignerListRPC();
     }
 };

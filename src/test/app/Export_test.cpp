@@ -198,7 +198,8 @@ class Export_test : public beast::unit_test::suite
         AccountID const& owner,
         STObject const& inner,
         std::uint32_t created,
-        STArray const& entries)
+        STArray const& entries,
+        std::optional<uint256> hook = std::nullopt)
     {
         auto const k = keylet::exportedTxn(created, txid(inner));
         auto const sle = std::make_shared<SLE>(k);
@@ -208,6 +209,7 @@ class Export_test : public beast::unit_test::suite
         sle->setFieldU32(sfLedgerSequence, created);
         sle->setFieldArray(sfSignerEntries, entries);
         sle->setFieldU32(sfSignerQuorum, 1);
+        (*sle)[~sfEmitHookHash] = hook;
         view.rawInsert(sle);
         return k;
     }
@@ -336,6 +338,119 @@ class Export_test : public beast::unit_test::suite
                     off.current()->rules(),
                     exportTx(off, alice.id(), good),
                     tapPREFLIGHT_EMIT,
+                    off.journal)
+                    .ter == temDISABLED);
+        }
+    }
+
+    void
+    testNetworkTxPreflight()
+    {
+        testcase("export sign and final preflight");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments() | featureExport};
+        Account const alice{"alice"};
+        auto const nid = env.app().config().NETWORK_ID;
+        auto const kp = randomKeyPair(KeyType::ed25519);
+        auto const acc = calcAccountID(kp.first);
+        auto const inner = payment(alice.id(), 1);
+        auto const data = buildMultiSigningData(inner, acc);
+
+        auto const pf = [&](STTx const& tx) {
+            return preflight(
+                       env.app(),
+                       env.current()->rules(),
+                       tx,
+                       tapNONE,
+                       env.journal)
+                .ter;
+        };
+        // a good ttEXPORT_SIGN or ttEXPORT_FINAL, with `tweak` applied last
+        auto const make = [&](TxType type, auto&& tweak) {
+            return STTx(type, [&](STObject& o) {
+                o[sfAccount] = AccountID();
+                if (nid > 1024)
+                    o[sfNetworkID] = nid;
+                o[sfLedgerSequence] = 10u;
+                o[sfTransactionHash] = txid(inner);
+                if (type == ttEXPORT_SIGN)
+                {
+                    auto& s = o.peekFieldObject(sfSigner);
+                    s[sfAccount] = acc;
+                    s[sfSigningPubKey] = kp.first.slice();
+                    s[sfTxnSignature] = sign(kp.first, kp.second, data.slice());
+                }
+                else
+                    o[sfOwner] = alice.id();
+                tweak(o);
+            });
+        };
+        auto const none = [](STObject&) {};
+
+        for (auto const type : {ttEXPORT_SIGN, ttEXPORT_FINAL})
+        {
+            BEAST_EXPECT(pf(make(type, none)) == tesSUCCESS);
+
+            // network generated: account zero, free, unsigned, unsequenced,
+            // no flags, no ticket
+            using F = std::function<void(STObject&)>;
+            for (F const& bad : std::initializer_list<F>{
+                     [&](STObject& o) { o[sfAccount] = alice.id(); },
+                     [](STObject& o) {
+                         o.setFieldAmount(sfFee, XRPAmount{10});
+                     },
+                     [](STObject& o) { o[sfSequence] = 1u; },
+                     [](STObject& o) { o.setFieldU32(sfFlags, 0x00010000); },
+                     [&](STObject& o) {
+                         o[sfSigningPubKey] = kp.first.slice();
+                     },
+                     [](STObject& o) {
+                         o.setFieldVL(sfTxnSignature, Blob{1, 2});
+                     },
+                     [](STObject& o) {
+                         o.setFieldArray(sfSigners, STArray(sfSigners));
+                     },
+                     [](STObject& o) { o[sfTicketSequence] = 1u; }})
+                BEAST_EXPECT(pf(make(type, bad)) == temMALFORMED);
+        }
+
+        // the signer must be the account of a real key
+        BEAST_EXPECT(pf(make(ttEXPORT_SIGN, [&](STObject& o) {
+                         o.peekFieldObject(sfSigner)[sfAccount] = alice.id();
+                     })) == temMALFORMED);
+        BEAST_EXPECT(pf(make(ttEXPORT_SIGN, [](STObject& o) {
+                         o.peekFieldObject(sfSigner).setFieldVL(
+                             sfSigningPubKey, Blob{1, 2, 3});
+                     })) == temMALFORMED);
+
+        // nothing to sign or close: preclaim, not preflight, says so
+        {
+            OpenView view(open_ledger, env.closed()->rules(), env.closed());
+            BEAST_EXPECT(
+                Export::preclaim(PreclaimContext(
+                    env.app(),
+                    view,
+                    tesSUCCESS,
+                    make(ttEXPORT_SIGN, none),
+                    tapNONE)) == tefFAILURE);
+            BEAST_EXPECT(
+                Export::preclaim(PreclaimContext(
+                    env.app(),
+                    view,
+                    tesSUCCESS,
+                    make(ttEXPORT_FINAL, none),
+                    tapNONE)) == tefFAILURE);
+        }
+
+        {
+            Env off{*this, supported_amendments() - featureExport};
+            BEAST_EXPECT(
+                preflight(
+                    off.app(),
+                    off.current()->rules(),
+                    make(ttEXPORT_FINAL, none),
+                    tapNONE,
                     off.journal)
                     .ter == temDISABLED);
         }
@@ -622,6 +737,15 @@ class Export_test : public beast::unit_test::suite
             BEAST_EXPECT(ff.getAccountID(sfOwner) == alice.id());
             BEAST_EXPECT(ff.isFieldPresent(sfExportedTxn));
         }
+
+        // one that names its hook and gathered nothing closes below quorum:
+        // deleted all the same, and the hook is called back (what == 1)
+        auto const lonely = payment(alice.id(), 30);
+        auto const kLonely =
+            pending(view, alice.id(), lonely, createdOld, entries, uint256{3});
+        BEAST_EXPECT(Export::accept(env.app(), view, env.journal));
+        BEAST_EXPECT(!view.exists(kLonely));
+        BEAST_EXPECT(view.exists(k));
     }
 
     // a manifest for `master`, delegating to `signing`
@@ -925,6 +1049,7 @@ public:
     run() override
     {
         testPreflight();
+        testNetworkTxPreflight();
         testShadowTicket();
         testSignerList();
         testSignAndFinal();
