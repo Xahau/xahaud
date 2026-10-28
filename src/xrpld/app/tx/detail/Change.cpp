@@ -440,7 +440,12 @@ Change::applyExportKeyReport()
     // then the report is simply repeated each flag ledger.
     auto acc = view().peek(keylet::account(calcAccountID(master)));
     if (!acc)
+    {
+        JLOG(j_.debug()) << "Change: no account yet for export key of "
+                         << toBase58(TokenType::NodePublic, master)
+                         << ", awaiting GenesisMint funding";
         return tesSUCCESS;
+    }
 
     STArray keys = acc->isFieldPresent(sfExportKeys)
         ? acc->getFieldArray(sfExportKeys)

@@ -18,14 +18,22 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/ledger/OpenView.h>
+#include <xrpl/basics/base64.h>
+#include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/Sign.h>
+#include <xrpl/protocol/TxMeta.h>
+#include <xrpl/protocol/digest.h>
+#include <xrpl/protocol/jss.h>
 
 namespace ripple {
 namespace test {
@@ -35,8 +43,9 @@ namespace test {
     finalizing pending exports.
 
     ttEXPORT is hook-emitted, so its preflight runs as emit() runs it and its
-    doApply runs directly; a full hook round trip and the Import of a ticketed
-    XPOP are left to the hook and XPOP suites. */
+    doApply runs directly. The Import that brings a ticketed export back is
+    tested end to end with XPOPs built here, in the list form ExportRelay
+    produces; a full hook round trip is left to the hook suites. */
 class Export_test : public beast::unit_test::suite
 {
     using KeyPair = std::pair<PublicKey, SecretKey>;
@@ -610,6 +619,292 @@ class Export_test : public beast::unit_test::suite
         }
     }
 
+    // a manifest for `master`, delegating to `signing`
+    static std::string
+    manifest(KeyPair const& master, KeyPair const& signing)
+    {
+        STObject st(sfGeneric);
+        st[sfSequence] = 1;
+        st[sfPublicKey] = master.first;
+        st[sfSigningPubKey] = signing.first;
+        sign(
+            st,
+            HashPrefix::manifest,
+            *publicKeyType(signing.first),
+            signing.second);
+        sign(
+            st,
+            HashPrefix::manifest,
+            *publicKeyType(master.first),
+            master.second,
+            sfMasterSignature);
+        Serializer s;
+        st.add(s);
+        return base64_encode(
+            std::string(static_cast<char const*>(s.data()), s.size()));
+    }
+
+    /** A network Import trusts: a VL whose master key is an [import_vl_keys]
+        entry, listing one validator, whose validation closes each XPOP. */
+    struct OtherNetwork
+    {
+        KeyPair vlMaster = randomKeyPair(KeyType::secp256k1);
+        KeyPair vlSigning = randomKeyPair(KeyType::secp256k1);
+        KeyPair valMaster = randomKeyPair(KeyType::ed25519);
+        KeyPair valSigning = randomKeyPair(KeyType::secp256k1);
+
+        std::string
+        vlKeyHex() const
+        {
+            return strHex(vlMaster.first);
+        }
+
+        // the XPOP of `tx`, in ledger `seq`, closed at `closeTime`, as the
+        // only transaction there (so the proof is one root node), in the
+        // list form ExportRelay builds
+        Json::Value
+        xpop(STTx const& tx, std::uint32_t seq, std::uint32_t closeTime) const
+        {
+            Serializer txs;
+            tx.add(txs);
+            TxMeta meta(tx.getTransactionID(), seq);
+            meta.setResult(tesSUCCESS, 0);
+            Serializer ms;
+            meta.getAsObject().add(ms);
+
+            // the leaf, hashed as a tnTRANSACTION_MD SHAMap node is
+            Serializer leaf;
+            leaf.addVL(txs.slice());
+            leaf.addVL(ms.slice());
+            leaf.addBitString(tx.getTransactionID());
+            auto const leafHash = sha512Half(HashPrefix::txNode, leaf.slice());
+
+            // the root: 16 children, the leaf under the key's first nibble
+            Json::Value proof{Json::arrayValue};
+            sha512_half_hasher h;
+            using beast::hash_append;
+            hash_append(h, HashPrefix::innerNode);
+            int const branch = tx.getTransactionID().data()[0] >> 4;
+            for (int b = 0; b < 16; ++b)
+            {
+                uint256 const c = b == branch ? leafHash : uint256{};
+                proof.append(to_string(c));
+                hash_append(h, c);
+            }
+            uint256 const txroot = static_cast<uint256>(h);
+
+            std::uint64_t const coins = 99'999'999'999'999'000ULL;
+            uint256 const phash{1}, acroot{2};
+            std::uint32_t const pclose = closeTime - 10;
+            uint256 const ledgerHash = sha512Half(
+                HashPrefix::ledgerMaster,
+                seq,
+                coins,
+                phash,
+                txroot,
+                acroot,
+                pclose,
+                closeTime,
+                std::uint8_t(10),
+                std::uint8_t(0));
+
+            Json::Value x;
+            auto& lg = x[jss::ledger];
+            lg[jss::index] = seq;
+            lg[jss::coins] = std::to_string(coins);
+            lg[jss::phash] = to_string(phash);
+            lg[jss::txroot] = to_string(txroot);
+            lg[jss::acroot] = to_string(acroot);
+            lg[jss::pclose] = pclose;
+            lg[jss::close] = closeTime;
+            lg[jss::cres] = 10;
+            lg[jss::flags] = 0;
+            auto& xt = x[jss::transaction];
+            xt[jss::blob] = strHex(txs.slice());
+            xt[jss::meta] = strHex(ms.slice());
+            xt[jss::proof] = proof;
+
+            STValidation const val(
+                NetClock::time_point{NetClock::duration{closeTime + 1}},
+                valSigning.first,
+                valSigning.second,
+                calcNodeID(valMaster.first),
+                [&](STValidation& v) {
+                    v.setFieldH256(sfLedgerHash, ledgerHash);
+                    v.setFieldU32(sfLedgerSequence, seq);
+                });
+            Serializer vs;
+            val.add(vs);
+            x[jss::validation][jss::data][toBase58(
+                TokenType::NodePublic, valSigning.first)] = strHex(vs.slice());
+
+            Json::Value list;
+            list[jss::sequence] = 1;
+            list[jss::effective] = 0;
+            list[jss::expiration] = closeTime + 365 * 24 * 60 * 60;
+            auto& entry = list[jss::validators].append(Json::objectValue);
+            entry[jss::validation_public_key] = strHex(valMaster.first);
+            entry[jss::manifest] = manifest(valMaster, valSigning);
+            auto const blob = Json::FastWriter().write(list);
+            auto const sig =
+                sign(vlSigning.first, vlSigning.second, makeSlice(blob));
+            auto& unl = x[jss::validation][jss::unl];
+            unl[jss::public_key] = vlKeyHex();
+            unl[jss::manifest] = manifest(vlMaster, vlSigning);
+            unl[jss::blob] = base64_encode(blob);
+            unl[jss::signature] = strHex(sig);
+            unl[jss::version] = 1;
+            return x;
+        }
+    };
+
+    void
+    testLoopbackImport()
+    {
+        testcase("loopback import");
+        using namespace jtx;
+
+        OtherNetwork other;
+        Env env{
+            *this,
+            network::makeNetworkVLConfig(21337, {other.vlKeyHex()}),
+            supported_amendments() | featureExport};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const nid = env.app().config().NETWORK_ID;
+        auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+
+        // alice exported three ticketed transactions bound back here, so
+        // holds three shadow tickets, each naming the hook to call back
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            setSignerList(view, alice.id(), signerEntries({a}));
+            for (std::uint32_t t : {7u, 8u, 9u})
+                applyExport(
+                    env,
+                    view,
+                    exportTx(env, alice.id(), payment(alice.id(), t, t, nid)));
+            return true;
+        });
+        env.close();
+        for (auto t : {7u, 8u, 9u})
+            BEAST_EXPECT(env.le(keylet::shadowTicket(alice.id(), t)));
+
+        auto const sle = [&]() { return env.le(keylet::account(alice.id())); };
+        auto const seqBefore = (*sle())[sfSequence];
+        auto const ownersBefore = (*sle())[sfOwnerCount];
+        auto const balanceBefore = env.balance(alice);
+
+        // what landed there, signed by whoever holds alice's keys there:
+        // for an export the UNL, which Import never checks, so any key does
+        auto const signer = randomKeyPair(KeyType::secp256k1);
+        auto const landed = [&](TxType type,
+                                std::optional<std::uint32_t> ticket,
+                                KeyPair const& by,
+                                auto&& fill) {
+            STTx tx(type, [&](STObject& o) {
+                o[sfAccount] = alice.id();
+                o.setFieldAmount(sfFee, XRPAmount{1000});
+                o[sfSequence] = ticket ? 0u : 5u;
+                if (ticket)
+                    o[sfTicketSequence] = *ticket;
+                o[sfOperationLimit] = nid;
+                o[sfSigningPubKey] = by.first.slice();
+                fill(o);
+            });
+            tx.sign(by.first, by.second);
+            return tx;
+        };
+        auto const pay = [&](STObject& o) {
+            o[sfDestination] = noAccount();
+            o.setFieldAmount(sfAmount, XRPAmount{1});
+        };
+        auto const closeTime = static_cast<std::uint32_t>(
+            env.closed()->info().closeTime.time_since_epoch().count());
+        auto const import = [&](STTx const& tx, std::uint32_t seq) {
+            return import::import(alice, other.xpop(tx, seq, closeTime));
+        };
+
+        // a ticketed XPOP must be a loopback: Sequence 0 and Fee 0
+        auto const paid = landed(ttPAYMENT, 7, signer, pay);
+        env(import(paid, 100), ter(temMALFORMED));
+        env(import(paid, 100), seq(0u), ter(temMALFORMED));
+        env(import(paid, 100), fee(drops(0)), ter(temMALFORMED));
+
+        // and then it needs a shadow ticket
+        env(import(landed(ttPAYMENT, 11, signer, pay), 100),
+            seq(0u),
+            fee(drops(0)),
+            ter(tefNO_TICKET));
+
+        // whereas a plain XPOP, which alice signed there herself, cannot
+        // ride on the loopback's free pass
+        env(import(
+                landed(
+                    ttPAYMENT,
+                    std::nullopt,
+                    KeyPair{alice.pk(), alice.sk()},
+                    pay),
+                100),
+            seq(0u),
+            fee(drops(0)),
+            ter(tefPAST_SEQ));
+
+        // the export comes back: free, no sequence used, ticket consumed
+        env(import(paid, 100), seq(0u), fee(drops(0)), ter(tesSUCCESS));
+        env.close();
+        BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), 7)));
+        BEAST_EXPECT((*sle())[sfSequence] == seqBefore);
+        BEAST_EXPECT((*sle())[sfOwnerCount] == ownersBefore - 1);
+        BEAST_EXPECT(env.balance(alice) == balanceBefore);
+        BEAST_EXPECT(!sle()->isFieldPresent(sfImportSequence));
+
+        // and only once
+        env(import(paid, 100), seq(0u), fee(drops(0)), ter(tefNO_TICKET));
+
+        // a SignerListSet coming back is recorded as alice's list there,
+        // never installed here
+        auto const b = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        auto const sls = [&](std::uint32_t ticket, AccountID const& who) {
+            return landed(ttSIGNER_LIST_SET, ticket, signer, [&](STObject& o) {
+                o[sfSignerQuorum] = 1;
+                o.setFieldArray(sfSignerEntries, signerEntries({who}));
+            });
+        };
+        env(import(sls(8, b), 100), seq(0u), fee(drops(0)), ter(tesSUCCESS));
+        env.close();
+        BEAST_EXPECT(!env.le(keylet::signers(alice.id())));
+        if (auto const l = sle()->isFieldPresent(sfExportSignerList)
+                ? &sle()->peekAtField(sfExportSignerList).downcast<STObject>()
+                : nullptr;
+            BEAST_EXPECT(l))
+        {
+            BEAST_EXPECT((*l)[sfSignerQuorum] == 1);
+            BEAST_EXPECT((*l)[sfLedgerSequence] == 100);
+            BEAST_EXPECT((*l)[sfTransactionIndex] == 0);
+            BEAST_EXPECT(
+                l->getFieldArray(sfSignerEntries).size() == 1 &&
+                l->getFieldArray(sfSignerEntries)[0][sfAccount] == b);
+        }
+
+        // one from an earlier ledger there arriving later does not win
+        env(import(sls(9, a), 99), seq(0u), fee(drops(0)), ter(tesSUCCESS));
+        env.close();
+        BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), 9)));
+        if (auto const l = sle()->isFieldPresent(sfExportSignerList)
+                ? &sle()->peekAtField(sfExportSignerList).downcast<STObject>()
+                : nullptr;
+            BEAST_EXPECT(l))
+        {
+            BEAST_EXPECT((*l)[sfLedgerSequence] == 100);
+            BEAST_EXPECT(
+                l->getFieldArray(sfSignerEntries).size() == 1 &&
+                l->getFieldArray(sfSignerEntries)[0][sfAccount] == b);
+        }
+        BEAST_EXPECT((*sle())[sfOwnerCount] == ownersBefore - 3);
+    }
+
 public:
     void
     run() override
@@ -618,6 +913,7 @@ public:
         testShadowTicket();
         testSignerList();
         testSignAndFinal();
+        testLoopbackImport();
     }
 };
 

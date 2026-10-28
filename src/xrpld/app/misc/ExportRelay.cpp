@@ -54,6 +54,12 @@
 
     Xahau to XRPL. On each validated ledger, pending exports whose signatures
     meet the exporter's quorum are sent to the peer.
+
+    Cost. Every XRPL ledger reaching quorum has its whole transaction tree
+    fetched (liTX_NODE, depth 3, up to 16 rounds), since which transactions
+    used a shadow ticket cannot be known in advance. That is a steady draw
+    on the peer, so relayers should point [xrpl_relay] at a hub they run or
+    have an arrangement with, not at public servers.
 */
 
 namespace ripple {

@@ -536,11 +536,20 @@ ExportKeys::ExportKeys(
             continue;
         auto const raw = strUnHex(line);
         if (!raw || raw->size() != 32)
+        {
+            // Refuse to start rather than silently rotate: a validator that
+            // lost its keys can no longer sign for exporters listing them,
+            // and the operator should restore a backup, not generate new ones.
             Throw<std::runtime_error>(
-                "ExportKeys: malformed key in " + file_->string());
+                "ExportKeys: malformed key on line " +
+                std::to_string(keys_.size() + 1) + " of " + file_->string() +
+                " (expected one 64-character hex secret per line); restore "
+                "the file from backup or remove it to generate a new key");
+        }
         keys_.push_back(make(SecretKey(makeSlice(*raw))));
     }
-    JLOG(j_.info()) << "ExportKeys: loaded " << keys_.size();
+    JLOG(j_.info()) << "ExportKeys: loaded " << keys_.size() << " from "
+                    << *file_;
 }
 
 ExportKeys::Key
@@ -612,17 +621,32 @@ ExportKeys::nominate(ReadView const& ledger)
         auto const now = static_cast<std::uint32_t>(
             ledger.info().closeTime.time_since_epoch().count());
         // the ledger moved past ours (an older backup), or a new epoch
-        rotate = (it != onLedger.end() && it != onLedger.begin()) ||
+        bool const superseded = it != onLedger.end() && it != onLedger.begin();
+        rotate = superseded ||
             (it == onLedger.begin() &&
              Export::rotationEpoch(now) > Export::rotationEpoch(headTime));
+        if (superseded)
+        {
+            // Another server validating with this token nominated a newer
+            // key. Rotating resolves it for now, but if this repeats every
+            // flag ledger the two are replacing each other's current key and
+            // need to share one [export_key_file].
+            JLOG(j_.warn())
+                << "ExportKeys: our export key " << strHex(keys_.back().pk)
+                << " is no longer the newest on ledger; another "
+                   "server may be validating with this token "
+                   "(see [export_key_file])";
+        }
     }
 
     auto const n = keys_.size();
     if (rotate)
     {
         keys_.push_back(make(randomKeyPair(KeyType::ed25519).second));
-        JLOG(j_.info()) << "ExportKeys: new export key "
-                        << strHex(keys_.back().pk);
+        JLOG(j_.warn()) << "ExportKeys: new export key "
+                        << strHex(keys_.back().pk) << " (now holding "
+                        << keys_.size() << "); back up "
+                        << (file_ ? file_->string() : std::string{"the keys"});
     }
 
     // forget keys the account no longer lists, except the nominee

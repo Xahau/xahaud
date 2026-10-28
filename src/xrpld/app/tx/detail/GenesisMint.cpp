@@ -304,6 +304,19 @@ GenesisMint::doApply()
             sle->setAccountID(sfAccount, id);
             sle->setFieldU32(sfSequence, newAccountSeqNo(view()));
             sle->setFieldAmount(sfBalance, funding);
+
+            // numbered like every other account created under XahauGenesis
+            // (Payment, Import, Remit): AccountIndex is the account's
+            // unique identifier
+            if (auto sleFees = view().peek(keylet::fees());
+                sleFees && view().rules().enabled(featureXahauGenesis))
+            {
+                auto const idx = (*sleFees)[~sfAccountCount].value_or(0);
+                sle->setFieldU64(sfAccountIndex, idx);
+                sleFees->setFieldU64(sfAccountCount, idx + 1);
+                view().update(sleFees);
+            }
+
             view().insert(sle);
             dropsAdded += funding;
 
