@@ -542,8 +542,13 @@ class Export_test : public beast::unit_test::suite
         auto const stranger = randomKeyPair(KeyType::ed25519);
         auto const entries = signerEntries({ours, calcAccountID(other.first)});
 
-        OpenView view(open_ledger, env.closed()->rules(), env.closed());
-        auto const created = env.closed()->seq();
+        // A closed-ledger view: ripple::apply only generates metadata for
+        // those (ApplyStateTable::apply), as when a ledger is built. The
+        // Owner attribution and the DeletedNode result are what relayers
+        // read. Its seq is the closed ledger's, so a pending export from
+        // the ledger before sorts below it in Export::accept's walk.
+        OpenView view(env.closed().get(), env.closed());
+        auto const created = view.seq() - 1;
         auto const inner = payment(alice.id(), 10);
         auto const id = txid(inner);
         auto const k = pending(view, alice.id(), inner, created, entries);
@@ -777,7 +782,12 @@ class Export_test : public beast::unit_test::suite
         auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
 
         // alice exported three ticketed transactions bound back here, so
-        // holds three shadow tickets, each naming the hook to call back
+        // holds three shadow tickets, each naming the hook to call back.
+        // This is injected into the open ledger and the whole test stays
+        // there: close() rebuilds the ledger from the tx set alone, which
+        // drops raw state and rejects the re-applied emitted ttEXPORTs
+        // (telNON_LOCAL_EMITTED_TXN / tefNONDIR_EMIT). env() applies into
+        // this same open ledger and env.le() reads it.
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
             setSignerList(view, alice.id(), signerEntries({a}));
             for (std::uint32_t t : {7u, 8u, 9u})
@@ -787,7 +797,6 @@ class Export_test : public beast::unit_test::suite
                     exportTx(env, alice.id(), payment(alice.id(), t, t, nid)));
             return true;
         });
-        env.close();
         for (auto t : {7u, 8u, 9u})
             BEAST_EXPECT(env.le(keylet::shadowTicket(alice.id(), t)));
 
@@ -853,15 +862,23 @@ class Export_test : public beast::unit_test::suite
 
         // the export comes back: free, no sequence used, ticket consumed
         env(import(paid, 100), seq(0u), fee(drops(0)), ter(tesSUCCESS));
-        env.close();
         BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), 7)));
         BEAST_EXPECT((*sle())[sfSequence] == seqBefore);
         BEAST_EXPECT((*sle())[sfOwnerCount] == ownersBefore - 1);
         BEAST_EXPECT(env.balance(alice) == balanceBefore);
         BEAST_EXPECT(!sle()->isFieldPresent(sfImportSequence));
 
-        // and only once
-        env(import(paid, 100), seq(0u), fee(drops(0)), ter(tefNO_TICKET));
+        // and only once: the ticket is gone, so nothing else that used it
+        // there can come back either (the same outer txn again would be
+        // tefALREADY in this open ledger, before Import::preclaim runs)
+        auto const pay2 = [&](STObject& o) {
+            o[sfDestination] = noAccount();
+            o.setFieldAmount(sfAmount, XRPAmount{2});
+        };
+        env(import(landed(ttPAYMENT, 7, signer, pay2), 100),
+            seq(0u),
+            fee(drops(0)),
+            ter(tefNO_TICKET));
 
         // a SignerListSet coming back is recorded as alice's list there,
         // never installed here
@@ -873,7 +890,6 @@ class Export_test : public beast::unit_test::suite
             });
         };
         env(import(sls(8, b), 100), seq(0u), fee(drops(0)), ter(tesSUCCESS));
-        env.close();
         BEAST_EXPECT(!env.le(keylet::signers(alice.id())));
         if (auto const l = sle()->isFieldPresent(sfExportSignerList)
                 ? &sle()->peekAtField(sfExportSignerList).downcast<STObject>()
@@ -890,7 +906,6 @@ class Export_test : public beast::unit_test::suite
 
         // one from an earlier ledger there arriving later does not win
         env(import(sls(9, a), 99), seq(0u), fee(drops(0)), ter(tesSUCCESS));
-        env.close();
         BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), 9)));
         if (auto const l = sle()->isFieldPresent(sfExportSignerList)
                 ? &sle()->peekAtField(sfExportSignerList).downcast<STObject>()
