@@ -61,10 +61,10 @@
 #define ttNFTOKEN_MODIFY 70
 #define ttPERMISSIONED_DOMAIN_SET 71
 #define ttPERMISSIONED_DOMAIN_DELETE 72
-#define ttEXPORT_SIGN 87
 #define ttEXPORT 88
-#define ttENTROPY 89
+#define ttEXPORT_SIGN 87
 #define ttEXPORT_FINAL 90
+#define ttENTROPY 89
 #define ttMANIFEST_SET 91
 #define ttCRON 92
 #define ttCRON_SET 93
