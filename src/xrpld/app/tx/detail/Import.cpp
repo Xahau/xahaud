@@ -205,17 +205,18 @@ Import::preflight(PreflightContext const& ctx)
     // by the outer signature: nobody could co-sign an export with the UNL's
     // keys, so anyone may relay it. The XRPL fee the inner txn burned paid
     // for it, so it is free and uses no sequence here.
-    bool const loopback = isLoopback(ctx.rules, tx);
-    if (stpTrans->isFieldPresent(sfTicketSequence) &&
-        (!ctx.rules.enabled(featureExport) || !loopback))
+    // A first Import also has Sequence 0 (there is no account yet), so the
+    // fee of an unticketed one is checked in preclaim, where the account is
+    // known; a ticketed XPOP can only come back to an existing account.
+    if (stpTrans->isFieldPresent(sfTicketSequence))
     {
-        JLOG(ctx.j.warn()) << "Import: a ticketed XPOP needs Sequence 0.";
-        return temMALFORMED;
-    }
-    if (loopback && tx[sfFee] != beast::zero)
-    {
-        JLOG(ctx.j.warn()) << "Import: a loopback Import needs Fee 0.";
-        return temMALFORMED;
+        if (!ctx.rules.enabled(featureExport) || !isLoopback(ctx.rules, tx) ||
+            tx[sfFee] != beast::zero)
+        {
+            JLOG(ctx.j.warn()) << "Import: a ticketed XPOP needs Sequence and "
+                                  "Fee 0.";
+            return temMALFORMED;
+        }
     }
 
     // check if txn is emitted or a psuedo
@@ -1018,9 +1019,12 @@ Import::preclaim(PreclaimContext const& ctx)
     else if (sle && isLoopback(ctx.view.rules(), ctx.tx))
     {
         // a sync import: only an exporter's TicketCreate or SignerListSet,
-        // and only one the ledger has not recorded yet
+        // and only one the ledger has not recorded yet. Like a first Import
+        // it is free, and it uses no sequence.
         if (!sle->isFlag(lsfExporter))
             return tefPAST_SEQ;
+        if (ctx.tx.getFieldAmount(sfFee) != beast::zero)
+            return temBAD_FEE;
         auto const tt = stpTrans->getTxnType();
         if (tt == ttTICKET_CREATE)
         {
