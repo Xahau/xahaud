@@ -130,6 +130,26 @@ using JSSMap =
         }                                                                     \
     } while (false)
 
+// Checks which callback fee field a hook definition carries: sfHookCallbackCost
+// (> 0, no sfHookCallbackFee) under featureHookFeeV2, otherwise
+// sfHookCallbackFee (no sfHookCallbackCost).
+#define EXPECT_HOOK_CALLBACK_COST(x)                                    \
+    do                                                                  \
+    {                                                                   \
+        auto const hookSLE = env.le(x##_keylet);                        \
+        if (env.current()->rules().enabled(featureHookFeeV2))           \
+        {                                                               \
+            BEAST_EXPECT(hookSLE->isFieldPresent(sfHookCallbackCost));  \
+            BEAST_EXPECT(hookSLE->getFieldU64(sfHookCallbackCost) > 0); \
+            BEAST_EXPECT(!hookSLE->isFieldPresent(sfHookCallbackFee));  \
+        }                                                               \
+        else                                                            \
+        {                                                               \
+            BEAST_EXPECT(hookSLE->isFieldPresent(sfHookCallbackFee));   \
+            BEAST_EXPECT(!hookSLE->isFieldPresent(sfHookCallbackCost)); \
+        }                                                               \
+    } while (false)
+
 class SetHook0_test : public beast::unit_test::suite
 {
 private:
@@ -2230,7 +2250,12 @@ public:
                 auto jv = invoke::invoke(alice);
                 auto const expectedFee =
                     calculateBaseFee(*env.current(), *env.jt(jv).stx);
-                BEAST_EXPECT(expectedFee == drops(19));
+                // 10 base + hook fee (v1: 9, v2: ceil(209 / 10) = 21)
+                BEAST_EXPECT(
+                    expectedFee ==
+                    drops(
+                        env.current()->rules().enabled(featureHookFeeV2) ? 31
+                                                                         : 19));
                 env(jv,
                     M("Invoke in the same open ledger as the removal"),
                     HSFEE);
@@ -2258,7 +2283,12 @@ public:
                 auto jv = invoke::invoke(alice);
                 auto const expectedFee =
                     calculateBaseFee(*env.current(), *env.jt(jv).stx);
-                BEAST_EXPECT(expectedFee == drops(19));
+                // 10 base + hook fee (v1: 9, v2: ceil(209 / 10) = 21)
+                BEAST_EXPECT(
+                    expectedFee ==
+                    drops(
+                        env.current()->rules().enabled(featureHookFeeV2) ? 31
+                                                                         : 19));
                 env(jv, M("Invoke after removing the hook name"), HSFEE);
                 env.close();
                 auto const hookExecutions =
@@ -3831,7 +3861,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 14);
-            EXPECT_HOOK_COST(hook, 114, 12);
+            EXPECT_HOOK_COST(hook, 217, 22);
         }
 
         // simple looping, c
@@ -3908,7 +3938,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 1944);
-            EXPECT_HOOK_COST(hook, 48244, 4825);
+            EXPECT_HOOK_COST(hook, 49377, 4938);
 
             env(pay(bob, alice, XRP(1)), M("Test Loop 3"), fee(XRP(1)));
             env.close();
@@ -4021,7 +4051,7 @@ public:
             if (withCost)
             {
                 auto const hookCost = hookDef->getFieldU64(sfHookCost);
-                auto const expectedCost = 48244;
+                auto const expectedCost = 49377;
                 BEAST_EXPECTS(
                     hookCost == expectedCost,
                     "Hook cost mismatch: expected " + to_string(expectedCost) +
@@ -4037,6 +4067,132 @@ public:
                     "Hook fee mismatch: expected " + to_string(expectedFee) +
                         " got " + to_string(hookFee));
                 BEAST_EXPECT(!hookDef->isFieldPresent(sfHookCost));
+            }
+
+            // Regression pair: both hooks run a 101 iteration loop. In A the
+            // only `_g` is the loop-head guard, in B there is one more `_g`
+            // call in the loop body. The loop-head guard runs on every
+            // iteration, so it must be charged per iteration (loop
+            // multiplier applied) exactly like the explicit body guard: B
+            // costs A plus 101 * (3 instructions + drop + 100 api cost).
+            {
+                TestHook guardA_wasm = wasm[R"[test.hook](
+            (module
+              (type (func (param i32 i32) (result i32)))
+              (type (func (param i32 i32 i64) (result i64)))
+              (type (func (param i32) (result i64)))
+              (import "env" "_g" (func $_g (type 0)))
+              (import "env" "accept" (func $accept (type 1)))
+              (memory 1)
+              (export "memory" (memory 0))
+              (func $hook (type 2) (param i32) (result i64)
+                (local i32)
+                (block
+                  (loop
+                    i32.const 1
+                    i32.const 101
+                    call $_g
+                    drop
+                    local.get 1
+                    i32.const 1
+                    i32.add
+                    local.tee 1
+                    i32.const 100
+                    i32.lt_u
+                    br_if 0
+                  )
+                )
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call $accept
+              )
+              (export "hook" (func $hook))
+            )
+                )[test.hook]"];
+                TestHook guardB_wasm = wasm[R"[test.hook](
+            (module
+              (type (func (param i32 i32) (result i32)))
+              (type (func (param i32 i32 i64) (result i64)))
+              (type (func (param i32) (result i64)))
+              (import "env" "_g" (func $_g (type 0)))
+              (import "env" "accept" (func $accept (type 1)))
+              (memory 1)
+              (export "memory" (memory 0))
+              (func $hook (type 2) (param i32) (result i64)
+                (local i32)
+                (block
+                  (loop
+                    i32.const 1
+                    i32.const 101
+                    call $_g
+                    drop
+                    i32.const 2
+                    i32.const 101
+                    call $_g
+                    drop
+                    local.get 1
+                    i32.const 1
+                    i32.add
+                    local.tee 1
+                    i32.const 100
+                    i32.lt_u
+                    br_if 0
+                  )
+                )
+                i32.const 0
+                i32.const 0
+                i64.const 0
+                call $accept
+              )
+              (export "hook" (func $hook))
+            )
+                )[test.hook]"];
+                HASH_WASM(guardA);
+                HASH_WASM(guardB);
+
+                env(ripple::test::jtx::hook(
+                        alice, {{hso(guardA_wasm, overrideFlag)}}, 0),
+                    M("guard pair A"),
+                    HSFEE);
+                env.close();
+                env(ripple::test::jtx::hook(
+                        bob, {{hso(guardB_wasm, overrideFlag)}}, 0),
+                    M("guard pair B"),
+                    HSFEE);
+                env.close();
+
+                auto const defA = env.le(guardA_keylet);
+                auto const defB = env.le(guardB_keylet);
+                BEAST_REQUIRE(defA);
+                BEAST_REQUIRE(defB);
+                if (withCost)
+                {
+                    BEAST_EXPECT(defA->getFieldU64(sfHookCost) == 11420);
+                    BEAST_EXPECT(defB->getFieldU64(sfHookCost) == 21924);
+                    BEAST_EXPECT(
+                        defB->getFieldU64(sfHookCost) -
+                            defA->getFieldU64(sfHookCost) ==
+                        101 * 104);
+                    BEAST_EXPECT(!defA->isFieldPresent(sfFee));
+                    BEAST_EXPECT(!defB->isFieldPresent(sfFee));
+                }
+                else
+                {
+                    // V1 fee: counted instructions, loop multiplied; the
+                    // loop-head guard (3 instructions) is not counted in V1
+                    BEAST_EXPECT(defA->getFieldAmount(sfFee) == XRPAmount{917});
+                    BEAST_EXPECT(
+                        defB->getFieldAmount(sfFee) == XRPAmount{1321});
+                    // the explicit body guard adds 4 counted instructions
+                    // (i32.const, i32.const, call, drop) per iteration
+                    BEAST_EXPECT(
+                        defB->getFieldAmount(sfFee) -
+                            defA->getFieldAmount(sfFee) ==
+                        XRPAmount{101 * 4});
+                    BEAST_EXPECT(!defA->isFieldPresent(sfHookCost));
+                    BEAST_EXPECT(!defB->isFieldPresent(sfHookCost));
+                }
             }
         }
     }
@@ -4382,6 +4538,7 @@ public:
         env.close();
         EXPECT_HOOK_FEE(hook, 342);
         EXPECT_HOOK_COST(hook, 2542, 255);
+        EXPECT_HOOK_CALLBACK_COST(hook);
 
         Json::Value invoke;
         invoke[jss::TransactionType] = "Invoke";
@@ -4398,6 +4555,7 @@ public:
         env(invoke, M("test emit"), fee(XRP(1)));
 
         std::optional<uint256> emithash;
+        std::optional<STAmount> emitFee;
         {
             auto meta = env.meta();  // meta can close
 
@@ -4447,6 +4605,7 @@ public:
                     auto const tx = std::make_unique<STTx>(
                         Slice{txBlob.data(), txBlob.size()});
                     emithash = tx->getTransactionID();
+                    emitFee = tx->getFieldAmount(sfFee);
 
                     break;
                 }
@@ -4455,6 +4614,16 @@ public:
             BEAST_REQUIRE(emithash);
             BEAST_EXPECT(
                 emithash == hookEmissions[0u].getFieldH256(sfEmittedTxnID));
+
+            // the emitted txn must pay for its callback execution
+            BEAST_REQUIRE(emitFee);
+            if (env.current()->rules().enabled(featureHookFeeV2))
+            {
+                auto const callbackCost =
+                    env.le(hook_keylet)->getFieldU64(sfHookCallbackCost);
+                BEAST_EXPECT(
+                    emitFee->xrp() >= hook::hookCostToFee(callbackCost));
+            }
         }
 
         {
@@ -5245,7 +5414,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 1524);
-        EXPECT_HOOK_COST(hook, 8624, 863);
+        EXPECT_HOOK_COST(hook, 13774, 1378);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_details"), fee(XRP(1)));
@@ -5417,7 +5586,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 11657);
-        EXPECT_HOOK_COST(hook, 90057, 9006);
+        EXPECT_HOOK_COST(hook, 116528, 11653);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_nonce"), fee(XRP(1)));
@@ -5986,7 +6155,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 1178);
-            EXPECT_HOOK_COST(hook, 17978, 1798);
+            EXPECT_HOOK_COST(hook, 19626, 1963);
 
             env(pay(bob, alice, XRP(1)), M("test float_int"), HSFEE);
             env.close();
@@ -8196,7 +8365,7 @@ public:
         env(jv, M("set hook_param"), HSFEE, ter(tesSUCCESS));
         env.close();
         EXPECT_HOOK_FEE(hook, 2412);
-        EXPECT_HOOK_COST(hook, 12612, 1262);
+        EXPECT_HOOK_COST(hook, 14363, 1437);
 
         // invoke
         env(pay(bob, alice, XRP(1)), M("test hook_param"), fee(XRP(1)));
@@ -8409,8 +8578,8 @@ public:
         env.close();
         EXPECT_HOOK_FEE(checker, 475);
         EXPECT_HOOK_FEE(setter, 759);
-        EXPECT_HOOK_COST(checker, 2775, 278);
-        EXPECT_HOOK_COST(setter, 6859, 686);
+        EXPECT_HOOK_COST(checker, 3290, 329);
+        EXPECT_HOOK_COST(setter, 7374, 738);
 
         // invoke
         env(pay(bob, alice, XRP(1)), M("test hook_param_set"), fee(XRP(1)));
@@ -9218,7 +9387,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 3245);
-        EXPECT_HOOK_COST(hook, 31445, 3145);
+        EXPECT_HOOK_COST(hook, 57813, 5782);
 
         auto checkResult =
             [this](auto const& meta, uint64_t expectedCode) -> void {
@@ -9313,7 +9482,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 732);
-        EXPECT_HOOK_COST(hook, 4732, 474);
+        EXPECT_HOOK_COST(hook, 6895, 690);
 
         // invoke the hook
         env(pay(alice, bob, XRP(1)), M("test otxn_field"), fee(XRP(1)));
@@ -9399,7 +9568,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 1077);
-        EXPECT_HOOK_COST(hook, 6277, 628);
+        EXPECT_HOOK_COST(hook, 9676, 968);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test otxn_id"), fee(XRP(1)));
@@ -9484,7 +9653,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 6442);
-        EXPECT_HOOK_COST(hook, 62742, 6275);
+        EXPECT_HOOK_COST(hook, 92509, 9251);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test otxn_slot"), fee(XRP(1)));
@@ -9666,7 +9835,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 2412);
-        EXPECT_HOOK_COST(hook, 12612, 1262);
+        EXPECT_HOOK_COST(hook, 14363, 1437);
 
         // invoke
         Json::Value invoke;
@@ -10123,7 +10292,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 11645);
-            EXPECT_HOOK_COST(hook, 118745, 11875);
+            EXPECT_HOOK_COST(hook, 171893, 17190);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test slot_set"), fee(XRP(1)));
@@ -10340,7 +10509,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 6212);
-        EXPECT_HOOK_COST(hook, 61112, 6112);
+        EXPECT_HOOK_COST(hook, 87480, 8748);
 
         // generate an array of memos to attach
         Json::Value jv;
@@ -10463,7 +10632,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 6109);
-        EXPECT_HOOK_COST(hook, 60909, 6091);
+        EXPECT_HOOK_COST(hook, 87277, 8728);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test slot_subfield"), fee(XRP(1)));
@@ -10693,7 +10862,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 2254);
-            EXPECT_HOOK_COST(hook, 11254, 1126);
+            EXPECT_HOOK_COST(hook, 18052, 1806);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test state"), fee(XRP(1)));
@@ -10753,7 +10922,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 2134);
-            EXPECT_HOOK_COST(hook, 9534, 954);
+            EXPECT_HOOK_COST(hook, 16332, 1634);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test state 2"), fee(XRP(1)));
@@ -10917,7 +11086,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 2408);
-            EXPECT_HOOK_COST(hook, 11808, 1181);
+            EXPECT_HOOK_COST(hook, 18606, 1861);
 
             // invoke the hook
 
@@ -11461,7 +11630,7 @@ public:
             env(json, M("set state_foreign_set 12"), HSFEE);
             env.close();
             EXPECT_HOOK_FEE(exhaustion, 10582);
-            EXPECT_HOOK_COST(exhaustion, 88282, 8829);
+            EXPECT_HOOK_COST(exhaustion, 114650, 11465);
         }
 
         // now invoke repeatedly until exhaustion is reached
@@ -12529,7 +12698,7 @@ public:
             EXPECT_HOOK_FEE(hook, 82);
             EXPECT_HOOK_FEE(hook2, 525);
             EXPECT_HOOK_COST(hook, 682, 69);
-            EXPECT_HOOK_COST(hook2, 2725, 273);
+            EXPECT_HOOK_COST(hook2, 4476, 448);
 
             // two hooks + two state objects = 4
             BEAST_EXPECT((*env.le("alice"))[sfOwnerCount] == 4);
@@ -12607,7 +12776,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook3, 560);
-            EXPECT_HOOK_COST(hook3, 3060, 306);
+            EXPECT_HOOK_COST(hook3, 4811, 482);
 
             // invoke the hook with cho (rollback after alice's hooks have
             // executed)
@@ -12829,7 +12998,7 @@ public:
             env(json, M("set state_set 6"), HSFEE);
             env.close();
             EXPECT_HOOK_FEE(exhaustion, 54114);
-            EXPECT_HOOK_COST(exhaustion, 355114, 35512);
+            EXPECT_HOOK_COST(exhaustion, 509717, 50972);
         }
 
         // now invoke repeatedly until exhaustion is reached
@@ -13312,7 +13481,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook, 15024);
-            EXPECT_HOOK_COST(hook, 73424, 7343);
+            EXPECT_HOOK_COST(hook, 126057, 12606);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test sto_emplace"), fee(XRP(1)));
@@ -13533,7 +13702,7 @@ public:
             HSFEE);
         env.close();
         EXPECT_HOOK_FEE(hook, 10021);
-        EXPECT_HOOK_COST(hook, 46721, 4673);
+        EXPECT_HOOK_COST(hook, 81123, 8113);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test sto_erase"), fee(XRP(1)));

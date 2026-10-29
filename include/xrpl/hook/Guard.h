@@ -439,6 +439,16 @@ check_guard(
 
             current = current->add_child(iteration_bound, i);
             block_depth++;
+
+            if (instr == 0x03U)
+            {
+                // the three loop-head guard instructions consumed above
+                // (i32.const, i32.const, call _g) run on every iteration, so
+                // charge them to the loop block itself, where the loop
+                // multiplier applies. instruction_count is deliberately left
+                // untouched: it feeds the 0xFFFF limit and the V1 fee.
+                current->execution_cost += 3 + hook_api::api_call_cost;
+            }
             continue;
         }
 

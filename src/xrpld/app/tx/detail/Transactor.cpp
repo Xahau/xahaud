@@ -318,6 +318,13 @@ Transactor::calculateHookChainFee(
                 else
                     fee += toAdd;
             }
+            else if (!hookDef->isFieldPresent(sfHookCost))
+            {
+                // a hook definition always carries exactly one of sfFee and
+                // sfHookCost. Should neither be present, force-fail the
+                // transaction rather than execute the hook for free.
+                fee = XRPAmount{INITIAL_XRP.drops()};
+            }
             else
             {
                 uint64_t const toAdd{hookDef->getFieldU64(sfHookCost)};

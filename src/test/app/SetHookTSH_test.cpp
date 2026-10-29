@@ -23,9 +23,11 @@
 #include <test/jtx/AMM.h>
 #include <test/jtx/Oracle.h>
 #include <test/jtx/TestHelpers.h>
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
@@ -8265,8 +8267,86 @@ private:
     testHookDefinitionUpdateTSH(FeatureBitset features)
     {
         testcase("hook definition update tsh");
-        // TODO
-        BEAST_EXPECT(true);
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // only meaningful when the hook definition is created before
+        // featureHookFeeV2 and migrated afterwards
+        if (features[featureHookFeeV2])
+        {
+            BEAST_EXPECT(true);
+            return;
+        }
+
+        test::jtx::Env env{
+            *this,
+            network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+            features - featureHookFeeV2};
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        env.fund(XRP(1000), alice, bob, carol);
+        env.close();
+
+        // bob is the tsh (payment destination) with a strong hook created
+        // under v1
+        setTSHHook(env, bob, true);
+
+        uint256 const hash =
+            ripple::sha512Half_s(ripple::Slice(TshHook.data(), TshHook.size()));
+        auto const defKeylet = keylet::hookDefinition(hash);
+
+        // base fee plus the execution fee of bob's strong tsh chain
+        auto const paymentFee = [&]() {
+            auto const jv = pay(alice, bob, XRP(1));
+            return calculateBaseFee(*env.current(), *env.jt(jv).stx);
+        };
+        auto const base = env.current()->fees().base;
+
+        // before: charged from sfFee
+        {
+            auto const def = env.le(defKeylet);
+            if (!BEAST_EXPECT(def))
+                return;
+            BEAST_EXPECT(def->isFieldPresent(sfFee));
+            BEAST_EXPECT(!def->isFieldPresent(sfHookCost));
+            BEAST_EXPECT(
+                paymentFee() == base + def->getFieldAmount(sfFee).xrp());
+        }
+        env(pay(alice, bob, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+        testTSHStrongWeak(env, tshSTRONG, __LINE__);
+
+        env.enableFeature(featureHookFeeV2);
+        env.close();
+
+        // carol, who has nothing to do with the hook, migrates the definition
+        {
+            Json::Value jv;
+            jv[jss::TransactionType] = jss::HookDefinitionUpdate;
+            jv[jss::Account] = carol.human();
+            jv[jss::HookHash] = to_string(hash);
+            jv[jss::Flags] = tfValidateGuards;
+            env(jv, fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
+        }
+
+        // after: charged from sfHookCost, tsh hook still fires
+        {
+            auto const def = env.le(defKeylet);
+            if (!BEAST_EXPECT(def))
+                return;
+            BEAST_EXPECT(!def->isFieldPresent(sfFee));
+            BEAST_EXPECT(def->isFieldPresent(sfHookCost));
+            BEAST_EXPECT(
+                paymentFee() ==
+                base + hook::hookCostToFee(def->getFieldU64(sfHookCost)));
+        }
+        env(pay(alice, bob, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
+        env.close();
+        testTSHStrongWeak(env, tshSTRONG, __LINE__);
     }
 
     void

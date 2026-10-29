@@ -36,6 +36,11 @@ HookDefinitionUpdate::preflight(PreflightContext const& ctx)
     if (tx.getFlags() & tfHookDefinitionUpdateMask)
         return temINVALID_FLAG;
 
+    // the only operation so far is the guard re-validation, so a transaction
+    // without that flag would do nothing but burn its fee
+    if (!tx.isFlag(tfValidateGuards))
+        return temINVALID_FLAG;
+
     return preflight2(ctx);
 }
 
