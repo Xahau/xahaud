@@ -19,9 +19,6 @@
 
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
-#include <xrpld/app/ledger/OpenLedger.h>
-#include <xrpld/app/tx/detail/Export.h>
-#include <xrpld/ledger/OpenView.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
@@ -37,7 +34,7 @@ namespace {
 // Built from the WAT shown with wat2wasm (wabt 1.0.36).
 //
 // The payment: TransactionType Payment, Sequence 0, Amount 1 drop, Fee 1000,
-// Destination 0102..14.
+// Destination 0102..14. xportTicketWasm adds TicketSequence 1.
 
 // (module
 //   (import "env" "_g" (func $_g (param i32 i32) (result i32)))
@@ -77,6 +74,31 @@ static std::vector<std::uint8_t> const xportWasm = {
     0x07U, 0x08U, 0x09U, 0x0AU, 0x0BU, 0x0CU, 0x0DU, 0x0EU, 0x0FU, 0x10U, 0x11U,
     0x12U, 0x13U, 0x14U,
 };
+
+// The same hook with a TicketSequence (1) in the payment, 54 bytes of data
+// and (i32.const 54) passed to xport. A hook naming its own ticket needs no
+// pool; the others leave it to the ledger, which has none for them here.
+static std::vector<std::uint8_t> const xportTicketWasm = {
+    0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x1BU, 0x04U,
+    0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7FU, 0x60U, 0x03U, 0x7FU, 0x7FU, 0x7EU,
+    0x01U, 0x7EU, 0x60U, 0x01U, 0x7FU, 0x01U, 0x7EU, 0x60U, 0x04U, 0x7FU, 0x7FU,
+    0x7FU, 0x7FU, 0x01U, 0x7EU, 0x02U, 0x36U, 0x04U, 0x03U, 0x65U, 0x6EU, 0x76U,
+    0x02U, 0x5FU, 0x67U, 0x00U, 0x00U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x06U, 0x61U,
+    0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x01U, 0x03U, 0x65U, 0x6EU, 0x76U,
+    0x0CU, 0x65U, 0x74U, 0x78U, 0x6EU, 0x5FU, 0x72U, 0x65U, 0x73U, 0x65U, 0x72U,
+    0x76U, 0x65U, 0x00U, 0x02U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x05U, 0x78U, 0x70U,
+    0x6FU, 0x72U, 0x74U, 0x00U, 0x03U, 0x03U, 0x02U, 0x01U, 0x02U, 0x05U, 0x03U,
+    0x01U, 0x00U, 0x01U, 0x07U, 0x11U, 0x02U, 0x06U, 0x6DU, 0x65U, 0x6DU, 0x6FU,
+    0x72U, 0x79U, 0x02U, 0x00U, 0x04U, 0x68U, 0x6FU, 0x6FU, 0x6BU, 0x00U, 0x04U,
+    0x0AU, 0x21U, 0x01U, 0x1FU, 0x00U, 0x41U, 0x01U, 0x41U, 0x01U, 0x10U, 0x00U,
+    0x1AU, 0x41U, 0x01U, 0x10U, 0x02U, 0x1AU, 0x41U, 0x00U, 0x41U, 0x00U, 0x41U,
+    0x80U, 0x02U, 0x41U, 0x20U, 0x41U, 0x00U, 0x41U, 0x36U, 0x10U, 0x03U, 0x10U,
+    0x01U, 0x0BU, 0x0BU, 0x3CU, 0x01U, 0x00U, 0x41U, 0x00U, 0x0BU, 0x36U, 0x12U,
+    0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0x00U, 0x00U, 0x20U, 0x29U, 0x00U, 0x00U,
+    0x00U, 0x01U, 0x61U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U,
+    0x68U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x03U, 0xE8U, 0x83U, 0x14U,
+    0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U, 0x08U, 0x09U, 0x0AU, 0x0BU,
+    0x0CU, 0x0DU, 0x0EU, 0x0FU, 0x10U, 0x11U, 0x12U, 0x13U, 0x14U};
 
 // (module
 //   (import "env" "_g" (func $_g (param i32 i32) (result i32)))
@@ -260,33 +282,17 @@ class ExportHook_test : public beast::unit_test::suite
     }
 
     // Install a Hook on a fresh account, pay it, and return the account and
-    // the payment's metadata. The account holds a few tickets on the other
-    // network (as Imports of its TicketCreates would have recorded) unless
-    // told otherwise, since an export needs one.
+    // the payment's metadata.
     std::pair<jtx::Account, std::shared_ptr<STObject const>>
     runHook(
         jtx::Env& env,
         jtx::Account const& payer,
-        std::vector<std::uint8_t> const& wasm,
-        bool tickets = true)
+        std::vector<std::uint8_t> const& wasm)
     {
         using namespace jtx;
         Account const account{"hook" + std::to_string(++hookAccounts_)};
         env.fund(XRP(10000), account);
         env.close();
-        if (tickets)
-        {
-            env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
-                auto sle = std::make_shared<SLE>(
-                    *view.read(keylet::account(account.id())));
-                ExportTickets pool;
-                pool.add(100, 5);
-                pool.store(*sle);
-                view.rawReplace(sle);
-                return true;
-            });
-            env.close();
-        }
         env(hook(account, {{hso(wasm)}}, 0), fee(XRP(100)));
         env.close();
         env(pay(payer, account, XRP(1)), fee(XRP(1)));
@@ -308,7 +314,7 @@ class ExportHook_test : public beast::unit_test::suite
 
         // the export is emitted, from the hook's account, unsigned
         {
-            auto const [account, meta] = runHook(env, bob, xportWasm);
+            auto const [account, meta] = runHook(env, bob, xportTicketWasm);
             BEAST_EXPECT(returnCodes(meta) == std::vector<std::uint64_t>{32});
             if (!BEAST_EXPECT(meta && meta->isFieldPresent(sfHookEmissions)))
                 return;
@@ -331,20 +337,23 @@ class ExportHook_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 r[sfExportedTxn.jsonName][jss::Account] == account.human());
             BEAST_EXPECT(r[sfExportedTxn.jsonName][jss::SigningPubKey] == "");
-            // bound back here by xport(); the ticket is drawn when it applies
+            // bound back here by xport(), with the ticket the hook named
             BEAST_EXPECT(
                 r[sfExportedTxn.jsonName][sfOperationLimit.jsonName] ==
                 env.app().config().NETWORK_ID);
             BEAST_EXPECT(
-                !r[sfExportedTxn.jsonName].isMember(sfTicketSequence.jsonName));
+                r[sfExportedTxn.jsonName][sfTicketSequence.jsonName] == 1);
             BEAST_EXPECT(
                 r[jss::meta][sfTransactionResult.jsonName] == "tecNO_TARGET");
         }
 
-        // the API's own checks
+        // without a ticket of its own the hook needs one from the account's
+        // pool, and this account has none
         BEAST_EXPECT(
-            returnCodes(runHook(env, bob, xportWasm, false).second) ==
+            returnCodes(runHook(env, bob, xportWasm).second) ==
             std::vector<std::uint64_t>{rc(NO_TICKET)});
+
+        // the API's own checks
         BEAST_EXPECT(
             returnCodes(runHook(env, bob, xportSmallWasm).second) ==
             std::vector<std::uint64_t>{rc(TOO_SMALL)});

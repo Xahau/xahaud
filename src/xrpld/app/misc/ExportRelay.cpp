@@ -646,7 +646,7 @@ private:
 
             Serializer s;
             in.add(s);
-            Blob blob(s.data(), s.data() + s.size());
+            Blob blob = s.peekData();
             submit(blob);
             auto const st =
                 keylet::shadowTicket((*sle)[sfOwner], in[sfTicketSequence]);

@@ -56,7 +56,7 @@ Json::Value
 doExportSetup(RPC::JsonContext& context)
 {
     auto const& params = context.params;
-    if (params.isMember("as_of") && !params["as_of"].isIntegral())
+    if (params.isMember("as_of") && !params["as_of"].isUInt())
         return RPC::invalid_field_error("as_of");
 
     std::optional<AccountID> account;
@@ -85,7 +85,7 @@ doExportSetup(RPC::JsonContext& context)
     std::uint32_t quorum = (signers.size() * 4 + 4) / 5;
     if (params.isMember("quorum"))
     {
-        if (!params["quorum"].isIntegral() || params["quorum"].asUInt() == 0 ||
+        if (!params["quorum"].isUInt() || params["quorum"].asUInt() == 0 ||
             params["quorum"].asUInt() > signers.size())
             return RPC::invalid_field_error("quorum");
         quorum = params["quorum"].asUInt();

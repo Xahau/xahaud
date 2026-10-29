@@ -425,7 +425,13 @@ signerList(ReadView const& view, AccountID const& acc)
 {
     auto const sle = view.read(keylet::account(acc));
     if (sle && sle->isFieldPresent(sfExportSignerList))
-        return obj(*sle, sfExportSignerList);
+    {
+        auto const& list = obj(*sle, sfExportSignerList);
+        // an empty one records that the list there was deleted (and where),
+        // so no later import can bring an older list back
+        if (!list.getFieldArray(sfSignerEntries).empty())
+            return list;
+    }
     return std::nullopt;
 }
 
@@ -611,10 +617,10 @@ Export::createExport(
     }
     else
     {
-        auto const t = tickets.take();
-        if (!t)
+        auto const pooled = tickets.take();
+        if (!pooled)
             return tecNO_ENTRY;
-        ticket = *t;
+        ticket = *pooled;
         inner[sfTicketSequence] = ticket;
     }
 

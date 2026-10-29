@@ -279,7 +279,11 @@ SetAccount::preclaim(PreclaimContext const& ctx)
     // one; this re-enables after asfExporter was cleared
     //
     if (ctx.view.rules().enabled(featureExport) && uSetFlag == asfExporter &&
-        !sle->isFieldPresent(sfExportSignerList))
+        (!sle->isFieldPresent(sfExportSignerList) ||
+         sle->peekAtField(sfExportSignerList)
+             .downcast<STObject>()
+             .getFieldArray(sfSignerEntries)
+             .empty()))
         return tecNO_TARGET;
 
     //

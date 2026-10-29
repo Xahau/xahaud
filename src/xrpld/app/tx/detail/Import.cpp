@@ -1477,25 +1477,29 @@ Import::doApply()
             std::pair{(*old)[sfLedgerSequence], (*old)[sfTransactionIndex]} <
                 at)
         {
-            if (!stpTrans->isFieldPresent(sfSignerEntries))
-                sle->makeFieldAbsent(sfExportSignerList);
-            else
+            // A SignerListSet without entries deletes the list there. It is
+            // recorded as an empty list rather than removed, so the position
+            // (ledger, index) stays and an older SignerListSet imported later
+            // cannot bring a stale list back (signerList() in Export.cpp
+            // treats the empty list as none).
+            auto l = STObject::makeInnerObject(sfExportSignerList);
+            l[sfSignerQuorum] = (*stpTrans)[~sfSignerQuorum].value_or(0);
+            l.setFieldArray(
+                sfSignerEntries,
+                stpTrans->isFieldPresent(sfSignerEntries)
+                    ? stpTrans->getFieldArray(sfSignerEntries)
+                    : STArray(sfSignerEntries));
+            l[sfLedgerSequence] = at.first;
+            l[sfTransactionIndex] = at.second;
+            sle->peekFieldObject(sfExportSignerList) = std::move(l);
+            // signed by the account and listing signers: it is now an
+            // exporter, and the ledger keeps its tickets and list in step
+            // from here on
+            if (!loopback && stpTrans->isFieldPresent(sfSignerEntries))
             {
-                auto l = STObject::makeInnerObject(sfExportSignerList);
-                l[sfSignerQuorum] = (*stpTrans)[sfSignerQuorum];
-                l.setFieldArray(
-                    sfSignerEntries, stpTrans->getFieldArray(sfSignerEntries));
-                l[sfLedgerSequence] = at.first;
-                l[sfTransactionIndex] = at.second;
-                sle->peekFieldObject(sfExportSignerList) = std::move(l);
-                // signed by the account: it is now an exporter, and the
-                // ledger keeps its tickets and list in step from here on
-                if (!loopback)
-                {
-                    if (auto const ter = setExporter(view(), sle, true);
-                        !isTesSuccess(ter))
-                        return ter;
-                }
+                if (auto const ter = setExporter(view(), sle, true);
+                    !isTesSuccess(ter))
+                    return ter;
             }
         }
     }

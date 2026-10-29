@@ -919,8 +919,8 @@ class Export_test : public beast::unit_test::suite
         t.add(10, 5);
         BEAST_EXPECT(t.count() == 105);
         BEAST_EXPECT(
-            t.ranges() ==
-            std::vector<ExportTickets::Range>{{10, 5}, {100, 100}});
+            (t.ranges() ==
+             std::vector<ExportTickets::Range>{{10, 5}, {100, 100}}));
         BEAST_EXPECT(t.contains(199) && !t.contains(200) && !t.contains(15));
 
         auto const v = t.pack();
@@ -930,13 +930,13 @@ class Export_test : public beast::unit_test::suite
         // the lowest of the smallest range first, so fragments go first
         BEAST_EXPECT(t.take() == 10);
         BEAST_EXPECT(t.take() == 11);
-        BEAST_EXPECT(t.ranges()[0] == ExportTickets::Range{12, 3});
+        BEAST_EXPECT((t.ranges()[0] == ExportTickets::Range{12, 3}));
 
         // removing from the middle splits; adding back merges
         BEAST_EXPECT(t.remove(150) && !t.remove(150));
         BEAST_EXPECT(
-            t.ranges() ==
-            std::vector<ExportTickets::Range>{{12, 3}, {100, 50}, {151, 49}});
+            (t.ranges() ==
+             std::vector<ExportTickets::Range>{{12, 3}, {100, 50}, {151, 49}}));
         t.insert(150);
         BEAST_EXPECT(t.ranges().size() == 2 && t.ranges()[1].count == 100);
 
