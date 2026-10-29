@@ -19,6 +19,9 @@
 
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/ledger/OpenView.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
@@ -257,17 +260,33 @@ class ExportHook_test : public beast::unit_test::suite
     }
 
     // Install a Hook on a fresh account, pay it, and return the account and
-    // the payment's metadata.
+    // the payment's metadata. The account holds a few tickets on the other
+    // network (as Imports of its TicketCreates would have recorded) unless
+    // told otherwise, since an export needs one.
     std::pair<jtx::Account, std::shared_ptr<STObject const>>
     runHook(
         jtx::Env& env,
         jtx::Account const& payer,
-        std::vector<std::uint8_t> const& wasm)
+        std::vector<std::uint8_t> const& wasm,
+        bool tickets = true)
     {
         using namespace jtx;
         Account const account{"hook" + std::to_string(++hookAccounts_)};
         env.fund(XRP(10000), account);
         env.close();
+        if (tickets)
+        {
+            env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+                auto sle = std::make_shared<SLE>(
+                    *view.read(keylet::account(account.id())));
+                ExportTickets pool;
+                pool.add(100, 5);
+                pool.store(*sle);
+                view.rawReplace(sle);
+                return true;
+            });
+            env.close();
+        }
         env(hook(account, {{hso(wasm)}}, 0), fee(XRP(100)));
         env.close();
         env(pay(payer, account, XRP(1)), fee(XRP(1)));
@@ -312,11 +331,20 @@ class ExportHook_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 r[sfExportedTxn.jsonName][jss::Account] == account.human());
             BEAST_EXPECT(r[sfExportedTxn.jsonName][jss::SigningPubKey] == "");
+            // bound back here by xport(); the ticket is drawn when it applies
+            BEAST_EXPECT(
+                r[sfExportedTxn.jsonName][sfOperationLimit.jsonName] ==
+                env.app().config().NETWORK_ID);
+            BEAST_EXPECT(
+                !r[sfExportedTxn.jsonName].isMember(sfTicketSequence.jsonName));
             BEAST_EXPECT(
                 r[jss::meta][sfTransactionResult.jsonName] == "tecNO_TARGET");
         }
 
         // the API's own checks
+        BEAST_EXPECT(
+            returnCodes(runHook(env, bob, xportWasm, false).second) ==
+            std::vector<std::uint64_t>{rc(NO_TICKET)});
         BEAST_EXPECT(
             returnCodes(runHook(env, bob, xportSmallWasm).second) ==
             std::vector<std::uint64_t>{rc(TOO_SMALL)});

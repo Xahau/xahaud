@@ -126,12 +126,18 @@ setShadowTicket(
     return tesSUCCESS;
 }
 
+// the shadow ticket for `ticket`, if it still names export `txid` (another
+// export may have taken the ticket over since)
 static bool
-eraseShadowTicket(ApplyView& view, AccountID const& acc, std::uint32_t ticket)
+eraseShadowTicket(
+    ApplyView& view,
+    AccountID const& acc,
+    std::uint32_t ticket,
+    uint256 const& txid)
 {
     auto const k = keylet::shadowTicket(acc, ticket);
     auto const st = view.peek(k);
-    if (!st)
+    if (!st || (*st)[sfTransactionHash] != txid)
         return false;
     auto const sle = view.peek(keylet::account(acc));
     if (!sle ||
@@ -618,7 +624,9 @@ Export::createExport(
         inner.getFieldAmount(sfFee) == beast::zero)
         inner.setFieldAmount(
             sfFee,
-            xrplBaseFee * (list->getFieldArray(sfSignerEntries).size() + 1));
+            xrplBaseFee *
+                static_cast<std::int64_t>(
+                    list->getFieldArray(sfSignerEntries).size() + 1));
 
     auto const t = exportedTx(inner, owner, nid);
     if (!t)
@@ -711,7 +719,8 @@ Export::doApply()
             auto const ticket = inner[~sfTicketSequence];
             if (acc && ticket)
             {
-                if (eraseShadowTicket(view, owner, *ticket))
+                if (eraseShadowTicket(
+                        view, owner, *ticket, (*sle)[sfTransactionHash]))
                 {
                     auto tickets = ExportTickets::load(*acc);
                     tickets.insert(*ticket);

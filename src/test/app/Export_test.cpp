@@ -735,15 +735,16 @@ class Export_test : public beast::unit_test::suite
 
         // one that names its hook and gathered nothing closes below quorum:
         // deleted all the same, the hook is called back (what == 1), and its
-        // ticket goes back to the pool with its shadow ticket gone
+        // ticket goes back to the pool with its shadow ticket gone. Applying
+        // it leaves the shadow ticket as ttEXPORT would; a copy pending since
+        // createdOld is what closes now.
         auto const lonely = payment(alice.id(), 30, 9, nid);
+        BEAST_EXPECT(
+            applyExport(env, view, exportTx(env, alice.id(), lonely)) ==
+            tesSUCCESS);
+        BEAST_EXPECT(view.exists(keylet::shadowTicket(alice.id(), 9)));
         auto const kLonely =
             pending(view, alice.id(), lonely, createdOld, entries, uint256{3});
-        {
-            auto const acc = view.peek(keylet::account(alice.id()));
-            ExportTickets{}.store(*acc);
-            view.update(acc);
-        }
         BEAST_EXPECT(Export::accept(env.app(), view, env.journal));
         BEAST_EXPECT(!view.exists(kLonely));
         BEAST_EXPECT(view.exists(k));
@@ -751,6 +752,19 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             ExportTickets::load(*view.read(keylet::account(alice.id())))
                 .contains(9));
+
+        // but not when another export has since taken the ticket over: the
+        // shadow ticket names that one, so it stays and the pool is unchanged
+        auto const later = payment(alice.id(), 31, 9, nid);
+        BEAST_EXPECT(
+            applyExport(env, view, exportTx(env, alice.id(), later)) ==
+            tesSUCCESS);
+        auto const kStale =
+            pending(view, alice.id(), lonely, createdOld - 1, entries);
+        BEAST_EXPECT(Export::accept(env.app(), view, env.journal));
+        BEAST_EXPECT(!view.exists(kStale));
+        auto const st = view.read(keylet::shadowTicket(alice.id(), 9));
+        BEAST_EXPECT(st && (*st)[sfTransactionHash] == txid(later));
     }
 
     // a manifest for `master`, delegating to `signing`

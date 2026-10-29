@@ -852,8 +852,8 @@ HookAPI::emit(Slice const& txBlob) const
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
 HookAPI::xport(Slice const& txBlob) const
 {
-    auto const& view = hookCtx.applyCtx.view();
     Serializer s;
+    bool needsTicket = false;
     try
     {
         SerialIter sit{txBlob};
@@ -869,13 +869,7 @@ HookAPI::xport(Slice const& txBlob) const
         // Fee 0 is filled in from the signer count when the export applies
         if (!inner.isFieldPresent(sfFee))
             inner.setFieldAmount(sfFee, XRPAmount{0});
-        // so is the ticket, from the pool: tell the hook now if it is empty
-        if (!inner.isFieldPresent(sfTicketSequence))
-        {
-            auto const acc = view.read(keylet::account(hookCtx.result.account));
-            if (!acc || ExportTickets::load(*acc).empty())
-                return Unexpected(NO_TICKET);
-        }
+        needsTicket = !inner.isFieldPresent(sfTicketSequence);
         STObject outer{sfGeneric};
         outer[sfTransactionType] = static_cast<std::uint16_t>(ttEXPORT);
         outer.emplace_back(std::move(inner));
@@ -890,6 +884,16 @@ HookAPI::xport(Slice const& txBlob) const
     auto const blob = prepare(s.slice());
     if (!blob)
         return Unexpected(blob.error());
+
+    // The ticket is filled in from the pool when the export applies: tell the
+    // hook now if there is none to fill in with.
+    if (needsTicket)
+    {
+        auto const acc = hookCtx.applyCtx.view().read(
+            keylet::account(hookCtx.result.account));
+        if (!acc || ExportTickets::load(*acc).empty())
+            return Unexpected(NO_TICKET);
+    }
     return emit(makeSlice(*blob));
 }
 

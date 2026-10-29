@@ -3104,7 +3104,7 @@ private:
         pass();
     }
 
-    // Export, ExportSign, ExportFinal
+    // Export, ExportSign, ExportFinal, ExportAuto
     // No TSHs: the exporting hook learns the outcome of its exports through
     // cbak, not hook(). See getTransactionalStakeHolders and Export_test.
 
@@ -3130,6 +3130,15 @@ private:
     testExportFinalTSH(FeatureBitset features)
     {
         testcase("export final tsh");
+
+        // pseudo transaction
+        pass();
+    }
+
+    void
+    testExportAutoTSH(FeatureBitset features)
+    {
+        testcase("export auto tsh");
 
         // pseudo transaction
         pass();

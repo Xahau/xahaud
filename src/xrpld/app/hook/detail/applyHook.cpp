@@ -2754,7 +2754,7 @@ DEFINE_HOOK_FUNCTION(int64_t, xport_tickets)
     auto const res = api.xport_tickets();
     if (!res)
         return res.error();
-    return static_cast<int64_t>(*res);
+    return res.value();
 
     HOOK_TEARDOWN();
 }

@@ -650,7 +650,7 @@ private:
             submit(blob);
             auto const st =
                 keylet::shadowTicket((*sle)[sfOwner], in[sfTicketSequence]);
-            held_[st.key] = {st, std::move(blob)};
+            held_.insert_or_assign(st.key, std::pair{st, std::move(blob)});
         }
 
         for (auto it = held_.begin(); it != held_.end();)
