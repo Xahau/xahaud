@@ -2325,6 +2325,12 @@ public:
             HSFEE);
         env.close();
 
+        // v2: the costs of every hook that runs are summed, then rounded
+        auto const hookCost = [&](uint256 const& hash) {
+            return env.le(keylet::hookDefinition(hash))
+                ->getFieldU64(sfHookCost);
+        };
+
         //
         // Test Strong
         //
@@ -2335,8 +2341,10 @@ public:
                 calculateBaseFee(*env.current(), *env.jt(jv).stx);
 
             if (env.current()->rules().enabled(featureHookFeeV2))
-                // TODO: add test for hook fee v2
-                BEAST_EXPECT(expectedFee > env.current()->fees().base);
+                BEAST_EXPECT(
+                    expectedFee ==
+                    env.current()->fees().base +
+                        hook::hookCostToFee(hookCost(accept2_hash)));
             else
                 BEAST_EXPECT(expectedFee == drops(19));
             env(jv,
@@ -2358,8 +2366,10 @@ public:
             auto expectedFee =
                 calculateBaseFee(*env.current(), *env.jt(jv).stx);
             if (env.current()->rules().enabled(featureHookFeeV2))
-                // TODO: add test for hook fee v2
-                BEAST_EXPECT(expectedFee > env.current()->fees().base);
+                BEAST_EXPECT(
+                    expectedFee ==
+                    env.current()->fees().base +
+                        hook::hookCostToFee(hookCost(accept2_hash)));
             else
                 BEAST_EXPECT(expectedFee == drops(19));
             env(jv, M("Call named hook with the wrong hook name"), HSFEE);
@@ -2379,8 +2389,11 @@ public:
             auto expectedFee =
                 calculateBaseFee(*env.current(), *env.jt(jv).stx);
             if (env.current()->rules().enabled(featureHookFeeV2))
-                // TODO: add test for hook fee v2
-                BEAST_EXPECT(expectedFee > env.current()->fees().base);
+                BEAST_EXPECT(
+                    expectedFee ==
+                    env.current()->fees().base +
+                        hook::hookCostToFee(
+                            hookCost(accept_hash) + hookCost(accept2_hash)));
             else
                 BEAST_EXPECT(expectedFee == drops(28));
             env(jv, M("Call named hook with the correct hook name"), HSFEE);
@@ -5330,6 +5343,7 @@ public:
             extern int64_t etxn_details (uint32_t, uint32_t);
             extern int64_t etxn_reserve(uint32_t);
             extern int64_t hook_hash (uint32_t, uint32_t, int32_t);
+            extern int64_t otxn_id (uint32_t, uint32_t, uint32_t);
             #define TOO_SMALL -4
             #define OUT_OF_BOUNDS -1
             #define PREREQUISITE_NOT_MET -9
@@ -5352,21 +5366,15 @@ public:
                 etxn_reserve(1);
                 ASSERT(etxn_details((uint32_t)det, 116) == 116);
 
+                // EmitGeneration, EmitBurden
                 uint8_t expected1[16] = {
                     0xEDU, 0x20U, 0x2EU, 0x00U, 0x00U, 0x00U, 0x01U, 0x3DU, 0x00U, 0x00U,
-                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x5BU, 0xBCU, 0x09U, 0x95U,
-                    0xFDU, 0x03U, 0x0FU, 0xF1U, 0x85U, 0xF4U, 0xECU, 0xACU, 0x94U, 0xDBU,
-                    0x02U, 0x19U, 0x26U, 0xFEU, 0x58U, 0xD4U, 0x8DU, 0x48U, 0x21U, 0xCCU,
-                    0x82U, 0x2EU, 0x4AU, 0x6AU, 0xC9U, 0xC8U, 0xC6U, 0x7CU, 0x88U
+                    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U
                 };
                 // 0x5B
-                // EmitParentTxnID 32bytes
-                uint8_t expected_emit_parent_txn_id[32] = {
-                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
-                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
-                    0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU, 0xFFU,
-                    0xFFU, 0xFFU
-                };
+                // EmitParentTxnID 32bytes: the id of the originating txn
+                uint8_t expected_emit_parent_txn_id[32];
+                ASSERT(otxn_id((uint32_t)expected_emit_parent_txn_id, 32, 0) == 32);
                 // 0x5CU
                 // EmitNonce 32bytes
                 uint8_t expected_emit_nonce[32] = {
@@ -5391,9 +5399,8 @@ public:
                 for (int i = 0; GUARD(16), i < sizeof(expected1); ++i)
                     ASSERT(det[i] == expected1[i]);
                 ASSERT(det[16] == 0x5BU);
-                // TODO: need to test EmitParentTxnID
-                // for (int i = 0; GUARD(32), i < sizeof(expected_emit_parent_txn_id); ++i)
-                //     ASSERT(det[17 + i] == expected_emit_parent_txn_id[i]);
+                for (int i = 0; GUARD(32), i < sizeof(expected_emit_parent_txn_id); ++i)
+                    ASSERT(det[17 + i] == expected_emit_parent_txn_id[i]);
                 ASSERT(det[49] == 0x5CU);
                 // TODO: need to test EmitNonce
                 // for (int i = 0; GUARD(32), i < sizeof(expected_emit_nonce); ++i)
@@ -5413,8 +5420,8 @@ public:
             M("set etxn_details"),
             HSFEE);
         env.close();
-        EXPECT_HOOK_FEE(hook, 1524);
-        EXPECT_HOOK_COST(hook, 13774, 1378);
+        EXPECT_HOOK_FEE(hook, 2475);
+        EXPECT_HOOK_COST(hook, 21724, 2173);
 
         // invoke the hook
         env(pay(bob, alice, XRP(1)), M("test etxn_details"), fee(XRP(1)));
@@ -8187,7 +8194,7 @@ public:
                 HSFEE);
             env.close();
             EXPECT_HOOK_FEE(hook2, 62);
-            EXPECT_HOOK_COST(hook, 862, 87);
+            EXPECT_HOOK_COST(hook2, 862, 87);
 
             // invoke the hook
             env(pay(bob, alice, XRP(1)), M("test hook_hash 2"), fee(XRP(1)));

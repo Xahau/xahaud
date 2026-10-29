@@ -447,7 +447,9 @@ check_guard(
                 // charge them to the loop block itself, where the loop
                 // multiplier applies. instruction_count is deliberately left
                 // untouched: it feeds the 0xFFFF limit and the V1 fee.
-                current->execution_cost += 3 + hook_api::api_call_cost;
+                current->execution_cost +=
+                    hook_api::loop_head_guard_instructions +
+                    hook_api::api_call_cost;
             }
             continue;
         }
