@@ -125,6 +125,61 @@ Import::getInnerTxn(
     }
 }
 
+// Is the inner transaction signed with the keys that signed the outer one?
+// Only the account itself (or its signers) may bring its own history here.
+static NotTEC
+sameKeying(STTx const& tx, STTx const& inner_, beast::Journal j)
+{
+    auto outer = tx.getSigningPubKey();
+    auto inner = inner_.getSigningPubKey();
+
+    if (outer.empty() && inner.empty())
+    {
+        // check signer list
+        bool const outerHasSigners = tx.isFieldPresent(sfSigners);
+        bool const innerHasSigners = inner_.isFieldPresent(sfSigners);
+
+        if (outerHasSigners && innerHasSigners)
+        {
+            auto const& outerSigners = tx.getFieldArray(sfSigners);
+            auto const& innerSigners = inner_.getFieldArray(sfSigners);
+
+            bool ok = outerSigners.size() == innerSigners.size() &&
+                innerSigners.size() > 1;
+            for (uint64_t i = 0; ok && i < outerSigners.size(); ++i)
+            {
+                if (outerSigners[i].getAccountID(sfAccount) !=
+                        innerSigners[i].getAccountID(sfAccount) ||
+                    outerSigners[i].getFieldVL(sfSigningPubKey) !=
+                        innerSigners[i].getFieldVL(sfSigningPubKey))
+                    ok = false;
+            }
+
+            if (!ok)
+            {
+                JLOG(j.warn()) << "Import: outer and inner txns were "
+                                  "(multi) signed with different keys. "
+                               << tx.getTransactionID();
+                return temMALFORMED;
+            }
+        }
+        else
+        {
+            JLOG(j.warn()) << "Import: outer or inner txn was missing signers. "
+                           << tx.getTransactionID();
+            return temMALFORMED;
+        }
+    }
+    else if (outer != inner)
+    {
+        JLOG(j.warn()) << "Import: outer and inner txns were signed "
+                          "with different keys. "
+                       << tx.getTransactionID();
+        return temMALFORMED;
+    }
+    return tesSUCCESS;
+}
+
 NotTEC
 Import::preflight(PreflightContext const& ctx)
 {
@@ -208,16 +263,18 @@ Import::preflight(PreflightContext const& ctx)
     // A first Import also has Sequence 0 (there is no account yet), so the
     // fee of an unticketed one is checked in preclaim, where the account is
     // known; a ticketed XPOP can only come back to an existing account.
-    if (stpTrans->isFieldPresent(sfTicketSequence))
+    bool const shadow = stpTrans->isFieldPresent(sfTicketSequence);
+    if (shadow &&
+        (!ctx.rules.enabled(featureExport) || !isLoopback(ctx.rules, tx) ||
+         tx[sfFee] != beast::zero))
     {
-        if (!ctx.rules.enabled(featureExport) || !isLoopback(ctx.rules, tx) ||
-            tx[sfFee] != beast::zero)
-        {
-            JLOG(ctx.j.warn()) << "Import: a ticketed XPOP needs Sequence and "
-                                  "Fee 0.";
-            return temMALFORMED;
-        }
+        JLOG(ctx.j.warn()) << "Import: a ticketed XPOP needs Sequence and "
+                              "Fee 0.";
+        return temMALFORMED;
     }
+    // Sequence 0 without a ticket is a first Import or a sync import; which
+    // one only preclaim can tell, so the checks that differ wait for it.
+    bool const deferred = !shadow && isLoopback(ctx.rules, tx);
 
     // check if txn is emitted or a psuedo
     if (isPseudoTx(*stpTrans) || stpTrans->isFieldPresent(sfEmitDetails))
@@ -279,7 +336,7 @@ Import::preflight(PreflightContext const& ctx)
     // ensure inner txn is destined for the network we're on, this is according
     // to OperationLimit field (an exporter's activity there is bound here by
     // the ledger's own records, so a loopback Import does not need it)
-    if (!stpTrans->isFieldPresent(sfOperationLimit) && !loopback)
+    if (!stpTrans->isFieldPresent(sfOperationLimit) && !shadow && !deferred)
     {
         JLOG(ctx.j.warn()) << "Import: OperationLimit missing from inner xpop "
                               "txn. outer txid: "
@@ -297,57 +354,12 @@ Import::preflight(PreflightContext const& ctx)
     }
 
     // check if the inner transaction is signed using the same keying as the
-    // outer txn
-    if (!loopback)
+    // outer txn (a first Import, which also has Sequence 0, is checked in
+    // preclaim, where it is told apart from a loopback)
+    if (!shadow && !deferred)
     {
-        auto outer = tx.getSigningPubKey();
-        auto inner = stpTrans->getSigningPubKey();
-
-        if (outer.empty() && inner.empty())
-        {
-            // check signer list
-            bool const outerHasSigners = tx.isFieldPresent(sfSigners);
-            bool const innerHasSigners = stpTrans->isFieldPresent(sfSigners);
-
-            if (outerHasSigners && innerHasSigners)
-            {
-                auto const& outerSigners = tx.getFieldArray(sfSigners);
-                auto const& innerSigners = stpTrans->getFieldArray(sfSigners);
-
-                bool ok = outerSigners.size() == innerSigners.size() &&
-                    innerSigners.size() > 1;
-                for (uint64_t i = 0; ok && i < outerSigners.size(); ++i)
-                {
-                    if (outerSigners[i].getAccountID(sfAccount) !=
-                            innerSigners[i].getAccountID(sfAccount) ||
-                        outerSigners[i].getFieldVL(sfSigningPubKey) !=
-                            innerSigners[i].getFieldVL(sfSigningPubKey))
-                        ok = false;
-                }
-
-                if (!ok)
-                {
-                    JLOG(ctx.j.warn()) << "Import: outer and inner txns were "
-                                          "(multi) signed with different keys. "
-                                       << tx.getTransactionID();
-                    return temMALFORMED;
-                }
-            }
-            else
-            {
-                JLOG(ctx.j.warn())
-                    << "Import: outer or inner txn was missing signers. "
-                    << tx.getTransactionID();
-                return temMALFORMED;
-            }
-        }
-        else if (outer != inner)
-        {
-            JLOG(ctx.j.warn()) << "Import: outer and inner txns were signed "
-                                  "with different keys. "
-                               << tx.getTransactionID();
-            return temMALFORMED;
-        }
+        if (auto const r = sameKeying(tx, *stpTrans, ctx.j); !isTesSuccess(r))
+            return r;
     }
 
     // check inner txns signature
@@ -1061,6 +1073,21 @@ Import::preclaim(PreclaimContext const& ctx)
     // when importing for the first time the fee must be zero
     if (!sle && ctx.tx.getFieldAmount(sfFee) != beast::zero)
         return temBAD_FEE;
+
+    // and what preflight left to here, not knowing the account was new
+    if (!sle && isLoopback(ctx.view.rules(), ctx.tx))
+    {
+        if (!stpTrans->isFieldPresent(sfOperationLimit))
+        {
+            JLOG(ctx.j.warn()) << "Import: OperationLimit missing from inner "
+                                  "xpop txn. outer txid: "
+                               << ctx.tx.getTransactionID();
+            return temMALFORMED;
+        }
+        if (auto const r = sameKeying(ctx.tx, *stpTrans, ctx.j);
+            !isTesSuccess(r))
+            return r;
+    }
 
     auto const vlInfo = getVLInfo(*xpop, ctx.j);
 
