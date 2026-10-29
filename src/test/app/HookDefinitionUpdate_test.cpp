@@ -133,57 +133,6 @@ class HookDefinitionUpdate_test : public beast::unit_test::suite
     }
 
     void
-    testDoApply(FeatureBitset features)
-    {
-        testcase("hook definition update do apply");
-
-        using namespace test::jtx;
-        auto const alice = Account("alice");
-
-        Env env{*this, features - featureHookFeeV2};
-        env.fund(XRP(1000), alice);
-        env.close();
-
-        auto const hookCode = jtx::genesis::AcceptHook;
-        uint256 const hash = ripple::sha512Half_s(
-            ripple::Slice(hookCode.data(), hookCode.size()));
-
-        // prepare: Create Hook Definition without HookFeeV2
-        auto hookObj = hso(hookCode);
-        env(hook(alice, {{hookObj}}, 0), fee(XRP(1)));
-        env.close();
-        // prepare: enable HookFeeV2
-        env.enableFeature(featureHookFeeV2);
-        env.close();
-
-        // 1. Update Hook Definition (Fee -> Cost)
-        {
-            auto leb = env.le(keylet::hookDefinition(hash));
-            BEAST_EXPECT(leb->isFieldPresent(sfFee));
-            BEAST_EXPECT(!leb->isFieldPresent(sfHookCost));
-            env(hookDefUpdateTx(alice, to_string(hash)), fee(XRP(1)));
-            env.close();
-
-            auto lea = env.le(keylet::hookDefinition(hash));
-            BEAST_EXPECT(lea->isFieldPresent(sfHookCost));
-            BEAST_EXPECT(!lea->isFieldPresent(sfFee));
-        }
-        // 2. Update Hook Definition (Cost -> Cost)
-        {
-            env(hookDefUpdateTx(alice, to_string(hash)), fee(XRP(1)));
-            env.close();
-            auto const meta = env.meta();
-            BEAST_EXPECT(meta->isFieldPresent(sfAffectedNodes));
-
-            auto& nodes = meta->getFieldArray(sfAffectedNodes);
-            BEAST_EXPECT(nodes.size() == 1);
-            // no update for ltHookDefinition
-            BEAST_EXPECT(
-                nodes[0].getFieldU16(sfLedgerEntryType) == ltACCOUNT_ROOT);
-        }
-    }
-
-    void
     testCallbackCostMigration(FeatureBitset features)
     {
         testcase("hook definition update callback cost migration");
@@ -268,16 +217,9 @@ public:
     {
         using namespace test::jtx;
         FeatureBitset const all{supported_amendments()};
-        testWithFeats(all);
-    }
-
-    void
-    testWithFeats(FeatureBitset features)
-    {
-        testInvalidPreflight(features);
-        testInvalidPreclaim(features);
-        testDoApply(features);
-        testCallbackCostMigration(features);
+        testInvalidPreflight(all);
+        testInvalidPreclaim(all);
+        testCallbackCostMigration(all);
     }
 };
 

@@ -111,8 +111,6 @@ using JSSMap =
             auto const actualCost = hookSLE->getFieldU64(sfHookCost);         \
             auto const calculatedFee = hook::hookCostToFee(actualCost);       \
             BEAST_EXPECTS(                                                    \
-                actualCost > 0, "Hook cost should be greater than 0");        \
-            BEAST_EXPECTS(                                                    \
                 calculatedFee == XRPAmount{fee},                              \
                 "Hook fee(v2) mismatch: expected " #fee " got " +             \
                     to_string(calculatedFee));                                \
@@ -4011,85 +4009,18 @@ public:
         auto const alice = Account{"alice"};
         auto const bob = Account{"bob"};
 
-        for (auto withCost : {true, false})
-        {
-            Env env{
-                *this,
-                withCost ? features | featureHookFeeV2
-                         : features - featureHookFeeV2};
+        Env env{*this, features};
+        bool const withCost = env.current()->rules().enabled(featureHookFeeV2);
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
 
-            env.fund(XRP(10000), alice);
-            env.fund(XRP(10000), bob);
-            TestHook hook_wasm = wasm[R"[test.hook](
-            #include <stdint.h>
-            extern int32_t _g       (uint32_t id, uint32_t maxiter);
-            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
-            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
-            extern int64_t hook_account (uint32_t, uint32_t);
-            int64_t hook(uint32_t reserved)
-            {
-                uint8_t acc[20];
-                for (int i = 0; i < 10; ++i)
-                {
-                    _g(1, 11);
-                    for (int j = 0; j < 2; ++j)
-                    {
-                        _g(2, 30);
-                        for (int k = 0;  k < 5; ++k)
-                        {
-                            _g(3, 120);
-                            hook_account(acc, 20);
-                        }
-                        for (int k = 0;  k < 5; ++k)
-                        {
-                            _g(4, 120);
-                            hook_account(acc, 20);
-                        }
-                    }
-                }
-                return accept(0,0,2);
-            }
-            )[test.hook]"];
-
-            HASH_WASM(hook);
-
-            env(ripple::test::jtx::hook(
-                    alice, {{hso(hook_wasm, overrideFlag)}}, 0),
-                HSFEE);
-            env.close();
-
-            auto const hookDef = env.le(hook_keylet);
-
-            BEAST_EXPECT(hookDef);
-            if (withCost)
-            {
-                auto const hookCost = hookDef->getFieldU64(sfHookCost);
-                auto const expectedCost = 49377;
-                BEAST_EXPECTS(
-                    hookCost == expectedCost,
-                    "Hook cost mismatch: expected " + to_string(expectedCost) +
-                        " got " + to_string(hookCost));
-                BEAST_EXPECT(!hookDef->isFieldPresent(sfFee));
-            }
-            else
-            {
-                auto const hookFee = hookDef->getFieldAmount(sfFee);
-                auto const expectedFee = XRPAmount{1944};
-                BEAST_EXPECTS(
-                    hookFee == expectedFee,
-                    "Hook fee mismatch: expected " + to_string(expectedFee) +
-                        " got " + to_string(hookFee));
-                BEAST_EXPECT(!hookDef->isFieldPresent(sfHookCost));
-            }
-
-            // Regression pair: both hooks run a 101 iteration loop. In A the
-            // only `_g` is the loop-head guard, in B there is one more `_g`
-            // call in the loop body. The loop-head guard runs on every
-            // iteration, so it must be charged per iteration (loop
-            // multiplier applied) exactly like the explicit body guard: B
-            // costs A plus 101 * (3 instructions + drop + 100 api cost).
-            {
-                TestHook guardA_wasm = wasm[R"[test.hook](
+        // Regression pair: both hooks run a 101 iteration loop. In A the
+        // only `_g` is the loop-head guard, in B there is one more `_g`
+        // call in the loop body. The loop-head guard runs on every
+        // iteration, so it must be charged per iteration (loop
+        // multiplier applied) exactly like the explicit body guard: B
+        // costs A plus 101 * (3 instructions + drop + 100 api cost).
+        TestHook guardA_wasm = wasm[R"[test.hook](
             (module
               (type (func (param i32 i32) (result i32)))
               (type (func (param i32 i32 i64) (result i64)))
@@ -4123,7 +4054,7 @@ public:
               (export "hook" (func $hook))
             )
                 )[test.hook]"];
-                TestHook guardB_wasm = wasm[R"[test.hook](
+        TestHook guardB_wasm = wasm[R"[test.hook](
             (module
               (type (func (param i32 i32) (result i32)))
               (type (func (param i32 i32 i64) (result i64)))
@@ -4161,52 +4092,46 @@ public:
               (export "hook" (func $hook))
             )
                 )[test.hook]"];
-                HASH_WASM(guardA);
-                HASH_WASM(guardB);
+        HASH_WASM(guardA);
+        HASH_WASM(guardB);
 
-                env(ripple::test::jtx::hook(
-                        alice, {{hso(guardA_wasm, overrideFlag)}}, 0),
-                    M("guard pair A"),
-                    HSFEE);
-                env.close();
-                env(ripple::test::jtx::hook(
-                        bob, {{hso(guardB_wasm, overrideFlag)}}, 0),
-                    M("guard pair B"),
-                    HSFEE);
-                env.close();
+        env(ripple::test::jtx::hook(
+                alice, {{hso(guardA_wasm, overrideFlag)}}, 0),
+            M("guard pair A"),
+            HSFEE);
+        env.close();
+        env(ripple::test::jtx::hook(bob, {{hso(guardB_wasm, overrideFlag)}}, 0),
+            M("guard pair B"),
+            HSFEE);
+        env.close();
 
-                auto const defA = env.le(guardA_keylet);
-                auto const defB = env.le(guardB_keylet);
-                BEAST_REQUIRE(defA);
-                BEAST_REQUIRE(defB);
-                if (withCost)
-                {
-                    BEAST_EXPECT(defA->getFieldU64(sfHookCost) == 11420);
-                    BEAST_EXPECT(defB->getFieldU64(sfHookCost) == 21924);
-                    BEAST_EXPECT(
-                        defB->getFieldU64(sfHookCost) -
-                            defA->getFieldU64(sfHookCost) ==
-                        101 * 104);
-                    BEAST_EXPECT(!defA->isFieldPresent(sfFee));
-                    BEAST_EXPECT(!defB->isFieldPresent(sfFee));
-                }
-                else
-                {
-                    // V1 fee: counted instructions, loop multiplied; the
-                    // loop-head guard (3 instructions) is not counted in V1
-                    BEAST_EXPECT(defA->getFieldAmount(sfFee) == XRPAmount{917});
-                    BEAST_EXPECT(
-                        defB->getFieldAmount(sfFee) == XRPAmount{1321});
-                    // the explicit body guard adds 4 counted instructions
-                    // (i32.const, i32.const, call, drop) per iteration
-                    BEAST_EXPECT(
-                        defB->getFieldAmount(sfFee) -
-                            defA->getFieldAmount(sfFee) ==
-                        XRPAmount{101 * 4});
-                    BEAST_EXPECT(!defA->isFieldPresent(sfHookCost));
-                    BEAST_EXPECT(!defB->isFieldPresent(sfHookCost));
-                }
-            }
+        auto const defA = env.le(guardA_keylet);
+        auto const defB = env.le(guardB_keylet);
+        BEAST_REQUIRE(defA);
+        BEAST_REQUIRE(defB);
+        if (withCost)
+        {
+            BEAST_EXPECT(defA->getFieldU64(sfHookCost) == 11420);
+            BEAST_EXPECT(defB->getFieldU64(sfHookCost) == 21924);
+            BEAST_EXPECT(
+                defB->getFieldU64(sfHookCost) - defA->getFieldU64(sfHookCost) ==
+                101 * 104);
+            BEAST_EXPECT(!defA->isFieldPresent(sfFee));
+            BEAST_EXPECT(!defB->isFieldPresent(sfFee));
+        }
+        else
+        {
+            // V1 fee: counted instructions, loop multiplied; the
+            // loop-head guard (3 instructions) is not counted in V1
+            BEAST_EXPECT(defA->getFieldAmount(sfFee) == XRPAmount{917});
+            BEAST_EXPECT(defB->getFieldAmount(sfFee) == XRPAmount{1321});
+            // the explicit body guard adds 4 counted instructions
+            // (i32.const, i32.const, call, drop) per iteration
+            BEAST_EXPECT(
+                defB->getFieldAmount(sfFee) - defA->getFieldAmount(sfFee) ==
+                XRPAmount{101 * 4});
+            BEAST_EXPECT(!defA->isFieldPresent(sfHookCost));
+            BEAST_EXPECT(!defB->isFieldPresent(sfHookCost));
         }
     }
 

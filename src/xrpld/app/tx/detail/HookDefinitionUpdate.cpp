@@ -69,9 +69,6 @@ HookDefinitionUpdate::doApply()
 
     Blob hook = hookDefSle->getFieldVL(sfCreateCode);
 
-    if (!tx.isFlag(tfValidateGuards))
-        return tecINTERNAL;  // LCOV_EXCL_LINE
-
     auto const result =
         hook::doValidateGuards(tx, hook, view.rules(), ctx_.journal);
     if (!result)
@@ -82,29 +79,20 @@ HookDefinitionUpdate::doApply()
 
     auto const [hookCost, callbackCost] = *result;
 
-    {
-        // if result is same as old, don't update sle
-        if (hookCost == hookDefSle->getFieldU64(sfHookCost) &&
-            callbackCost == hookDefSle->getFieldU64(sfHookCallbackCost))
-            return tesSUCCESS;
-    }
+    // if result is same as old, don't update sle
+    if (hookCost == hookDefSle->getFieldU64(sfHookCost) &&
+        callbackCost == hookDefSle->getFieldU64(sfHookCallbackCost))
+        return tesSUCCESS;
 
-    {
-        // set new cost fields
-        hookDefSle->setFieldU64(sfHookCost, hookCost);
-        if (callbackCost > 0)
-            hookDefSle->setFieldU64(sfHookCallbackCost, callbackCost);
-        else if (hookDefSle->isFieldPresent(sfHookCallbackCost))
-            hookDefSle->makeFieldAbsent(sfHookCallbackCost);
-    }
+    hookDefSle->setFieldU64(sfHookCost, hookCost);
+    if (callbackCost > 0)
+        hookDefSle->setFieldU64(sfHookCallbackCost, callbackCost);
+    else
+        hookDefSle->makeFieldAbsent(sfHookCallbackCost);
 
-    {
-        // remove old fee fields
-        if (hookDefSle->isFieldPresent(sfFee))
-            hookDefSle->makeFieldAbsent(sfFee);
-        if (hookDefSle->isFieldPresent(sfHookCallbackFee))
-            hookDefSle->makeFieldAbsent(sfHookCallbackFee);
-    }
+    // remove old fee fields
+    hookDefSle->makeFieldAbsent(sfFee);
+    hookDefSle->makeFieldAbsent(sfHookCallbackFee);
 
     view.update(hookDefSle);
 
@@ -119,9 +107,8 @@ HookDefinitionUpdate::calculateBaseFee(ReadView const& view, STTx const& tx)
     auto const& hookDefSle =
         view.read(keylet::hookDefinition(tx.getFieldH256(sfHookHash)));
 
-    if (!hookDefSle || !hookDefSle->isFieldPresent(sfCreateCode))
-        // if hook definition is not present, doValidateGuards will not call, so
-        // no additional fee is needed
+    if (!hookDefSle)
+        // no hook definition, no guard validation, no additional fee
         return baseFee;
 
     auto const hookCodeSize = hookDefSle->getFieldVL(sfCreateCode).size();

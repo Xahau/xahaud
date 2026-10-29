@@ -1828,11 +1828,9 @@ SetHook::setHook()
                                     "SetHook::hsoCREATE : should never happen");
                         }
 
-                        auto const instrCounts =
-                            std::get<std::pair<uint64_t, uint64_t>>(valid);
-
+                        // otherwise assign instruction counts
                         std::tie(maxInstrCountHook, maxInstrCountCbak) =
-                            instrCounts;
+                            std::get<std::pair<uint64_t, uint64_t>>(valid);
                     }
                     catch (std::exception& e)
                     {
