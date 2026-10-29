@@ -42,18 +42,39 @@ class ValidatorKeys;
     A validator whose account does not exist yet gets one, with
     validatorFundingDrops, from the next ttGENESIS_MINT.
 
-    Signer list. sfExportSignerList on an account is the signer list it holds
-    on the other network, as last proven by an Import of its SignerListSet.
-    Hooks never need to track it.
+    Exporters. An account becomes an exporter (lsfExporter, listed in
+    keylet::exporterDir()) when an Import it signs records its signer list on
+    the other network (sfExportSignerList): the one Import an operator sends
+    by hand. From then on the ledger keeps three things in step for it, and a
+    hook needs to track none of them:
 
-    1. A hook calls xport() (or emits a ttEXPORT) with the transaction.
-       Applying it copies the account's sfExportSignerList into a new
-       ltEXPORTED_TXN and, if the transaction uses a ticket and is bound back
-       here (OperationLimit == NETWORK_ID), an ltSHADOW_TICKET: the XPOP of
-       whichever transaction uses that ticket there can be imported once.
-       Exported SignerListSets must be so bound, so the list here cannot go
-       stale, and one without SignerEntries is completed with the current
-       export keys at an 80% quorum. The ttEXPORT pays for that Import too.
+      - sfExportSignerList, as last proven by an Import of its SignerListSet.
+      - sfExportTickets, the tickets it holds unused there, as proven by
+        Imports of its TicketCreates (ExportTickets below). Every export uses
+        one. Below ticketLow the ledger exports a TicketCreate for ticketBatch
+        more (ttEXPORT_AUTO, paid by the exporter); sfExportTicketPending
+        holds that export's ticket until it returns.
+      - sfExportKeysSeq, the UNLReport.ExportKeysSeq its list was built for.
+        When the UNL's keys change the ledger exports a SignerListSet without
+        entries (ttEXPORT_AUTO); its old list signs, so keys rotate without
+        lockout, and the Import that brings it back records the new list.
+
+    Servers with [xrpl_relay] watch every exporter on XRPL and Import, free
+    of charge, each transaction of theirs that changes any of the three: the
+    XRPL fee it burned pays for the Import (isSyncImport). Such an Import
+    records; it never installs keys here, mints nothing, consumes no sequence
+    and runs the exporter's hooks only as a collect call (hsfCOLLECT on the
+    hook, lsfTshCollect on the account). asfExporter clears the flag.
+
+    1. A hook calls xport() with the transaction: TransactionType and its
+       own fields. Account, SigningPubKey, Sequence (0) and OperationLimit
+       are filled in at emission; TicketSequence (the lowest ticket of the
+       smallest range in sfExportTickets) and Fee ((signers + 1) x
+       xrplBaseFee) when the ttEXPORT applies, unless the hook set them.
+       Applying it copies sfExportSignerList into a new ltEXPORTED_TXN and
+       writes an ltSHADOW_TICKET: the XPOP of whichever transaction uses that
+       ticket there can be imported once, calling the hook back. A ticket is
+       never both pooled and shadowed.
     2. Every validator holding a listed export key applies a ttEXPORT_SIGN to
        its next open ledger. Each is proposed by one validator only, so it
        loses its first round, but not being a pseudo-txn it is retried into
@@ -63,23 +84,19 @@ class ValidatorKeys;
        sorted, so the object always holds a submittable transaction.
     3. `window` ledgers after creation every node injects ttEXPORT_FINAL,
        which deletes the object: the DeletedNode's FinalFields are the result.
+       Below quorum nothing was submitted: the ticket returns to the pool and
+       the shadow ticket goes, so an identical export draws the same ticket.
     4. The XPOP of the transaction that used the ticket there is imported
-       here by anyone (see isLoopback): free, consuming no sequence and
-       running none of the account's hooks, it consumes the shadow ticket.
+       here by anyone: free, consuming no sequence and running none of the
+       account's hooks, it consumes the shadow ticket.
 
     Callbacks. A hook hears of its export as it would of an emitted txn, by
     cbak, once: what == 2 when the Import of step 4 lands (xpop_slot() gives
-    the transaction there and its meta, which may be another export that used
-    the same ticket), or what == 1 if the export closes below quorum in step 3.
-    The latter is a prompt, not a verdict: identical content exported again
-    could still land, so the shadow ticket stays, and a definite outcome
-    needs the ticket used, by a retry or a no-op. An export that is not
-    bound back calls back as soon as the ttEXPORT applies, as does one that
-    fails. A transaction the other network rejects outright never comes
-    back, so no callback follows.
-
-    Servers with [xrpl_relay] submit exports that reach quorum to XRPL and
-    import their XPOPs back (see ExportRelay.cpp).
+    the transaction there and its meta, which may be another transaction that
+    used the same ticket), or what == 1 if the export closes below quorum in
+    step 3 or fails to apply. A transaction the other network rejects outright
+    never comes back, so no callback follows; its ticket is still there, and
+    relays keep resubmitting while it is.
 */
 class Export : public Transactor
 {
@@ -93,35 +110,29 @@ public:
     /** The most export keys kept on a validator's account */
     static constexpr std::size_t maxExportKeys = 16;
 
-    /** A tfCronExportRotation cron fires this long after each epoch begins,
-        plus up to rotationSpread more, fixed per account, so validators
-        offline at the boundary have rotated and exporters do not fan out at
-        once */
-    static constexpr std::uint32_t rotationSettle = 24 * 60 * 60;
-    static constexpr std::uint32_t rotationSpread = 24 * 60 * 60;
-
     /** A UNLReport validator whose account does not exist yet is created with
         this many drops by the next ttGENESIS_MINT after a flag ledger */
     static constexpr std::int64_t validatorFundingDrops = 100'000'000;
+
+    /** The ledger exports a TicketCreate for an exporter holding fewer unused
+        tickets than ticketLow, for ticketBatch more (XRPL allows 250 per
+        account, so an exporter never holds more than that) */
+    static constexpr std::uint32_t ticketLow = 10;
+    static constexpr std::uint32_t ticketBatch = 50;
+
+    /** The other network's reference fee: an exported transaction pays
+        (signers + 1) times this unless the hook set its Fee */
+    static constexpr XRPAmount xrplBaseFee{10};
+
+    /** Each exporter is considered for an automatic export once every this
+        many ledgers, at a ledger chosen by its account id, so the ledger does
+        not re-examine every exporter every ledger */
+    static constexpr std::uint32_t autoEvery = 16;
 
     static constexpr std::uint32_t
     rotationEpoch(std::uint32_t closeTime)
     {
         return closeTime / keyRotationPeriod;
-    }
-
-    /** When `account`'s tfCronExportRotation cron next fires after `now` */
-    static std::uint32_t
-    rotationCronTime(std::uint32_t now, AccountID const& account)
-    {
-        auto const a = account.data();
-        std::uint32_t const spread =
-            ((std::uint32_t(a[0]) << 24) | (std::uint32_t(a[1]) << 16) |
-             (std::uint32_t(a[2]) << 8) | std::uint32_t(a[3])) %
-            rotationSpread;
-        std::uint32_t const t =
-            rotationEpoch(now) * keyRotationPeriod + rotationSettle + spread;
-        return t > now ? t : t + keyRotationPeriod;
     }
 
     explicit Export(ApplyContext& ctx) : Transactor(ctx)
@@ -143,29 +154,116 @@ public:
     void
     preCompute() override
     {
-        // ttEXPORT_SIGN and ttEXPORT_FINAL have no account
+        // ttEXPORT_SIGN, ttEXPORT_FINAL and ttEXPORT_AUTO have no account
     }
 
-    /** Sign (if holding a listed export key) and finalize pending exports.
-        Called from TxQ::accept; returns true if the open view changed. */
+    /** Sign (if holding a listed export key) and finalize pending exports,
+        and export what exporters need. Called from TxQ::accept; returns true
+        if the open view changed. */
     static bool
     accept(Application& app, OpenView& view, beast::Journal j);
+
+private:
+    TER
+    createExport(
+        AccountID const& owner,
+        STObject inner,
+        std::optional<uint256> const& hook,
+        bool automatic);
 };
 
 using ExportSign = Export;
 using ExportFinal = Export;
+using ExportAuto = Export;
 
-/** Whether `tx` is an Import bringing an export back, on an account that
-    exists: Sequence 0 and no ticket. (A first Import also has Sequence 0,
-    but no account yet.) Its shadow ticket is its replay protection and the
-    export paid for it, so it consumes no sequence, pays no fee, and runs
-    none of the account's hooks: the exporting hook's cbak runs instead. */
+/** Whether `tx` is an Import by (not necessarily signed by) an existing
+    account that is free and uses no sequence: an export coming back, or a
+    sync import of an exporter's activity there. Its XRPL fee paid for it.
+    (A first Import also has Sequence 0, but no account yet.) */
 inline bool
 isLoopback(Rules const& rules, STTx const& tx)
 {
     return rules.enabled(featureExport) && tx.getTxnType() == ttIMPORT &&
         tx[sfSequence] == 0 && !tx.isFieldPresent(sfTicketSequence);
 }
+
+/** The tickets an exporter holds unused on the other network, as kept in
+    sfExportTickets: a VECTOR256 of six ranges per element, each a big-endian
+    uint32 first ticket and a uint8 count, packed from the front, the last 16
+    bits zero. Ranges are sorted, disjoint, non-adjacent (merged) and never
+    longer than 255; empty slots only at the tail; no empty elements. XRPL
+    allows 250 tickets per account, so the vector stays small however
+    fragmented. */
+class ExportTickets
+{
+public:
+    struct Range
+    {
+        std::uint32_t first;
+        std::uint32_t count;
+        bool
+        operator==(Range const&) const = default;
+    };
+
+    ExportTickets() = default;
+    explicit ExportTickets(STVector256 const& v);
+
+    /** Add [first, first + count) */
+    void
+    add(std::uint32_t first, std::uint32_t count);
+
+    /** Add one ticket */
+    void
+    insert(std::uint32_t ticket)
+    {
+        add(ticket, 1);
+    }
+
+    /** Remove one ticket; false if it was not held */
+    bool
+    remove(std::uint32_t ticket);
+
+    bool
+    contains(std::uint32_t ticket) const;
+
+    /** The lowest ticket of the smallest range, removed: so fragments made
+        by returned tickets are used up first, and an export repeated after
+        closing below quorum draws the ticket it had */
+    std::optional<std::uint32_t>
+    take();
+
+    std::uint32_t
+    count() const;
+
+    bool
+    empty() const
+    {
+        return ranges_.empty();
+    }
+
+    std::vector<Range> const&
+    ranges() const
+    {
+        return ranges_;
+    }
+
+    STVector256
+    pack() const;
+
+    /** Write to an exporter's account root, removing the field when empty */
+    void
+    store(SLE& acc) const;
+
+    /** Read from an account root; empty if absent */
+    static ExportTickets
+    load(SLE const& acc);
+
+private:
+    void
+    normalize();
+
+    std::vector<Range> ranges_;
+};
 
 /** Whether `entries` lists the account of any UNLReport validator's export
     key. Importing such a SignerListSet records it as the account's list
@@ -184,6 +282,11 @@ exportKeyProofData(
     PublicKey const& master,
     PublicKey const& exportKey,
     std::uint32_t networkID);
+
+/** Set or clear lsfExporter on `acc`, keeping keylet::exporterDir() in
+    step. `acc` is updated by the caller. */
+TER
+setExporter(ApplyView& view, std::shared_ptr<SLE> const& acc, bool on);
 
 /** One export key per UNLReport validator: its newest recorded at or before
     `asOf` (default: now), sorted by account, at most maxMultiSigners. */
@@ -243,8 +346,8 @@ private:
     std::vector<Key> keys_;  // oldest first, back() is the nominee
 };
 
-/** [xrpl_relay]: carries exports to XRPL and their XPOPs back. Stops and
-    joins on destruction. Null unless configured. */
+/** [xrpl_relay]: carries exports to XRPL and exporters' activity there back.
+    Stops and joins on destruction. Null unless configured. */
 struct ExportRelay
 {
     virtual ~ExportRelay() = default;

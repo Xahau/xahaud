@@ -406,6 +406,10 @@ exportedTxn(std::uint32_t seq, uint256 const& txid) noexcept;
 Keylet
 shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept;
 
+/** The directory of exporter accounts (lsfExporter), by account keylet. */
+Keylet const&
+exporterDir() noexcept;
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:

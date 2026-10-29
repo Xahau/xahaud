@@ -349,6 +349,17 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     /* featureExport: the signer list this account holds on the network it
        exports to, as last proven by an Import of its SignerListSet */
     {sfExportSignerList,     soeOPTIONAL},
+    /* featureExport, exporters (lsfExporter): the tickets this account holds
+       unused on the network it exports to, as proven by Imports of its
+       TicketCreates (see ExportTickets in Export.h); one past the highest
+       ticket ever recorded; the ticket of an automatic TicketCreate export
+       still out; the UNLReport.ExportKeysSeq its signer list was last
+       refreshed to; its page in keylet::exporterDir() */
+    {sfExportTickets,        soeOPTIONAL},
+    {sfExportTicketNext,     soeOPTIONAL},
+    {sfExportTicketPending,  soeOPTIONAL},
+    {sfExportKeysSeq,        soeOPTIONAL},
+    {sfExportNode,           soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.

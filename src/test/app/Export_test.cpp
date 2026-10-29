@@ -64,7 +64,7 @@ class Export_test : public beast::unit_test::suite
         t.setAccountID(sfDestination, noAccount());
         t.setFieldAmount(sfAmount, XRPAmount{drops});
         t.setFieldAmount(sfFee, XRPAmount{1000});
-        t.setFieldU32(sfSequence, ticket ? 0 : 5);
+        t.setFieldU32(sfSequence, 0);
         t.setFieldVL(sfSigningPubKey, Slice{});
         if (ticket)
             t.setFieldU32(sfTicketSequence, *ticket);
@@ -267,8 +267,16 @@ class Export_test : public beast::unit_test::suite
                 .ter;
         };
 
-        auto const good = payment(alice.id(), 10);
+        auto const good = payment(alice.id(), 10, 7, nid);
         BEAST_EXPECT(pf(exportTx(env, alice.id(), good)) == tesSUCCESS);
+        // without a ticket too: the pool supplies one when it applies
+        BEAST_EXPECT(
+            pf(exportTx(env, alice.id(), payment(alice.id(), 10, {}, nid))) ==
+            tesSUCCESS);
+        // never unbound
+        BEAST_EXPECT(
+            pf(exportTx(env, alice.id(), payment(alice.id(), 10))) ==
+            temMALFORMED);
 
         // emitted only
         BEAST_EXPECT(
@@ -279,7 +287,8 @@ class Export_test : public beast::unit_test::suite
 
         // the inner transaction: from the hook account, unsigned, elsewhere
         BEAST_EXPECT(
-            pf(exportTx(env, alice.id(), payment(a, 10))) == temMALFORMED);
+            pf(exportTx(env, alice.id(), payment(a, 10, 7, nid))) ==
+            temMALFORMED);
         {
             auto signed_ = good;
             signed_.setFieldVL(sfTxnSignature, Blob{1, 2, 3});
@@ -292,20 +301,23 @@ class Export_test : public beast::unit_test::suite
             BEAST_EXPECT(pf(exportTx(env, alice.id(), here)) == temMALFORMED);
         }
 
-        // a SignerListSet must come back, or the list here would go stale
+        // every export is bound back here (OperationLimit, Sequence 0); the
+        // ticket, if the hook left it out, comes from the pool when it applies
         {
             STObject sls(sfExportedTxn);
             sls.setFieldU16(sfTransactionType, ttSIGNER_LIST_SET);
             sls.setAccountID(sfAccount, alice.id());
-            sls.setFieldAmount(sfFee, XRPAmount{1000});
+            sls.setFieldAmount(sfFee, XRPAmount{0});
             sls.setFieldU32(sfSequence, 0);
             sls.setFieldU32(sfSignerQuorum, 0);
             sls.setFieldVL(sfSigningPubKey, Slice{});
             BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == temMALFORMED);
-            sls.setFieldU32(sfTicketSequence, 3);
-            BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == temMALFORMED);
             sls.setFieldU32(sfOperationLimit, nid);
             BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == tesSUCCESS);
+            sls.setFieldU32(sfTicketSequence, 3);
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == tesSUCCESS);
+            sls.setFieldU32(sfSequence, 5);
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == temMALFORMED);
         }
 
         // one base fee per signer in the account's list
@@ -319,15 +331,6 @@ class Export_test : public beast::unit_test::suite
                     view, exportTx(env, alice.id(), good));
             };
             BEAST_EXPECT(fee({a, b}) - fee({a}) == view.fees().base);
-
-            // one bound back pays for the free Import that returns it
-            setSignerList(view, alice.id(), signerEntries({a}));
-            BEAST_EXPECT(
-                Export::calculateBaseFee(
-                    view,
-                    exportTx(env, alice.id(), payment(alice.id(), 1, 7, nid))) -
-                    fee({a}) ==
-                view.fees().base * 10);
         }
 
         {
@@ -488,14 +491,12 @@ class Export_test : public beast::unit_test::suite
 
         auto const before = owners();
 
-        // not ticketed, or ticketed but not bound back here: no ticket
-        BEAST_EXPECT(apply(payment(alice.id(), 1)) == tesSUCCESS);
-        BEAST_EXPECT(apply(payment(alice.id(), 2, 7)) == tesSUCCESS);
-        BEAST_EXPECT(apply(payment(alice.id(), 3, 7, nid + 1)) == tesSUCCESS);
+        // no ticket named and none pooled: nothing to export with
+        BEAST_EXPECT(apply(payment(alice.id(), 1, {}, nid)) == tecNO_ENTRY);
         BEAST_EXPECT(!ticket(7));
         BEAST_EXPECT(owners() == before);
 
-        // ticketed and bound back: a ticket, held against the reserve
+        // a ticket the hook named: a shadow ticket, held against the reserve
         auto const first = payment(alice.id(), 4, 7, nid);
         BEAST_EXPECT(apply(first) == tesSUCCESS);
         BEAST_EXPECT(ticket(7));
@@ -511,12 +512,6 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(view.read(k) && (*view.read(k))[sfOwner] == alice.id());
         BEAST_EXPECT(
             view.read(k) && (*view.read(k))[~sfEmitHookHash] == uint256{3});
-
-        // an export not bound back calls back now, so names no hook
-        auto const k2 =
-            keylet::exportedTxn(view.seq(), txid(payment(alice.id(), 1)));
-        BEAST_EXPECT(
-            view.read(k2) && !view.read(k2)->isFieldPresent(sfEmitHookHash));
 
         // the same export again in this ledger
         BEAST_EXPECT(apply(first) == tecDUPLICATE);
@@ -739,13 +734,23 @@ class Export_test : public beast::unit_test::suite
         }
 
         // one that names its hook and gathered nothing closes below quorum:
-        // deleted all the same, and the hook is called back (what == 1)
-        auto const lonely = payment(alice.id(), 30);
+        // deleted all the same, the hook is called back (what == 1), and its
+        // ticket goes back to the pool with its shadow ticket gone
+        auto const lonely = payment(alice.id(), 30, 9, nid);
         auto const kLonely =
             pending(view, alice.id(), lonely, createdOld, entries, uint256{3});
+        {
+            auto const acc = view.peek(keylet::account(alice.id()));
+            ExportTickets{}.store(*acc);
+            view.update(acc);
+        }
         BEAST_EXPECT(Export::accept(env.app(), view, env.journal));
         BEAST_EXPECT(!view.exists(kLonely));
         BEAST_EXPECT(view.exists(k));
+        BEAST_EXPECT(!view.exists(keylet::shadowTicket(alice.id(), 9)));
+        BEAST_EXPECT(
+            ExportTickets::load(*view.read(keylet::account(alice.id())))
+                .contains(9));
     }
 
     // a manifest for `master`, delegating to `signing`
@@ -886,6 +891,62 @@ class Export_test : public beast::unit_test::suite
             return x;
         }
     };
+
+    void
+    testTicketPool()
+    {
+        testcase("export ticket pool");
+
+        // packing: six ranges per element, sorted, merged, byte counts
+        ExportTickets t;
+        BEAST_EXPECT(t.empty() && t.count() == 0 && !t.take());
+        t.add(100, 50);
+        t.add(150, 50);  // adjacent: merged
+        t.add(10, 5);
+        BEAST_EXPECT(t.count() == 105);
+        BEAST_EXPECT(
+            t.ranges() ==
+            std::vector<ExportTickets::Range>{{10, 5}, {100, 100}});
+        BEAST_EXPECT(t.contains(199) && !t.contains(200) && !t.contains(15));
+
+        auto const v = t.pack();
+        BEAST_EXPECT(v.size() == 1);
+        BEAST_EXPECT(ExportTickets(v).ranges() == t.ranges());
+
+        // the lowest of the smallest range first, so fragments go first
+        BEAST_EXPECT(t.take() == 10);
+        BEAST_EXPECT(t.take() == 11);
+        BEAST_EXPECT(t.ranges()[0] == ExportTickets::Range{12, 3});
+
+        // removing from the middle splits; adding back merges
+        BEAST_EXPECT(t.remove(150) && !t.remove(150));
+        BEAST_EXPECT(
+            t.ranges() ==
+            std::vector<ExportTickets::Range>{{12, 3}, {100, 50}, {151, 49}});
+        t.insert(150);
+        BEAST_EXPECT(t.ranges().size() == 2 && t.ranges()[1].count == 100);
+
+        // more than six ranges spill into a second element; a run longer
+        // than 255 is abutting ranges
+        for (std::uint32_t i = 0; i < 10; ++i)
+            t.add(1000 + 10 * i, 1);
+        BEAST_EXPECT(t.ranges().size() == 12 && t.pack().size() == 2);
+        BEAST_EXPECT(ExportTickets(t.pack()).ranges() == t.ranges());
+        ExportTickets u;
+        u.add(5000, 250);
+        u.add(5250, 250);
+        BEAST_EXPECT(u.count() == 500 && u.ranges().size() == 2);
+        BEAST_EXPECT(u.ranges()[0].count == 255 && u.ranges()[1].count == 245);
+        BEAST_EXPECT(ExportTickets(u.pack()).count() == 500);
+
+        // on an account root: absent when empty
+        auto sle = std::make_shared<SLE>(keylet::account(AccountID{1}));
+        t.store(*sle);
+        BEAST_EXPECT(sle->isFieldPresent(sfExportTickets));
+        BEAST_EXPECT(ExportTickets::load(*sle).count() == t.count());
+        ExportTickets{}.store(*sle);
+        BEAST_EXPECT(!sle->isFieldPresent(sfExportTickets));
+    }
 
     void
     testLoopbackImport()
@@ -1053,6 +1114,7 @@ public:
         testShadowTicket();
         testSignerList();
         testSignAndFinal();
+        testTicketPool();
         testLoopbackImport();
     }
 };

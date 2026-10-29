@@ -81,6 +81,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         case ttEXPORT:
         case ttEXPORT_SIGN:
         case ttEXPORT_FINAL:
+        case ttEXPORT_AUTO:
             break;
 
         case ttREMIT: {
@@ -2740,6 +2741,20 @@ DEFINE_HOOK_FUNCTION(
     std::memcpy(memory + write_ptr, (*res)->getID().data(), 32);
     hookCtx.result.emittedTxn.push(*res);
     return uint64_t{32};
+
+    HOOK_TEARDOWN();
+}
+
+/* How many tickets the hook account holds unused on the other network */
+DEFINE_HOOK_FUNCTION(int64_t, xport_tickets)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const res = api.xport_tickets();
+    if (!res)
+        return res.error();
+    return static_cast<int64_t>(*res);
 
     HOOK_TEARDOWN();
 }

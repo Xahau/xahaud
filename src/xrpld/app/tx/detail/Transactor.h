@@ -265,6 +265,9 @@ protected:
                           // emitted transaction, captured before doApply
                           // erases its ltEMITTED_TXN entry. Consumed by the
                           // callback in doHookCallback.
+    // featureExport: a sync import (see Export.h) runs the account's own hooks
+    // as a weak TSH, so only as a collect call the account pays for
+    bool originatorAsWeakTSH_ = false;
 
     // The post-apply pipeline of operator(): tec handling (reset),
     // invariants, balance rewards, weak hooks and commit.

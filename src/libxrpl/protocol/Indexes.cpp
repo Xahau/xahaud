@@ -97,6 +97,7 @@ enum class LedgerNameSpace : std::uint16_t {
     RANDOM = 0x526E,  // Rn
     EXPORTED_TXN = 'X',
     SHADOW_TICKET = 'Y',
+    EXPORTER_DIR = LEDGER_NAMESPACE2(0x01, 'X'),
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -722,6 +723,14 @@ shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept
     return {
         ltSHADOW_TICKET,
         indexHash(LedgerNameSpace::SHADOW_TICKET, account, ticketSeq)};
+}
+
+Keylet const&
+exporterDir() noexcept
+{
+    static Keylet const ret{
+        ltDIR_NODE, indexHash(LedgerNameSpace::EXPORTER_DIR)};
+    return ret;
 }
 
 }  // namespace keylet

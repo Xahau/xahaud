@@ -2111,4 +2111,78 @@ ValidAppLoader::finalize(
     return true;
 }
 
+//------------------------------------------------------------------------------
+
+void
+ValidExportTickets::visitEntry(
+    bool,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    auto const& any = after ? after : before;
+    if (!any)
+        return;
+    if (any->getType() == ltACCOUNT_ROOT &&
+        ((before && before->isFieldPresent(sfExportTickets)) ||
+         (after && after->isFieldPresent(sfExportTickets))))
+        accounts_.push_back({any->getAccountID(sfAccount), before, after});
+    else if (any->getType() == ltSHADOW_TICKET && after)
+        shadows_.push_back(after);
+}
+
+bool
+ValidExportTickets::finalize(
+    STTx const& tx,
+    TER const res,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j)
+{
+    if (!view.rules().enabled(featureExport) || !isTesSuccess(res))
+        return true;
+    auto const tt = tx.getTxnType();
+    for (auto const& [account, before, after] : accounts_)
+    {
+        ExportTickets const b =
+            before ? ExportTickets::load(*before) : ExportTickets{};
+        ExportTickets const a =
+            after ? ExportTickets::load(*after) : ExportTickets{};
+        std::int64_t const delta =
+            std::int64_t(a.count()) - std::int64_t(b.count());
+        bool ok = true;
+        switch (tt)
+        {
+            case ttIMPORT:
+                // one back, or a batch made there (never both at once)
+                ok = delta >= -1;
+                break;
+            case ttEXPORT:
+            case ttEXPORT_AUTO:
+                ok = delta == -1 || delta == 0;
+                break;
+            case ttEXPORT_FINAL:
+                ok = delta == 0 || delta == 1;
+                break;
+            default:
+                ok = delta == 0;
+        }
+        if (!ok)
+        {
+            JLOG(j.fatal()) << "Invariant failed: export tickets of " << account
+                            << " changed by " << delta << " under " << tt;
+            return false;
+        }
+        for (auto const& st : shadows_)
+            if (st->getAccountID(sfAccount) == account &&
+                a.contains((*st)[sfTicketSequence]))
+            {
+                JLOG(j.fatal())
+                    << "Invariant failed: ticket " << (*st)[sfTicketSequence]
+                    << " of " << account << " is pooled and shadowed";
+                return false;
+            }
+    }
+    return true;
+}
+
 }  // namespace ripple

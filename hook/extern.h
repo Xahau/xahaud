@@ -352,6 +352,9 @@ xport(
     uint32_t read_ptr,
     uint32_t read_len);
 
+extern int64_t
+xport_tickets();
+
 #ifdef __cplusplus
 }
 #endif

@@ -3,6 +3,7 @@
 #include <xrpld/app/hook/HookAPI.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpl/protocol/STParsedJSON.h>
@@ -851,6 +852,7 @@ HookAPI::emit(Slice const& txBlob) const
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
 HookAPI::xport(Slice const& txBlob) const
 {
+    auto const& view = hookCtx.applyCtx.view();
     Serializer s;
     try
     {
@@ -860,6 +862,20 @@ HookAPI::xport(Slice const& txBlob) const
             inner[sfAccount] = hookCtx.result.account;
         if (!inner.isFieldPresent(sfSigningPubKey))
             inner[sfSigningPubKey] = Slice{};
+        if (!inner.isFieldPresent(sfSequence))
+            inner[sfSequence] = 0;
+        if (!inner.isFieldPresent(sfOperationLimit))
+            inner[sfOperationLimit] = hookCtx.applyCtx.app.config().NETWORK_ID;
+        // Fee 0 is filled in from the signer count when the export applies
+        if (!inner.isFieldPresent(sfFee))
+            inner.setFieldAmount(sfFee, XRPAmount{0});
+        // so is the ticket, from the pool: tell the hook now if it is empty
+        if (!inner.isFieldPresent(sfTicketSequence))
+        {
+            auto const acc = view.read(keylet::account(hookCtx.result.account));
+            if (!acc || ExportTickets::load(*acc).empty())
+                return Unexpected(NO_TICKET);
+        }
         STObject outer{sfGeneric};
         outer[sfTransactionType] = static_cast<std::uint16_t>(ttEXPORT);
         outer.emplace_back(std::move(inner));
@@ -875,6 +891,16 @@ HookAPI::xport(Slice const& txBlob) const
     if (!blob)
         return Unexpected(blob.error());
     return emit(makeSlice(*blob));
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_tickets() const
+{
+    auto const acc =
+        hookCtx.applyCtx.view().read(keylet::account(hookCtx.result.account));
+    if (!acc)
+        return Unexpected(DOESNT_EXIST);
+    return ExportTickets::load(*acc).count();
 }
 
 Expected<uint64_t, HookReturnCode>

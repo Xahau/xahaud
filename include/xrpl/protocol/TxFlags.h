@@ -95,6 +95,7 @@ enum AccountFlags : uint32_t {
     asfDisallowIncomingTrustline = 15,
     asfDisallowIncomingRemit = 16,
     asfAllowTrustLineClawback = 17,
+    asfExporter = 18,  // featureExport, see Export.h
 };
 
 // OfferCreate flags:
@@ -242,11 +243,8 @@ constexpr std::uint32_t const tfClawbackMask               = ~tfUniversal;
 // CronSet Flags:
 enum CronSetFlags : uint32_t {
     tfCronUnset = 0x00000001,
-    // featureExport: fire after each export key rotation (see Export.h)
-    tfCronExportRotation = 0x00000002,
 };
-constexpr std::uint32_t const tfCronSetMask =
-    ~(tfUniversal | tfCronUnset | tfCronExportRotation);
+constexpr std::uint32_t const tfCronSetMask = ~(tfUniversal | tfCronUnset);
 
 // AMM Flags:
 constexpr std::uint32_t tfLPToken                          = 0x00010000;

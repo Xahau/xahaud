@@ -523,6 +523,16 @@ TRANSACTION(ttEXPORT_FINAL, 90, ExportFinal, ({
     {sfTransactionHash, soeREQUIRED},
 }))
 
+/** A pseudo-txn exporting sfExportedTxn on behalf of sfOwner, an exporter
+    (lsfExporter): the ledger's own TicketCreates and SignerListSets, which
+    keep an exporter's tickets and signer list on the other network in step.
+    Paid by the owner, like a ttEXPORT (see Export.h). */
+TRANSACTION(ttEXPORT_AUTO, 86, ExportAuto, ({
+    {sfOwner, soeREQUIRED},
+    {sfLedgerSequence, soeREQUIRED},
+    {sfExportedTxn, soeREQUIRED},
+}))
+
 /** featureRNG: a validator's entropy contribution for one ledger.
 
     Each proposing UNLReport validator places exactly one of these in its own

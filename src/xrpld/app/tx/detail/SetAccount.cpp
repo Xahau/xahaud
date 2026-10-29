@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/SetAccount.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/View.h>
@@ -272,6 +273,14 @@ SetAccount::preclaim(PreclaimContext const& ctx)
             return (ctx.flags & tapRETRY) ? TER{terOWNERS} : TER{tecOWNERS};
         }
     }
+
+    //
+    // Exporter (featureExport): only an Import the account signs can make it
+    // one; this re-enables after asfExporter was cleared
+    //
+    if (ctx.view.rules().enabled(featureExport) && uSetFlag == asfExporter &&
+        !sle->isFieldPresent(sfExportSignerList))
+        return tecNO_TARGET;
 
     //
     // Clawback
@@ -733,6 +742,15 @@ SetAccount::doApply()
 
     if (uFlagsIn != uFlagsOut)
         sle->setFieldU32(sfFlags, uFlagsOut);
+
+    // Exporter (featureExport): keeps keylet::exporterDir() in step
+    if (ctx_.view().rules().enabled(featureExport) &&
+        (uSetFlag == asfExporter || uClearFlag == asfExporter))
+    {
+        if (auto const ter = setExporter(view(), sle, uSetFlag == asfExporter);
+            !isTesSuccess(ter))
+            return ter;
+    }
 
     // HookStateScale
     if (tx.isFieldPresent(sfHookStateScale))

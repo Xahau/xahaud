@@ -1722,6 +1722,9 @@ Transactor::doTSH(
         for (auto& weakTsh : additionalWeakTSH_)
             tsh.emplace_back(weakTsh, false);
 
+        if (originatorAsWeakTSH_)
+            tsh.emplace_back(account_, false);
+
         if (view.rules().enabled(fixHookAPI20251128))
         {
             // if account_ is not included in tsh , add it only once
@@ -1752,7 +1755,7 @@ Transactor::doTSH(
         // as a TSH because they already had first execution
         if (!view.rules().enabled(fixHookAPI20251128))
         {
-            if (tshAccountID == account_)
+            if (tshAccountID == account_ && !originatorAsWeakTSH_)
                 continue;
         }
 
@@ -1773,8 +1776,8 @@ Transactor::doTSH(
         if (view.rules().enabled(fixHookAPI20251128))
         {
             // After fixHookAPI20251128, the otxn account is prosessed as
-            // touched account
-            if (tshAccountID == account_)
+            // touched account (unless, for a sync import, it is the one TSH)
+            if (tshAccountID == account_ && !originatorAsWeakTSH_)
                 continue;
         }
 

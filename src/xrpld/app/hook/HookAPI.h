@@ -356,6 +356,11 @@ public:
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
     xport(Slice const& txBlob) const;
 
+    // featureExport: how many tickets the hook account holds unused on the
+    // other network, each good for one export
+    Expected<uint64_t, HookReturnCode>
+    xport_tickets() const;
+
     Expected<uint64_t, HookReturnCode>
     etxn_burden() const;
 

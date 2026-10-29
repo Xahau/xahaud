@@ -39,6 +39,7 @@
 #include <xrpl/protocol/messages.h>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
+#include <map>
 #include <regex>
 #include <thread>
 
@@ -546,10 +547,19 @@ private:
             STTx const t(st);
             auto const ticket = t[~sfTicketSequence];
             auto const view = app_.openLedger().current();
+            auto const acc = view->read(keylet::account(t[sfAccount]));
 
-            // only exports coming back: other imports need their owner's key
-            if (!ticket || t[~sfOperationLimit] != nid ||
-                !view->exists(keylet::shadowTicket(t[sfAccount], *ticket)))
+            // Exports coming back, and everything an exporter does there that
+            // the ledger records (Import::preclaim): tickets made, tickets
+            // spent, signer lists set. Other imports need their owner's key.
+            bool const exporter = acc && acc->isFlag(lsfExporter);
+            bool const wanted = ticket
+                ? view->exists(keylet::shadowTicket(t[sfAccount], *ticket)) ||
+                    (exporter && ExportTickets::load(*acc).contains(*ticket))
+                : exporter &&
+                    (t.getTxnType() == ttTICKET_CREATE ||
+                     t.getTxnType() == ttSIGNER_LIST_SET);
+            if (!wanted)
                 return;
 
             auto const& i = *l.info;
@@ -575,7 +585,7 @@ private:
             // not a structured binding: the lambda below captures these
             PublicKey const& pk = relayKey().first;
             SecretKey const& sk = relayKey().second;
-            // free and sequence 0: the export paid for it (see isLoopback)
+            // free and sequence 0: the XRPL fee paid for it (see isLoopback)
             STTx imp(ttIMPORT, [&](auto& o) {
                 o[sfAccount] = t[sfAccount];
                 o[sfSequence] = 0;
@@ -594,6 +604,22 @@ private:
         {
             JLOG(j_.debug()) << "skipping " << item->key() << ": " << e.what();
         }
+    }
+
+    // exports at quorum whose signing window has closed, kept and resent
+    // while their shadow ticket stands: XRPL may have been short of our
+    // transaction for a while (fee, load, a peer dropping it), and the ticket
+    // is only gone once something used it there
+    std::map<uint256, std::pair<Keylet, Blob>> held_;
+    static constexpr std::uint32_t resendEvery = 8;
+
+    void
+    submit(Blob const& blob)
+    {
+        protocol::TMTransaction m;
+        m.set_rawtransaction(blob.data(), blob.size());
+        m.set_status(protocol::tsNEW);
+        send_(m, protocol::mtTRANSACTION);
     }
 
     // on each validated ledger, the pending exports that meet quorum
@@ -620,10 +646,23 @@ private:
 
             Serializer s;
             in.add(s);
-            protocol::TMTransaction m;
-            m.set_rawtransaction(s.data(), s.size());
-            m.set_status(protocol::tsNEW);
-            send_(m, protocol::mtTRANSACTION);
+            Blob blob(s.data(), s.data() + s.size());
+            submit(blob);
+            auto const st =
+                keylet::shadowTicket((*sle)[sfOwner], in[sfTicketSequence]);
+            held_[st.key] = {st, std::move(blob)};
+        }
+
+        for (auto it = held_.begin(); it != held_.end();)
+        {
+            if (!l->exists(it->second.first))
+                it = held_.erase(it);
+            else
+            {
+                if (xahau_ % resendEvery == 0)
+                    submit(it->second.second);
+                ++it;
+            }
         }
     }
 };

@@ -106,8 +106,6 @@ enum ClaimRewardFlags : uint32_t {
 
 enum CronSetFlags : uint32_t {
     tfCronUnset = 0x00000001,
-    // featureExport: fire after each export key rotation (see Export.h)
-    tfCronExportRotation = 0x00000002,
 };
 
 enum AMMClawbackFlags : uint32_t {

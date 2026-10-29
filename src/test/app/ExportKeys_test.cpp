@@ -352,100 +352,6 @@ class ExportKeys_test : public beast::unit_test::suite
     }
 
     void
-    testRotationCron()
-    {
-        testcase("cron after each export key rotation");
-        using namespace jtx;
-
-        auto const P = Export::keyRotationPeriod;
-        Account const alice{"alice"};
-
-        {
-            Env env{
-                *this, supported_amendments() | featureExport | featureCron};
-            env.fund(XRP(10000), alice);
-            env.close();
-
-            // the ledger picks the times
-            env(cron::set(alice),
-                txflags(tfCronExportRotation),
-                cron::startTime(0),
-                fee(XRP(1)),
-                ter(temMALFORMED));
-            env(cron::set(alice),
-                txflags(tfCronExportRotation),
-                cron::delay(P),
-                cron::repeat(2),
-                fee(XRP(1)),
-                ter(temMALFORMED));
-            env(cron::set(alice),
-                txflags(tfCronExportRotation | tfCronUnset),
-                fee(XRP(1)),
-                ter(temMALFORMED));
-            env(cron::set(alice),
-                txflags(tfCronExportRotation),
-                cron::repeat(257),
-                fee(XRP(1)),
-                ter(temMALFORMED));
-
-            auto const now = static_cast<std::uint32_t>(
-                env.current()->parentCloseTime().time_since_epoch().count());
-            env(cron::set(alice),
-                txflags(tfCronExportRotation),
-                cron::repeat(4),
-                fee(XRP(1)));
-            env.close();
-
-            auto const cronOf = [&]() {
-                return env.le(
-                    keylet::child(env.le(alice)->getFieldH256(sfCron)));
-            };
-            auto const c = cronOf();
-            BEAST_EXPECT(c);
-            if (!c)
-                return;
-
-            // just after the next rotation has settled, then every rotation
-            auto const start = c->getFieldU32(sfStartTime);
-            BEAST_EXPECT(start == Export::rotationCronTime(now, alice.id()));
-            BEAST_EXPECT(start > now);
-            BEAST_EXPECT(
-                start % P >= Export::rotationSettle &&
-                start % P < Export::rotationSettle + Export::rotationSpread);
-            BEAST_EXPECT(c->getFieldU32(sfDelaySeconds) == P);
-            BEAST_EXPECT(c->getFieldU32(sfRepeatCount) == 4);
-
-            // fires once that time has passed, and rearms a rotation later
-            closeAt(env, start + 100);
-            env.close();
-            bool fired = false;
-            for (auto const& [tx, meta] : env.closed()->txs)
-                if (tx->getTxnType() == ttCRON && (*tx)[sfOwner] == alice.id())
-                    fired = true;
-            BEAST_EXPECT(fired);
-
-            auto const next = cronOf();
-            BEAST_EXPECT(next);
-            if (next)
-            {
-                BEAST_EXPECT(next->getFieldU32(sfStartTime) == start + P);
-                BEAST_EXPECT(next->getFieldU32(sfRepeatCount) == 3);
-            }
-        }
-
-        {
-            Env env{
-                *this, (supported_amendments() | featureCron) - featureExport};
-            env.fund(XRP(10000), alice);
-            env.close();
-            env(cron::set(alice),
-                txflags(tfCronExportRotation),
-                fee(XRP(1)),
-                ter(temINVALID_FLAG));
-        }
-    }
-
-    void
     testKeyFile()
     {
         testcase("export key file");
@@ -737,7 +643,6 @@ public:
         testPreflight();
         testRotation();
         testReportReset();
-        testRotationCron();
         testKeyFile();
         testSignerListRPC();
     }

@@ -301,6 +301,12 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
         sleAccount->isFieldPresent(sfManifestID))
         return tecHAS_OBLIGATIONS;
 
+    // An exporter is listed in keylet::exporterDir() and the ledger acts for
+    // it on the other network. Clear asfExporter first (which unlists it).
+    if (ctx.view.rules().enabled(featureExport) &&
+        sleAccount->isFlag(lsfExporter))
+        return tecHAS_OBLIGATIONS;
+
     if (ctx.view.rules().enabled(featureNonFungibleTokensV1))
     {
         // If an issuer has any issued NFTs resident in the ledger then it
