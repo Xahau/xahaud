@@ -406,7 +406,7 @@ listsExportKey(ReadView const& view, STArray const& entries)
 }
 
 std::uint32_t
-exportWeight(SLE const& exported)
+exportWeight(STObject const& exported)
 {
     std::uint32_t weight = 0;
     auto const& inner = obj(exported, sfExportedTxn);

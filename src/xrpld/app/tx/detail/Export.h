@@ -272,9 +272,10 @@ private:
 bool
 listsExportKey(ReadView const& view, STArray const& entries);
 
-/** The weight of the signatures a pending export has gathered */
+/** The weight of the signatures an export has gathered: an ltEXPORTED_TXN,
+    or the FinalFields its ttEXPORT_FINAL left in its DeletedNode */
 std::uint32_t
-exportWeight(SLE const& exported);
+exportWeight(STObject const& exported);
 
 /** What an export key signs to prove that its holder nominated it */
 Serializer

@@ -2115,7 +2115,7 @@ ValidAppLoader::finalize(
 
 void
 ValidExportTickets::visitEntry(
-    bool,
+    bool isDelete,
     std::shared_ptr<SLE const> const& before,
     std::shared_ptr<SLE const> const& after)
 {
@@ -2126,7 +2126,10 @@ ValidExportTickets::visitEntry(
         ((before && before->isFieldPresent(sfExportTickets)) ||
          (after && after->isFieldPresent(sfExportTickets))))
         accounts_.push_back({any->getAccountID(sfAccount), before, after});
-    else if (any->getType() == ltSHADOW_TICKET && after)
+    // ApplyStateTable::visit hands an erased entry over as `after` too, so
+    // only a shadow ticket the transaction leaves standing counts: the one a
+    // below-quorum ttEXPORT_FINAL erases while returning its ticket must not
+    else if (any->getType() == ltSHADOW_TICKET && after && !isDelete)
         shadows_.push_back(after);
 }
 

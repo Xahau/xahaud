@@ -1395,7 +1395,12 @@ Import::doApply()
     // sequence, installs no keys and runs hooks only as a collect call
     bool const loopback = sle && isLoopback(view().rules(), ctx_.tx);
 
-    if (!ticket && sle && sle->getFieldU32(sfImportSequence) >= importSequence)
+    // A loopback never touches sfImportSequence: preclaim replay-protects it
+    // by the ledger's own records (shadow ticket, sfExportTicketNext, the
+    // signer list's position), so a sync import of an older TicketCreate or
+    // SignerListSet must not be refused by a later Import the account signed.
+    if (!ticket && !loopback && sle &&
+        sle->getFieldU32(sfImportSequence) >= importSequence)
     {
         // make double sure import seq hasn't passed
         JLOG(ctx_.journal.warn()) << "Import: ImportSequence passed";

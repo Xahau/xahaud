@@ -39,6 +39,7 @@
 #include <xrpl/protocol/messages.h>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
+#include <deque>
 #include <map>
 #include <regex>
 #include <thread>
@@ -531,12 +532,66 @@ private:
         return a;
     }
 
+    // An XRPL transaction the ledger may want (Import::preclaim): an export
+    // coming back, or an exporter's own TicketCreate, SignerListSet or spend
+    // of a pooled ticket. Only an account whose signer list is recorded here
+    // can be either. Built as soon as its XRPL ledger is complete, since the
+    // ledger data goes 32 ledgers on, and kept while the Import that would
+    // register its ticket here may still be on its way.
+    struct Candidate
+    {
+        AccountID account;
+        std::optional<std::uint32_t> ticket;
+        TxType type;
+        uint256 txid;
+        std::string xpop;
+        LedgerIndex since;  // the validated Xahau ledger when first seen
+    };
+    std::deque<Candidate> deferred_;
+    static constexpr std::uint32_t deferFor = 64;  // Xahau ledgers
+    static constexpr std::size_t deferMax = 4096;
+
+    // whether Import::preclaim would take it against `view` now
+    static bool
+    wanted(ReadView const& view, Candidate const& c)
+    {
+        auto const acc = view.read(keylet::account(c.account));
+        bool const exporter = acc && acc->isFlag(lsfExporter);
+        if (c.ticket)
+            return view.exists(keylet::shadowTicket(c.account, *c.ticket)) ||
+                (exporter && ExportTickets::load(*acc).contains(*c.ticket));
+        return exporter &&
+            (c.type == ttTICKET_CREATE || c.type == ttSIGNER_LIST_SET);
+    }
+
+    void
+    submitImport(Candidate const& c)
+    {
+        auto const nid = app_.config().NETWORK_ID;
+        // not a structured binding: the lambda below captures these
+        PublicKey const& pk = relayKey().first;
+        SecretKey const& sk = relayKey().second;
+        // free and sequence 0: the XRPL fee paid for it (see isLoopback)
+        STTx imp(ttIMPORT, [&](auto& o) {
+            o[sfAccount] = c.account;
+            o[sfSequence] = 0;
+            o[sfFee] = XRPAmount{0};
+            o[sfSigningPubKey] = pk.slice();
+            o[sfBlob] = makeSlice(c.xpop);
+            if (nid > 1024)
+                o[sfNetworkID] = nid;
+        });
+        imp.sign(pk, sk);
+        app_.getOPs().submitTransaction(
+            std::make_shared<STTx const>(std::move(imp)));
+        JLOG(j_.info()) << "importing " << c.txid;
+    }
+
     void
     relay(Ledger const& l, SHAMapLeafNode const& leaf)
     {
         if (leaf.getType() != SHAMapNodeType::tnTRANSACTION_MD)
             return;
-        auto const nid = app_.config().NETWORK_ID;
         auto const& item = leaf.peekItem();
         try
         {
@@ -545,21 +600,20 @@ private:
             auto const meta = sit.getVL();
             SerialIter st(makeSlice(tx));
             STTx const t(st);
-            auto const ticket = t[~sfTicketSequence];
             auto const view = app_.openLedger().current();
             auto const acc = view->read(keylet::account(t[sfAccount]));
+            if (!acc || !acc->isFieldPresent(sfExportSignerList))
+                return;
 
-            // Exports coming back, and everything an exporter does there that
-            // the ledger records (Import::preclaim): tickets made, tickets
-            // spent, signer lists set. Other imports need their owner's key.
-            bool const exporter = acc && acc->isFlag(lsfExporter);
-            bool const wanted = ticket
-                ? view->exists(keylet::shadowTicket(t[sfAccount], *ticket)) ||
-                    (exporter && ExportTickets::load(*acc).contains(*ticket))
-                : exporter &&
-                    (t.getTxnType() == ttTICKET_CREATE ||
-                     t.getTxnType() == ttSIGNER_LIST_SET);
-            if (!wanted)
+            Candidate c{
+                t[sfAccount],
+                t[~sfTicketSequence],
+                t.getTxnType(),
+                t.getTransactionID(),
+                {},
+                app_.getLedgerMaster().getValidLedgerIndex()};
+            if (!c.ticket && c.type != ttTICKET_CREATE &&
+                c.type != ttSIGNER_LIST_SET)
                 return;
 
             auto const& i = *l.info;
@@ -580,25 +634,19 @@ private:
             xt[jss::proof] = proof(l, i.txHash, item->key());
             x[jss::validation][jss::data] = l.vals;
             x[jss::validation][jss::unl] = unl_;
-            auto const xpop = to_string(x);
+            c.xpop = to_string(x);
 
-            // not a structured binding: the lambda below captures these
-            PublicKey const& pk = relayKey().first;
-            SecretKey const& sk = relayKey().second;
-            // free and sequence 0: the XRPL fee paid for it (see isLoopback)
-            STTx imp(ttIMPORT, [&](auto& o) {
-                o[sfAccount] = t[sfAccount];
-                o[sfSequence] = 0;
-                o[sfFee] = XRPAmount{0};
-                o[sfSigningPubKey] = pk.slice();
-                o[sfBlob] = makeSlice(xpop);
-                if (nid > 1024)
-                    o[sfNetworkID] = nid;
-            });
-            imp.sign(pk, sk);
-            app_.getOPs().submitTransaction(
-                std::make_shared<STTx const>(std::move(imp)));
-            JLOG(j_.info()) << "importing " << t.getTransactionID();
+            if (wanted(*view, c))
+            {
+                submitImport(c);
+                return;
+            }
+            // its ticket is not registered here yet: the Import of the
+            // TicketCreate that made it may still be in flight, or sit in an
+            // earlier XRPL ledger whose data arrived after this one
+            if (deferred_.size() >= deferMax)
+                deferred_.pop_front();
+            deferred_.push_back(std::move(c));
         }
         catch (std::exception const& e)
         {
@@ -606,12 +654,16 @@ private:
         }
     }
 
-    // exports at quorum whose signing window has closed, kept and resent
-    // while their shadow ticket stands: XRPL may have been short of our
-    // transaction for a while (fee, load, a peer dropping it), and the ticket
-    // is only gone once something used it there
+    // exports at quorum, kept and resent while their shadow ticket stands:
+    // XRPL may have been short of our transaction for a while (fee, load, a
+    // peer dropping it), and the ticket is only gone once something used it
+    // there. After the window the signed transaction exists only in the
+    // DeletedNode of its ttEXPORT_FINAL, so those are read back from every
+    // validated ledger seen, and after a restart or a long disconnection
+    // from the last recoverDepth of them.
     std::map<uint256, std::pair<Keylet, Blob>> held_;
     static constexpr std::uint32_t resendEvery = 8;
+    static constexpr std::uint32_t recoverDepth = 256;
 
     void
     submit(Blob const& blob)
@@ -622,35 +674,94 @@ private:
         send_(m, protocol::mtTRANSACTION);
     }
 
-    // on each validated ledger, the pending exports that meet quorum
+    // hold and send `in`, the export of `owner` with unsigned id `id`, if its
+    // shadow ticket still stands and still names it (a later export may have
+    // taken the ticket over)
+    void
+    hold(
+        ReadView const& now,
+        AccountID const& owner,
+        STObject const& in,
+        uint256 const& id)
+    {
+        auto const ticket = in[~sfTicketSequence];
+        if (!ticket)
+            return;
+        auto const st = keylet::shadowTicket(owner, *ticket);
+        auto const sle = now.read(st);
+        if (!sle || (*sle)[sfTransactionHash] != id)
+            return;
+        Serializer s;
+        in.add(s);
+        Blob blob = s.peekData();
+        submit(blob);
+        held_.insert_or_assign(st.key, std::pair{st, std::move(blob)});
+    }
+
+    // the exports whose window closed in `l`, as their finals left them
+    void
+    finals(ReadView const& l, ReadView const& now)
+    {
+        for (auto const& [tx, meta] : l.txs)
+        {
+            if (!tx || !meta || tx->getTxnType() != ttEXPORT_FINAL ||
+                !meta->isFieldPresent(sfAffectedNodes))
+                continue;
+            for (auto const& n : meta->getFieldArray(sfAffectedNodes))
+            {
+                if (n.getFName() != sfDeletedNode ||
+                    n[~sfLedgerEntryType] !=
+                        static_cast<std::uint16_t>(ltEXPORTED_TXN) ||
+                    !n.isFieldPresent(sfFinalFields))
+                    continue;
+                auto const& ff =
+                    n.peekAtField(sfFinalFields).downcast<STObject>();
+                if (!ff.isFieldPresent(sfExportedTxn) ||
+                    !ff.isFieldPresent(sfSignerEntries) ||
+                    exportWeight(ff) < ff[~sfSignerQuorum].value_or(0))
+                    continue;
+                hold(
+                    now,
+                    ff[sfOwner],
+                    ff.peekAtField(sfExportedTxn).downcast<STObject>(),
+                    ff[sfTransactionHash]);
+            }
+        }
+    }
+
     void
     exports()
     {
         auto const l = app_.getLedgerMaster().getValidatedLedger();
         if (!l || l->info().seq == xahau_ || !l->rules().enabled(featureExport))
             return;
-        xahau_ = l->info().seq;
+        auto const seq = l->info().seq;
 
-        auto const end = keylet::exportedTxn(xahau_ + 1, beast::zero).key;
+        // every ledger since the last one seen here, bounded by recoverDepth
+        // and by the history this server keeps
+        auto from = xahau_ ? xahau_ + 1 : 1;
+        if (from + recoverDepth < seq)
+            from = seq - recoverDepth;
+        xahau_ = seq;
+        for (auto s = from; s < seq; ++s)
+            if (auto const past = app_.getLedgerMaster().getLedgerBySeq(s))
+                finals(*past, *l);
+        finals(*l, *l);
+
+        // still pending but already at quorum: no need to wait for the window
+        auto const end = keylet::exportedTxn(seq + 1, beast::zero).key;
         for (auto k = keylet::exportedTxn(0, beast::zero).key;
              auto const next = l->succ(k, end);
              k = *next)
         {
             auto const sle = l->read(Keylet{ltEXPORTED_TXN, *next});
-            if (!sle)
+            if (!sle || exportWeight(*sle) < (*sle)[sfSignerQuorum])
                 continue;
-            if (exportWeight(*sle) < (*sle)[sfSignerQuorum])
-                continue;
-            auto const& in =
-                sle->peekAtField(sfExportedTxn).downcast<STObject>();
-
-            Serializer s;
-            in.add(s);
-            Blob blob = s.peekData();
-            submit(blob);
-            auto const st =
-                keylet::shadowTicket((*sle)[sfOwner], in[sfTicketSequence]);
-            held_.insert_or_assign(st.key, std::pair{st, std::move(blob)});
+            hold(
+                *l,
+                (*sle)[sfOwner],
+                sle->peekAtField(sfExportedTxn).downcast<STObject>(),
+                (*sle)[sfTransactionHash]);
         }
 
         for (auto it = held_.begin(); it != held_.end();)
@@ -659,10 +770,26 @@ private:
                 it = held_.erase(it);
             else
             {
-                if (xahau_ % resendEvery == 0)
+                if (seq % resendEvery == 0)
                     submit(it->second.second);
                 ++it;
             }
+        }
+
+        // XRPL transactions waiting for the Import that registers their
+        // ticket here; forgotten once that has had deferFor ledgers to land
+        auto const open = app_.openLedger().current();
+        for (auto it = deferred_.begin(); it != deferred_.end();)
+        {
+            if (wanted(*open, *it))
+            {
+                submitImport(*it);
+                it = deferred_.erase(it);
+            }
+            else if (it->since + deferFor < seq)
+                it = deferred_.erase(it);
+            else
+                ++it;
         }
     }
 };
