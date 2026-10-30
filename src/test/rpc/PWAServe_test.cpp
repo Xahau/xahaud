@@ -32,9 +32,11 @@
 #include <test/jtx/envconfig.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/rpc/ServerHandler.h>
+#include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/beast/test/yield_to.h>
+#include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/jss.h>
@@ -49,6 +51,8 @@
 #include <array>
 #include <map>
 #include <mutex>
+#include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -375,6 +379,12 @@ class PWAServe_test : public beast::unit_test::suite,
         return env.rpc("json", "pwa_info", params)[jss::result];
     }
 
+    Json::Value
+    pwaList(jtx::Env& env, std::string const& params = "{}")
+    {
+        return env.rpc("json", "pwa_list", params)[jss::result];
+    }
+
     //--------------------------------------------------------------------------
 
     void
@@ -453,6 +463,43 @@ class PWAServe_test : public beast::unit_test::suite,
             c["pwa_allowlist"].append(a.human());
             c["pwa_blocklist"].append(a.human());
         }));
+
+        // The lists file need not exist yet, but its directory must; what it
+        // holds must parse, and count with the cfg's lists.
+        beast::temp_dir td;
+        auto withFile = [&](std::string const& text,
+                            std::function<void(Config&)> const& more = {}) {
+            auto const f = td.file("lists.txt");
+            boost::system::error_code ec;
+            writeFileContents(ec, f, text);
+            return accepts([&](Config& c) {
+                c[SECTION_PWA_LIST_FILE].legacy(f);
+                if (more)
+                    more(c);
+            });
+        };
+        BEAST_EXPECT(withFile("# nothing listed\n"));
+        BEAST_EXPECT(withFile(
+            " [pwa_allowlist]\r\n" + a.human() + "\r\n[pwa_blocklist]\n"));
+        for (auto const& bad :
+             {a.human() + "\n",
+              "[pwa_list_providers]\n" + a.human() + "\n",
+              std::string("[pwa_blocklist]\nnot-an-address\n"),
+              "[pwa_blocklist]\n" + toBase58(AccountID{}) + "\n",
+              "[pwa_allowlist]\n" + a.human() + "\n[pwa_blocklist]\n" +
+                  a.human() + "\n"})
+            BEAST_EXPECTS(!withFile(bad), bad);
+        BEAST_EXPECT(!withFile(
+            "[pwa_allowlist]\n" + a.human() + "\n",
+            [&](Config& c) { c["pwa_blocklist"].append(a.human()); }));
+        BEAST_EXPECT(accepts([&](Config& c) {
+            c[SECTION_PWA_LIST_FILE].legacy(td.file("absent.txt"));
+        }));
+        BEAST_EXPECT(!accepts([&](Config& c) {
+            c[SECTION_PWA_LIST_FILE].legacy(td.file("absent/lists.txt"));
+        }));
+        BEAST_EXPECT(!accepts(
+            [&](Config& c) { c[SECTION_PWA_LIST_FILE].legacy(td.path()); }));
     }
 
     void
@@ -742,6 +789,227 @@ class PWAServe_test : public beast::unit_test::suite,
     }
 
     void
+    testListRPC(boost::asio::yield_context& yield)
+    {
+        testcase("pwa_list edits the lists at runtime, through the lists file");
+        using namespace jtx;
+        Account const alice{"alice"}, bob{"bob"}, carol{"carol"};
+        beast::temp_dir td;
+        auto const file = td.file("pwa-lists.txt");
+        auto const cfg = [&] {
+            return pwaConfig([&](Config& c) {
+                c[SECTION_PWA_LIST_FILE].legacy(file);
+                c["pwa_blocklist"].append(carol.human());
+            });
+        };
+        using Names = std::set<std::string>;
+        auto const names = [](Json::Value const& v) {
+            Names out;
+            for (auto const& e : v)
+                out.insert(e.asString());
+            return out;
+        };
+        auto const onDisk = [&] {
+            boost::system::error_code ec;
+            return getFileContents(ec, file);
+        };
+        auto const one = [](char const* key, Account const& a) {
+            return std::string("{\"") + key + "\": \"" + a.human() + "\"}";
+        };
+
+        {
+            Env env{*this, cfg()};
+            env.fund(XRP(1000), alice, bob, carol);
+            for (auto const& a : {alice, bob, carol})
+                publish(env, a, doc());
+            auto const status = [&](Account const& a) {
+                return getDoc(env, a, yield).result_int();
+            };
+
+            // Nothing in the file yet, which need not exist; carol is fixed.
+            auto r = pwaList(env);
+            BEAST_EXPECT(r[jss::status] == "success" && r["changed"] == false);
+            BEAST_EXPECT(
+                r["allowlist"].size() == 0 && r["blocklist"].size() == 0);
+            BEAST_EXPECT(names(r["cfg_blocklist"]) == Names{carol.human()});
+            BEAST_EXPECT(!r.isMember("cfg_allowlist") && r["file"] == file);
+            BEAST_EXPECT(!boost::filesystem::exists(file));
+
+            // An edit is written to the file and applies at once.
+            r = pwaList(env, one("block", bob));
+            BEAST_EXPECT(r["changed"] == true);
+            BEAST_EXPECT(names(r["blocklist"]) == Names{bob.human()});
+            BEAST_EXPECT(
+                onDisk().find("[pwa_blocklist]\n" + bob.human() + "\n") !=
+                std::string::npos);
+            BEAST_EXPECT(
+                status(alice) == 200 && status(bob) == 403 &&
+                status(carol) == 403);
+            BEAST_EXPECT(pwaList(env, one("block", bob))["changed"] == false);
+
+            // Removals come first, so a move is one step: never on neither.
+            r = env.rpc(
+                "pwa_list",
+                "unblock",
+                bob.human(),
+                "allow",
+                bob.human())[jss::result];
+            BEAST_EXPECT(r["changed"] == true && r["blocklist"].size() == 0);
+            BEAST_EXPECT(names(r["allowlist"]) == Names{bob.human()});
+            BEAST_EXPECT(status(alice) == 403 && status(bob) == 200);
+
+            // Refused whole: cfg entries, both lists, ambiguity, bad input.
+            auto const text = onDisk();
+            for (auto const& bad :
+                 {one("unblock", carol),
+                  one("allow", carol),
+                  one("block", bob),
+                  R"({"allow": [")" + alice.human() + R"("], "unallow": ")" +
+                      alice.human() + R"("})",
+                  R"({"block": [")" + alice.human() + R"(", "nope"]})",
+                  std::string(R"({"allow": "rrrrrrrrrrrrrrrrrrrrrhoLvTp"})"),
+                  std::string(R"({"allow": {}})"),
+                  std::string(R"({"block": [1]})"),
+                  std::string(R"({"reload": 1})")})
+                BEAST_EXPECTS(
+                    pwaList(env, bad)[jss::error] == "invalidParams", bad);
+            BEAST_EXPECT(onDisk() == text);
+            BEAST_EXPECT(status(alice) == 403 && status(bob) == 200);
+            BEAST_EXPECT(
+                env.rpc("pwa_list", "allow")[jss::error] == "invalidParams");
+            BEAST_EXPECT(
+                env.rpc("pwa_list", "add", alice.human())[jss::error] ==
+                "invalidParams");
+            BEAST_EXPECT(
+                env.rpc("pwa_list", "reload", "reload")[jss::error] ==
+                "invalidParams");
+
+            // Hand edits wait for reload (or the next edit, which keeps them).
+            {
+                boost::system::error_code ec;
+                writeFileContents(
+                    ec,
+                    file,
+                    text + "[pwa_allowlist]\n" + alice.human() + "\n");
+            }
+            BEAST_EXPECT(status(alice) == 403);
+            r = env.rpc("pwa_list", "reload")[jss::result];
+            BEAST_EXPECT(r["changed"] == true);
+            BEAST_EXPECT(
+                names(r["allowlist"]) == Names({alice.human(), bob.human()}));
+            BEAST_EXPECT(status(alice) == 200);
+
+            // A file broken by hand is reported and changes nothing.
+            auto const good = onDisk();
+            {
+                boost::system::error_code ec;
+                writeFileContents(ec, file, good + "[nope]\n");
+            }
+            BEAST_EXPECT(
+                pwaList(env, R"({"reload": true})")[jss::error] == "internal");
+            BEAST_EXPECT(
+                pwaList(env, one("unallow", bob))[jss::error] == "internal");
+            BEAST_EXPECT(status(bob) == 200);
+            {
+                boost::system::error_code ec;
+                writeFileContents(ec, file, good);
+            }
+        }
+
+        // A restart picks the file up again.
+        {
+            Env env{*this, cfg()};
+            auto const r = pwaList(env);
+            BEAST_EXPECT(
+                names(r["allowlist"]) == Names({alice.human(), bob.human()}) &&
+                r["blocklist"].size() == 0);
+        }
+
+        // Without a lists file there is nothing to edit; and admin only.
+        {
+            Env env{*this, pwaConfig()};
+            BEAST_EXPECT(!pwaList(env).isMember("file"));
+            BEAST_EXPECT(
+                pwaList(env, one("block", alice))[jss::error] ==
+                "notSupported");
+        }
+        {
+            Env env{*this, no_admin(cfg())};
+            auto const jrc = makeJSONRPCClient(env.app().config());
+            BEAST_EXPECT(jrc->invoke("pwa_list", Json::objectValue)[jss::result]
+                             .isNull());
+        }
+    }
+
+    void
+    testHookLists()
+    {
+        testcase("hook-controlled list providers");
+        using namespace jtx;
+        Account const alice{"alice"}, bob{"bob"}, carol{"carol"}, dave{"dave"},
+            p1{"p1"}, p2{"p2"};
+        using V = std::optional<bool>;
+        constexpr V ask = std::nullopt;
+        auto check = [&](PWAPolicy policy,
+                         std::array<V, 4> expect,
+                         bool withView = true) {
+            Env env{*this};
+            env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+                // What each provider's hook would state_set.
+                auto put = [&](Account const& p, Account const& a, Blob v) {
+                    uint256 key;
+                    std::copy(a.id().begin(), a.id().end(), key.end() - 20);
+                    auto sle = std::make_shared<SLE>(
+                        keylet::hookState(p.id(), key, pwaListNamespace));
+                    sle->setFieldH256(sfHookStateKey, key);
+                    sle->setFieldVL(sfHookStateData, v);
+                    view.rawInsert(sle);
+                };
+                put(p1, alice, {0, 0});
+                put(p1, bob, {0, 1});
+                put(p2, alice, {1});
+                put(p2, carol, {0});
+                int i = 0;
+                for (auto const& a : {alice, bob, carol, dave})
+                    BEAST_EXPECTS(
+                        policy.verdict(withView ? &view : nullptr, a.id()) ==
+                            expect[i++],
+                        a.name());
+                return false;
+            });
+        };
+        auto const providers = [&](PWALists cfg, PWALists file = {}) {
+            PWAPolicy p;
+            p.cfg = std::move(cfg);
+            p.file = std::move(file);
+            p.providers = {p1.id(), p2.id()};
+            return p;
+        };
+        // First provider with an entry wins; no entry passes through.
+        check(providers({}), {false, true, false, true});
+        // Local lists first, cfg and file alike; listed nowhere falls to
+        // the allowlist rule.
+        check(
+            providers({{alice.id()}, {bob.id()}}), {true, false, false, false});
+        check(
+            providers({{}, {bob.id()}}, {{alice.id()}, {}}),
+            {true, false, false, false});
+        // Without a view (the I/O thread's early check) providers are not
+        // consulted: what the lists settle is settled, the rest is open.
+        check(providers({}), {ask, ask, ask, ask}, false);
+        check(
+            providers({{alice.id()}, {bob.id()}}),
+            {true, false, ask, ask},
+            false);
+        // With no providers the lists settle everything, view or not.
+        PWAPolicy local;
+        local.file = {{alice.id()}, {bob.id()}};
+        check(local, {true, false, false, false}, false);
+        check(local, {true, false, false, false});
+        check(PWAPolicy{}, {true, true, true, true}, false);
+    }
+
+    void
     testProxy(boost::asio::yield_context& yield)
     {
         testcase("proxy, X-Forwarded-For and metering");
@@ -1003,10 +1271,12 @@ public:
     run() override
     {
         testConfigValidation();
+        testHookLists();
         yield_to([&](boost::asio::yield_context& yield) {
             testServe(yield);
             testRouting(yield);
             testLists(yield);
+            testListRPC(yield);
             testProxy(yield);
             testCustomDomains(yield);
             testPWAInfo(yield);

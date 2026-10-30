@@ -24,6 +24,7 @@
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/basics/partitioned_unordered_map.h>
 #include <cstdint>
+#include <string_view>
 
 namespace ripple {
 
@@ -114,6 +115,14 @@ std::size_t constexpr maxAppLoaderLength = 4096;
     field, including overwrites.
 */
 std::uint64_t constexpr appLoaderFeeDropsPerByte = 1;
+
+/** Hook state namespace of PWA allow/block list providers: key = the
+    listed AccountID, zero padded on the left as state_set does; all-zero
+    data blocks, any other data allows. A convention between provider hooks
+    and the nodes reading them, not consensus. ASCII "PWA_ALLOW_BLOCK_LIST".
+*/
+uint256 constexpr pwaListNamespace(std::string_view(
+    "5057415F414C4C4F575F424C4F434B5F4C495354000000000000000000000000"));
 
 /** The maximum length of a URI inside a Credential */
 std::size_t constexpr maxCredentialURILength = 256;

@@ -33,6 +33,7 @@
 
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/ssl/ssl_stream.hpp>
+#include <boost/filesystem/path.hpp>
 #include <boost/utility/string_view.hpp>
 
 #include <array>
@@ -40,7 +41,10 @@
 #include <chrono>
 #include <condition_variable>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <optional>
+#include <set>
 #include <vector>
 
 namespace ripple {
@@ -50,6 +54,51 @@ operator<(Port const& lhs, Port const& rhs)
 {
     return lhs.name < rhs.name;
 }
+
+class ReadView;
+
+/** A [pwa_allowlist] and a [pwa_blocklist], from one source. */
+struct PWALists
+{
+    std::set<AccountID> allow;  // if non-empty, only these are served
+    std::set<AccountID> block;  // never served; wins over allowlist
+
+    bool
+    operator==(PWALists const&) const = default;
+};
+
+/** Which accounts' loaders the pwa ports serve. Node-global: every pwa
+    port applies the same policy. It has three sources, and `verdict`
+    consults them in this order:
+
+      1. the blocklists (cfg and file): refused;
+      2. the allowlists (cfg and file): served;
+      3. `providers`, in order: the first with a hook state entry for the
+         account under pwaListNamespace decides (all-zero data refuses,
+         anything else serves). Needs a ledger;
+      4. listed nowhere: served, unless an allowlist is non-empty.
+
+    A snapshot is immutable once built; ServerHandler replaces it whole. */
+struct PWAPolicy
+{
+    PWALists cfg;                      // from xahaud.cfg: fixed
+    PWALists file;                     // from the lists file: pwa_list edits
+    std::vector<AccountID> providers;  // [pwa_list_providers], first wins
+
+    bool
+    operator==(PWAPolicy const&) const = default;
+
+    /** Whether `account` may be served. With a view the answer is always
+        settled. Without one the providers are not consulted, so nullopt
+        means "listed nowhere; ask again with a ledger". */
+    std::optional<bool>
+    verdict(ReadView const* view, AccountID const& account) const;
+
+    /** Accounts on both an allowlist and a blocklist, cfg and file
+        counted together. Non-empty is a configuration error. */
+    std::set<AccountID>
+    conflicts() const;
+};
 
 class ServerHandler
 {
@@ -116,6 +165,11 @@ public:
         // Configuration for the Overlay
         boost::asio::ip::tcp::endpoint overlay;
 
+        // The PWA policy as read at startup; pwaListsFile (empty: none) is
+        // where the pwa_list RPC persists its edits to policy.file.
+        PWAPolicy pwaPolicy;
+        boost::filesystem::path pwaListsFile;
+
         void
         makeContexts();
     };
@@ -164,6 +218,14 @@ private:
     std::set<std::string> pwaDnsInFlight_;
     static constexpr std::size_t maxPWADnsInFlight = 4;
     static constexpr std::size_t maxPWADnsEntries = 10'000;
+
+    // The live PWA policy, replaced whole on each edit so a request sees
+    // one consistent snapshot. pwaEditMutex_ serialises edits (and so the
+    // lists file write); pwaPolicyMutex_ guards only the pointer.
+    std::mutex pwaEditMutex_;
+    mutable std::mutex pwaPolicyMutex_;
+    std::shared_ptr<PWAPolicy const> pwaPolicy_ =
+        std::make_shared<PWAPolicy const>();
 
     void
     resolvePWADomain(
@@ -227,6 +289,20 @@ public:
     {
         return pwaStats_;
     }
+
+    std::shared_ptr<PWAPolicy const>
+    pwaPolicy() const
+    {
+        std::lock_guard lock(pwaPolicyMutex_);
+        return pwaPolicy_;
+    }
+
+    /** The pwa_list RPC: optionally reread the lists file, take `remove`
+        off and then put `add` on the file's lists, write the file if that
+        changed it, then publish the new policy. All or nothing. Returns the
+        RPC result. */
+    Json::Value
+    pwaListsEdit(PWALists const& add, PWALists const& remove, bool reload);
 
     /** Drop every cached custom domain answer; returns how many. */
     std::size_t
@@ -323,8 +399,9 @@ private:
     void
     onPWARequest(Session& session);
 
-    /** Apply the allowlist and blocklist, then post the ledger read to the
-        job queue as jtCLIENT_PWA. Callable from any thread. */
+    /** Refuse what the PWA policy settles without a ledger, then post the
+        ledger read to the job queue as jtCLIENT_PWA. Callable from any
+        thread. */
     void
     queuePWALookup(
         std::shared_ptr<Session> const& session,
