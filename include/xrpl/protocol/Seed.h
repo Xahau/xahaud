@@ -22,72 +22,37 @@
 
 #include <xrpl/basics/Slice.h>
 #include <xrpl/basics/base_uint.h>
+#include <xrpl/protocol/detail/KeyBase.h>
 #include <xrpl/protocol/tokens.h>
+
+#include <algorithm>
 #include <array>
 #include <optional>
 
 namespace ripple {
 
 /** Seeds are used to generate deterministic secret keys. */
-class Seed
+class Seed : public detail::KeyBase<Seed, 16>
 {
-private:
-    std::array<uint8_t, 16> buf_;
-
 public:
-    using const_iterator = std::array<uint8_t, 16>::const_iterator;
-
     Seed() = delete;
-
     Seed(Seed const&) = default;
     Seed&
     operator=(Seed const&) = default;
 
-    /** Destroy the seed.
-        The buffer will first be securely erased.
-    */
+    /** Destroy the seed. This will attempt to securely erase the buffer. */
     ~Seed();
 
-    /** Construct a seed */
-    /** @{ */
-    explicit Seed(Slice const& slice);
-    explicit Seed(uint128 const& seed);
-    /** @} */
-
-    std::uint8_t const*
-    data() const
+    explicit Seed(Slice const& slice)
     {
-        return buf_.data();
+        if (slice.size() != buf_.size())
+            LogicError("Seed::Seed: invalid size");
+
+        std::copy_n(slice.data(), buf_.size(), buf_.data());
     }
 
-    std::size_t
-    size() const
+    explicit Seed(span_t seed) noexcept : KeyBase(seed)
     {
-        return buf_.size();
-    }
-
-    const_iterator
-    begin() const noexcept
-    {
-        return buf_.begin();
-    }
-
-    const_iterator
-    cbegin() const noexcept
-    {
-        return buf_.cbegin();
-    }
-
-    const_iterator
-    end() const noexcept
-    {
-        return buf_.end();
-    }
-
-    const_iterator
-    cend() const noexcept
-    {
-        return buf_.cend();
     }
 };
 

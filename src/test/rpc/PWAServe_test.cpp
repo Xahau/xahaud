@@ -516,7 +516,7 @@ class PWAServe_test : public beast::unit_test::suite,
         BEAST_EXPECT(html(r));
         BEAST_EXPECT(r.body() == doc());
         BEAST_EXPECT(hdr(r, "Connection") == "close");
-        BEAST_EXPECT(hdr(r, "Server") == systemName());
+        BEAST_EXPECT(hdr(r, "Server") == systemName);
         BEAST_EXPECT(
             hdr(r, "Content-Security-Policy").rfind("sandbox ", 0) == 0);
         BEAST_EXPECT(hdr(r, "X-Frame-Options") == "DENY");
@@ -742,7 +742,7 @@ class PWAServe_test : public beast::unit_test::suite,
                 yield);
             BEAST_EXPECT(s.rfind("HTTP/1.1 403 ", 0) == 0);
             BEAST_EXPECT(
-                s.find("\r\nServer: " + systemName() + "\r\n") !=
+                s.find("\r\nServer: " + std::string(systemName) + "\r\n") !=
                 std::string::npos);
         }
     }
