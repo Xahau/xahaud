@@ -925,15 +925,17 @@ PWAPolicy::conflicts() const
 static std::optional<std::string>
 readPWAListsFile(boost::filesystem::path const& path, PWALists& out)
 {
+    namespace fs = boost::filesystem;
     out = {};
+    // Boost sets ec to ENOENT for a missing file (status() always reports
+    // errno), so test the type first: a missing file is not an error.
     boost::system::error_code ec;
-    if (!boost::filesystem::exists(path, ec))
-    {
-        if (ec)
-            return path.string() + ": " + ec.message();
+    auto const st = fs::status(path, ec);
+    if (st.type() == fs::file_not_found)
         return std::nullopt;
-    }
-    if (!boost::filesystem::is_regular_file(path, ec))
+    if (ec)
+        return path.string() + ": " + ec.message();
+    if (!fs::is_regular_file(st))
         return path.string() + ": not a regular file";
     auto const data = getFileContents(ec, path);
     if (ec)
@@ -989,14 +991,27 @@ pwaListsText(PWALists const& lists)
 static std::optional<std::string>
 replaceFile(boost::filesystem::path path, std::string const& text)
 {
+    namespace fs = boost::filesystem;
+    // A missing target is fine: the first edit creates it. As with
+    // status(), symlink_status() sets ec to ENOENT then, so test the type.
     boost::system::error_code ec;
-    if (boost::filesystem::is_symlink(path, ec))
-        path = boost::filesystem::canonical(path, ec);
-    if (ec)
+    auto const st = fs::symlink_status(path, ec);
+    if (st.type() == fs::symlink_file)
+    {
+        auto target = fs::canonical(path, ec);
+        if (ec)
+            return path.string() + ": " + ec.message();
+        path = std::move(target);
+    }
+    else if (ec && st.type() != fs::file_not_found)
         return path.string() + ": " + ec.message();
+
+    // A stale temporary (from a crash) is removed first, and O_EXCL then
+    // refuses to follow anything planted in its place.
     auto const tmp = path.string() + ".tmp";
+    ::unlink(tmp.c_str());
     int const fd =
-        ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+        ::open(tmp.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0644);
     if (fd < 0)
         return tmp + ": " + std::strerror(errno);
 
@@ -1013,6 +1028,8 @@ replaceFile(boost::filesystem::path path, std::string const& text)
         auto const n = ::write(fd, text.data() + done, text.size() - done);
         if (n < 0 && errno == EINTR)
             continue;
+        if (n == 0)
+            errno = EIO;
         check(n > 0, "write");
         if (n > 0)
             done += static_cast<std::size_t>(n);
@@ -1023,8 +1040,23 @@ replaceFile(boost::filesystem::path path, std::string const& text)
     if (!err)
         check(::rename(tmp.c_str(), path.c_str()) == 0, "rename");
     if (err)
+    {
         ::unlink(tmp.c_str());
-    return err;
+        return err;
+    }
+
+    // Make the rename itself durable. Best effort: the new file is already
+    // in place, so a failure here is not reported as a failed edit.
+    auto dir = path.parent_path();
+    if (dir.empty())
+        dir = ".";
+    if (int const dfd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        dfd >= 0)
+    {
+        ::fsync(dfd);
+        ::close(dfd);
+    }
+    return std::nullopt;
 }
 
 Json::Value

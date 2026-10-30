@@ -24,6 +24,7 @@
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/basics/partitioned_unordered_map.h>
 #include <cstdint>
+#include <string_view>
 
 namespace ripple {
 
@@ -120,8 +121,8 @@ std::uint64_t constexpr appLoaderFeeDropsPerByte = 1;
     data blocks, any other data allows. A convention between provider hooks
     and the nodes reading them, not consensus. ASCII "PWA_ALLOW_BLOCK_LIST".
 */
-uint256 const pwaListNamespace{
-    "5057415F414C4C4F575F424C4F434B5F4C495354000000000000000000000000"};
+uint256 constexpr pwaListNamespace(std::string_view(
+    "5057415F414C4C4F575F424C4F434B5F4C495354000000000000000000000000"));
 
 /** The maximum length of a URI inside a Credential */
 std::size_t constexpr maxCredentialURILength = 256;
