@@ -325,7 +325,7 @@ setExporter(ApplyView& view, std::shared_ptr<SLE> const& acc, bool on)
                 keylet::exporterDir(),
                 (*acc)[sfExportNode],
                 keylet::account(id),
-                true))
+                false))
             return tefBAD_LEDGER;
         acc->makeFieldAbsent(sfExportNode);
         acc->clearFlag(lsfExporter);

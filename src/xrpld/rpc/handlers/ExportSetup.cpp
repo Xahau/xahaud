@@ -52,11 +52,19 @@ namespace ripple {
 
     Hooks need none of this: xport() a SignerListSet without SignerEntries.
 */
+// a JSON number usable as an unsigned: the parser gives small literals the
+// signed type, so isUInt() alone would refuse them
+static bool
+isUnsigned(Json::Value const& v)
+{
+    return v.isUInt() || (v.isInt() && v.asInt() >= 0);
+}
+
 Json::Value
 doExportSetup(RPC::JsonContext& context)
 {
     auto const& params = context.params;
-    if (params.isMember("as_of") && !params["as_of"].isUInt())
+    if (params.isMember("as_of") && !isUnsigned(params["as_of"]))
         return RPC::invalid_field_error("as_of");
 
     std::optional<AccountID> account;
@@ -85,7 +93,7 @@ doExportSetup(RPC::JsonContext& context)
     std::uint32_t quorum = (signers.size() * 4 + 4) / 5;
     if (params.isMember("quorum"))
     {
-        if (!params["quorum"].isUInt() || params["quorum"].asUInt() == 0 ||
+        if (!isUnsigned(params["quorum"]) || params["quorum"].asUInt() == 0 ||
             params["quorum"].asUInt() > signers.size())
             return RPC::invalid_field_error("quorum");
         quorum = params["quorum"].asUInt();

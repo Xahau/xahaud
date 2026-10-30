@@ -870,6 +870,13 @@ HookAPI::xport(Slice const& txBlob) const
         if (!inner.isFieldPresent(sfFee))
             inner.setFieldAmount(sfFee, XRPAmount{0});
         needsTicket = !inner.isFieldPresent(sfTicketSequence);
+        {
+            // it must be a transaction of the other network: its type known
+            // and its required fields all there (STTx applies the template)
+            Serializer probe;
+            inner.add(probe);
+            STTx const t{SerialIter{probe.slice()}};
+        }
         STObject outer{sfGeneric};
         outer[sfTransactionType] = static_cast<std::uint16_t>(ttEXPORT);
         outer.emplace_back(std::move(inner));

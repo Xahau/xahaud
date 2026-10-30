@@ -553,7 +553,7 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(preclaim(bob.id()) == tecNO_TARGET);
 
         // the pending export snapshots it
-        auto const pay = payment(alice.id(), 1);
+        auto const pay = payment(alice.id(), 1, 7, nid);
         BEAST_EXPECT(
             applyExport(env, view, exportTx(env, alice.id(), pay)) ==
             tesSUCCESS);
@@ -738,6 +738,7 @@ class Export_test : public beast::unit_test::suite
         // ticket goes back to the pool with its shadow ticket gone. Applying
         // it leaves the shadow ticket as ttEXPORT would; a copy pending since
         // createdOld is what closes now.
+        setSignerList(view, alice.id(), entries, 1);
         auto const lonely = payment(alice.id(), 30, 9, nid);
         BEAST_EXPECT(
             applyExport(env, view, exportTx(env, alice.id(), lonely)) ==
@@ -963,6 +964,50 @@ class Export_test : public beast::unit_test::suite
     }
 
     void
+    testExporterFlag()
+    {
+        testcase("exporter flag");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments() | featureExport};
+        Account const alice{"alice"}, bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        // only an account whose export signer list is recorded (as the
+        // Import of its SignerListSet does) can be an exporter
+        env(fset(bob, asfExporter), ter(tecNO_TARGET));
+
+        // alice's list, as Import would record it. The open ledger is what
+        // the AccountSets below apply to and what env.le reads, so nothing
+        // closes in between (a close rebuilds the ledger from the txns).
+        auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            setSignerList(view, alice.id(), signerEntries({a}), 1);
+            return true;
+        });
+        env(fset(alice, asfExporter));
+        if (auto const sle = env.le(alice); BEAST_EXPECT(sle))
+        {
+            BEAST_EXPECT(sle->isFlag(lsfExporter));
+            // listed, so Export::accept looks after its tickets and keys
+            BEAST_EXPECT(sle->isFieldPresent(sfExportNode));
+            BEAST_EXPECT(env.current()->exists(keylet::exporterDir()));
+        }
+        auto const info = env.rpc("account_info", alice.human())[jss::result];
+        BEAST_EXPECT(info[jss::account_flags]["exporter"] == true);
+
+        // and can opt out again
+        env(fclear(alice, asfExporter));
+        if (auto const sle = env.le(alice); BEAST_EXPECT(sle))
+        {
+            BEAST_EXPECT(!sle->isFlag(lsfExporter));
+            BEAST_EXPECT(!sle->isFieldPresent(sfExportNode));
+        }
+        BEAST_EXPECT(!env.current()->exists(keylet::exporterDir()));
+    }
+
+    void
     testLoopbackImport()
     {
         testcase("loopback import");
@@ -1129,6 +1174,7 @@ public:
         testSignerList();
         testSignAndFinal();
         testTicketPool();
+        testExporterFlag();
         testLoopbackImport();
     }
 };
