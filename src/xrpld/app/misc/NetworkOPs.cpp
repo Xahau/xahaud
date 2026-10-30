@@ -1169,7 +1169,9 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
             app_.getHashRouter(),
             *trans,
             m_ledgerMaster.getValidatedRules(),
-            app_.config());
+            app_.config(),
+            tapNONE,
+            app_.openLedger().current());
 
         if (validity != Validity::Valid)
         {
@@ -1418,7 +1420,9 @@ NetworkOPsImp::processTransaction(
         app_.getHashRouter(),
         *transaction->getSTransaction(),
         view->rules(),
-        app_.config());
+        app_.config(),
+        tapNONE,
+        view);
     XRPL_ASSERT(
         validity == Validity::Valid,
         "ripple::NetworkOPsImp::processTransaction : valid validity");

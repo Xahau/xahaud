@@ -32,6 +32,7 @@
 #include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/FeeUnits.h>
+#include <xrpl/protocol/PQPublicKey.h>
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/SystemParameters.h>
 #include <xrpl/protocol/TxFormats.h>
@@ -617,6 +618,7 @@ LedgerEntryTypesMatch::visitEntry(
             case ltPERMISSIONED_DOMAIN:
             case ltAPP_LOADER:
             case ltMANIFEST:
+            case ltPUBLIC_KEY:
                 break;
             default:
                 invalidTypeAdded_ = true;
@@ -2076,6 +2078,59 @@ ValidAppLoader::finalize(
         if (!root ||
             (*root)[~sfAppLoaderSequence] != (*sle)[sfAppLoaderSequence])
             return fail("sequence does not match its owner's");
+    }
+    return true;
+}
+
+//------------------------------------------------------------------------------
+
+void
+ValidPQPublicKey::visitEntry(
+    bool isDelete,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    auto const& sle = after ? after : before;
+    if (!sle || sle->getType() != ltPUBLIC_KEY)
+        return;
+    touched_ = true;
+    if (!isDelete)
+        live_.push_back(after);
+}
+
+bool
+ValidPQPublicKey::finalize(
+    STTx const&,
+    TER const,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j)
+{
+    if (!touched_)
+        return true;
+
+    auto fail = [&](char const* why) {
+        JLOG(j.fatal()) << "Invariant failed: PublicKey " << why;
+        return false;
+    };
+
+    if (!view.rules().enabled(featurePQSignatures))
+        return fail("changed before featurePQSignatures was enabled");
+
+    for (auto const& sle : live_)
+    {
+        auto const type = pq::keyTypeFromByte((*sle)[sfPublicKeyType]);
+        if (!type)
+            return fail("has an unknown key type");
+        auto const& data = sle->getFieldVL(sfPublicKeyData);
+        if (data.size() != pq::publicKeyBytes(*type))
+            return fail("has key data of the wrong size");
+        auto const id = pq::calcAccountID(
+            makeSlice(pq::makeInlineKey(*type, makeSlice(data))));
+        if (sle->key() != keylet::pqPublicKey(id).key)
+            return fail("is not keyed at the AccountID of its key");
+        if ((*sle)[sfReferenceCount] < 1)
+            return fail("has a zero reference count");
     }
     return true;
 }

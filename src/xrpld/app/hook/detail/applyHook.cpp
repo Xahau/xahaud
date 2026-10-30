@@ -2227,10 +2227,16 @@ DEFINE_HOOK_FUNCTION(
             case keylet_code::SIGNERS:
             case keylet_code::ACCOUNT:
             case keylet_code::HOOK:
+            case keylet_code::PQ_PUBLIC_KEY:
             case keylet_code::DID: {
                 if (keylet_type == keylet_code::DID)
                 {
                     if (!applyCtx.view().rules().enabled(featureDID))
+                        return INVALID_ARGUMENT;
+                }
+                if (keylet_type == keylet_code::PQ_PUBLIC_KEY)
+                {
+                    if (!applyCtx.view().rules().enabled(featurePQSignatures))
                         return INVALID_ARGUMENT;
                 }
                 if (a == 0 || b == 0)
@@ -2255,8 +2261,9 @@ DEFINE_HOOK_FUNCTION(
                     ? ripple::keylet::signers(id)
                     : keylet_type == keylet_code::OWNER_DIR
                     ? ripple::keylet::ownerDir(id)
-                    : keylet_type == keylet_code::DID
-                    ? ripple::keylet::did(id)
+                    : keylet_type == keylet_code::DID ? ripple::keylet::did(id)
+                    : keylet_type == keylet_code::PQ_PUBLIC_KEY
+                    ? ripple::keylet::pqPublicKey(id)
                     : ripple::keylet::account(id);
 
                 return serialize_keylet(kl, memory, write_ptr, write_len);
@@ -3344,8 +3351,10 @@ DEFINE_HOOK_FUNCTION(
 }
 
 // Validate either an secp256k1 signature or an ed25519 signature, using the
-// XRPLD convention for identifying the key type. Pointer prefixes: d = data, s
-// = signature, k = public key.
+// XRPLD convention for identifying the key type. With featurePQSignatures the
+// key may also be a post-quantum key, inline (0xF0 | type | key) or by
+// reference (0xF1 | AccountID) to an ltPUBLIC_KEY object in the ledger.
+// Pointer prefixes: d = data, s = signature, k = public key.
 DEFINE_HOOK_FUNCTION(
     int64_t,
     util_verify,

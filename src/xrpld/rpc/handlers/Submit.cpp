@@ -218,7 +218,9 @@ doSubmit(RPC::JsonContext& context)
             context.app.getHashRouter(),
             *stTx,
             context.ledgerMaster.getCurrentLedger()->rules(),
-            context.app.config());
+            context.app.config(),
+            tapNONE,
+            context.app.openLedger().current());
         if (validity != Validity::Valid)
         {
             jvResult[jss::error] = "invalidTransaction";

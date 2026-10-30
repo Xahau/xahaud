@@ -315,6 +315,7 @@ enum keylet_code : uint32_t {
     CREDENTIAL = 35,
     PERMISSIONED_DOMAIN = 36,
     MANIFEST = 37,
+    PQ_PUBLIC_KEY = 38,
 };
 }
 

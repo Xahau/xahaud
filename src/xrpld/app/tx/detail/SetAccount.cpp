@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/tx/detail/PQKeyLedger.h>
 #include <xrpld/app/tx/detail/SetAccount.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/View.h>
@@ -428,12 +429,16 @@ SetAccount::doApply()
 
         JLOG(j_.trace()) << "Set lsfDisableMaster.";
         uFlagsOut |= lsfDisableMaster;
+        // featurePQSignatures: an enabled master key references its key
+        // object; disabling the master releases that reference.
+        pqkey::removeReference(view(), account_, j_);
     }
 
     if ((uClearFlag == asfDisableMaster) && (uFlagsIn & lsfDisableMaster))
     {
         JLOG(j_.trace()) << "Clear lsfDisableMaster.";
         uFlagsOut &= ~lsfDisableMaster;
+        pqkey::addReference(view(), account_, j_);
     }
 
     //
