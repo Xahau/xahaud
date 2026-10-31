@@ -466,6 +466,15 @@ Change::applyUNLReport()
             STArray(
                 canonicalize(sfImportVLKeys, sfImportVLKey), sfImportVLKeys));
 
+    if (view().rules().enabled(fixUNLReportReset) && reset)
+    {
+        if (!hasAV)
+            sle->setFieldArray(
+                sfActiveValidators, STArray(sfActiveValidators));
+        if (!hasVL)
+            sle->setFieldArray(sfImportVLKeys, STArray(sfImportVLKeys));
+    }
+
     if (created)
         view().insert(sle);
     else
