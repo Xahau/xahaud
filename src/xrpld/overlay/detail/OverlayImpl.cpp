@@ -1568,6 +1568,8 @@ checkXUSHTransaction(
         {
             JLOG(j.trace())
                 << "XUSH: transaction " << txID << " failed checks: " << reason;
+            if (validity == Validity::Refused)
+                return;
             app.getHashRouter().setFlags(txID, SF_BAD);
             usage.charge(Resource::feeInvalidSignature, "XUSH tx signature");
             return;

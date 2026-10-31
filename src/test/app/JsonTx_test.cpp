@@ -26,6 +26,8 @@
 #include <xrpld/app/ledger/LocalTxs.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/json/json_reader.h>
@@ -246,7 +248,7 @@ struct JsonTx_test : public beast::unit_test::suite
         parsed.object->setFieldVL(sfJsonTxDelta, makeSlice(diff));
         STTx const tx(std::move(*parsed.object));
 
-        // Asked first under rules without the amendment: SigBad, and that
+        // Asked first under rules without the amendment: refused, and that
         // answer must not be cached - PeerImp checks against the validated
         // ledger's rules and consensus against the open ledger's, so across
         // activation the same id is asked both ways.
@@ -254,10 +256,32 @@ struct JsonTx_test : public beast::unit_test::suite
         auto& router = env.app().getHashRouter();
         BEAST_EXPECT(
             checkValidity(router, tx, before, env.app().config()).first ==
-            Validity::SigBad);
+            Validity::Refused);
+        BEAST_EXPECT(router.getFlags(tx.getTransactionID()) == 0);
         BEAST_EXPECT(
             checkValidity(
                 router, tx, env.current()->rules(), env.app().config())
+                .first == Validity::Valid);
+
+        // Direct ingress must not retain the refusal as a bad transaction.
+        Env disabled{*this, features - featureJsonTx};
+        disabled.fund(XRP(10000), alice, bob);
+        disabled.close();
+        std::string reason;
+        auto transaction = std::make_shared<Transaction>(
+            std::make_shared<STTx const>(tx), reason, disabled.app());
+        disabled.app().getOPs().processTransaction(
+            transaction, false, true, NetworkOPs::FailHard::no);
+        BEAST_EXPECT(transaction->getResult() == temDISABLED);
+        auto& disabledRouter = disabled.app().getHashRouter();
+        BEAST_EXPECT(
+            (disabledRouter.getFlags(tx.getTransactionID()) & SF_BAD) == 0);
+        BEAST_EXPECT(
+            checkValidity(
+                disabledRouter,
+                tx,
+                env.current()->rules(),
+                disabled.app().config())
                 .first == Validity::Valid);
 
         // A bad JsonTx is cached as bad once the rules allow it at all.

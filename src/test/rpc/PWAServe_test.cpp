@@ -852,12 +852,21 @@ class PWAServe_test : public beast::unit_test::suite,
         BEAST_EXPECT(
             with({{"X-Forwarded-For", "203.0.113.7"}}) ==
             200);  // others unaffected
+        int successfulPrefix = -1;
         BEAST_EXPECT(eventually([&](int n) {
             auto const prefix = "2001:db8:1:" + std::to_string(2 + n) + ":";
             nearDrop(prefix + ":", 3);
-            return throttles(prefix + "dead:beef::1");  // same /64
+            if (!throttles(prefix + "dead:beef::1"))  // same /64
+                return false;
+            successfulPrefix = 2 + n;
+            return true;
         }));
-        BEAST_EXPECT(with({{"X-Forwarded-For", "2001:db8:2::1"}}) == 200);
+        if (successfulPrefix >= 0)
+        {
+            auto const adjacent =
+                "2001:db8:1:" + std::to_string(successfulPrefix + 1) + "::1";
+            BEAST_EXPECT(with({{"X-Forwarded-For", adjacent}}) == 200);
+        }
     }
 
     void

@@ -279,6 +279,8 @@ preflight2(PreflightContext const& ctx)
         ctx.rules,
         ctx.app.config(),
         ctx.flags);
+    if (sigValid.first == Validity::Refused)
+        return temDISABLED;
     if (sigValid.first == Validity::SigBad)
     {
         JLOG(ctx.j.debug()) << "preflight2: bad signature. " << sigValid.second;

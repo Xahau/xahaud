@@ -65,7 +65,7 @@ checkValidity(
         // against the open ledger's - would be SIGBAD on some nodes and
         // SIGGOOD on others.
         if (!rules.enabled(featureJsonTx))
-            return {Validity::SigBad, "JsonTx is not enabled."};
+            return {Validity::Refused, "JsonTx is not enabled."};
 
         // A JsonTx signs a plaintext preimage, so STTx::checkSign -- a
         // check against the binary signing hash -- can never succeed for it,
@@ -234,6 +234,7 @@ forceValidity(HashRouter& router, uint256 const& txid, Validity validity)
             flags |= SF_SIGGOOD;
             [[fallthrough]];
         case Validity::SigBad:
+        case Validity::Refused:
             // would be silly to call directly
             break;
     }
