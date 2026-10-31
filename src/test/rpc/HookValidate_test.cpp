@@ -138,6 +138,26 @@ class HookValidate_test : public beast::unit_test::suite
             BEAST_EXPECT(r[jss::log].isArray());
         }
         {
+            // HookFeeV2 adds the cost units next to the instruction counts
+            auto const r = call(env, validHex);
+            BEAST_EXPECT(r.isMember(jss::hook_cost));
+            BEAST_EXPECT(r.isMember(jss::hook_callback_cost));
+            BEAST_EXPECT(
+                r[jss::hook_cost].asString() !=
+                r[jss::instruction_count_hook].asString());
+        }
+        {
+            Env env{
+                *this,
+                envconfig(withRpc, true),
+                supported_amendments() - featureHookFeeV2};
+            auto const r = call(env, validHex);
+            BEAST_EXPECT(r[jss::valid] == true);
+            BEAST_EXPECT(r.isMember(jss::instruction_count_hook));
+            BEAST_EXPECT(!r.isMember(jss::hook_cost));
+            BEAST_EXPECT(!r.isMember(jss::hook_callback_cost));
+        }
+        {
             // the lowercase hex the toolchains emit is accepted too
             std::string lower = validHex;
             for (auto& c : lower)

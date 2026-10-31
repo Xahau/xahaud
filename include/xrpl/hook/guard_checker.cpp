@@ -88,6 +88,7 @@ main(int argc, char** argv)
         hook,
         std::cout,
         "",
+        true,
         hook_api::getImportWhitelist(rules),
         hook_api::getGuardRulesVersion(rules));
 

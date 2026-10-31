@@ -406,6 +406,16 @@ const uint8_t max_emit = 255;
 const uint8_t max_params = 16;
 const double fee_base_multiplier = 1.1f;
 
+// HookFeeV2 execution cost units: every wasm instruction costs one unit and
+// every hook api call costs api_call_cost units on top of its call
+// instruction. cost_units_per_drop units make one drop, so an instruction
+// costs 0.1 drop and an api call 10 drops.
+const uint32_t api_call_cost = 100;
+const uint32_t cost_units_per_drop = 10;
+// instructions in the loop-head guard sequence (i32.const, i32.const,
+// call _g) that the guard checker consumes while parsing a loop
+const uint32_t loop_head_guard_instructions = 3;
+
 using APIWhitelist = std::map<std::string, std::vector<uint8_t>>;
 
 namespace detail {
