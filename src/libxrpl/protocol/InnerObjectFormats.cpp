@@ -163,6 +163,8 @@ InnerObjectFormats::InnerObjectFormats()
             {sfURI, soeREQUIRED},
             {sfDigest, soeOPTIONAL},
             {sfFlags, soeOPTIONAL},
+            {sfTransferFee, soeOPTIONAL},
+            {sfTransferFeeRecipient, soeOPTIONAL},
         });
 
     add(sfRemark.jsonName,
