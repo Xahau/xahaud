@@ -188,6 +188,20 @@ std::size_t constexpr maxTrim = 25;
 std::uint64_t constexpr txTimeMaxAgeMs = 300'000;
 std::uint64_t constexpr txTimeMaxFutureMs = 120'000;
 
+/** Credit notes (featureCreditNote).
+
+    A note is a JsonTx document the issuer signs blind, possibly offline,
+    that entitles whoever bears it to Amount from the issuer's account
+    between its IssueTime and its Expiration. The cap on its text keeps a
+    NoteClaim small and the parser's work bounded; the cap on its life
+    bounds both how long a lost note stays live and how far an issuer's
+    sfLastNoteTime can be pushed ahead by one of their own notes.
+
+    Both are consensus rules once featureCreditNote activates.
+*/
+std::size_t constexpr maxCreditNoteBytes = 512;
+std::uint64_t constexpr creditNoteMaxLifeMs = 3'600'000;
+
 }  // namespace ripple
 
 #endif
