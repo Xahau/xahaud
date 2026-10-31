@@ -35,9 +35,8 @@ Workers::Workers(
     assert(count != 0);
 
     // It is important that head and tail are equal but non-zero on
-    // startup: we use zero as a special value to indicate that the
-    // thread must terminate; if zero was a 'legal' value then we'd
-    // encounter the ABA problem with std::atomic::wait.
+    // startup: we use zero as a special value in head_ to indicate that
+    // the threads must terminate.
     assert(head_ == tail_ && head_ != 0);
 
     while (count--)
@@ -63,14 +62,19 @@ Workers::Workers(
                         // actually about to go to sleep.
                         beast::setCurrentThreadName(n + " [zZz]");
 
-                        while (h == t)
-                        {
-                            // This will block until we're notified.
-                            head_.wait(h);
-
+                        // Announce that we're about to sleep *before*
+                        // re-checking the counters. Both this increment and
+                        // the head_ CAS in addTask are seq_cst, so either we
+                        // observe the new task here, or addTask observes
+                        // sleepers_ != 0 and wakes us. No lost wakeups.
+                        std::unique_lock lock(sleepMutex_);
+                        ++sleepers_;
+                        sleepCond_.wait(lock, [this, &t, &h] {
                             t = tail_.load();
                             h = head_.load();
-                        }
+                            return h != t;
+                        });
+                        --sleepers_;
                     }
 
                     // As long as we aren't stopping and there is a task
@@ -117,7 +121,13 @@ void
 Workers::stop()
 {
     head_.store(0);
-    head_.notify_all();
+
+    // Taking the lock orders the store above against any thread that is
+    // between checking its predicate and blocking.
+    {
+        std::lock_guard lock(sleepMutex_);
+    }
+    sleepCond_.notify_all();
 
     while (threads_.load() != 0)
         std::this_thread::yield();
@@ -130,10 +140,18 @@ Workers::addTask()
 
     while (h != 0)
     {
-        if (head_.compare_exchange_strong(h, h + 1))
+        if (head_.compare_exchange_weak(h, h + 1))
         {
-            head_.notify_one();
-            h = 0;
+            // Fast path: if nobody is parked, someone is already awake and
+            // will pick this task up when it next checks the counters.
+            if (sleepers_.load() != 0)
+            {
+                {
+                    std::lock_guard lock(sleepMutex_);
+                }
+                sleepCond_.notify_one();
+            }
+            return;
         }
     }
 }
