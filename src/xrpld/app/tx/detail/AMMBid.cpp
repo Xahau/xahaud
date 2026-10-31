@@ -31,21 +31,15 @@
 
 namespace ripple {
 
+bool
+AMMBid::checkExtraFeatures(PreflightContext const& ctx)
+{
+    return ammEnabled(ctx.rules);
+}
+
 NotTEC
 AMMBid::preflight(PreflightContext const& ctx)
 {
-    if (!ammEnabled(ctx.rules))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.debug()) << "AMM Bid: invalid flags.";
-        return temINVALID_FLAG;
-    }
-
     if (auto const res = invalidAMMAssetPair(
             ctx.tx[sfAsset].get<Issue>(), ctx.tx[sfAsset2].get<Issue>()))
     {
@@ -96,7 +90,7 @@ AMMBid::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
