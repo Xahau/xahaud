@@ -107,6 +107,15 @@ public:
         hookEmission_ = std::move(emissions);
     }
 
+    /** Set the Subledger metadata: one SubledgerTransaction for each
+        atomically emitted transaction applied as part of this one.
+    */
+    void
+    setSubledgerMetaData(std::vector<STObject>&& subledger)
+    {
+        subledger_ = std::move(subledger);
+    }
+
     void
     copyHookMetaData(
         std::vector<STObject>& execution /* in */,
@@ -164,6 +173,7 @@ private:
     std::vector<STObject> hookExecution_;
     std::vector<STObject> hookEmission_;
     std::optional<uint256> randomData_;
+    std::vector<STObject> subledger_;
 };
 
 }  // namespace ripple

@@ -329,6 +329,125 @@ class View_test : public beast::unit_test::suite
         BEAST_EXPECT(!v0.exists(k(4)));
     }
 
+    // OpenView closed_view / subledger_view constructors (emit_atomic) and
+    // ApplyViewBase::flush / rebase
+    void
+    testClosedView()
+    {
+        testcase("Closed nested view");
+
+        using namespace jtx;
+        Env env(*this);
+        auto const open = env.current();
+
+        auto const txn = std::make_shared<Serializer>();
+        txn->add32(1);
+
+        // existing constructors are unchanged: txCount() counts only the
+        // view's own transactions and txExists() does not consult the base
+        OpenView base(&*open);
+        BEAST_EXPECT(base.open());
+        BEAST_EXPECT(base.txCount() == 0);
+        base.rawTxInsert(uint256(1), txn, nullptr);
+        BEAST_EXPECT(base.txCount() == 1);
+        BEAST_EXPECT(base.txExists(uint256(1)));
+        {
+            OpenView plain(&base);
+            BEAST_EXPECT(plain.txCount() == 0);
+            BEAST_EXPECT(!plain.txExists(uint256(1)));
+            OpenView copy(base);
+            BEAST_EXPECT(copy.txCount() == 1);
+        }
+
+        // closed view: always closed, same sequence, contiguous txCount,
+        // txExists delegated to the base (one level)
+        OpenView sandbox(closed_view, base);
+        BEAST_EXPECT(!sandbox.open());
+        BEAST_EXPECT(sandbox.seq() == base.seq());
+        BEAST_EXPECT(sandbox.info().parentHash == base.info().parentHash);
+        BEAST_EXPECT(sandbox.txCount() == 1);
+        BEAST_EXPECT(sandbox.txExists(uint256(1)));
+        BEAST_EXPECT(!sandbox.txExists(uint256(2)));
+        sandbox.rawTxInsert(uint256(2), txn, txn);
+        BEAST_EXPECT(sandbox.txCount() == 2);
+        BEAST_EXPECT(base.txCount() == 1);
+        {
+            OpenView copy(sandbox);
+            BEAST_EXPECT(!copy.open());
+            BEAST_EXPECT(copy.txCount() == 2);
+            BEAST_EXPECT(copy.txExists(uint256(1)));
+        }
+
+        // applyState propagates state (and destroyed drops) but no txns
+        BEAST_EXPECT(sandbox.stateSize() == 0);
+        sandbox.rawInsert(sle(7, 7));
+        sandbox.rawDestroyXRP(XRPAmount{5});
+        BEAST_EXPECT(sandbox.stateSize() == 1);
+        sandbox.applyState(base);
+        BEAST_EXPECT(base.exists(k(7)));
+        BEAST_EXPECT(!base.txExists(uint256(2)));
+        BEAST_EXPECT(base.txCount() == 1);
+
+        // apply propagates both
+        OpenView sandbox2(closed_view, base);
+        sandbox2.rawTxInsert(uint256(3), txn, txn);
+        sandbox2.rawInsert(sle(8, 8));
+        sandbox2.apply(base);
+        BEAST_EXPECT(base.exists(k(8)));
+        BEAST_EXPECT(base.txExists(uint256(3)));
+        BEAST_EXPECT(base.txCount() == 2);
+
+        // subledger view: open() follows the base, its own transactions are
+        // numbered from zero, txExists() is delegated; a closed_view child
+        // of it continues its numbering and applies into it
+        {
+            OpenView sub(subledger_view, base);
+            BEAST_EXPECT(sub.open() == base.open());
+            BEAST_EXPECT(sub.seq() == base.seq());
+            BEAST_EXPECT(sub.txCount() == 0);
+            BEAST_EXPECT(sub.txExists(uint256(1)));
+            BEAST_EXPECT(sub.exists(k(8)));
+
+            OpenView child(closed_view, sub);
+            BEAST_EXPECT(!child.open());
+            BEAST_EXPECT(child.txCount() == 0);
+            child.rawTxInsert(uint256(9), txn, txn);
+            child.rawInsert(sle(9, 9));
+            child.apply(sub);
+            BEAST_EXPECT(sub.txCount() == 1);
+            BEAST_EXPECT(sub.exists(k(9)));
+
+            OpenView child2(closed_view, sub);
+            BEAST_EXPECT(child2.txCount() == 1);
+            BEAST_EXPECT(child2.txExists(uint256(9)));
+            BEAST_EXPECT(child2.txExists(uint256(1)));
+
+            BEAST_EXPECT(!base.txExists(uint256(9)));
+            BEAST_EXPECT(!base.exists(k(9)));
+        }
+
+        // flush moves the buffered changes down, rebase re-layers the
+        // (empty) view on top of the view they went to
+        {
+            OpenView lower(&base);
+            ApplyViewImpl av(&base, tapNONE);
+            av.insert(sle(10, 10));
+            BEAST_EXPECT(av.size() == 1);
+            av.flush(lower);
+            BEAST_EXPECT(av.size() == 0);
+            BEAST_EXPECT(lower.exists(k(10)));
+            BEAST_EXPECT(!base.exists(k(10)));
+            av.rebase(&lower);
+            BEAST_EXPECT(av.exists(k(10)));
+            auto const e = av.peek(k(10));
+            BEAST_EXPECT(e != nullptr);
+            if (e)
+                av.erase(e);
+            BEAST_EXPECT(!av.exists(k(10)));
+            BEAST_EXPECT(lower.exists(k(10)));
+        }
+    }
+
     // Verify contextual information
     void
     testContext()
@@ -1098,6 +1217,7 @@ class View_test : public beast::unit_test::suite
         testMeta();
         testMetaSucc();
         testStacked();
+        testClosedView();
         testContext();
         testSles();
         testUpperAndLowerBound();

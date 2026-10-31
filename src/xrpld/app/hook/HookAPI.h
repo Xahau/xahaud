@@ -345,11 +345,34 @@ public:
     // sto_erase(): same as sto_emplace with field_object = nullopt
 
     /// etxn APIs
+    // atomic == true (prepare_atomic): the ledger window is set to exactly
+    // the ledger being built (FirstLedgerSequence == LastLedgerSequence ==
+    // current seq), as emit_atomic requires; otherwise the emit() window.
     Expected<Bytes, HookReturnCode>
-    prepare(Slice const& txBlob) const;
+    prepare(Slice const& txBlob, bool atomic = false) const;
 
+    // atomic == true applies the emit_atomic rules (strong only, not inside
+    // a subledger, per-transaction cap) on top of the emit rules. Validation
+    // only: nothing is emitted or executed.
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
-    emit(Slice const& txBlob) const;
+    emit(Slice const& txBlob, bool atomic = false) const;
+
+    // Bookkeeping for an emission: marks the nonce as consumed and, for
+    // atomic emissions, bumps the per-transaction attempt counter on the
+    // ApplyContext. Plain emit() callers must call this after queueing the
+    // txn; apply_atomic() calls it itself (before executing, so an attempt
+    // that fails still counts).
+    void
+    recordEmission(std::shared_ptr<Transaction> const& tpTrans, bool atomic)
+        const;
+
+    // emit_atomic: execute a txn accepted by emit(txBlob, true) in this
+    // transaction's subledger. The emission is recorded (recordEmission)
+    // first, whatever the outcome. On success the txn was applied (tes or tec)
+    // and its SubledgerTransaction entry is returned. Otherwise
+    // EMISSION_FAILURE, and the subledger holds nothing from the txn.
+    Expected<std::shared_ptr<STObject const>, HookReturnCode>
+    apply_atomic(std::shared_ptr<Transaction> const& tpTrans) const;
 
     Expected<uint64_t, HookReturnCode>
     etxn_burden() const;
@@ -560,6 +583,15 @@ public:
 
     Expected<uint32_t, HookReturnCode>
     meta_slot(uint32_t slot_into) const;
+
+    // Slot one SubledgerTransaction { EmittedTxnID, EmittedTxn,
+    // TransactionMetaData } of this transaction's subledger: the one with
+    // txid if given, else the one at index (application order).
+    Expected<uint32_t, HookReturnCode>
+    subledger_slot(
+        uint32_t slot_into,
+        std::optional<uint256> const& txid,
+        uint32_t index) const;
 
     Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
     xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const;
