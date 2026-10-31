@@ -167,8 +167,13 @@ class OverlayXUSH_test : public beast::unit_test::suite
         PeerFinder::Manager& peerFinder;
         Resource::Manager& resources;
 
-        Fixture(beast::unit_test::suite& suite, bool enabled)
-            : env(suite, enabled ? jtx::envconfig(highway) : jtx::envconfig())
+        Fixture(
+            beast::unit_test::suite& suite,
+            bool enabled,
+            FeatureBitset features = jtx::supported_amendments())
+            : env(suite,
+                  enabled ? jtx::envconfig(highway) : jtx::envconfig(),
+                  features)
             , overlay(dynamic_cast<OverlayImpl&>(env.app().overlay()))
             , peerFinder(overlay.peerFinder())
             , resources(env.app().getResourceManager())
@@ -394,6 +399,30 @@ class OverlayXUSH_test : public beast::unit_test::suite
     }
 
     void
+    testJsonTxRefused()
+    {
+        testcase("XUSHTXNF JsonTx before activation");
+        using namespace jtx;
+        Fixture f(*this, true, supported_amendments() - featureJsonTx);
+        auto& env = f.env;
+        auto const remote = ep("203.0.113.8:51235");
+        auto probe = f.probe(remote);
+        Account const alice("alice"), bob("bob");
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        auto const good = env.jt(pay(alice, bob, XRP(100)));
+        auto json = good.stx->getJson(JsonOptions::none);
+        json[sfJsonTxDelta.fieldName] = "010004";
+        STTx const tx(parse(json));
+        auto const txid = tx.getTransactionID();
+        auto const balance = probe.balance();
+        f.deliver(xush::encodeTxn(slice(serialize(tx)), txid), remote);
+        BEAST_EXPECT(!f.isBad(txid));
+        BEAST_EXPECT(!Fixture::charged(probe, balance, 2000));
+    }
+
+    void
     testDisconnect()
     {
         testcase("resource limit");
@@ -530,6 +559,7 @@ public:
         testPeers();
         testTransaction();
         testBadTransactions();
+        testJsonTxRefused();
         testDisconnect();
         testPublish();
         testSendPeers();

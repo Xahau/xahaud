@@ -262,7 +262,8 @@ TxConsequences::TxConsequences(STTx const& tx)
                                                       : beast::zero)
     , potentialSpend_(beast::zero)
     , seqProx_(tx.getSeqProxy())
-    , sequencesConsumed_(tx.getSeqProxy().isSeq() ? 1 : 0)
+    , sequencesConsumed_(
+          tx.getSeqProxy().isSeq() && !tx.isTimeSequenced() ? 1 : 0)
 {
 }
 

@@ -1419,6 +1419,13 @@ NetworkOPsImp::processTransaction(
         *transaction->getSTransaction(),
         view->rules(),
         app_.config());
+    if (validity == Validity::Refused)
+    {
+        JLOG(m_journal.debug()) << "Transaction refused: " << reason;
+        transaction->setStatus(INVALID);
+        transaction->setResult(temDISABLED);
+        return;
+    }
     XRPL_ASSERT(
         validity == Validity::Valid,
         "ripple::NetworkOPsImp::processTransaction : valid validity");
