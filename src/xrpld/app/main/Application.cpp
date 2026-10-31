@@ -49,6 +49,7 @@
 #include <xrpld/app/rdb/RelationalDatabase.h>
 #include <xrpld/app/rdb/Wallet.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/core/DatabaseCon.h>
 #include <xrpld/nodestore/DummyScheduler.h>
 #include <xrpld/overlay/Cluster.h>
@@ -189,6 +190,7 @@ public:
     CachedSLEs cachedSLEs_;
     std::optional<std::pair<PublicKey, SecretKey>> nodeIdentity_;
     ValidatorKeys const validatorKeys_;
+    ExportKeys exportKeys_;
 
     std::unique_ptr<Resource::Manager> m_resourceManager;
 
@@ -244,6 +246,9 @@ public:
     io_latency_sampler m_io_latency_sampler;
 
     std::unique_ptr<GRPCServer> grpcServer_;
+
+    // last, so its threads stop before anything they use is destroyed
+    std::unique_ptr<ExportRelay> exportRelay_;
 
     //--------------------------------------------------------------------------
 
@@ -351,6 +356,8 @@ public:
               logs_->journal("CachedSLEs"))
 
         , validatorKeys_(*config_, m_journal)
+
+        , exportKeys_(*config_, validatorKeys_, logs_->journal("ExportKeys"))
 
         , m_resourceManager(Resource::make_Manager(
               m_collectorManager->collector(),
@@ -584,6 +591,12 @@ public:
             return {};
 
         return validatorKeys_.keys->publicKey;
+    }
+
+    ExportKeys&
+    getExportKeys() override
+    {
+        return exportKeys_;
     }
 
     NetworkOPs&
@@ -1590,6 +1603,7 @@ ApplicationImp::start(bool withTimers)
 
     ledgerCleaner_->start();
     perfLog_->start();
+    exportRelay_ = makeExportRelay(*this);
 }
 
 void
@@ -1659,6 +1673,7 @@ ApplicationImp::run()
     mValidations.flush();
 
     validatorSites_->stop();
+    exportRelay_.reset();
 
     // TODO Store manifests in manifests.sqlite instead of wallet.db
     validatorManifests_->save(

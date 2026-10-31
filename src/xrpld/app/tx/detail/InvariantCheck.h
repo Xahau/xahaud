@@ -121,7 +121,7 @@ class XRPNotCreated
     // Full-width running total so a wrap of a 64-bit accumulator cannot
     // hide XRP creation.
     boost::multiprecision::int128_t drops_ = 0;
-    std::uint32_t accountsCreated_ = 0;
+    std::vector<AccountID> created_;
 
 public:
     void
@@ -739,6 +739,42 @@ public:
         beast::Journal const&);
 };
 
+/**
+ * @brief Invariant: an exporter's ticket pool (featureExport) only changes
+ * the way Export.h says.
+ *
+ * sfExportTickets grows only under ttIMPORT, and only on a TicketCreate. It
+ * loses tickets only under ttEXPORT, ttEXPORT_AUTO (one each) or ttIMPORT
+ * (the ticket that came back). A ttEXPORT_FINAL may put one back. No ticket
+ * is ever both pooled and shadowed after a transaction.
+ */
+class ValidExportTickets
+{
+    struct Change
+    {
+        AccountID account;
+        std::shared_ptr<SLE const> before;
+        std::shared_ptr<SLE const> after;
+    };
+    std::vector<Change> accounts_;
+    std::vector<std::shared_ptr<SLE const>> shadows_;
+
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&);
+};
+
 using InvariantChecks = std::tuple<
     TransactionFeeCheck,
     AccountRootsNotDeleted,
@@ -759,7 +795,8 @@ using InvariantChecks = std::tuple<
     ValidPermissionedDomain,
     ValidAMM,
     ValidLockedBalance,
-    ValidAppLoader>;
+    ValidAppLoader,
+    ValidExportTickets>;
 
 /**
  * @brief get a tuple of all invariant checks

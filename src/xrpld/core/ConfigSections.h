@@ -101,6 +101,8 @@ struct ConfigSection
 #define SECTION_VALIDATOR_LIST_THRESHOLD "validator_list_threshold"
 #define SECTION_VALIDATORS "validators"
 #define SECTION_VALIDATOR_TOKEN "validator_token"
+#define SECTION_EXPORT_KEY_FILE "export_key_file"
+#define SECTION_XRPL_RELAY "xrpl_relay"
 #define SECTION_VETO_AMENDMENTS "veto_amendments"
 // Testnet-only: amendments enabled on-ledger that this node should not treat
 // as unsupported (i.e. should not become amendment blocked over).

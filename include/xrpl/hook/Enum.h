@@ -18,6 +18,7 @@
 #define featureRNG "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
+#define featureExport "1"
 namespace hook_api {
 struct Rules
 {
@@ -387,8 +388,9 @@ enum class hook_return_code : int64_t {
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 256 modified state
                                          // entires in the combined hook chains
     TOO_MANY_NAMESPACES = -45,
-    TOO_LITTLE_ENTROPY = -46  // featureRNG: no seed for this ledger, or too few
-                              // validators contributed to it
+    TOO_LITTLE_ENTROPY = -46,  // featureRNG: no seed for this ledger, or too
+                               // few validators contributed to it
+    NO_TICKET = -47  // featureExport: the exporter holds no unused ticket
 };
 
 enum class ExitType : uint8_t {

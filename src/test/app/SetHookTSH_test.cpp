@@ -3104,6 +3104,162 @@ private:
         pass();
     }
 
+    // Export, ExportSign, ExportFinal, ExportAuto
+    // No TSHs: the exporting hook learns the outcome of its exports through
+    // cbak, not hook(). See getTransactionalStakeHolders and Export_test.
+    // ExportSign, ExportFinal and ExportAuto are network generated, like
+    // EmitFailure and Entropy above; Export is tested through the emit path.
+
+    // A hook that xport()s a 1 drop Payment with TicketSequence 1 and Fee
+    // 1000, as ExportHook_test's xportTicketWasm (see the WAT there), whose
+    // Destination occupies its last 20 bytes, set per test.
+    static std::vector<std::uint8_t>
+    xportHook(AccountID const& destination)
+    {
+        std::vector<std::uint8_t> wasm = {
+            0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U,
+            0x1BU, 0x04U, 0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7FU, 0x60U,
+            0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x01U, 0x7FU,
+            0x01U, 0x7EU, 0x60U, 0x04U, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x01U,
+            0x7EU, 0x02U, 0x36U, 0x04U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x02U,
+            0x5FU, 0x67U, 0x00U, 0x00U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x06U,
+            0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x01U, 0x03U,
+            0x65U, 0x6EU, 0x76U, 0x0CU, 0x65U, 0x74U, 0x78U, 0x6EU, 0x5FU,
+            0x72U, 0x65U, 0x73U, 0x65U, 0x72U, 0x76U, 0x65U, 0x00U, 0x02U,
+            0x03U, 0x65U, 0x6EU, 0x76U, 0x05U, 0x78U, 0x70U, 0x6FU, 0x72U,
+            0x74U, 0x00U, 0x03U, 0x03U, 0x02U, 0x01U, 0x02U, 0x05U, 0x03U,
+            0x01U, 0x00U, 0x01U, 0x07U, 0x11U, 0x02U, 0x06U, 0x6DU, 0x65U,
+            0x6DU, 0x6FU, 0x72U, 0x79U, 0x02U, 0x00U, 0x04U, 0x68U, 0x6FU,
+            0x6FU, 0x6BU, 0x00U, 0x04U, 0x0AU, 0x21U, 0x01U, 0x1FU, 0x00U,
+            0x41U, 0x01U, 0x41U, 0x01U, 0x10U, 0x00U, 0x1AU, 0x41U, 0x01U,
+            0x10U, 0x02U, 0x1AU, 0x41U, 0x00U, 0x41U, 0x00U, 0x41U, 0x80U,
+            0x02U, 0x41U, 0x20U, 0x41U, 0x00U, 0x41U, 0x36U, 0x10U, 0x03U,
+            0x10U, 0x01U, 0x0BU, 0x0BU, 0x3CU, 0x01U, 0x00U, 0x41U, 0x00U,
+            0x0BU, 0x36U, 0x12U, 0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0x00U,
+            0x00U, 0x20U, 0x29U, 0x00U, 0x00U, 0x00U, 0x01U, 0x61U, 0x40U,
+            0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x68U, 0x40U,
+            0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x03U, 0xE8U, 0x83U, 0x14U,
+            0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U, 0x08U, 0x09U,
+            0x0AU, 0x0BU, 0x0CU, 0x0DU, 0x0EU, 0x0FU, 0x10U, 0x11U, 0x12U,
+            0x13U, 0x14U};
+        std::copy(destination.begin(), destination.end(), wasm.end() - 20);
+        return wasm;
+    }
+
+    void
+    testExportTSH(FeatureBitset features)
+    {
+        testcase("export tsh");
+
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        // the VL key of the XPOPs in Import_json.h
+        std::vector<std::string> const keys = {
+            "ED74D4036C6591A4BDF9C54CEFA39B996A5DCE5F86D11FDA1874481CE9D5A1CDC"
+            "1"};
+
+        // otxn: hook (emitted ttEXPORT from alice)
+        // tsh: the exported payment's destination
+        // w/s: none. The exported transaction is for the other network, so
+        // nobody here is its stakeholder; the exporter hears back via cbak.
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkVLConfig(
+                    21337, keys, "10", "1000000", "200000"),
+                features | featureExport};
+
+            auto const alice = Account("alice");
+            auto const bob = Account("bob");
+            auto const carol = Account("carol");
+            env.fund(XRP(1000), alice, bob, carol);
+            env.close();
+
+            // burn down the total ledger coins so that genesis mints don't mint
+            // above 100B tripping invariant
+            env(noop(env.master), fee(XRP(10'000'000ULL)));
+            env.close();
+
+            // alice's signer list on the other network, as Import records
+            // it: the one Import an exporter's operator sends by hand
+            env(import::import(
+                    alice, import::loadXpop(ImportTCSignerListSet::w_seed)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+            {
+                auto const sle = env.le(alice);
+                BEAST_EXPECT(sle && sle->isFieldPresent(sfExportSignerList));
+            }
+
+            // set tsh collect
+            if (!testStrong)
+                addWeakTSH(env, bob);
+
+            // set tsh hook on the exported payment's destination
+            setTSHHook(env, bob, testStrong);
+
+            // alice exports a payment to bob when paid
+            env(hook(alice, {{hso(xportHook(bob.id()), overrideFlag)}}, 0),
+                fee(XRP(2)),
+                ter(tesSUCCESS));
+            env.close();
+
+            env(pay(carol, alice, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
+            env.close();
+
+            // the hook emitted the export
+            auto const meta = env.meta();
+            if (!BEAST_EXPECT(meta && meta->isFieldPresent(sfHookEmissions)))
+                continue;
+            auto const& emissions = meta->getFieldArray(sfHookEmissions);
+            if (!BEAST_EXPECT(emissions.size() == 1))
+                continue;
+            auto const id = emissions[0].getFieldH256(sfEmittedTxnID);
+
+            // it lands in the next ledger and applies, and bob's hook, a
+            // stakeholder of the payment anywhere else, does not run
+            env.close();
+            Json::Value params;
+            params[jss::transaction] = to_string(id);
+            auto const r =
+                env.rpc("json", "tx", to_string(params))[jss::result];
+            BEAST_EXPECT(r[jss::TransactionType] == "Export");
+            BEAST_EXPECT(
+                r[jss::meta][sfTransactionResult.jsonName] == "tesSUCCESS");
+            validateTSHStrongWeak(r[jss::meta], tshNONE, __LINE__);
+        }
+    }
+
+    void
+    testExportSignTSH(FeatureBitset features)
+    {
+        testcase("export sign tsh");
+
+        // validator-injected transaction
+        pass();
+    }
+
+    void
+    testExportFinalTSH(FeatureBitset features)
+    {
+        testcase("export final tsh");
+
+        // pseudo transaction
+        pass();
+    }
+
+    void
+    testExportAutoTSH(FeatureBitset features)
+    {
+        testcase("export auto tsh");
+
+        // pseudo transaction
+        pass();
+    }
+
     // GenesisMint
     // | otxn  | tsh |  mint |
     // |   A   |  A  |   S   |

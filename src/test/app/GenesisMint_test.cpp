@@ -16,6 +16,9 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/jss.h>
 #include <optional>
@@ -665,6 +668,84 @@ struct GenesisMint_test : public beast::unit_test::suite
             le->getFieldAmount(sfBalance).xrp().drops() == 10000000000ULL);
     }
 
+    void
+    testExportValidatorFunding(FeatureBitset features)
+    {
+        testcase("Export validator funding");
+        using namespace jtx;
+
+        Env env{
+            *this,
+            envconfig(),
+            features | featureExport,
+            nullptr,
+            beast::severities::kDisabled};
+        auto const alice = Account("alice");
+        auto const invoker = Account("invoker");
+        auto const val = Account("val");  // reported active, never funded
+        env.fund(XRP(10000), alice, invoker);
+        env.close();
+
+        // burn down the total ledger coins so that genesis mints don't mint
+        // above 100B tripping invariant
+        env(burn(env.master), fee(XRP(10'000'000ULL)));
+        env.close();
+
+        env(genesis::setMintHook(env.master), fee(XRP(10)));
+        env.close();
+
+        // the UNL reports it active, as consensus would
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            STTx const tx(ttUNL_REPORT, [&](auto& o) {
+                o.setFieldU32(sfLedgerSequence, view.seq());
+                o.peekFieldObject(sfActiveValidator)
+                    .setFieldVL(sfPublicKey, val.pk());
+            });
+            auto s = std::make_shared<Serializer>();
+            tx.add(*s);
+            env.app().getHashRouter().setFlags(
+                tx.getTransactionID(), SF_PRIVATE2);
+            view.rawTxInsert(tx.getTransactionID(), std::move(s), nullptr);
+            return true;
+        });
+        env.close();
+        BEAST_EXPECT(!env.le(val));
+
+        auto const mint = [&]() {
+            env(invoke::invoke(
+                    invoker,
+                    env.master,
+                    genesis::makeBlob(
+                        {{alice.id(),
+                          XRP(1).value(),
+                          std::nullopt,
+                          std::nullopt}})),
+                fee(XRP(1)));
+            env.close();
+            validateEmittedTxn(env, "tesSUCCESS", __LINE__);
+        };
+        auto const funded = [&]() {
+            auto const sle = env.le(val);
+            return sle &&
+                sle->getFieldAmount(sfBalance).xrp() ==
+                XRPAmount{Export::validatorFundingDrops};
+        };
+
+        // the next mint funds it, numbered like any other created account
+        auto const count =
+            (*env.le(keylet::fees()))[~sfAccountCount].value_or(0);
+        mint();
+        BEAST_EXPECT(funded());
+        BEAST_EXPECT(env.le(val) && (*env.le(val))[~sfAccountIndex] == count);
+        BEAST_EXPECT(
+            (*env.le(keylet::fees()))[~sfAccountCount].value_or(0) ==
+            count + 1);
+
+        // and only once
+        mint();
+        BEAST_EXPECT(funded());
+    }
+
 public:
     void
     testWithFeats(FeatureBitset features)
@@ -674,6 +755,7 @@ public:
         testGenesisNonEmit(features);
         testNonGenesisEmit(features);
         testNonGenesisNonEmit(features);
+        testExportValidatorFunding(features);
     }
     void
     run() override

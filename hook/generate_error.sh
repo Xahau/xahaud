@@ -55,4 +55,4 @@ sed -n '/enum class hook_return_code/,/};/p' "$ENUM_FILE" |
         }
     '
 echo '#define HOOK_ERROR_CODES'
-echo '#endif //HOOK_ERROR_CODES'
+echo '#endif  // HOOK_ERROR_CODES'

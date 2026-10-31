@@ -23,6 +23,7 @@
 #include <xrpld/app/tx/detail/InvariantCheck.h>
 
 #include <xrpld/app/misc/CredentialHelpers.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/PermissionedDomainSet.h>
@@ -145,7 +146,7 @@ XRPNotCreated::visitEntry(
     }
 
     if (!before && after->getType() == ltACCOUNT_ROOT)
-        accountsCreated_++;
+        created_.push_back((*after)[sfAccount]);
 }
 
 bool
@@ -178,7 +179,7 @@ XRPNotCreated::finalize(
             ? inner->getFieldAmount(sfFee).xrp()  // burned in PoB
             : beast::zero;  // if the txn didnt burn a fee we add nothing
 
-        if (accountsCreated_ == 1)
+        if (created_.size() == 1)
             maxDropsAdded += Import::computeStartingBonus(view);
 
         JLOG(j.trace()) << "Invariant XRPNotCreated Import: "
@@ -219,6 +220,34 @@ XRPNotCreated::finalize(
         XRPAmount dropsAdded{beast::zero};
         for (auto const& dest : dests)
             dropsAdded += dest.getFieldAmount(sfAmount).xrp();
+
+        // featureExport: accounts created outside the destinations must be
+        // UNLReport validators, each funded with validatorFundingDrops
+        auto const unl = view.read(keylet::UNLReport());
+        for (auto const& id : created_)
+        {
+            if (std::any_of(dests.begin(), dests.end(), [&](auto const& d) {
+                    return d.getAccountID(sfDestination) == id;
+                }))
+                continue;
+
+            if (!view.rules().enabled(featureExport) || !unl ||
+                !unl->isFieldPresent(sfActiveValidators))
+                return false;
+
+            auto const& avs = unl->getFieldArray(sfActiveValidators);
+            if (std::none_of(avs.begin(), avs.end(), [&](auto const& v) {
+                    return calcAccountID(PublicKey(v[sfPublicKey])) == id;
+                }))
+            {
+                JLOG(j.fatal()) << "Invariant failed GenesisMint: created "
+                                << id << " which is neither a destination "
+                                << "nor a UNLReport validator";
+                return false;
+            }
+
+            dropsAdded += XRPAmount{Export::validatorFundingDrops};
+        }
 
         JLOG(j.trace()) << "Invariant XRPNotCreated GenesisMint: "
                         << "dropsAdded: " << dropsAdded
@@ -617,6 +646,8 @@ LedgerEntryTypesMatch::visitEntry(
             case ltPERMISSIONED_DOMAIN:
             case ltAPP_LOADER:
             case ltMANIFEST:
+            case ltEXPORTED_TXN:
+            case ltSHADOW_TICKET:
                 break;
             default:
                 invalidTypeAdded_ = true;
@@ -2076,6 +2107,83 @@ ValidAppLoader::finalize(
         if (!root ||
             (*root)[~sfAppLoaderSequence] != (*sle)[sfAppLoaderSequence])
             return fail("sequence does not match its owner's");
+    }
+    return true;
+}
+
+//------------------------------------------------------------------------------
+
+void
+ValidExportTickets::visitEntry(
+    bool isDelete,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    auto const& any = after ? after : before;
+    if (!any)
+        return;
+    if (any->getType() == ltACCOUNT_ROOT &&
+        ((before && before->isFieldPresent(sfExportTickets)) ||
+         (after && after->isFieldPresent(sfExportTickets))))
+        accounts_.push_back({any->getAccountID(sfAccount), before, after});
+    // ApplyStateTable::visit hands an erased entry over as `after` too, so
+    // only a shadow ticket the transaction leaves standing counts: the one a
+    // below-quorum ttEXPORT_FINAL erases while returning its ticket must not
+    else if (any->getType() == ltSHADOW_TICKET && after && !isDelete)
+        shadows_.push_back(after);
+}
+
+bool
+ValidExportTickets::finalize(
+    STTx const& tx,
+    TER const res,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j)
+{
+    if (!view.rules().enabled(featureExport) || !isTesSuccess(res))
+        return true;
+    auto const tt = tx.getTxnType();
+    for (auto const& [account, before, after] : accounts_)
+    {
+        ExportTickets const b =
+            before ? ExportTickets::load(*before) : ExportTickets{};
+        ExportTickets const a =
+            after ? ExportTickets::load(*after) : ExportTickets{};
+        std::int64_t const delta =
+            std::int64_t(a.count()) - std::int64_t(b.count());
+        bool ok = true;
+        switch (tt)
+        {
+            case ttIMPORT:
+                // one back, or a batch made there (never both at once)
+                ok = delta >= -1;
+                break;
+            case ttEXPORT:
+            case ttEXPORT_AUTO:
+                ok = delta == -1 || delta == 0;
+                break;
+            case ttEXPORT_FINAL:
+                ok = delta == 0 || delta == 1;
+                break;
+            default:
+                ok = delta == 0;
+        }
+        if (!ok)
+        {
+            JLOG(j.fatal()) << "Invariant failed: export tickets of " << account
+                            << " changed by " << delta << " under " << tt;
+            return false;
+        }
+        for (auto const& st : shadows_)
+            if (st->getAccountID(sfAccount) == account &&
+                a.contains((*st)[sfTicketSequence]))
+            {
+                JLOG(j.fatal())
+                    << "Invariant failed: ticket " << (*st)[sfTicketSequence]
+                    << " of " << account << " is pooled and shadowed";
+                return false;
+            }
     }
     return true;
 }
