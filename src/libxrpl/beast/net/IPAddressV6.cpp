@@ -29,7 +29,9 @@ bool
 is_private(AddressV6 const& addr)
 {
     return (
-        (addr.to_bytes()[0] & 0xfd) ||  // TODO  fc00::/8 too ?
+        addr.is_link_local() ||                   // fe80::/10
+        addr.is_loopback() ||                     // ::1
+        ((addr.to_bytes()[0] & 0xfe) == 0xfc) ||  // fc00::/7 (all ULA)
         (addr.is_v4_mapped() &&
          is_private(boost::asio::ip::make_address_v4(
              boost::asio::ip::v4_mapped, addr))));
@@ -38,8 +40,7 @@ is_private(AddressV6 const& addr)
 bool
 is_public(AddressV6 const& addr)
 {
-    // TODO is this correct?
-    return !is_private(addr) && !addr.is_multicast();
+    return !is_private(addr) && !addr.is_multicast() && !addr.is_unspecified();
 }
 
 }  // namespace IP

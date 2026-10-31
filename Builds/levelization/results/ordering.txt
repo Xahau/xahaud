@@ -52,8 +52,6 @@ test.core > test.toplevel
 test.core > test.unit_test
 test.core > xrpl.basics
 test.core > xrpld.core
-test.core > xrpld.perflog
-test.core > xrpl.json
 test.core > xrpl.server
 test.csf > xrpl.basics
 test.csf > xrpld.consensus
@@ -127,6 +125,7 @@ test.rpc > xrpl.basics
 test.rpc > xrpld.app
 test.rpc > xrpld.core
 test.rpc > xrpld.net
+test.rpc > xrpld.nodestore
 test.rpc > xrpld.overlay
 test.rpc > xrpld.rpc
 test.rpc > xrpld.shamap

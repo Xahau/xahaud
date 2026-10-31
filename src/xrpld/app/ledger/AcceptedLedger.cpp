@@ -25,7 +25,8 @@ namespace ripple {
 
 AcceptedLedger::AcceptedLedger(
     std::shared_ptr<ReadView const> const& ledger,
-    Application& app)
+    Application& app,
+    bool withJson)
     : mLedger(ledger)
 {
     transactions_.reserve(256);
@@ -33,7 +34,7 @@ AcceptedLedger::AcceptedLedger(
     auto insertAll = [&](auto const& txns) {
         for (auto const& item : txns)
             transactions_.emplace_back(std::make_unique<AcceptedLedgerTx>(
-                ledger, item.first, item.second));
+                ledger, item.first, item.second, withJson));
     };
 
     transactions_.reserve(256);
