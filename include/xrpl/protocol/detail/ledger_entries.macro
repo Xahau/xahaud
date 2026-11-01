@@ -360,6 +360,7 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfExportTicketPending,  soeOPTIONAL},
     {sfExportKeysSeq,        soeOPTIONAL},
     {sfExportNode,           soeOPTIONAL},
+    {sfLastTxnTime,          soeOPTIONAL},
 }))
 
 /** A ledger object which contains a list of object identifiers.

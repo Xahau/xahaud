@@ -3006,6 +3006,9 @@ PeerImp::checkTransaction(
                         << "Exception checking transaction: " << validReason;
                 }
 
+                if (valid == Validity::Refused)
+                    return;
+
                 // Probably not necessary to set SF_BAD, but doesn't hurt.
                 app_.getHashRouter().setFlags(stx->getTransactionID(), SF_BAD);
                 charge(
