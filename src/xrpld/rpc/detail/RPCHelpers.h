@@ -215,10 +215,11 @@ readLimitField(
     Tuning::LimitRange const&,
     JsonContext const&);
 
-/** Split "<uri>#<seq>" as used to name a member of a sequential URIToken
-    series. A trailing "#<decimal>" that fits a uint32 is removed and returned
-    as the sequence; anything else (no '#', or a non-numeric fragment) leaves
-    the URI untouched with sequence 0. */
+/** Split "<uri>#seq-<n>" as used to name a member of a sequential URIToken
+    series. A trailing "#seq-<decimal>" that fits a uint32 is removed and
+    returned as the sequence; any other fragment is left in the URI, with
+    sequence 0. The "seq-" marker keeps ordinary URIs with numeric fragments
+    out of the way. */
 std::pair<Blob, std::uint32_t>
 splitURITokenURI(std::string const& uri);
 

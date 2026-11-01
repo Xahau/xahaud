@@ -1019,8 +1019,8 @@ parseUriToken(Json::Value const& uriTokenJson, Json::Value& jvResult)
     {
         auto const id =
             parseBase58<AccountID>(uriTokenJson[jss::account].asString());
-        // "<uri>#<seq>" names a member of a sequential series; an explicit
-        // seq field may also be given, but not both
+        // "<uri>#seq-<n>" names a member of a sequential series; an explicit
+        // seq field may also be given, but they must agree
         auto [raw, seq] =
             RPC::splitURITokenURI(uriTokenJson[jss::uri].asString());
         if (uriTokenJson.isMember(jss::seq))
@@ -1062,7 +1062,7 @@ parseUriTokenSeries(Json::Value const& json, Json::Value& jvResult)
     else
     {
         auto const id = parseBase58<AccountID>(json[jss::account].asString());
-        // a "#<seq>" fragment is ignored: the header is the same for all
+        // a "#seq-<n>" fragment is ignored: the header is the same for all
         auto const raw = RPC::splitURITokenURI(json[jss::uri].asString()).first;
         if (!id)
             jvResult[jss::error] = "malformedAddress";

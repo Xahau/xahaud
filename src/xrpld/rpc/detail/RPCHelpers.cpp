@@ -821,16 +821,18 @@ injectSLE(Json::Value& jv, SLE const& sle)
 std::pair<Blob, std::uint32_t>
 splitURITokenURI(std::string const& uri)
 {
-    auto const hash = uri.rfind('#');
-    if (hash != std::string::npos && hash + 1 < uri.size() &&
-        uri.size() - hash - 1 <= 10)
+    static std::string const marker = "#seq-";
+
+    auto const hash = uri.rfind(marker);
+    if (hash != std::string::npos)
     {
-        std::string const frag = uri.substr(hash + 1);
-        if (std::all_of(frag.begin(), frag.end(), [](unsigned char c) {
+        std::string const digits = uri.substr(hash + marker.size());
+        if (!digits.empty() && digits.size() <= 10 &&
+            std::all_of(digits.begin(), digits.end(), [](unsigned char c) {
                 return std::isdigit(c);
             }))
         {
-            auto const v = std::stoull(frag);
+            auto const v = std::stoull(digits);
             if (v <= std::numeric_limits<std::uint32_t>::max())
                 return {
                     Blob(uri.begin(), uri.begin() + hash),

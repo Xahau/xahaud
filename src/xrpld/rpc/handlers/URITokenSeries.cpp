@@ -34,7 +34,7 @@ namespace ripple {
 /** RPC command that walks a sequential URIToken series.
     {
       account: <issuer>
-      uri: <string>            // "lot", or "lot#<seq>" to start at <seq>
+      uri: <string>            // "lot", or "lot#seq-<n>" to start at <n>
       ledger_hash: <string>    // optional
       ledger_index: <string | unsigned integer> // optional
       limit: <integer>         // optional

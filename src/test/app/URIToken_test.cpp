@@ -20,6 +20,7 @@
 #include <test/jtx.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/Dir.h>
+#include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -2890,23 +2891,45 @@ struct URIToken_test : public beast::unit_test::suite
             {
                 Json::Value p;
                 p[jss::uri_token][jss::account] = alice.human();
-                p[jss::uri_token][jss::uri] = "lot#2";
+                p[jss::uri_token][jss::uri] = "lot#seq-2";
                 auto const r = env.rpc("json", "ledger_entry", to_string(p));
                 BEAST_EXPECT(
                     r[jss::result][jss::index] ==
                     to_string(uritoken::tokenid(alice, uri, 2)));
                 BEAST_EXPECT(
                     r[jss::result][jss::node][sfURI.jsonName] ==
-                    strHex(std::string("lot#2")));
+                    strHex(std::string("lot#seq-2")));
                 BEAST_EXPECT(
                     r[jss::result][jss::node][sfURITokenSequence.jsonName] ==
                     2);
             }
             {
-                // explicit seq that disagrees with the fragment is rejected
+                // a plain "#2" is an ordinary URI fragment, not a sequence:
+                // it names a (non-existent) legacy token "lot#2"
                 Json::Value p;
                 p[jss::uri_token][jss::account] = alice.human();
                 p[jss::uri_token][jss::uri] = "lot#2";
+                auto const r = env.rpc("json", "ledger_entry", to_string(p));
+                BEAST_EXPECT(r[jss::result][jss::error] == "entryNotFound");
+                BEAST_EXPECT(
+                    RPC::splitURITokenURI("lot#2").first ==
+                    Blob(
+                        std::string("lot#2").begin(),
+                        std::string("lot#2").end()));
+                BEAST_EXPECT(RPC::splitURITokenURI("lot#seq-").second == 0);
+                BEAST_EXPECT(RPC::splitURITokenURI("lot#seq-x1").second == 0);
+                BEAST_EXPECT(RPC::splitURITokenURI("lot#seq-9").second == 9);
+                BEAST_EXPECT(
+                    RPC::splitURITokenURI("a#b#seq-4294967295").second ==
+                    0xFFFFFFFFu);
+                BEAST_EXPECT(
+                    RPC::splitURITokenURI("lot#seq-4294967296").second == 0);
+            }
+            {
+                // explicit seq that disagrees with the fragment is rejected
+                Json::Value p;
+                p[jss::uri_token][jss::account] = alice.human();
+                p[jss::uri_token][jss::uri] = "lot#seq-2";
                 p[jss::uri_token][jss::seq] = 3;
                 auto const r = env.rpc("json", "ledger_entry", to_string(p));
                 BEAST_EXPECT(r[jss::result][jss::error] == "malformedRequest");
@@ -2915,7 +2938,7 @@ struct URIToken_test : public beast::unit_test::suite
                 // the header, by uri (fragment ignored) and by index
                 Json::Value p;
                 p[jss::uri_token_series][jss::account] = alice.human();
-                p[jss::uri_token_series][jss::uri] = "lot#7";
+                p[jss::uri_token_series][jss::uri] = "lot#seq-7";
                 auto const r = env.rpc("json", "ledger_entry", to_string(p));
                 BEAST_EXPECT(
                     r[jss::result][jss::index] ==
@@ -2951,12 +2974,12 @@ struct URIToken_test : public beast::unit_test::suite
                     2);
                 BEAST_EXPECT(
                     res2[jss::uri_tokens][1u][sfURI.jsonName] ==
-                    strHex(std::string("lot#3")));
+                    strHex(std::string("lot#seq-3")));
                 BEAST_EXPECT(!res2.isMember(jss::marker));
 
-                // "lot#3" starts the walk at 3
+                // "lot#seq-3" starts the walk at 3
                 p.removeMember(jss::marker);
-                p[jss::uri] = "lot#3";
+                p[jss::uri] = "lot#seq-3";
                 r = env.rpc("json", "uri_token_series", to_string(p));
                 BEAST_EXPECT(r[jss::result][jss::uri_tokens].size() == 1);
                 BEAST_EXPECT(r[jss::result][jss::uri] == "lot");
