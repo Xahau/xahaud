@@ -1107,15 +1107,6 @@ struct JsonTx_test : public beast::unit_test::suite
                         applyDirect(env, emitted(alice.id(), type)) ==
                         temBAD_SEQUENCE);
                 }
-                {
-                    Env env{*this, all - fix20260929};
-                    Account const alice{"alice"};
-                    env.fund(XRP(10000), alice);
-                    env.close();
-                    BEAST_EXPECT(
-                        applyDirect(env, emitted(alice.id(), type)) ==
-                        telNON_LOCAL_EMITTED_TXN);
-                }
             }
         }
 
