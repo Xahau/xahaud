@@ -112,8 +112,9 @@ class Xrpl(ConanFile):
             self.options["boost/*"].visibility = "global"
 
     def requirements(self):
-        # Force sqlite3 version to avoid conflicts with soci
-        self.requires("sqlite3/3.47.0", override=True)
+        # Direct requirement (not just an override) so SQLite::SQLite3 carries
+        # the Conan include dir; force keeps soci on the same version. See #922.
+        self.requires("sqlite3/3.47.0", force=True)
         # Force our custom snappy build for all dependencies
         self.requires("snappy/1.1.10@xahaud/stable", override=True)
         # Force boost version for all dependencies to avoid conflicts

@@ -115,7 +115,7 @@ else
         cp /io/release-build/release.info /data/builds/$VERSION.releaseinfo
     fi  
   echo "Published build to: http://build.xahau.tech/"
-  echo $VERSION
+  echo $VERSION | tee /io/release-build/version
 fi
 
 cd /io;
