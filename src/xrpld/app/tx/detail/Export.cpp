@@ -34,6 +34,7 @@
 #include <xrpl/protocol/st.h>
 #include <boost/algorithm/string/trim.hpp>
 #include <fstream>
+#include <limits>
 
 namespace ripple {
 
@@ -623,14 +624,11 @@ Export::createExport(
     std::uint32_t ticket;
     if (auto const t = inner[~sfTicketSequence])
     {
-        // An exporter's tickets are all in its pool (relays sync every
-        // TicketCreate), so one that is not there is used up, not yet made
-        // or not yet synced: refusing it keeps a close below quorum from
-        // pooling a ticket the ledger never saw created. An account that is
-        // not an exporter manages its tickets itself, and none are pooled.
+        // the hook's own ticket, pooled or not (its account is trusted on
+        // which tickets it holds; a close below quorum re-pools it only if
+        // the ledger has seen it created, see ttEXPORT_FINAL)
         ticket = *t;
-        if (!tickets.remove(ticket) && acc->isFlag(lsfExporter))
-            return tecNO_ENTRY;
+        tickets.remove(ticket);
     }
     else
     {
@@ -742,11 +740,16 @@ Export::doApply()
             auto const ticket = inner[~sfTicketSequence];
             if (acc && ticket)
             {
-                // Only an exporter's ticket came from the pool (createExport
-                // refuses one that did not); anyone else's was never pooled.
+                // Not a ticket the ledger never saw created: a hook can name
+                // any ticket, and one above the watermark of recorded
+                // TicketCreates is unknown here, so it is not pooled. It
+                // returns through the sync import of the TicketCreate that
+                // makes it, if any. Below the watermark, or where nothing
+                // was ever recorded, the hook is trusted on its own tickets.
                 if (eraseShadowTicket(
                         view, owner, *ticket, (*sle)[sfTransactionHash]) &&
-                    acc->isFlag(lsfExporter))
+                    *ticket < (*acc)[~sfExportTicketNext].value_or(
+                                  std::numeric_limits<std::uint32_t>::max()))
                 {
                     auto tickets = ExportTickets::load(*acc);
                     tickets.insert(*ticket);
