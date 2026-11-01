@@ -44,7 +44,9 @@ enum class Validity {
     /// Signature is good, but local checks fail.
     SigGoodOnly,
     /// Signature and local checks are good / passed.
-    Valid
+    Valid,
+    /// Refused under the current rules; no signature check was performed.
+    Refused
 };
 
 /** Checks transaction signature and local checks.
@@ -52,8 +54,9 @@ enum class Validity {
     @return A `Validity` enum representing how valid the
         `STTx` is and, if not `Valid`, a reason string.
 
-    @note Results are cached internally, so tests will not be
-        repeated over repeated calls, unless cache expires.
+    @note Signature and local checks are cached internally, so they will not
+        be repeated over repeated calls unless the cache expires. A refusal
+        based on the current rules is not cached.
 
     @return `std::pair`, where `.first` is the status, and
             `.second` is the reason if appropriate.

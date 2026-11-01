@@ -161,6 +161,26 @@ private:
     /// The total number of tasks that have been dispatched for processing.
     std::atomic<std::uint64_t> tail_ = 1;
     /** @} */
+
+    /** Idle thread parking
+
+        The task counters above remain lock-free. Threads that find no work
+        park on sleepCond_; addTask only touches sleepMutex_ when at least
+        one thread is (or is about to be) parked, so a busy pool never takes
+        the lock.
+
+        This deliberately does not use std::atomic::wait/notify. On
+        libstdc++ 11.2 (gcc-toolset-11, used by the release builder) every
+        atomic wait goes through a 16-bucket waiter pool keyed by address,
+        and a waiter whose bucket is notified for an unrelated atomic spins
+        at 100% CPU until its own value changes. Notifying on every addTask
+        made that a near-certainty for whatever else shared head_'s bucket.
+     */
+    /** @{ */
+    std::mutex sleepMutex_;
+    std::condition_variable sleepCond_;
+    std::atomic<unsigned int> sleepers_ = 0;
+    /** @} */
 };
 
 }  // namespace ripple
