@@ -374,8 +374,14 @@ InboundLedger::tryDB(NodeStore::Database& srcDB)
         }
         AccountStateSF filter(
             mLedger->stateMap().family().db(), app_.getLedgerMaster());
+        // [lite_mode]: whether every watched path is held is for
+        // liteTrigger() to decide, once this ledger's transactions have been
+        // read for keys to add. Deciding it here would complete the ledger
+        // without the objects it created for the watched accounts, or (from
+        // init()) without reading its transactions at all.
         if (mLedger->stateMap().fetchRoot(
-                SHAMapHash{mLedger->info().accountHash}, &filter))
+                SHAMapHash{mLedger->info().accountHash}, &filter) &&
+            !app_.config().liteMode())
         {
             if (neededStateHashes(1, &filter).empty())
             {
@@ -621,8 +627,11 @@ InboundLedger::trigger(std::shared_ptr<Peer> const& peer, TriggerReason reason)
                         }
                     });
             }
-            else
+            else if (!app_.config().liteMode())
             {
+                // In [lite_mode] liteTrigger() below finds the same and
+                // completes the ledger itself, after reading its
+                // transactions for keys to add (see tryDB()).
                 JLOG(journal_.info())
                     << "getNeededHashes says acquire is complete";
                 mHaveHeader = true;
@@ -1032,7 +1041,9 @@ InboundLedger::liteTrigger(
     }
     else if (mHaveTransactions && mHaveState && !failed_)
     {
-        // A ledger with no state root, or one tryDB() found whole.
+        // Not reached through tryDB() or the timeout path, which leave the
+        // state to the walk above; kept for any other path that finds the
+        // state whole.
         complete_ = true;
     }
 

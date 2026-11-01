@@ -113,6 +113,72 @@ class LiteWatch_test : public beast::unit_test::suite
         auto const json = watch.getJson();
         BEAST_EXPECT(json[jss::enabled].asBool());
         BEAST_EXPECT(json["system"].asUInt() == 4);
+        BEAST_EXPECT(json.isMember(jss::accounts));
+        BEAST_EXPECT(json.isMember("keys"));
+
+        // What a non-admin lite_status gets: how much, not what.
+        auto const brief = watch.getJson(false, true);
+        BEAST_EXPECT(brief["system"].asUInt() == 4);
+        BEAST_EXPECT(!brief.isMember(jss::accounts));
+        BEAST_EXPECT(!brief.isMember("keys"));
+    }
+
+    void
+    testUnwatchScope()
+    {
+        testcase("unwatch scope");
+
+        using namespace jtx;
+        Account const gw{"gw"};
+        Account const alice{"alice"};
+        Account const carol{"carol"};
+        Account const dave{"dave"};
+        auto const USD = gw["USD"];
+        auto const EUR = alice["EUR"];
+
+        Env env{*this};
+        env.fund(XRP(10000), gw, alice, carol, dave);
+        env.close();
+
+        LiteWatch watch{
+            liteConfig({alice.human(), carol.human()}), env.journal};
+        auto const aliceLine = keylet::line(alice, gw, USD.currency).key;
+        auto const carolLine = keylet::line(carol, gw, USD.currency).key;
+        // A line between the two watched accounts names both of them.
+        auto const shared = keylet::line(carol, alice, EUR.currency).key;
+
+        env.trust(USD(100), alice);
+        env.trust(USD(100), carol);
+        env.trust(EUR(100), carol);
+        env.close();
+        watch.discover(*env.closed());
+
+        BEAST_EXPECT(watch.isWatched(aliceLine));
+        BEAST_EXPECT(watch.isWatched(carolLine));
+        BEAST_EXPECT(watch.isWatched(shared));
+
+        // Unwatching an account that is not watched changes nothing, and
+        // says so.
+        auto const before = watch.size();
+        BEAST_EXPECT(!watch.unwatchAccount(dave));
+        BEAST_EXPECT(watch.size() == before);
+        BEAST_EXPECT(watch.isWatched(aliceLine));
+
+        // alice's own line goes with her. carol's stays, and so does the
+        // line carol still leads to.
+        BEAST_EXPECT(watch.unwatchAccount(alice));
+        BEAST_EXPECT(!watch.isWatched(keylet::account(alice).key));
+        BEAST_EXPECT(!watch.isWatched(aliceLine));
+        BEAST_EXPECT(watch.isWatched(carolLine));
+        BEAST_EXPECT(watch.isWatched(shared));
+        BEAST_EXPECT(watch.isWatched(keylet::ownerDir(carol).key));
+
+        // Once the last account it was found through is gone, so is it.
+        BEAST_EXPECT(watch.unwatchAccount(carol));
+        BEAST_EXPECT(!watch.isWatched(carolLine));
+        BEAST_EXPECT(!watch.isWatched(shared));
+        BEAST_EXPECT(!watch.isWatched(keylet::ownerDir(carol).key));
+        BEAST_EXPECT(watch.size() == 4);
     }
 
     void
@@ -271,6 +337,7 @@ public:
     {
         testConfigLines();
         testWatchSet();
+        testUnwatchScope();
         testDiscover();
         testPartialSync();
     }

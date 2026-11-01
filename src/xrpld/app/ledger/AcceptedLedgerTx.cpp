@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/ledger/AcceptedLedgerTx.h>
+#include <xrpld/shamap/SHAMapMissingNode.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/UintTypes.h>
@@ -70,13 +71,23 @@ AcceptedLedgerTx::AcceptedLedgerTx(
         // If the offer create is not self funded then add the owner balance
         if (account != amount.issue().account)
         {
-            auto const ownerFunds = accountFunds(
-                *ledger,
-                account,
-                amount,
-                fhIGNORE_FREEZE,
-                beast::Journal{beast::Journal::getNullSink()});
-            mJson[jss::transaction][jss::owner_funds] = ownerFunds.getText();
+            // Informational only. A [lite_mode] node holds the offer owner's
+            // root and lines only if it watches them: leave the field out
+            // rather than fail to publish or save the whole ledger.
+            try
+            {
+                auto const ownerFunds = accountFunds(
+                    *ledger,
+                    account,
+                    amount,
+                    fhIGNORE_FREEZE,
+                    beast::Journal{beast::Journal::getNullSink()});
+                mJson[jss::transaction][jss::owner_funds] =
+                    ownerFunds.getText();
+            }
+            catch (SHAMapMissingNode const&)
+            {
+            }
         }
     }
 }

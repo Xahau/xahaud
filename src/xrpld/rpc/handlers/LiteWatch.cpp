@@ -22,6 +22,7 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/rpc/Context.h>
+#include <xrpld/rpc/Role.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/UintTypes.h>
@@ -115,6 +116,11 @@ collect(Json::Value const& params, Wanted& wanted)
                 !to_currency(currency, v[jss::currency].asString()))
                 return RPC::make_param_error(
                     "lines entries need account, issuer and currency");
+            // No trust line joins an account to itself, or holds XRP.
+            if (a == issuer || isXRP(currency))
+                return RPC::make_param_error(
+                    "lines entries need two different accounts and a "
+                    "non-XRP currency");
             wanted.keys.emplace_back(
                 keylet::line(a, issuer, currency).key,
                 "line " + toBase58(a) + " " + to_string(currency) + " " +
@@ -198,11 +204,13 @@ Json::Value
 doLiteStatus(RPC::JsonContext& context)
 {
     auto& watch = context.app.getLiteWatch();
-    auto ret = watch.getJson();
 
-    if (!context.params.isMember("verbose") ||
-        !context.params["verbose"].asBool())
-        ret.removeMember("keys");
+    // What an operator watches is theirs: anyone may see how much, only an
+    // admin which accounts, and with verbose which keys and why.
+    bool const admin = context.role == Role::ADMIN;
+    bool const verbose = context.params.isMember("verbose") &&
+        context.params["verbose"].asBool();
+    auto ret = watch.getJson(admin, verbose);
 
     if (auto const valid = context.ledgerMaster.getValidatedLedger())
     {

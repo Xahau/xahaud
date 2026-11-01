@@ -75,7 +75,11 @@ LiteWatch::LiteWatch(Config const& config, beast::Journal journal)
 }
 
 bool
-LiteWatch::addLocked(uint256 const& key, Tier tier, std::string reason)
+LiteWatch::addLocked(
+    uint256 const& key,
+    Tier tier,
+    std::string reason,
+    hash_set<AccountID> const& owners)
 {
     auto it = keys_.find(key);
     if (it != keys_.end())
@@ -86,6 +90,14 @@ LiteWatch::addLocked(uint256 const& key, Tier tier, std::string reason)
         {
             it->second.tier = tier;
             it->second.reason = std::move(reason);
+            it->second.owners.clear();
+        }
+        // Discovered again, perhaps through another watched account: it now
+        // stays until every account that led to it is unwatched.
+        else if (
+            tier == Tier::discovered && it->second.tier == Tier::discovered)
+        {
+            it->second.owners.insert(owners.begin(), owners.end());
         }
         return false;
     }
@@ -97,7 +109,13 @@ LiteWatch::addLocked(uint256 const& key, Tier tier, std::string reason)
         return false;
     }
 
-    keys_.emplace(key, Entry{key, tier, std::move(reason)});
+    keys_.emplace(
+        key,
+        Entry{
+            key,
+            tier,
+            std::move(reason),
+            tier == Tier::discovered ? owners : hash_set<AccountID>{}});
     return true;
 }
 
@@ -150,11 +168,14 @@ LiteWatch::unwatchAccount(AccountID const& id)
         }
     }
 
-    // Objects only known through this account go with it. Everything an
-    // operator asked for by key stays.
+    // Objects only known through this account go with it. Objects another
+    // watched account also led to stay, as does everything an operator
+    // asked for by key.
     for (auto i = keys_.begin(); i != keys_.end();)
     {
-        if (i->second.tier == Tier::discovered)
+        auto& entry = i->second;
+        if (entry.tier == Tier::discovered && entry.owners.erase(id) != 0 &&
+            entry.owners.empty())
         {
             i = keys_.erase(i);
             removed = true;
@@ -255,18 +276,22 @@ LiteWatch::discover(
     // of one, or wrote an object that names one. Merely modifying a key
     // already watched is not enough: a trust line set against a watched
     // issuer touches the issuer's owner directory, and that must not pull
-    // in every stranger's line.
-    bool touches = watchedAccount(tx.getAccountID(sfAccount));
+    // in every stranger's line. `involved` collects the watched accounts it
+    // is about: what it creates is discovered through them.
+    hash_set<AccountID> involved;
 
-    if (!touches && meta.isFieldPresent(sfHookExecutions))
+    if (auto const sender = tx.getAccountID(sfAccount); watchedAccount(sender))
+        involved.insert(sender);
+
+    if (meta.isFieldPresent(sfHookExecutions))
     {
         for (auto const& exec : meta.getFieldArray(sfHookExecutions))
         {
-            if (exec.isFieldPresent(sfHookAccount) &&
-                watchedAccount(exec.getAccountID(sfHookAccount)))
+            if (exec.isFieldPresent(sfHookAccount))
             {
-                touches = true;
-                break;
+                auto const hookAccount = exec.getAccountID(sfHookAccount);
+                if (watchedAccount(hookAccount))
+                    involved.insert(hookAccount);
             }
         }
     }
@@ -275,7 +300,7 @@ LiteWatch::discover(
 
     // Pass 1: nodes that name a watched account, and whether anything
     // watched was touched.
-    std::vector<uint256> wanted;
+    std::vector<std::pair<uint256, hash_set<AccountID>>> wanted;
     std::vector<uint256> deleted;
 
     for (auto const& node : nodes)
@@ -285,16 +310,14 @@ LiteWatch::discover(
 
         auto const index = node.getFieldH256(sfLedgerIndex);
         bool const isDeleted = node.getFName() == sfDeletedNode;
+        auto const held = keys_.find(index);
 
-        if (keys_.contains(index))
+        if (isDeleted)
         {
-            if (isDeleted)
+            if (held != keys_.end())
                 deleted.push_back(index);
             continue;
         }
-
-        if (isDeleted)
-            continue;
 
         int const fieldsIndex = node.getFieldIndex(
             node.getFName() == sfCreatedNode ? sfNewFields : sfFinalFields);
@@ -309,16 +332,13 @@ LiteWatch::discover(
         bool const isLine = node.isFieldPresent(sfLedgerEntryType) &&
             node.getFieldU16(sfLedgerEntryType) == ltRIPPLE_STATE;
 
-        bool names = false;
+        hash_set<AccountID> named;
         for (auto const& field : *inner)
         {
             if (auto const sa = dynamic_cast<STAccount const*>(&field))
             {
                 if (!sa->isDefault() && watchedAccount(sa->value()))
-                {
-                    names = true;
-                    break;
-                }
+                    named.insert(sa->value());
             }
             else if (
                 isLine &&
@@ -330,36 +350,44 @@ LiteWatch::discover(
                 // entry is not what "my account" means.
                 if (auto const lim = dynamic_cast<STAmount const*>(&field);
                     lim && watchedAccount(lim->getIssuer()))
-                {
-                    names = true;
-                    break;
-                }
+                    named.insert(lim->getIssuer());
             }
         }
 
-        if (names)
+        if (named.empty())
+            continue;
+
+        if (held != keys_.end())
         {
-            touches = true;
-            wanted.push_back(index);
+            // Already watched, which on its own does not make the
+            // transaction about a watched account. A discovered key does
+            // learn every watched account that names it, so that it
+            // outlives the unwatching of any one of them.
+            if (held->second.tier == Tier::discovered)
+                held->second.owners.insert(named.begin(), named.end());
+            continue;
         }
+
+        involved.insert(named.begin(), named.end());
+        wanted.emplace_back(index, std::move(named));
     }
 
     // Pass 2: a transaction that touched something watched created these.
-    if (touches)
+    if (!involved.empty())
     {
         for (auto const& node : nodes)
         {
             if (node.getFName() == sfCreatedNode &&
                 node.isFieldPresent(sfLedgerIndex))
-                wanted.push_back(node.getFieldH256(sfLedgerIndex));
+                wanted.emplace_back(node.getFieldH256(sfLedgerIndex), involved);
         }
     }
 
     std::size_t added = 0;
     std::string const reason = "tx " + to_string(tx.getTransactionID()) +
         " ledger " + std::to_string(ledgerSeq);
-    for (auto const& key : wanted)
-        if (addLocked(key, Tier::discovered, reason))
+    for (auto const& [key, owners] : wanted)
+        if (addLocked(key, Tier::discovered, reason, owners))
             ++added;
 
     for (auto const& key : deleted)
@@ -394,7 +422,7 @@ LiteWatch::discover(ReadView const& ledger)
 }
 
 Json::Value
-LiteWatch::getJson() const
+LiteWatch::getJson(bool detail, bool withKeys) const
 {
     Json::Value ret{Json::objectValue};
     ret[jss::enabled] = enabled_;
@@ -403,11 +431,15 @@ LiteWatch::getJson() const
     ret["discover"] = discoverEnabled_;
     ret["key_count"] = static_cast<Json::UInt>(keys_.size());
     ret["max_keys"] = static_cast<Json::UInt>(maxKeys);
+    ret["account_count"] = static_cast<Json::UInt>(accounts_.size());
 
-    Json::Value accounts{Json::arrayValue};
-    for (auto const& id : accounts_)
-        accounts.append(toBase58(id));
-    ret[jss::accounts] = std::move(accounts);
+    if (detail)
+    {
+        Json::Value accounts{Json::arrayValue};
+        for (auto const& id : accounts_)
+            accounts.append(toBase58(id));
+        ret[jss::accounts] = std::move(accounts);
+    }
 
     std::size_t system = 0, configured = 0, discovered = 0;
     Json::Value keys{Json::arrayValue};
@@ -425,18 +457,30 @@ LiteWatch::getJson() const
                 ++discovered;
                 break;
         }
+
+        if (!detail || !withKeys)
+            continue;
+
         Json::Value k{Json::objectValue};
         k[jss::key] = to_string(key);
         k["tier"] = entry.tier == Tier::system ? "system"
             : entry.tier == Tier::configured   ? "configured"
                                                : "discovered";
         k["reason"] = entry.reason;
+        if (!entry.owners.empty())
+        {
+            Json::Value through{Json::arrayValue};
+            for (auto const& id : entry.owners)
+                through.append(toBase58(id));
+            k["through"] = std::move(through);
+        }
         keys.append(std::move(k));
     }
     ret["system"] = static_cast<Json::UInt>(system);
     ret["configured"] = static_cast<Json::UInt>(configured);
     ret["discovered"] = static_cast<Json::UInt>(discovered);
-    ret["keys"] = std::move(keys);
+    if (detail && withKeys)
+        ret["keys"] = std::move(keys);
     return ret;
 }
 

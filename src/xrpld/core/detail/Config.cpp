@@ -810,6 +810,15 @@ Config::loadFromString(std::string const& fileContents)
     if (getSingleSection(secConfig, SECTION_LEDGER_REPLAY, strTemp, j_))
         LEDGER_REPLAY = beast::lexicalCastThrow<bool>(strTemp);
 
+    // Replay serves skip lists and state proofs out of whole ledgers. A lite
+    // node's ledgers hold only the watched paths, and a proof through any
+    // other branch would throw out of the request job.
+    if (LITE_MODE && LEDGER_REPLAY)
+        Throw<std::runtime_error>(
+            "[" SECTION_LITE_MODE
+            "] cannot be combined with [" SECTION_LEDGER_REPLAY
+            "]: a lite node does not hold the state it would prove");
+
     if (exists(SECTION_REDUCE_RELAY))
     {
         auto sec = section(SECTION_REDUCE_RELAY);

@@ -20,7 +20,6 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/main/Tuning.h>
-#include <xrpld/core/Config.h>
 #include <xrpld/shamap/NodeFamily.h>
 #include <sstream>
 
@@ -29,6 +28,7 @@ namespace ripple {
 NodeFamily::NodeFamily(Application& app, CollectorManager& cm)
     : app_(app)
     , nullBackend_(app.config().nullBackend())
+    , liteMode_(app.config().liteMode())
     , db_(app.getNodeStore())
     , j_(app.journal("NodeFamily"))
     , fbCache_(std::make_shared<FullBelowCache>(
@@ -73,7 +73,7 @@ NodeFamily::missingNodeAcquireBySeq(std::uint32_t seq, uint256 const& nodeHash)
     // A lite ledger is missing almost everything by design, and is as
     // complete as it will get: acquiring it again would fetch the same
     // paths. Reads of unwatched keys surface as SHAMapMissingNode instead.
-    if (app_.config().liteMode())
+    if (liteMode_)
     {
         JLOG(j_.trace()) << "Lite mode: unwatched node " << nodeHash << " in "
                          << seq;

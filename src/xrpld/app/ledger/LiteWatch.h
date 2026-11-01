@@ -79,6 +79,9 @@ public:
         /** Why it is watched, for lite_status: "account rXXX", "system
             fees", "created by <txid>", ... */
         std::string reason;
+        /** Discovered keys only: the watched accounts whose transactions
+            led to it. unwatchAccount() drops the key once none is left. */
+        hash_set<AccountID> owners;
     };
 
     /** Most keys the set will hold, system keys included. Discovery stops
@@ -113,8 +116,9 @@ public:
     bool
     unwatchKey(uint256 const& key);
 
-    /** Stop watching an account and its root. Objects discovered through it
-        are dropped as well; configured keys are kept. */
+    /** Stop watching an account, its root and its Hook object. Objects
+        discovered only through it are dropped as well; objects another
+        watched account also led to, and configured keys, are kept. */
     bool
     unwatchAccount(AccountID const& id);
 
@@ -168,12 +172,18 @@ public:
     std::size_t
     discover(ReadView const& ledger);
 
+    /** Counts by tier. With `detail`, also the watched accounts, and with
+        `keys` every key with its tier and reason. */
     Json::Value
-    getJson() const;
+    getJson(bool detail = true, bool withKeys = true) const;
 
 private:
     bool
-    addLocked(uint256 const& key, Tier tier, std::string reason);
+    addLocked(
+        uint256 const& key,
+        Tier tier,
+        std::string reason,
+        hash_set<AccountID> const& owners = {});
 
     bool const enabled_;
     bool const discoverEnabled_;
