@@ -262,9 +262,12 @@ NFTokenMint::doApply()
         {
             std::uint32_t const acctSeq = root->at(sfSequence);
 
+            // A time-sequenced transaction, like a Ticket, leaves the
+            // Sequence untouched.
             root->at(sfFirstNFTokenSequence) =
                 ctx_.tx.isFieldPresent(sfIssuer) ||
-                    ctx_.tx.getSeqProxy().isTicket()
+                    ctx_.tx.getSeqProxy().isTicket() ||
+                    ctx_.tx.isTimeSequenced()
                 ? acctSeq
                 : acctSeq - 1;
         }

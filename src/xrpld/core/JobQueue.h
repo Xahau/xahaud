@@ -21,14 +21,15 @@
 #define RIPPLE_CORE_JOBQUEUE_H_INCLUDED
 
 #include <xrpld/core/ClosureCounter.h>
-#include <xrpld/core/JobTypeData.h>
 #include <xrpld/core/JobTypes.h>
 #include <xrpld/core/detail/Workers.h>
 #include <xrpl/basics/LocalValue.h>
+#include <xrpl/beast/insight/Collector.h>
 #include <xrpl/json/json_value.h>
+
 #include <boost/coroutine/all.hpp>
-#include <boost/range/begin.hpp>  // workaround for boost 1.72 bug
-#include <boost/range/end.hpp>    // workaround for boost 1.72 bug
+#include <boost/range/begin.hpp>
+#include <boost/range/end.hpp>
 
 namespace ripple {
 
@@ -37,10 +38,6 @@ class PerfLog;
 }
 
 class Logs;
-struct Coro_create_t
-{
-    explicit Coro_create_t() = default;
-};
 
 /** A pool of threads to perform work.
 
@@ -54,15 +51,23 @@ struct Coro_create_t
 */
 class JobQueue : private Workers::Callback
 {
+    // A small class used to prevent construction of coroutines without
+    // going through the JobQueue APIs.
+    struct CoroCreator
+    {
+        explicit constexpr CoroCreator() = default;
+    };
+
 public:
     /** Coroutines must run to completion. */
-    class Coro : public std::enable_shared_from_this<Coro>
+    class Coro : public std::enable_shared_from_this<Coro>,
+                 public CountedObject<Coro>
     {
     private:
         detail::LocalValues lvs_;
         JobQueue& jq_;
-        JobType type_;
-        std::string name_;
+        JobType const type_;
+        std::string const name_;
         bool running_;
         std::mutex mutex_;
         std::mutex mutex_run_;
@@ -76,14 +81,23 @@ public:
     public:
         // Private: Used in the implementation
         template <class F>
-        Coro(Coro_create_t, JobQueue&, JobType, std::string const&, F&&);
+        Coro(
+            JobQueue::CoroCreator,
+            JobQueue&,
+            JobType,
+            std::string const&,
+            F&&);
 
         // Not copy-constructible or assignable
         Coro(Coro const&) = delete;
         Coro&
         operator=(Coro const&) = delete;
 
-        ~Coro();
+        Coro(Coro&&) = delete;
+        Coro&
+        operator=(Coro&&) = delete;
+
+        virtual ~Coro();
 
         /** Suspend coroutine execution.
             Effects:
@@ -167,9 +181,7 @@ public:
     {
         if (auto optionalCountedJob =
                 jobCounter_.wrap(std::forward<JobHandler>(jobHandler)))
-        {
             return addRefCountedJob(type, name, std::move(*optionalCountedJob));
-        }
         return false;
     }
 
@@ -177,10 +189,10 @@ public:
 
         @param t The type of job.
         @param name Name of the job.
-        @param f Has a signature of void(std::shared_ptr<Coro>). Called when the
-       job executes.
+        @param f The actual coroutine body; has a signature of:
+                 void(std::shared_ptr<Coro>)
 
-        @return shared_ptr to posted Coro.  nullptr if post was not successful.
+        @return shared_ptr to posted Coro. nullptr if post was not successful.
     */
     template <class F>
     std::shared_ptr<Coro>
@@ -201,10 +213,9 @@ public:
     int
     getJobCountGE(JobType t) const;
 
-    /** Return a scoped LoadEvent.
-     */
-    std::unique_ptr<LoadEvent>
-    makeLoadEvent(JobType t, std::string const& name);
+    /** Returns a new load event for the particular job. */
+    LoadEvent
+    makeLoadEvent(JobType t, std::string name);
 
     /** Add multiple load events.
      */
@@ -226,52 +237,96 @@ public:
     void
     stop();
 
-    bool
-    isStopping() const
+    [[nodiscard]] bool
+    isStopping() const noexcept
     {
-        return stopping_;
+        return state_.load(std::memory_order_acquire) >= state::stopping;
     }
 
-    // We may be able to move away from this, but we can keep it during the
-    // transition.
-    bool
-    isStopped() const;
+    [[nodiscard]] bool
+    isStopped() const noexcept
+    {
+        return state_.load(std::memory_order_acquire) == state::stopped;
+    }
+
+    /** Returns the number of threads that this job queue is configured with. */
+    unsigned int
+    thread_count() const noexcept
+    {
+        return m_workers.count();
+    }
 
 private:
     friend class Coro;
 
-    using JobDataMap = std::map<JobType, JobTypeData>;
+    struct Data
+    {
+        int waiting = 0;
+        int running = 0;
+        int deferred = 0;
+
+        beast::insight::Event dequeue;
+        beast::insight::Event execute;
+
+        LoadMonitor load;
+
+        Data(
+            JobTypeInfo const& info,
+            beast::insight::Collector::ptr const& collector,
+            Logs& logs)
+            : load(
+                  info.averageLatency,
+                  info.peakLatency,
+                  logs.journal("LoadMonitor"))
+        {
+            if (!info.special())
+            {
+                dequeue = collector->make_event(std::string(info.name) + "_q");
+                execute = collector->make_event(std::string(info.name));
+            }
+        }
+
+        Data(Data const&) = delete;
+        Data&
+        operator=(Data const&) = delete;
+        Data(Data&&) = delete;
+        Data&
+        operator=(Data&&) = delete;
+    };
 
     beast::Journal m_journal;
     mutable std::mutex m_mutex;
-    std::uint64_t m_lastJob;
+    std::uint64_t m_lastJob = 0;
     std::set<Job> m_jobSet;
     JobCounter jobCounter_;
-    std::atomic_bool stopping_{false};
-    std::atomic_bool stopped_{false};
-    JobDataMap m_jobData;
-    JobTypeData m_invalidJobData;
 
-    // The number of jobs currently in processTask()
-    int m_processCount;
+    enum class state : std::uint8_t { running = 0, stopping = 1, stopped = 2 };
+
+    std::atomic<state> state_ = state::running;
+
+    std::array<Data, jobTypes.size()> data_;
+
+    int activeThreads_ = 0;
+
+    // The number of coroutines (active or suspended)
+    std::atomic<int> totalCoroutines_ = 0;
 
     // The number of suspended coroutines
-    int nSuspend_ = 0;
+    std::atomic<int> suspendedCoroutines_ = 0;
 
     Workers m_workers;
 
-    // Statistics tracking
     perf::PerfLog& perfLog_;
+    // Statistics tracking
     beast::insight::Collector::ptr m_collector;
     beast::insight::Gauge job_count;
+    beast::insight::Gauge activeThreadsGauge_;
     beast::insight::Hook hook;
 
     std::condition_variable cv_;
 
     void
     collect();
-    JobTypeData&
-    getJobTypeData(JobType type);
 
     // Adds a reference counted job to the JobQueue.
     //
@@ -282,46 +337,7 @@ private:
     //
     //    return true if func added to queue.
     bool
-    addRefCountedJob(
-        JobType type,
-        std::string const& name,
-        JobFunction const& func);
-
-    // Returns the next Job we should run now.
-    //
-    // RunnableJob:
-    //  A Job in the JobSet whose slots count for its type is greater than zero.
-    //
-    // Pre-conditions:
-    //  mJobSet must not be empty.
-    //  mJobSet holds at least one RunnableJob
-    //
-    // Post-conditions:
-    //  job is a valid Job object.
-    //  job is removed from mJobQueue.
-    //  Waiting job count of its type is decremented
-    //  Running job count of its type is incremented
-    //
-    // Invariants:
-    //  The calling thread owns the JobLock
-    void
-    getNextJob(Job& job);
-
-    // Indicates that a running Job has completed its task.
-    //
-    // Pre-conditions:
-    //  Job must not exist in mJobSet.
-    //  The JobType must not be invalid.
-    //
-    // Post-conditions:
-    //  The running count of that JobType is decremented
-    //  A new task is signaled if there are more waiting Jobs than the limit, if
-    //  any.
-    //
-    // Invariants:
-    //  <none>
-    void
-    finishJob(JobType type);
+    addRefCountedJob(JobType type, std::string const& name, JobFunction func);
 
     // Runs the next appropriate waiting Job.
     //
@@ -334,13 +350,14 @@ private:
     // Invariants:
     //  <none>
     void
-    processTask(int instance) override;
+    processTask(unsigned int instance) override;
 
-    // Returns the limit of running jobs for the given job type.
-    // For jobs with no limit, we return the largest int. Hopefully that
-    // will be enough.
-    int
-    getJobLimit(JobType type);
+    // Called when an uncaught exception occurs while processing a task
+    //
+    // Invariants:
+    //  <none>
+    void
+    uncaughtException(unsigned int instance, std::exception_ptr eptr) override;
 };
 
 /*
@@ -354,11 +371,11 @@ private:
     coro_ member is initialized (a boost::coroutines::pull_type), execution
     automatically passes to the coroutine, which we don't want at this point,
     since we are still in the handler thread context. It's important to note
-   here that construction of a boost pull_type automatically passes execution to
-   the coroutine. A pull_type object automatically generates a push_type that is
-    passed as a parameter (do_yield) in the signature of the function the
-    pull_type was created with. This function is immediately called during coro_
-    construction and within it, Coro::yield_ is assigned the push_type
+    here that construction of a boost pull_type automatically passes execution
+    to the coroutine. A pull_type object automatically generates a push_type
+    that is passed as a parameter (do_yield) in the signature of the function
+    the pull_type was created with. This function is immediately called during
+    coro_ construction and within it, Coro::yield_ is assigned the push_type
     parameter (do_yield) address and called (yield()) so we can return execution
     back to the caller's stack.
 
@@ -385,19 +402,20 @@ private:
 
     The race condition occurs as follows:
 
-        1- The coroutine is running.
-        2- The coroutine is about to suspend, but before it can do so, it must
-            arrange for some event to wake it up.
-        3- The coroutine arranges for some event to wake it up.
-        4- Before the coroutine can suspend, that event occurs and the
-   resumption of the coroutine is scheduled on the job queue. 5- Again, before
-   the coroutine can suspend, the resumption of the coroutine is dispatched. 6-
-   Again, before the coroutine can suspend, the resumption code runs the
-            coroutine.
-        The coroutine is now running in two threads.
+    1. The coroutine is running.
+    2. The coroutine is about to suspend, but before it can do so, it must
+       arrange for some event to wake it up.
+    3. The coroutine arranges for some event to wake it up.
+    4. Before the coroutine can suspend, that event occurs and the
+       resumption of the coroutine is scheduled on the job queue.
+    5. Again, before the coroutine can suspend, the resumption of the coroutine
+       is dispatched.
+    6. Again, before the coroutine can suspend, the resumption code runs the
+       coroutine.
 
-        The lock prevents this from happening as step 6 will block until the
-            lock is released which only happens after the coroutine completes.
+    The coroutine is now running in two threads. The lock prevents this from
+    happening as step 6 will block until the lock is released which only
+    happens after the coroutine completes.
 */
 
 }  // namespace ripple
@@ -410,12 +428,12 @@ template <class F>
 std::shared_ptr<JobQueue::Coro>
 JobQueue::postCoro(JobType t, std::string const& name, F&& f)
 {
-    /*  First param is a detail type to make construction private.
-        Last param is the function the coroutine runs. Signature of
-        void(std::shared_ptr<Coro>).
-    */
+    if (state_.load(std::memory_order_acquire) != state::running)
+        return nullptr;
+
     auto coro = std::make_shared<Coro>(
-        Coro_create_t{}, *this, t, name, std::forward<F>(f));
+        CoroCreator{}, *this, t, name, std::forward<F>(f));
+
     if (!coro->post())
     {
         // The Coro was not successfully posted.  Disable it so it's destructor
@@ -423,6 +441,7 @@ JobQueue::postCoro(JobType t, std::string const& name, F&& f)
         coro->expectEarlyExit();
         coro.reset();
     }
+
     return coro;
 }
 

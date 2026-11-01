@@ -50,15 +50,15 @@ export CMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
 export CMAKE_STATIC_LINKER_FLAGS="-static-libstdc++"
 
 git config --global --add safe.directory /io &&
+BRANCH=$(git rev-parse --abbrev-ref HEAD) &&
+VERSION="$(date +%Y).$(date +%-m).$(date +%-d)-${BRANCH}${4:+"+$4"}" &&
 git checkout src/libxrpl/protocol/BuildInfo.cpp &&
-sed -i s/\"0.0.0\"/\"$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)$(if [ -n "$4" ]; then echo "+$4"; fi)\"/g src/libxrpl/protocol/BuildInfo.cpp  &&
+sed -i "s/\"0.0.0\"/\"$VERSION\"/g" src/libxrpl/protocol/BuildInfo.cpp &&
 conan export external/snappy --version 1.1.10 --user xahaud --channel stable &&
 conan export external/soci --version 4.0.3 --user xahaud --channel stable &&
 cd release-build &&
-# Install dependencies - tool_requires in conanfile.py handles glibc 2.28 compatibility
-# for build tools (protoc, grpc plugins, b2) in HBB environment
-# The tool_requires('b2/5.3.2') in conanfile.py should force b2 to build from source
-# with the correct toolchain, avoiding the GLIBCXX_3.4.29 issue
+# Install dependencies. The Conan profile tags package_ids with the glibc
+# baseline, so tools like b2/protoc are built locally instead of downloaded.
 echo "=== Installing dependencies ===" &&
 conan install .. --output-folder . --build missing --settings build_type=$BUILD_TYPE \
   -o with_wasmedge=False -o tool_requires_b2=True &&
@@ -79,7 +79,14 @@ mv rippled xahaud &&
 echo "=== Full ldd output ===" &&
 ldd xahaud &&
 echo "=== Running libcheck ===" &&
-libcheck xahaud &&
+# Same check as holy-build-box's libcheck: fail if any shared library outside the
+# essential system set is linked (e.g. libstdc++ would mean -static-libstdc++ did not apply)
+NEEDED=$(readelf -d xahaud | grep -o 'Shared library: \[[^]]*\]') &&
+! echo "$NEEDED" | grep -vE '\[(linux-gate|linux-vdso|libpthread|librt|libdl|libcrypt|libm|libc|ld-linux.*|libutil|libnsl|libgcc_s|libresolv)\.so' &&
+echo "=== Checking GLIBC requirement (must be <= 2.28) ===" &&
+GLIBC_MAX=$(objdump -T xahaud | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1) &&
+echo "Max required: $GLIBC_MAX" &&
+[ "$(printf '%s\n' GLIBC_2.28 "$GLIBC_MAX" | sort -V | tail -1)" = "GLIBC_2.28" ] &&
 echo "Build host: `hostname`" > release.info &&
 echo "Build date: `date`" >> release.info &&
 echo "Build md5: `md5sum xahaud`" >> release.info &&
@@ -88,28 +95,30 @@ git remote -v >> release.info &&
 echo "Git status:" >> release.info &&
 git status -v >> release.info &&
 echo "Git log [last 20]:" >> release.info &&
-git log -n 20 >> release.info;
+git log -n 20 >> release.info || BUILD_FAILED=1
 
-if [[ "$4" == "" ]]; then
+if [[ -n "${BUILD_FAILED:-}" ]]; then
+  echo "ERR build failed, not publishing"
+elif [[ "$4" == "" ]]; then
   # Non GH, local building
   echo "Non GH, local building, no Action runner magic"
 else
   # GH Action, runner
-    if [[ "$(git rev-parse --abbrev-ref HEAD)" == "release" ]]; then
+    if [[ "$BRANCH" == "release" ]]; then
         echo "building on the release branch... placing it in builds/candidate"
         mkdir -p /data/builds/candidate
-        cp /io/release-build/xahaud /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
-        cp /io/release-build/release.info /data/builds/candidate/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
+        cp /io/release-build/xahaud /data/builds/candidate/$VERSION
+        cp /io/release-build/release.info /data/builds/candidate/$VERSION.releaseinfo
     else
         echo "building non-release branch, placing it in builds root"
-        cp /io/release-build/xahaud /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
-        cp /io/release-build/release.info /data/builds/$(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4.releaseinfo
+        cp /io/release-build/xahaud /data/builds/$VERSION
+        cp /io/release-build/release.info /data/builds/$VERSION.releaseinfo
     fi  
   echo "Published build to: http://build.xahau.tech/"
-  echo $(date +%Y).$(date +%-m).$(date +%-d)-$(git rev-parse --abbrev-ref HEAD)+$4
+  echo $VERSION
 fi
 
-cd ..;
+cd /io;
 
 mv src/xrpld/net/detail/RegisterSSLCerts.cpp.old src/xrpld/net/detail/RegisterSSLCerts.cpp;
 mv cmake/deps/WasmEdge.old cmake/deps/WasmEdge.cmake;
@@ -117,3 +126,5 @@ rm src/certs/certbundle.h;
 git checkout src/libxrpl/protocol/BuildInfo.cpp;
 
 echo "END INSIDE CONTAINER - CORE"
+
+[[ -z "${BUILD_FAILED:-}" ]] || exit 1

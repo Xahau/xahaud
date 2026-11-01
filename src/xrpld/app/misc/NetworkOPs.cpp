@@ -1443,6 +1443,13 @@ NetworkOPsImp::processTransaction(
         *transaction->getSTransaction(),
         view->rules(),
         app_.config());
+    if (validity == Validity::Refused)
+    {
+        JLOG(m_journal.debug()) << "Transaction refused: " << reason;
+        transaction->setStatus(INVALID);
+        transaction->setResult(temDISABLED);
+        return;
+    }
     XRPL_ASSERT(
         validity == Validity::Valid,
         "ripple::NetworkOPsImp::processTransaction : valid validity");
@@ -1664,12 +1671,10 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 #ifdef DEBUG
             if (!isTesSuccess(e.result))
             {
-                std::string token, human;
-
-                if (transResultInfo(e.result, token, human))
+                if (std::string token = transToken(e.result); token != "-")
                 {
-                    JLOG(m_journal.info())
-                        << "TransactionResult: " << token << ": " << human;
+                    JLOG(m_journal.debug()) << "Tx " << e.transaction->getID()
+                                            << ", result: " << token;
                 }
             }
 #endif
