@@ -129,6 +129,20 @@ STLedgerEntry::getJson(JsonOptions options) const
         ret[jss::mpt_issuance_id] = to_string(
             makeMptID(getFieldU32(sfSequence), getAccountID(sfIssuer)));
 
+    // a member of a sequential URIToken series is shown as <uri>#<seq>,
+    // unless the issuer's URI already carries a fragment of its own
+    if (getType() == ltURI_TOKEN && isFieldPresent(sfURITokenSequence))
+    {
+        Blob uri = getFieldVL(sfURI);
+        if (std::find(uri.begin(), uri.end(), '#') == uri.end())
+        {
+            std::string const frag =
+                "#" + std::to_string(getFieldU32(sfURITokenSequence));
+            uri.insert(uri.end(), frag.begin(), frag.end());
+            ret[sfURI.jsonName] = strHex(uri);
+        }
+    }
+
     return ret;
 }
 

@@ -223,8 +223,15 @@ constexpr std::uint32_t const tfNFTokenCancelOfferMask     = ~tfUniversal;
 // NFTokenAcceptOffer flags:
 constexpr std::uint32_t const tfNFTokenAcceptOfferMask     = ~tfUniversal;
 
+// URITokenMint flags:
+enum URITokenMintFlags : uint32_t {
+    tfSequential = 0x00000002,  // mint the next token of a sequential series
+};
+
 // URIToken mask
 constexpr std::uint32_t const tfURITokenMintMask = ~(tfUniversal | tfBurnable);
+constexpr std::uint32_t const tfURITokenSequentialMintMask =
+    ~(tfUniversal | tfBurnable | tfSequential);
 constexpr std::uint32_t const tfURITokenNonMintMask = ~tfUniversal;
 
 // ClaimReward flags:

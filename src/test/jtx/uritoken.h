@@ -31,7 +31,13 @@ namespace jtx {
 namespace uritoken {
 
 uint256
-tokenid(jtx::Account const& account, std::string const& uri);
+tokenid(
+    jtx::Account const& account,
+    std::string const& uri,
+    std::uint32_t seq = 0);
+
+uint256
+seriesid(jtx::Account const& account, std::string const& uri);
 
 Json::Value
 mint(jtx::Account const& account, std::string const& uri);
@@ -59,6 +65,36 @@ private:
 
 public:
     explicit amt(STAmount const& amt) : amt_(amt)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+/** Sets sfURITokenMaxSequence on a sequential URITokenMint. */
+class seriesmax
+{
+private:
+    std::uint32_t max_;
+
+public:
+    explicit seriesmax(std::uint32_t max) : max_(max)
+    {
+    }
+
+    void
+    operator()(Env&, JTx& jtx) const;
+};
+
+/** Sets sfExpiration on a sequential URITokenMint. */
+class seriesexp
+{
+private:
+    std::uint32_t exp_;
+
+public:
+    explicit seriesexp(std::uint32_t exp) : exp_(exp)
     {
     }
 

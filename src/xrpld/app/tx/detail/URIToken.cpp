@@ -19,6 +19,7 @@
 
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/detail/URIToken.h>
+#include <xrpld/ledger/View.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/UTF8.h>
 #include <xrpl/protocol/Feature.h>
@@ -27,6 +28,8 @@
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxFlags.h>
+
+#include <limits>
 
 namespace ripple {
 
@@ -110,8 +113,29 @@ URIToken::preflight(PreflightContext const& ctx)
     switch (tt)
     {
         case ttURITOKEN_MINT: {
-            if (flags & tfURITokenMintMask)
+            bool const seqEnabled =
+                ctx.rules.enabled(featureSequentialURIToken);
+
+            if (flags &
+                (seqEnabled ? tfURITokenSequentialMintMask
+                            : tfURITokenMintMask))
                 return temINVALID_FLAG;
+
+            bool const precommit =
+                ctx.tx.isFieldPresent(sfURITokenMaxSequence) ||
+                ctx.tx.isFieldPresent(sfExpiration);
+
+            if (precommit && !seqEnabled)
+                return temDISABLED;
+
+            // precommitments only make sense on a sequential mint
+            if (precommit && !(flags & tfSequential))
+                return temMALFORMED;
+
+            if (ctx.tx.isFieldPresent(sfExpiration) &&
+                ctx.tx.getFieldU32(sfExpiration) == 0)
+                return temBAD_EXPIRATION;
+
             break;
         }
 
@@ -148,10 +172,28 @@ URIToken::preclaim(PreclaimContext const& ctx)
     std::optional<AccountID> dest;
     std::shared_ptr<SLE const> sleOwner;
 
+    AccountID const acc = ctx.tx.getAccountID(sfAccount);
+    TxType const& tt = ctx.tx.getTxnType();
+    bool const seqEnabled = ctx.view.rules().enabled(featureSequentialURIToken);
+
     if (ctx.tx.isFieldPresent(sfURITokenID))
     {
-        sleU = ctx.view.read(
-            Keylet{ltURI_TOKEN, ctx.tx.getFieldH256(sfURITokenID)});
+        uint256 const id = ctx.tx.getFieldH256(sfURITokenID);
+
+        // burning a series header: issuer only, and only once it is empty
+        if (seqEnabled && tt == ttURITOKEN_BURN)
+        {
+            if (auto const sleS = ctx.view.read(Keylet{ltURI_TOKEN_SERIES, id}))
+            {
+                if (sleS->getAccountID(sfIssuer) != acc)
+                    return tecNO_PERMISSION;
+                if (sleS->getFieldU32(sfURITokenCount) != 0)
+                    return tecHAS_OBLIGATIONS;
+                return tesSUCCESS;
+            }
+        }
+
+        sleU = ctx.view.read(Keylet{ltURI_TOKEN, id});
         if (!sleU)
             return tecNO_ENTRY;
 
@@ -173,9 +215,6 @@ URIToken::preclaim(PreclaimContext const& ctx)
         }
     }
 
-    AccountID const acc = ctx.tx.getAccountID(sfAccount);
-    TxType const& tt = ctx.tx.getTxnType();
-
     auto const sle =
         ctx.view.read(keylet::account(ctx.tx.getAccountID(sfAccount)));
     if (!sle)
@@ -184,16 +223,74 @@ URIToken::preclaim(PreclaimContext const& ctx)
     switch (tt)
     {
         case ttURITOKEN_MINT: {
-            // check if this token has already been minted.
-            if (ctx.view.exists(
-                    keylet::uritoken(acc, ctx.tx.getFieldVL(sfURI))))
+            Blob const uri = ctx.tx.getFieldVL(sfURI);
+
+            if (!(ctx.tx.getFlags() & tfSequential))
+            {
+                // check if this token has already been minted.
+                if (ctx.view.exists(keylet::uritoken(acc, uri)))
+                    return tecDUPLICATE;
+
+                // a URI with a live series belongs to that series; its
+                // seq 0 can only come back through the series itself
+                if (seqEnabled &&
+                    ctx.view.exists(keylet::uritokenSeries(acc, uri)))
+                    return tecNO_PERMISSION;
+
+                return tesSUCCESS;
+            }
+
+            auto const sleS = ctx.view.read(keylet::uritokenSeries(acc, uri));
+            if (!sleS)
+            {
+                // this mint creates the series and fixes its precommitments
+                if (hasExpired(ctx.view, ctx.tx[~sfExpiration]))
+                    return tecEXPIRED;
+
+                // an existing legacy token becomes seq 0 and we mint seq 1,
+                // otherwise we mint seq 0 ourselves
+                std::uint32_t const first =
+                    ctx.view.exists(keylet::uritoken(acc, uri)) ? 1 : 0;
+
+                if (first > ctx.tx[~sfURITokenMaxSequence].value_or(
+                                std::numeric_limits<std::uint32_t>::max()))
+                    return tecNO_PERMISSION;
+
+                if (ctx.view.exists(keylet::uritoken(acc, uri, first)))
+                    return tecDUPLICATE;
+
+                return tesSUCCESS;
+            }
+
+            // precommitments are fixed when the series is created
+            if (ctx.tx.isFieldPresent(sfURITokenMaxSequence) ||
+                ctx.tx.isFieldPresent(sfExpiration))
+                return tecNO_PERMISSION;
+
+            if (sleS->getFlags() & lsfURITokenSeriesClosed)
+                return tecNO_PERMISSION;
+
+            if (hasExpired(ctx.view, (*sleS)[~sfExpiration]))
+                return tecEXPIRED;
+
+            std::uint32_t const next =
+                sleS->getFieldU32(sfURITokenNextSequence);
+            if (next > sleS->getFieldU32(sfURITokenMaxSequence))
+                return tecNO_PERMISSION;
+
+            // only a foreign object on this key can trip this (~2^-167)
+            if (ctx.view.exists(keylet::uritoken(acc, uri, next)))
                 return tecDUPLICATE;
 
             return tesSUCCESS;
         }
 
         case ttURITOKEN_BURN: {
-            if (leFlags == lsfBurnable && acc == *issuer)
+            bool const issuerMayBurn = seqEnabled
+                ? ((leFlags & lsfBurnable) != 0)
+                : (leFlags == lsfBurnable);
+
+            if (issuerMayBurn && acc == *issuer)
             {
                 // pass, the issuer can burn the URIToken if they minted it with
                 // a burn flag
@@ -333,6 +430,40 @@ URIToken::doApply()
     std::optional<Keylet> kl;
     std::shared_ptr<SLE> sleOwner;
 
+    bool const seqEnabled = sb.rules().enabled(featureSequentialURIToken);
+
+    // burning a series header
+    if (seqEnabled && tt == ttURITOKEN_BURN)
+    {
+        Keylet const klS{
+            ltURI_TOKEN_SERIES, ctx_.tx.getFieldH256(sfURITokenID)};
+        if (auto sleS = sb.peek(klS))
+        {
+            if (sleS->getAccountID(sfIssuer) != account_)
+                return tecNO_PERMISSION;
+
+            if (sleS->getFieldU32(sfURITokenCount) != 0)
+                return tecHAS_OBLIGATIONS;
+
+            if (!sb.dirRemove(
+                    keylet::ownerDir(account_),
+                    sleS->getFieldU64(sfOwnerNode),
+                    klS.key,
+                    true))
+            {
+                JLOG(j.fatal())
+                    << "Could not remove URITokenSeries from owner directory";
+                return tefBAD_LEDGER;
+            }
+
+            sb.erase(sleS);
+            adjustOwnerCount(sb, sle, -1, j);
+            sb.update(sle);
+            sb.apply(ctx_.rawView());
+            return tesSUCCESS;
+        }
+    }
+
     if (tt != ttURITOKEN_MINT)
     {
         kl = Keylet{ltURI_TOKEN, ctx_.tx.getFieldH256(sfURITokenID)};
@@ -365,7 +496,85 @@ URIToken::doApply()
     switch (tt)
     {
         case ttURITOKEN_MINT: {
-            kl = keylet::uritoken(account_, ctx_.tx.getFieldVL(sfURI));
+            Blob const uri = ctx_.tx.getFieldVL(sfURI);
+            bool const sequential = (flags & tfSequential) != 0;
+            std::uint32_t seq = 0;
+
+            if (sequential)
+            {
+                Keylet const klS = keylet::uritokenSeries(account_, uri);
+                auto sleS = sb.peek(klS);
+
+                if (!sleS)
+                {
+                    // creating the series: the header costs the issuer a
+                    // second owner entry on top of the token
+                    STAmount const reserve2{sb.fees().accountReserve(
+                        sle->getFieldU32(sfOwnerCount) + 2)};
+                    if (mPriorBalance - ctx_.tx.getFieldAmount(sfFee).xrp() <
+                        reserve2)
+                        return tecINSUFFICIENT_RESERVE;
+
+                    std::uint32_t next = 0;
+                    std::uint32_t count = 0;
+
+                    if (auto base = sb.peek(keylet::uritoken(account_, uri)))
+                    {
+                        // the legacy token becomes seq 0 of the series,
+                        // whoever owns it now
+                        base->setFieldU32(sfURITokenSequence, 0);
+                        base->setFlag(lsfSequential);
+                        sb.update(base);
+                        next = 1;
+                        count = 1;
+                    }
+
+                    sleS = std::make_shared<SLE>(klS);
+                    sleS->setAccountID(sfIssuer, account_);
+                    sleS->setFieldVL(sfURI, uri);
+                    sleS->setFieldU32(sfURITokenNextSequence, next);
+                    sleS->setFieldU32(
+                        sfURITokenMaxSequence,
+                        ctx_.tx[~sfURITokenMaxSequence].value_or(
+                            std::numeric_limits<std::uint32_t>::max()));
+                    sleS->setFieldU32(sfURITokenCount, count);
+                    if (auto const exp = ctx_.tx[~sfExpiration])
+                        sleS->setFieldU32(sfExpiration, *exp);
+
+                    auto const page = sb.dirInsert(
+                        keylet::ownerDir(account_),
+                        klS,
+                        describeOwnerDir(account_));
+                    if (!page)
+                        return tecDIR_FULL;
+
+                    sleS->setFieldU64(sfOwnerNode, *page);
+                    sb.insert(sleS);
+                    adjustOwnerCount(sb, sle, 1, j);
+                }
+
+                seq = sleS->getFieldU32(sfURITokenNextSequence);
+                std::uint32_t const maxSeq =
+                    sleS->getFieldU32(sfURITokenMaxSequence);
+
+                if ((sleS->getFlags() & lsfURITokenSeriesClosed) ||
+                    seq > maxSeq)
+                    return tecNO_PERMISSION;
+
+                sleS->setFieldU32(
+                    sfURITokenCount, sleS->getFieldU32(sfURITokenCount) + 1);
+
+                // a burned seq is never reissued: the counter only moves up,
+                // and the series closes for good once it reaches its cap
+                if (seq == maxSeq)
+                    sleS->setFlag(lsfURITokenSeriesClosed);
+                else
+                    sleS->setFieldU32(sfURITokenNextSequence, seq + 1);
+
+                sb.update(sleS);
+            }
+
+            kl = keylet::uritoken(account_, uri, seq);
             if (sb.exists(*kl))
                 return tecDUPLICATE;
 
@@ -386,7 +595,13 @@ URIToken::doApply()
             if (saleAmount)
                 sleU->setFieldAmount(sfAmount, *saleAmount);
 
-            sleU->setFieldVL(sfURI, ctx_.tx.getFieldVL(sfURI));
+            sleU->setFieldVL(sfURI, uri);
+
+            if (sequential)
+            {
+                sleU->setFieldU32(sfURITokenSequence, seq);
+                sleU->setFlag(lsfSequential);
+            }
 
             if (ctx_.tx.isFieldPresent(sfDigest))
                 sleU->setFieldH256(sfDigest, ctx_.tx.getFieldH256(sfDigest));
@@ -596,6 +811,22 @@ URIToken::doApply()
                 JLOG(j.fatal())
                     << "Could not remove URIToken from owner directory";
                 return tefBAD_LEDGER;
+            }
+
+            // a member leaves its series; the header outlives it
+            if (seqEnabled && (sleU->getFlags() & lsfSequential))
+            {
+                auto sleS = sb.peek(
+                    keylet::uritokenSeries(*issuer, sleU->getFieldVL(sfURI)));
+                if (!sleS)
+                    return tecINTERNAL;
+
+                std::uint32_t const count = sleS->getFieldU32(sfURITokenCount);
+                if (count == 0)
+                    return tecINTERNAL;
+
+                sleS->setFieldU32(sfURITokenCount, count - 1);
+                sb.update(sleS);
             }
 
             sb.erase(sleU);

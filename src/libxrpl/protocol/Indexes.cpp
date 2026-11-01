@@ -497,12 +497,72 @@ nft_sells(uint256 const& id) noexcept
 }
 
 Keylet
-uritoken(AccountID const& issuer, Blob const& uri)
+    // Sequential URIToken keylets
+    //
+    //   key(seq)      = key(0) + seq * 2^64   (mod 2^256)
+    //   series header = key(0) - 2^64         (mod 2^256)
+    //
+    // seq is added big-endian into bytes 20..23 of the legacy keylet and the
+    // single carry (or borrow) bit ripples through bytes 19..0. Consequences:
+    // - seq 0 is exactly the legacy URIToken keylet, so an existing token can
+    //   become the head of a series without moving.
+    // - Keys strictly ascend with seq and the header sits directly below seq 0,
+    //   so header + members are one contiguous, ordered run walkable with
+    //   succ(). A wrap past 2^256 (bytes 0..19 all 0xFF) or below 0 (all 0x00)
+    //   has probability 2^-160 and simply continues at the other end of the
+    //   keyspace.
+    // - Bytes 24..31 are untouched: every member shares the low 8 bytes of
+    //   key(0), which identifies the series from the key alone, and two series
+    //   can only collide if their legacy hashes agree on those 8 bytes AND
+    //   their top 20 bytes lie within 2^32 of each other (~2^-192 per pair;
+    //   ~2^128 work to arrange deliberately).
+    // - The window is at 20 rather than 28 so that leaves sit at SHAMap depth
+    //   <= 48 instead of the depth-64 limit, and the chain of single-child
+    //   inner nodes shared by a series is ~35 rather than ~53.
+    static constexpr std::size_t kURITokenSeqOffset = 20;
+
+static uint256
+uritokenShift(uint256 key, std::int64_t delta)
 {
-    return {
-        ltURI_TOKEN,
-        indexHash(
-            LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()})};
+    std::uint8_t* const h = key.data();
+    std::size_t const o = kURITokenSeqOffset;
+
+    std::int64_t const cur = (std::int64_t{h[o]} << 24) |
+        (std::int64_t{h[o + 1]} << 16) | (std::int64_t{h[o + 2]} << 8) |
+        std::int64_t{h[o + 3]};
+    std::int64_t const sum = cur + delta;  // delta in [-2^32, 2^32)
+
+    h[o] = static_cast<std::uint8_t>(sum >> 24);
+    h[o + 1] = static_cast<std::uint8_t>(sum >> 16);
+    h[o + 2] = static_cast<std::uint8_t>(sum >> 8);
+    h[o + 3] = static_cast<std::uint8_t>(sum);
+
+    if (sum >> 32 > 0)  // carry
+        for (std::size_t i = o; i-- > 0 && ++h[i] == 0;)
+            ;
+    else if (sum < 0)  // borrow
+        for (std::size_t i = o; i-- > 0 && h[i]-- == 0;)
+            ;
+
+    return key;
+}
+
+Keylet
+uritoken(AccountID const& issuer, Blob const& uri, std::uint32_t seq)
+{
+    uint256 const key = indexHash(
+        LedgerNameSpace::URI_TOKEN, issuer, Slice{uri.data(), uri.size()});
+
+    if (seq == 0)
+        return {ltURI_TOKEN, key};
+
+    return {ltURI_TOKEN, uritokenShift(key, seq)};
+}
+
+Keylet
+uritokenSeries(AccountID const& issuer, Blob const& uri)
+{
+    return {ltURI_TOKEN_SERIES, uritokenShift(uritoken(issuer, uri).key, -1)};
 }
 
 // Constructs an ordered CRON keylet (32 bytes):

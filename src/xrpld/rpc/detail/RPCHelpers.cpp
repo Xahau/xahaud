@@ -818,6 +818,28 @@ injectSLE(Json::Value& jv, SLE const& sle)
     }
 }
 
+std::pair<Blob, std::uint32_t>
+splitURITokenURI(std::string const& uri)
+{
+    auto const hash = uri.rfind('#');
+    if (hash != std::string::npos && hash + 1 < uri.size() &&
+        uri.size() - hash - 1 <= 10)
+    {
+        std::string const frag = uri.substr(hash + 1);
+        if (std::all_of(frag.begin(), frag.end(), [](unsigned char c) {
+                return std::isdigit(c);
+            }))
+        {
+            auto const v = std::stoull(frag);
+            if (v <= std::numeric_limits<std::uint32_t>::max())
+                return {
+                    Blob(uri.begin(), uri.begin() + hash),
+                    static_cast<std::uint32_t>(v)};
+        }
+    }
+    return {Blob(uri.begin(), uri.end()), 0};
+}
+
 std::optional<Json::Value>
 readLimitField(
     unsigned int& limit,
@@ -1066,6 +1088,9 @@ chooseLedgerEntryType(Json::Value const& params)
     {jss::name, jss::rpcName, tag},
 
 #include <xrpl/protocol/detail/ledger_entries.macro>
+#include <algorithm>
+#include <cctype>
+#include <limits>
 
 #undef LEDGER_ENTRY
 #pragma pop_macro("LEDGER_ENTRY")

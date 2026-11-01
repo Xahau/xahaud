@@ -307,8 +307,19 @@ nft_sells(uint256 const& id) noexcept;
 Keylet
 import_vlseq(PublicKey const& key) noexcept;
 
+/** A URIToken.
+
+    seq 0 is the original URIToken keylet. seq n > 0 is the n-th token of the
+    issuer's sequential series for this URI: key(n) = key(0) + n * 2^64, so a
+    series is contiguous and ascending in the ledger and can be walked with
+    succ(). Non-zero seq requires featureSequentialURIToken.
+*/
 Keylet
-uritoken(AccountID const& issuer, Blob const& uri);
+uritoken(AccountID const& issuer, Blob const& uri, std::uint32_t seq = 0);
+
+/** The header of a sequential URIToken series: key(0) - 2^64. */
+Keylet
+uritokenSeries(AccountID const& issuer, Blob const& uri);
 
 Keylet
 cron(uint32_t timestamp, std::optional<AccountID> const& id = std::nullopt);

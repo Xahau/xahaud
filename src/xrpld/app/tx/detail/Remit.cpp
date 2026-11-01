@@ -380,6 +380,11 @@ Remit::doApply()
             return tecDUPLICATE;
         }
 
+        // seq 0 of a live sequential series is never recreated this way
+        if (sb.rules().enabled(featureSequentialURIToken) &&
+            sb.exists(keylet::uritokenSeries(srcAccID, mintURI)))
+            return tecNO_PERMISSION;
+
         auto sleMint = std::make_shared<SLE>(kl);
 
         sleMint->setAccountID(sfOwner, dstAccID);

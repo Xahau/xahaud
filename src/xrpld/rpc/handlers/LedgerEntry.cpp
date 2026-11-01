@@ -1019,12 +1019,55 @@ parseUriToken(Json::Value const& uriTokenJson, Json::Value& jvResult)
     {
         auto const id =
             parseBase58<AccountID>(uriTokenJson[jss::account].asString());
-        auto const strUri = uriTokenJson[jss::uri].asString();
-        Blob raw = Blob(strUri.begin(), strUri.end());
+        // "<uri>#<seq>" names a member of a sequential series; an explicit
+        // seq field may also be given, but not both
+        auto [raw, seq] =
+            RPC::splitURITokenURI(uriTokenJson[jss::uri].asString());
+        if (uriTokenJson.isMember(jss::seq))
+        {
+            if (!uriTokenJson[jss::seq].isConvertibleTo(Json::uintValue) ||
+                (seq != 0 && uriTokenJson[jss::seq].asUInt() != seq))
+            {
+                jvResult[jss::error] = "malformedRequest";
+                return std::nullopt;
+            }
+            seq = uriTokenJson[jss::seq].asUInt();
+        }
         if (!id)
             jvResult[jss::error] = "malformedAddress";
         else
-            return keylet::uritoken(*id, raw).key;
+            return keylet::uritoken(*id, raw, seq).key;
+    }
+    jvResult[jss::error] = "malformedRequest";
+    return std::nullopt;
+}
+
+std::optional<uint256>
+parseUriTokenSeries(Json::Value const& json, Json::Value& jvResult)
+{
+    if (!json.isObject())
+    {
+        uint256 uNodeIndex;
+        if (!uNodeIndex.parseHex(json.asString()))
+        {
+            jvResult[jss::error] = "malformedRequest";
+            return std::nullopt;
+        }
+        return uNodeIndex;
+    }
+    else if (!json.isMember(jss::account) || !json.isMember(jss::uri))
+    {
+        jvResult[jss::error] = "malformedRequest";
+    }
+    else
+    {
+        auto const id = parseBase58<AccountID>(json[jss::account].asString());
+        // a "#<seq>" fragment is ignored: the header is the same for all
+        auto const raw = RPC::splitURITokenURI(json[jss::uri].asString()).first;
+        if (!id)
+            jvResult[jss::error] = "malformedAddress";
+        else
+            return keylet::uritokenSeries(*id, raw).key;
     }
     jvResult[jss::error] = "malformedRequest";
     return std::nullopt;
@@ -1159,6 +1202,7 @@ doLedgerEntry(RPC::JsonContext& context)
         {jss::state, parseRippleState, ltRIPPLE_STATE},
         {jss::ticket, parseTicket, ltTICKET},
         {jss::uri_token, parseUriToken, ltURI_TOKEN},
+        {jss::uri_token_series, parseUriTokenSeries, ltURI_TOKEN_SERIES},
         {jss::xchain_owned_claim_id,
          parseXChainOwnedClaimID,
          ltXCHAIN_OWNED_CLAIM_ID},

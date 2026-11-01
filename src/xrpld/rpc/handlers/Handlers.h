@@ -41,6 +41,8 @@ doAccountOffers(RPC::JsonContext&);
 Json::Value
 doAccountNamespace(RPC::JsonContext&);
 Json::Value
+doURITokenSeries(RPC::JsonContext&);
+Json::Value
 doAccountTxJson(RPC::JsonContext&);
 Json::Value
 doAMMInfo(RPC::JsonContext&);

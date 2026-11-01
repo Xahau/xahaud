@@ -749,6 +749,9 @@ JSS(unlimited);                  // out: Connection.h
 JSS(unpinned);                   // out: CatalogueUnpin
 JSS(uptime);                     // out: GetCounts
 JSS(uri);                        // out: ValidatorSites
+JSS(uri_tokens);                 // out: URITokenSeries
+JSS(series);                     // out: URITokenSeries
+JSS(series_index);               // out: URITokenSeries
 JSS(url);                        // in/out: Subscribe, Unsubscribe
 JSS(url_password);               // in: Subscribe
 JSS(url_username);               // in: Subscribe
