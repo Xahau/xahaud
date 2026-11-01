@@ -2385,7 +2385,7 @@ DEFINE_HOOK_FUNCTION(
                 ripple::AccountID const id = AccountID::fromVoid(memory + a);
                 Blob const uri(memory + c, memory + c + d);
 
-                ripple::Keylet const kl = keylet_type == keylet_code::URI_TOKEN
+                ripple::Keylet kl = keylet_type == keylet_code::URI_TOKEN
                     ? ripple::keylet::uritoken(id, uri, e)
                     : ripple::keylet::uritokenSeries(id, uri);
 

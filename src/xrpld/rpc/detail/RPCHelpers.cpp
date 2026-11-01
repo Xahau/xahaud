@@ -30,6 +30,7 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/nftPageMask.h>
 #include <xrpl/resource/Fees.h>
@@ -823,14 +824,11 @@ splitURITokenURI(std::string const& uri)
 {
     static std::string const marker = "#seq-";
 
-    auto const hash = uri.rfind(marker);
-    if (hash != std::string::npos)
+    if (hasURITokenSeqSuffix(makeSlice(uri)))
     {
+        auto const hash = uri.rfind(marker);
         std::string const digits = uri.substr(hash + marker.size());
-        if (!digits.empty() && digits.size() <= 10 &&
-            std::all_of(digits.begin(), digits.end(), [](unsigned char c) {
-                return std::isdigit(c);
-            }))
+        if (uri.find('#') == hash && digits.size() <= 10)
         {
             auto const v = std::stoull(digits);
             if (v <= std::numeric_limits<std::uint32_t>::max())
@@ -1089,6 +1087,7 @@ chooseLedgerEntryType(Json::Value const& params)
 #define LEDGER_ENTRY(tag, value, name, rpcName, fields) \
     {jss::name, jss::rpcName, tag},
 
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/detail/ledger_entries.macro>
 #include <algorithm>
 #include <cctype>

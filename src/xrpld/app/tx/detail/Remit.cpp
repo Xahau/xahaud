@@ -208,6 +208,15 @@ Remit::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
+        // "#seq-<n>" is reserved for naming members of a sequential series
+        if (ctx.rules.enabled(featureSequentialURIToken) &&
+            hasURITokenSeqSuffix(makeSlice(uri)))
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction: MintURIToken URI "
+                                  "must not end in #seq-<digits>.";
+            return temMALFORMED;
+        }
+
         if (mint.isFieldPresent(sfFlags))
         {
             if (mint.getFieldU32(sfFlags) & tfURITokenMintMask)

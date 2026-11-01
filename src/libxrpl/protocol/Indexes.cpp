@@ -28,6 +28,9 @@
 #include <xrpl/protocol/nftPageMask.h>
 
 #include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 
 namespace ripple {
 
@@ -564,6 +567,29 @@ uritokenSeries(AccountID const& issuer, Blob const& uri)
 {
     return {ltURI_TOKEN_SERIES, uritokenShift(uritoken(issuer, uri).key, -1)};
 }
+
+}  // namespace keylet
+
+bool
+hasURITokenSeqSuffix(Slice const& uri)
+{
+    static constexpr char marker[] = "#seq-";
+    static constexpr std::size_t mlen = sizeof(marker) - 1;
+
+    auto const* const begin = uri.data();
+    auto const* const end = begin + uri.size();
+
+    // at least one digit must follow the marker
+    auto const* p = end;
+    while (p > begin && p[-1] >= '0' && p[-1] <= '9')
+        --p;
+    if (p == end || static_cast<std::size_t>(p - begin) < mlen)
+        return false;
+
+    return std::memcmp(p - mlen, marker, mlen) == 0;
+}
+
+namespace keylet {
 
 // Constructs an ordered CRON keylet (32 bytes):
 //   [8-byte namespace][4-byte timestamp (big-endian, seconds)][20-byte

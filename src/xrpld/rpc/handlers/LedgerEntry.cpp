@@ -1268,7 +1268,31 @@ doLedgerEntry(RPC::JsonContext& context)
         return jvResult;
     }
 
-    auto const sleNode = lpLedger->read(keylet::unchecked(uNodeIndex));
+    auto sleNode = lpLedger->read(keylet::unchecked(uNodeIndex));
+
+    // a uri ending in "#seq-<n>" was read as sequence notation; if no such
+    // member exists, fall back to a legacy token (minted before the
+    // amendment reserved the suffix) whose literal URI is that string
+    if (!sleNode && expectedType == ltURI_TOKEN)
+    {
+        auto const& p = context.params[jss::uri_token];
+        if (p.isObject() && p.isMember(jss::account) && p.isMember(jss::uri) &&
+            p[jss::uri].isString())
+        {
+            auto const uri = p[jss::uri].asString();
+            auto const id = parseBase58<AccountID>(p[jss::account].asString());
+            if (id && hasURITokenSeqSuffix(makeSlice(uri)))
+            {
+                Blob const raw(uri.begin(), uri.end());
+                auto const literal = keylet::uritoken(*id, raw);
+                if (auto const sle = lpLedger->read(literal))
+                {
+                    uNodeIndex = literal.key;
+                    sleNode = sle;
+                }
+            }
+        }
+    }
 
     bool bNodeBinary = false;
     if (context.params.isMember(jss::binary))

@@ -108,6 +108,15 @@ URIToken::preflight(PreflightContext const& ctx)
                                   "valid utf-8 string.";
             return temMALFORMED;
         }
+
+        // "#seq-<n>" is reserved for naming members of a sequential series
+        if (ctx.rules.enabled(featureSequentialURIToken) &&
+            hasURITokenSeqSuffix(makeSlice(uri)))
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction. URI must not end "
+                                  "in #seq-<digits>.";
+            return temMALFORMED;
+        }
     }
 
     switch (tt)

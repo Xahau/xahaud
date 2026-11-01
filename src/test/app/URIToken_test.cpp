@@ -2920,8 +2920,10 @@ struct URIToken_test : public beast::unit_test::suite
                 BEAST_EXPECT(RPC::splitURITokenURI("lot#seq-x1").second == 0);
                 BEAST_EXPECT(RPC::splitURITokenURI("lot#seq-9").second == 9);
                 BEAST_EXPECT(
-                    RPC::splitURITokenURI("a#b#seq-4294967295").second ==
+                    RPC::splitURITokenURI("lot#seq-4294967295").second ==
                     0xFFFFFFFFu);
+                BEAST_EXPECT(
+                    RPC::splitURITokenURI("a#b#seq-4294967295").second == 0);
                 BEAST_EXPECT(
                     RPC::splitURITokenURI("lot#seq-4294967296").second == 0);
             }
@@ -3071,6 +3073,107 @@ struct URIToken_test : public beast::unit_test::suite
             env(uritoken::mint(bob, uri), txflags(tfSequential));
             env.close();
             BEAST_EXPECT((walk(env, bob) == std::vector<std::uint32_t>{1, 2}));
+        }
+
+        // ---- "#seq-<n>" is reserved once the amendment is live ---------
+        {
+            Env env{*this, features - featureSequentialURIToken};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            // before: a legacy token may carry the suffix
+            env(uritoken::mint(alice, "lot#seq-9"));
+            env.close();
+
+            env.enableFeature(featureSequentialURIToken);
+            env.close();
+
+            // after: no new token, by any route, may end in #seq-<digits>
+            env(uritoken::mint(alice, "lot#seq-1"), ter(temMALFORMED));
+            env(uritoken::mint(alice, "x#seq-0"),
+                txflags(tfSequential),
+                ter(temMALFORMED));
+            env(remit::remit(alice, bob),
+                remit::uri("r#seq-7"),
+                ter(temMALFORMED));
+            // a fragment that isn't the notation is still fine
+            env(uritoken::mint(alice, "lot#seq-"));
+            env(uritoken::mint(alice, "lot#seq-1a"));
+            env(uritoken::mint(alice, "lot#9"));
+            env.close();
+
+            // the legacy "lot#seq-9" is still reachable: the notation lookup
+            // misses (no series "lot"), and the literal fallback finds it
+            Json::Value p;
+            p[jss::uri_token][jss::account] = alice.human();
+            p[jss::uri_token][jss::uri] = "lot#seq-9";
+            auto const r = env.rpc("json", "ledger_entry", to_string(p));
+            BEAST_EXPECT(
+                r[jss::result][jss::index] ==
+                to_string(uritoken::tokenid(alice, "lot#seq-9")));
+            BEAST_EXPECT(
+                r[jss::result][jss::node][sfURI.jsonName] ==
+                strHex(std::string("lot#seq-9")));
+            BEAST_EXPECT(!r[jss::result][jss::node].isMember(
+                sfURITokenSequence.jsonName));
+
+            // once a series "lot" has a member 9 the notation wins, and the
+            // legacy token is only reachable by index
+            for (int i = 0; i < 10; ++i)
+                env(uritoken::mint(alice, uri), txflags(tfSequential));
+            env.close();
+            auto const r2 = env.rpc("json", "ledger_entry", to_string(p));
+            BEAST_EXPECT(
+                r2[jss::result][jss::index] ==
+                to_string(uritoken::tokenid(alice, uri, 9)));
+            BEAST_EXPECT(
+                r2[jss::result][jss::node][sfURITokenSequence.jsonName] == 9);
+        }
+
+        // ---- a series whose URI has its own fragment: no notation at all --
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            std::string const huri = "a#b";
+            Blob const hblob(huri.begin(), huri.end());
+            env(uritoken::mint(alice, huri),
+                txflags(tfSequential),
+                uritoken::seriesmax(2));
+            env(uritoken::mint(alice, huri), txflags(tfSequential));
+            env.close();
+
+            // displayed URI is untouched; seq is in its own field
+            Json::Value p;
+            p[jss::uri_token][jss::account] = alice.human();
+            p[jss::uri_token][jss::uri] = huri;
+            p[jss::uri_token][jss::seq] = 1;
+            auto const r = env.rpc("json", "ledger_entry", to_string(p));
+            BEAST_EXPECT(
+                r[jss::result][jss::index] ==
+                to_string(keylet::uritoken(alice, hblob, 1).key));
+            BEAST_EXPECT(
+                r[jss::result][jss::node][sfURI.jsonName] == strHex(huri));
+            BEAST_EXPECT(
+                r[jss::result][jss::node][sfURITokenSequence.jsonName] == 1);
+
+            // "a#b#seq-1" is a literal URI here, not notation
+            p[jss::uri_token].removeMember(jss::seq);
+            p[jss::uri_token][jss::uri] = "a#b#seq-1";
+            auto const r2 = env.rpc("json", "ledger_entry", to_string(p));
+            BEAST_EXPECT(r2[jss::result][jss::error] == "entryNotFound");
+            BEAST_EXPECT(RPC::splitURITokenURI("a#b#seq-1").second == 0);
+
+            // the walk still works, keyed by the explicit sequence
+            Json::Value q;
+            q[jss::account] = alice.human();
+            q[jss::uri] = huri;
+            auto const w = env.rpc("json", "uri_token_series", to_string(q));
+            BEAST_EXPECT(w[jss::result][jss::uri_tokens].size() == 2);
+            BEAST_EXPECT(
+                w[jss::result][jss::uri_tokens][1u][sfURI.jsonName] ==
+                strHex(huri));
         }
 
         // ---- a series on an existing token with a cap of 0 -------------
