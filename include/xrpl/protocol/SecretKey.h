@@ -25,89 +25,38 @@
 #include <xrpl/protocol/KeyType.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Seed.h>
+#include <xrpl/protocol/detail/KeyBase.h>
 #include <xrpl/protocol/tokens.h>
 #include <array>
-#include <cstring>
 #include <string>
 
 namespace ripple {
 
 /** A secret key. */
-class SecretKey
+class SecretKey : public detail::KeyBase<SecretKey, 32>
 {
-private:
-    std::uint8_t buf_[32];
-
 public:
-    using const_iterator = std::uint8_t const*;
-
     SecretKey() = delete;
+
     SecretKey(SecretKey const&) = default;
     SecretKey&
     operator=(SecretKey const&) = default;
 
+    /** Destroy the secret key. This will try to securely erase the buffer. */
     ~SecretKey();
 
-    SecretKey(std::array<std::uint8_t, 32> const& data);
-    SecretKey(Slice const& slice);
-
-    std::uint8_t const*
-    data() const
+    SecretKey(Slice const& slice)
     {
-        return buf_;
+        if (slice.size() != buf_.size())
+            LogicError("SecretKey::SecretKey: invalid size");
+
+        std::copy_n(slice.data(), buf_.size(), buf_.data());
     }
 
-    std::size_t
-    size() const
+    explicit SecretKey(span_t const& data) noexcept : KeyBase(data)
     {
-        return sizeof(buf_);
-    }
-
-    /** Convert the secret key to a hexadecimal string.
-
-        @note The operator<< function is deliberately omitted
-        to avoid accidental exposure of secret key material.
-    */
-    std::string
-    to_string() const;
-
-    const_iterator
-    begin() const noexcept
-    {
-        return buf_;
-    }
-
-    const_iterator
-    cbegin() const noexcept
-    {
-        return buf_;
-    }
-
-    const_iterator
-    end() const noexcept
-    {
-        return buf_ + sizeof(buf_);
-    }
-
-    const_iterator
-    cend() const noexcept
-    {
-        return buf_ + sizeof(buf_);
     }
 };
-
-inline bool
-operator==(SecretKey const& lhs, SecretKey const& rhs)
-{
-    return lhs.size() == rhs.size() &&
-        std::memcmp(lhs.data(), rhs.data(), rhs.size()) == 0;
-}
-
-inline bool
-operator!=(SecretKey const& lhs, SecretKey const& rhs)
-{
-    return !(lhs == rhs);
-}
 
 //------------------------------------------------------------------------------
 

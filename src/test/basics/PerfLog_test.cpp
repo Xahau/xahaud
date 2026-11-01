@@ -529,11 +529,10 @@ public:
 
         std::vector<JobName> jobs;
         {
-            auto const& jobTypes = JobTypes::instance();
             jobs.reserve(jobTypes.size());
             for (auto const& job : jobTypes)
             {
-                jobs.emplace_back(job.first, job.second.name());
+                jobs.emplace_back(job.type, std::string(job.name));
             }
         }
         std::shuffle(jobs.begin(), jobs.end(), default_prng());
@@ -865,14 +864,10 @@ public:
         JobType jobType;
         std::string jobTypeName;
         {
-            auto const& jobTypes = JobTypes::instance();
+            auto index = rand_int<std::size_t>(0, jobTypes.size() - 1);
 
-            std::uniform_int_distribution<> dis(0, jobTypes.size() - 1);
-            auto iter{jobTypes.begin()};
-            std::advance(iter, dis(default_prng()));
-
-            jobType = iter->second.type();
-            jobTypeName = iter->second.name();
+            jobType = jobTypes[index].type;
+            jobTypeName = jobTypes[index].name;
         }
 
         // Say there's one worker thread.

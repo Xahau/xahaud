@@ -166,11 +166,10 @@ public:
             // is spent once the account has recorded its Time or a later one
             // - applied, or superseded - and otherwise lives out holdLedgers
             // like anything else (preclaim refuses it once it expires).
-            if (auto const time = txn.getTX()->at(~sfTime);
-                time && txn.getTX()->isTimeSequenced())
+            if (txn.getTX()->isTimeSequenced())
             {
                 auto const last = sleAcct->at(~sfLastTxnTime);
-                return last && *last >= *time;
+                return last && *last >= txn.getTX()->getFieldU64(sfTime);
             }
 
             SeqProxy const acctSeq =

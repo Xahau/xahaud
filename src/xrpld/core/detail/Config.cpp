@@ -367,15 +367,15 @@ Config::setup(
                 strXdgDataHome = strHome + "/.local/share";
             }
 
-            CONFIG_DIR = strXdgConfigHome + "/" + systemName();
+            CONFIG_DIR = strXdgConfigHome + "/" + std::string(systemName);
             CONFIG_FILE = CONFIG_DIR / strConfFile;
-            dataDir = strXdgDataHome + "/" + systemName();
+            dataDir = strXdgDataHome + "/" + std::string(systemName);
 
             if (!boost::filesystem::exists(CONFIG_FILE))
             {
-                CONFIG_DIR = "/etc/opt/" + systemName();
+                CONFIG_DIR = "/etc/opt/" + std::string(systemName);
                 CONFIG_FILE = CONFIG_DIR / strConfFile;
-                dataDir = "/var/opt/" + systemName();
+                dataDir = "/var/opt/" + std::string(systemName);
             }
         }
     }

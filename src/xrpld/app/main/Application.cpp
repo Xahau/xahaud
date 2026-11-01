@@ -228,7 +228,14 @@ public:
 
     boost::asio::signal_set m_signals;
 
-    std::atomic_flag isTimeToStop;
+    // Shutdown signalling. isTimeToStop is polled lock-free via isStopping();
+    // the main thread blocks on stopCond_ in run(). Do not replace this with
+    // std::atomic::wait: libstdc++ 11.2 (gcc-toolset-11, used by the release
+    // builder) can spin forever in atomic::wait when an unrelated atomic that
+    // hashes to the same waiter-pool bucket is notified.
+    std::atomic<bool> isTimeToStop{false};
+    std::mutex stopMutex_;
+    std::condition_variable stopCond_;
 
     std::atomic<bool> checkSigs_;
 
@@ -1260,13 +1267,29 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
 
         Section const& upVoted = config_->section(SECTION_AMENDMENTS);
 
+        Section const& ignored = config_->section(SECTION_IGNORE_AMENDMENTS);
+
+        // [ignore_amendments] exists to keep long-lived test networks syncable
+        // after an amendment they activated is removed from the codebase. It
+        // must never be usable on a production network.
+        if (!ignored.lines().empty() &&
+            (config_->NETWORK_ID == 0 || config_->NETWORK_ID == 21337))
+        {
+            JLOG(m_journal.fatal()) << "[" SECTION_IGNORE_AMENDMENTS
+                                       "] is not permitted on "
+                                       "network_id "
+                                    << config_->NETWORK_ID;
+            return false;
+        }
+
         m_amendmentTable = make_AmendmentTable(
             *this,
             config().AMENDMENT_MAJORITY_TIME,
             supported,
             upVoted,
             downVoted,
-            logs_->journal("Amendments"));
+            logs_->journal("Amendments"),
+            ignored);
     }
 
     Pathfinder::initPathTable();
@@ -1581,7 +1604,10 @@ ApplicationImp::run()
         getLoadManager().activateDeadlockDetector();
     }
 
-    isTimeToStop.wait(false, std::memory_order_relaxed);
+    {
+        std::unique_lock lock(stopMutex_);
+        stopCond_.wait(lock, [this] { return isTimeToStop.load(); });
+    }
 
     JLOG(m_journal.debug()) << "Application stopping";
 
@@ -1668,15 +1694,18 @@ ApplicationImp::run()
 void
 ApplicationImp::signalStop(std::string msg)
 {
-    if (!isTimeToStop.test_and_set(std::memory_order_acquire))
     {
-        if (msg.empty())
-            JLOG(m_journal.warn()) << "Server stopping";
-        else
-            JLOG(m_journal.warn()) << "Server stopping: " << msg;
-
-        isTimeToStop.notify_all();
+        std::lock_guard lock(stopMutex_);
+        if (isTimeToStop.exchange(true))
+            return;
     }
+
+    if (msg.empty())
+        JLOG(m_journal.warn()) << "Server stopping";
+    else
+        JLOG(m_journal.warn()) << "Server stopping: " << msg;
+
+    stopCond_.notify_all();
 }
 
 bool
@@ -1694,7 +1723,7 @@ ApplicationImp::checkSigs(bool check)
 bool
 ApplicationImp::isStopping() const
 {
-    return isTimeToStop.test(std::memory_order_relaxed);
+    return isTimeToStop.load(std::memory_order_relaxed);
 }
 
 int

@@ -26,6 +26,8 @@
 #include <xrpld/app/ledger/LocalTxs.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/NetworkOPs.h>
+#include <xrpld/app/misc/Transaction.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/json/json_reader.h>
@@ -246,7 +248,7 @@ struct JsonTx_test : public beast::unit_test::suite
         parsed.object->setFieldVL(sfJsonTxDelta, makeSlice(diff));
         STTx const tx(std::move(*parsed.object));
 
-        // Asked first under rules without the amendment: SigBad, and that
+        // Asked first under rules without the amendment: refused, and that
         // answer must not be cached - PeerImp checks against the validated
         // ledger's rules and consensus against the open ledger's, so across
         // activation the same id is asked both ways.
@@ -254,10 +256,32 @@ struct JsonTx_test : public beast::unit_test::suite
         auto& router = env.app().getHashRouter();
         BEAST_EXPECT(
             checkValidity(router, tx, before, env.app().config()).first ==
-            Validity::SigBad);
+            Validity::Refused);
+        BEAST_EXPECT(router.getFlags(tx.getTransactionID()) == 0);
         BEAST_EXPECT(
             checkValidity(
                 router, tx, env.current()->rules(), env.app().config())
+                .first == Validity::Valid);
+
+        // Direct ingress must not retain the refusal as a bad transaction.
+        Env disabled{*this, features - featureJsonTx};
+        disabled.fund(XRP(10000), alice, bob);
+        disabled.close();
+        std::string reason;
+        auto transaction = std::make_shared<Transaction>(
+            std::make_shared<STTx const>(tx), reason, disabled.app());
+        disabled.app().getOPs().processTransaction(
+            transaction, false, true, NetworkOPs::FailHard::no);
+        BEAST_EXPECT(transaction->getResult() == temDISABLED);
+        auto& disabledRouter = disabled.app().getHashRouter();
+        BEAST_EXPECT(
+            (disabledRouter.getFlags(tx.getTransactionID()) & SF_BAD) == 0);
+        BEAST_EXPECT(
+            checkValidity(
+                disabledRouter,
+                tx,
+                env.current()->rules(),
+                disabled.app().config())
                 .first == Validity::Valid);
 
         // A bad JsonTx is cached as bad once the rules allow it at all.
@@ -1057,10 +1081,9 @@ struct JsonTx_test : public beast::unit_test::suite
                 keylet::nftoffer(alice.id(), stx(o2).getTransactionID())));
         }
 
-        // The two raw-sequence creators refuse an emitted transaction under
-        // fix20260929. Before it the emitted-transaction path is reached as
-        // it always was (and refuses this one for not coming out of the
-        // emission directory).
+        // The two raw-sequence creators refuse an emitted transaction
+        // outright, before the emitted-transaction path (which would refuse
+        // this one for not coming out of the emission directory) is reached.
         {
             auto const emitted = [](AccountID const& a, TxType type) {
                 return std::make_shared<STTx const>(type, [&](STObject& o) {
@@ -1074,8 +1097,9 @@ struct JsonTx_test : public beast::unit_test::suite
             for (auto const type :
                  {ttMPTOKEN_ISSUANCE_CREATE, ttPERMISSIONED_DOMAIN_SET})
             {
+                for (auto const& feats : {all, all - fix20260929})
                 {
-                    Env env{*this, all};
+                    Env env{*this, feats};
                     Account const alice{"alice"};
                     env.fund(XRP(10000), alice);
                     env.close();
@@ -1096,10 +1120,9 @@ struct JsonTx_test : public beast::unit_test::suite
         }
 
         // Tickets. MPTokenIssuanceCreate always took the Ticket number;
-        // PermissionedDomainSet took the raw Sequence - 0 for every ticketed
-        // transaction - until fix20260929. (The unfixed path is not run
-        // here: its second domain collides with the first, which is a
-        // LogicError when the ledger is built.)
+        // PermissionedDomainSet now does too (it used to take the raw
+        // Sequence - 0 for every ticketed transaction - so a second ticketed
+        // domain collided with the first).
         {
             Env env{*this, all};
             Account const alice{"alice"};
