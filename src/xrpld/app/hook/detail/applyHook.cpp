@@ -10,6 +10,7 @@
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/CreditNote.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -470,6 +471,25 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
 
         case ttCRON_SET: {
+            break;
+        }
+        case ttNOTE_CLAIM: {
+            // The note's issuer is who pays, so they are a strong stake
+            // holder: their hook can roll a redemption back. The note has
+            // already passed preflight by the time hooks run, so a parse
+            // failure here only means no issuer hook executes.
+            if (!tx.isFieldPresent(sfNote))
+                break;
+            try
+            {
+                auto const raw = tx.getFieldVL(sfNote);
+                auto const note = parseCreditNote(std::string_view(
+                    reinterpret_cast<char const*>(raw.data()), raw.size()));
+                ADD_TSH(note.account, tshSTRONG);
+            }
+            catch (std::exception const&)
+            {
+            }
             break;
         }
         case ttMANIFEST_SET: {
