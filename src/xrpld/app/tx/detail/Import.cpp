@@ -197,6 +197,15 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
     }
 
+    // A loopback Import (featureExport, see Export.h) is free and may be
+    // relayed by anyone, and sfIssuer makes its account a weak TSH: that
+    // would let a stranger have any account's hooks run at its expense.
+    if (ctx.tx.isFieldPresent(sfIssuer) && isLoopback(ctx.rules, ctx.tx))
+    {
+        JLOG(ctx.j.warn()) << "Import: Issuer on a loopback Import.";
+        return temMALFORMED;
+    }
+
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
@@ -1037,6 +1046,11 @@ Import::preclaim(PreclaimContext const& ctx)
             return tefPAST_SEQ;
         if (ctx.tx.getFieldAmount(sfFee) != beast::zero)
             return temBAD_FEE;
+        // One that failed there changed nothing, so there is nothing to
+        // record: doApply would record nothing, no watermark would move, and
+        // it could be re-imported under a new outer key without end, free.
+        if (!isTesSuccess(meta->getFieldU8(sfTransactionResult)))
+            return tefPAST_SEQ;
         auto const tt = stpTrans->getTxnType();
         if (tt == ttTICKET_CREATE)
         {

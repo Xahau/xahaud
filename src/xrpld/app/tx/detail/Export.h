@@ -304,7 +304,7 @@ exportSigners(ReadView const& view, std::optional<std::uint32_t> asOf = {});
 
 /** A validator's export keys: independent random ed25519 keys, kept for as
     long as its account lists them. They live in [export_key_file] (default
-    export_keys.txt in the database path), one hex secret per line, oldest
+    export_keys.txt beside the config file), one hex secret per line, oldest
     first, the last being the nominee. As sensitive as the validator token:
     without it the validator cannot sign for exporters listing older keys.
     Independent keys make rotation worth something: a compromise that has
@@ -336,7 +336,8 @@ private:
     Key
     make(SecretKey const& sk) const;
 
-    void
+    /** Write the keys; false if the file could not be written or replaced */
+    bool
     save() const;
 
     beast::Journal const j_;

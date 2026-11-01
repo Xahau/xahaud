@@ -322,12 +322,22 @@ private:
             if (!(blobs = v["blobs_v2"]).isArray() || blobs.size() == 0)
                 (blobs = Json::arrayValue).append(v);
             for (auto const& b : blobs)
+            {
+                // Json::Value::operator[] on a non-object is undefined, not
+                // an exception, so check the shape before reading it
+                if (!b.isObject() || !b[jss::blob].isString() ||
+                    !b[jss::signature].isString())
+                    continue;
+                auto const& m = b.isMember(jss::manifest) ? b : v;
+                if (!m[jss::manifest].isString() ||
+                    !v[jss::version].isIntegral())
+                    continue;
                 onVL(
-                    (b.isMember(jss::manifest) ? b : v)[jss::manifest]
-                        .asString(),
+                    m[jss::manifest].asString(),
                     b[jss::blob].asString(),
                     b[jss::signature].asString(),
                     v[jss::version].asUInt());
+            }
         }
         catch (std::exception const& e)
         {

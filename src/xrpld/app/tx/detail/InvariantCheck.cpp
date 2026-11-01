@@ -2184,6 +2184,20 @@ ValidExportTickets::finalize(
                     << " of " << account << " is pooled and shadowed";
                 return false;
             }
+        // and a ticket newly pooled must not already be shadowed by an
+        // export the transaction left untouched (a hook named it before the
+        // TicketCreate that made it came back)
+        if (delta > 0)
+            for (auto const& r : a.ranges())
+                for (std::uint32_t t = r.first; t < r.first + r.count; ++t)
+                    if (!b.contains(t) &&
+                        view.exists(keylet::shadowTicket(account, t)))
+                    {
+                        JLOG(j.fatal())
+                            << "Invariant failed: ticket " << t << " of "
+                            << account << " pooled while shadowed";
+                        return false;
+                    }
     }
     return true;
 }

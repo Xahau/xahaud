@@ -399,8 +399,13 @@ listsExportKey(ReadView const& view, STArray const& entries)
 {
     bool found = false;
     forEachExportKey(view, [&](PublicKey const&, STObject const& e) {
+        // once found, stay found: the callback is called again for every
+        // later validator, and returning false here would clear it
+        if (found)
+            return true;
         PublicKey const pk(makeSlice(e.getFieldVL(sfExportKey)));
-        return found = listed(entries, calcAccountID(pk));
+        found = listed(entries, calcAccountID(pk));
+        return found;
     });
     return found;
 }
@@ -491,6 +496,12 @@ Export::preflight(PreflightContext const& ctx)
         !tx.getSigningPubKey().empty() || tx.isFieldPresent(sfTxnSignature) ||
         tx.isFieldPresent(sfSigners) || tx.isFieldPresent(sfTicketSequence) ||
         tx.isFieldPresent(sfPreviousTxnID))
+        return temMALFORMED;
+
+    // These skip preflight1, which refuses sfTime on the other types pinned
+    // to Sequence 0 (featureJsonTx): with it one would read as time-sequenced,
+    // and every validator must produce the same ttEXPORT_SIGN txid.
+    if (tx.isFieldPresent(sfTime) || tx.isFieldPresent(sfJsonTxDelta))
         return temMALFORMED;
 
     if (tx.getTxnType() == ttEXPORT_SIGN)
@@ -612,8 +623,14 @@ Export::createExport(
     std::uint32_t ticket;
     if (auto const t = inner[~sfTicketSequence])
     {
+        // An exporter's tickets are all in its pool (relays sync every
+        // TicketCreate), so one that is not there is used up, not yet made
+        // or not yet synced: refusing it keeps a close below quorum from
+        // pooling a ticket the ledger never saw created. An account that is
+        // not an exporter manages its tickets itself, and none are pooled.
         ticket = *t;
-        tickets.remove(ticket);
+        if (!tickets.remove(ticket) && acc->isFlag(lsfExporter))
+            return tecNO_ENTRY;
     }
     else
     {
@@ -725,8 +742,11 @@ Export::doApply()
             auto const ticket = inner[~sfTicketSequence];
             if (acc && ticket)
             {
+                // Only an exporter's ticket came from the pool (createExport
+                // refuses one that did not); anyone else's was never pooled.
                 if (eraseShadowTicket(
-                        view, owner, *ticket, (*sle)[sfTransactionHash]))
+                        view, owner, *ticket, (*sle)[sfTransactionHash]) &&
+                    acc->isFlag(lsfExporter))
                 {
                     auto tickets = ExportTickets::load(*acc);
                     tickets.insert(*ticket);
@@ -902,11 +922,14 @@ ExportKeys::ExportKeys(
     if (auto const& v = config.section(SECTION_EXPORT_KEY_FILE).values();
         !v.empty())
         file_ = boost::filesystem::path(v.front());
-    else if (auto const db = config.legacy("database_path"); !db.empty())
-        file_ = boost::filesystem::path(db) / "export_keys.txt";
+    else if (!config.CONFIG_DIR.empty())
+        // beside the config and validator token, not in the database
+        // directory: operators wipe that to resync, and these keys are
+        // unrecoverable for exporters still listing them
+        file_ = config.CONFIG_DIR / "export_keys.txt";
     else
-        JLOG(j_.warn()) << "ExportKeys: no [export_key_file] or "
-                           "database_path, export keys will not persist";
+        JLOG(j_.warn()) << "ExportKeys: no [export_key_file] or config "
+                           "directory, export keys will not persist";
 
     boost::system::error_code ec;
     if (!file_ || !boost::filesystem::exists(*file_, ec))
@@ -944,11 +967,11 @@ ExportKeys::make(SecretKey const& sk) const
     return Key{pk, sk, Blob(proof.begin(), proof.end())};
 }
 
-void
+bool
 ExportKeys::save() const
 {
     if (!file_)
-        return;
+        return true;
     // write then rename, so a crash never leaves a truncated file
     auto const tmp = boost::filesystem::path(file_->string() + ".tmp");
     boost::system::error_code ec;
@@ -963,7 +986,7 @@ ExportKeys::save() const
         if (!out.flush())
         {
             JLOG(j_.error()) << "ExportKeys: cannot write " << tmp;
-            return;
+            return false;
         }
     }
     boost::filesystem::rename(tmp, *file_, ec);
@@ -971,7 +994,9 @@ ExportKeys::save() const
     {
         JLOG(j_.error()) << "ExportKeys: cannot replace " << *file_ << ": "
                          << ec.message();
+        return false;
     }
+    return true;
 }
 
 std::optional<std::pair<PublicKey, Blob>>
@@ -1041,8 +1066,17 @@ ExportKeys::nominate(ReadView const& ledger)
                 [&](Key const& k) { return at(k.pk) == onLedger.end(); }),
             std::prev(keys_.end()));
 
-    if (rotate || keys_.size() != n)
-        save();
+    // Nothing is nominated that is not on disk: once recorded on ledger an
+    // exporter may list a key, and a restart that lost it could not sign.
+    if ((rotate || keys_.size() != n) && !save())
+    {
+        if (rotate)
+            keys_.pop_back();
+        JLOG(j_.error()) << "ExportKeys: export key not persisted, not "
+                            "nominating until it is";
+        if (keys_.empty())
+            return std::nullopt;
+    }
     return std::make_pair(keys_.back().pk, keys_.back().proof);
 }
 
