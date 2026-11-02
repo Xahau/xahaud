@@ -145,6 +145,14 @@ createUNLRTx(
     PublicKey const& importKey,
     PublicKey const& valKey);
 
+/**
+ * Create a ttUNL_REPORT Tx that carries only an sfImportVLKey, no
+ * sfActiveValidator. Used to exercise the flag-ledger case where a UNLR
+ * window produces no active-validator reports.
+ */
+STTx
+createUNLRTxVLOnly(LedgerIndex seq, PublicKey const& importKey);
+
 class UNLReport_test : public beast::unit_test::suite
 {
     // Import VL Keys
@@ -448,11 +456,86 @@ class UNLReport_test : public beast::unit_test::suite
     }
 
     void
+    testActiveValidatorResetAV(FeatureBitset features)
+    {
+        testcase("Active validators are reset on a flag ledger with no AV tx");
+        using namespace jtx;
+
+        test::jtx::Env env{
+            *this,
+            jtx::network::makeNetworkVLConfig(21337, keys),
+            features,
+            nullptr};
+
+        std::vector<PublicKey> ivlKeys;
+        for (auto const& strPk : _ivlKeys)
+        {
+            auto pkHex = strUnHex(strPk);
+            ivlKeys.emplace_back(makeSlice(*pkHex));
+        }
+
+        std::vector<PublicKey> vlKeys;
+        for (auto const& strPk : _vlKeys)
+        {
+            auto pkHex = strUnHex(strPk);
+            vlKeys.emplace_back(makeSlice(*pkHex));
+        }
+
+        auto l = std::make_shared<Ledger>(
+            create_genesis,
+            env.app().config(),
+            std::vector<uint256>{},
+            env.app().getNodeFamily());
+        l = std::make_shared<Ledger>(*l, env.app().timeKeeper().closeTime());
+
+        // Flag ledger: establish sfActiveValidators = [vlKeys[0], vlKeys[1]].
+        for (std::size_t i = 0; i < 2; ++i)
+        {
+            env.app().openLedger().modify(
+                [&](OpenView& view, beast::Journal j) -> bool {
+                    STTx tx = createUNLRTx(
+                        env.current()->seq() + 1, ivlKeys[0], vlKeys[i]);
+                    uint256 txID = tx.getTransactionID();
+                    auto s = std::make_shared<ripple::Serializer>();
+                    tx.add(*s);
+                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    view.rawTxInsert(txID, std::move(s), nullptr);
+                    return true;
+                });
+        }
+        env.close();
+
+        BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == true);
+        BEAST_EXPECT(isActiveValidator(env, vlKeys[1]) == true);
+
+        // Next flag ledger: insert ONLY a VL-only ttUNL_REPORT tx (no
+        // sfActiveValidator). Without the fix, sfActiveValidators retains
+        // the stale [vlKeys[0], vlKeys[1]]. With the shape-B reset block
+        // active, the !hasAV branch clears sfActiveValidators.
+        env.app().openLedger().modify(
+            [&](OpenView& view, beast::Journal j) -> bool {
+                STTx tx =
+                    createUNLRTxVLOnly(env.current()->seq() + 1, ivlKeys[0]);
+                uint256 txID = tx.getTransactionID();
+                auto s = std::make_shared<ripple::Serializer>();
+                tx.add(*s);
+                env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                view.rawTxInsert(txID, std::move(s), nullptr);
+                return true;
+            });
+        env.close();
+
+        BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == false);
+        BEAST_EXPECT(isActiveValidator(env, vlKeys[1]) == false);
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testNoImportVL(features);
         testImportVL(features);
         testValidMulitple(features);
+        testActiveValidatorResetAV(features);
     }
 
     void
@@ -1431,6 +1514,20 @@ createUNLRTx(
             inner->setFieldVL(sfPublicKey, valKey);
             return inner;
         })());
+        obj.set(([&]() {
+            auto inner = std::make_unique<STObject>(sfImportVLKey);
+            inner->setFieldVL(sfPublicKey, importKey);
+            return inner;
+        })());
+    };
+    return STTx(ttUNL_REPORT, fill);
+}
+
+STTx
+createUNLRTxVLOnly(LedgerIndex seq, PublicKey const& importKey)
+{
+    auto fill = [&](auto& obj) {
+        obj.setFieldU32(sfLedgerSequence, seq);
         obj.set(([&]() {
             auto inner = std::make_unique<STObject>(sfImportVLKey);
             inner->setFieldVL(sfPublicKey, importKey);

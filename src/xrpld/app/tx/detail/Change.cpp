@@ -479,10 +479,7 @@ Change::applyUNLReport()
     if (view().rules().enabled(fixUNLReportReset) && reset)
     {
         if (!hasAV)
-            sle->setFieldArray(
-                sfActiveValidators, STArray(sfActiveValidators));
-        if (!hasVL)
-            sle->setFieldArray(sfImportVLKeys, STArray(sfImportVLKeys));
+            sle->setFieldArray(sfActiveValidators, STArray(sfActiveValidators));
     }
 
     if (created)
