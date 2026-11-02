@@ -52,6 +52,10 @@ enum ltNFTOKEN_OFFER {
 };
 enum ltURI_TOKEN {
     lsfBurnable = 0x00000001,
+    lsfSequential = 0x00000002,
+};
+enum ltURI_TOKEN_SERIES {
+    lsfURITokenSeriesClosed = 0x00000001,
 };
 enum remarks {
     lsfImmutable = 1,
