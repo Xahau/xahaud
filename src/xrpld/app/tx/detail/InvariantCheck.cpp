@@ -279,6 +279,12 @@ XRPNotCreated::finalize(
         return drops_ == drops;
     }
 
+    // featureExport: an automatic export is paid by its owner, which
+    // Export::createExport debits and destroys; the pseudo-txn itself is free
+    if (view.rules().enabled(featureExport) && tt == ttEXPORT_AUTO &&
+        isTesSuccess(res))
+        return -drops_ == Export::autoFee(view, tx[sfOwner]).drops();
+
     // The net change should never be positive, as this would mean that the
     // transaction created XRP out of thin air. That's not possible.
     if (drops_ > 0)

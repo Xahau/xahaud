@@ -35,6 +35,8 @@
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 
+#include <deque>
+
 namespace ripple {
 namespace test {
 
@@ -1008,6 +1010,122 @@ class Export_test : public beast::unit_test::suite
     }
 
     void
+    testAutomatic()
+    {
+        testcase("automatic exports");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments() | featureExport};
+
+        // An exporter is looked at in ledgers where (seq + slot) is a
+        // multiple of autoEvery. Raw state injected into the open ledger is
+        // lost by a close, so everything happens in the one open ledger
+        // after the funding closes; pick an alice whose slot is that ledger.
+        env.close();
+        auto const seq = env.current()->seq() + 1;
+        auto const slotOf = [](AccountID const& id) {
+            return (std::uint32_t(id.data()[0]) << 8) | id.data()[1];
+        };
+        std::string name = "alice";
+        for (int i = 0; (seq + slotOf(Account{name}.id())) % Export::autoEvery;
+             ++i)
+            name = "alice" + std::to_string(i);
+        Account const alice{name};
+        env.fund(XRP(10000), alice);
+        env.close();
+        BEAST_EXPECT(env.current()->seq() == seq);
+
+        // an exporter with three listed signers, quorum two, and a pool of
+        // two tickets: low, so the ledger exports a TicketCreate for more
+        std::vector<AccountID> signers;
+        for (int i = 0; i < 3; ++i)
+            signers.push_back(
+                calcAccountID(randomKeyPair(KeyType::ed25519).first));
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            setSignerList(view, alice.id(), signerEntries(signers), 2);
+            auto sle =
+                std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            ExportTickets t;
+            t.add(100, 2);
+            t.store(*sle);
+            view.rawReplace(sle);
+            return true;
+        });
+        env(fset(alice, asfExporter));
+        auto const pool = [&](ReadView const& view) {
+            auto const sle = view.read(keylet::account(alice));
+            return sle ? ExportTickets::load(*sle).count() : 0;
+        };
+        BEAST_EXPECT(pool(*env.current()) == 2);
+
+        // what Export::accept does when TxQ::accept closes the ledger,
+        // transactor and invariants included
+        auto const before = env.balance(alice).value().xrp();
+        bool changed = false;
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
+            changed = Export::accept(env.app(), view, j);
+            return changed;
+        });
+        BEAST_EXPECT(changed);
+
+        auto const cur = env.current();
+        auto const cost = Export::autoFee(*cur, alice.id());
+        BEAST_EXPECT(cost == cur->fees().base * 5);
+        BEAST_EXPECT(env.balance(alice).value().xrp() == before - cost);
+        BEAST_EXPECT(pool(*cur) == 1);
+        if (auto const sle = env.le(alice); BEAST_EXPECT(sle))
+            BEAST_EXPECT((*sle)[~sfExportTicketPending] == 100u);
+
+        // the open ledger keeps no metadata, so look at what was left
+        bool found = false;
+        for (auto const& [tx, meta] : cur->txs)
+            if (tx->getTxnType() == ttEXPORT_AUTO)
+            {
+                found = true;
+                BEAST_EXPECT(tx->getAccountID(sfOwner) == alice.id());
+            }
+        BEAST_EXPECT(found);
+        auto const key = cur->succ(
+            keylet::exportedTxn(0, beast::zero).key,
+            keylet::exportedTxn(seq + 1, beast::zero).key);
+        auto const exported =
+            key ? cur->read(Keylet{ltEXPORTED_TXN, *key}) : nullptr;
+        if (BEAST_EXPECT(exported))
+        {
+            BEAST_EXPECT((*exported)[sfOwner] == alice.id());
+            BEAST_EXPECT((*exported)[sfLedgerSequence] == seq);
+            auto const& inner =
+                exported->peekAtField(sfExportedTxn).downcast<STObject>();
+            BEAST_EXPECT(
+                inner.getFieldU16(sfTransactionType) == ttTICKET_CREATE);
+            BEAST_EXPECT(
+                inner.getFieldU32(sfTicketCount) == Export::ticketBatch);
+            BEAST_EXPECT(inner.getFieldU32(sfTicketSequence) == 100);
+            BEAST_EXPECT(
+                inner.getFieldAmount(sfFee).xrp() == Export::xrplBaseFee * 4);
+        }
+
+        // nobody here holds an export key, so nothing is signed and the
+        // export closes below quorum once the window has passed, returning
+        // its ticket. Later ledgers are layered on this one since a close
+        // would drop the raw state.
+        std::deque<OpenView> later;
+        ReadView const* base = &*cur;
+        for (std::uint32_t i = 0; i < Export::window; ++i)
+        {
+            auto& v = later.emplace_back(open_ledger, base, cur->rules());
+            BEAST_EXPECT(
+                Export::accept(env.app(), v, env.journal) ==
+                (i + 1 == Export::window));
+            base = &v;
+        }
+        BEAST_EXPECT(pool(*base) == 2);
+        if (auto const sle = base->read(keylet::account(alice));
+            BEAST_EXPECT(sle))
+            BEAST_EXPECT(!sle->isFieldPresent(sfExportTicketPending));
+    }
+
+    void
     testLoopbackImport()
     {
         testcase("loopback import");
@@ -1175,6 +1293,7 @@ public:
         testSignAndFinal();
         testTicketPool();
         testExporterFlag();
+        testAutomatic();
         testLoopbackImport();
     }
 };

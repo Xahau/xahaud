@@ -142,6 +142,11 @@ public:
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
 
+    /** What an automatic export costs its owner, debited by createExport:
+        the pseudo-transaction itself carries no fee */
+    static XRPAmount
+    autoFee(ReadView const& view, AccountID const& owner);
+
     static NotTEC
     preflight(PreflightContext const& ctx);
 
