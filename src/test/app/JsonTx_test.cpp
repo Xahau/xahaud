@@ -1081,33 +1081,34 @@ struct JsonTx_test : public beast::unit_test::suite
                 keylet::nftoffer(alice.id(), stx(o2).getTransactionID())));
         }
 
-        // The two raw-sequence creators refuse an emitted transaction
-        // outright, before the emitted-transaction path (which would refuse
-        // this one for not coming out of the emission directory) is reached.
+        // The two raw-sequence creators refuse a time-sequenced transaction
+        // outright.
         {
-            auto const emitted = [](AccountID const& a, TxType type) {
-                return std::make_shared<STTx const>(type, [&](STObject& o) {
-                    o.setAccountID(sfAccount, a);
-                    o.setFieldU32(sfSequence, 0);
-                    o.setFieldAmount(sfFee, XRP(1));
-                    o.setFieldVL(sfSigningPubKey, Blob{});
-                    o.makeFieldPresent(sfEmitDetails);
-                });
-            };
-            for (auto const type :
-                 {ttMPTOKEN_ISSUANCE_CREATE, ttPERMISSIONED_DOMAIN_SET})
-            {
-                for (auto const& feats : {all, all - fix20260929})
-                {
-                    Env env{*this, feats};
-                    Account const alice{"alice"};
-                    env.fund(XRP(10000), alice);
-                    env.close();
-                    BEAST_EXPECT(
-                        applyDirect(env, emitted(alice.id(), type)) ==
-                        temBAD_SEQUENCE);
-                }
-            }
+            Env env{*this, all};
+            Account const alice{"alice"};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // MPTokenIssuanceCreate
+            Json::Value mpt;
+            mpt[jss::TransactionType] = "MPTokenIssuanceCreate";
+            mpt[jss::Account] = alice.human();
+            auto const mpTokenIssuanceCreate =
+                env.jt(withTime(mpt, nowMs(env)), seq(0));
+            BEAST_EXPECT(
+                engine(submitBlob(env, stx(mpTokenIssuanceCreate))) ==
+                "temBAD_SEQUENCE");
+
+            // PermissionedDomainSet
+            Json::Value pd;
+            pd[jss::TransactionType] = "PermissionedDomainSet";
+            pd[jss::Account] = alice.human();
+            pd[jss::AcceptedCredentials] = Json::arrayValue;
+            auto const permissionedDomainSet =
+                env.jt(withTime(pd, nowMs(env)), seq(0));
+            BEAST_EXPECT(
+                engine(submitBlob(env, stx(permissionedDomainSet))) ==
+                "temBAD_SEQUENCE");
         }
 
         // Tickets. MPTokenIssuanceCreate always took the Ticket number;
