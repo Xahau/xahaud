@@ -38,6 +38,9 @@ jobs:
   build:
     runs-on: [self-hosted, xahaud-build]
     needs: [checkout]
+    permissions:
+      contents: read
+      statuses: write
     defaults:
       run:
         working-directory: ${{ needs.checkout.outputs.checkout_path }}
@@ -48,6 +51,25 @@ jobs:
 
       - name: Build using Docker
         run: /bin/bash release-builder.sh
+
+      # Shows the published binary version (e.g. 2026.10.24-HEAD+4205) in the
+      # PR merge box so nobody has to dig it out of the build log.
+      - name: Report build version as commit status
+        # Fork PRs get a read-only GITHUB_TOKEN; never fail the build over this.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          # On pull_request github.sha is the merge commit; the PR page shows
+          # statuses of the head commit.
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          BUILD_DIR: ${{ github.ref_name == 'release' && 'candidate/' || '' }}
+        run: |
+          VERSION=$(cat release-build/version)
+          curl -sSf -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/statuses/$SHA" \
+            -d "{\"state\":\"success\",\"context\":\"xahaud build\",\"description\":\"$VERSION\",\"target_url\":\"http://build.xahau.tech/${BUILD_DIR}${VERSION}\"}"
 
       - name: Stop Container (Cleanup)
         if: always()
