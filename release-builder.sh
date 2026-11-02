@@ -85,7 +85,6 @@ RUN dnf install -y dnf-plugins-core epel-release && \
         ncurses-static ncurses-devel \
         snappy snappy-devel \
         zlib zlib-devel zlib-static \
-        libasan \
         sqlite-devel \
         python3.11 python3.11-pip \
         ccache \
