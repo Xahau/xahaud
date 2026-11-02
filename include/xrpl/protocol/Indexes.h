@@ -380,7 +380,7 @@ Keylet
 mptoken(uint256 const& issuanceKey, AccountID const& holder) noexcept;
 
 Keylet
-permissionedDomain(AccountID const& account, std::uint32_t seq) noexcept;
+permissionedDomain(AccountID const& account, UInt32or256 seq) noexcept;
 
 Keylet
 permissionedDomain(uint256 const& domainID) noexcept;

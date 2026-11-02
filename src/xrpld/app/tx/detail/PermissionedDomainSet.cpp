@@ -37,17 +37,6 @@ PermissionedDomainSet::preflight(PreflightContext const& ctx)
     if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
         return ret;
 
-    // PermissionedDomainSet keys the object it creates by the raw sequence
-    // value, (sequence, account). Every other creator goes through seqID(),
-    // which falls back to the transaction id when the SeqProxy is sequence(0)
-    // - an emitted or a time-sequenced transaction - but these two ids are
-    // fixed formats with no room for one. Two such transactions from one
-    // account would name the same object, and inserting over an existing key
-    // is a LogicError on every node that builds the ledger. So they need a
-    // real Sequence or a Ticket.
-    if (ctx.tx.getSeqProxy() == SeqProxy::sequence(0))
-        return temBAD_SEQUENCE;
-
     if (ctx.tx.getFlags() & tfUniversalMask)
     {
         JLOG(ctx.j.debug()) << "PermissionedDomainSet: invalid flags.";
@@ -145,7 +134,8 @@ PermissionedDomainSet::doApply()
         // amendment gate: PermissionedDomains is Supported::no, so no domain
         // has ever been keyed the old way on any network.
         std::uint32_t const seq = ctx_.tx.getSeqProxy().value();
-        Keylet const pdKeylet = keylet::permissionedDomain(account_, seq);
+        Keylet const pdKeylet =
+            keylet::permissionedDomain(account_, seqID(ctx_));
         auto slePd = std::make_shared<SLE>(pdKeylet);
         if (!slePd)
             return tefINTERNAL;  // LCOV_EXCL_LINE
