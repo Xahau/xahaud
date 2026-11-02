@@ -2773,7 +2773,11 @@ struct URIToken_test : public beast::unit_test::suite
         auto const walk = [&](Env& env, Account const& a) {
             std::vector<std::uint32_t> seen;
             auto const first = keylet::uritokenSeries(a, uriBlob).key;
-            auto const last = keylet::uritoken(a, uriBlob, 0xFFFFFFFFu).key;
+            // succ()'s bound is exclusive: one past the last possible member
+            std::optional<uint256> last =
+                keylet::uritoken(a, uriBlob, 0xFFFFFFFFu).key;
+            if ((++*last).isZero())
+                last.reset();
             std::optional<uint256> k = first;
             if (!env.current()->exists(Keylet{ltURI_TOKEN_SERIES, first}))
                 k = env.current()->succ(first, last);

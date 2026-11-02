@@ -39,7 +39,9 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <xrpl/resource/Fees.h>
+#include <limits>
 #include <regex>
+#include <string>
 
 namespace ripple {
 namespace RPC {
@@ -1087,11 +1089,7 @@ chooseLedgerEntryType(Json::Value const& params)
 #define LEDGER_ENTRY(tag, value, name, rpcName, fields) \
     {jss::name, jss::rpcName, tag},
 
-#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/detail/ledger_entries.macro>
-#include <algorithm>
-#include <cctype>
-#include <limits>
 
 #undef LEDGER_ENTRY
 #pragma pop_macro("LEDGER_ENTRY")

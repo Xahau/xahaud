@@ -75,7 +75,8 @@ doURITokenSeries(RPC::JsonContext& context)
         RPC::splitURITokenURI(params[jss::uri].asString());
 
     unsigned int limit;
-    if (auto err = readLimitField(limit, RPC::Tuning::accountObjects, context))
+    if (auto err =
+            RPC::readLimitField(limit, RPC::Tuning::accountObjects, context))
         return *err;
 
     std::uint32_t start = startSeq;
@@ -99,8 +100,13 @@ doURITokenSeries(RPC::JsonContext& context)
 
     Json::Value& tokens = (result[jss::uri_tokens] = Json::arrayValue);
 
-    // members are contiguous and ascending from key(start) to key(2^32 - 1)
-    uint256 const last = keylet::uritoken(accountID, uri, 0xFFFFFFFFu).key;
+    // members are contiguous and ascending from key(start) to key(2^32 - 1).
+    // succ()'s upper bound is exclusive, so stop one key past the last
+    // possible member (a wrap to zero means "no bound").
+    std::optional<uint256> last =
+        keylet::uritoken(accountID, uri, 0xFFFFFFFFu).key;
+    if ((++*last).isZero())
+        last.reset();
     std::optional<uint256> k = keylet::uritoken(accountID, uri, start).key;
     if (!ledger->exists(Keylet{ltURI_TOKEN, *k}))
         k = ledger->succ(*k, last);
