@@ -594,7 +594,6 @@ std::map<std::string, std::vector<uint8_t>> wasm = {
          0x6AU, 0x24U, 0x80U, 0x80U, 0x80U, 0x80U, 0x00U, 0x20U, 0x05U, 0x0BU,
      }},
 
-
     {R"[test.hook](
         #include <stdint.h>
         extern int32_t _g(uint32_t, uint32_t);
