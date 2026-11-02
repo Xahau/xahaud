@@ -936,16 +936,6 @@ struct JsonTx_test : public beast::unit_test::suite
             env(withTime(jv, now));
         }
 
-        // the same for a permissioned domain, keyed (account, sequence) too
-        {
-            Account const issuer{"issuer"};
-            env.fund(XRP(1000), issuer);
-            env.close();
-            auto const jv = pdomain::setTx(
-                alice.id(), pdomain::Credentials{{issuer, "abcd"}});
-            env(withTime(jv, nowMs(env)), seq(0), ter(temBAD_SEQUENCE));
-        }
-
         // Sequence 0 already means something else for these
         auto const pinned = [&](TxType type) {
             return std::make_shared<STTx const>(type, [&](STObject& o) {
@@ -1079,11 +1069,34 @@ struct JsonTx_test : public beast::unit_test::suite
                 keylet::nftoffer(alice.id(), stx(o1).getTransactionID())));
             BEAST_EXPECT(env.le(
                 keylet::nftoffer(alice.id(), stx(o2).getTransactionID())));
+
+            // permissioned domains
+            auto const pd = [&](std::uint64_t at) {
+                return env.jt(
+                    withTime(
+                        pdomain::setTx(
+                            alice.id(), pdomain::Credentials{{bob, "abcd"}}),
+                        at),
+                    seq(0));
+            };
+            auto const p1 = pd(t + 4), p2 = pd(t + 5);
+            BEAST_EXPECT(engine(submitBlob(env, stx(p1))) == "tesSUCCESS");
+            BEAST_EXPECT(engine(submitBlob(env, stx(p2))) == "tesSUCCESS");
+            env.close();
+            for (auto const& p : {p1, p2})
+            {
+                auto const sle = env.le(keylet::permissionedDomain(
+                    alice.id(), stx(p).getTransactionID()));
+                if (BEAST_EXPECT(sle))
+                    BEAST_EXPECT(sle->getFieldU32(sfSequence) == 0);
+            }
+            BEAST_EXPECT(!env.le(keylet::permissionedDomain(alice.id(), 0u)));
         }
 
-        // The two raw-sequence creators refuse an emitted transaction
-        // outright, before the emitted-transaction path (which would refuse
-        // this one for not coming out of the emission directory) is reached.
+        // The raw-sequence MPTokenIssuanceCreate creator refuses an emitted
+        // transaction outright, before the emitted-transaction path (which
+        // would refuse this one for not coming out of the emission directory)
+        // is reached.
         {
             auto const emitted = [](AccountID const& a, TxType type) {
                 return std::make_shared<STTx const>(type, [&](STObject& o) {
@@ -1094,19 +1107,16 @@ struct JsonTx_test : public beast::unit_test::suite
                     o.makeFieldPresent(sfEmitDetails);
                 });
             };
-            for (auto const type :
-                 {ttMPTOKEN_ISSUANCE_CREATE, ttPERMISSIONED_DOMAIN_SET})
+            for (auto const& feats : {all, all - fix20260929})
             {
-                for (auto const& feats : {all, all - fix20260929})
-                {
-                    Env env{*this, feats};
-                    Account const alice{"alice"};
-                    env.fund(XRP(10000), alice);
-                    env.close();
-                    BEAST_EXPECT(
-                        applyDirect(env, emitted(alice.id(), type)) ==
-                        temBAD_SEQUENCE);
-                }
+                Env env{*this, feats};
+                Account const alice{"alice"};
+                env.fund(XRP(10000), alice);
+                env.close();
+                BEAST_EXPECT(
+                    applyDirect(
+                        env, emitted(alice.id(), ttMPTOKEN_ISSUANCE_CREATE)) ==
+                    temBAD_SEQUENCE);
             }
         }
 
@@ -1146,7 +1156,8 @@ struct JsonTx_test : public beast::unit_test::suite
                 if (BEAST_EXPECT(sle))
                     BEAST_EXPECT(sle->getFieldU32(sfSequence) == tkt);
             }
-            BEAST_EXPECT(!env.le(keylet::permissionedDomain(alice.id(), 0)));
+            BEAST_EXPECT(
+                !env.le(keylet::permissionedDomain(alice.id(), uint32_t(0))));
         }
     }
 
