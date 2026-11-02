@@ -62,6 +62,14 @@ Cron::preflight(PreflightContext const& ctx)
         return temBAD_SIGNATURE;
     }
 
+    // Cron skips preflight1, where every other transaction type has these
+    // gated on featureJsonTx; same reasoning as Change::preflight.
+    if (ctx.tx.isFieldPresent(sfTime) || ctx.tx.isFieldPresent(sfJsonTxDelta))
+    {
+        JLOG(ctx.j.warn()) << "Cron: JsonTx fields on a pseudo-transaction";
+        return temMALFORMED;
+    }
+
     if (ctx.tx.getFieldU32(sfSequence) != 0 ||
         ctx.tx.isFieldPresent(sfPreviousTxnID))
     {
