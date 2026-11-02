@@ -220,6 +220,7 @@ doAccountObjects(RPC::JsonContext& context)
             {jss::hook, ltHOOK},
             {jss::payment_channel, ltPAYCHAN},
             {jss::uri_token, ltURI_TOKEN},
+            {jss::uri_token_series, ltURI_TOKEN_SERIES},
             {jss::state, ltRIPPLE_STATE},
             {jss::xchain_owned_claim_id, ltXCHAIN_OWNED_CLAIM_ID},
             {jss::xchain_owned_create_account_claim_id,

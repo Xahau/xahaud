@@ -20,6 +20,7 @@
 #ifndef RIPPLE_PROTOCOL_INDEXES_H_INCLUDED
 #define RIPPLE_PROTOCOL_INDEXES_H_INCLUDED
 
+#include <xrpl/basics/Slice.h>
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/protocol/Book.h>
 #include <xrpl/protocol/Keylet.h>
@@ -307,8 +308,33 @@ nft_sells(uint256 const& id) noexcept;
 Keylet
 import_vlseq(PublicKey const& key) noexcept;
 
+/** A URIToken.
+
+    seq 0 is the original URIToken keylet. seq n > 0 is the n-th token of the
+    issuer's sequential series for this URI: key(n) = key(0) + n * 2^64, so a
+    series is contiguous and ascending in the ledger and can be walked with
+    succ(). Non-zero seq requires featureSequentialURIToken.
+*/
 Keylet
-uritoken(AccountID const& issuer, Blob const& uri);
+uritoken(AccountID const& issuer, Blob const& uri, std::uint32_t seq = 0);
+
+/** The header of a sequential URIToken series: key(0) - 2^64. */
+Keylet
+uritokenSeries(AccountID const& issuer, Blob const& uri);
+
+}  // namespace keylet
+
+/** True if a URIToken URI ends in "#seq-<digits>".
+
+    That suffix is how RPC names member n of a sequential series, so once
+    featureSequentialURIToken is enabled no token may be minted with a URI
+    that literally ends this way. Legacy tokens minted earlier keep working
+    and remain reachable by RPC through a fallback lookup.
+*/
+bool
+hasURITokenSeqSuffix(Slice const& uri);
+
+namespace keylet {
 
 Keylet
 cron(uint32_t timestamp, std::optional<AccountID> const& id = std::nullopt);

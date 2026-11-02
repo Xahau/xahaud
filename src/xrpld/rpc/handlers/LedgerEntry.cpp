@@ -1019,12 +1019,55 @@ parseUriToken(Json::Value const& uriTokenJson, Json::Value& jvResult)
     {
         auto const id =
             parseBase58<AccountID>(uriTokenJson[jss::account].asString());
-        auto const strUri = uriTokenJson[jss::uri].asString();
-        Blob raw = Blob(strUri.begin(), strUri.end());
+        // "<uri>#seq-<n>" names a member of a sequential series; an explicit
+        // seq field may also be given, but they must agree
+        auto [raw, seq] =
+            RPC::splitURITokenURI(uriTokenJson[jss::uri].asString());
+        if (uriTokenJson.isMember(jss::seq))
+        {
+            if (!uriTokenJson[jss::seq].isConvertibleTo(Json::uintValue) ||
+                (seq != 0 && uriTokenJson[jss::seq].asUInt() != seq))
+            {
+                jvResult[jss::error] = "malformedRequest";
+                return std::nullopt;
+            }
+            seq = uriTokenJson[jss::seq].asUInt();
+        }
         if (!id)
             jvResult[jss::error] = "malformedAddress";
         else
-            return keylet::uritoken(*id, raw).key;
+            return keylet::uritoken(*id, raw, seq).key;
+    }
+    jvResult[jss::error] = "malformedRequest";
+    return std::nullopt;
+}
+
+std::optional<uint256>
+parseUriTokenSeries(Json::Value const& json, Json::Value& jvResult)
+{
+    if (!json.isObject())
+    {
+        uint256 uNodeIndex;
+        if (!uNodeIndex.parseHex(json.asString()))
+        {
+            jvResult[jss::error] = "malformedRequest";
+            return std::nullopt;
+        }
+        return uNodeIndex;
+    }
+    else if (!json.isMember(jss::account) || !json.isMember(jss::uri))
+    {
+        jvResult[jss::error] = "malformedRequest";
+    }
+    else
+    {
+        auto const id = parseBase58<AccountID>(json[jss::account].asString());
+        // a "#seq-<n>" fragment is ignored: the header is the same for all
+        auto const raw = RPC::splitURITokenURI(json[jss::uri].asString()).first;
+        if (!id)
+            jvResult[jss::error] = "malformedAddress";
+        else
+            return keylet::uritokenSeries(*id, raw).key;
     }
     jvResult[jss::error] = "malformedRequest";
     return std::nullopt;
@@ -1159,6 +1202,7 @@ doLedgerEntry(RPC::JsonContext& context)
         {jss::state, parseRippleState, ltRIPPLE_STATE},
         {jss::ticket, parseTicket, ltTICKET},
         {jss::uri_token, parseUriToken, ltURI_TOKEN},
+        {jss::uri_token_series, parseUriTokenSeries, ltURI_TOKEN_SERIES},
         {jss::xchain_owned_claim_id,
          parseXChainOwnedClaimID,
          ltXCHAIN_OWNED_CLAIM_ID},
@@ -1224,7 +1268,31 @@ doLedgerEntry(RPC::JsonContext& context)
         return jvResult;
     }
 
-    auto const sleNode = lpLedger->read(keylet::unchecked(uNodeIndex));
+    auto sleNode = lpLedger->read(keylet::unchecked(uNodeIndex));
+
+    // a uri ending in "#seq-<n>" was read as sequence notation; if no such
+    // member exists, fall back to a legacy token (minted before the
+    // amendment reserved the suffix) whose literal URI is that string
+    if (!sleNode && expectedType == ltURI_TOKEN)
+    {
+        auto const& p = context.params[jss::uri_token];
+        if (p.isObject() && p.isMember(jss::account) && p.isMember(jss::uri) &&
+            p[jss::uri].isString())
+        {
+            auto const uri = p[jss::uri].asString();
+            auto const id = parseBase58<AccountID>(p[jss::account].asString());
+            if (id && hasURITokenSeqSuffix(makeSlice(uri)))
+            {
+                Blob const raw(uri.begin(), uri.end());
+                auto const literal = keylet::uritoken(*id, raw);
+                if (auto const sle = lpLedger->read(literal))
+                {
+                    uNodeIndex = literal.key;
+                    sleNode = sle;
+                }
+            }
+        }
+    }
 
     bool bNodeBinary = false;
     if (context.params.isMember(jss::binary))

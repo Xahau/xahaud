@@ -208,6 +208,15 @@ Remit::preflight(PreflightContext const& ctx)
             return temMALFORMED;
         }
 
+        // "#seq-<n>" is reserved for naming members of a sequential series
+        if (ctx.rules.enabled(featureSequentialURIToken) &&
+            hasURITokenSeqSuffix(makeSlice(uri)))
+        {
+            JLOG(ctx.j.warn()) << "Malformed transaction: MintURIToken URI "
+                                  "must not end in #seq-<digits>.";
+            return temMALFORMED;
+        }
+
         if (mint.isFieldPresent(sfFlags))
         {
             if (mint.getFieldU32(sfFlags) & tfURITokenMintMask)
@@ -379,6 +388,11 @@ Remit::doApply()
                             << ctx_.tx.getTransactionID();
             return tecDUPLICATE;
         }
+
+        // seq 0 of a live sequential series is never recreated this way
+        if (sb.rules().enabled(featureSequentialURIToken) &&
+            sb.exists(keylet::uritokenSeries(srcAccID, mintURI)))
+            return tecNO_PERMISSION;
 
         auto sleMint = std::make_shared<SLE>(kl);
 

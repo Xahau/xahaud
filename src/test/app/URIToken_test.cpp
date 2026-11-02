@@ -20,6 +20,7 @@
 #include <test/jtx.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/Dir.h>
+#include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -27,6 +28,8 @@
 #include <xrpl/protocol/jss.h>
 
 #include <chrono>
+#include <cstring>
+#include <limits>
 
 namespace ripple {
 namespace test {
@@ -2660,6 +2663,586 @@ struct URIToken_test : public beast::unit_test::suite
         testDisallowXRP(features);
         testLimitAmount(features);
         testURIUTF8(features);
+        testSequentialKeylets();
+        testSequential(features);
+    }
+
+    void
+    testSequentialKeylets()
+    {
+        testcase("sequential keylets");
+        using namespace jtx;
+
+        auto const alice = Account("alice");
+        std::string const uri = "lot";
+        Blob const b(uri.begin(), uri.end());
+
+        auto const k0 = keylet::uritoken(alice, b).key;
+        auto const k1 = keylet::uritoken(alice, b, 1).key;
+        auto const kH = keylet::uritokenSeries(alice, b).key;
+
+        // seq 0 is the legacy keylet; header < 0 < 1; ascending in seq
+        BEAST_EXPECT(k0 == uritoken::tokenid(alice, uri));
+        BEAST_EXPECT(kH < k0 && k0 < k1);
+        BEAST_EXPECT(k1 < keylet::uritoken(alice, b, 2).key);
+        BEAST_EXPECT(
+            keylet::uritoken(alice, b, 100).key <
+            keylet::uritoken(alice, b, 0xFFFFFFFFu).key);
+
+        // the low 8 bytes are the series tag and never change
+        BEAST_EXPECT(std::memcmp(k0.cdata() + 24, k1.cdata() + 24, 8) == 0);
+        BEAST_EXPECT(std::memcmp(k0.cdata() + 24, kH.cdata() + 24, 8) == 0);
+
+        // key(n) = key(0) + n * 2^64 for every n we try
+        for (std::uint32_t const n : {1u, 2u, 255u, 65536u, 0xFFFFFFFFu})
+        {
+            std::uint64_t w0 = 0, wn = 0;
+            auto const kn = keylet::uritoken(alice, b, n).key;
+            for (int i = 16; i < 24; ++i)
+            {
+                w0 = (w0 << 8) | k0.cdata()[i];
+                wn = (wn << 8) | kn.cdata()[i];
+            }
+            BEAST_EXPECT(wn == w0 + n);  // carry stays inside bytes 16..23
+            BEAST_EXPECT(std::memcmp(k0.cdata(), kn.cdata(), 16) == 0);
+        }
+
+        // carry out of the 4-byte window into byte 19: search for a URI whose
+        // window starts 0xFFFF.... (about 65k hashes)
+        for (std::uint32_t i = 0;; ++i)
+        {
+            std::string const u = "c" + std::to_string(i);
+            Blob const bu(u.begin(), u.end());
+            auto const c0 = keylet::uritoken(alice, bu).key;
+            if (c0.cdata()[20] != 0xFF || c0.cdata()[21] != 0xFF ||
+                c0.cdata()[19] == 0xFF)
+                continue;
+            auto const cMid = keylet::uritoken(alice, bu, 0x00010000u).key;
+            auto const cHi = keylet::uritoken(alice, bu, 0xFFFFFFFFu).key;
+            BEAST_EXPECT(c0 < cMid && cMid < cHi);
+            BEAST_EXPECT(cMid.cdata()[19] == c0.cdata()[19] + 1);
+            BEAST_EXPECT(std::memcmp(c0.cdata(), cMid.cdata(), 19) == 0);
+            break;
+        }
+
+        // borrow: a header for a URI whose window is 0x0000.... must borrow
+        // from byte 19 (about 65k hashes)
+        for (std::uint32_t i = 0;; ++i)
+        {
+            std::string const u = "b" + std::to_string(i);
+            Blob const bu(u.begin(), u.end());
+            auto const c0 = keylet::uritoken(alice, bu).key;
+            if (c0.cdata()[20] != 0x00 || c0.cdata()[21] != 0x00 ||
+                c0.cdata()[19] == 0x00)
+                continue;
+            auto const h = keylet::uritokenSeries(alice, bu).key;
+            BEAST_EXPECT(h < c0);
+            BEAST_EXPECT(h.cdata()[19] == c0.cdata()[19] - 1);
+            BEAST_EXPECT(std::memcmp(c0.cdata(), h.cdata(), 19) == 0);
+            break;
+        }
+    }
+
+    void
+    testSequential(FeatureBitset features)
+    {
+        testcase("sequential issuance");
+        using namespace jtx;
+        using namespace std::chrono_literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        std::string const uri = "lot";
+        Blob const uriBlob(uri.begin(), uri.end());
+
+        auto const ownerCnt = [](Env& env, Account const& a) {
+            return env.le(a)->getFieldU32(sfOwnerCount);
+        };
+
+        auto const tokenSeq =
+            [&](Env& env, Account const& a, std::uint32_t seq) {
+                return env.le(keylet::uritoken(a, uriBlob, seq));
+            };
+
+        auto const header = [&](Env& env, Account const& a) {
+            return env.le(keylet::uritokenSeries(a, uriBlob));
+        };
+
+        // walk header -> members with succ, returning the seqs seen
+        auto const walk = [&](Env& env, Account const& a) {
+            std::vector<std::uint32_t> seen;
+            auto const first = keylet::uritokenSeries(a, uriBlob).key;
+            // succ()'s bound is exclusive: one past the last possible member
+            std::optional<uint256> last =
+                keylet::uritoken(a, uriBlob, 0xFFFFFFFFu).key;
+            if ((++*last).isZero())
+                last.reset();
+            std::optional<uint256> k = first;
+            if (!env.current()->exists(Keylet{ltURI_TOKEN_SERIES, first}))
+                k = env.current()->succ(first, last);
+            for (; k; k = env.current()->succ(*k, last))
+            {
+                auto const sle = env.current()->read(Keylet{ltURI_TOKEN, *k});
+                if (!sle || sle->getAccountID(sfIssuer) != a.id() ||
+                    sle->getFieldVL(sfURI) != uriBlob)
+                    continue;
+                seen.push_back((*sle)[~sfURITokenSequence].value_or(0));
+            }
+            return seen;
+        };
+
+        // ---- gating ----------------------------------------------------
+        {
+            Env env{*this, features - featureSequentialURIToken};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                ter(temINVALID_FLAG));
+            env(uritoken::mint(alice, uri),
+                uritoken::seriesmax(10),
+                ter(temDISABLED));
+            env(uritoken::mint(alice, uri));
+            env.close();
+        }
+
+        // ---- malformed -------------------------------------------------
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            // precommitments need the sequential flag
+            env(uritoken::mint(alice, uri),
+                uritoken::seriesmax(10),
+                ter(temMALFORMED));
+            env(uritoken::mint(alice, uri),
+                uritoken::seriesexp(1000),
+                ter(temMALFORMED));
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                uritoken::seriesexp(0),
+                ter(temBAD_EXPIRATION));
+            // Remit can't carry the flag
+            env.close();
+        }
+
+        // ---- a fresh capped series -------------------------------------
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            // reserve: the first mint needs room for header + token
+            auto const fee = env.current()->fees().base;
+            env.fund(
+                drops(
+                    env.current()->fees().accountReserve(1).drops() +
+                    fee.drops() * 2),
+                carol);
+            env.close();
+            env(uritoken::mint(carol, uri),
+                txflags(tfSequential),
+                ter(tecINSUFFICIENT_RESERVE));
+
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                uritoken::seriesmax(3));
+            env.close();
+
+            auto h = header(env, alice);
+            BEAST_EXPECT(h);
+            BEAST_EXPECT(h->getAccountID(sfIssuer) == alice.id());
+            BEAST_EXPECT(h->getFieldVL(sfURI) == uriBlob);
+            BEAST_EXPECT(h->getFieldU32(sfURITokenNextSequence) == 1);
+            BEAST_EXPECT(h->getFieldU32(sfURITokenMaxSequence) == 3);
+            BEAST_EXPECT(h->getFieldU32(sfURITokenCount) == 1);
+            BEAST_EXPECT(!h->isFieldPresent(sfExpiration));
+            BEAST_EXPECT(ownerCnt(env, alice) == 2);
+
+            auto t0 = tokenSeq(env, alice, 0);
+            BEAST_EXPECT(t0 && t0->getFieldU32(sfURITokenSequence) == 0);
+            BEAST_EXPECT(t0 && (t0->getFlags() & lsfSequential));
+
+            // precommitments are fixed now
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                uritoken::seriesmax(5),
+                ter(tecNO_PERMISSION));
+
+            // seq 0 exists, so a legacy mint is a duplicate
+            env(uritoken::mint(alice, uri), ter(tecDUPLICATE));
+
+            for (int i = 1; i <= 3; ++i)
+                env(uritoken::mint(alice, uri), txflags(tfSequential));
+            env.close();
+
+            h = header(env, alice);
+            BEAST_EXPECT(h->getFieldU32(sfURITokenCount) == 4);
+            BEAST_EXPECT(h->getFlags() & lsfURITokenSeriesClosed);
+            BEAST_EXPECT(ownerCnt(env, alice) == 5);
+            BEAST_EXPECT(
+                (walk(env, alice) == std::vector<std::uint32_t>{0, 1, 2, 3}));
+
+            // cap reached
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                ter(tecNO_PERMISSION));
+
+            // ---- RPC: members display as uri#seq, lookups accept it ----
+            {
+                Json::Value p;
+                p[jss::uri_token][jss::account] = alice.human();
+                p[jss::uri_token][jss::uri] = "lot#seq-2";
+                auto const r = env.rpc("json", "ledger_entry", to_string(p));
+                BEAST_EXPECT(
+                    r[jss::result][jss::index] ==
+                    to_string(uritoken::tokenid(alice, uri, 2)));
+                BEAST_EXPECT(
+                    r[jss::result][jss::node][sfURI.jsonName] ==
+                    strHex(std::string("lot#seq-2")));
+                BEAST_EXPECT(
+                    r[jss::result][jss::node][sfURITokenSequence.jsonName] ==
+                    2);
+            }
+            {
+                // a plain "#2" is an ordinary URI fragment, not a sequence:
+                // it names a (non-existent) legacy token "lot#2"
+                Json::Value p;
+                p[jss::uri_token][jss::account] = alice.human();
+                p[jss::uri_token][jss::uri] = "lot#2";
+                auto const r = env.rpc("json", "ledger_entry", to_string(p));
+                BEAST_EXPECT(r[jss::result][jss::error] == "entryNotFound");
+                BEAST_EXPECT(
+                    RPC::splitURITokenURI("lot#2").first ==
+                    Blob(
+                        std::string("lot#2").begin(),
+                        std::string("lot#2").end()));
+                BEAST_EXPECT(RPC::splitURITokenURI("lot#seq-").second == 0);
+                BEAST_EXPECT(RPC::splitURITokenURI("lot#seq-x1").second == 0);
+                BEAST_EXPECT(RPC::splitURITokenURI("lot#seq-9").second == 9);
+                BEAST_EXPECT(
+                    RPC::splitURITokenURI("lot#seq-4294967295").second ==
+                    0xFFFFFFFFu);
+                BEAST_EXPECT(
+                    RPC::splitURITokenURI("a#b#seq-4294967295").second == 0);
+                BEAST_EXPECT(
+                    RPC::splitURITokenURI("lot#seq-4294967296").second == 0);
+            }
+            {
+                // explicit seq that disagrees with the fragment is rejected
+                Json::Value p;
+                p[jss::uri_token][jss::account] = alice.human();
+                p[jss::uri_token][jss::uri] = "lot#seq-2";
+                p[jss::uri_token][jss::seq] = 3;
+                auto const r = env.rpc("json", "ledger_entry", to_string(p));
+                BEAST_EXPECT(r[jss::result][jss::error] == "malformedRequest");
+            }
+            {
+                // the header, by uri (fragment ignored) and by index
+                Json::Value p;
+                p[jss::uri_token_series][jss::account] = alice.human();
+                p[jss::uri_token_series][jss::uri] = "lot#seq-7";
+                auto const r = env.rpc("json", "ledger_entry", to_string(p));
+                BEAST_EXPECT(
+                    r[jss::result][jss::index] ==
+                    to_string(uritoken::seriesid(alice, uri)));
+                BEAST_EXPECT(
+                    r[jss::result][jss::node][sfURITokenMaxSequence.jsonName] ==
+                    3);
+            }
+            {
+                // walk the series, two at a time
+                Json::Value p;
+                p[jss::account] = alice.human();
+                p[jss::uri] = uri;
+                p[jss::limit] = 2;
+                auto r = env.rpc("json", "uri_token_series", to_string(p));
+                auto const& res = r[jss::result];
+                BEAST_EXPECT(res[jss::series][sfURITokenCount.jsonName] == 4);
+                BEAST_EXPECT(
+                    res[jss::series][sfURITokenNextSequence.jsonName] == 3);
+                BEAST_EXPECT(res[jss::uri_tokens].size() == 2);
+                BEAST_EXPECT(
+                    res[jss::uri_tokens][0u][sfURITokenSequence.jsonName] == 0);
+                BEAST_EXPECT(
+                    res[jss::uri_tokens][1u][sfURITokenSequence.jsonName] == 1);
+                BEAST_EXPECT(res[jss::marker] == 2);
+
+                p[jss::marker] = res[jss::marker];
+                r = env.rpc("json", "uri_token_series", to_string(p));
+                auto const& res2 = r[jss::result];
+                BEAST_EXPECT(res2[jss::uri_tokens].size() == 2);
+                BEAST_EXPECT(
+                    res2[jss::uri_tokens][0u][sfURITokenSequence.jsonName] ==
+                    2);
+                BEAST_EXPECT(
+                    res2[jss::uri_tokens][1u][sfURI.jsonName] ==
+                    strHex(std::string("lot#seq-3")));
+                BEAST_EXPECT(!res2.isMember(jss::marker));
+
+                // "lot#seq-3" starts the walk at 3
+                p.removeMember(jss::marker);
+                p[jss::uri] = "lot#seq-3";
+                r = env.rpc("json", "uri_token_series", to_string(p));
+                BEAST_EXPECT(r[jss::result][jss::uri_tokens].size() == 1);
+                BEAST_EXPECT(r[jss::result][jss::uri] == "lot");
+
+                // no series -> not found
+                p[jss::uri] = "nope";
+                r = env.rpc("json", "uri_token_series", to_string(p));
+                BEAST_EXPECT(r[jss::result][jss::error] == "objectNotFound");
+            }
+
+            // members trade normally; issuer can't burn (not burnable)
+            auto const id2 = strHex(uritoken::tokenid(alice, uri, 2));
+            env(uritoken::sell(alice, id2), uritoken::amt(XRP(10)));
+            env(uritoken::buy(bob, id2), uritoken::amt(XRP(10)));
+            env.close();
+            BEAST_EXPECT(
+                tokenSeq(env, alice, 2)->getAccountID(sfOwner) == bob.id());
+            env(uritoken::burn(alice, id2), ter(tecNO_PERMISSION));
+
+            // burn leaves a gap that is never refilled
+            env(uritoken::burn(bob, id2));
+            env.close();
+            BEAST_EXPECT(header(env, alice)->getFieldU32(sfURITokenCount) == 3);
+            BEAST_EXPECT(
+                (walk(env, alice) == std::vector<std::uint32_t>{0, 1, 3}));
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                ter(tecNO_PERMISSION));
+
+            // the header can't go while members exist, and only by the issuer
+            auto const hid = strHex(uritoken::seriesid(alice, uri));
+            env(uritoken::burn(alice, hid), ter(tecHAS_OBLIGATIONS));
+            for (std::uint32_t const s : {0u, 1u, 3u})
+                env(uritoken::burn(
+                    alice, strHex(uritoken::tokenid(alice, uri, s))));
+            env.close();
+            BEAST_EXPECT(header(env, alice)->getFieldU32(sfURITokenCount) == 0);
+            env(uritoken::burn(bob, hid), ter(tecNO_PERMISSION));
+            // while the (empty) series lives, the URI is still spoken for
+            env(uritoken::mint(alice, uri), ter(tecNO_PERMISSION));
+            env(uritoken::burn(alice, hid));
+            env.close();
+            BEAST_EXPECT(!header(env, alice));
+            BEAST_EXPECT(ownerCnt(env, alice) == 0);
+
+            // and once it is gone the URI is free again
+            env(uritoken::mint(alice, uri));
+            env.close();
+            BEAST_EXPECT(
+                !(tokenSeq(env, alice, 0)->getFlags() & lsfSequential));
+        }
+
+        // ---- converting an existing legacy token -----------------------
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), bob, carol);
+            env.close();
+
+            env(uritoken::mint(bob, uri));
+            auto const id0 = strHex(uritoken::tokenid(bob, uri));
+            env(uritoken::sell(bob, id0), uritoken::amt(XRP(1)));
+            env(uritoken::buy(carol, id0), uritoken::amt(XRP(1)));
+            env.close();
+
+            // bob starts the series: carol's token becomes seq 0, bob gets 1
+            env(uritoken::mint(bob, uri), txflags(tfSequential));
+            env.close();
+
+            auto const h = header(env, bob);
+            BEAST_EXPECT(h && h->getFieldU32(sfURITokenNextSequence) == 2);
+            BEAST_EXPECT(h->getFieldU32(sfURITokenCount) == 2);
+            BEAST_EXPECT(
+                h->getFieldU32(sfURITokenMaxSequence) ==
+                std::numeric_limits<std::uint32_t>::max());
+
+            auto const t0 = tokenSeq(env, bob, 0);
+            BEAST_EXPECT(t0->getAccountID(sfOwner) == carol.id());
+            BEAST_EXPECT(t0->getFieldU32(sfURITokenSequence) == 0);
+            BEAST_EXPECT(t0->getFlags() & lsfSequential);
+            BEAST_EXPECT(
+                tokenSeq(env, bob, 1)->getAccountID(sfOwner) == bob.id());
+            BEAST_EXPECT((walk(env, bob) == std::vector<std::uint32_t>{0, 1}));
+
+            // carol burns seq 0: it is gone for good
+            env(uritoken::burn(carol, id0));
+            env.close();
+            BEAST_EXPECT(header(env, bob)->getFieldU32(sfURITokenCount) == 1);
+            env(uritoken::mint(bob, uri), ter(tecNO_PERMISSION));
+            env(uritoken::mint(bob, uri), txflags(tfSequential));
+            env.close();
+            BEAST_EXPECT((walk(env, bob) == std::vector<std::uint32_t>{1, 2}));
+        }
+
+        // ---- "#seq-<n>" is reserved once the amendment is live ---------
+        {
+            Env env{*this, features - featureSequentialURIToken};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            // before: a legacy token may carry the suffix
+            env(uritoken::mint(alice, "lot#seq-9"));
+            env.close();
+
+            env.enableFeature(featureSequentialURIToken);
+            env.close();
+
+            // after: no new token, by any route, may end in #seq-<digits>
+            env(uritoken::mint(alice, "lot#seq-1"), ter(temMALFORMED));
+            env(uritoken::mint(alice, "x#seq-0"),
+                txflags(tfSequential),
+                ter(temMALFORMED));
+            env(remit::remit(alice, bob),
+                remit::uri("r#seq-7"),
+                ter(temMALFORMED));
+            // a fragment that isn't the notation is still fine
+            env(uritoken::mint(alice, "lot#seq-"));
+            env(uritoken::mint(alice, "lot#seq-1a"));
+            env(uritoken::mint(alice, "lot#9"));
+            env.close();
+
+            // the legacy "lot#seq-9" is still reachable: the notation lookup
+            // misses (no series "lot"), and the literal fallback finds it
+            Json::Value p;
+            p[jss::uri_token][jss::account] = alice.human();
+            p[jss::uri_token][jss::uri] = "lot#seq-9";
+            auto const r = env.rpc("json", "ledger_entry", to_string(p));
+            BEAST_EXPECT(
+                r[jss::result][jss::index] ==
+                to_string(uritoken::tokenid(alice, "lot#seq-9")));
+            BEAST_EXPECT(
+                r[jss::result][jss::node][sfURI.jsonName] ==
+                strHex(std::string("lot#seq-9")));
+            BEAST_EXPECT(!r[jss::result][jss::node].isMember(
+                sfURITokenSequence.jsonName));
+
+            // once a series "lot" has a member 9 the notation wins, and the
+            // legacy token is only reachable by index
+            for (int i = 0; i < 10; ++i)
+                env(uritoken::mint(alice, uri), txflags(tfSequential));
+            env.close();
+            auto const r2 = env.rpc("json", "ledger_entry", to_string(p));
+            BEAST_EXPECT(
+                r2[jss::result][jss::index] ==
+                to_string(uritoken::tokenid(alice, uri, 9)));
+            BEAST_EXPECT(
+                r2[jss::result][jss::node][sfURITokenSequence.jsonName] == 9);
+        }
+
+        // ---- a series whose URI has its own fragment: no notation at all --
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            std::string const huri = "a#b";
+            Blob const hblob(huri.begin(), huri.end());
+            env(uritoken::mint(alice, huri),
+                txflags(tfSequential),
+                uritoken::seriesmax(2));
+            env(uritoken::mint(alice, huri), txflags(tfSequential));
+            env.close();
+
+            // displayed URI is untouched; seq is in its own field
+            Json::Value p;
+            p[jss::uri_token][jss::account] = alice.human();
+            p[jss::uri_token][jss::uri] = huri;
+            p[jss::uri_token][jss::seq] = 1;
+            auto const r = env.rpc("json", "ledger_entry", to_string(p));
+            BEAST_EXPECT(
+                r[jss::result][jss::index] ==
+                to_string(keylet::uritoken(alice, hblob, 1).key));
+            BEAST_EXPECT(
+                r[jss::result][jss::node][sfURI.jsonName] == strHex(huri));
+            BEAST_EXPECT(
+                r[jss::result][jss::node][sfURITokenSequence.jsonName] == 1);
+
+            // "a#b#seq-1" is a literal URI here, not notation
+            p[jss::uri_token].removeMember(jss::seq);
+            p[jss::uri_token][jss::uri] = "a#b#seq-1";
+            auto const r2 = env.rpc("json", "ledger_entry", to_string(p));
+            BEAST_EXPECT(r2[jss::result][jss::error] == "entryNotFound");
+            BEAST_EXPECT(RPC::splitURITokenURI("a#b#seq-1").second == 0);
+
+            // the walk still works, keyed by the explicit sequence
+            Json::Value q;
+            q[jss::account] = alice.human();
+            q[jss::uri] = huri;
+            auto const w = env.rpc("json", "uri_token_series", to_string(q));
+            BEAST_EXPECT(w[jss::result][jss::uri_tokens].size() == 2);
+            BEAST_EXPECT(
+                w[jss::result][jss::uri_tokens][1u][sfURI.jsonName] ==
+                strHex(huri));
+        }
+
+        // ---- a series on an existing token with a cap of 0 -------------
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+            env(uritoken::mint(alice, uri));
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                uritoken::seriesmax(0),
+                ter(tecNO_PERMISSION));
+            BEAST_EXPECT(!header(env, alice));
+        }
+
+        // ---- expiration ------------------------------------------------
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            auto const now = env.now().time_since_epoch().count();
+
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                uritoken::seriesexp(now - 1),
+                ter(tecEXPIRED));
+            BEAST_EXPECT(!header(env, alice));
+
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                uritoken::seriesexp(now + 600));
+            env(uritoken::mint(alice, uri), txflags(tfSequential));
+            env.close();
+            BEAST_EXPECT(
+                header(env, alice)->getFieldU32(sfExpiration) == now + 600);
+
+            env.close(env.now() + 1200s);
+            env(uritoken::mint(alice, uri),
+                txflags(tfSequential),
+                ter(tecEXPIRED));
+            BEAST_EXPECT(header(env, alice)->getFieldU32(sfURITokenCount) == 2);
+        }
+
+        // ---- issuer burn of a burnable member (flags are a bitset now) -
+        {
+            Env env{*this, features};
+            env.fund(XRP(10000), alice, bob);
+            env.close();
+
+            env(uritoken::mint(alice, uri), txflags(tfSequential | tfBurnable));
+            env(uritoken::mint(alice, uri), txflags(tfSequential | tfBurnable));
+            auto const id1 = strHex(uritoken::tokenid(alice, uri, 1));
+            env(uritoken::sell(alice, id1), uritoken::amt(XRP(1)));
+            env(uritoken::buy(bob, id1), uritoken::amt(XRP(1)));
+            env.close();
+
+            BEAST_EXPECT(
+                tokenSeq(env, alice, 1)->getFlags() ==
+                (lsfBurnable | lsfSequential));
+            env(uritoken::burn(alice, id1));
+            env.close();
+            BEAST_EXPECT(!tokenSeq(env, alice, 1));
+            BEAST_EXPECT(header(env, alice)->getFieldU32(sfURITokenCount) == 1);
+        }
     }
 
 public:

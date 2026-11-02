@@ -100,6 +100,10 @@ enum NFTokenCreateOfferFlags : uint32_t {
     tfSellNFToken = 0x00000001,
 };
 
+enum URITokenMintFlags : uint32_t {
+    tfSequential = 0x00000002,  // mint the next token of a sequential series
+};
+
 enum ClaimRewardFlags : uint32_t {
     tfOptOut = 0x00000001,
 };

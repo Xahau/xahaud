@@ -2363,6 +2363,35 @@ DEFINE_HOOK_FUNCTION(
                 return serialize_keylet(kl, memory, write_ptr, write_len);
             }
 
+            // 20 byte issuer (a, b), uri (c, d), uint32 seq (e) for URI_TOKEN
+            case keylet_code::URI_TOKEN:
+            case keylet_code::URI_TOKEN_SERIES: {
+                if (!applyCtx.view().rules().enabled(featureSequentialURIToken))
+                    return INVALID_ARGUMENT;
+
+                if (a == 0 || b == 0 || c == 0 || d == 0)
+                    return INVALID_ARGUMENT;
+                if (f != 0 ||
+                    (keylet_type == keylet_code::URI_TOKEN_SERIES && e != 0))
+                    return INVALID_ARGUMENT;
+
+                if (NOT_IN_BOUNDS(a, b, memory_length) ||
+                    NOT_IN_BOUNDS(c, d, memory_length))
+                    return OUT_OF_BOUNDS;
+
+                if (b != 20 || d > 256)
+                    return INVALID_ARGUMENT;
+
+                ripple::AccountID const id = AccountID::fromVoid(memory + a);
+                Blob const uri(memory + c, memory + c + d);
+
+                ripple::Keylet kl = keylet_type == keylet_code::URI_TOKEN
+                    ? ripple::keylet::uritoken(id, uri, e)
+                    : ripple::keylet::uritokenSeries(id, uri);
+
+                return serialize_keylet(kl, memory, write_ptr, write_len);
+            }
+
                 // keylets that take 20 byte account id, and 4 byte uint
             case keylet_code::CRON: {
                 if (!applyCtx.view().rules().enabled(featureCron))

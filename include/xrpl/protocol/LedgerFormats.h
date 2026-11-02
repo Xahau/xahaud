@@ -181,7 +181,11 @@ enum LedgerSpecificFlags {
     lsfSellNFToken = 0x00000001,
 
     // ltURI_TOKEN
-    lsfBurnable = 0x00000001,  // True, issuer can burn the token
+    lsfBurnable = 0x00000001,    // True, issuer can burn the token
+    lsfSequential = 0x00000002,  // True, member of a sequential series
+
+    // ltURI_TOKEN_SERIES
+    lsfURITokenSeriesClosed = 0x00000001,  // True, no further tokens can be minted
 
     // remarks
     lsfImmutable = 1,

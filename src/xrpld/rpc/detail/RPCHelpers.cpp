@@ -30,6 +30,7 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/nftPageMask.h>
 #include <xrpl/resource/Fees.h>
@@ -38,7 +39,9 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <xrpl/resource/Fees.h>
+#include <limits>
 #include <regex>
+#include <string>
 
 namespace ripple {
 namespace RPC {
@@ -816,6 +819,27 @@ injectSLE(Json::Value& jv, SLE const& sle)
     {
         jv[jss::Invalid] = true;
     }
+}
+
+std::pair<Blob, std::uint32_t>
+splitURITokenURI(std::string const& uri)
+{
+    static std::string const marker = "#seq-";
+
+    if (hasURITokenSeqSuffix(makeSlice(uri)))
+    {
+        auto const hash = uri.rfind(marker);
+        std::string const digits = uri.substr(hash + marker.size());
+        if (uri.find('#') == hash && digits.size() <= 10)
+        {
+            auto const v = std::stoull(digits);
+            if (v <= std::numeric_limits<std::uint32_t>::max())
+                return {
+                    Blob(uri.begin(), uri.begin() + hash),
+                    static_cast<std::uint32_t>(v)};
+        }
+    }
+    return {Blob(uri.begin(), uri.end()), 0};
 }
 
 std::optional<Json::Value>

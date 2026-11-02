@@ -252,9 +252,31 @@ LEDGER_ENTRY(ltURI_TOKEN, 0x0055, URIToken, uri_token, ({
     {sfOwnerNode,            soeREQUIRED},
     {sfIssuer,               soeREQUIRED},
     {sfURI,                  soeREQUIRED},
+    {sfURITokenSequence,     soeOPTIONAL},
     {sfDigest,               soeOPTIONAL},
     {sfAmount,               soeOPTIONAL},
     {sfDestination,          soeOPTIONAL},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+/** The header of a sequential URIToken series.
+
+    Lives at keylet::uritokenSeries(issuer, uri), one slot below seq 0 of the
+    series, and holds the issuer's precommitments plus the issuance counter.
+    It is created by the first sequential mint for a URI and can only be
+    removed by the issuer once every token of the series has been burned.
+
+    \sa keylet::uritokenSeries
+*/
+LEDGER_ENTRY(ltURI_TOKEN_SERIES, 0x0056, URITokenSeries, uri_token_series, ({
+    {sfOwnerNode,            soeREQUIRED},
+    {sfIssuer,               soeREQUIRED},
+    {sfURI,                  soeREQUIRED},
+    {sfURITokenNextSequence, soeREQUIRED},
+    {sfURITokenMaxSequence,  soeREQUIRED},
+    {sfURITokenCount,        soeREQUIRED},
+    {sfExpiration,           soeOPTIONAL},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))

@@ -26,9 +26,17 @@ namespace jtx {
 namespace uritoken {
 
 uint256
-tokenid(jtx::Account const& account, std::string const& uri)
+tokenid(jtx::Account const& account, std::string const& uri, std::uint32_t seq)
 {
-    auto const k = keylet::uritoken(account, Blob(uri.begin(), uri.end()));
+    auto const k = keylet::uritoken(account, Blob(uri.begin(), uri.end()), seq);
+    return k.key;
+}
+
+uint256
+seriesid(jtx::Account const& account, std::string const& uri)
+{
+    auto const k =
+        keylet::uritokenSeries(account, Blob(uri.begin(), uri.end()));
     return k.key;
 }
 
@@ -53,6 +61,18 @@ void
 amt::operator()(Env& env, JTx& jt) const
 {
     jt.jv[sfAmount.jsonName] = amt_.getJson(JsonOptions::none);
+}
+
+void
+seriesmax::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfURITokenMaxSequence.jsonName] = max_;
+}
+
+void
+seriesexp::operator()(Env& env, JTx& jt) const
+{
+    jt.jv[sfExpiration.jsonName] = exp_;
 }
 
 Json::Value
