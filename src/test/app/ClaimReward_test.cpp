@@ -187,11 +187,7 @@ public:
             auto const currentLedger = env.current()->seq();
             auto const currentTime =
                 std::chrono::duration_cast<std::chrono::seconds>(
-                    env.app()
-                        .getLedgerMaster()
-                        .getValidatedLedger()
-                        ->info()
-                        .parentCloseTime.time_since_epoch())
+                    env.current()->info().parentCloseTime.time_since_epoch())
                     .count();
 
             // CLAIM
@@ -733,11 +729,7 @@ public:
         auto const currentLedger = env.current()->seq();
         auto const currentTime =
             std::chrono::duration_cast<std::chrono::seconds>(
-                env.app()
-                    .getLedgerMaster()
-                    .getValidatedLedger()
-                    ->info()
-                    .parentCloseTime.time_since_epoch())
+                env.current()->info().parentCloseTime.time_since_epoch())
                 .count();
 
         auto tx = reward::claim(alice);
@@ -765,11 +757,7 @@ public:
             auto const currentLedger = env.current()->seq();
             auto const currentTime =
                 std::chrono::duration_cast<std::chrono::seconds>(
-                    env.app()
-                        .getLedgerMaster()
-                        .getValidatedLedger()
-                        ->info()
-                        .parentCloseTime.time_since_epoch())
+                    env.current()->info().parentCloseTime.time_since_epoch())
                     .count();
 
             auto tx = reward::claim(bob);
@@ -839,11 +827,7 @@ public:
 
         auto const getCurrentTime = [&](Env& env) {
             return std::chrono::duration_cast<std::chrono::seconds>(
-                       env.app()
-                           .getLedgerMaster()
-                           .getValidatedLedger()
-                           ->info()
-                           .parentCloseTime.time_since_epoch())
+                       env.current()->info().parentCloseTime.time_since_epoch())
                 .count();
         };
 
