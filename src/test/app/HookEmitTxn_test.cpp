@@ -1,11 +1,28 @@
+//------------------------------------------------------------------------------
+/*
+    This file is part of rippled: https://github.com/ripple/rippled
+    Copyright (c) 2026 XRPL-Labs
+
+    Permission to use, copy, modify, and/or distribute this software for any
+    purpose  with  or without fee is hereby granted, provided that the above
+    copyright notice and this permission notice appear in all copies.
+
+    THE  SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+    WITH  REGARD  TO  THIS  SOFTWARE  INCLUDING  ALL  IMPLIED  WARRANTIES  OF
+    MERCHANTABILITY  AND  FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+    ANY  SPECIAL ,  DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER  RESULTING  FROM  LOSS  OF USE, DATA OR PROFITS, WHETHER IN AN
+    ACTION  OF  CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+    OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+*/
+//==============================================================================
 
 #include <test/app/SetHook_wasm.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
 #include <xrpld/app/tx/detail/SetHook.h>
+#include <xrpl/protocol/STParsedJSON.h>
 #include <xrpl/protocol/jss.h>
-#include "test/jtx/invoke.h"
-#include "xrpl/protocol/XRPAmount.h"
 
 namespace ripple {
 namespace test {
@@ -21,248 +38,583 @@ using TestHook = std::vector<uint8_t> const&;
 class HookEmitTxn_test : public beast::unit_test::suite
 {
 private:
-    bool
-    foundCreatedLedgerEntry(STArray const& affectedNodes, LedgerEntryType stype)
+    // metadata of the last Invoke submitted by emitTxn()
+    std::shared_ptr<STObject const> invokeMeta_;
+
+    static bool
+    hasNode(STObject const& meta, SField const& nodeKind, LedgerEntryType type)
     {
-        bool found = false;
-        for (auto const& node : affectedNodes)
+        for (auto const& node : meta.getFieldArray(sfAffectedNodes))
+            if (node.getFName() == nodeKind &&
+                node.getFieldU16(sfLedgerEntryType) == type)
+                return true;
+        return false;
+    }
+
+    // Installs the emit_tx hook on `account`. `f` may edit the HookSetObject
+    // (e.g. to set HookCanEmit).
+    void
+    installEmitHook(
+        jtx::Env& env,
+        jtx::Account const& account,
+        void (*f)(Json::Value&) = nullptr)
+    {
+        using namespace jtx;
+        env(hook(account, {{hso(emit_tx_wasm, f)}}, 0),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+    }
+
+    // Emits `jv` from alice's emit_tx hook (via Invoke.Blob) and returns the
+    // metadata of the emitted txn once it has been applied. Account and Fee
+    // are filled in by the hook (hook_account / etxn_fee_base).
+    std::shared_ptr<STObject const>
+    emitTxn(jtx::Env& env, jtx::Account const& alice, Json::Value jv)
+    {
+        using namespace jtx;
+        jv.removeMember(jss::Account);
+        jv.removeMember(jss::Fee);
+        jv[jss::Sequence] = 0;
+        jv[jss::SigningPubKey] = "";
+        STParsedJSONObject parsed("tx", jv);
+        if (!BEAST_EXPECT(parsed.object))
+            return nullptr;
+        Serializer s;
+        parsed.object->add(s);
+
+        env(invoke::invoke(alice),
+            invoke::blob(strHex(s.slice())),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+
+        invokeMeta_ = env.meta();
+        if (!BEAST_EXPECT(invokeMeta_))
         {
-            SField const& metaType = node.getFName();
-            uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
-            if (metaType == sfCreatedNode && nodeType == stype)
-            {
-                found = true;
-                break;
-            }
+            log << "invoke result: " << transHuman(env.ter()) << std::endl;
+            return nullptr;
         }
-        return found;
+        auto const& emissions = invokeMeta_->getFieldArray(sfHookEmissions);
+        if (!BEAST_EXPECT(emissions.size() == 1))
+            return nullptr;
+        auto const emittedTxnID = emissions[0].getFieldH256(sfEmittedTxnID);
+        env.close();
+
+        auto const [txn, meta] = env.closed()->txRead(emittedTxnID);
+        if (!BEAST_EXPECT(txn && meta))
+            return nullptr;
+        auto const result = TER::fromInt(meta->getFieldU8(sfTransactionResult));
+        if (!BEAST_EXPECT(result == tesSUCCESS))
+            log << "emitted txn result: " << transHuman(result) << std::endl;
+        return meta;
+    }
+
+    void
+    expectCreated(
+        jtx::Env& env,
+        jtx::Account const& alice,
+        Json::Value const& jv,
+        LedgerEntryType type)
+    {
+        if (auto const meta = emitTxn(env, alice, jv))
+        {
+            BEAST_EXPECT(hasNode(*meta, sfCreatedNode, type));
+        }
+        else
+        {
+            BEAST_EXPECTS(
+                false,
+                "Expected " + std::to_string(uint32_t(type)) +
+                    " to be created, but failed to emit txn");
+        }
+    }
+
+    // Emitted SetHook: allowed only when HookCanEmit permits ttHOOK_SET.
+    std::shared_ptr<STObject const>
+    emitSetHook(FeatureBitset const& features)
+    {
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice, [](Json::Value& jv) {
+            // ttHOOK_SET bit is active high (see hook::canHook)
+            jv[jss::HookCanEmit] = std::string(58, '0') + "400000";
+        });
+        // position 0 keeps emit_tx, position 1 creates a new definition
+        return emitTxn(
+            env,
+            alice,
+            hook(alice, {{Json::objectValue, hso(makestate_wasm)}}, 0));
     }
 
     void
     testNFTokenOffer(FeatureBitset const& features)
     {
+        testcase("NFTokenOffer");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        // mint before installing the hook: emit_tx rolls back any txn
+        // from alice that carries no Blob
+        auto const nftID = token::getNextID(env, alice, 0);
+        env(token::mint(alice, 0));
+        env.close();
+        installEmitHook(env, alice);
+
+        auto jv = token::createOffer(alice, nftID, XRP(1));
+        jv[jss::Flags] = tfSellNFToken;
+        expectCreated(env, alice, jv, ltNFTOKEN_OFFER);
     }
 
     void
     testCron(FeatureBitset const& features)
     {
+        testcase("Cron");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+
+        auto jv = cron::set(alice);
+        jv[sfStartTime.jsonName] = 0;
+        jv[sfDelaySeconds.jsonName] = 100;
+        jv[sfRepeatCount.jsonName] = 1;
+        expectCreated(env, alice, jv, ltCRON);
     }
 
     void
     testCheck(FeatureBitset const& features)
     {
+        testcase("Check");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(env, alice, check::create(alice, bob, XRP(100)), ltCHECK);
     }
 
     void
     testHookDefinition(FeatureBitset const& features)
     {
+        testcase("HookDefinition");
+        if (auto const meta = emitSetHook(features))
+            BEAST_EXPECT(hasNode(*meta, sfCreatedNode, ltHOOK_DEFINITION));
     }
 
     void
     testEmittedTxn(FeatureBitset const& features)
     {
+        testcase("EmittedTxn");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+        emitTxn(env, alice, pay(alice, bob, XRP(1)));
+        // the EmittedTxn entry is created by the emitting (Invoke) txn
+        if (BEAST_EXPECT(invokeMeta_))
+            BEAST_EXPECT(hasNode(*invokeMeta_, sfCreatedNode, ltEMITTED_TXN));
     }
 
     void
     testHook(FeatureBitset const& features)
     {
+        testcase("Hook");
+        // The emitting account always already owns a Hook entry, so an
+        // emitted SetHook can only modify it.
+        if (auto const meta = emitSetHook(features))
+            BEAST_EXPECT(hasNode(*meta, sfModifiedNode, ltHOOK));
     }
 
     void
     testImportVLSequence(FeatureBitset const& features)
     {
+        testcase("ImportVLSequence");
+        // created by Import, which needs a validly signed xpop; not
+        // emittable
+        pass();
     }
 
     void
     testNegativeUNL(FeatureBitset const& features)
     {
+        testcase("NegativeUNL");
+        // pseudo-transaction only
+        pass();
     }
 
     void
     testNFTokenPage(FeatureBitset const& features)
     {
+        testcase("NFTokenPage");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(env, alice, token::mint(alice, 0), ltNFTOKEN_PAGE);
     }
 
     void
     testUNLReport(FeatureBitset const& features)
     {
+        testcase("UNLReport");
+        // pseudo-transaction only
+        pass();
     }
 
     void
     testSignerList(FeatureBitset const& features)
     {
+        testcase("SignerList");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(env, alice, signers(alice, 1, {{bob, 1}}), ltSIGNER_LIST);
     }
 
     void
     testTicket(FeatureBitset const& features)
     {
+        testcase("Ticket");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(env, alice, ticket::create(alice, 1), ltTICKET);
     }
 
     void
     testURIToken(FeatureBitset const& features)
     {
+        testcase("URIToken");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(env, alice, uritoken::mint(alice, "uri"), ltURI_TOKEN);
     }
 
     void
     testAccountRoot(FeatureBitset const& features)
     {
-        testcase("testAccountRoot");
-        using namespace test::jtx;
-        using namespace std::literals;
-
+        testcase("AccountRoot");
+        using namespace jtx;
         Env env{*this, features};
         Account const alice{"alice"};
         Account const bob{"bob"};
         env.fund(XRP(10000), alice);
         env.close();
-
-        env(hook(alice, {{hso(emit_tx_wasm)}}, 0),
-            fee(XRP(1)),
-            ter(tesSUCCESS));
-        env.close();
-
-        STTx blobTx(ttPAYMENT, [&env, &bob](STObject& obj) {
-            obj[sfAmount] = XRPAmount(env.current()->fees().accountReserve(10));
-            obj[sfDestination] = bob.id();
-            // common fields
-            obj[sfSequence] = 0;
-            obj[sfSigningPubKey] = Slice{};
-            obj.makeFieldAbsent(sfFee);      // use etxn_fee_base to set fee
-            obj.makeFieldAbsent(sfAccount);  // use hook_account to set account
-        });
-        Serializer rawTxn;
-        blobTx.add(rawTxn);
-        SerialIter sit(rawTxn.slice());
-
-        env(invoke::invoke(alice),
-            invoke::blob(strHex(rawTxn.slice())),
-            fee(XRP(1)),
-            ter(tesSUCCESS));
-        env.close();
-
-        auto const emissions = env.meta()->getFieldArray(sfHookEmissions)[0];
-        auto const emittedTxnID = emissions.getFieldH256(sfEmittedTxnID);
-
-        env.close();
-
-        auto const [txn, meta] = env.closed()->txRead(emittedTxnID);
-        BEAST_EXPECT(txn->getTxnType() == ttPAYMENT);
-        BEAST_EXPECT(meta->getFieldU8(sfTransactionResult) == tesSUCCESS);
-        auto const nodes = meta->getFieldArray(sfAffectedNodes);
-        BEAST_EXPECT(foundCreatedLedgerEntry(nodes, ltACCOUNT_ROOT));
+        installEmitHook(env, alice);
+        expectCreated(
+            env,
+            alice,
+            pay(alice, bob, STAmount{env.current()->fees().accountReserve(10)}),
+            ltACCOUNT_ROOT);
     }
 
     void
     testDirectoryNode(FeatureBitset const& features)
     {
+        testcase("DirectoryNode");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const gw{"gw"};
+        auto const USD = gw["USD"];
+        env.fund(XRP(10000), alice, gw);
+        env.close();
+        installEmitHook(env, alice);
+        // a new offer book creates its directory
+        expectCreated(env, alice, offer(alice, USD(100), XRP(100)), ltDIR_NODE);
     }
 
     void
     testAmendments(FeatureBitset const& features)
     {
+        testcase("Amendments");
+        // pseudo-transaction only
+        pass();
     }
 
     void
     testLedgerHashes(FeatureBitset const& features)
     {
+        testcase("LedgerHashes");
+        // ledger-internal entry
+        pass();
     }
 
     void
     testBridge(FeatureBitset const& features)
     {
+        testcase("Bridge");
+        // XChainBridge is not supported on Xahau
+        BEAST_EXPECT(!features[featureXChainBridge]);
     }
 
     void
     testOffer(FeatureBitset const& features)
     {
+        testcase("Offer");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const gw{"gw"};
+        auto const USD = gw["USD"];
+        env.fund(XRP(10000), alice, gw);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(env, alice, offer(alice, USD(100), XRP(100)), ltOFFER);
     }
 
     void
     testDepositPreauth(FeatureBitset const& features)
     {
+        testcase("DepositPreauth");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(env, alice, deposit::auth(alice, bob), ltDEPOSIT_PREAUTH);
     }
 
     void
     testXChainOwnedClaimID(FeatureBitset const& features)
     {
+        testcase("XChainOwnedClaimID");
+        // XChainBridge is not supported on Xahau
+        BEAST_EXPECT(!features[featureXChainBridge]);
     }
 
     void
     testRippleState(FeatureBitset const& features)
     {
+        testcase("RippleState");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const gw{"gw"};
+        auto const USD = gw["USD"];
+        env.fund(XRP(10000), alice, gw);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(env, alice, trust(alice, USD(1000)), ltRIPPLE_STATE);
     }
 
     void
     testFeeSettings(FeatureBitset const& features)
     {
+        testcase("FeeSettings");
+        // pseudo-transaction only
+        pass();
     }
 
     void
     testXChainOwnedCreateAccountClaimID(FeatureBitset const& features)
     {
+        testcase("XChainOwnedCreateAccountClaimID");
+        // XChainBridge is not supported on Xahau
+        BEAST_EXPECT(!features[featureXChainBridge]);
     }
 
     void
     testEscrow(FeatureBitset const& features)
     {
+        testcase("Escrow");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::EscrowCreate;
+        jv[jss::Account] = alice.human();
+        jv[jss::Destination] = bob.human();
+        jv[jss::Amount] = XRP(100).value().getJson(JsonOptions::none);
+        jv[sfFinishAfter.jsonName] = env.now().time_since_epoch().count() + 100;
+        expectCreated(env, alice, jv, ltESCROW);
     }
 
     void
     testHookState(FeatureBitset const& features)
     {
+        testcase("HookState");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+        // bob's hook runs as a strong TSH of the emitted Invoke and writes
+        // state
+        env(hook(bob, {{hso(makestate_wasm)}}, 0), fee(XRP(1)));
+        env.close();
+
+        auto jv = invoke::invoke(alice);
+        jv[jss::Destination] = bob.human();
+        expectCreated(env, alice, jv, ltHOOK_STATE);
     }
 
     void
     testPayChannel(FeatureBitset const& features)
     {
+        testcase("PayChannel");
+        using namespace jtx;
+        using namespace std::chrono_literals;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(
+            env,
+            alice,
+            paychan::create(alice, bob, XRP(100), 100s, alice.pk()),
+            ltPAYCHAN);
     }
 
     void
     testAMM(FeatureBitset const& features)
     {
+        testcase("AMM");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const gw{"gw"};
+        auto const USD = gw["USD"];
+        env.fund(XRP(10000), alice, gw);
+        env.close();
+        env(trust(alice, USD(1000)));
+        env(pay(gw, alice, USD(500)));
+        env.close();
+        installEmitHook(env, alice);
+
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::AMMCreate;
+        jv[jss::Account] = alice.human();
+        jv[jss::Amount] = XRP(100).value().getJson(JsonOptions::none);
+        jv[jss::Amount2] = USD(100).value().getJson(JsonOptions::none);
+        jv[jss::TradingFee] = 0;
+        expectCreated(env, alice, jv, ltAMM);
     }
 
     void
     testOracle(FeatureBitset const& features)
     {
+        testcase("Oracle");
+        using namespace jtx;
+        using namespace std::chrono;
+        Env env{*this, features};
+        // OracleSet needs closeTime > maxLastUpdateTimeDelta
+        env.close(seconds(10'000));
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::OracleSet;
+        jv[jss::Account] = alice.human();
+        jv[jss::OracleDocumentID] = 1;
+        jv[jss::Provider] = strHex(std::string("provider"));
+        jv[jss::AssetClass] = strHex(std::string("currency"));
+        jv[jss::LastUpdateTime] = static_cast<Json::UInt>(
+            duration_cast<seconds>(env.now().time_since_epoch()).count() +
+            epoch_offset.count());
+        Json::Value price;
+        price[jss::BaseAsset] = "XRP";
+        price[jss::QuoteAsset] = "USD";
+        price[jss::AssetPrice] = 740;
+        price[jss::Scale] = 1;
+        jv[jss::PriceDataSeries][0u][jss::PriceData] = price;
+        expectCreated(env, alice, jv, ltORACLE);
     }
 
     void
     testMPTokenIssuance(FeatureBitset const& features)
     {
+        testcase("MPTokenIssuance");
+        // MPTokensV1 is not supported on Xahau
+        BEAST_EXPECT(!features[featureMPTokensV1]);
     }
 
     void
     testMPToken(FeatureBitset const& features)
     {
+        testcase("MPToken");
+        // MPTokensV1 is not supported on Xahau
+        BEAST_EXPECT(!features[featureMPTokensV1]);
     }
 
     void
     testCredential(FeatureBitset const& features)
     {
+        testcase("Credential");
+        // Credentials is not supported on Xahau
+        BEAST_EXPECT(!features[featureCredentials]);
     }
 
     void
     testPermissionedDomain(FeatureBitset const& features)
     {
+        testcase("PermissionedDomain");
+        // PermissionedDomains is not supported on Xahau
+        BEAST_EXPECT(!features[featurePermissionedDomains]);
     }
 
     void
     testDID(FeatureBitset const& features)
     {
+        testcase("DID");
+        // DID is not supported on Xahau
+        BEAST_EXPECT(!features[featureDID]);
     }
 
     void
     testCreateLedgerEntry(FeatureBitset const& features)
     {
 #pragma push_macro("LEDGER_ENTRY")
+#pragma push_macro("EXPAND")
 #undef LEDGER_ENTRY
+#undef EXPAND
 
 #define LEDGER_ENTRY(tag, value, name, ...) test##name(features);
 
 #include <xrpl/protocol/detail/ledger_entries.macro>
 
 #undef LEDGER_ENTRY
+#undef EXPAND
+#pragma pop_macro("EXPAND")
 #pragma pop_macro("LEDGER_ENTRY")
     }
 
@@ -371,6 +723,22 @@ private:
         )[test.hook]"];
     HASH_WASM(emit_tx);
 
+    TestHook makestate_wasm = wasm[
+        R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g           (uint32_t id, uint32_t maxiter);
+            extern int64_t accept       (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t state_set    (uint32_t read_ptr, uint32_t read_len, uint32_t kread_ptr, uint32_t kread_len);
+            #define SBUF(x) x, sizeof(x)
+            int64_t hook(uint32_t reserved )
+            {
+                _g(1,1);
+                uint8_t test_key[] = "key";
+                uint8_t test_value[] = "value";
+                return accept(0,0, state_set(SBUF(test_value), SBUF(test_key)));
+            }
+        )[test.hook]"];
+
 public:
     void
     run() override
@@ -378,7 +746,7 @@ public:
         using namespace test::jtx;
         testCreateLedgerEntry(supported_amendments());
     }
-};  // namespace ripple
+};
 
 BEAST_DEFINE_TESTSUITE_PRIO(HookEmitTxn, app, ripple, 2);
 }  // namespace test
