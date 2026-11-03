@@ -358,6 +358,8 @@ JSS(have_header);           // out: InboundLedger
 JSS(have_state);            // out: InboundLedger
 JSS(have_transactions);     // out: InboundLedger
 JSS(hooks);                 // in/out: AccountInfo
+JSS(hook_callback_cost);    // out: HookValidate
+JSS(hook_cost);             // out: HookValidate
 JSS(high);                  // out: BookChanges
 JSS(highest_sequence);      // out: AccountInfo
 JSS(highest_ticket);        // out: AccountInfo
