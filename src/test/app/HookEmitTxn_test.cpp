@@ -945,7 +945,6 @@ private:
             return accept(SBUF("Emit succeeded."), __LINE__);
           }
         )[test.hook]"];
-    HASH_WASM(emit_tx);
 
     TestHook makestate_wasm = wasm[
         R"[test.hook](
