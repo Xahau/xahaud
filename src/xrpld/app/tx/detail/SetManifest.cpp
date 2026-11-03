@@ -215,9 +215,6 @@ SetManifest::preflight(PreflightContext const& ctx)
 TER
 SetManifest::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureOnChainManifests))
-        return temDISABLED;
-
     auto const id = ctx.tx[sfAccount];
 
     // The account must exist: it pays the fee and anchors sfManifestID.

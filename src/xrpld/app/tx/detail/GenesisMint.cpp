@@ -148,12 +148,6 @@ GenesisMint::preflight(PreflightContext const& ctx)
 TER
 GenesisMint::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureHooks))
-        return temDISABLED;
-
-    if (!ctx.view.rules().enabled(featureXahauGenesis))
-        return temDISABLED;
-
     // RH UPTO:
     // check that printing won't exceed 200% of the total coins on the ledger
     // this will act as a hard cap against malfunction

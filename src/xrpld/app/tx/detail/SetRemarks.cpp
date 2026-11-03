@@ -199,9 +199,6 @@ getRemarksIssuer(T const& sleO)
 TER
 SetRemarks::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureRemarks))
-        return temDISABLED;
-
     auto const id = ctx.tx[sfAccount];
 
     auto const sle = ctx.view.read(keylet::account(id));

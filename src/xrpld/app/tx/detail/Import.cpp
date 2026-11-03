@@ -891,9 +891,6 @@ Import::preflight(PreflightContext const& ctx)
 TER
 Import::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureImport))
-        return temDISABLED;
-
     if (!ctx.tx.isFieldPresent(sfBlob))
         return tefINTERNAL;
 
@@ -1216,9 +1213,6 @@ Import::doRegularKey(std::shared_ptr<SLE>& sle, STTx const& stpTrans)
 TER
 Import::doApply()
 {
-    if (!view().rules().enabled(featureImport))
-        return temDISABLED;
-
     if (!ctx_.tx.isFieldPresent(sfBlob))
         return tefINTERNAL;
 
