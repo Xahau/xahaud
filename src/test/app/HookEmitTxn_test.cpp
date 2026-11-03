@@ -20,6 +20,7 @@
 #include <test/app/SetHook_wasm.h>
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <test/jtx/xchain_bridge.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <xrpl/protocol/jss.h>
@@ -403,8 +404,22 @@ private:
     testBridge(FeatureBitset const& features)
     {
         testcase("Bridge");
-        // XChainBridge is not supported on Xahau
-        BEAST_EXPECT(!features[featureXChainBridge]);
+        using namespace jtx;
+        Env env{*this, features | featureXChainBridge};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+        // alice is the locking-chain door; an XRP bridge's issuing door
+        // must be the root account
+        expectCreated(
+            env,
+            alice,
+            bridge_create(
+                alice,
+                bridge(alice, xrpIssue(), Account::master, xrpIssue()),
+                XRP(1)),
+            ltBRIDGE);
     }
 
     void
@@ -441,8 +456,22 @@ private:
     testXChainOwnedClaimID(FeatureBitset const& features)
     {
         testcase("XChainOwnedClaimID");
-        // XChainBridge is not supported on Xahau
-        BEAST_EXPECT(!features[featureXChainBridge]);
+        using namespace jtx;
+        Env env{*this, features | featureXChainBridge};
+        Account const alice{"alice"};
+        Account const door{"door"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, door);
+        env.close();
+        auto const jvb = bridge(door, xrpIssue(), Account::master, xrpIssue());
+        env(bridge_create(door, jvb, XRP(1)));
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(
+            env,
+            alice,
+            xchain_create_claim_id(alice, jvb, XRP(1), bob),
+            ltXCHAIN_OWNED_CLAIM_ID);
     }
 
     void
@@ -472,8 +501,38 @@ private:
     testXChainOwnedCreateAccountClaimID(FeatureBitset const& features)
     {
         testcase("XChainOwnedCreateAccountClaimID");
-        // XChainBridge is not supported on Xahau
-        BEAST_EXPECT(!features[featureXChainBridge]);
+        using namespace jtx;
+        Env env{*this, features | featureXChainBridge};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        Account const door{"door"};
+        std::vector<signer> const witnesses{
+            signer{Account{"w1"}}, signer{Account{"w2"}}};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        // this ledger is the issuing chain, whose door is the root account
+        auto const jvb = bridge(door, xrpIssue(), Account::master, xrpIssue());
+        env(signers(Account::master, 2, witnesses));
+        env(bridge_create(Account::master, jvb, XRP(1), XRP(20)));
+        env.close();
+        installEmitHook(env, alice);
+        // first of two required attestations: the claim id is created and
+        // waits for quorum
+        expectCreated(
+            env,
+            alice,
+            create_account_attestation(
+                alice,
+                jvb,
+                bob,
+                XRP(100),
+                XRP(1),
+                bob,
+                true,
+                1,
+                Account{"newacct"},
+                witnesses[0]),
+            ltXCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID);
     }
 
     void
@@ -598,40 +657,87 @@ private:
     testMPTokenIssuance(FeatureBitset const& features)
     {
         testcase("MPTokenIssuance");
-        // MPTokensV1 is not supported on Xahau
-        BEAST_EXPECT(!features[featureMPTokensV1]);
+        using namespace jtx;
+        Env env{*this, features | featureMPTokensV1};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::MPTokenIssuanceCreate;
+        jv[jss::Account] = alice.human();
+        // keyed by the txn Sequence, which is 0 for every emitted txn: a
+        // second emission from the same account hits "dirInsert: double
+        // insertion" (LogicError). The CreatedNode also omits the default
+        // Sequence, so RPC::getIDFromCreatedIssuance throws while the ledger
+        // is published (the FTL "Field not found: Sequence" in the log).
+        expectCreated(env, alice, jv, ltMPTOKEN_ISSUANCE);
     }
 
     void
     testMPToken(FeatureBitset const& features)
     {
         testcase("MPToken");
-        // MPTokensV1 is not supported on Xahau
-        BEAST_EXPECT(!features[featureMPTokensV1]);
+        using namespace jtx;
+        Env env{*this, features | featureMPTokensV1};
+        Account const alice{"alice"};
+        Account const gw{"gw"};
+        MPTTester mpt(env, gw, {.holders = {alice}});
+        mpt.create();
+        installEmitHook(env, alice);
+        Json::Value jv;
+        jv[jss::TransactionType] = jss::MPTokenAuthorize;
+        jv[jss::Account] = alice.human();
+        jv[sfMPTokenIssuanceID.jsonName] = to_string(mpt.issuanceID());
+        expectCreated(env, alice, jv, ltMPTOKEN);
     }
 
     void
     testCredential(FeatureBitset const& features)
     {
         testcase("Credential");
-        // Credentials is not supported on Xahau
-        BEAST_EXPECT(!features[featureCredentials]);
+        using namespace jtx;
+        Env env{*this, features | featureCredentials};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(
+            env, alice, credentials::create(bob, alice, "cred"), ltCREDENTIAL);
     }
 
     void
     testPermissionedDomain(FeatureBitset const& features)
     {
         testcase("PermissionedDomain");
-        // PermissionedDomains is not supported on Xahau
-        BEAST_EXPECT(!features[featurePermissionedDomains]);
+        using namespace jtx;
+        Env env{
+            *this, features | featureCredentials | featurePermissionedDomains};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        installEmitHook(env, alice);
+        // keyed by the txn Sequence (0 for emitted txns), see MPTokenIssuance
+        expectCreated(
+            env,
+            alice,
+            pdomain::setTx(alice.id(), {{bob, "cred"}}),
+            ltPERMISSIONED_DOMAIN);
     }
 
     void
     testDID(FeatureBitset const& features)
     {
         testcase("DID");
-        // DID is not supported on Xahau
-        BEAST_EXPECT(!features[featureDID]);
+        using namespace jtx;
+        Env env{*this, features | featureDID};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+        expectCreated(env, alice, did::setValid(alice), ltDID);
     }
 
     void
