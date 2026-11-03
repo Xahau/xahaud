@@ -451,6 +451,12 @@ fanOutFee(ReadView const& view, AccountID const& acc)
     return view.fees().base * (n + 1);
 }
 
+XRPAmount
+Export::autoFee(ReadView const& view, AccountID const& owner)
+{
+    return fanOutFee(view, owner) + view.fees().base;
+}
+
 // the owner of an export: the hook account, or the exporter of an automatic one
 static AccountID
 ownerOf(STTx const& tx)
@@ -541,8 +547,7 @@ Export::preclaim(PreclaimContext const& ctx)
             auto const sle = ctx.view.read(keylet::account(owner));
             if (!sle || !sle->isFlag(lsfExporter))
                 return tecNO_PERMISSION;
-            if (sle->getFieldAmount(sfBalance).xrp() <
-                fanOutFee(ctx.view, owner) + ctx.view.fees().base)
+            if (sle->getFieldAmount(sfBalance).xrp() < autoFee(ctx.view, owner))
                 return tecINSUFFICIENT_FUNDS;
         }
         return tesSUCCESS;
@@ -661,7 +666,7 @@ Export::createExport(
     // an automatic export is paid by its owner, as a hook's is by its account
     if (automatic)
     {
-        auto const fee = fanOutFee(view, owner) + view.fees().base;
+        auto const fee = autoFee(view, owner);
         auto const bal = acc->getFieldAmount(sfBalance).xrp();
         if (bal < fee)
             return tecINSUFFICIENT_FUNDS;
