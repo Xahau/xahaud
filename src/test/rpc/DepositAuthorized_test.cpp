@@ -64,6 +64,7 @@ public:
     void
     testValid()
     {
+        testcase("Valid");
         using namespace jtx;
         Account const alice{"alice"};
         Account const becky{"becky"};
@@ -161,6 +162,7 @@ public:
     void
     testErrors()
     {
+        testcase("Errors");
         using namespace jtx;
         Account const alice{"alice"};
         Account const becky{"becky"};
@@ -332,6 +334,8 @@ public:
     void
     testCredentials()
     {
+        testcase("Credentials");
+
         using namespace jtx;
 
         const char credType[] = "abcde";
@@ -362,7 +366,7 @@ public:
 
         {
             testcase(
-                "deposit_authorized with credentials failed: empty array.");
+                "deposit_authorized with credentials failure: empty array.");
 
             auto args = depositAuthArgs(alice, becky, "validated");
             args[jss::credentials] = Json::arrayValue;
@@ -375,7 +379,7 @@ public:
 
         {
             testcase(
-                "deposit_authorized with credentials failed: not a string "
+                "deposit_authorized with credentials failure: not a string "
                 "credentials");
 
             auto args = depositAuthArgs(alice, becky, "validated");
@@ -391,7 +395,7 @@ public:
 
         {
             testcase(
-                "deposit_authorized with credentials failed: not a hex string "
+                "deposit_authorized with credentials failure: not a hex string "
                 "credentials");
 
             auto args = depositAuthArgs(alice, becky, "validated");
@@ -411,7 +415,7 @@ public:
 
         {
             testcase(
-                "deposit_authorized with credentials failed: not a credential "
+                "deposit_authorized with credentials failure: not a credential "
                 "index");
 
             auto args = depositAuthArgs(
