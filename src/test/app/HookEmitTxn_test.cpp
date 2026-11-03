@@ -22,7 +22,9 @@
 #include <test/jtx/hook.h>
 #include <test/jtx/xchain_bridge.h>
 #include <xrpld/app/tx/detail/SetHook.h>
+#include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/STParsedJSON.h>
+#include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
@@ -77,25 +79,35 @@ private:
         env.close();
     }
 
-    // Emits `jv` from alice's emit_tx hook (via Invoke.Blob) and returns the
-    // metadata of the emitted txn once it has been applied. Account and Fee
-    // are filled in by the hook (hook_account / etxn_fee_base).
-    std::shared_ptr<STObject const>
-    emitTxn(jtx::Env& env, jtx::Account const& alice, Json::Value jv)
+    // Serializes `jv` as the emit_tx hook expects it in Invoke.Blob: Account
+    // and Fee are filled in by the hook (hook_account / etxn_fee_base).
+    std::string
+    emitBlob(Json::Value jv)
     {
-        using namespace jtx;
         jv.removeMember(jss::Account);
         jv.removeMember(jss::Fee);
         jv[jss::Sequence] = 0;
         jv[jss::SigningPubKey] = "";
         STParsedJSONObject parsed("tx", jv);
         if (!BEAST_EXPECT(parsed.object))
-            return nullptr;
+            return {};
         Serializer s;
         parsed.object->add(s);
+        return strHex(s.slice());
+    }
+
+    // Emits `jv` from alice's emit_tx hook (via Invoke.Blob) and returns the
+    // metadata of the emitted txn once it has been applied.
+    std::shared_ptr<STObject const>
+    emitTxn(jtx::Env& env, jtx::Account const& alice, Json::Value const& jv)
+    {
+        using namespace jtx;
+        auto const blob = emitBlob(jv);
+        if (blob.empty())
+            return nullptr;
 
         env(invoke::invoke(alice),
-            invoke::blob(strHex(s.slice())),
+            invoke::blob(blob),
             fee(XRP(1)),
             ter(tesSUCCESS));
         env.close();
@@ -601,7 +613,7 @@ private:
     {
         testcase("AMM");
         using namespace jtx;
-        Env env{*this, features};
+        Env env{*this, features | featureAMM};
         Account const alice{"alice"};
         Account const gw{"gw"};
         auto const USD = gw["USD"];
@@ -666,12 +678,16 @@ private:
         Json::Value jv;
         jv[jss::TransactionType] = jss::MPTokenIssuanceCreate;
         jv[jss::Account] = alice.human();
-        // keyed by the txn Sequence, which is 0 for every emitted txn: a
-        // second emission from the same account hits "dirInsert: double
-        // insertion" (LogicError). The CreatedNode also omits the default
-        // Sequence, so RPC::getIDFromCreatedIssuance throws while the ledger
-        // is published (the FTL "Field not found: Sequence" in the log).
-        expectCreated(env, alice, jv, ltMPTOKEN_ISSUANCE);
+        // MPTokenIssuanceCreate keys the issuance by the raw Sequence, which
+        // is 0 for every emitted txn, so preflight1 rejects it with
+        // temBAD_SEQUENCE: emit() fails and the hook rolls back. An
+        // MPTokenIssuance can not be created from a hook.
+        env(invoke::invoke(alice),
+            invoke::blob(emitBlob(jv)),
+            fee(XRP(1)),
+            ter(tecHOOK_REJECTED));
+        env.close();
+        BEAST_EXPECT(!env.le(keylet::mptIssuance(0, alice.id())));
     }
 
     void
@@ -719,8 +735,7 @@ private:
         env.fund(XRP(10000), alice, bob);
         env.close();
         installEmitHook(env, alice);
-        // keyed by the txn Sequence (0 for emitted txns), see MPTokenIssuance
-        expectCreated(
+        expectCreatedTwice(
             env,
             alice,
             pdomain::setTx(alice.id(), {{bob, "cred"}}),
@@ -738,6 +753,75 @@ private:
         env.close();
         installEmitHook(env, alice);
         expectCreated(env, alice, did::setValid(alice), ltDID);
+    }
+
+    void
+    testAppLoader(FeatureBitset const& features)
+    {
+        testcase("AppLoader");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+        auto jv = noop(alice);
+        jv[sfAppLoader.jsonName] =
+            strHex(std::string("<!DOCTYPE html><html><body>hi</body></html>"));
+        expectCreated(env, alice, jv, ltAPP_LOADER);
+    }
+
+    void
+    testRandom(FeatureBitset const& features)
+    {
+        testcase("Random");
+        // created by the Entropy pseudo-transaction only
+        pass();
+    }
+
+    void
+    testManifest(FeatureBitset const& features)
+    {
+        testcase("Manifest");
+        using namespace jtx;
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const ephemeral{"ephemeral"};
+        env.fund(XRP(10000), alice);
+        env.close();
+        installEmitHook(env, alice);
+
+        // a manifest alice's master key could submit itself
+        STObject manifest(sfManifest);
+        manifest[sfSequence] = 1;
+        manifest[sfPublicKey] = alice.pk();
+        manifest[sfSigningPubKey] = ephemeral.pk();
+        sign(
+            manifest,
+            HashPrefix::manifest,
+            *publicKeyType(ephemeral.pk()),
+            ephemeral.sk());
+        sign(
+            manifest,
+            HashPrefix::manifest,
+            *publicKeyType(alice.pk()),
+            alice.sk(),
+            sfMasterSignature);
+
+        Json::Value jv;
+        jv[jss::TransactionType] = "SetManifest";
+        jv[jss::Account] = alice.human();
+        jv[sfManifest.jsonName] = manifest.getJson(JsonOptions::none);
+        // SetManifest accepts only the canonical envelope (preflight compares
+        // the exact bytes). An emitted txn also carries EmitDetails and the
+        // ledger sequence bounds, so it is temMALFORMED: emit() fails and the
+        // hook rolls back. A Manifest can not be created from a hook.
+        env(invoke::invoke(alice),
+            invoke::blob(emitBlob(jv)),
+            fee(XRP(1)),
+            ter(tecHOOK_REJECTED));
+        env.close();
+        BEAST_EXPECT(!env.le(keylet::manifest(alice.pk())));
     }
 
     void
