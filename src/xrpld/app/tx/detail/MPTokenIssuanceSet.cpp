@@ -25,22 +25,19 @@
 
 namespace ripple {
 
+std::uint32_t
+MPTokenIssuanceSet::getFlagsMask(PreflightContext const& ctx)
+{
+    return tfMPTokenIssuanceSetMask;
+}
+
 NotTEC
 MPTokenIssuanceSet::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureMPTokensV1))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto const txFlags = ctx.tx.getFlags();
 
-    // check flags
-    if (txFlags & tfMPTokenIssuanceSetMask)
-        return temINVALID_FLAG;
     // fails if both flags are set
-    else if ((txFlags & tfMPTLock) && (txFlags & tfMPTUnlock))
+    if ((txFlags & tfMPTLock) && (txFlags & tfMPTUnlock))
         return temINVALID_FLAG;
 
     auto const accountID = ctx.tx[sfAccount];
@@ -48,7 +45,7 @@ MPTokenIssuanceSet::preflight(PreflightContext const& ctx)
     if (holderID && accountID == holderID)
         return temMALFORMED;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER

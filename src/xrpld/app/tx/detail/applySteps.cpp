@@ -100,8 +100,8 @@ with_txn_type(TxType txnType, F&& f)
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, fields) \
-    case tag:                                 \
+#define TRANSACTION(tag, value, name, amendment, fields) \
+    case tag:                                            \
         return f.template operator()<name>();
 
 #include <xrpl/protocol/detail/transactions.macro>
@@ -160,7 +160,7 @@ invoke_preflight(PreflightContext const& ctx)
     try
     {
         return with_txn_type(ctx.tx.getTxnType(), [&]<typename T>() {
-            auto const tec = T::preflight(ctx);
+            auto const tec = Transactor::invokePreflight<T>(ctx);
             return std::make_pair(
                 tec,
                 isTesSuccess(tec) ? consequences_helper<T>(ctx)
