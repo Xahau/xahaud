@@ -41,14 +41,24 @@ private:
     // metadata of the last Invoke submitted by emitTxn()
     std::shared_ptr<STObject const> invokeMeta_;
 
-    static bool
-    hasNode(STObject const& meta, SField const& nodeKind, LedgerEntryType type)
+    // LedgerIndex of the first affected node of kind `nodeKind` and `type`
+    static std::optional<uint256>
+    nodeIndex(
+        STObject const& meta,
+        SField const& nodeKind,
+        LedgerEntryType type)
     {
         for (auto const& node : meta.getFieldArray(sfAffectedNodes))
             if (node.getFName() == nodeKind &&
                 node.getFieldU16(sfLedgerEntryType) == type)
-                return true;
-        return false;
+                return node.getFieldH256(sfLedgerIndex);
+        return std::nullopt;
+    }
+
+    static bool
+    hasNode(STObject const& meta, SField const& nodeKind, LedgerEntryType type)
+    {
+        return nodeIndex(meta, nodeKind, type).has_value();
     }
 
     // Installs the emit_tx hook on `account`. `f` may edit the HookSetObject
@@ -130,6 +140,27 @@ private:
         }
     }
 
+    // For entries keyed by the txn sequence: emitted txns all carry
+    // Sequence 0, so seqID() keys them by TransactionID instead. Emitting
+    // the same txn twice must succeed and create two distinct entries.
+    void
+    expectCreatedTwice(
+        jtx::Env& env,
+        jtx::Account const& alice,
+        Json::Value const& jv,
+        LedgerEntryType type)
+    {
+        std::optional<uint256> first, second;
+        if (auto const meta = emitTxn(env, alice, jv))
+            first = nodeIndex(*meta, sfCreatedNode, type);
+        if (auto const meta = emitTxn(env, alice, jv))
+            second = nodeIndex(*meta, sfCreatedNode, type);
+        BEAST_EXPECT(first);
+        BEAST_EXPECT(second);
+        if (first && second)
+            BEAST_EXPECT(*first != *second);
+    }
+
     // Emitted SetHook: allowed only when HookCanEmit permits ttHOOK_SET.
     std::shared_ptr<STObject const>
     emitSetHook(FeatureBitset const& features)
@@ -168,7 +199,7 @@ private:
 
         auto jv = token::createOffer(alice, nftID, XRP(1));
         jv[jss::Flags] = tfSellNFToken;
-        expectCreated(env, alice, jv, ltNFTOKEN_OFFER);
+        expectCreatedTwice(env, alice, jv, ltNFTOKEN_OFFER);
     }
 
     void
@@ -200,7 +231,8 @@ private:
         env.fund(XRP(10000), alice, bob);
         env.close();
         installEmitHook(env, alice);
-        expectCreated(env, alice, check::create(alice, bob, XRP(100)), ltCHECK);
+        expectCreatedTwice(
+            env, alice, check::create(alice, bob, XRP(100)), ltCHECK);
     }
 
     void
@@ -300,7 +332,8 @@ private:
         env.fund(XRP(10000), alice);
         env.close();
         installEmitHook(env, alice);
-        expectCreated(env, alice, ticket::create(alice, 1), ltTICKET);
+        // keyed by AccountRoot.Sequence, which CreateTicket advances itself
+        expectCreatedTwice(env, alice, ticket::create(alice, 1), ltTICKET);
     }
 
     void
@@ -386,7 +419,8 @@ private:
         env.fund(XRP(10000), alice, gw);
         env.close();
         installEmitHook(env, alice);
-        expectCreated(env, alice, offer(alice, USD(100), XRP(100)), ltOFFER);
+        expectCreatedTwice(
+            env, alice, offer(alice, USD(100), XRP(100)), ltOFFER);
     }
 
     void
@@ -460,7 +494,7 @@ private:
         jv[jss::Destination] = bob.human();
         jv[jss::Amount] = XRP(100).value().getJson(JsonOptions::none);
         jv[sfFinishAfter.jsonName] = env.now().time_since_epoch().count() + 100;
-        expectCreated(env, alice, jv, ltESCROW);
+        expectCreatedTwice(env, alice, jv, ltESCROW);
     }
 
     void
@@ -496,7 +530,7 @@ private:
         env.fund(XRP(10000), alice, bob);
         env.close();
         installEmitHook(env, alice);
-        expectCreated(
+        expectCreatedTwice(
             env,
             alice,
             paychan::create(alice, bob, XRP(100), 100s, alice.pk()),
