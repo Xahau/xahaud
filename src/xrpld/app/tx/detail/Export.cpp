@@ -33,6 +33,7 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 #include <boost/algorithm/string/trim.hpp>
+#include <boost/filesystem.hpp>
 #include <fstream>
 #include <limits>
 
@@ -943,8 +944,10 @@ ExportKeys::ExportKeys(
     if (!file_ || !boost::filesystem::exists(*file_, ec))
         return;
     std::ifstream in(file_->string());
+    std::size_t lineNo = 0;
     for (std::string line; std::getline(in, line);)
     {
+        ++lineNo;
         boost::algorithm::trim(line);
         if (line.empty())
             continue;
@@ -955,8 +958,8 @@ ExportKeys::ExportKeys(
             // lost its keys can no longer sign for exporters listing them,
             // and the operator should restore a backup, not generate new ones.
             Throw<std::runtime_error>(
-                "ExportKeys: malformed key on line " +
-                std::to_string(keys_.size() + 1) + " of " + file_->string() +
+                "ExportKeys: malformed key on line " + std::to_string(lineNo) +
+                " of " + file_->string() +
                 " (expected one 64-character hex secret per line); restore "
                 "the file from backup or remove it to generate a new key");
         }
@@ -1080,10 +1083,17 @@ ExportKeys::nominate(ReadView const& ledger)
     {
         if (rotate)
             keys_.pop_back();
-        JLOG(j_.error()) << "ExportKeys: export key not persisted, not "
-                            "nominating until it is";
         if (keys_.empty())
+        {
+            JLOG(j_.error()) << "ExportKeys: export key not persisted, not "
+                                "nominating until it is";
             return std::nullopt;
+        }
+        // the file still holds every key kept here, so the last persisted
+        // key is safe to keep nominating
+        JLOG(j_.error()) << "ExportKeys: export keys not persisted, "
+                            "nominating the last persisted key "
+                         << strHex(keys_.back().pk);
     }
     return std::make_pair(keys_.back().pk, keys_.back().proof);
 }

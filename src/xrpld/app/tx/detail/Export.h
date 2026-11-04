@@ -24,7 +24,7 @@
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Rules.h>
-#include <boost/filesystem.hpp>
+#include <boost/filesystem/path.hpp>
 #include <mutex>
 
 namespace ripple {

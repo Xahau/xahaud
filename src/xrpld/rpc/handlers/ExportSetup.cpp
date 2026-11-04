@@ -30,6 +30,14 @@
 
 namespace ripple {
 
+// a JSON number usable as an unsigned: the parser gives small literals the
+// signed type, so isUInt() alone would refuse them
+static bool
+isUnsigned(Json::Value const& v)
+{
+    return v.isUInt() || (v.isInt() && v.asInt() >= 0);
+}
+
 /** export_setup: the SignerListSet that sets an account up on the network
     it exports to (see Export.h), as a sign request for Xaman.
 
@@ -52,14 +60,6 @@ namespace ripple {
 
     Hooks need none of this: xport() a SignerListSet without SignerEntries.
 */
-// a JSON number usable as an unsigned: the parser gives small literals the
-// signed type, so isUInt() alone would refuse them
-static bool
-isUnsigned(Json::Value const& v)
-{
-    return v.isUInt() || (v.isInt() && v.asInt() >= 0);
-}
-
 Json::Value
 doExportSetup(RPC::JsonContext& context)
 {

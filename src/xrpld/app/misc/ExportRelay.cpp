@@ -42,6 +42,7 @@
 #include <deque>
 #include <map>
 #include <regex>
+#include <set>
 #include <thread>
 
 /*  [xrpl_relay]: one XRPL peer connection per "host [port]" line, plus
