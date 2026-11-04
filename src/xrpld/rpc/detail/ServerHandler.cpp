@@ -1126,9 +1126,15 @@ ServerHandler::onUDPMessage(
     if (port.has_peer())
         return app_.overlay().processXUSH(message, remoteEndpoint);
 
+    // UDP-RPC runs every request as admin, so only configured admin
+    // addresses are answered. Unanswered: a reply would be a reflector.
     if (!ipAllowed(
             remoteEndpoint.address(), port.admin_nets_v4, port.admin_nets_v6))
+    {
+        JLOG(m_journal.trace())
+            << "UDP dropping datagram from non-admin " << remoteEndpoint;
         return;
+    }
 
     Json::Value jv;
     if (message.size() > RPC::Tuning::maxRequestSize ||
@@ -2157,6 +2163,11 @@ parse_Ports(Config const& config, std::ostream& log)
                 fail(
                     "domain, custom_domains and resolver apply to pwa "
                     "ports only");
+            // Every UDP-RPC request runs as admin and only admin addresses
+            // are answered, so a udp port without admin would be silent.
+            if (p.has_udp() && p.admin_nets_v4.empty() &&
+                p.admin_nets_v6.empty())
+                fail("udp port requires admin");
             continue;
         }
         if (p.protocol.size() != 1)

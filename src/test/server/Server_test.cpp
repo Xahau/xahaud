@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/core/ConfigSections.h>
+#include <xrpld/rpc/ServerHandler.h>
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/beast/unit_test.h>
@@ -631,6 +632,94 @@ public:
         s = nullptr;
     }
 
+    // UDP-RPC answers admin addresses only, and a udp port must name them.
+    void
+    udpAdminGateTests()
+    {
+        testcase("UDP RPC admin gate");
+        using namespace std::chrono_literals;
+        using namespace test::jtx;
+        using udp = boost::asio::ip::udp;
+
+        auto udpConfig = [](std::string const& admin) {
+            return envconfig([admin](std::unique_ptr<Config> cfg) {
+                (*cfg)["server"].append("port_udp");
+                auto& s = (*cfg)["port_udp"];
+                s.set("ip", getEnvLocalhostAddr());
+                s.set("port", "0");
+                s.set("protocol", "udp");
+                s.set("admin", admin);
+                return cfg;
+            });
+        };
+
+        // Send one datagram and return the reply, or nothing on timeout.
+        auto exchange = [&](Env& env,
+                            std::string const& msg,
+                            std::chrono::milliseconds timeout)
+            -> std::optional<std::string> {
+            auto const& eps = env.app().getServerHandler().endpoints();
+            auto const it = eps.find("port_udp");
+            if (!BEAST_EXPECT(it != eps.end()))
+                return std::nullopt;
+            udp::endpoint const server(it->second.address(), it->second.port());
+
+            boost::asio::io_context io;
+            udp::socket client(io, udp::endpoint(server.address(), 0));
+            client.send_to(boost::asio::buffer(msg), server);
+
+            std::vector<char> buf(70000);
+            udp::endpoint from;
+            std::optional<std::string> result;
+            client.async_receive_from(
+                boost::asio::buffer(buf),
+                from,
+                [&](boost::system::error_code ec, std::size_t n) {
+                    if (!ec)
+                        result.emplace(buf.data(), n);
+                });
+            io.run_for(timeout);
+            if (!result)
+            {
+                client.cancel();
+                io.restart();
+                io.run();
+            }
+            return result;
+        };
+        auto const ok = [](std::optional<std::string> const& r) {
+            return r && r->find("\"success\"") != std::string::npos;
+        };
+
+        // Admin address: answered. The subscription keeps the door's send
+        // callback alive in UDPInfoSub; env's destructor must still return.
+        {
+            Env env{*this, udpConfig(getEnvLocalhostAddr())};
+            BEAST_EXPECT(ok(exchange(env, R"({"command":"ping"})", 5s)));
+            BEAST_EXPECT(ok(exchange(
+                env, R"({"command":"subscribe","streams":["ledger"]})", 5s)));
+        }
+
+        // Non-admin address: dropped without a reply.
+        {
+            Env env{*this, udpConfig("10.0.0.0/8")};
+            BEAST_EXPECT(!exchange(env, R"({"command":"ping"})", 500ms));
+        }
+
+        // A udp port without admin is a configuration error.
+        {
+            std::string messages;
+            except([&] {
+                Env env{
+                    *this,
+                    udpConfig(""),
+                    std::make_unique<CaptureLogs>(&messages)};
+            });
+            BEAST_EXPECT(
+                messages.find("udp port requires admin") != std::string::npos);
+        }
+    }
+
     void
     testBadConfig()
     {
@@ -776,6 +865,7 @@ public:
         stressTest();
         udpHighwayTests();
         udpResponseTests();
+        udpAdminGateTests();
         testBadConfig();
     }
 };
