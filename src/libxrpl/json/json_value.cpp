@@ -675,8 +675,7 @@ Value::isConvertibleTo(ValueType other) const
                  value_.real_ <= maxInt) ||
                 (other == uintValue && value_.real_ >= 0 &&
                  value_.real_ <= maxUInt &&
-                 std::fabs(round(value_.real_) - value_.real_) <
-                     std::numeric_limits<double>::epsilon()) ||
+                 std::floor(value_.real_) == value_.real_) ||
                 other == realValue || other == stringValue ||
                 other == booleanValue;
 
