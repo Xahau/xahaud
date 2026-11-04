@@ -30,6 +30,11 @@ operator<(CanonicalTXSet::Key const& lhs, CanonicalTXSet::Key const& rhs)
     if (lhs.account_ > rhs.account_)
         return false;
 
+    // Empty for everything but a time-sequenced transaction, so this sorts
+    // those after the rest of the account's and leaves the rest alone.
+    if (lhs.time_ != rhs.time_)
+        return lhs.time_ < rhs.time_;
+
     if (lhs.seqProxy_ < rhs.seqProxy_)
         return true;
 
@@ -48,12 +53,28 @@ CanonicalTXSet::accountKey(AccountID const& account)
     return ret;
 }
 
+CanonicalTXSet::Key
+CanonicalTXSet::makeKey(
+    uint256 const& account,
+    STTx const& tx,
+    uint256 const& id)
+{
+    return Key(
+        account,
+        tx.getSeqProxy(),
+        tx.isTimeSequenced()
+            ? std::optional<std::uint64_t>(tx.getFieldU64(sfTime))
+            : std::nullopt,
+        id);
+}
+
 void
 CanonicalTXSet::insert(std::shared_ptr<STTx const> const& txn)
 {
     map_.insert(std::make_pair(
-        Key(accountKey(txn->getAccountID(sfAccount)),
-            txn->getSeqProxy(),
+        makeKey(
+            accountKey(txn->getAccountID(sfAccount)),
+            *txn,
             txn->getTransactionID()),
         txn));
 }
@@ -71,10 +92,13 @@ CanonicalTXSet::popAcctTransaction(std::shared_ptr<STTx const> const& tx)
     //
     //  3. After handling all transactions with Sequences, return Tickets
     //     with the lowest Ticket ID first.
+    //
+    //  4. After those, return time-sequenced transactions with the oldest
+    //     Time first.
     std::shared_ptr<STTx const> result;
     uint256 const effectiveAccount{accountKey(tx->getAccountID(sfAccount))};
 
-    Key const after(effectiveAccount, tx->getSeqProxy(), beast::zero);
+    Key const after = makeKey(effectiveAccount, *tx, beast::zero);
     auto const itrNext{map_.lower_bound(after)};
     if (itrNext != map_.end() &&
         itrNext->first.getAccount() == effectiveAccount)

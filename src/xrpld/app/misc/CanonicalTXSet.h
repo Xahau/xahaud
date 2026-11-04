@@ -25,13 +25,31 @@
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/SeqProxy.h>
 
+#include <optional>
+
 namespace ripple {
 
 /** Holds transactions which were deferred to the next pass of consensus.
 
     "Canonical" refers to the order in which transactions are applied.
 
-    - Puts transactions from the same account in SeqProxy order
+    - Puts transactions from the same account in SeqProxy order: Sequences,
+      then Tickets
+    - Then the account's time-sequenced transactions (featureJsonTx), oldest
+      Time first
+
+    Without a time-sequenced transaction in the set this is the SeqProxy
+    order it always was. A Time on a transaction with a Sequence or a Ticket
+    changes nothing: only time-sequenced transactions check or record
+    sfLastTxnTime, so oldest first is all their order has to satisfy.
+
+    They go after the Tickets for the reason Tickets go after Sequences. A
+    time-sequenced transaction does not say which Sequence it followed, but
+    what it does can depend on it - a TicketCreate numbers its Tickets from
+    the account Sequence. A transaction with a Sequence or a Ticket that
+    really came after it fails terPRE_SEQ or terPRE_TICKET here and is
+    retried; one that came before it, applied second, could have its
+    Sequence or Ticket taken and fail for good.
 
 */
 // VFALCO TODO rename to SortedTxSet
@@ -41,8 +59,11 @@ private:
     class Key
     {
     public:
-        Key(uint256 const& account, SeqProxy seqProx, uint256 const& id)
-            : account_(account), txId_(id), seqProxy_(seqProx)
+        Key(uint256 const& account,
+            SeqProxy seqProx,
+            std::optional<std::uint64_t> time,
+            uint256 const& id)
+            : account_(account), txId_(id), seqProxy_(seqProx), time_(time)
         {
         }
 
@@ -95,6 +116,11 @@ private:
         uint256 account_;
         uint256 txId_;
         SeqProxy seqProxy_;
+        // sfTime of a time-sequenced transaction, and nothing for any other.
+        // Compared before seqProxy_: an empty optional is less than every
+        // Time, so time-sequenced transactions come after the rest of their
+        // account's, and among themselves oldest first.
+        std::optional<std::uint64_t> time_;
     };
 
     friend bool
@@ -103,6 +129,10 @@ private:
     // Calculate the salted key for the given account
     uint256
     accountKey(AccountID const& account);
+
+    // The Key for tx under the salted account key, id breaking ties
+    static Key
+    makeKey(uint256 const& account, STTx const& tx, uint256 const& id);
 
 public:
     using const_iterator =
