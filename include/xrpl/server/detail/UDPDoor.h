@@ -133,6 +133,11 @@ public:
             return;
         }
 
+        // Report the port the socket actually bound (port 0 asks the OS).
+        auto const bound = socket_.local_endpoint(ec);
+        if (!ec)
+            local_endpoint_ = endpoint_type(bound.address(), bound.port());
+
         JLOG(j_.info()) << "UDP listening on " << udp_endpoint;
     }
 

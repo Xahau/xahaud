@@ -514,17 +514,7 @@ public:
             Port const& port,
             std::function<void(std::string const&)> sendResponse)
         {
-            if (message == "big")
-            {
-                std::string big(bigSize, '\0');
-                for (std::size_t i = 0; i < big.size(); ++i)
-                    big[i] = static_cast<char>('a' + (i % 26));
-                sendResponse(big);
-            }
-            else
-            {
-                sendResponse("pong");
-            }
+            sendResponse(message == "big" ? expectedBig() : "pong");
         }
 
         static std::string
@@ -553,24 +543,20 @@ public:
 
         auto const addr = boost::asio::ip::make_address(getEnvLocalhostAddr());
 
-        // UDPDoor reports the configured port, not the bound one, so pick a
-        // free port up front.
-        std::uint16_t port = 0;
-        {
-            boost::asio::io_context io;
-            udp::socket probe(io, udp::endpoint(addr, 0));
-            port = probe.local_endpoint().port();
-        }
-
         UDPEchoHandler handler;
         auto s = make_Server(handler, thread.get_io_context(), journal);
 
         std::vector<Port> ports(1);
         ports.back().name = "udp_rpc";
         ports.back().ip = addr;
-        ports.back().port = port;
+        ports.back().port = 0;
         ports.back().protocol.insert("udp");
-        s->ports(ports);
+        auto const eps = s->ports(ports);
+        if (!BEAST_EXPECT(eps.size() == 1))
+            return;
+        // Port 0 let the OS choose; the door reports what it bound.
+        auto const port = eps.begin()->second.port();
+        BEAST_EXPECT(port != 0);
 
         boost::asio::io_context io;
         udp::socket client(io, udp::endpoint(addr, 0));
