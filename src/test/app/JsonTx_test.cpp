@@ -947,7 +947,8 @@ struct JsonTx_test : public beast::unit_test::suite
                 o.setFieldU64(sfTime, now);
             });
         };
-        BEAST_EXPECT(applyDirect(env, pinned(ttMANIFEST_SET)) == temMALFORMED);
+        for (auto const type : {ttIMPORT, ttMANIFEST_SET})
+            BEAST_EXPECT(applyDirect(env, pinned(type)) == temMALFORMED);
 
         // Emitted transactions carry their own replay protection. Checked
         // in preflight1, ahead of the emitted-transaction bypass.
