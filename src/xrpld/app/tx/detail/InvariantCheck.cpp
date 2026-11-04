@@ -578,50 +578,23 @@ LedgerEntryTypesMatch::visitEntry(
 
     if (after)
     {
+#pragma push_macro("LEDGER_ENTRY")
+#undef LEDGER_ENTRY
+
+#define LEDGER_ENTRY(tag, ...) case tag:
+
         switch (after->getType())
         {
-            case ltACCOUNT_ROOT:
-            case ltDIR_NODE:
-            case ltRIPPLE_STATE:
-            case ltTICKET:
-            case ltSIGNER_LIST:
-            case ltOFFER:
-            case ltLEDGER_HASHES:
-            case ltAMENDMENTS:
-            case ltFEE_SETTINGS:
-            case ltESCROW:
-            case ltPAYCHAN:
-            case ltCHECK:
-            case ltDEPOSIT_PREAUTH:
-            case ltNEGATIVE_UNL:
-            case ltHOOK:
-            case ltHOOK_DEFINITION:
-            case ltHOOK_STATE:
-            case ltEMITTED_TXN:
-            case ltNFTOKEN_PAGE:
-            case ltNFTOKEN_OFFER:
-            case ltURI_TOKEN:
-            case ltCRON:
-            case ltIMPORT_VLSEQ:
-            case ltUNL_REPORT:
-            case ltRANDOM:
-            case ltAMM:
-            case ltBRIDGE:
-            case ltXCHAIN_OWNED_CLAIM_ID:
-            case ltXCHAIN_OWNED_CREATE_ACCOUNT_CLAIM_ID:
-            case ltDID:
-            case ltORACLE:
-            case ltMPTOKEN_ISSUANCE:
-            case ltMPTOKEN:
-            case ltCREDENTIAL:
-            case ltPERMISSIONED_DOMAIN:
-            case ltAPP_LOADER:
-            case ltMANIFEST:
-                break;
+#include <xrpl/protocol/detail/ledger_entries.macro>
+
+            break;
             default:
                 invalidTypeAdded_ = true;
                 break;
         }
+
+#undef LEDGER_ENTRY
+#pragma pop_macro("LEDGER_ENTRY")
     }
 }
 
