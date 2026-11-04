@@ -154,6 +154,9 @@ public:
     void
     close() override
     {
+        if (!strand_.running_in_this_thread())
+            return boost::asio::post(
+                strand_, std::bind(&UDPDoor::close, this->shared_from_this()));
         error_code ec;
         socket_.close(ec);
     }
@@ -199,9 +202,13 @@ private:
             std::string(recv_buffer_.data(), bytes_transferred),
             tcp_endpoint,
             port_,
-            [self = this->shared_from_this(),
+            // A weak reference: subscriptions keep this callback alive in
+            // UDPInfoSub, and a strong one would stop the door (and so the
+            // server) from ever shutting down.
+            [weak = this->weak_from_this(),
              tcp_endpoint](std::string const& response) {
-                self->do_send(response, tcp_endpoint);
+                if (auto self = weak.lock())
+                    self->do_send(response, tcp_endpoint);
             });
 
         do_receive();
@@ -305,7 +312,7 @@ private:
             // Calculate payload slice
             size_t start = packet_num * payload_size;
             size_t length = std::min(payload_size, response.length() - start);
-            fragment->append(response.substr(start, length));
+            fragment->append(response, start, length);
 
             send_datagram(std::move(fragment), udp_endpoint);
         }
