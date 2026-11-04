@@ -677,7 +677,7 @@ credential(
 }
 
 Keylet
-permissionedDomain(AccountID const& account, std::uint32_t seq) noexcept
+permissionedDomain(AccountID const& account, UInt32or256 const& seq) noexcept
 {
     return {
         ltPERMISSIONED_DOMAIN,
