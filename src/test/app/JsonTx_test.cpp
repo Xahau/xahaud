@@ -936,16 +936,6 @@ struct JsonTx_test : public beast::unit_test::suite
             env(withTime(jv, now));
         }
 
-        // the same for a permissioned domain, keyed (account, sequence) too
-        {
-            Account const issuer{"issuer"};
-            env.fund(XRP(1000), issuer);
-            env.close();
-            auto const jv = pdomain::setTx(
-                alice.id(), pdomain::Credentials{{issuer, "abcd"}});
-            env(withTime(jv, nowMs(env)), seq(0), ter(temBAD_SEQUENCE));
-        }
-
         // Sequence 0 already means something else for these
         auto const pinned = [&](TxType type) {
             return std::make_shared<STTx const>(type, [&](STObject& o) {
@@ -1079,17 +1069,38 @@ struct JsonTx_test : public beast::unit_test::suite
                 keylet::nftoffer(alice.id(), stx(o1).getTransactionID())));
             BEAST_EXPECT(env.le(
                 keylet::nftoffer(alice.id(), stx(o2).getTransactionID())));
+
+            // permissioned domains
+            auto const pd = [&](std::uint64_t at) {
+                return env.jt(
+                    withTime(
+                        pdomain::setTx(
+                            alice.id(), pdomain::Credentials{{bob, "abcd"}}),
+                        at),
+                    seq(0));
+            };
+            auto const p1 = pd(t + 4), p2 = pd(t + 5);
+            BEAST_EXPECT(engine(submitBlob(env, stx(p1))) == "tesSUCCESS");
+            BEAST_EXPECT(engine(submitBlob(env, stx(p2))) == "tesSUCCESS");
+            env.close();
+            for (auto const& p : {p1, p2})
+            {
+                auto const sle = env.le(keylet::permissionedDomain(
+                    alice.id(), stx(p).getTransactionID()));
+                if (BEAST_EXPECT(sle))
+                    BEAST_EXPECT(sle->getFieldU32(sfSequence) == 0);
+            }
+            BEAST_EXPECT(!env.le(keylet::permissionedDomain(alice.id(), 0u)));
         }
 
-        // The two raw-sequence creators refuse a time-sequenced transaction
-        // outright.
+        // The raw-sequence MPTokenIssuanceCreate creator refuses a
+        // time-sequenced transaction outright.
         {
             Env env{*this, all};
             Account const alice{"alice"};
             env.fund(XRP(10000), alice);
             env.close();
 
-            // MPTokenIssuanceCreate
             Json::Value mpt;
             mpt[jss::TransactionType] = "MPTokenIssuanceCreate";
             mpt[jss::Account] = alice.human();
@@ -1097,17 +1108,6 @@ struct JsonTx_test : public beast::unit_test::suite
                 env.jt(withTime(mpt, nowMs(env)), seq(0));
             BEAST_EXPECT(
                 engine(submitBlob(env, stx(mpTokenIssuanceCreate))) ==
-                "temBAD_SEQUENCE");
-
-            // PermissionedDomainSet
-            Json::Value pd;
-            pd[jss::TransactionType] = "PermissionedDomainSet";
-            pd[jss::Account] = alice.human();
-            pd[jss::AcceptedCredentials] = Json::arrayValue;
-            auto const permissionedDomainSet =
-                env.jt(withTime(pd, nowMs(env)), seq(0));
-            BEAST_EXPECT(
-                engine(submitBlob(env, stx(permissionedDomainSet))) ==
                 "temBAD_SEQUENCE");
         }
 
@@ -1147,7 +1147,8 @@ struct JsonTx_test : public beast::unit_test::suite
                 if (BEAST_EXPECT(sle))
                     BEAST_EXPECT(sle->getFieldU32(sfSequence) == tkt);
             }
-            BEAST_EXPECT(!env.le(keylet::permissionedDomain(alice.id(), 0)));
+            BEAST_EXPECT(
+                !env.le(keylet::permissionedDomain(alice.id(), uint32_t(0))));
         }
     }
 

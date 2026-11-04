@@ -674,7 +674,7 @@ credential(
 }
 
 Keylet
-permissionedDomain(AccountID const& account, UInt32or256 seq) noexcept
+permissionedDomain(AccountID const& account, UInt32or256 const& seq) noexcept
 {
     return {
         ltPERMISSIONED_DOMAIN,

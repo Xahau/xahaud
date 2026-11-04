@@ -125,14 +125,14 @@ PermissionedDomainSet::doApply()
         if (balance < reserve)
             return tecINSUFFICIENT_RESERVE;
 
-        // Key by the SeqProxy value, not the raw Sequence: the raw Sequence
-        // is 0 for a transaction that uses a Ticket, so keying on it would
-        // give every ticketed domain an account creates the key (account, 0),
-        // and an insert over an existing key is a LogicError when the ledger
-        // is built. The SeqProxy value is the Ticket number for those, which
-        // is what every other sequence-keyed object already uses. No
-        // amendment gate: PermissionedDomains is Supported::no, so no domain
-        // has ever been keyed the old way on any network.
+        // Key by seqID(), not the raw Sequence: the raw Sequence is 0 for a
+        // ticketed, emitted or time-sequenced transaction, so keying on it
+        // would give every such domain an account creates the key
+        // (account, 0), and an insert over an existing key is a LogicError
+        // when the ledger is built. seqID() is the Ticket number or the
+        // transaction id for those, as for every other sequence-keyed
+        // object. No amendment gate: PermissionedDomains is Supported::no,
+        // so no domain has ever been keyed the old way on any network.
         std::uint32_t const seq = ctx_.tx.getSeqProxy().value();
         Keylet const pdKeylet =
             keylet::permissionedDomain(account_, seqID(ctx_));
