@@ -456,39 +456,62 @@ class UNLReport_test : public beast::unit_test::suite
         testcase("Active validators are reset on a flag ledger with no AV tx");
         using namespace jtx;
 
-        test::jtx::Env env{
-            *this,
-            jtx::network::makeNetworkVLConfig(21337, keys),
-            features,
-            nullptr};
-
-        std::vector<PublicKey> ivlKeys;
-        for (auto const& strPk : _ivlKeys)
+        for (bool const withFix : {false, true})
         {
-            auto pkHex = strUnHex(strPk);
-            ivlKeys.emplace_back(makeSlice(*pkHex));
-        }
+            auto const amend =
+                withFix ? features : features - fixUNLReportReset;
 
-        std::vector<PublicKey> vlKeys;
-        for (auto const& strPk : _vlKeys)
-        {
-            auto pkHex = strUnHex(strPk);
-            vlKeys.emplace_back(makeSlice(*pkHex));
-        }
+            test::jtx::Env env{
+                *this,
+                jtx::network::makeNetworkVLConfig(21337, keys),
+                amend,
+                nullptr};
 
-        auto l = std::make_shared<Ledger>(
-            create_genesis,
-            env.app().config(),
-            std::vector<uint256>{},
-            env.app().getNodeFamily());
-        l = std::make_shared<Ledger>(*l, env.app().timeKeeper().closeTime());
+            std::vector<PublicKey> ivlKeys;
+            for (auto const& strPk : _ivlKeys)
+            {
+                auto pkHex = strUnHex(strPk);
+                ivlKeys.emplace_back(makeSlice(*pkHex));
+            }
 
-        for (std::size_t i = 0; i < 2; ++i)
-        {
+            std::vector<PublicKey> vlKeys;
+            for (auto const& strPk : _vlKeys)
+            {
+                auto pkHex = strUnHex(strPk);
+                vlKeys.emplace_back(makeSlice(*pkHex));
+            }
+
+            auto l = std::make_shared<Ledger>(
+                create_genesis,
+                env.app().config(),
+                std::vector<uint256>{},
+                env.app().getNodeFamily());
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
+
+            for (std::size_t i = 0; i < 2; ++i)
+            {
+                env.app().openLedger().modify(
+                    [&](OpenView& view, beast::Journal j) -> bool {
+                        STTx tx = createUNLRTx(
+                            env.current()->seq() + 1, ivlKeys[0], vlKeys[i]);
+                        uint256 txID = tx.getTransactionID();
+                        auto s = std::make_shared<ripple::Serializer>();
+                        tx.add(*s);
+                        env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                        view.rawTxInsert(txID, std::move(s), nullptr);
+                        return true;
+                    });
+            }
+            env.close();
+
+            BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == true);
+            BEAST_EXPECT(isActiveValidator(env, vlKeys[1]) == true);
+
             env.app().openLedger().modify(
                 [&](OpenView& view, beast::Journal j) -> bool {
-                    STTx tx = createUNLRTx(
-                        env.current()->seq() + 1, ivlKeys[0], vlKeys[i]);
+                    STTx tx = createUNLRTxVLOnly(
+                        env.current()->seq() + 1, ivlKeys[0]);
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
                     tx.add(*s);
@@ -496,27 +519,11 @@ class UNLReport_test : public beast::unit_test::suite
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });
+            env.close();
+
+            BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == !withFix);
+            BEAST_EXPECT(isActiveValidator(env, vlKeys[1]) == !withFix);
         }
-        env.close();
-
-        BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == true);
-        BEAST_EXPECT(isActiveValidator(env, vlKeys[1]) == true);
-
-        env.app().openLedger().modify(
-            [&](OpenView& view, beast::Journal j) -> bool {
-                STTx tx =
-                    createUNLRTxVLOnly(env.current()->seq() + 1, ivlKeys[0]);
-                uint256 txID = tx.getTransactionID();
-                auto s = std::make_shared<ripple::Serializer>();
-                tx.add(*s);
-                env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
-                view.rawTxInsert(txID, std::move(s), nullptr);
-                return true;
-            });
-        env.close();
-
-        BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == false);
-        BEAST_EXPECT(isActiveValidator(env, vlKeys[1]) == false);
     }
 
     void
