@@ -453,7 +453,9 @@ class UNLReport_test : public beast::unit_test::suite
     void
     testActiveValidatorResetAV(FeatureBitset features)
     {
-        testcase("Active validators are reset on a flag ledger with no AV tx");
+        testcase(
+            "Active validators reset on next close with no AV tx is gated by "
+            "fixUNLReportReset");
         using namespace jtx;
 
         for (bool const withFix : {false, true})
