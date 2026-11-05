@@ -211,11 +211,16 @@ public:
         std::shared_ptr<Ledger const> const& ledger,
         bool current) override
     {
+        auto j = app_.journal("Ledger");
+        auto seq = ledger->info().seq;
+
+        // Decided before taking mutex_: isPinned() takes LedgerMaster's
+        // pinned lock, which must never be acquired inside ours.
+        bool const pinned = app_.getLedgerMaster().isPinned(seq);
+
         std::unique_lock<std::shared_mutex> lock(mutex_);
         LedgerData ledgerData;
         ledgerData.info = ledger->info();
-        auto j = app_.journal("Ledger");
-        auto seq = ledger->info().seq;
 
         JLOG(j.trace()) << "saveValidatedLedger "
                         << (current ? "" : "fromAcquire ") << seq;
@@ -243,34 +248,60 @@ public:
             ledger->info().txHash == ledger->txMap().getHash().as_uint256(),
             "RWDBDatabase::saveValidatedLedger : tx hash mismatch");
 
-        // Save the ledger header in the hashed object store
+        // Save the ledger header in the hashed object store. A pinned
+        // (catalogue) ledger's header must go to the persistent pinned
+        // backend like its nodes do, which DatabasePinnedImp routes on the
+        // pinnedLEDGER type; as hotLEDGER it would land in the rotating
+        // hot store and be dropped by the second online_delete rotation
+        // while the SQL index still names it. This mirrors the SQLite
+        // backend (detail/Node.cpp).
         {
             Serializer s(128);
             s.add32(HashPrefix::ledgerMaster);
             addRaw(ledger->info(), s);
             app_.getNodeStore().store(
-                hotLEDGER, std::move(s.modData()), ledger->info().hash, seq);
+                pinned ? pinnedLEDGER : hotLEDGER,
+                std::move(s.modData()),
+                ledger->info().hash,
+                seq);
         }
 
+        // Pinned (catalogue) ledgers are saved in bulk and are never
+        // published from here, so their AcceptedLedger skips the per-tx
+        // JSON, is not placed in the AcceptedLedger cache (which would keep
+        // every imported ledger's full state tree alive until the next
+        // sweep), and is not built at all when there are no tx tables to
+        // fill. Same policy as the SQLite backend.
         std::shared_ptr<AcceptedLedger> aLedger;
-        try
+        if (!pinned || useTxTables_)
         {
-            aLedger = app_.getAcceptedLedgerCache().fetch(ledger->info().hash);
-            if (!aLedger)
+            try
             {
-                aLedger = std::make_shared<AcceptedLedger>(ledger, app_);
-                app_.getAcceptedLedgerCache().canonicalize_replace_client(
-                    ledger->info().hash, aLedger);
+                aLedger =
+                    app_.getAcceptedLedgerCache().fetch(ledger->info().hash);
+                if (!aLedger)
+                {
+                    aLedger = std::make_shared<AcceptedLedger>(
+                        ledger, app_, /*withJson=*/!pinned);
+
+                    // Only cache if the ledger is NOT in the pinned range
+                    if (!pinned)
+                    {
+                        app_.getAcceptedLedgerCache()
+                            .canonicalize_replace_client(
+                                ledger->info().hash, aLedger);
+                    }
+                }
             }
-        }
-        catch (std::exception const&)
-        {
-            JLOG(j.warn()) << "An accepted ledger was missing nodes";
-            app_.getLedgerMaster().failedSave(seq, ledger->info().hash);
-            // Clients can now trust the database for information about this
-            // ledger sequence.
-            app_.pendingSaves().finishWork(seq);
-            return false;
+            catch (std::exception const&)
+            {
+                JLOG(j.warn()) << "An accepted ledger was missing nodes";
+                app_.getLedgerMaster().failedSave(seq, ledger->info().hash);
+                // Clients can now trust the database for information about
+                // this ledger sequence.
+                app_.pendingSaves().finishWork(seq);
+                return false;
+            }
         }
 
         // Overwrite Current Ledger Transactions
