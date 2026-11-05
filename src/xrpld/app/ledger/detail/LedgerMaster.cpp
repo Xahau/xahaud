@@ -114,6 +114,7 @@ LedgerMaster::LedgerMaster(
           app_.getSHAMapStore().clampFetchDepth(app_.config().FETCH_DEPTH))
     , ledger_history_(app_.config().LEDGER_HISTORY)
     , nullBackend_(app_.config().nullBackend())
+    , liteMode_(app_.config().liteMode())
     , ledger_fetch_size_(app_.config().getValueFor(SizedItem::ledgerFetch))
     , fetch_packs_(
           "FetchPack",
@@ -278,6 +279,28 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
 
     mValidLedger.set(l);
     mValidLedgerSign = signTime.time_since_epoch().count();
+
+    // A lite node runs no consensus round, so nothing else ever sets a
+    // closed ledger or moves the open ledger on. The validated ledger is the
+    // most recent one it holds: it is the closed ledger, and the open ledger
+    // is an empty view on top of it, so that `current` reads, sequence and
+    // fee autofill see the watched accounts as they now are. Nothing is
+    // applied to it: a transaction submitted to a lite node is relayed, not
+    // applied (NetworkOPsImp::apply).
+    if (liteMode_)
+    {
+        mClosedLedger.set(l);
+        OrderedTxs retries{uint256{}};
+        app_.openLedger().accept(
+            app_,
+            l->rules(),
+            l,
+            OrderedTxs({}),
+            false,
+            retries,
+            tapNONE,
+            "lite");
+    }
     XRPL_ASSERT(
         mValidLedgerSeq || !app_.getMaxDisallowedLedger() ||
             l->info().seq + max_ledger_difference_ >
@@ -920,7 +943,11 @@ LedgerMaster::setFullLedger(
         "ripple::LedgerMaster::setFullLedger : nonzero ledger state hash");
 
     ledger->setValidated();
-    ledger->setFull();
+
+    // A lite ledger holds only the watched paths: marking it full would make
+    // the first read of anything else trigger a fresh acquire.
+    if (!liteMode_)
+        ledger->setFull();
 
     if (isCurrent)
         mLedgerHistory.insert(ledger, true);
@@ -1099,7 +1126,8 @@ LedgerMaster::checkAccept(std::shared_ptr<Ledger const> const& ledger)
                            << " validations";
 
     ledger->setValidated();
-    ledger->setFull();
+    if (!liteMode_)
+        ledger->setFull();
     setValidLedger(ledger);
 
     JLOG(m_journal.info()) << "checkAccept (" << ledger->info().seq
@@ -2272,7 +2300,10 @@ LedgerMaster::doAdvance(std::unique_lock<std::recursive_mutex>& sl)
         auto const pubLedgers = findNewLedgersToPublish(sl);
         if (pubLedgers.empty())
         {
-            if (!standalone_ && !app_.getFeeTrack().isLoadedLocal() &&
+            // A lite node keeps no history: it serves nobody, and every
+            // ledger it fetched would cost the same paths over again.
+            if (!standalone_ && !liteMode_ &&
+                !app_.getFeeTrack().isLoadedLocal() &&
                 (app_.getJobQueue().getJobCount(jtPUBOLDLEDGER) < 10) &&
                 (mValidLedgerSeq == mPubLedgerSeq) &&
                 (getValidatedLedgerAge() < MAX_LEDGER_AGE_ACQUIRE) &&

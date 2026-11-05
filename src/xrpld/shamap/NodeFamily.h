@@ -96,6 +96,9 @@ public:
 private:
     Application& app_;
     bool const nullBackend_;
+    // [lite_mode]: ledgers hold only the paths to the watched keys, and a
+    // node they do not hold is not something to acquire.
+    bool const liteMode_;
     NodeStore::Database& db_;
     beast::Journal const j_;
 

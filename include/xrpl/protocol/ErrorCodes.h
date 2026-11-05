@@ -157,7 +157,11 @@ enum error_code_i {
     // Simulate
     rpcTX_SIGNED = 97,
 
-    rpcLAST = rpcTX_SIGNED  // rpcLAST should always equal the last code.
+    // Lite mode: the object is not among the watched keys, so this node
+    // does not hold it
+    rpcLITE_NOT_WATCHED = 98,
+
+    rpcLAST = rpcLITE_NOT_WATCHED  // rpcLAST should always equal the last code.
 };
 
 /** Codes returned in the `warnings` array of certain RPC commands.

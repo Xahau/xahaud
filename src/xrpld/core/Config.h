@@ -25,6 +25,7 @@
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/net/IPEndpoint.h>
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/FeeUnits.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/SystemParameters.h>  // VFALCO Breaks levelization
@@ -194,6 +195,15 @@ public:
     // While acquiring the first ledger, fetch and read the on-ledger manifests
     // ahead of the rest of its state. See [early_manifest_sync].
     bool EARLY_MANIFEST_SYNC = true;
+
+    // Lite mode: follow validated ledgers without holding their state maps,
+    // fetching only the paths to the objects in [lite_watch] (and the ones
+    // their transactions lead to). Implies [node_db] type=rwdb, no
+    // pathfinding, no consensus participation and no history fetch. See
+    // [lite_mode], [lite_watch] and [lite_discover].
+    bool LITE_MODE = false;
+    bool LITE_DISCOVER = true;
+    std::vector<std::string> LITE_WATCH;
 
     // True to ask peers not to relay current IP.
     bool PEER_PRIVATE = false;
@@ -373,6 +383,13 @@ public:
         return RUN_STANDALONE;
     }
 
+    /** True when the server runs in [lite_mode]. */
+    bool
+    liteMode() const
+    {
+        return LITE_MODE;
+    }
+
     bool
     mem_backend() const
     {
@@ -444,6 +461,14 @@ public:
 
 FeeSetup
 setup_FeeVote(Section const& section);
+
+/** Parse one [lite_watch] line: a base58 account or a 64 hex digit key.
+
+    @return the account (if the line was one) and the key to watch, or
+        nothing with `error` set
+*/
+std::optional<std::pair<std::optional<AccountID>, uint256>>
+parseLiteWatchLine(std::string const& line, std::string& error);
 
 }  // namespace ripple
 

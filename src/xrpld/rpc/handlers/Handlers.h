@@ -81,6 +81,12 @@ doLedgerAccept(RPC::JsonContext&);
 Json::Value
 doLedgerCleaner(RPC::JsonContext&);
 Json::Value
+doLiteStatus(RPC::JsonContext&);
+Json::Value
+doLiteUnwatch(RPC::JsonContext&);
+Json::Value
+doLiteWatch(RPC::JsonContext&);
+Json::Value
 doLedgerClosed(RPC::JsonContext&);
 Json::Value
 doLedgerCurrent(RPC::JsonContext&);

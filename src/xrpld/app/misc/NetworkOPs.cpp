@@ -58,6 +58,7 @@
 #include <xrpld/rpc/MPTokenIssuanceID.h>
 #include <xrpld/rpc/ServerHandler.h>
 #include <xrpld/rpc/detail/UDPInfoSub.h>
+#include <xrpld/shamap/SHAMapMissingNode.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/UptimeClock.h>
 #include <xrpl/basics/mulDiv.h>
@@ -1027,6 +1028,30 @@ NetworkOPsImp::processHeartbeatTimer()
                 << ", changing to " << strOperatingMode(newMode, true);
         }
         CLOG(clog.ss()) << ". ";
+
+        // A lite node holds no state to close a ledger from, so no
+        // consensus round ever runs. It tracks the network by the validated
+        // ledgers it fetches: in step while the last one is fresh.
+        if (app_.config().liteMode())
+        {
+            using namespace std::chrono_literals;
+            auto const age = m_ledgerMaster.getValidatedLedgerAge();
+            if (age < 1min)
+            {
+                if (mMode < OperatingMode::TRACKING)
+                    setMode(OperatingMode::TRACKING);
+            }
+            else if (mMode == OperatingMode::TRACKING)
+            {
+                setMode(OperatingMode::CONNECTED);
+            }
+            CLOG(clog.ss())
+                << "lite mode, validated ledger age " << age.count() << "s. ";
+            lock.unlock();
+            bootstrapManifests();
+            setHeartbeatTimer();
+            return;
+        }
     }
 
     mConsensus.timerEntry(app_.timeKeeper().closeTime(), clog.ss());
@@ -1573,9 +1598,45 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
 
     batchLock.unlock();
 
+    // A lite node cannot apply a transaction: doing so reads the sender's
+    // root, the destination's, its hooks, directories and whatever else the
+    // transactor touches, nearly all of which it does not hold. It checks
+    // what can be checked without state (the signature, by checkValidity()
+    // on the way in, and preflight here), answers a failure there itself,
+    // and relays the rest to the network, reporting terLITE_RELAYED. The
+    // outcome is read from the validated ledger it turns up in, through
+    // `tx` or an account subscription.
+    bool const lite = app_.config().liteMode();
+
     {
         std::unique_lock masterLock{app_.getMasterMutex(), std::defer_lock};
         bool changed = false;
+        if (lite)
+        {
+            masterLock.lock();
+            auto const rules = app_.openLedger().current()->rules();
+            for (TransactionStatus& e : transactions)
+            {
+                ApplyFlags flags = tapNONE;
+                if (e.admin)
+                    flags |= tapUNLIMITED;
+                if (e.failType == FailHard::yes)
+                    flags |= tapFAIL_HARD;
+
+                auto const pf = preflight(
+                    app_,
+                    rules,
+                    *e.transaction->getSTransaction(),
+                    flags,
+                    m_journal);
+                if (isTesSuccess(pf.ter))
+                    e.result = terLITE_RELAYED;
+                else
+                    e.result = pf.ter;
+                e.applied = false;
+            }
+        }
+        else
         {
             std::unique_lock ledgerLock{
                 m_ledgerMaster.peekMutex(), std::defer_lock};
@@ -1636,7 +1697,10 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
             }
 #endif
 
-            bool addLocal = e.local;
+            // A lite node keeps nothing to retry: it has nothing to retry it
+            // against, and LocalTxs::sweep() would read the sender's root on
+            // every validated ledger, which it holds only if it watches it.
+            bool addLocal = e.local && !lite;
 
             if (isTesSuccess(e.result))
             {
@@ -1661,6 +1725,13 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 JLOG(m_journal.info()) << "Transaction is obsolete";
                 e.transaction->setStatus(OBSOLETE);
             }
+            else if (e.result == terLITE_RELAYED)
+            {
+                // Neither held nor kept (see addLocal above).
+                JLOG(m_journal.debug())
+                    << "Transaction relayed by lite node, not applied";
+                e.transaction->setStatus(HELD);
+            }
             else if (e.result == terQUEUED)
             {
                 JLOG(m_journal.debug())
@@ -1675,7 +1746,7 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 e.transaction->setQueued();
                 e.transaction->setKept();
             }
-            else if (isTerRetry(e.result))
+            else if (isTerRetry(e.result) && !lite)
             {
                 if (e.failType != FailHard::yes)
                 {
@@ -1694,8 +1765,10 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 e.transaction->setStatus(INVALID);
             }
 
-            auto const enforceFailHard =
-                e.failType == FailHard::yes && !isTesSuccess(e.result);
+            // fail_hard means "do not relay what failed to apply here". A
+            // lite node applies nothing, so terLITE_RELAYED is not a failure.
+            auto const enforceFailHard = e.failType == FailHard::yes &&
+                !isTesSuccess(e.result) && e.result != terLITE_RELAYED;
 
             if (addLocal && !enforceFailHard)
             {
@@ -1705,11 +1778,19 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 e.transaction->setKept();
             }
 
-            if ((e.applied ||
-                 ((mMode != OperatingMode::FULL) &&
-                  (e.failType != FailHard::yes) && e.local) ||
-                 (e.result == terQUEUED)) &&
-                !enforceFailHard)
+            // A lite node is never FULL, so the clause that relays local
+            // submissions of a node still catching up would relay whatever
+            // its clients send, preflight failures included. It relays what
+            // passed preflight, from its own clients, and nothing else.
+            bool const relay = lite
+                ? (e.result == terLITE_RELAYED && e.local)
+                : ((e.applied ||
+                    ((mMode != OperatingMode::FULL) &&
+                     (e.failType != FailHard::yes) && e.local) ||
+                    (e.result == terQUEUED)) &&
+                   !enforceFailHard);
+
+            if (relay)
             {
                 auto const toSkip =
                     app_.getHashRouter().shouldRelay(e.transaction->getID());
@@ -1740,7 +1821,9 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
                 }
             }
 
-            if (validatedLedgerIndex)
+            // Not for a lite node: this reads the sender's root, which it
+            // holds only if the sender is watched.
+            if (validatedLedgerIndex && !lite)
             {
                 auto [fee, accountSeq, availableSeq] =
                     app_.getTxQ().getTxRequiredFeeAndSeq(
@@ -3487,13 +3570,23 @@ NetworkOPsImp::transJson(
         // If the offer create is not self funded then add the owner balance
         if (account != amount.issue().account)
         {
-            auto const ownerFunds = accountFunds(
-                *ledger,
-                account,
-                amount,
-                fhIGNORE_FREEZE,
-                app_.journal("View"));
-            jvObj[jss::transaction][jss::owner_funds] = ownerFunds.getText();
+            // Informational only, and not held by a [lite_mode] node that
+            // does not watch the offer owner: leave it out rather than stop
+            // publishing the rest of the ledger.
+            try
+            {
+                auto const ownerFunds = accountFunds(
+                    *ledger,
+                    account,
+                    amount,
+                    fhIGNORE_FREEZE,
+                    app_.journal("View"));
+                jvObj[jss::transaction][jss::owner_funds] =
+                    ownerFunds.getText();
+            }
+            catch (SHAMapMissingNode const&)
+            {
+            }
         }
     }
 

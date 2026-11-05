@@ -238,8 +238,11 @@ enum TERcodes : TERUnderlyingType {
     terQUEUED,       // Transaction is being held in TxQ until fee drops
     terPRE_TICKET,   // Ticket is not yet in ledger but might be on its way
     terNO_AMM,       // AMM doesn't exist for the asset pair
-    terNO_HOOK       // Transaction requires a non-existent hook definition
+    terNO_HOOK,      // Transaction requires a non-existent hook definition
                      // (referenced by sfHookHash)
+    terLITE_RELAYED  // Relayed by a [lite_mode] node that holds no state to
+                     // apply it against; the result is in the validated
+                     // ledger it turns up in, if any
 };
 
 //------------------------------------------------------------------------------

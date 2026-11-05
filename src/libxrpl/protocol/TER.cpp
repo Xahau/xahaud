@@ -242,6 +242,7 @@ transResults()
         MAKE_ERROR(terPRE_TICKET,             "Ticket is not yet in ledger."),
         MAKE_ERROR(terNO_HOOK,                "No hook with that hash exists on the ledger."),
         MAKE_ERROR(terNO_AMM,                 "AMM doesn't exist for the asset pair."),
+        MAKE_ERROR(terLITE_RELAYED,           "Relayed to the network by a lite node; not applied locally."),
 
         MAKE_ERROR(tesSUCCESS,                "The transaction was applied. Only final in a validated ledger."),
         MAKE_ERROR(tesPARTIAL,                "The transaction was applied but should be submitted again until returning tesSUCCESS."),

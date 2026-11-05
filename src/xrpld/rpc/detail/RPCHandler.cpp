@@ -31,6 +31,7 @@
 #include <xrpld/rpc/Role.h>
 #include <xrpld/rpc/detail/Handler.h>
 #include <xrpld/rpc/detail/Tuning.h>
+#include <xrpld/shamap/SHAMapMissingNode.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/json/Object.h>
@@ -204,6 +205,28 @@ callMethod(
             << ((end - start).count() / 1000000000.0) << "seconds";
         perfLog.rpcFinish(name, curId);
         return ret;
+    }
+    catch (SHAMapMissingNode const& e)
+    {
+        perfLog.rpcError(name, curId);
+
+        // On a lite node a missing node is the expected answer for any
+        // object outside the watch set: say so, rather than "internal".
+        if (context.app.config().liteMode())
+        {
+            JLOG(context.j.debug()) << "Lite node asked for an unwatched "
+                                    << "object in " << name << ": " << e.what();
+            inject_error(rpcLITE_NOT_WATCHED, result);
+            return rpcLITE_NOT_WATCHED;
+        }
+
+        JLOG(context.j.info()) << "Caught throw: " << e.what();
+
+        if (context.loadType == Resource::feeReferenceRPC)
+            context.loadType = Resource::feeExceptionRPC;
+
+        inject_error(rpcINTERNAL, result);
+        return rpcINTERNAL;
     }
     catch (std::exception& e)
     {

@@ -133,6 +133,32 @@ private:
     void
     trigger(std::shared_ptr<Peer> const&, TriggerReason);
 
+    /** The [lite_mode] acquire: header, whole transaction map, then only
+        the state nodes on the paths to the watched keys, which the
+        transactions just fetched may have added to. Called by trigger()
+        once the header is held, with mtx_ locked and tmGL prepared. */
+    void
+    liteTrigger(
+        ScopedLockType& sl,
+        std::shared_ptr<Peer> const& peer,
+        TriggerReason reason,
+        protocol::TMGetLedger& tmGL);
+
+    /** The state nodes still needed to read every watched key. */
+    std::vector<std::pair<SHAMapNodeID, uint256>>
+    liteMissingStateNodes(std::size_t max) const;
+
+    /** Ask peers for the nodes the early manifest read needs, if any.
+        @return true if a request was sent, and so the caller should return;
+            false if the manifests are read, being read, not wanted, or
+            the nodes are all recently asked for */
+    bool
+    earlyManifestSync(
+        ScopedLockType& sl,
+        std::shared_ptr<Peer> const& peer,
+        TriggerReason reason,
+        protocol::TMGetLedger& tmGL);
+
     std::vector<neededHash_t>
     getNeededHashes();
 
@@ -208,6 +234,12 @@ private:
         released mtx_.
     */
     std::atomic<bool> mManifestsSynced{false};
+
+    /** [lite_mode]: the transactions of this ledger have been read for
+        objects the watch set should grow by. Done once, before the state
+        paths are requested, so that an object created in this ledger is
+        fetched from this ledger. */
+    bool mLiteDiscovered{false};
 
     bool mHaveHeader;
     bool mHaveState;
