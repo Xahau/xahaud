@@ -3788,11 +3788,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
     NetClock::time_point
     lastClose(jtx::Env& env)
     {
-        return env.app()
-            .getLedgerMaster()
-            .getValidatedLedger()
-            ->info()
-            .parentCloseTime;
+        return env.current()->info().parentCloseTime;
     }
 
     void
@@ -3815,23 +3811,23 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // last close = 0
         env.close();
-        validateTime(lastClose(env), 0);
+        validateTime(lastClose(env), 10);
 
         // last close + 10 = 10
         env.close();
-        validateTime(lastClose(env), 10);
+        validateTime(lastClose(env), 20);
 
         // last close + 10 = 20
         env.close(10s);
-        validateTime(lastClose(env), 20);
+        validateTime(lastClose(env), 40);
 
         // last close + 10 (^+10s) = 40
         env.close();
-        validateTime(lastClose(env), 40);
+        validateTime(lastClose(env), 50);
 
         // last close + 10 = 50
         env.close();
-        validateTime(lastClose(env), 50);
+        validateTime(lastClose(env), 60);
     }
 
     void
@@ -4120,12 +4116,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // close ledgers
-        validateTime(lastClose(env), 90);
+        validateTime(lastClose(env), 100);
         for (int i = 0; i < 5; ++i)
         {
             env.close(10s);
         }
-        validateTime(lastClose(env), 180);
+        validateTime(lastClose(env), 200);
 
         // define pre close values
         STAmount const preAlice = env.balance(alice);
@@ -4134,8 +4130,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         STAmount const preDavid = env.balance(david);
         STAmount const preEdward = env.balance(edward);
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -4170,12 +4165,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // close ledgers
-        validateTime(lastClose(env), 220);
+        validateTime(lastClose(env), 230);
         for (int i = 0; i < 5; ++i)
         {
             env.close(10s);
         }
-        validateTime(lastClose(env), 310);
+        validateTime(lastClose(env), 330);
 
         // define pre close values
         STAmount const preAlice1 = env.balance(alice);
@@ -4184,8 +4179,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         STAmount const preDavid1 = env.balance(david);
         STAmount const preEdward1 = env.balance(edward);
         STAmount const preUser1 = env.balance(user);
-        NetClock::time_point const preTime1 =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime1 = lastClose(env);
         std::uint32_t const preLedger1 = env.current()->seq();
         auto const [acct1, acctSle1] = accountKeyAndSle(*env.current(), user);
 
@@ -4301,12 +4295,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // close ledgers
-        validateTime(lastClose(env), 100);
+        validateTime(lastClose(env), 110);
         for (int i = 0; i < 5; ++i)
         {
             env.close(10s);
         }
-        validateTime(lastClose(env), 190);
+        validateTime(lastClose(env), 210);
 
         // define pre close values
         STAmount const preAlice = env.balance(alice);
@@ -4315,8 +4309,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
         STAmount const preDavid = env.balance(david);
         STAmount const preEdward = env.balance(edward);
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -4438,12 +4431,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
             env.close();
 
             // close ledgers
-            validateTime(lastClose(env), 90);
+            validateTime(lastClose(env), 100);
             for (int i = 0; i < 5; ++i)
             {
                 env.close(10s);
             }
-            validateTime(lastClose(env), 180);
+            validateTime(lastClose(env), 200);
 
             // define pre close values
             STAmount const preAlice = env.balance(alice);
@@ -4451,8 +4444,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
             STAmount const preCarol = env.balance(carol);
             STAmount const preDavid = env.balance(david);
             STAmount const preEdward = env.balance(edward);
-            NetClock::time_point const preTime =
-                env.current()->info().parentCloseTime;
+            NetClock::time_point const preTime = lastClose(env);
             std::uint32_t const preLedger = env.current()->seq();
             auto const [acct, acctSle] =
                 accountKeyAndSle(*env.current(), alice);
@@ -4540,17 +4532,16 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // close ledgers
-        validateTime(lastClose(env), 90);
+        validateTime(lastClose(env), 100);
         for (int i = 0; i < 5; ++i)
         {
             env.close(10s);
         }
-        validateTime(lastClose(env), 180);
+        validateTime(lastClose(env), 200);
 
         // close claim ledger & time
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -4583,8 +4574,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // pre claim values
         std::uint32_t const preLedger1 = env.current()->seq();
-        NetClock::time_point const preTime1 =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime1 = lastClose(env);
 
         // opt in for claim rewards
         env(claimReward(user, env.master), fee(feesXRP), ter(tesSUCCESS));
@@ -4654,19 +4644,18 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // close ledgers
-        validateTime(lastClose(env), 90);
+        validateTime(lastClose(env), 100);
         for (int i = 0; i < 5; ++i)
         {
             env.close(10s);
         }
-        validateTime(lastClose(env), 180);
+        validateTime(lastClose(env), 200);
 
         env(noop(user), fee(env.balance(user) - feesXRP), ter(tesSUCCESS));
 
         // close claim ledger & time
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -4745,12 +4734,11 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // close ledgers
         env.close(100s);
-        validateTime(lastClose(env), 90);
+        validateTime(lastClose(env), 200);
 
         // close claim ledger & time
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -5027,12 +5015,12 @@ struct XahauGenesis_test : public beast::unit_test::suite
         env.close();
 
         // close ledgers
-        validateTime(lastClose(env), 80);
+        validateTime(lastClose(env), 90);
         for (int i = 0; i < 5; ++i)
         {
             env.close(10s);
         }
-        validateTime(lastClose(env), 170);
+        validateTime(lastClose(env), 190);
 
         // claim reward fails - ledger elapsed < 0
         env(claimReward(user, env.master), fee(feesXRP), ter(tecHOOK_REJECTED));
@@ -5095,17 +5083,16 @@ struct XahauGenesis_test : public beast::unit_test::suite
         {
             // close ledgers
             std::uint64_t ledgerDiff = 90 + (i * 30) + (i * 90);
-            validateTime(lastClose(env), ledgerDiff);
+            validateTime(lastClose(env), ledgerDiff + 10);
             for (int i = 0; i < 5; ++i)
             {
                 env.close(10s);
             }
-            validateTime(lastClose(env), ledgerDiff + 90);
+            validateTime(lastClose(env), ledgerDiff + 110);
 
             // define pre close values
             STAmount const preUser = env.balance(user);
-            NetClock::time_point const preTime =
-                env.current()->info().parentCloseTime;
+            NetClock::time_point const preTime = lastClose(env);
             std::uint32_t const preLedger = env.current()->seq();
             auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -5200,8 +5187,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // close claim ledger & time
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -5295,8 +5281,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // close claim ledger & time
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -5386,8 +5371,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // close claim ledger & time
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -5481,8 +5465,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // close claim ledger & time
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -5570,8 +5553,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // close claim ledger & time
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
@@ -5662,8 +5644,7 @@ struct XahauGenesis_test : public beast::unit_test::suite
 
         // close claim ledger & time
         STAmount const preUser = env.balance(user);
-        NetClock::time_point const preTime =
-            env.current()->info().parentCloseTime;
+        NetClock::time_point const preTime = lastClose(env);
         std::uint32_t const preLedger = env.current()->seq();
         auto const [acct, acctSle] = accountKeyAndSle(*env.current(), user);
 
