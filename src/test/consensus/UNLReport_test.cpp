@@ -145,11 +145,6 @@ createUNLRTx(
     PublicKey const& importKey,
     PublicKey const& valKey);
 
-/**
- * Create a ttUNL_REPORT Tx that carries only an sfImportVLKey, no
- * sfActiveValidator. Used to exercise the flag-ledger case where a UNLR
- * window produces no active-validator reports.
- */
 STTx
 createUNLRTxVLOnly(LedgerIndex seq, PublicKey const& importKey);
 
@@ -488,7 +483,6 @@ class UNLReport_test : public beast::unit_test::suite
             env.app().getNodeFamily());
         l = std::make_shared<Ledger>(*l, env.app().timeKeeper().closeTime());
 
-        // Flag ledger: establish sfActiveValidators = [vlKeys[0], vlKeys[1]].
         for (std::size_t i = 0; i < 2; ++i)
         {
             env.app().openLedger().modify(
@@ -508,10 +502,6 @@ class UNLReport_test : public beast::unit_test::suite
         BEAST_EXPECT(isActiveValidator(env, vlKeys[0]) == true);
         BEAST_EXPECT(isActiveValidator(env, vlKeys[1]) == true);
 
-        // Next flag ledger: insert ONLY a VL-only ttUNL_REPORT tx (no
-        // sfActiveValidator). Without the fix, sfActiveValidators retains
-        // the stale [vlKeys[0], vlKeys[1]]. With the shape-B reset block
-        // active, the !hasAV branch clears sfActiveValidators.
         env.app().openLedger().modify(
             [&](OpenView& view, beast::Journal j) -> bool {
                 STTx tx =
