@@ -205,12 +205,22 @@ ClaimReward::doApply()
     uint32_t lgrFirst = lgrCur;
     uint32_t lgrLast = lgrCur;
     uint64_t accumulator = 0ULL;
-    uint32_t rewardTime = std::chrono::duration_cast<std::chrono::seconds>(
-                              ctx_.app.getLedgerMaster()
-                                  .getValidatedLedger()
-                                  ->info()
-                                  .parentCloseTime.time_since_epoch())
-                              .count();
+    uint32_t rewardTime;
+    if (view().rules().enabled(fixClaimRewardTime))
+    {
+        rewardTime = std::chrono::duration_cast<std::chrono::seconds>(
+                         view().info().parentCloseTime.time_since_epoch())
+                         .count();
+    }
+    else
+    {
+        rewardTime = std::chrono::duration_cast<std::chrono::seconds>(
+                         ctx_.app.getLedgerMaster()
+                             .getValidatedLedger()
+                             ->info()
+                             .parentCloseTime.time_since_epoch())
+                         .count();
+    }
 
     if (ctx_.tx.isFieldPresent(sfClaimCurrency))
     {
