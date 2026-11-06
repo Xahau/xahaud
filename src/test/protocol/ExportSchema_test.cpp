@@ -58,10 +58,17 @@ class ExportSchema_test : public beast::unit_test::suite
         return t;
     }
 
-    static Rules
-    rules(std::initializer_list<uint256> features)
+    // Rules keeps a reference to its presets (in a node, the config's
+    // features), so these must outlive every Rules built from them: a set
+    // passed as a temporary dangles as soon as the Rules is returned.
+    std::unordered_set<uint256, beast::uhash<>> const noFeatures_;
+    std::unordered_set<uint256, beast::uhash<>> const exportFeature_{
+        featureExport};
+
+    Rules
+    rules(bool exportOn) const
     {
-        return Rules{std::unordered_set<uint256, beast::uhash<>>{features}};
+        return Rules{exportOn ? exportFeature_ : noFeatures_};
     }
 
     void
@@ -82,8 +89,8 @@ class ExportSchema_test : public beast::unit_test::suite
     {
         testcase("types");
 
-        auto const on = rules({featureExport});
-        auto const off = rules({});
+        auto const on = rules(true);
+        auto const off = rules(false);
         auto const alice = AccountID{1};
 
         // nothing is exportable before the amendment
@@ -136,7 +143,7 @@ class ExportSchema_test : public beast::unit_test::suite
     {
         testcase("fields");
 
-        auto const on = rules({featureExport});
+        auto const on = rules(true);
         auto const alice = AccountID{1};
 
         // the other network's optional fields
@@ -219,7 +226,7 @@ class ExportSchema_test : public beast::unit_test::suite
     {
         testcase("flags");
 
-        auto const on = rules({featureExport});
+        auto const on = rules(true);
         auto const alice = AccountID{1};
 
         auto const with = [&](std::uint32_t flags) {
@@ -229,7 +236,7 @@ class ExportSchema_test : public beast::unit_test::suite
         };
         BEAST_EXPECT(with(tfFullyCanonicalSig));
         BEAST_EXPECT(with(tfPartialPayment | tfNoRippleDirect));
-        BEAST_EXPECT(!with(0x40000000));  // tfInnerBatchTxn there
+        BEAST_EXPECT(!with(0x40000000));   // tfInnerBatchTxn there
         BEAST_EXPECT(!with(tfSetFreeze));  // TrustSet's, not Payment's
         BEAST_EXPECT(!with(0x1));
     }
