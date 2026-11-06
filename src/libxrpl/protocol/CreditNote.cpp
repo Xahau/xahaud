@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/protocol/CreditNote.h>
 #include <xrpl/protocol/Issue.h>
@@ -26,6 +27,7 @@
 #include <algorithm>
 #include <array>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -274,35 +276,36 @@ parseCreditNote(std::string_view raw)
 
     auto const root = Reader(raw).parse();
 
-    static constexpr std::array<std::string_view, 5> allowed{
-        "NetworkID", "Account", "Amount", "IssueTime", "Expiration"};
+    static constexpr std::array<std::string_view, 6> allowed{
+        "NetworkID", "Account", "Amount", "IssueTime", "Expiration", "Bearer"};
 
-    // Exactly the five, each exactly once (the reader refused duplicates).
+    // Exactly the six, each exactly once (the reader refused duplicates).
     // Anything else - including a TransactionType - is not a note.
     if (root.keys.size() != allowed.size())
         fail(
-            "a note has exactly NetworkID, Account, Amount, IssueTime and "
-            "Expiration");
+            "a note has exactly NetworkID, Account, Amount, IssueTime, "
+            "Expiration and Bearer");
     for (auto const& k : root.keys)
         if (std::find(allowed.begin(), allowed.end(), k) == allowed.end())
             fail("unknown member " + k);
 
-    CreditNote note;
-
+    std::uint32_t networkID;
     {
         auto const n = unsignedValue(member(root, "NetworkID"), "NetworkID");
         if (n > std::numeric_limits<std::uint32_t>::max())
             fail("NetworkID out of range");
-        note.networkID = static_cast<std::uint32_t>(n);
+        networkID = static_cast<std::uint32_t>(n);
     }
 
+    AccountID account;
     {
         auto const id = parseBase58<AccountID>(str(root, "Account"));
         if (!id || *id == noAccount() || isXRP(*id))
             fail("Account is not an r-address");
-        note.account = *id;
+        account = *id;
     }
 
+    STAmount amount;
     {
         auto const& a = member(root, "Amount");
         if (a.kind == Val::Kind::number)
@@ -310,7 +313,7 @@ parseCreditNote(std::string_view raw)
             // drops of the native currency; at most jsontx_max_int, which
             // is below the total supply
             auto const drops = unsignedValue(a, "Amount");
-            note.amount = STAmount{XRPAmount{static_cast<std::int64_t>(drops)}};
+            amount = STAmount{XRPAmount{static_cast<std::int64_t>(drops)}};
         }
         else if (a.kind == Val::Kind::object)
         {
@@ -330,7 +333,7 @@ parseCreditNote(std::string_view raw)
 
             try
             {
-                note.amount =
+                amount =
                     amountFromString(Issue{currency, *issuer}, str(a, "value"));
             }
             catch (std::exception const&)
@@ -343,21 +346,44 @@ parseCreditNote(std::string_view raw)
             fail("Amount is drops or an issued amount");
         }
 
-        if (note.amount.signum() <= 0 || !isLegalNet(note.amount))
+        if (amount.signum() <= 0 || !isLegalNet(amount))
             fail("Amount must be positive");
     }
 
-    note.issueTime = jsontx_iso(str(root, "IssueTime"));
-    note.expiration = jsontx_iso(str(root, "Expiration"));
+    std::uint64_t const issueTime = jsontx_iso(str(root, "IssueTime"));
+    std::uint64_t const expiration = jsontx_iso(str(root, "Expiration"));
 
-    if (note.expiration <= note.issueTime)
+    if (expiration <= issueTime)
         fail("Expiration must be after IssueTime");
-    if (note.expiration - note.issueTime > creditNoteMaxLifeMs)
+    if (expiration - issueTime > creditNoteMaxLifeMs)
         fail(
             "a note lives at most " +
             std::to_string(creditNoteMaxLifeMs / 60000) + " minutes");
 
-    return note;
+    // The bearer key: an ed25519 public key as PublicKey renders it. The
+    // issuer signs the note, so they vouch for this key being the one whose
+    // seed they handed over; the ledger only requires it to be one it can
+    // verify a signature under.
+    std::optional<PublicKey> bearer;
+    {
+        auto const& text = str(root, "Bearer");
+        auto const raw = strUnHex(text);
+        if (text.size() % 2 != 0 || !raw ||
+            publicKeyType(makeSlice(*raw)) != KeyType::ed25519)
+            fail("Bearer must be an ed25519 public key in hex");
+        bearer.emplace(makeSlice(*raw));
+    }
+
+    return CreditNote{
+        networkID, account, amount, issueTime, expiration, *bearer};
+}
+
+std::string
+noteClaimSigningData(std::string_view note, AccountID const& claimant)
+{
+    std::string m = jsontx_signing_data(note);
+    m.append(reinterpret_cast<char const*>(claimant.data()), claimant.size());
+    return m;
 }
 
 }  // namespace ripple

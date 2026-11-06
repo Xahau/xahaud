@@ -230,6 +230,7 @@
 #define sfProvider ((7U << 16U) + 30U)
 #define sfMPTokenMetadata ((7U << 16U) + 31U)
 #define sfCredentialType ((7U << 16U) + 32U)
+#define sfBearerSignature ((7U << 16U) + 92U)
 #define sfNote ((7U << 16U) + 93U)
 #define sfNoteSignature ((7U << 16U) + 94U)
 #define sfJsonTxDelta ((7U << 16U) + 95U)

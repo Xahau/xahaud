@@ -29,6 +29,7 @@
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
+#include <xrpl/protocol/CreditNote.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/JSONTxSignatures.h>
@@ -8451,9 +8452,13 @@ private:
 
         features = features | featureCreditNote;
 
+        // The bearer key for the one note each Env redeems: a never-funded
+        // ed25519 pair, public half in the note, secret proves the claim.
+        Account const key{"bearer-key", KeyType::ed25519};
+
         // A fresh ten-minute XAH note from `issuer`, issued a minute ago and
         // laid out the way CreditNote_test builds them.
-        auto const makeNote = [](Env& env, Account const& issuer) {
+        auto const makeNote = [&key](Env& env, Account const& issuer) {
             // a fresh Env's clock is too young to backdate a note from
             if (env.current()->parentCloseTime().time_since_epoch() < 1h)
                 env.close(1h);
@@ -8469,26 +8474,33 @@ private:
                 ",\"Account\":\"" + issuer.human() +
                 "\",\"Amount\":10000000,\"IssueTime\":\"" +
                 jsontx_iso_str(issue) + "\",\"Expiration\":\"" +
-                jsontx_iso_str(issue + 600'000) + "\"}";
+                jsontx_iso_str(issue + 600'000) + "\",\"Bearer\":\"" +
+                strHex(key.pk().slice()) + "\"}";
         };
 
-        // A NoteClaim from `bearer` redeeming `text`, signed by `issuer`.
-        auto const claim = [](Account const& bearer,
-                              Account const& issuer,
-                              std::string const& text) {
+        // A NoteClaim from `claimant` redeeming `text`, signed by `issuer`,
+        // with the bearer key's proof for `claimant`.
+        auto const claim = [&key](
+                               Account const& claimant,
+                               Account const& issuer,
+                               std::string const& text) {
             Json::Value jv;
             jv[jss::TransactionType] = "NoteClaim";
-            jv[jss::Account] = bearer.human();
+            jv[jss::Account] = claimant.human();
             jv[sfNote.fieldName] = strHex(text);
             jv[sfNoteSignature.fieldName] = strHex(sign(
                 issuer.pk(),
                 issuer.sk(),
                 makeSlice(jsontx_signing_data(text))));
             jv[sfPublicKey.fieldName] = strHex(issuer.pk().slice());
+            jv[sfBearerSignature.fieldName] = strHex(sign(
+                key.pk(),
+                key.sk(),
+                makeSlice(noteClaimSigningData(text, claimant.id()))));
             return jv;
         };
 
-        // otxn: bearer
+        // otxn: bearer (the claimant)
         // tsh bearer
         // w/s: strong
         for (bool const testStrong : {true, false})

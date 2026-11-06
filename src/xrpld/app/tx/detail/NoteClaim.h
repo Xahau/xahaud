@@ -49,12 +49,12 @@ private:
     static CreditNote
     note(STTx const& tx);
 
-    /** Whether the issuer can pay and the bearer can receive, right now. */
+    /** Whether the issuer can pay and the claimant can receive, right now. */
     static TER
     checkFunds(
         ReadView const& view,
         CreditNote const& note,
-        AccountID const& bearer,
+        AccountID const& claimant,
         beast::Journal j);
 };
 

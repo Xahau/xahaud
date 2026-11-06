@@ -31,6 +31,7 @@
 #include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxFlags.h>
 
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 
@@ -74,10 +75,10 @@ NoteClaim::preflight(PreflightContext const& ctx)
 
     auto const raw = tx.getFieldVL(sfNote);
 
-    CreditNote n;
+    std::optional<CreditNote> n;
     try
     {
-        n = parseCreditNote(text(raw));
+        n.emplace(parseCreditNote(text(raw)));
     }
     catch (std::exception const& e)
     {
@@ -88,15 +89,15 @@ NoteClaim::preflight(PreflightContext const& ctx)
     // A note binds itself to one network. The transaction's own NetworkID
     // rules (preflight1) are not enough: on a legacy network a transaction
     // carries none, and the note must still not cross over from another.
-    if (n.networkID != ctx.app.config().NETWORK_ID)
+    if (n->networkID != ctx.app.config().NETWORK_ID)
     {
-        JLOG(ctx.j.warn()) << "NoteClaim: note is for network " << n.networkID;
+        JLOG(ctx.j.warn()) << "NoteClaim: note is for network " << n->networkID;
         return temMALFORMED;
     }
 
     // Redeeming your own note moves nothing and would still retire every
     // earlier note you signed.
-    if (n.account == tx[sfAccount])
+    if (n->account == tx[sfAccount])
         return temREDUNDANT;
 
     // Notes are ed25519, like JsonTx itself: it is what WebCrypto can sign.
@@ -118,6 +119,21 @@ NoteClaim::preflight(PreflightContext const& ctx)
         return temBAD_SIGNATURE;
     }
 
+    // The bearer key - whose public half the issuer wrote into the note and
+    // whose seed they handed over with it - signs the note bound to the
+    // claiming account. This is what makes the note a bearer instrument
+    // rather than a broadcast: the note and this claim can be seen by anyone
+    // and still only the holder of the seed can redeem, and only to an
+    // account of their choosing.
+    if (!verify(
+            n->bearer,
+            makeSlice(noteClaimSigningData(text(raw), tx[sfAccount])),
+            makeSlice(tx.getFieldVL(sfBearerSignature))))
+    {
+        JLOG(ctx.j.warn()) << "NoteClaim: bearer signature does not verify.";
+        return temBAD_SIGNATURE;
+    }
+
     return preflight2(ctx);
 }
 
@@ -125,7 +141,7 @@ TER
 NoteClaim::checkFunds(
     ReadView const& view,
     CreditNote const& n,
-    AccountID const& bearer,
+    AccountID const& claimant,
     beast::Journal j)
 {
     if (n.amount.native())
@@ -146,13 +162,16 @@ NoteClaim::checkFunds(
     if (!sleGateway)
         return tecNO_ISSUER;
 
-    // The bearer receives exactly Amount. Unless one side is the gateway the
-    // transfer transits it, and the issuer bears the gateway's transfer fee
-    // on top - the same deal as a plain Payment of Amount with no SendMax.
+    // The claimant receives exactly Amount. Unless one side is the gateway
+    // the transfer transits it, and the issuer bears the gateway's transfer
+    // fee on top - the same deal as a plain Payment of Amount with no
+    // SendMax.
     STAmount cost = n.amount;
-    if (n.account != gateway && bearer != gateway)
+    if (n.account != gateway && claimant != gateway)
         cost = multiply(n.amount, transferRate(view, gateway));
 
+    // Zero if the issuer's line is frozen or deep frozen, so a frozen
+    // issuer cannot pay out through a note either.
     if (accountFunds(view, n.account, cost, fhZERO_IF_FROZEN, j) < cost)
     {
         JLOG(j.trace()) << "NoteClaim: issuer cannot cover the note.";
@@ -161,32 +180,35 @@ NoteClaim::checkFunds(
 
     // A gateway can always take back its own currency. Anyone else needs a
     // trust line already in place: a note never creates one, nor an account.
-    if (bearer != gateway)
+    if (claimant != gateway)
     {
         auto const sleLine =
-            view.read(keylet::line(bearer, gateway, issue.currency));
+            view.read(keylet::line(claimant, gateway, issue.currency));
         if (!sleLine)
         {
-            JLOG(j.trace()) << "NoteClaim: bearer has no trust line.";
+            JLOG(j.trace()) << "NoteClaim: claimant has no trust line.";
             return tecNO_LINE;
         }
 
         if (sleGateway->getFlags() & lsfRequireAuth)
         {
             // The gateway's authorization flag sits on the gateway's side of
-            // the line, which is the low side iff the bearer sorts higher.
-            bool const gatewayIsLow = bearer > gateway;
+            // the line, which is the low side iff the claimant sorts higher.
+            bool const gatewayIsLow = claimant > gateway;
             if (!(sleLine->getFlags() &
                   (gatewayIsLow ? lsfLowAuth : lsfHighAuth)))
                 return tecNO_AUTH;
         }
 
-        if (isFrozen(view, bearer, issue.currency, gateway))
+        // A frozen line cannot receive from the gateway's side, and a deep
+        // frozen one cannot receive at all.
+        if (isFrozen(view, claimant, issue.currency, gateway) ||
+            isDeepFrozen(view, claimant, issue.currency, gateway))
             return tecFROZEN;
     }
 
     // The trust line's limit is deliberately not consulted, as when cashing
-    // a Check: the bearer is the one submitting, so they want the funds.
+    // a Check: the claimant is the one submitting, so they want the funds.
 
     return tesSUCCESS;
 }

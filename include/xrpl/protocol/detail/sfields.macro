@@ -304,9 +304,11 @@ TYPED_SFIELD(sfAssetClass,               VL,        29)
 TYPED_SFIELD(sfProvider,                 VL,        30)
 TYPED_SFIELD(sfMPTokenMetadata,          VL,        31)
 TYPED_SFIELD(sfCredentialType,           VL,        32)
-// featureCreditNote: the note text and the issuer's signature over it. Both
-// are covered by the bearer's TxnSignature (neither is notSigning) so a
+// featureCreditNote: the bearer key's signature over the note bound to the
+// claiming account, the note text, and the issuer's signature over it. All
+// three are covered by the claimant's TxnSignature (none is notSigning) so a
 // redemption cannot be re-pointed at a different note in flight.
+TYPED_SFIELD(sfBearerSignature,          VL,        92)
 TYPED_SFIELD(sfNote,                     VL,        93)
 TYPED_SFIELD(sfNoteSignature,            VL,        94)
 TYPED_SFIELD(sfJsonTxDelta,              VL,        95, SField::sMD_Default, SField::notSigning)

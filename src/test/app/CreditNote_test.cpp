@@ -26,6 +26,7 @@
 #include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/jss.h>
 
+#include <cctype>
 #include <chrono>
 #include <optional>
 #include <string>
@@ -64,6 +65,21 @@ struct CreditNote_test : public beast::unit_test::suite
         return sle->getFieldU64(sfLastNoteTime);
     }
 
+    // A bearer key: a jtx::Account is a convenient ed25519 key pair that is
+    // never funded. The issuer makes one up per note; its public half goes
+    // in the note and its secret goes to the recipient.
+    static jtx::Account
+    bearerKey(std::string const& name = "bearer")
+    {
+        return jtx::Account{name, KeyType::ed25519};
+    }
+
+    static std::string
+    bearerHex(jtx::Account const& bearer)
+    {
+        return strHex(bearer.pk().slice());
+    }
+
     // The note laid out the way a browser's JSON.stringify would.
     static std::string
     noteText(
@@ -71,13 +87,15 @@ struct CreditNote_test : public beast::unit_test::suite
         jtx::Account const& issuer,
         std::string const& amount,
         std::uint64_t issueTime,
-        std::uint64_t expiration)
+        std::uint64_t expiration,
+        jtx::Account const& bearer)
     {
         return "{\"NetworkID\":" +
             std::to_string(env.app().config().NETWORK_ID) + ",\"Account\":\"" +
             issuer.human() + "\",\"Amount\":" + amount + ",\"IssueTime\":\"" +
             jsontx_iso_str(issueTime) + "\",\"Expiration\":\"" +
-            jsontx_iso_str(expiration) + "\"}";
+            jsontx_iso_str(expiration) + "\",\"Bearer\":\"" +
+            bearerHex(bearer) + "\"}";
     }
 
     static std::string
@@ -95,19 +113,36 @@ struct CreditNote_test : public beast::unit_test::suite
             signer.pk(), signer.sk(), makeSlice(jsontx_signing_data(text)));
     }
 
-    // A NoteClaim from `bearer` carrying `text`, signed by `signer`'s key.
-    static Json::Value
-    claim(
+    // The bearer key's proof for `claimant` redeeming `text`.
+    static Buffer
+    bearerSign(
         jtx::Account const& bearer,
         std::string const& text,
-        jtx::Account const& signer)
+        jtx::Account const& claimant)
+    {
+        return sign(
+            bearer.pk(),
+            bearer.sk(),
+            makeSlice(noteClaimSigningData(text, claimant.id())));
+    }
+
+    // A NoteClaim from `claimant` carrying `text`, signed by `signer`'s key,
+    // with the bearer proof by `bearer`.
+    static Json::Value
+    claim(
+        jtx::Account const& claimant,
+        std::string const& text,
+        jtx::Account const& signer,
+        jtx::Account const& bearer)
     {
         Json::Value jv;
         jv[jss::TransactionType] = "NoteClaim";
-        jv[jss::Account] = bearer.human();
+        jv[jss::Account] = claimant.human();
         jv[sfNote.fieldName] = strHex(text);
         jv[sfNoteSignature.fieldName] = strHex(noteSign(signer, text));
         jv[sfPublicKey.fieldName] = strHex(signer.pk().slice());
+        jv[sfBearerSignature.fieldName] =
+            strHex(bearerSign(bearer, text, claimant));
         return jv;
     }
 
@@ -117,11 +152,12 @@ struct CreditNote_test : public beast::unit_test::suite
         jtx::Env& env,
         jtx::Account const& issuer,
         std::string const& amount,
+        jtx::Account const& bearer,
         std::int64_t offsetMs = 0)
     {
         auto const issue = static_cast<std::uint64_t>(
             static_cast<std::int64_t>(nowMs(env)) - 60'000 + offsetMs);
-        return noteText(env, issuer, amount, issue, issue + 600'000);
+        return noteText(env, issuer, amount, issue, issue + 600'000, bearer);
     }
 
     //--------------------------------------------------------------------------
@@ -135,6 +171,7 @@ struct CreditNote_test : public beast::unit_test::suite
         Account const alice{"alice", KeyType::ed25519};
         Account const gw{"gw"};
         auto const USD = gw["USD"];
+        auto const key = bearerKey();
 
         auto const ok = [&](std::string const& text) {
             try
@@ -149,7 +186,7 @@ struct CreditNote_test : public beast::unit_test::suite
         };
 
         std::uint64_t const t = 800'000'000'000ULL;
-        auto const good = noteText(env, alice, "10000000", t, t + 600'000);
+        auto const good = noteText(env, alice, "10000000", t, t + 600'000, key);
 
         BEAST_EXPECT(ok(good));
         {
@@ -158,44 +195,52 @@ struct CreditNote_test : public beast::unit_test::suite
             BEAST_EXPECT(n.amount == STAmount{XRPAmount{10'000'000}});
             BEAST_EXPECT(n.issueTime == t);
             BEAST_EXPECT(n.expiration == t + 600'000);
+            BEAST_EXPECT(n.bearer == key.pk());
         }
 
         // whitespace is the issuer's to choose; the bytes are what is signed
         BEAST_EXPECT(
             ok(" {\n \"NetworkID\": 0 ,\n\"Account\":\"" + alice.human() +
                "\",\"Amount\":1,\"IssueTime\":\"" + jsontx_iso_str(t) +
-               "\",\"Expiration\":\"" + jsontx_iso_str(t + 1) + "\" }\n"));
+               "\",\"Expiration\":\"" + jsontx_iso_str(t + 1) +
+               "\" , \"Bearer\" : \"" + bearerHex(key) + "\" }\n"));
 
         // issued amounts
-        BEAST_EXPECT(ok(noteText(env, alice, iou(USD, "10"), t, t + 600'000)));
-        BEAST_EXPECT(ok(noteText(env, alice, iou(USD, "0.5"), t, t + 600'000)));
-        BEAST_EXPECT(!ok(noteText(env, alice, iou(USD, "0"), t, t + 600'000)));
-        BEAST_EXPECT(!ok(noteText(env, alice, iou(USD, "-1"), t, t + 600'000)));
+        BEAST_EXPECT(
+            ok(noteText(env, alice, iou(USD, "10"), t, t + 600'000, key)));
+        BEAST_EXPECT(
+            ok(noteText(env, alice, iou(USD, "0.5"), t, t + 600'000, key)));
+        BEAST_EXPECT(
+            !ok(noteText(env, alice, iou(USD, "0"), t, t + 600'000, key)));
+        BEAST_EXPECT(
+            !ok(noteText(env, alice, iou(USD, "-1"), t, t + 600'000, key)));
         BEAST_EXPECT(!ok(noteText(
             env,
             alice,
             "{\"currency\":\"USD\",\"issuer\":\"" + gw.human() + "\"}",
             t,
-            t + 600'000)));
+            t + 600'000,
+            key)));
         BEAST_EXPECT(!ok(noteText(
             env,
             alice,
             "{\"currency\":\"XAH\",\"issuer\":\"" + gw.human() +
                 "\",\"value\":\"1\"}",
             t,
-            t + 600'000)));
+            t + 600'000,
+            key)));
 
         // shape
-        BEAST_EXPECT(!ok(noteText(env, alice, "0", t, t + 600'000)));
-        BEAST_EXPECT(!ok(noteText(env, alice, "-5", t, t + 600'000)));
-        BEAST_EXPECT(!ok(noteText(env, alice, "\"10\"", t, t + 600'000)));
-        BEAST_EXPECT(!ok(noteText(env, alice, "1.5", t, t + 600'000)));
+        BEAST_EXPECT(!ok(noteText(env, alice, "0", t, t + 600'000, key)));
+        BEAST_EXPECT(!ok(noteText(env, alice, "-5", t, t + 600'000, key)));
+        BEAST_EXPECT(!ok(noteText(env, alice, "\"10\"", t, t + 600'000, key)));
+        BEAST_EXPECT(!ok(noteText(env, alice, "1.5", t, t + 600'000, key)));
         BEAST_EXPECT(!ok(""));
         BEAST_EXPECT(!ok("[]"));
         BEAST_EXPECT(!ok(good + " x"));
         BEAST_EXPECT(!ok(good.substr(0, good.size() - 1)));
 
-        // exactly the five members, spelled exactly so
+        // exactly the six members, spelled exactly so
         BEAST_EXPECT(
             !ok(good.substr(0, good.size() - 1) + ",\"Memo\":\"hi\"}"));
         BEAST_EXPECT(
@@ -213,17 +258,56 @@ struct CreditNote_test : public beast::unit_test::suite
         }
 
         // window
-        BEAST_EXPECT(!ok(noteText(env, alice, "1", t, t)));
-        BEAST_EXPECT(!ok(noteText(env, alice, "1", t + 1, t)));
-        BEAST_EXPECT(ok(noteText(env, alice, "1", t, t + creditNoteMaxLifeMs)));
+        BEAST_EXPECT(!ok(noteText(env, alice, "1", t, t, key)));
+        BEAST_EXPECT(!ok(noteText(env, alice, "1", t + 1, t, key)));
         BEAST_EXPECT(
-            !ok(noteText(env, alice, "1", t, t + creditNoteMaxLifeMs + 1)));
+            ok(noteText(env, alice, "1", t, t + creditNoteMaxLifeMs, key)));
+        BEAST_EXPECT(!ok(
+            noteText(env, alice, "1", t, t + creditNoteMaxLifeMs + 1, key)));
 
         // a time the way sfTime renders, or nothing
         BEAST_EXPECT(
             !ok("{\"NetworkID\":0,\"Account\":\"" + alice.human() +
                 "\",\"Amount\":1,\"IssueTime\":" + std::to_string(t) +
-                ",\"Expiration\":\"" + jsontx_iso_str(t + 1) + "\"}"));
+                ",\"Expiration\":\"" + jsontx_iso_str(t + 1) +
+                "\",\"Bearer\":\"" + bearerHex(key) + "\"}"));
+
+        // the bearer key: an ed25519 public key in hex, either case
+        {
+            auto const withBearer = [&](std::string const& b) {
+                auto n = good;
+                auto const at = n.find("\"Bearer\":\"");
+                auto const end = n.find('"', at + 10);
+                return n.replace(at + 10, end - (at + 10), b);
+            };
+            auto lower = bearerHex(key);
+            for (auto& c : lower)
+                c = static_cast<char>(std::tolower(c));
+            BEAST_EXPECT(ok(withBearer(lower)));
+            BEAST_EXPECT(parseCreditNote(withBearer(lower)).bearer == key.pk());
+
+            // secp256k1
+            BEAST_EXPECT(!ok(withBearer(strHex(Account{"k1"}.pk().slice()))));
+            // not hex, odd length, too short, too long, empty, missing
+            BEAST_EXPECT(!ok(withBearer("ED" + std::string(64, 'G'))));
+            BEAST_EXPECT(!ok(withBearer(bearerHex(key) + "0")));
+            BEAST_EXPECT(!ok(withBearer(bearerHex(key).substr(0, 64))));
+            BEAST_EXPECT(!ok(withBearer(bearerHex(key) + "00")));
+            BEAST_EXPECT(!ok(withBearer("")));
+            {
+                auto n = good;
+                auto const at = n.find(",\"Bearer\"");
+                n.erase(at, n.find('"', at + 11) + 1 - at);
+                BEAST_EXPECT(!ok(n));
+            }
+            // a number, not a string
+            {
+                auto n = good;
+                auto const at = n.find("\"Bearer\":\"");
+                n.replace(at + 9, n.find('"', at + 10) + 1 - (at + 9), "1");
+                BEAST_EXPECT(!ok(n));
+            }
+        }
 
         // size
         {
@@ -241,9 +325,10 @@ struct CreditNote_test : public beast::unit_test::suite
         Env env{*this, supported_amendments() - featureCreditNote};
         Account const alice{"alice", KeyType::ed25519};
         Account const bob{"bob"};
+        auto const key = bearerKey();
         env.fund(XRP(10000), alice, bob);
         env.close();
-        env(claim(bob, freshNote(env, alice, "10000000"), alice),
+        env(claim(bob, freshNote(env, alice, "10000000", key), alice, key),
             ter(temDISABLED));
     }
 
@@ -257,23 +342,25 @@ struct CreditNote_test : public beast::unit_test::suite
         Account const bob{"bob"};
         Account const carol{"carol"};                  // secp256k1
         Account const dave{"dave", KeyType::ed25519};  // never funded
+        auto const key = bearerKey();
         env.fund(XRP(10000), alice, bob, carol);
         env.close();
 
-        auto const text = freshNote(env, alice, "10000000");
+        auto const text = freshNote(env, alice, "10000000", key);
 
         // a well-formed ed25519 signature by a key the issuer does not hold
-        env(claim(bob, text, dave), ter(tecNO_PERMISSION));
+        env(claim(bob, text, dave, key), ter(tecNO_PERMISSION));
 
         // signature over different bytes
         {
-            auto jv = claim(bob, text, alice);
-            jv[sfNote.fieldName] = strHex(freshNote(env, alice, "10000001"));
+            auto jv = claim(bob, text, alice, key);
+            jv[sfNote.fieldName] =
+                strHex(freshNote(env, alice, "10000001", key));
             env(jv, ter(temBAD_SIGNATURE));
         }
 
         // not ed25519
-        env(claim(bob, text, carol), ter(temMALFORMED));
+        env(claim(bob, text, carol, key), ter(temMALFORMED));
 
         // wrong network
         {
@@ -281,26 +368,31 @@ struct CreditNote_test : public beast::unit_test::suite
             auto const nid = "\"NetworkID\":" +
                 std::to_string(env.app().config().NETWORK_ID);
             bad.replace(bad.find(nid), nid.size(), "\"NetworkID\":9");
-            env(claim(bob, bad, alice), ter(temMALFORMED));
+            env(claim(bob, bad, alice, key), ter(temMALFORMED));
         }
 
         // redeeming your own note
-        env(claim(alice, text, alice), ter(temREDUNDANT));
+        env(claim(alice, text, alice, key), ter(temREDUNDANT));
 
         // too early, expired
-        env(claim(bob, freshNote(env, alice, "10000000", 120'000), alice),
+        env(claim(
+                bob,
+                freshNote(env, alice, "10000000", key, 120'000),
+                alice,
+                key),
             ter(terPRE_SEQ));
         {
             auto const t = nowMs(env) - 700'000;
             env(claim(
                     bob,
-                    noteText(env, alice, "10000000", t, t + 600'000),
-                    alice),
+                    noteText(env, alice, "10000000", t, t + 600'000, key),
+                    alice,
+                    key),
                 ter(tecEXPIRED));
         }
 
         // issuer cannot cover it above their reserve
-        env(claim(bob, freshNote(env, alice, "10000000000"), alice),
+        env(claim(bob, freshNote(env, alice, "10000000000", key), alice, key),
             ter(tecUNFUNDED_PAYMENT));
 
         BEAST_EXPECT(!lastNoteTime(env, alice));
@@ -309,26 +401,102 @@ struct CreditNote_test : public beast::unit_test::suite
         auto const issued = parseCreditNote(text).issueTime;
         STAmount const before = env.balance(bob);
         STAmount const fee{env.current()->fees().base};
-        env(claim(bob, text, alice));
+        env(claim(bob, text, alice, key));
         env.close();
         BEAST_EXPECT(env.balance(bob) == before + XRP(10).value() - fee);
         BEAST_EXPECT(lastNoteTime(env, alice) == issued);
-        env(claim(bob, text, alice), ter(tefPAST_SEQ));
-        env(claim(carol, text, alice), ter(tefPAST_SEQ));
+        env(claim(bob, text, alice, key), ter(tefPAST_SEQ));
+        env(claim(carol, text, alice, key), ter(tefPAST_SEQ));
 
         // a note issued before the redeemed one is retired with it ...
         env(claim(
                 bob,
-                noteText(env, alice, "1000000", issued - 1, issued + 600'000),
-                alice),
+                noteText(
+                    env, alice, "1000000", issued - 1, issued + 600'000, key),
+                alice,
+                key),
             ter(tefPAST_SEQ));
 
         // ... and one issued after it still redeems
         auto const later =
-            noteText(env, alice, "1000000", issued + 1, issued + 600'000);
-        env(claim(carol, later, alice));
+            noteText(env, alice, "1000000", issued + 1, issued + 600'000, key);
+        env(claim(carol, later, alice, key));
         env.close();
         BEAST_EXPECT(lastNoteTime(env, alice) == issued + 1);
+    }
+
+    void
+    testBearer()
+    {
+        testcase("bearer key");
+        using namespace jtx;
+        Env env{*this, supported_amendments()};
+        Account const alice{"alice", KeyType::ed25519};
+        Account const bob{"bob"};
+        Account const carol{"carol"};
+        auto const key = bearerKey();
+        auto const other = bearerKey("other");
+        env.fund(XRP(10000), alice, bob, carol);
+        env.close();
+
+        auto const text = freshNote(env, alice, "10000000", key);
+
+        // no proof at all
+        {
+            auto jv = claim(bob, text, alice, key);
+            jv.removeMember(sfBearerSignature.fieldName);
+            env(jv, ter(temMALFORMED));
+        }
+
+        // a proof by a key that is not the note's Bearer
+        env(claim(bob, text, alice, other), ter(temBAD_SIGNATURE));
+
+        // bob's proof, lifted into carol's claim: bound to the account
+        {
+            auto jv = claim(carol, text, alice, key);
+            jv[sfBearerSignature.fieldName] =
+                strHex(bearerSign(key, text, bob));
+            env(jv, ter(temBAD_SIGNATURE));
+        }
+
+        // a proof over a different note with the same Bearer: bound to the
+        // note's bytes
+        {
+            auto jv = claim(bob, text, alice, key);
+            jv[sfBearerSignature.fieldName] = strHex(
+                bearerSign(key, freshNote(env, alice, "10000001", key), bob));
+            env(jv, ter(temBAD_SIGNATURE));
+        }
+
+        // the issuer's own signature is not a bearer proof, nor vice versa
+        {
+            auto jv = claim(bob, text, alice, key);
+            jv[sfBearerSignature.fieldName] = jv[sfNoteSignature.fieldName];
+            env(jv, ter(temBAD_SIGNATURE));
+        }
+        {
+            auto jv = claim(bob, text, alice, key);
+            jv[sfNoteSignature.fieldName] = jv[sfBearerSignature.fieldName];
+            env(jv, ter(temBAD_SIGNATURE));
+        }
+
+        // nothing above cost a fee or moved LastNoteTime
+        BEAST_EXPECT(!lastNoteTime(env, alice));
+
+        // the holder of the seed redeems, to whichever account they like
+        STAmount const before = env.balance(carol);
+        STAmount const fee{env.current()->fees().base};
+        env(claim(carol, text, alice, key));
+        env.close();
+        BEAST_EXPECT(env.balance(carol) == before + XRP(10).value() - fee);
+
+        // each note gets its own key: a later note under the first key is
+        // the issuer's choice, and still redeems only with that key
+        env(claim(bob, freshNote(env, alice, "1000000", key, 1), alice, other),
+            ter(temBAD_SIGNATURE));
+        env(claim(
+            bob, freshNote(env, alice, "1000000", other, 1), alice, other));
+        env.close();
     }
 
     void
@@ -340,15 +508,16 @@ struct CreditNote_test : public beast::unit_test::suite
         Account const alice{"alice"};  // secp256k1 master
         Account const alie{"alie", KeyType::ed25519};
         Account const bob{"bob"};
+        auto const key = bearerKey();
         env.fund(XRP(10000), alice, bob);
         env.close();
 
         // alice's master is secp256k1, which cannot sign a note
-        env(claim(bob, freshNote(env, alice, "1000000"), alice),
+        env(claim(bob, freshNote(env, alice, "1000000", key), alice, key),
             ter(temMALFORMED));
 
         // an ed25519 key she does not hold yet
-        env(claim(bob, freshNote(env, alice, "1000000"), alie),
+        env(claim(bob, freshNote(env, alice, "1000000", key), alie, key),
             ter(tecNO_PERMISSION));
         // Close before the regkey: a tec stays in the open ledger and is
         // re-applied at close in canonical order, where it could land after
@@ -358,7 +527,7 @@ struct CreditNote_test : public beast::unit_test::suite
         // as her regular key it signs for her
         env(regkey(alice, alie));
         env.close();
-        env(claim(bob, freshNote(env, alice, "1000000"), alie));
+        env(claim(bob, freshNote(env, alice, "1000000", key), alie, key));
         env.close();
 
         // and a disabled master no longer does
@@ -367,9 +536,9 @@ struct CreditNote_test : public beast::unit_test::suite
         env(regkey(carol, alie));
         env(fset(carol, asfDisableMaster), sig(carol));
         env.close();
-        env(claim(bob, freshNote(env, carol, "1000000"), carol),
+        env(claim(bob, freshNote(env, carol, "1000000", key), carol, key),
             ter(tecNO_PERMISSION));
-        env(claim(bob, freshNote(env, carol, "1000000", 1), alie));
+        env(claim(bob, freshNote(env, carol, "1000000", key, 1), alie, key));
         env.close();
     }
 
@@ -383,6 +552,7 @@ struct CreditNote_test : public beast::unit_test::suite
         Account const bob{"bob"};
         Account const gw{"gw", KeyType::ed25519};
         auto const USD = gw["USD"];
+        auto const key = bearerKey();
         env.fund(XRP(10000), alice, bob, gw);
         env.close();
         env(trust(alice, USD(1000)));
@@ -390,21 +560,21 @@ struct CreditNote_test : public beast::unit_test::suite
         env.close();
 
         // bob has no trust line; none is created
-        env(claim(bob, freshNote(env, alice, iou(USD, "10")), alice),
+        env(claim(bob, freshNote(env, alice, iou(USD, "10"), key), alice, key),
             ter(tecNO_LINE));
 
         env(trust(bob, USD(1000)));
         env.close();
 
         // more than alice holds
-        env(claim(bob, freshNote(env, alice, iou(USD, "101")), alice),
+        env(claim(bob, freshNote(env, alice, iou(USD, "101"), key), alice, key),
             ter(tecUNFUNDED_PAYMENT));
         env.close();
 
         // frozen line
         env(trust(gw, bob["USD"](0), tfSetFreeze));
         env.close();
-        env(claim(bob, freshNote(env, alice, iou(USD, "10")), alice),
+        env(claim(bob, freshNote(env, alice, iou(USD, "10"), key), alice, key),
             ter(tecFROZEN));
         // The rejected claim must close before the unfreeze: otherwise the
         // close re-applies both in canonical order and, with the unfreeze
@@ -413,21 +583,31 @@ struct CreditNote_test : public beast::unit_test::suite
         env(trust(gw, bob["USD"](0), tfClearFreeze));
         env.close();
 
+        // deep frozen line: cannot receive at all
+        env(trust(gw, bob["USD"](0), tfSetFreeze | tfSetDeepFreeze));
+        env.close();
+        env(claim(bob, freshNote(env, alice, iou(USD, "10"), key), alice, key),
+            ter(tecFROZEN));
+        env.close();
+        env(trust(gw, bob["USD"](0), tfClearFreeze | tfClearDeepFreeze));
+        env.close();
+
         // transit: bob receives 10, alice pays 10 plus the transfer fee
         env(rate(gw, 1.25));
         env.close();
-        env(claim(bob, freshNote(env, alice, iou(USD, "10")), alice));
+        env(claim(bob, freshNote(env, alice, iou(USD, "10"), key), alice, key));
         env.close();
         BEAST_EXPECT(env.balance(bob, USD) == USD(10));
         BEAST_EXPECT(env.balance(alice, USD) == USD(87.5));
 
         // issue: the gateway's own note, no fee
-        env(claim(bob, freshNote(env, gw, iou(USD, "5")), gw));
+        env(claim(bob, freshNote(env, gw, iou(USD, "5"), key), gw, key));
         env.close();
         BEAST_EXPECT(env.balance(bob, USD) == USD(15));
 
         // redemption: a note cashed by the gateway, no line needed on its side
-        env(claim(gw, freshNote(env, alice, iou(USD, "7"), 1000), alice));
+        env(claim(
+            gw, freshNote(env, alice, iou(USD, "7"), key, 1000), alice, key));
         env.close();
         BEAST_EXPECT(env.balance(alice, USD) == USD(80.5));
     }
@@ -438,6 +618,7 @@ struct CreditNote_test : public beast::unit_test::suite
         testParse();
         testDisabled();
         testXAH();
+        testBearer();
         testRegularKey();
         testIOU();
     }
