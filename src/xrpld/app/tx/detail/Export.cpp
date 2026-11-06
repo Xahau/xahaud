@@ -27,6 +27,7 @@
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/View.h>
 #include <xrpl/basics/StringUtilities.h>
+#include <xrpl/protocol/ExportSchema.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Sign.h>
@@ -45,12 +46,17 @@ obj(STObject const& o, SField const& f)
     return o.peekAtField(f).downcast<STObject>();
 }
 
-// `inner` as a transaction, if it parses under this network's formats and is
+// `inner` as a transaction, if it parses under this network's formats, is
+// one both networks read the same way (ExportSchema, under `rules`) and is
 // shaped for multisigning by the UNL: from `account`, unsigned, not emitted,
 // not a pseudo-txn, not replayable here, and bound back here (every export
 // uses a ticket; one without TicketSequence gets one when it applies).
 static std::optional<STTx>
-exportedTx(STObject const& inner, AccountID const& account, std::uint32_t nid)
+exportedTx(
+    STObject const& inner,
+    AccountID const& account,
+    std::uint32_t nid,
+    Rules const& rules)
 {
     try
     {
@@ -61,7 +67,7 @@ exportedTx(STObject const& inner, AccountID const& account, std::uint32_t nid)
             !t.isFieldPresent(sfTxnSignature) && !t.isFieldPresent(sfSigners) &&
             !t.isFieldPresent(sfEmitDetails) && !isPseudoTx(t) &&
             t[~sfNetworkID] != nid && t[sfSequence] == 0 &&
-            t[~sfOperationLimit] == nid)
+            t[~sfOperationLimit] == nid && ExportSchema::allowed(t, rules))
             return t;
     }
     catch (std::exception const&)
@@ -490,7 +496,7 @@ Export::preflight(PreflightContext const& ctx)
         if (tx.getFlags() & tfUniversalMask)
             return temINVALID_FLAG;
         if (!hook::isEmittedTxn(tx) ||
-            !exportedTx(obj(tx, sfExportedTxn), tx[sfAccount], nid))
+            !exportedTx(obj(tx, sfExportedTxn), tx[sfAccount], nid, ctx.rules))
             return temMALFORMED;
         return preflight2(ctx);
     }
@@ -527,7 +533,7 @@ Export::preflight(PreflightContext const& ctx)
         auto const type = inner[~sfTransactionType].value_or(0);
         if ((type != ttTICKET_CREATE && type != ttSIGNER_LIST_SET) ||
             inner.isFieldPresent(sfTicketSequence) ||
-            !exportedTx(inner, tx[sfOwner], nid))
+            !exportedTx(inner, tx[sfOwner], nid, ctx.rules))
             return temMALFORMED;
     }
 
@@ -655,7 +661,7 @@ Export::createExport(
                 static_cast<std::int64_t>(
                     list->getFieldArray(sfSignerEntries).size() + 1));
 
-    auto const t = exportedTx(inner, owner, nid);
+    auto const t = exportedTx(inner, owner, nid, view.rules());
     if (!t)
         return tecINTERNAL;
 
@@ -831,6 +837,12 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
             });
             continue;
         }
+
+        // A validator signs only what the schema allows now: a type an
+        // amendment has closed since the export was created is left to close
+        // below quorum, and calls its hook back as such.
+        if (!ExportSchema::allowed(inner, view.rules()))
+            continue;
 
         // possibly several, if the exporter listed more than one of ours
         for (auto const& key : app.getExportKeys().signersFor(

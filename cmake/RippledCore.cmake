@@ -111,6 +111,42 @@ target_link_libraries(xrpl.libxrpl.protocol PUBLIC
   xrpl.libxrpl.hook
   xrpl.libxrpl.json
 )
+# ExportSchema.cpp reads the other network's `server_definitions`, checked
+# in as src/libxrpl/protocol/xrpl_server_definitions.json, at compile time.
+# C++20 has no way to include a file as data (that is C++26's #embed), so
+# the json is wrapped as a string literal here, in the build tree only.
+# configure_file re-runs when the json changes and leaves the header alone
+# when it would not change, so nothing recompiles needlessly. To refresh:
+#
+#   curl -s -X POST https://s1.ripple.com:51234/ \
+#       -d '{"method":"server_definitions"}' \
+#     | jq -S .result > src/libxrpl/protocol/xrpl_server_definitions.json
+#
+# The constant evaluation of ~140 KB of json needs more steps than the
+# compilers allow by default; the limit is raised on that one file only.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/src/libxrpl/protocol/xrpl_server_definitions.json"
+  XRPL_SERVER_DEFINITIONS_JSON)
+if(XRPL_SERVER_DEFINITIONS_JSON MATCHES "\\)__xsd\"")
+  message(FATAL_ERROR "xrpl_server_definitions.json contains the raw string delimiter")
+endif()
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/libxrpl/protocol/xrpl_server_definitions.h.in"
+  "${CMAKE_CURRENT_BINARY_DIR}/generated/libxrpl/protocol/xrpl_server_definitions.h"
+  @ONLY
+)
+unset(XRPL_SERVER_DEFINITIONS_JSON)
+# file(READ) does not make the json a configure dependency by itself
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/libxrpl/protocol/xrpl_server_definitions.json"
+)
+target_include_directories(xrpl.libxrpl.protocol PRIVATE
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated>"
+)
+set_source_files_properties(
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/libxrpl/protocol/ExportSchema.cpp"
+  PROPERTIES COMPILE_OPTIONS
+    "$<$<CXX_COMPILER_ID:Clang,AppleClang>:-fconstexpr-steps=100000000>;$<$<CXX_COMPILER_ID:GNU>:-fconstexpr-ops-limit=100000000>"
+)
 
 # Level 05
 add_module(xrpl resource)

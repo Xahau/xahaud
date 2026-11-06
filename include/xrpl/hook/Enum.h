@@ -390,7 +390,9 @@ enum class hook_return_code : int64_t {
     TOO_MANY_NAMESPACES = -45,
     TOO_LITTLE_ENTROPY = -46,  // featureRNG: no seed for this ledger, or too
                                // few validators contributed to it
-    NO_TICKET = -47  // featureExport: the exporter holds no unused ticket
+    NO_TICKET = -47,      // featureExport: the exporter holds no unused ticket
+    NOT_EXPORTABLE = -48  // featureExport: not a transaction both networks
+                          // read the same way (type, field or flag)
 };
 
 enum class ExitType : uint8_t {

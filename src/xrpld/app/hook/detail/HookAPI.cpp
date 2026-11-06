@@ -6,6 +6,7 @@
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
+#include <xrpl/protocol/ExportSchema.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <algorithm>
 #include <limits>
@@ -864,10 +865,13 @@ HookAPI::xport(Slice const& txBlob) const
         needsTicket = !inner.isFieldPresent(sfTicketSequence);
         {
             // it must be a transaction of the other network: its type known
-            // and its required fields all there (STTx applies the template)
+            // and its required fields all there (STTx applies the template),
+            // and one both networks read the same way
             Serializer probe;
             inner.add(probe);
             STTx const t{SerialIter{probe.slice()}};
+            if (ExportSchema::reject(t, hookCtx.applyCtx.view().rules()))
+                return Unexpected(NOT_EXPORTABLE);
         }
         STObject outer{sfGeneric};
         outer[sfTransactionType] = static_cast<std::uint16_t>(ttEXPORT);

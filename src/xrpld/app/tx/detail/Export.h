@@ -67,10 +67,13 @@ class ValidatorKeys;
     hook, lsfTshCollect on the account). asfExporter clears the flag.
 
     1. A hook calls xport() with the transaction: TransactionType and its
-       own fields. Account, SigningPubKey, Sequence (0) and OperationLimit
-       are filled in at emission; TicketSequence (the lowest ticket of the
-       smallest range in sfExportTickets) and Fee ((signers + 1) x
-       xrplBaseFee) when the ttEXPORT applies, unless the hook set them.
+       own fields, which must be ones both networks read the same way
+       (ExportSchema: a type opened for export by amendment, with the fields
+       and flags the other network accepts on it; NOT_EXPORTABLE otherwise).
+       Account, SigningPubKey, Sequence (0) and OperationLimit are filled in
+       at emission; TicketSequence (the lowest ticket of the smallest range
+       in sfExportTickets) and Fee ((signers + 1) x xrplBaseFee) when the
+       ttEXPORT applies, unless the hook set them.
        Applying it copies sfExportSignerList into a new ltEXPORTED_TXN and
        writes an ltSHADOW_TICKET: the XPOP of whichever transaction uses that
        ticket there can be imported once, calling the hook back. A ticket is

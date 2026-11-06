@@ -1,0 +1,18 @@
+// Generated at configure time by cmake/RippledCore.cmake from
+// src/libxrpl/protocol/xrpl_server_definitions.json. Do not edit.
+#ifndef RIPPLE_LIBXRPL_PROTOCOL_XRPL_SERVER_DEFINITIONS_H_INCLUDED
+#define RIPPLE_LIBXRPL_PROTOCOL_XRPL_SERVER_DEFINITIONS_H_INCLUDED
+
+#include <string_view>
+
+namespace ripple {
+namespace xrpl_defs {
+
+inline constexpr std::string_view xrplServerDefinitionsJson = R"__xsd(
+@XRPL_SERVER_DEFINITIONS_JSON@
+)__xsd";
+
+}  // namespace xrpl_defs
+}  // namespace ripple
+
+#endif
