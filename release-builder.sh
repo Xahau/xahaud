@@ -95,9 +95,7 @@ RUN dnf install -y dnf-plugins-core epel-release && \
         autoconf \
         automake \
         texinfo \
-        libtool \
-        llvm14-static llvm14-devel && \
-    dnf clean all
+        libtool
 
 # Install Conan 2 and CMake
 RUN python3.11 -m pip install "conan>=2.0,<3.0" "ninja>=1.13,<1.14" && \
@@ -105,68 +103,27 @@ RUN python3.11 -m pip install "conan>=2.0,<3.0" "ninja>=1.13,<1.14" && \
     tar -xzf cmake.tar.gz --strip-components=1 -C /usr/local && \
     rm cmake.tar.gz
 
-# Dual Boost configuration:
-# - Manual Boost in /usr/local (minimal: for WasmEdge which is pre-built in Docker)
-# - Conan Boost (full: for the application and all dependencies via toolchain)
-#
-# Install minimal Boost 1.86.0 for WasmEdge only (filesystem and its dependencies)
-# The main application will use Conan-provided Boost for all other components
-# IMPORTANT: Understanding Boost linking options:
-#   - link=static: Creates static Boost libraries (.a files) instead of shared (.so files)
-#   - runtime-link=shared: Links Boost libraries against shared libc (glibc)
-# WasmEdge only needs boost::filesystem and boost::system
-RUN echo 'Boost cache bust: v5-minimal' && \
-    source /opt/rh/gcc-toolset-13/enable && \
-    rm -rf /usr/local/lib/libboost* /usr/local/include/boost && \
-    cd /tmp && \
+# Boost headers for WasmEdge only (its CMake does find_package(Boost); on Linux
+# the library is header-only INTERFACE usage, nothing is linked). Without a
+# system Boost it would FetchContent a 1.76 tarball from a dead jfrog URL.
+# The application itself uses Conan-provided Boost via the toolchain.
+RUN cd /tmp && \
     wget -q https://archives.boost.io/release/1.86.0/source/boost_1_86_0.tar.gz -O boost.tar.gz && \
-    mkdir boost && \
-    tar -xzf boost.tar.gz --strip-components=1 -C boost && \
-    cd boost && \
-    ./bootstrap.sh && \
-    ./b2 install \
-        link=static runtime-link=shared -j${BUILD_CORES} \
-        --with-filesystem --with-system && \
-    cd /tmp && \
-    rm -rf boost boost.tar.gz
+    tar -xzf boost.tar.gz --strip-components=1 -C /usr/local/include boost_1_86_0/boost && \
+    rm -f boost.tar.gz
 
 ENV CMAKE_EXE_LINKER_FLAGS="-static-libstdc++"
 
-ENV LLVM_DIR=/usr/lib64/llvm14/lib/cmake/llvm
 ENV WasmEdge_LIB=/usr/local/lib64/libwasmedge.a
 
 ENV CC='ccache gcc'
 ENV CXX='ccache g++'
 
-# LLVM 14 headers rely on <cstdint> being included transitively, which gcc 13 no longer does
-# Install LLD
-RUN source /opt/rh/gcc-toolset-13/enable && \
-    export CXXFLAGS="-include cstdint" && \
-    cd /tmp && \
-    wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.3/lld-14.0.3.src.tar.xz && \
-    wget -q https://github.com/llvm/llvm-project/releases/download/llvmorg-14.0.3/libunwind-14.0.3.src.tar.xz && \
-    tar -xf lld-14.0.3.src.tar.xz && \
-    tar -xf libunwind-14.0.3.src.tar.xz && \
-    cp -r libunwind-14.0.3.src/include libunwind-14.0.3.src/src lld-14.0.3.src/ && \
-    cd lld-14.0.3.src && \
-    mkdir -p build && cd build && \
-    cmake .. \
-        -DLLVM_LIBRARY_DIR=/usr/lib64/llvm14/lib/ \
-        -DCMAKE_INSTALL_PREFIX=/usr/lib64/llvm14/ \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_EXE_LINKER_FLAGS="$CMAKE_EXE_LINKER_FLAGS" && \
-    make -j${BUILD_CORES} install && \
-    ln -s /usr/lib64/llvm14/lib/include/lld /usr/include/lld && \
-    cp /usr/lib64/llvm14/lib/liblld*.a /usr/local/lib/ && \
-    cd /tmp && rm -rf lld-* libunwind-*
-
 # Build and install WasmEdge (static version)
 # Note: Conan only provides WasmEdge with shared library linking.
-# For a fully static build, we need to manually install:
-# * Boost: Static C++ libraries for filesystem and system operations (built from source above)
-# * LLVM: Static LLVM libraries for WebAssembly compilation (installed via llvm14-static package)
-# * LLD: Static linker to produce the final static binary (built from source above)
-# These were installed above to enable WASMEDGE_LINK_LLVM_STATIC=ON
+# xahaud only uses the interpreter (VM/ModuleInstance/Statistics C API), never
+# the AOT compiler, so the LLVM-based runtime is disabled. This removes the
+# LLVM 14 static libs, the LLD source build and the Boost b2 build.
 RUN cd /tmp && \
     ( wget -nc -q https://github.com/WasmEdge/WasmEdge/archive/refs/tags/0.11.2.zip; unzip -o 0.11.2.zip; ) && \
     cd WasmEdge-0.11.2 && \
@@ -187,11 +144,10 @@ RUN cd /tmp && \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DWASMEDGE_BUILD_SHARED_LIB=OFF \
         -DWASMEDGE_BUILD_STATIC_LIB=ON \
-        -DWASMEDGE_BUILD_AOT_RUNTIME=ON \
+        -DWASMEDGE_BUILD_AOT_RUNTIME=OFF \
+        -DWASMEDGE_BUILD_TOOLS=OFF \
         -DWASMEDGE_FORCE_DISABLE_LTO=ON \
-        -DWASMEDGE_LINK_LLVM_STATIC=ON \
         -DWASMEDGE_BUILD_PLUGINS=OFF \
-        -DWASMEDGE_LINK_TOOLS_STATIC=ON \
         -DBoost_NO_BOOST_CMAKE=ON \
         -DCMAKE_EXE_LINKER_FLAGS="$CMAKE_EXE_LINKER_FLAGS" \
         && \
