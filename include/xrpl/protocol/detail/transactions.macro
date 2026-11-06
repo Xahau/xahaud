@@ -640,6 +640,9 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
 /** Emitted by a hook (see xport()): have the export keys in the account's
     sfExportSignerList multisign sfExportedTxn, a transaction for another
     network from the hook's account. See Export.h. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Export.h>
+#endif
 TRANSACTION(ttEXPORT, 88, Export, ({
     {sfExportedTxn, soeREQUIRED},
 }))
