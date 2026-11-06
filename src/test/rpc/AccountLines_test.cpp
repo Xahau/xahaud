@@ -476,6 +476,62 @@ public:
     }
 
     void
+    testAccountLinesURITokenMarker()
+    {
+        testcase("Entry pointed to by marker is a URI token");
+        using namespace test::jtx;
+        Env env(*this);
+
+        Account const alice{"alice"};
+        Account const becky{"becky"};
+        Account const gw1{"gw1"};
+        env.fund(XRP(10000), alice, becky, gw1);
+        env.close();
+
+        std::string const uri = "my-uri-token";
+        Json::Value jfURIToken;
+        jfURIToken[jss::TransactionType] = jss::URITokenMint;
+        jfURIToken[jss::Account] = alice.human();
+        jfURIToken[sfURI.jsonName] = strHex(uri);
+        env(jfURIToken);
+        env.close();
+
+        auto const EUR = gw1["EUR"];
+        env(trust(alice, EUR(200)));
+        env(trust(becky, EUR(200)));
+        env.close();
+
+        Json::Value const aliceURITokens = env.rpc(
+            "json",
+            "account_objects",
+            R"({"account": ")" + alice.human() +
+                R"(", )"
+                R"("type": "uri_token"})");
+        auto const& aliceURIToken =
+            aliceURITokens[jss::result][jss::account_objects][0u];
+        BEAST_EXPECT(
+            aliceURIToken[sfLedgerEntryType.jsonName] == jss::URIToken);
+
+        std::string const aliceMarker =
+            aliceURIToken[jss::index].asString() + ",0";
+
+        auto const aliceLines = env.rpc(
+            "json",
+            "account_lines",
+            R"({"account": ")" + alice.human() + R"(", "marker": ")" +
+                aliceMarker + R"("})");
+        BEAST_EXPECT(!aliceLines[jss::result].isMember(jss::error_message));
+        BEAST_EXPECT(aliceLines[jss::result].isMember(jss::lines));
+
+        auto const beckyLines = env.rpc(
+            "json",
+            "account_lines",
+            R"({"account": ")" + becky.human() + R"(", "marker": ")" +
+                aliceMarker + R"("})");
+        BEAST_EXPECT(beckyLines[jss::result].isMember(jss::error_message));
+    }
+
+    void
     testAccountLineDelete()
     {
         testcase("Entry pointed to by marker is removed");
@@ -1494,6 +1550,7 @@ public:
     {
         testAccountLines();
         testAccountLinesMarker();
+        testAccountLinesURITokenMarker();
         testAccountLineDelete();
         testAccountLinesWalkMarkers();
         testAccountLines2();
