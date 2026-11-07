@@ -79,4 +79,4 @@ awk '
     }
 ' "$LEDGER_FORMATS"
 echo ''
-echo '#endif // HOOKLSFLAGS_INCLUDED'
+echo '#endif  // HOOKLSFLAGS_INCLUDED'

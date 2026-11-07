@@ -257,6 +257,25 @@ private:
     }
 
     void
+    testExportedTxn(FeatureBitset const& features)
+    {
+        testcase("ExportedTxn");
+        // created by an emitted Export, which preclaim rejects (tecNO_TARGET)
+        // unless the account carries an ExportSignerList, and only Import
+        // of a validly signed xpop sets one; covered by Export_test
+        pass();
+    }
+
+    void
+    testShadowTicket(FeatureBitset const& features)
+    {
+        testcase("ShadowTicket");
+        // created alongside ExportedTxn by the same emitted Export; see
+        // testExportedTxn and Export_test
+        pass();
+    }
+
+    void
     testEmittedTxn(FeatureBitset const& features)
     {
         testcase("EmittedTxn");

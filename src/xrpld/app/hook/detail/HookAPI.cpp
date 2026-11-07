@@ -3,8 +3,10 @@
 #include <xrpld/app/hook/HookAPI.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
+#include <xrpl/protocol/ExportSchema.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <algorithm>
 #include <limits>
@@ -838,6 +840,76 @@ HookAPI::emit(Slice const& txBlob) const
     }
 
     return tpTrans;
+}
+
+Expected<std::shared_ptr<Transaction>, HookReturnCode>
+HookAPI::xport(Slice const& txBlob) const
+{
+    Serializer s;
+    std::optional<std::uint32_t> ticket;
+    try
+    {
+        SerialIter sit{txBlob};
+        STObject inner{sit, sfExportedTxn};
+        if (!inner.isFieldPresent(sfAccount))
+            inner[sfAccount] = hookCtx.result.account;
+        if (!inner.isFieldPresent(sfSigningPubKey))
+            inner[sfSigningPubKey] = Slice{};
+        if (!inner.isFieldPresent(sfSequence))
+            inner[sfSequence] = 0;
+        if (!inner.isFieldPresent(sfOperationLimit))
+            inner[sfOperationLimit] = hookCtx.applyCtx.app.config().NETWORK_ID;
+        // Fee 0 is filled in from the signer count when the export applies
+        if (!inner.isFieldPresent(sfFee))
+            inner.setFieldAmount(sfFee, XRPAmount{0});
+        ticket = inner[~sfTicketSequence];
+        {
+            // it must be a transaction of the other network: its type known
+            // and its required fields all there (STTx applies the template),
+            // and one both networks read the same way
+            Serializer probe;
+            inner.add(probe);
+            STTx const t{SerialIter{probe.slice()}};
+            if (ExportSchema::reject(t, hookCtx.applyCtx.view().rules()))
+                return Unexpected(NOT_EXPORTABLE);
+        }
+        STObject outer{sfGeneric};
+        outer[sfTransactionType] = static_cast<std::uint16_t>(ttEXPORT);
+        outer.emplace_back(std::move(inner));
+        outer.add(s);
+    }
+    catch (std::exception const&)
+    {
+        return Unexpected(INVALID_ARGUMENT);
+    }
+
+    // prepare() fills in what emit() requires, including the export's fee
+    auto const blob = prepare(s.slice());
+    if (!blob)
+        return Unexpected(blob.error());
+
+    // The ticket is filled in from the pool when the export applies: tell the
+    // hook now if there is none it may have (the pool's last ticket is the
+    // ledger's, see Export::hookMayUse). A ticket of its own, outside the
+    // pool, is always the hook's to spend.
+    {
+        auto const acc = hookCtx.applyCtx.view().read(
+            keylet::account(hookCtx.result.account));
+        if (!Export::hookMayUse(
+                acc ? ExportTickets::load(*acc) : ExportTickets{}, ticket))
+            return Unexpected(NO_TICKET);
+    }
+    return emit(makeSlice(*blob));
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_tickets() const
+{
+    auto const acc =
+        hookCtx.applyCtx.view().read(keylet::account(hookCtx.result.account));
+    if (!acc)
+        return Unexpected(DOESNT_EXIST);
+    return ExportTickets::load(*acc).count();
 }
 
 Expected<uint64_t, HookReturnCode>

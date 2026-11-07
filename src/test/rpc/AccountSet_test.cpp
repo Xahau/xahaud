@@ -102,6 +102,14 @@ public:
                     continue;
                 }
 
+                if (flag == asfExporter)
+                {
+                    // The asfExporter flag can only be set by an account whose
+                    // export signer list is recorded (featureExport). It is
+                    // tested in Export_test.
+                    continue;
+                }
+
                 if (std::find(goodFlags.begin(), goodFlags.end(), flag) !=
                     goodFlags.end())
                 {

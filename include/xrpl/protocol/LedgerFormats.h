@@ -147,7 +147,9 @@ enum LedgerSpecificFlags {
         0x40000000,               // True, has minted tokens in the past
     lsfDisallowIncomingRemit =    // True, no remits allowed to this account
         0x80000000,
-    // 0x0004000 is available
+    lsfExporter = 0x00004000,     // True, featureExport keeps this account's
+                                  // tickets and signer list on the other
+                                  // network in step (see Export.h)
     lsfAllowTrustLineClawback =
         0x00001000,               // True, enable clawback
 
