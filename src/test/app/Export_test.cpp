@@ -784,7 +784,18 @@ class Export_test : public beast::unit_test::suite
                 .contains(9));
 
         // but not when another export has since taken the ticket over: the
-        // shadow ticket names that one, so it stays and the pool is unchanged
+        // shadow ticket names that one, so it stays and the pool is unchanged.
+        // Ticket 9 is now the pool's only ticket, which is the ledger's for
+        // its refill (hookMayUse), so give the pool another: then a hook may
+        // name 9 again, as an identical export repeated would.
+        {
+            auto acc =
+                std::make_shared<SLE>(*view.read(keylet::account(alice.id())));
+            auto tickets = ExportTickets::load(*acc);
+            tickets.insert(8);
+            tickets.store(*acc);
+            view.rawReplace(acc);
+        }
         auto const later = payment(alice.id(), 31, 9, nid);
         BEAST_EXPECT(
             applyExport(env, view, exportTx(env, alice.id(), later)) ==
@@ -1611,7 +1622,10 @@ class Export_test : public beast::unit_test::suite
             o.setFieldArray(sfSignerEntries, signerEntries({b}));
         });
         bobList.sign(bob.pk(), bob.sk());
+        // not a loopback, so it pays Import's base fee (ten times the
+        // reference fee for an existing account), which autofill does not
         env(import::import(bob, other.xpop(bobList, 105, closeTime)),
+            fee(env.current()->fees().base * 10),
             ter(tesSUCCESS));
         env.close();
         if (auto const sb = env.le(bob); BEAST_EXPECT(sb))
