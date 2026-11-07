@@ -74,6 +74,7 @@
 #define sfLockCount ((2U << 16U) + 49U)
 #define sfFirstNFTokenSequence ((2U << 16U) + 50U)
 #define sfOracleDocumentID ((2U << 16U) + 51U)
+#define sfExportSequence ((2U << 16U) + 89U)
 #define sfExportTicketPending ((2U << 16U) + 90U)
 #define sfExportTicketNext ((2U << 16U) + 91U)
 #define sfExportKeysSeq ((2U << 16U) + 92U)

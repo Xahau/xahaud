@@ -29,6 +29,7 @@
 
 namespace ripple {
 
+class ExportTickets;
 class ValidatorKeys;
 
 /** Export: UNL validators multisign transactions for another network on
@@ -53,15 +54,28 @@ class ValidatorKeys;
         Imports of its TicketCreates (ExportTickets below). Every export uses
         one. Below ticketLow the ledger exports a TicketCreate for ticketBatch
         more (ttEXPORT_AUTO, paid by the exporter); sfExportTicketPending
-        holds that export's ticket until it returns.
+        holds that export's ticket until it returns. The last pooled ticket
+        is the ledger's: a hook cannot draw it (hookMayUse), so a refill can
+        always be carried by a ticket.
+      - sfExportSequence, its Sequence there, as last proven by an Import:
+        the AccountRoot node in every transaction's metadata carries it. This
+        is the backstop for a pool that is nonetheless empty (a refill lost
+        there, tickets a hook named by itself): with no ticket to carry a
+        refill, the ledger exports a TicketCreate sequenced with it instead,
+        once per Sequence it knows (sfExportTicketPending then holds that
+        Sequence; tickets and sequences share one number space there). The
+        Import of its result, succeeded or failed, records the Sequence it
+        consumed, so a failed one (reserve there, say) is retried once the
+        ledger sees the next Sequence, and nobody needs the account's keys
+        to get it going again: funding the account there is enough.
       - sfExportKeysSeq, the UNLReport.ExportKeysSeq its list was built for.
         When the UNL's keys change the ledger exports a SignerListSet without
         entries (ttEXPORT_AUTO); its old list signs, so keys rotate without
         lockout, and the Import that brings it back records the new list.
 
     Servers with [xrpl_relay] watch every exporter on XRPL and Import, free
-    of charge, each transaction of theirs that changes any of the three: the
-    XRPL fee it burned pays for the Import (isSyncImport). Such an Import
+    of charge, each transaction of theirs that changes any of the four: the
+    XRPL fee it burned pays for the Import (isLoopback). Such an Import
     records; it never installs keys here, mints nothing, consumes no sequence
     and runs the exporter's hooks only as a collect call (hsfCOLLECT on the
     hook, lsfTshCollect on the account). asfExporter clears the flag.
@@ -128,9 +142,26 @@ public:
     static constexpr XRPAmount xrplBaseFee{10};
 
     /** Each exporter is considered for an automatic export once every this
-        many ledgers, at a ledger chosen by its account id, so the ledger does
-        not re-examine every exporter every ledger */
+        many ledgers, at a ledger chosen by its entry in keylet::exporterDir()
+        (slotOf), so the ledger reads only a fraction of the exporters each
+        ledger */
     static constexpr std::uint32_t autoEvery = 16;
+
+    /** The ledgers at which the exporter whose account root has key `key`
+        is examined: those where (seq + slotOf(key)) % autoEvery == 0. Taken
+        from the directory entry so the account need not be read first. */
+    static std::uint32_t
+    slotOf(uint256 const& key)
+    {
+        return (std::uint32_t(key.data()[0]) << 8) | key.data()[1];
+    }
+
+    /** Whether a hook may spend `ticket` (or, without one, the next pooled
+        ticket) of `pool`: the last pooled ticket is kept for the ledger's own
+        TicketCreate, which needs a ticket to carry it. A ticket the pool does
+        not hold is the hook's own business. */
+    static bool
+    hookMayUse(ExportTickets const& pool, std::optional<std::uint32_t> ticket);
 
     static constexpr std::uint32_t
     rotationEpoch(std::uint32_t closeTime)

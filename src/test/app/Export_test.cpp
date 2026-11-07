@@ -524,6 +524,33 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             ticket(7) && (*ticket(7))[sfTransactionHash] == txid(second));
         BEAST_EXPECT(owners() == before + 1);
+
+        // The pool's last ticket is the ledger's, for its refill: a hook
+        // gets no ticket from a pool of one, named or not, but with two
+        // draws the lowest, and the last stays.
+        auto const setPool = [&](std::vector<std::uint32_t> tickets) {
+            auto sle =
+                std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            ExportTickets t;
+            for (auto const x : tickets)
+                t.insert(x);
+            t.store(*sle);
+            view.rawReplace(sle);
+        };
+        auto const pool = [&]() {
+            return ExportTickets::load(*view.read(keylet::account(alice)));
+        };
+        setPool({20});
+        BEAST_EXPECT(apply(payment(alice.id(), 6, {}, nid)) == tecNO_ENTRY);
+        BEAST_EXPECT(apply(payment(alice.id(), 6, 20, nid)) == tecNO_ENTRY);
+        BEAST_EXPECT(pool().count() == 1 && !ticket(20));
+        // a ticket of its own is not the pool's to keep
+        BEAST_EXPECT(apply(payment(alice.id(), 6, 21, nid)) == tesSUCCESS);
+        BEAST_EXPECT(pool().count() == 1 && ticket(21));
+        setPool({20, 30});
+        BEAST_EXPECT(apply(payment(alice.id(), 8, {}, nid)) == tesSUCCESS);
+        BEAST_EXPECT(pool().count() == 1 && pool().contains(30));
+        BEAST_EXPECT(ticket(20));
     }
 
     void
@@ -812,14 +839,22 @@ class Export_test : public beast::unit_test::suite
 
         // the XPOP of `tx`, in ledger `seq`, closed at `closeTime`, as the
         // only transaction there (so the proof is one root node), in the
-        // list form ExportRelay builds
+        // list form ExportRelay builds; `result` and `affect` (which may
+        // add AffectedNodes) shape its metadata
         Json::Value
-        xpop(STTx const& tx, std::uint32_t seq, std::uint32_t closeTime) const
+        xpop(
+            STTx const& tx,
+            std::uint32_t seq,
+            std::uint32_t closeTime,
+            TER result = tesSUCCESS,
+            std::function<void(TxMeta&)> const& affect = {}) const
         {
             Serializer txs;
             tx.add(txs);
             TxMeta meta(tx.getTransactionID(), seq);
-            meta.setResult(tesSUCCESS, 0);
+            meta.setResult(result, 0);
+            if (affect)
+                affect(meta);
             Serializer ms;
             meta.getAsObject().add(ms);
 
@@ -963,6 +998,19 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(ExportTickets::load(*sle).count() == t.count());
         ExportTickets{}.store(*sle);
         BEAST_EXPECT(!sle->isFieldPresent(sfExportTickets));
+
+        // what a hook may spend: never the pool's last ticket, which is the
+        // ledger's for its refill; a ticket outside the pool is its own
+        ExportTickets one;
+        one.insert(40);
+        BEAST_EXPECT(!Export::hookMayUse(one, std::nullopt));
+        BEAST_EXPECT(!Export::hookMayUse(one, 40));
+        BEAST_EXPECT(Export::hookMayUse(one, 41));
+        BEAST_EXPECT(!Export::hookMayUse(ExportTickets{}, std::nullopt));
+        BEAST_EXPECT(Export::hookMayUse(ExportTickets{}, 7));
+        one.insert(41);
+        BEAST_EXPECT(Export::hookMayUse(one, std::nullopt));
+        BEAST_EXPECT(Export::hookMayUse(one, 40));
     }
 
     void
@@ -1024,7 +1072,7 @@ class Export_test : public beast::unit_test::suite
         env.close();
         auto const seq = env.current()->seq() + 1;
         auto const slotOf = [](AccountID const& id) {
-            return (std::uint32_t(id.data()[0]) << 8) | id.data()[1];
+            return Export::slotOf(keylet::account(id).key);
         };
         std::string name = "alice";
         for (int i = 0; (seq + slotOf(Account{name}.id())) % Export::autoEvery;
@@ -1123,6 +1171,165 @@ class Export_test : public beast::unit_test::suite
         if (auto const sle = base->read(keylet::account(alice));
             BEAST_EXPECT(sle))
             BEAST_EXPECT(!sle->isFieldPresent(sfExportTicketPending));
+    }
+
+    void
+    testBackstop()
+    {
+        testcase("sequenced backstop");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments() | featureExport};
+        env.close();
+        auto const seq = env.current()->seq() + 1;
+        auto const slotOf = [](AccountID const& id) {
+            return Export::slotOf(keylet::account(id).key);
+        };
+        std::string name = "alice";
+        for (int i = 0; (seq + slotOf(Account{name}.id())) % Export::autoEvery;
+             ++i)
+            name = "alice" + std::to_string(i);
+        Account const alice{name};
+        env.fund(XRP(10000), alice);
+        env.close();
+        BEAST_EXPECT(env.current()->seq() == seq);
+
+        auto const nid = env.app().config().NETWORK_ID;
+        std::vector<AccountID> signers;
+        for (int i = 0; i < 3; ++i)
+            signers.push_back(
+                calcAccountID(randomKeyPair(KeyType::ed25519).first));
+        auto const setup = [&](std::optional<std::uint32_t> sequence) {
+            env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+                setSignerList(view, alice.id(), signerEntries(signers), 2);
+                auto sle =
+                    std::make_shared<SLE>(*view.read(keylet::account(alice)));
+                (*sle)[~sfExportSequence] = sequence;
+                view.rawReplace(sle);
+                return true;
+            });
+        };
+        auto const accept = [&]() {
+            bool changed = false;
+            env.app().openLedger().modify(
+                [&](OpenView& view, beast::Journal j) {
+                    changed = Export::accept(env.app(), view, j);
+                    return changed;
+                });
+            return changed;
+        };
+        auto const pending = [&](ReadView const& view) {
+            std::optional<std::uint32_t> p;
+            if (auto const sle = view.read(keylet::account(alice)))
+                p = (*sle)[~sfExportTicketPending];
+            return p;
+        };
+
+        // an exporter with an empty pool, and nothing known of its
+        // Sequence there: nothing can be done for it
+        setup(std::nullopt);
+        env(fset(alice, asfExporter));
+        BEAST_EXPECT(!accept());
+
+        // with its Sequence there known, the ledger exports a TicketCreate
+        // sequenced with it: no ticket drawn, no shadow ticket, paid as any
+        // automatic export, and remembered as out by that Sequence
+        setup(1000);
+        auto const before = env.balance(alice).value().xrp();
+        auto const owners = (*env.le(alice))[sfOwnerCount];
+        BEAST_EXPECT(accept());
+        auto const cur = env.current();
+        BEAST_EXPECT(
+            env.balance(alice).value().xrp() ==
+            before - Export::autoFee(*cur, alice.id()));
+        BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == owners);
+        BEAST_EXPECT(pending(*cur) == 1000u);
+        BEAST_EXPECT(!env.le(alice)->isFieldPresent(sfExportTickets));
+        auto const key = cur->succ(
+            keylet::exportedTxn(0, beast::zero).key,
+            keylet::exportedTxn(seq + 1, beast::zero).key);
+        auto const exported =
+            key ? cur->read(Keylet{ltEXPORTED_TXN, *key}) : nullptr;
+        if (BEAST_EXPECT(exported))
+        {
+            auto const& inner =
+                exported->peekAtField(sfExportedTxn).downcast<STObject>();
+            BEAST_EXPECT(
+                inner.getFieldU16(sfTransactionType) == ttTICKET_CREATE);
+            BEAST_EXPECT(inner.getFieldU32(sfSequence) == 1000);
+            BEAST_EXPECT(!inner.isFieldPresent(sfTicketSequence));
+            BEAST_EXPECT(
+                inner.getFieldU32(sfTicketCount) == Export::ticketBatch);
+        }
+
+        // what preclaim admits as a backstop: only the Sequence the ledger
+        // knows, only once while that one is out, and only for an empty pool
+        auto const backstop = [&](std::uint32_t sequence) {
+            return STTx(ttEXPORT_AUTO, [&](STObject& o) {
+                o[sfAccount] = AccountID();
+                o[sfOwner] = alice.id();
+                o[sfLedgerSequence] = seq;
+                auto& in = o.peekFieldObject(sfExportedTxn);
+                in[sfTransactionType] =
+                    static_cast<std::uint16_t>(ttTICKET_CREATE);
+                in[sfAccount] = alice.id();
+                in[sfSequence] = sequence;
+                in[sfTicketCount] = Export::ticketBatch;
+                in[sfOperationLimit] = nid;
+                in.setFieldAmount(sfFee, XRPAmount{0});
+                in[sfSigningPubKey] = Slice{};
+            });
+        };
+        auto const tryApply = [&](STTx const& tx) {
+            TER ter = tesSUCCESS;
+            env.app().openLedger().modify(
+                [&](OpenView& view, beast::Journal j) {
+                    ter = ripple::apply(env.app(), view, tx, tapNONE, j).ter;
+                    return false;
+                });
+            return ter;
+        };
+        BEAST_EXPECT(tryApply(backstop(1000)) == tefFAILURE);
+        BEAST_EXPECT(tryApply(backstop(999)) == tefPAST_SEQ);
+        BEAST_EXPECT(tryApply(backstop(1001)) == tefPAST_SEQ);
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            auto sle =
+                std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            sle->makeFieldAbsent(sfExportTicketPending);
+            ExportTickets t;
+            t.insert(5);
+            t.store(*sle);
+            view.rawReplace(sle);
+            return true;
+        });
+        BEAST_EXPECT(tryApply(backstop(1000)) == tefFAILURE);
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            auto sle =
+                std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            sle->setFieldU32(sfExportTicketPending, 1000);
+            ExportTickets{}.store(*sle);
+            view.rawReplace(sle);
+            return true;
+        });
+
+        // nobody signs, so it closes below quorum at the window: nothing to
+        // return to the pool, but the ledger may try again, which it does
+        // at the exporter's next slot, with the same Sequence
+        std::deque<OpenView> later;
+        auto const now = env.current();
+        ReadView const* base = &*now;
+        for (std::uint32_t i = 1; i <= Export::autoEvery; ++i)
+        {
+            auto& v = later.emplace_back(open_ledger, base, base->rules());
+            bool const changed = Export::accept(env.app(), v, env.journal);
+            BEAST_EXPECT(
+                changed == (i == Export::window || i == Export::autoEvery));
+            if (i == Export::window)
+                BEAST_EXPECT(!pending(v));
+            if (i == Export::autoEvery)
+                BEAST_EXPECT(pending(v) == 1000u);
+            base = &v;
+        }
     }
 
     void
@@ -1280,6 +1487,141 @@ class Export_test : public beast::unit_test::suite
                 l->getFieldArray(sfSignerEntries)[0][sfAccount] == b);
         }
         BEAST_EXPECT((*sle())[sfOwnerCount] == ownersBefore - 3);
+
+        // Sync imports: an exporter's own TicketCreates there, sequenced,
+        // the way the backstop of an empty pool makes them (see Export.h).
+        // Their metadata carries the account root, as every transaction's
+        // does there, and the tickets they made.
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            setSignerList(view, alice.id(), signerEntries({a}));
+            return true;
+        });
+        env(fset(alice, asfExporter));
+        auto const seqNow = (*sle())[sfSequence];
+        auto const ticketCreate = [&](std::uint32_t sequence,
+                                      std::uint32_t count) {
+            STTx tx(ttTICKET_CREATE, [&](STObject& o) {
+                o[sfAccount] = alice.id();
+                o.setFieldAmount(sfFee, XRPAmount{1000});
+                o[sfSequence] = sequence;
+                o[sfTicketCount] = count;
+                o[sfOperationLimit] = nid;
+                o[sfSigningPubKey] = signer.first.slice();
+            });
+            tx.sign(signer.first, signer.second);
+            return tx;
+        };
+        // the account root after it, and the tickets it made
+        auto const made = [&](std::uint32_t sequenceAfter,
+                              std::vector<std::uint32_t> tickets) {
+            return [=, &alice](TxMeta& meta) {
+                meta.setAffectedNode(
+                    keylet::account(alice).key, sfModifiedNode, ltACCOUNT_ROOT);
+                STObject finals(sfFinalFields);
+                finals[sfAccount] = alice.id();
+                finals[sfSequence] = sequenceAfter;
+                finals.setFieldAmount(sfBalance, XRPAmount{1'000'000});
+                meta.getAffectedNode(keylet::account(alice).key)
+                    .emplace_back(std::move(finals));
+                for (auto const t : tickets)
+                {
+                    auto const k = keylet::ticket(alice, t);
+                    meta.setAffectedNode(k.key, sfCreatedNode, ltTICKET);
+                    STObject news(sfNewFields);
+                    news[sfAccount] = alice.id();
+                    news[sfTicketSequence] = t;
+                    meta.getAffectedNode(k.key).emplace_back(std::move(news));
+                }
+            };
+        };
+        auto const sync =
+            [&](STTx const& tx, std::uint32_t seq, TER result, auto&& affect) {
+                return import::import(
+                    alice, other.xpop(tx, seq, closeTime, result, affect));
+            };
+        auto const pool = [&]() { return ExportTickets::load(*sle()); };
+
+        // one that made tickets: pooled, watermarks and Sequence recorded
+        auto const tc = ticketCreate(5, 3);
+        env(sync(tc, 100, tesSUCCESS, made(9, {6, 7, 8})),
+            seq(0u),
+            fee(drops(0)),
+            ter(tesSUCCESS));
+        BEAST_EXPECT(
+            (pool().ranges() == std::vector<ExportTickets::Range>{{6, 3}}));
+        BEAST_EXPECT((*sle())[~sfExportTicketNext] == 9u);
+        BEAST_EXPECT((*sle())[~sfExportSequence] == 9u);
+        BEAST_EXPECT(!sle()->isFieldPresent(sfImportSequence));
+        BEAST_EXPECT((*sle())[sfSequence] == seqNow);
+
+        // again, from another ledger's proof: it records nothing new
+        env(sync(tc, 101, tesSUCCESS, made(9, {6, 7, 8})),
+            seq(0u),
+            fee(drops(0)),
+            ter(tefALREADY));
+
+        // one that failed there still consumed its Sequence, which the
+        // backstop needs to know: recorded, and the backstop it was (by
+        // that Sequence) is no longer out; nothing else changes
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            auto s = std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            s->setFieldU32(sfExportTicketPending, 9);
+            view.rawReplace(s);
+            return true;
+        });
+        auto const failed = ticketCreate(9, 50);
+        env(sync(failed, 102, tecINSUFFICIENT_RESERVE, made(10, {})),
+            seq(0u),
+            fee(drops(0)),
+            ter(tesSUCCESS));
+        BEAST_EXPECT(pool().count() == 3);
+        BEAST_EXPECT((*sle())[~sfExportTicketNext] == 9u);
+        BEAST_EXPECT((*sle())[~sfExportSequence] == 10u);
+        BEAST_EXPECT(!sle()->isFieldPresent(sfExportTicketPending));
+        env(sync(failed, 103, tecINSUFFICIENT_RESERVE, made(10, {})),
+            seq(0u),
+            fee(drops(0)),
+            ter(tefALREADY));
+
+        // and a failed one whose metadata shows no Sequence moving (none
+        // of the account root at all) records nothing, so is refused
+        env(sync(
+                ticketCreate(10, 1),
+                104,
+                tecINSUFFICIENT_RESERVE,
+                std::function<void(TxMeta&)>{}),
+            seq(0u),
+            fee(drops(0)),
+            ter(tefALREADY));
+
+        // A SignerListSet an account signs and imports itself makes it an
+        // exporter only if the list names the UNL's export keys: bob's own
+        // keys are installed here, as Import always did, and nothing more
+        Account const bob{"bob"};
+        env.fund(XRP(10000), bob);
+        env.close();
+        auto const bobSeq = env.seq(bob);
+        STTx bobList(ttSIGNER_LIST_SET, [&](STObject& o) {
+            o[sfAccount] = bob.id();
+            o.setFieldAmount(sfFee, XRPAmount{1000});
+            o[sfSequence] = 2;
+            o[sfOperationLimit] = nid;
+            o[sfSigningPubKey] = bob.pk().slice();
+            o[sfSignerQuorum] = 1;
+            o.setFieldArray(sfSignerEntries, signerEntries({b}));
+        });
+        bobList.sign(bob.pk(), bob.sk());
+        env(import::import(bob, other.xpop(bobList, 105, closeTime)),
+            ter(tesSUCCESS));
+        env.close();
+        if (auto const sb = env.le(bob); BEAST_EXPECT(sb))
+        {
+            BEAST_EXPECT(!sb->isFlag(lsfExporter));
+            BEAST_EXPECT(sb->isFieldPresent(sfExportSignerList));
+            BEAST_EXPECT((*sb)[~sfImportSequence] == 2u);
+        }
+        BEAST_EXPECT(env.le(keylet::signers(bob.id())));
+        BEAST_EXPECT(env.seq(bob) == bobSeq + 1);
     }
 
 public:
@@ -1294,6 +1636,7 @@ public:
         testTicketPool();
         testExporterFlag();
         testAutomatic();
+        testBackstop();
         testLoopbackImport();
     }
 };

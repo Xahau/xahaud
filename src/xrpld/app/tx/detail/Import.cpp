@@ -41,6 +41,30 @@
 
 namespace ripple {
 
+// featureExport: the Sequence `account` has on the other network after the
+// transaction `meta` describes, from the AccountRoot node its metadata always
+// carries (the fee is paid from it; FinalFields holds every field, changed or
+// not). 0 if the metadata has no such node.
+static std::uint32_t
+sequenceThere(STObject const& meta, AccountID const& account)
+{
+    if (!meta.isFieldPresent(sfAffectedNodes))
+        return 0;
+    for (auto const& n : meta.getFieldArray(sfAffectedNodes))
+    {
+        if (n[~sfLedgerEntryType] != static_cast<std::uint16_t>(ltACCOUNT_ROOT))
+            continue;
+        auto const& f =
+            n.getFName() == sfCreatedNode ? sfNewFields : sfFinalFields;
+        if (!n.isFieldPresent(f))
+            continue;
+        auto const& fields = n.peekAtField(f).downcast<STObject>();
+        if (fields[~sfAccount] == account)
+            return fields[~sfSequence].value_or(0);
+    }
+    return 0;
+}
+
 TxConsequences
 Import::makeTxConsequences(PreflightContext const& ctx)
 {
@@ -1047,41 +1071,47 @@ Import::preclaim(PreclaimContext const& ctx)
     }
     else if (sle && isLoopback(ctx.view.rules(), ctx.tx))
     {
-        // a sync import: only an exporter's TicketCreate or SignerListSet,
-        // and only one the ledger has not recorded yet. Like a first Import
-        // it is free, and it uses no sequence.
+        // A sync import: only an exporter's TicketCreate or SignerListSet,
+        // and only one that records something the ledger has not yet: the
+        // tickets it made, the list it set, or (succeeded or failed there)
+        // the Sequence it consumed, which the backstop TicketCreate of an
+        // empty pool needs (see Export.h). Like a first Import it is free
+        // and uses no sequence, so one recording nothing could otherwise be
+        // re-imported under a new outer key without end; each of the three
+        // records only moves forward, so none can be imported twice.
         if (!sle->isFlag(lsfExporter))
             return tefPAST_SEQ;
         if (ctx.tx.getFieldAmount(sfFee) != beast::zero)
             return temBAD_FEE;
-        // One that failed there changed nothing, so there is nothing to
-        // record: doApply would record nothing, no watermark would move, and
-        // it could be re-imported under a new outer key without end, free.
-        if (!isTesSuccess(meta->getFieldU8(sfTransactionResult)))
-            return tefPAST_SEQ;
         auto const tt = stpTrans->getTxnType();
-        if (tt == ttTICKET_CREATE)
+        if (tt != ttTICKET_CREATE && tt != ttSIGNER_LIST_SET)
+            return tefPAST_SEQ;
+        bool records = sequenceThere(*meta, ctx.tx[sfAccount]) >
+            (*sle)[~sfExportSequence].value_or(0);
+        if (isTesSuccess(meta->getFieldU8(sfTransactionResult)))
         {
-            if (stpTrans->getFieldU32(sfSequence) + 1 <
-                (*sle)[~sfExportTicketNext].value_or(0))
-                return tefALREADY;
-        }
-        else if (tt == ttSIGNER_LIST_SET)
-        {
-            std::pair const at{
-                (*xpop)[jss::ledger][jss::index].asUInt(),
-                (*meta)[~sfTransactionIndex].value_or(0)};
-            if (sle->isFieldPresent(sfExportSignerList))
+            if (tt == ttTICKET_CREATE)
+                records |= stpTrans->getFieldU32(sfSequence) + 1 >=
+                    (*sle)[~sfExportTicketNext].value_or(0);
+            else
             {
-                auto const& old =
-                    sle->peekAtField(sfExportSignerList).downcast<STObject>();
-                if (std::pair{old[sfLedgerSequence], old[sfTransactionIndex]} >=
-                    at)
-                    return tefALREADY;
+                std::pair const at{
+                    (*xpop)[jss::ledger][jss::index].asUInt(),
+                    (*meta)[~sfTransactionIndex].value_or(0)};
+                if (!sle->isFieldPresent(sfExportSignerList))
+                    records = true;
+                else
+                {
+                    auto const& old = sle->peekAtField(sfExportSignerList)
+                                          .downcast<STObject>();
+                    records |= std::pair{
+                                   old[sfLedgerSequence],
+                                   old[sfTransactionIndex]} < at;
+                }
             }
         }
-        else
-            return tefPAST_SEQ;
+        if (!records)
+            return tefALREADY;
     }
     else if (sle && sle->isFieldPresent(sfImportSequence))
     {
@@ -1418,9 +1448,10 @@ Import::doApply()
     bool const loopback = sle && isLoopback(view().rules(), ctx_.tx);
 
     // A loopback never touches sfImportSequence: preclaim replay-protects it
-    // by the ledger's own records (shadow ticket, sfExportTicketNext, the
-    // signer list's position), so a sync import of an older TicketCreate or
-    // SignerListSet must not be refused by a later Import the account signed.
+    // by the ledger's own records (shadow ticket, sfExportTicketNext,
+    // sfExportSequence, the signer list's position), so a sync import of an
+    // older TicketCreate or SignerListSet must not be refused by a later
+    // Import the account signed.
     if (!ticket && !loopback && sle &&
         sle->getFieldU32(sfImportSequence) >= importSequence)
     {
@@ -1550,10 +1581,16 @@ Import::doApply()
             l[sfLedgerSequence] = at.first;
             l[sfTransactionIndex] = at.second;
             sle->peekFieldObject(sfExportSignerList) = std::move(l);
-            // signed by the account and listing signers: it is now an
-            // exporter, and the ledger keeps its tickets and list in step
-            // from here on
-            if (!loopback && stpTrans->isFieldPresent(sfSignerEntries))
+            // Signed by the account and listing the UNL's export keys: it
+            // is now an exporter, and the ledger keeps its tickets and list
+            // in step from here on. A list of the account's own keys is
+            // recorded (an export would be refused at preclaim without one
+            // on record) but makes it no exporter: the ledger would export
+            // for it, pay fan-out fees from it and close every export below
+            // quorum, since nobody holds its keys.
+            if (!loopback && stpTrans->isFieldPresent(sfSignerEntries) &&
+                listsExportKey(
+                    view(), stpTrans->getFieldArray(sfSignerEntries)))
             {
                 if (auto const ter = setExporter(view(), sle, true);
                     !isTesSuccess(ter))
@@ -1562,16 +1599,21 @@ Import::doApply()
         }
     }
 
-    // featureExport, exporters: the tickets this account holds unused there
+    // featureExport, exporters: the tickets this account holds unused
+    // there, its Sequence there, and whether its refill is still out
     if (view().rules().enabled(featureExport) && sle->isFlag(lsfExporter))
     {
         auto tickets = ExportTickets::load(*sle);
+        std::uint32_t sequence = std::max(
+            (*sle)[~sfExportSequence].value_or(0), sequenceThere(*meta, id));
         if (ticket)
-        {
             tickets.remove(*ticket);
-            if ((*sle)[~sfExportTicketPending] == *ticket)
-                sle->makeFieldAbsent(sfExportTicketPending);
-        }
+        // the automatic TicketCreate that was out came back, whether it
+        // made its tickets or not: by its ticket, or (the backstop of an
+        // empty pool) by the Sequence it was sent with
+        if ((*sle)[~sfExportTicketPending] ==
+            ticket.value_or(stpTrans->getFieldU32(sfSequence)))
+            sle->makeFieldAbsent(sfExportTicketPending);
         if (stpTrans->getTxnType() == ttTICKET_CREATE &&
             isTesSuccess(meta->getFieldU8(sfTransactionResult)))
         {
@@ -1601,9 +1643,15 @@ Import::doApply()
                 lo = std::max(lo, next);
                 tickets.add(lo, hi - lo + 1);
                 sle->setFieldU32(sfExportTicketNext, hi + 1);
+                // tickets are taken from the sequence there, so it is past
+                // the last one made (a lower bound, should the metadata
+                // not carry the account root)
+                sequence = std::max(sequence, hi + 1);
             }
         }
         tickets.store(*sle);
+        if (sequence != 0)
+            sle->setFieldU32(sfExportSequence, sequence);
     }
 
     if (create)

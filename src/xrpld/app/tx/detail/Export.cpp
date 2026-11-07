@@ -35,8 +35,10 @@
 #include <xrpl/protocol/st.h>
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/filesystem.hpp>
+#include <fcntl.h>
 #include <fstream>
 #include <limits>
+#include <unistd.h>
 
 namespace ripple {
 
@@ -49,25 +51,31 @@ obj(STObject const& o, SField const& f)
 // `inner` as a transaction, if it parses under this network's formats, is
 // one both networks read the same way (ExportSchema, under `rules`) and is
 // shaped for multisigning by the UNL: from `account`, unsigned, not emitted,
-// not a pseudo-txn, not replayable here, and bound back here (every export
-// uses a ticket; one without TicketSequence gets one when it applies).
+// not a pseudo-txn, not replayable here, and bound back here. Every export
+// uses a ticket (one without TicketSequence gets one when it applies), so
+// Sequence is 0; except the backstop TicketCreate of an exporter whose pool
+// is empty, which is `sequenced` (Sequence set, no ticket) instead.
 static std::optional<STTx>
 exportedTx(
     STObject const& inner,
     AccountID const& account,
     std::uint32_t nid,
-    Rules const& rules)
+    Rules const& rules,
+    bool sequenced = false)
 {
     try
     {
         Serializer s;
         inner.add(s);
         STTx const t{SerialIter{s.slice()}};
+        bool const seqOk = sequenced
+            ? (t[sfSequence] != 0 && !t.isFieldPresent(sfTicketSequence))
+            : t[sfSequence] == 0;
         if (t[sfAccount] == account && t.getSigningPubKey().empty() &&
             !t.isFieldPresent(sfTxnSignature) && !t.isFieldPresent(sfSigners) &&
             !t.isFieldPresent(sfEmitDetails) && !isPseudoTx(t) &&
-            t[~sfNetworkID] != nid && t[sfSequence] == 0 &&
-            t[~sfOperationLimit] == nid && ExportSchema::allowed(t, rules))
+            t[~sfNetworkID] != nid && seqOk && t[~sfOperationLimit] == nid &&
+            ExportSchema::allowed(t, rules))
             return t;
     }
     catch (std::exception const&)
@@ -80,6 +88,25 @@ static Keylet
 exportKeylet(STTx const& tx)
 {
     return keylet::exportedTxn(tx[sfLedgerSequence], tx[sfTransactionHash]);
+}
+
+// whether `inner` is sequenced there rather than ticketed: only the backstop
+// TicketCreate of an exporter whose pool is empty (see Export.h)
+static bool
+sequenced(STObject const& inner)
+{
+    return inner[~sfSequence].value_or(0) != 0;
+}
+
+// the Sequence or ticket `inner` uses there: what sfExportTicketPending
+// holds for an automatic TicketCreate until it returns (the two share one
+// number space there, so one field tells them apart by value alone)
+static std::uint32_t
+seqProxyOf(STObject const& inner)
+{
+    if (auto const t = inner[~sfTicketSequence])
+        return *t;
+    return inner[~sfSequence].value_or(0);
 }
 
 static bool
@@ -310,6 +337,18 @@ ExportTickets::load(SLE const& acc)
     return ExportTickets(acc.getFieldV256(sfExportTickets));
 }
 
+bool
+Export::hookMayUse(
+    ExportTickets const& pool,
+    std::optional<std::uint32_t> ticket)
+{
+    // a ticket of the hook's own, outside the pool, is not the ledger's to
+    // keep; one from the pool, named or drawn, must not be the last
+    if (ticket && !pool.contains(*ticket))
+        return true;
+    return pool.count() >= 2;
+}
+
 TER
 setExporter(ApplyView& view, std::shared_ptr<SLE> const& acc, bool on)
 {
@@ -528,12 +567,15 @@ Export::preflight(PreflightContext const& ctx)
 
     if (tx.getTxnType() == ttEXPORT_AUTO)
     {
-        // only what the ledger exports for exporters, without a ticket
+        // only what the ledger exports for exporters, without a ticket; and
+        // sequenced only the backstop TicketCreate (preclaim checks the
+        // Sequence against what the ledger knows)
         auto const& inner = obj(tx, sfExportedTxn);
         auto const type = inner[~sfTransactionType].value_or(0);
         if ((type != ttTICKET_CREATE && type != ttSIGNER_LIST_SET) ||
             inner.isFieldPresent(sfTicketSequence) ||
-            !exportedTx(inner, tx[sfOwner], nid, ctx.rules))
+            (sequenced(inner) && type != ttTICKET_CREATE) ||
+            !exportedTx(inner, tx[sfOwner], nid, ctx.rules, sequenced(inner)))
             return temMALFORMED;
     }
 
@@ -556,6 +598,18 @@ Export::preclaim(PreclaimContext const& ctx)
                 return tecNO_PERMISSION;
             if (sle->getFieldAmount(sfBalance).xrp() < autoFee(ctx.view, owner))
                 return tecINSUFFICIENT_FUNDS;
+            // The backstop: only for an empty pool, only at the Sequence the
+            // ledger knows the account to be at there, and only once per
+            // such Sequence. Every node must inject the same one.
+            if (auto const& inner = obj(tx, sfExportedTxn); sequenced(inner))
+            {
+                auto const seq = inner[sfSequence];
+                if ((*sle)[~sfExportSequence] != seq)
+                    return tefPAST_SEQ;
+                if (!ExportTickets::load(*sle).empty() ||
+                    (*sle)[~sfExportTicketPending] == seq)
+                    return tefFAILURE;
+            }
         }
         return tesSUCCESS;
     }
@@ -631,24 +685,37 @@ Export::createExport(
             static_cast<std::uint32_t>((signers.size() * 4 + 4) / 5);
     }
 
-    // the ticket: the hook's, or the next from the pool
+    // The ticket: the hook's, or the next from the pool. A hook may not
+    // spend the pool's last ticket, which carries the ledger's refill
+    // (hookMayUse; xport() tells the hook so before it emits). The backstop
+    // TicketCreate of an empty pool is sequenced instead and needs none.
     auto tickets = ExportTickets::load(*acc);
-    std::uint32_t ticket;
-    if (auto const t = inner[~sfTicketSequence])
+    bool const backstop = sequenced(inner);
+    std::optional<std::uint32_t> ticket;
+    if (backstop)
+    {
+        if (!automatic || type != ttTICKET_CREATE)
+            return tefINTERNAL;
+    }
+    else if (auto const t = inner[~sfTicketSequence])
     {
         // the hook's own ticket, pooled or not (its account is trusted on
         // which tickets it holds; a close below quorum re-pools it only if
         // the ledger has seen it created, see ttEXPORT_FINAL)
+        if (!automatic && !hookMayUse(tickets, t))
+            return tecNO_ENTRY;
         ticket = *t;
-        tickets.remove(ticket);
+        tickets.remove(*ticket);
     }
     else
     {
+        if (!automatic && !hookMayUse(tickets, std::nullopt))
+            return tecNO_ENTRY;
         auto const pooled = tickets.take();
         if (!pooled)
             return tecNO_ENTRY;
         ticket = *pooled;
-        inner[sfTicketSequence] = ticket;
+        inner[sfTicketSequence] = *ticket;
     }
 
     // the fee there: what a multisigned transaction needs. Fee 0 stands for
@@ -661,7 +728,7 @@ Export::createExport(
                 static_cast<std::int64_t>(
                     list->getFieldArray(sfSignerEntries).size() + 1));
 
-    auto const t = exportedTx(inner, owner, nid, view.rules());
+    auto const t = exportedTx(inner, owner, nid, view.rules(), backstop);
     if (!t)
         return tecINTERNAL;
 
@@ -683,7 +750,7 @@ Export::createExport(
 
     tickets.store(*acc);
     if (automatic && type == ttTICKET_CREATE)
-        acc->setFieldU32(sfExportTicketPending, ticket);
+        acc->setFieldU32(sfExportTicketPending, seqProxyOf(inner));
     if (automatic && type == ttSIGNER_LIST_SET)
     {
         auto const unl = view.read(keylet::UNLReport());
@@ -692,9 +759,14 @@ Export::createExport(
     }
     view.update(acc);
 
-    if (auto const ter = setShadowTicket(view, owner, ticket, id, hook, j_);
-        !isTesSuccess(ter))
-        return ter;
+    // The XPOP of whatever uses the ticket there may come back once. A
+    // sequenced backstop has no ticket: its result returns as a sync import
+    // of the exporter's own TicketCreate.
+    if (ticket)
+        if (auto const ter =
+                setShadowTicket(view, owner, *ticket, id, hook, j_);
+            !isTesSuccess(ter))
+            return ter;
 
     auto const sle = std::make_shared<SLE>(k);
     sle->setAccountID(sfOwner, owner);
@@ -750,7 +822,7 @@ Export::doApply()
             // try an automatic export again.
             auto const acc = view.peek(keylet::account(owner));
             auto const ticket = inner[~sfTicketSequence];
-            if (acc && ticket)
+            if (acc)
             {
                 // Not a ticket the ledger never saw created: a hook can name
                 // any ticket, and one above the watermark of recorded
@@ -758,7 +830,9 @@ Export::doApply()
                 // returns through the sync import of the TicketCreate that
                 // makes it, if any. Below the watermark, or where nothing
                 // was ever recorded, the hook is trusted on its own tickets.
-                if (eraseShadowTicket(
+                // (A sequenced backstop has no ticket to return.)
+                if (ticket &&
+                    eraseShadowTicket(
                         view, owner, *ticket, (*sle)[sfTransactionHash]) &&
                     *ticket < (*acc)[~sfExportTicketNext].value_or(
                                   std::numeric_limits<std::uint32_t>::max()))
@@ -767,7 +841,9 @@ Export::doApply()
                     tickets.insert(*ticket);
                     tickets.store(*acc);
                 }
-                if ((*acc)[~sfExportTicketPending] == *ticket)
+                // its refill, by ticket or (the backstop) by Sequence, is
+                // not out any more: the ledger may try again
+                if ((*acc)[~sfExportTicketPending] == seqProxyOf(inner))
                     acc->makeFieldAbsent(sfExportTicketPending);
                 if (inner[sfTransactionType] == ttSIGNER_LIST_SET &&
                     !sle->isFieldPresent(sfEmitHookHash))
@@ -873,57 +949,77 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
 
     // What exporters need: tickets when they run low, a new signer list when
     // the UNL's export keys change. Each exporter is looked at once every
-    // autoEvery ledgers, in a slot its account id picks.
+    // autoEvery ledgers, in a slot its directory entry picks, so only that
+    // fraction of the exporters is read each ledger (the directory holds
+    // account root keys, which say nothing about their accounts).
     auto const unl = view.read(keylet::UNLReport());
     std::uint32_t const keysSeq =
         unl ? (*unl)[~sfExportKeysSeq].value_or(0) : 0;
-    forEachItem(
-        view,
-        keylet::exporterDir(),
-        [&](std::shared_ptr<SLE const> const& acc) {
-            if (!acc || acc->getType() != ltACCOUNT_ROOT ||
-                !acc->isFlag(lsfExporter) ||
-                !acc->isFieldPresent(sfExportSignerList))
-                return;
-            auto const id = acc->getAccountID(sfAccount);
-            auto const slot = (std::uint32_t(id.data()[0]) << 8) | id.data()[1];
-            if ((seq + slot) % autoEvery != 0)
-                return;
+    auto const examine = [&](std::shared_ptr<SLE const> const& acc) {
+        if (!acc || acc->getType() != ltACCOUNT_ROOT ||
+            !acc->isFlag(lsfExporter) ||
+            !acc->isFieldPresent(sfExportSignerList))
+            return;
+        auto const id = acc->getAccountID(sfAccount);
 
-            auto const tickets = ExportTickets::load(*acc);
-            auto const automatic = [&](auto&& assemble) {
-                inject(ttEXPORT_AUTO, [&](STObject& o) {
-                    o[sfAccount] = AccountID();
-                    o[sfOwner] = id;
-                    o[sfLedgerSequence] = seq;
-                    auto& in = o.peekFieldObject(sfExportedTxn);
-                    in[sfAccount] = id;
-                    in[sfSequence] = 0;
-                    in[sfOperationLimit] = nid;
-                    in.setFieldAmount(sfFee, XRPAmount{0});
-                    in[sfSigningPubKey] = Slice{};
-                    assemble(in);
-                });
-            };
+        auto const tickets = ExportTickets::load(*acc);
+        auto const automatic = [&](auto&& assemble) {
+            inject(ttEXPORT_AUTO, [&](STObject& o) {
+                o[sfAccount] = AccountID();
+                o[sfOwner] = id;
+                o[sfLedgerSequence] = seq;
+                auto& in = o.peekFieldObject(sfExportedTxn);
+                in[sfAccount] = id;
+                in[sfSequence] = 0;
+                in[sfOperationLimit] = nid;
+                in.setFieldAmount(sfFee, XRPAmount{0});
+                in[sfSigningPubKey] = Slice{};
+                assemble(in);
+            });
+        };
+        auto const ticketCreate = [&](STObject& in) {
+            in[sfTransactionType] = static_cast<std::uint16_t>(ttTICKET_CREATE);
+            in[sfTicketCount] = ticketBatch;
+        };
 
-            // a TicketCreate needs a ticket of its own, so one must remain
-            if (tickets.count() < ticketLow && tickets.count() >= 1 &&
-                !acc->isFieldPresent(sfExportTicketPending))
-                automatic([&](STObject& in) {
-                    in[sfTransactionType] =
-                        static_cast<std::uint16_t>(ttTICKET_CREATE);
-                    in[sfTicketCount] = ticketBatch;
-                });
+        // a TicketCreate needs a ticket of its own, so one must remain
+        if (tickets.count() < ticketLow && tickets.count() >= 1 &&
+            !acc->isFieldPresent(sfExportTicketPending))
+            automatic(ticketCreate);
 
-            if (keysSeq != 0 &&
-                (*acc)[~sfExportKeysSeq].value_or(0) != keysSeq &&
-                tickets.count() >= 2)
-                automatic([&](STObject& in) {
-                    in[sfTransactionType] =
-                        static_cast<std::uint16_t>(ttSIGNER_LIST_SET);
-                    in[sfSignerQuorum] = 0;
-                });
-        });
+        // The backstop. With no ticket at all nothing ticketed can carry a
+        // refill (a refill was lost there, or a hook spent tickets it named
+        // itself), and with the account's keys there possibly out of reach
+        // nobody else may be able to make one: so the TicketCreate is
+        // sequenced with the Sequence the ledger last saw the account at
+        // there, once per such Sequence (sfExportTicketPending holds it
+        // while out; its return, succeeded or failed, records the next).
+        // A ticketed refill still out does not hold this back: two
+        // batches landing is harmless, a pool stuck at zero is not.
+        if (auto const sequence = (*acc)[~sfExportSequence]; tickets.empty() &&
+            sequence && (*acc)[~sfExportTicketPending] != *sequence)
+            automatic([&](STObject& in) {
+                ticketCreate(in);
+                in[sfSequence] = *sequence;
+            });
+
+        if (keysSeq != 0 && (*acc)[~sfExportKeysSeq].value_or(0) != keysSeq &&
+            tickets.count() >= 2)
+            automatic([&](STObject& in) {
+                in[sfTransactionType] =
+                    static_cast<std::uint16_t>(ttSIGNER_LIST_SET);
+                in[sfSignerQuorum] = 0;
+            });
+    };
+    for (auto page = view.read(keylet::exporterDir()); page;)
+    {
+        for (auto const& key : page->getFieldV256(sfIndexes))
+            if ((seq + slotOf(key)) % autoEvery == 0)
+                examine(view.read(Keylet{ltACCOUNT_ROOT, key}));
+        auto const next = (*page)[~sfIndexNext].value_or(0);
+        page = next ? view.read(keylet::page(keylet::exporterDir(), next))
+                    : nullptr;
+    }
 
     return changed;
 }
@@ -995,15 +1091,26 @@ ExportKeys::save() const
 {
     if (!file_)
         return true;
-    // write then rename, so a crash never leaves a truncated file
+    // write then rename, so a crash never leaves a truncated file; created
+    // owner-only from the first instant, as the file holds secrets (no
+    // window between creation and a later chmod)
     auto const tmp = boost::filesystem::path(file_->string() + ".tmp");
     boost::system::error_code ec;
     {
-        std::ofstream out(tmp.string(), std::ios::trunc);
+        if (int const fd = ::open(
+                tmp.string().c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
+            fd < 0)
+        {
+            JLOG(j_.error()) << "ExportKeys: cannot create " << tmp;
+            return false;
+        }
+        else
+            ::close(fd);
         boost::filesystem::permissions(
             tmp,
             boost::filesystem::owner_read | boost::filesystem::owner_write,
             ec);
+        std::ofstream out(tmp.string(), std::ios::trunc);
         for (auto const& k : keys_)
             out << strHex(k.sk.data(), k.sk.data() + k.sk.size()) << "\n";
         if (!out.flush())

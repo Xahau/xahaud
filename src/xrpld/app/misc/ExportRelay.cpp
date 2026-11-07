@@ -39,14 +39,18 @@
 #include <xrpl/protocol/messages.h>
 #include <boost/beast/core/flat_buffer.hpp>
 #include <boost/beast/http.hpp>
+#include <algorithm>
 #include <deque>
 #include <map>
 #include <regex>
 #include <set>
 #include <thread>
 
-/*  [xrpl_relay]: one XRPL peer connection per "host [port]" line, plus
-    optional vl_url= and network_id= (the XRPL's, default 0).
+/*  [xrpl_relay]: one XRPL peer connection per "host [port [node key]]"
+    line, plus optional vl_url= and network_id= (the XRPL's, default 0). The
+    node public key (base58, as the peer's server_info shows it) pins the
+    peer: the handshake proves it and the session is dropped otherwise.
+    Peer TLS is self-signed, so without it any on-path party could stand in.
 
     XRPL to Xahau. The UNL is the newest validator list signed by a key this
     network trusts for Import ([import_vl_keys] or UNLReport ImportVLKeys),
@@ -56,7 +60,17 @@
     it returning a pending export (its shadow ticket exists) is imported.
 
     Xahau to XRPL. On each validated ledger, pending exports whose signatures
-    meet the exporter's quorum are sent to the peer.
+    meet the exporter's quorum are sent to the peer, and resent while the
+    ledger still waits for them: while the shadow ticket stands, or for the
+    sequenced backstop TicketCreate of an empty pool (which has no ticket),
+    while sfExportTicketPending still holds its Sequence.
+
+    Bounds. The peer is trusted for nothing: validations are checked against
+    the UNL, headers against their hash, and the transaction tree against
+    the header's root. What it can do is send a lot, so ledgers are kept
+    for 32 sequences below the highest seen and at most maxLedgers at once,
+    a ledger's nodes are capped at maxLedgerBytes, and nodes are dropped as
+    soon as a ledger is done with.
 
     Cost. Every XRPL ledger reaching quorum has its whole transaction tree
     fetched (liTX_NODE, depth 3, up to 16 rounds), since which transactions
@@ -106,9 +120,20 @@ struct Conn
         std::atomic<bool> const& stop)
         : stop(stop)
     {
-        // basic_resolver_results inherits its iterator privately (Boost 1.87+),
-        // so take the first entry explicitly
-        auto const r = asio::ip::tcp::resolver(ioc).resolve(host, port);
+        // resolved through io() too, so a stalled resolver cannot hold up
+        // shutdown; basic_resolver_results inherits its iterator privately
+        // (Boost 1.87+), so take the first entry explicitly
+        asio::ip::tcp::resolver resolver(ioc);
+        asio::ip::tcp::resolver::results_type r;
+        io([&](auto h) {
+            resolver.async_resolve(
+                host,
+                port,
+                [&r, h](boost::system::error_code ec, auto results) {
+                    r = std::move(results);
+                    h(ec);
+                });
+        });
         if (r.empty())
             Throw<std::runtime_error>("no address for " + host);
         ep = r.begin()->endpoint();
@@ -154,12 +179,14 @@ class Peer
         int pending = 0, rounds = 0;
         std::optional<LedgerInfo> info;
         std::map<uint256, std::shared_ptr<SHAMapTreeNode>> nodes;
+        std::size_t bytes = 0;  // of nodes, as received
     };
 
     Config& cfg_;
     Application& app_;
     beast::Journal const j_;
     std::string const host_, port_;
+    std::optional<PublicKey> const pin_;  // the peer's node key, if given
     std::function<void(::google::protobuf::Message const&, int)> send_;
 
     Json::Value unl_;           // the XPOPs' validation.unl
@@ -167,16 +194,24 @@ class Peer
     std::set<PublicKey> keys_;  // its validators' signing keys
     std::size_t quorum_ = 0;
     std::map<uint256, Ledger> ledgers_;
+    LedgerIndex highest_ = 0;  // the highest ledger seq validated so far
+    static constexpr std::size_t maxLedgers = 64;
+    static constexpr std::size_t maxLedgerBytes = 32 << 20;
     LedgerIndex xahau_ = 0;  // the last validated ledger whose exports went
     std::chrono::steady_clock::time_point nextVL_{};
 
 public:
-    Peer(Config& cfg, std::string host, std::string port)
+    Peer(
+        Config& cfg,
+        std::string host,
+        std::string port,
+        std::optional<PublicKey> pin)
         : cfg_(cfg)
         , app_(cfg.app)
         , j_(app_.journal("ExportRelay"))
         , host_(std::move(host))
         , port_(std::move(port))
+        , pin_(std::move(pin))
     {
     }
 
@@ -214,8 +249,14 @@ private:
         c.io([&](auto h) { http::async_read(c.s, buf, res, h); });
         if (res.result() != http::status::switching_protocols)
             Throw<std::runtime_error>("refused: " + std::string(res.reason()));
-        verifyHandshake(res, *sv, cfg_.nid, {}, c.ep.address(), app_);
-        JLOG(j_.info()) << "connected to " << host_;
+        auto const remote =
+            verifyHandshake(res, *sv, cfg_.nid, {}, c.ep.address(), app_);
+        if (pin_ && *pin_ != remote)
+            Throw<std::runtime_error>(
+                "peer is " + toBase58(TokenType::NodePublic, remote) +
+                ", not the configured node key");
+        JLOG(j_.info()) << "connected to " << host_ << " ("
+                        << toBase58(TokenType::NodePublic, remote) << ")";
 
         send_ = [&](::google::protobuf::Message const& m, int type) {
             Message msg(m, type);
@@ -437,9 +478,32 @@ private:
             return;
         }
 
+        // Ledgers are kept relative to the highest seq validated, so a
+        // replay of old validations (in any order) opens nothing new, and
+        // never more than maxLedgers at once: the oldest goes first.
+        auto const seq = (*v)[~sfLedgerSequence].value_or(0);
+        if (seq + 32 < highest_)
+            return;
+        highest_ = std::max(highest_, seq);
+        std::erase_if(ledgers_, [this](auto const& e) {
+            return e.second.seq + 32 < highest_;
+        });
+
         auto const h = v->getLedgerHash();
+        if (!ledgers_.count(h) && ledgers_.size() >= maxLedgers)
+        {
+            auto const oldest = std::min_element(
+                ledgers_.begin(),
+                ledgers_.end(),
+                [](auto const& a, auto const& b) {
+                    return a.second.seq < b.second.seq;
+                });
+            if (oldest->second.seq >= seq)
+                return;
+            ledgers_.erase(oldest);
+        }
         auto& l = ledgers_[h];
-        l.seq = (*v)[~sfLedgerSequence].value_or(0);
+        l.seq = seq;
         l.vals[toBase58(TokenType::NodePublic, v->getSignerPublic())] =
             strHex(blob);
         if (l.state == 0 && l.vals.size() >= quorum_)
@@ -448,9 +512,6 @@ private:
             request(h, protocol::liBASE);
             request(h, protocol::liTX_NODE, {SHAMapNodeID{}});
         }
-        std::erase_if(ledgers_, [seq = l.seq](auto const& e) {
-            return e.second.seq + 32 < seq;
-        });
     }
 
     void
@@ -473,9 +534,22 @@ private:
             }
             else if (m.type() == protocol::liTX_NODE)
                 for (l.pending -= l.pending > 0; auto const& n : m.nodes())
+                {
+                    // a peer streaming nodes it was never asked for, or
+                    // never sending the header, gets this far and no further
+                    if ((l.bytes += n.nodedata().size()) > maxLedgerBytes)
+                    {
+                        JLOG(j_.warn()) << host_ << ": ledger " << l.seq
+                                        << " exceeds " << maxLedgerBytes
+                                        << " bytes of nodes, giving up on it";
+                        l.state = 2;
+                        l.nodes.clear();
+                        return;
+                    }
                     if (auto const node = SHAMapTreeNode::makeFromWire(
                             makeSlice(n.nodedata())))
                         l.nodes[node->getHash().as_uint256()] = node;
+                }
         }
         catch (std::exception const&)
         {
@@ -496,6 +570,9 @@ private:
             request(h, protocol::liTX_NODE, missing);
         else
             l.state = 2;
+        // the tree is only needed to be walked once
+        if (l.state == 2)
+            l.nodes.clear();
     }
 
     static void
@@ -665,16 +742,34 @@ private:
         }
     }
 
-    // exports at quorum, kept and resent while their shadow ticket stands:
+    // exports at quorum, kept and resent while the ledger waits for them:
     // XRPL may have been short of our transaction for a while (fee, load, a
-    // peer dropping it), and the ticket is only gone once something used it
-    // there. After the window the signed transaction exists only in the
-    // DeletedNode of its ttEXPORT_FINAL, so those are read back from every
-    // validated ledger seen, and after a restart or a long disconnection
-    // from the last recoverDepth of them.
-    std::map<uint256, std::pair<Keylet, Blob>> held_;
+    // peer dropping it). A ticketed one waits while its shadow ticket stands
+    // (the ticket is only gone once something used it there); the sequenced
+    // backstop TicketCreate of an empty pool while sfExportTicketPending
+    // holds its Sequence. After the window the signed transaction exists
+    // only in the DeletedNode of its ttEXPORT_FINAL, so those are read back
+    // from every validated ledger seen, and after a restart or a long
+    // disconnection from the last recoverDepth of them.
+    struct Held
+    {
+        AccountID owner;
+        std::optional<std::uint32_t> ticket;
+        std::uint32_t sequence;
+        Blob blob;
+    };
+    std::map<uint256, Held> held_;  // by shadow ticket, or account root key
     static constexpr std::uint32_t resendEvery = 8;
     static constexpr std::uint32_t recoverDepth = 256;
+
+    static bool
+    waitedFor(ReadView const& view, Held const& h)
+    {
+        if (h.ticket)
+            return view.exists(keylet::shadowTicket(h.owner, *h.ticket));
+        auto const acc = view.read(keylet::account(h.owner));
+        return acc && (*acc)[~sfExportTicketPending] == h.sequence;
+    }
 
     void
     submit(Blob const& blob)
@@ -685,9 +780,10 @@ private:
         send_(m, protocol::mtTRANSACTION);
     }
 
-    // hold and send `in`, the export of `owner` with unsigned id `id`, if its
-    // shadow ticket still stands and still names it (a later export may have
-    // taken the ticket over)
+    // hold and send `in`, the export of `owner` with unsigned id `id`, if
+    // the ledger still waits for it: a ticketed one if its shadow ticket
+    // still stands and still names it (a later export may have taken the
+    // ticket over), a sequenced one while its Sequence is the one out
     void
     hold(
         ReadView const& now,
@@ -695,18 +791,27 @@ private:
         STObject const& in,
         uint256 const& id)
     {
-        auto const ticket = in[~sfTicketSequence];
-        if (!ticket)
-            return;
-        auto const st = keylet::shadowTicket(owner, *ticket);
-        auto const sle = now.read(st);
-        if (!sle || (*sle)[sfTransactionHash] != id)
-            return;
+        Held h{owner, in[~sfTicketSequence], in[~sfSequence].value_or(0), {}};
+        uint256 key;
+        if (h.ticket)
+        {
+            auto const st = keylet::shadowTicket(owner, *h.ticket);
+            auto const sle = now.read(st);
+            if (!sle || (*sle)[sfTransactionHash] != id)
+                return;
+            key = st.key;
+        }
+        else
+        {
+            if (h.sequence == 0 || !waitedFor(now, h))
+                return;
+            key = keylet::account(owner).key;
+        }
         Serializer s;
         in.add(s);
-        Blob blob = s.peekData();
-        submit(blob);
-        held_.insert_or_assign(st.key, std::pair{st, std::move(blob)});
+        h.blob = s.peekData();
+        submit(h.blob);
+        held_.insert_or_assign(key, std::move(h));
     }
 
     // the exports whose window closed in `l`, as their finals left them
@@ -777,12 +882,12 @@ private:
 
         for (auto it = held_.begin(); it != held_.end();)
         {
-            if (!l->exists(it->second.first))
+            if (!waitedFor(*l, it->second))
                 it = held_.erase(it);
             else
             {
                 if (seq % resendEvery == 0)
-                    submit(it->second.second);
+                    submit(it->second.blob);
                 ++it;
             }
         }
@@ -819,10 +924,19 @@ public:
         for (auto const& line : sec.values())
         {
             std::istringstream ss(line);
-            std::string host, port = "51235";
-            ss >> host >> port;
+            std::string host, port = "51235", key;
+            ss >> host >> port >> key;
+            std::optional<PublicKey> pin;
+            if (!key.empty())
+            {
+                pin = parseBase58<PublicKey>(TokenType::NodePublic, key);
+                if (!pin)
+                    Throw<std::runtime_error>(
+                        "[xrpl_relay] " + host + ": '" + key +
+                        "' is not a node public key");
+            }
             threads_.emplace_back(
-                [this, host, port] { Peer(cfg_, host, port).run(); });
+                [this, host, port, pin] { Peer(cfg_, host, port, pin).run(); });
         }
     }
 

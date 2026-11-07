@@ -846,7 +846,7 @@ Expected<std::shared_ptr<Transaction>, HookReturnCode>
 HookAPI::xport(Slice const& txBlob) const
 {
     Serializer s;
-    bool needsTicket = false;
+    std::optional<std::uint32_t> ticket;
     try
     {
         SerialIter sit{txBlob};
@@ -862,7 +862,7 @@ HookAPI::xport(Slice const& txBlob) const
         // Fee 0 is filled in from the signer count when the export applies
         if (!inner.isFieldPresent(sfFee))
             inner.setFieldAmount(sfFee, XRPAmount{0});
-        needsTicket = !inner.isFieldPresent(sfTicketSequence);
+        ticket = inner[~sfTicketSequence];
         {
             // it must be a transaction of the other network: its type known
             // and its required fields all there (STTx applies the template),
@@ -889,12 +889,14 @@ HookAPI::xport(Slice const& txBlob) const
         return Unexpected(blob.error());
 
     // The ticket is filled in from the pool when the export applies: tell the
-    // hook now if there is none to fill in with.
-    if (needsTicket)
+    // hook now if there is none it may have (the pool's last ticket is the
+    // ledger's, see Export::hookMayUse). A ticket of its own, outside the
+    // pool, is always the hook's to spend.
     {
         auto const acc = hookCtx.applyCtx.view().read(
             keylet::account(hookCtx.result.account));
-        if (!acc || ExportTickets::load(*acc).empty())
+        if (!Export::hookMayUse(
+                acc ? ExportTickets::load(*acc) : ExportTickets{}, ticket))
             return Unexpected(NO_TICKET);
     }
     return emit(makeSlice(*blob));

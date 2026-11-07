@@ -32,6 +32,7 @@
 #include <xrpl/protocol/FeeUnits.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/Protocol.h>
+#include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
 
@@ -315,6 +316,18 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
     if (ctx.view.rules().enabled(featureExport) &&
         sleAccount->isFlag(lsfExporter))
         return tecHAS_OBLIGATIONS;
+
+    // The account of a UNLReport validator holds its export keys, and the
+    // next ttGENESIS_MINT would re-create it with validatorFundingDrops:
+    // deleting it would be minting. Off the UNLReport it may go.
+    if (ctx.view.rules().enabled(featureExport))
+    {
+        if (auto const unl = ctx.view.read(keylet::UNLReport());
+            unl && unl->isFieldPresent(sfActiveValidators))
+            for (auto const& v : unl->getFieldArray(sfActiveValidators))
+                if (calcAccountID(PublicKey(v[sfPublicKey])) == account)
+                    return tecHAS_OBLIGATIONS;
+    }
 
     if (ctx.view.rules().enabled(featureNonFungibleTokensV1))
     {

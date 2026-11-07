@@ -117,6 +117,7 @@ TYPED_SFIELD(sfLockCount,                UINT32,    49)
 TYPED_SFIELD(sfFirstNFTokenSequence,     UINT32,    50)
 TYPED_SFIELD(sfOracleDocumentID,         UINT32,    51)
 
+TYPED_SFIELD(sfExportSequence,           UINT32,    89)
 TYPED_SFIELD(sfExportTicketPending,      UINT32,    90)
 TYPED_SFIELD(sfExportTicketNext,         UINT32,    91)
 TYPED_SFIELD(sfExportKeysSeq,            UINT32,    92)
