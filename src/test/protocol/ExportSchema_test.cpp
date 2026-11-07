@@ -264,7 +264,11 @@ class ExportSchema_test : public beast::unit_test::suite
     testReader()
     {
         testcase("reader");
-        using namespace xrpl_defs;
+        // No `using namespace xrpl_defs` here: `Definitions` and `detail`
+        // also exist in namespace ripple (SField.h, STVar.h), and bringing
+        // both into scope makes unqualified lookup ambiguous.
+        using xrpl_defs::Counts;
+        using xrpl_defs::countXrplDefinitions;
 
         // The build runs the reader at compile time over the checked-in
         // file (ExportSchema.cpp), where a malformed file fails to compile.
@@ -275,8 +279,9 @@ class ExportSchema_test : public beast::unit_test::suite
             n.types == 3 && n.fields == 3 && n.txTypes == 2 && n.formats == 2 &&
             n.formatFields == 1 && n.flags == 2);
 
-        Definitions<n> d{};
-        BEAST_EXPECT(detail::read(smallDefinitions, &d).fields == n.fields);
+        xrpl_defs::Definitions<n> d{};
+        BEAST_EXPECT(
+            xrpl_defs::detail::read(smallDefinitions, &d).fields == n.fields);
         BEAST_EXPECT(d.hash == "ABCD");
         BEAST_EXPECT(d.type("Amount") && d.type("Amount")->value == 6);
         BEAST_EXPECT(!d.type("Hash256"));
@@ -305,17 +310,19 @@ class ExportSchema_test : public beast::unit_test::suite
         // empty sections, and no sections at all
         constexpr Counts zero = countXrplDefinitions<emptyDefinitions>();
         static_assert(zero.types == 0 && zero.fields == 0 && zero.flags == 0);
-        Definitions<zero> e{};
+        xrpl_defs::Definitions<zero> e{};
         BEAST_EXPECT(
-            detail::read(emptyDefinitions, &e).formats == 0 && e.hash.empty());
-        BEAST_EXPECT(detail::read(std::string_view{"{}"}, &e).types == 0);
+            xrpl_defs::detail::read(emptyDefinitions, &e).formats == 0 &&
+            e.hash.empty());
+        BEAST_EXPECT(
+            xrpl_defs::detail::read(std::string_view{"{}"}, &e).types == 0);
 
         // what it refuses: counting (no output) and filling alike
-        using None = Definitions<Counts{}>;
+        using None = xrpl_defs::Definitions<Counts{}>;
         auto const bad = [](std::string_view json, auto* out) {
             try
             {
-                detail::read(json, out);
+                xrpl_defs::detail::read(json, out);
             }
             catch (std::logic_error const&)
             {
@@ -341,7 +348,7 @@ class ExportSchema_test : public beast::unit_test::suite
         // more entries than counted for, and a field of a type not listed
         None none{};
         BEAST_EXPECT(bad(R"({"TYPES": {"UInt32": 2}})", &none));
-        Definitions<Counts{1, 1, 0, 0, 0, 0}> one{};
+        xrpl_defs::Definitions<Counts{1, 1, 0, 0, 0, 0}> one{};
         BEAST_EXPECT(
             bad(R"({"FIELDS": [["A", {"nth": 1, "type": "Nope"}]]})", &one));
         BEAST_EXPECT(!bad(
