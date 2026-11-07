@@ -947,7 +947,8 @@ struct JsonTx_test : public beast::unit_test::suite
                 o.setFieldU64(sfTime, now);
             });
         };
-        BEAST_EXPECT(applyDirect(env, pinned(ttMANIFEST_SET)) == temMALFORMED);
+        for (auto const type : {ttIMPORT, ttMANIFEST_SET})
+            BEAST_EXPECT(applyDirect(env, pinned(type)) == temMALFORMED);
 
         // Emitted transactions carry their own replay protection. Checked
         // in preflight1, ahead of the emitted-transaction bypass.
@@ -1093,31 +1094,22 @@ struct JsonTx_test : public beast::unit_test::suite
             BEAST_EXPECT(!env.le(keylet::permissionedDomain(alice.id(), 0u)));
         }
 
-        // The raw-sequence MPTokenIssuanceCreate creator refuses an emitted
-        // transaction outright, before the emitted-transaction path (which
-        // would refuse this one for not coming out of the emission directory)
-        // is reached.
+        // The raw-sequence MPTokenIssuanceCreate creator refuses a
+        // time-sequenced transaction outright.
         {
-            auto const emitted = [](AccountID const& a, TxType type) {
-                return std::make_shared<STTx const>(type, [&](STObject& o) {
-                    o.setAccountID(sfAccount, a);
-                    o.setFieldU32(sfSequence, 0);
-                    o.setFieldAmount(sfFee, XRP(1));
-                    o.setFieldVL(sfSigningPubKey, Blob{});
-                    o.makeFieldPresent(sfEmitDetails);
-                });
-            };
-            for (auto const& feats : {all, all - fix20260929})
-            {
-                Env env{*this, feats};
-                Account const alice{"alice"};
-                env.fund(XRP(10000), alice);
-                env.close();
-                BEAST_EXPECT(
-                    applyDirect(
-                        env, emitted(alice.id(), ttMPTOKEN_ISSUANCE_CREATE)) ==
-                    temBAD_SEQUENCE);
-            }
+            Env env{*this, all};
+            Account const alice{"alice"};
+            env.fund(XRP(10000), alice);
+            env.close();
+
+            Json::Value mpt;
+            mpt[jss::TransactionType] = "MPTokenIssuanceCreate";
+            mpt[jss::Account] = alice.human();
+            auto const mpTokenIssuanceCreate =
+                env.jt(withTime(mpt, nowMs(env)), seq(0));
+            BEAST_EXPECT(
+                engine(submitBlob(env, stx(mpTokenIssuanceCreate))) ==
+                "temBAD_SEQUENCE");
         }
 
         // Tickets. MPTokenIssuanceCreate always took the Ticket number;

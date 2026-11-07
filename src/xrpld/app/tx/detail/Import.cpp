@@ -183,6 +183,14 @@ sameKeying(STTx const& tx, STTx const& inner_, beast::Journal j)
 NotTEC
 Import::preflight(PreflightContext const& ctx)
 {
+    if (ctx.tx.isFieldPresent(sfTime))
+    {
+        // Import already pins Sequence to 0 for reasons of their own - a first
+        // Import creates its account, so an sfTime would silently reinterpret
+        // them as time-sequenced.
+        return temMALFORMED;
+    }
+
     if (!ctx.rules.enabled(featureImport))
         return temDISABLED;
 
