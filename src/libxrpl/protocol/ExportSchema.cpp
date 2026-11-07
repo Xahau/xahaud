@@ -132,15 +132,11 @@ struct LocalField
 #undef TYPED_SFIELD
 
 #define UNTYPED_SFIELD(sfName, stiSuffix, fieldValue, ...) \
-    LocalField{                                             \
-        std::string_view(#sfName).substr(2),                \
-        STI_##stiSuffix,                                    \
-        fieldValue},
+    LocalField{                                            \
+        std::string_view(#sfName).substr(2), STI_##stiSuffix, fieldValue},
 #define TYPED_SFIELD(sfName, stiSuffix, fieldValue, ...) \
-    LocalField{                                           \
-        std::string_view(#sfName).substr(2),              \
-        STI_##stiSuffix,                                  \
-        fieldValue},
+    LocalField{                                          \
+        std::string_view(#sfName).substr(2), STI_##stiSuffix, fieldValue},
 
 constexpr LocalField localFields[] = {
 #include <xrpl/protocol/detail/sfields.macro>
@@ -247,14 +243,15 @@ exportType(Policy const& p)
     auto const ours = localTxType(p.tx);
     if (!ours)
         xrpl_defs::detail::malformed("policy names a transaction we lack");
-    if (theirs->code != ours->code || theirs->code < 0 ||
-        theirs->code > 0xFFFF)
-        xrpl_defs::detail::malformed("policy names a transaction numbered differently");
+    if (theirs->code != ours->code || theirs->code < 0 || theirs->code > 0xFFFF)
+        xrpl_defs::detail::malformed(
+            "policy names a transaction numbered differently");
     t.code = static_cast<std::uint16_t>(ours->code);
 
     auto const fmt = xrpl.format(p.tx);
     if (!fmt)
-        xrpl_defs::detail::malformed("they list no format for a policy transaction");
+        xrpl_defs::detail::malformed(
+            "they list no format for a policy transaction");
 
     t.flagsMask = xrpl.flagsMask(p.tx) | tfFullyCanonicalSig;
 
@@ -281,7 +278,8 @@ exportType(Policy const& p)
             // theirs alone, or numbered differently here: not exportable,
             // unless they require it, in which case neither is the type
             if (ff.optionality == 0)
-                xrpl_defs::detail::malformed("they require a field we cannot send");
+                xrpl_defs::detail::malformed(
+                    "they require a field we cannot send");
             continue;
         }
         allow(*f);
