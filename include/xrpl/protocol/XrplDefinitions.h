@@ -484,8 +484,8 @@ read(std::string_view json, D* out)
             else
                 c.skipValue();
         } while (c.consume(','));
+        c.expect('}');
     }
-    c.expect('}');
     c.ws();
     if (!c.eof())
         malformed("trailing content");
