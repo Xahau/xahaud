@@ -718,15 +718,22 @@ Export::createExport(
         inner[sfTicketSequence] = *ticket;
     }
 
-    // the fee there: what a multisigned transaction needs. Fee 0 stands for
-    // "fill in" since the format requires the field to be present.
+    // the fee there: what a multisigned transaction needs, at the unit the
+    // ledger has seen transactions pay there (ltEXPORT_FEE, see Ingest.h),
+    // or the reference fee until one is proven. Fee 0 stands for "fill in"
+    // since the format requires the field to be present.
     if (!inner.isFieldPresent(sfFee) ||
         inner.getFieldAmount(sfFee) == beast::zero)
+    {
+        auto const fee = view.read(keylet::exportFee());
+        XRPAmount const unit{
+            fee ? std::int64_t{(*fee)[sfExportFeeUnit]} : xrplBaseFee.drops()};
         inner.setFieldAmount(
             sfFee,
-            xrplBaseFee *
+            unit *
                 static_cast<std::int64_t>(
                     list->getFieldArray(sfSignerEntries).size() + 1));
+    }
 
     auto const t = exportedTx(inner, owner, nid, view.rules(), backstop);
     if (!t)

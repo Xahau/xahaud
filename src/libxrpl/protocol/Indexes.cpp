@@ -98,6 +98,7 @@ enum class LedgerNameSpace : std::uint16_t {
     EXPORTED_TXN = 'X',
     SHADOW_TICKET = 'Y',
     EXPORTER_DIR = LEDGER_NAMESPACE2(0x01, 'X'),
+    EXPORT_FEE = 'Z',
 
     // No longer used or supported. Left here to reserve the space
     // to avoid accidental reuse.
@@ -730,6 +731,14 @@ exporterDir() noexcept
 {
     static Keylet const ret{
         ltDIR_NODE, indexHash(LedgerNameSpace::EXPORTER_DIR)};
+    return ret;
+}
+
+Keylet const&
+exportFee() noexcept
+{
+    static Keylet const ret{
+        ltEXPORT_FEE, indexHash(LedgerNameSpace::EXPORT_FEE)};
     return ret;
 }
 

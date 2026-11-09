@@ -65,6 +65,7 @@
 #define ttEXPORT_SIGN 87
 #define ttEXPORT_FINAL 90
 #define ttEXPORT_AUTO 86
+#define ttINGEST 85
 #define ttENTROPY 89
 #define ttMANIFEST_SET 91
 #define ttCRON 92

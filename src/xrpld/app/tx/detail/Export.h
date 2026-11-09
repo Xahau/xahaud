@@ -86,8 +86,9 @@ class ValidatorKeys;
        and flags the other network accepts on it; NOT_EXPORTABLE otherwise).
        Account, SigningPubKey, Sequence (0) and OperationLimit are filled in
        at emission; TicketSequence (the lowest ticket of the smallest range
-       in sfExportTickets) and Fee ((signers + 1) x xrplBaseFee) when the
-       ttEXPORT applies, unless the hook set them.
+       in sfExportTickets) and Fee ((signers + 1) x the unit ltEXPORT_FEE
+       holds, see Ingest.h) when the ttEXPORT applies, unless the hook set
+       them.
        Applying it copies sfExportSignerList into a new ltEXPORTED_TXN and
        writes an ltSHADOW_TICKET: the XPOP of whichever transaction uses that
        ticket there can be imported once, calling the hook back. A ticket is
@@ -137,8 +138,10 @@ public:
     static constexpr std::uint32_t ticketLow = 10;
     static constexpr std::uint32_t ticketBatch = 50;
 
-    /** The other network's reference fee: an exported transaction pays
-        (signers + 1) times this unless the hook set its Fee */
+    /** The other network's reference fee: the least an exported transaction
+        pays per signature, and what it pays until ttINGEST has proven what
+        transactions there actually pay (ltEXPORT_FEE, see Ingest.h). A hook
+        that sets its own Fee is left alone. */
     static constexpr XRPAmount xrplBaseFee{10};
 
     /** Each exporter is considered for an automatic export once every this

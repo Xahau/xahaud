@@ -1970,10 +1970,13 @@ TxQ::tryDirectApply(
     const bool isManifest = view.rules().enabled(featureOnChainManifests) &&
         tx->getTxnType() == ttMANIFEST_SET;
 
-    // An export coming back is pinned to sfSequence 0 too (isLoopback).
+    // An export coming back is pinned to sfSequence 0 too (isLoopback), and
+    // a proof of fees (ttINGEST) is free, so neither can be held for a fee.
     const bool loopback = sleAccount && isLoopback(view.rules(), *tx);
+    const bool ingest =
+        view.rules().enabled(featureExport) && tx->getTxnType() == ttINGEST;
 
-    const bool bypassQueue = isFirstImport || isManifest || loopback;
+    const bool bypassQueue = isFirstImport || isManifest || loopback || ingest;
 
     // Don't attempt to direct apply if the account is not in the ledger.
     if (!sleAccount && !isFirstImport)

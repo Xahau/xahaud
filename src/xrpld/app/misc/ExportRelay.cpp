@@ -24,6 +24,7 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/app/tx/detail/Ingest.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/overlay/Message.h>
 #include <xrpld/overlay/detail/Handshake.h>
@@ -47,10 +48,17 @@
 #include <thread>
 
 /*  [xrpl_relay]: one XRPL peer connection per "host [port [node key]]"
-    line, plus optional vl_url= and network_id= (the XRPL's, default 0). The
+    line, plus optional vl_url=, network_id= (the XRPL's, default 0),
+    account= (a seed) and ingest_every= (Xahau ledgers, default 64). The
     node public key (base58, as the peer's server_info shows it) pins the
     peer: the handshake proves it and the session is dropped otherwise.
     Peer TLS is self-signed, so without it any on-path party could stand in.
+
+    Proof of fees. With account=, every ingest_every Xahau ledgers the next
+    complete XRPL ledger is sent as a ttINGEST (see Ingest.h) from that
+    account: free, since the ledger must be newer than the one recorded.
+    The account need only exist; its hooks run on the entry as on any
+    transaction of its own.
 
     XRPL to Xahau. The UNL is the newest validator list signed by a key this
     network trusts for Import ([import_vl_keys] or UNLReport ImportVLKeys),
@@ -102,6 +110,8 @@ struct Config
     Application& app;
     std::string vlURL;
     std::optional<std::uint32_t> nid;
+    std::optional<std::pair<PublicKey, SecretKey>> account;  // ingests from
+    std::uint32_t ingestEvery = 64;
     std::atomic<bool> stop{false};
 };
 
@@ -197,7 +207,8 @@ class Peer
     LedgerIndex highest_ = 0;  // the highest ledger seq validated so far
     static constexpr std::size_t maxLedgers = 64;
     static constexpr std::size_t maxLedgerBytes = 32 << 20;
-    LedgerIndex xahau_ = 0;  // the last validated ledger whose exports went
+    LedgerIndex xahau_ = 0;     // the last validated ledger whose exports went
+    LedgerIndex ingested_ = 0;  // the validated ledger at the last ttINGEST
     std::chrono::steady_clock::time_point nextVL_{};
 
 public:
@@ -565,6 +576,7 @@ private:
             l.state = 2;
             for (auto const* leaf : leaves)
                 relay(l, *leaf);
+            ingest(h, l);
         }
         else if (++l.rounds < 16)
             request(h, protocol::liTX_NODE, missing);
@@ -618,6 +630,92 @@ private:
                 a.append(to_string(c));
         }
         return a;
+    }
+
+    // what an XPOP and an XPOF share: the ledger's header and what proves it
+    Json::Value
+    proven(Ledger const& l) const
+    {
+        auto const& i = *l.info;
+        Json::Value x;
+        auto& lg = x[jss::ledger];
+        lg[jss::index] = i.seq;
+        lg[jss::coins] = std::to_string(i.drops.drops());
+        lg[jss::phash] = to_string(i.parentHash);
+        lg[jss::txroot] = to_string(i.txHash);
+        lg[jss::acroot] = to_string(i.accountHash);
+        lg[jss::pclose] = i.parentCloseTime.time_since_epoch().count();
+        lg[jss::close] = i.closeTime.time_since_epoch().count();
+        lg[jss::cres] = i.closeTimeResolution.count();
+        lg[jss::flags] = i.closeFlags;
+        x[jss::validation][jss::data] = l.vals;
+        x[jss::validation][jss::unl] = unl_;
+        return x;
+    }
+
+    // The ledger as a proof of fees (Ingest.h), if one is due, its parent's
+    // header is still held and the ledger is newer than the one recorded
+    // (so the entry is free). The whole tree was fetched for relay() anyway.
+    void
+    ingest(uint256 const& h, Ledger const& l)
+    {
+        auto const now = app_.getLedgerMaster().getValidLedgerIndex();
+        if (!cfg_.account || now < ingested_ + cfg_.ingestEvery)
+            return;
+        auto const view = app_.openLedger().current();
+        auto const fee = view->read(keylet::exportFee());
+        auto const parent = ledgers_.find(l.info->parentHash);
+        auto const acc =
+            view->read(keylet::account(calcAccountID(cfg_.account->first)));
+        if ((fee && (*fee)[sfLedgerSequence] >= l.seq) ||
+            parent == ledgers_.end() || !parent->second.info || !acc)
+            return;
+
+        Json::Value x = proven(l);
+        Serializer ph;
+        addRaw(*parent->second.info, ph);
+        x["parent"] = strHex(ph.slice());
+        auto& tree = x["tree"] = Json::arrayValue;
+        for (auto const& [hash, node] : l.nodes)
+            if (node->isInner())
+            {
+                Serializer s;
+                node->serializeForWire(s);
+                tree.append(strHex(s.slice()));
+            }
+        auto& samples = x["samples"] = Json::arrayValue;
+        for (auto const& leaf :
+             Ingest::sampleLeaves(l.nodes, l.info->txHash, h))
+        {
+            auto const n = l.nodes.find(leaf);
+            if (n == l.nodes.end() || !n->second->isLeaf())
+                return;
+            SerialIter sit(static_cast<SHAMapLeafNode const&>(*n->second)
+                               .peekItem()
+                               ->slice());
+            auto& s = samples.append(Json::objectValue);
+            s[jss::blob] = strHex(sit.getVL());
+            s[jss::meta] = strHex(sit.getVL());
+        }
+
+        auto const nid = app_.config().NETWORK_ID;
+        auto const blob = to_string(x);
+        STTx tx(ttINGEST, [&](auto& o) {
+            o[sfAccount] = acc->getAccountID(sfAccount);
+            o[sfSequence] = (*acc)[sfSequence];
+            o[sfFee] = XRPAmount{0};
+            o[sfSigningPubKey] = cfg_.account->first.slice();
+            o[sfLedgerSequence] = l.seq;
+            o[sfBlob] = makeSlice(blob);
+            if (nid > 1024)
+                o[sfNetworkID] = nid;
+        });
+        tx.sign(cfg_.account->first, cfg_.account->second);
+        app_.getOPs().submitTransaction(
+            std::make_shared<STTx const>(std::move(tx)));
+        ingested_ = now;
+        JLOG(j_.info()) << "ingesting XRPL ledger " << l.seq << ", "
+                        << blob.size() << " bytes";
     }
 
     // An XRPL transaction the ledger may want (Import::preclaim): an export
@@ -704,24 +802,11 @@ private:
                 c.type != ttSIGNER_LIST_SET)
                 return;
 
-            auto const& i = *l.info;
-            Json::Value x;
-            auto& lg = x[jss::ledger];
-            lg[jss::index] = i.seq;
-            lg[jss::coins] = std::to_string(i.drops.drops());
-            lg[jss::phash] = to_string(i.parentHash);
-            lg[jss::txroot] = to_string(i.txHash);
-            lg[jss::acroot] = to_string(i.accountHash);
-            lg[jss::pclose] = i.parentCloseTime.time_since_epoch().count();
-            lg[jss::close] = i.closeTime.time_since_epoch().count();
-            lg[jss::cres] = i.closeTimeResolution.count();
-            lg[jss::flags] = i.closeFlags;
+            Json::Value x = proven(l);
             auto& xt = x[jss::transaction];
             xt[jss::blob] = strHex(tx);
             xt[jss::meta] = strHex(meta);
-            xt[jss::proof] = proof(l, i.txHash, item->key());
-            x[jss::validation][jss::data] = l.vals;
-            x[jss::validation][jss::unl] = unl_;
+            xt[jss::proof] = proof(l, l.info->txHash, item->key());
             c.xpop = to_string(x);
 
             if (wanted(*view, c))
@@ -921,6 +1006,15 @@ public:
     {
         if (auto const nid = sec.get<std::uint32_t>("network_id").value_or(0))
             cfg_.nid = nid;
+        if (auto const s = sec.get<std::string>("account"))
+        {
+            auto const seed = parseGenericSeed(*s);
+            if (!seed)
+                Throw<std::runtime_error>("[xrpl_relay] account: not a seed");
+            cfg_.account = generateKeyPair(KeyType::secp256k1, *seed);
+        }
+        cfg_.ingestEvery =
+            sec.get<std::uint32_t>("ingest_every").value_or(cfg_.ingestEvery);
         for (auto const& line : sec.values())
         {
             std::istringstream ss(line);

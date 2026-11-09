@@ -147,6 +147,24 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
+/** featureExport: what transactions on the other network pay, as proven by
+    ttINGEST (see Ingest.h). A singleton. sfExportFeeUnit is the drops per
+    signature xport() fills in for a hook that sets no Fee; the rest
+    describes the latest ledger proven: its index, its transactions, the
+    drops they burned between them and the median unit sampled among them.
+
+    \sa keylet::exportFee
+*/
+LEDGER_ENTRY(ltEXPORT_FEE, 'Z', ExportFee, export_fee, ({
+    {sfExportFeeUnit,        soeREQUIRED},
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfTransactionCount,     soeREQUIRED},
+    {sfBurnedDrops,          soeREQUIRED},
+    {sfSampleFee,            soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** A ledger object containing a hook-emitted transaction from a previous hook execution.
 
     \sa keylet::emitted

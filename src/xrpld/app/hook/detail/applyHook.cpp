@@ -77,11 +77,13 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
             break;
         }
 
-        // the exporter hears of its exports through cbak, not hook()
+        // the exporter hears of its exports through cbak, not hook(); a
+        // proof of fees concerns no account
         case ttEXPORT:
         case ttEXPORT_SIGN:
         case ttEXPORT_FINAL:
         case ttEXPORT_AUTO:
+        case ttINGEST:
             break;
 
         case ttREMIT: {

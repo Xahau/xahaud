@@ -410,6 +410,10 @@ shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept;
 Keylet const&
 exporterDir() noexcept;
 
+/** What transactions on the other network pay (ltEXPORT_FEE, Ingest.h). */
+Keylet const&
+exportFee() noexcept;
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:
