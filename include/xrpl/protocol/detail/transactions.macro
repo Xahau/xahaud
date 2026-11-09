@@ -656,6 +656,26 @@ TRANSACTION(ttENTROPY, 89, Entropy, ({
     {sfRandomData, soeOPTIONAL},
 }))
 
+/** featureCreditNote: redeem a credit note.
+
+    The claimant (sfAccount) submits the exact bytes the issuer signed (sfNote,
+    a JsonTx document naming NetworkID, Account, Amount, IssueTime, Expiration
+    and the Bearer key), the issuer's ed25519 signature over
+    jsontx_sign_prefix || sfNote (sfNoteSignature), the key that made it
+    (sfPublicKey, the issuer's master or regular key), and proof that they
+    hold the bearer key: its signature over
+    jsontx_sign_prefix || sfNote || sfAccount (sfBearerSignature). Amount
+    moves from the note's Account to the claimant; the note's IssueTime is
+    recorded in the issuer's AccountRoot as sfLastNoteTime, and only notes
+    issued after it can still be redeemed.
+ */
+TRANSACTION(ttNOTE_CLAIM, 90, NoteClaim, ({
+    {sfNote,            soeREQUIRED},
+    {sfNoteSignature,   soeREQUIRED},
+    {sfPublicKey,       soeREQUIRED},
+    {sfBearerSignature, soeREQUIRED},
+}))
+
 /* sfAccount is supplied by TxFormats::commonFields; listing it here as well
    makes the SOTemplate reject the format at construction. */
 #if TRANSACTION_INCLUDE

@@ -29,8 +29,10 @@
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
+#include <xrpl/protocol/CreditNote.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
+#include <xrpl/protocol/JSONTxSignatures.h>
 #include <xrpl/protocol/PayChan.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Sign.h>
@@ -8435,6 +8437,126 @@ private:
         }
 
         return *hash;
+    }
+
+    // NoteClaim
+    // | otxn | tsh | claim |
+    // |   B  |  B  |   S   |  bearer
+    // |   B  |  I  |   S   |  note issuer (pays the note)
+    void
+    testNoteClaimTSH(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        using namespace std::literals;
+        testcase("note claim TSH");
+
+        features = features | featureCreditNote;
+
+        // The bearer key for the one note each Env redeems: a never-funded
+        // ed25519 pair, public half in the note, secret proves the claim.
+        Account const key{"bearer-key", KeyType::ed25519};
+
+        // A fresh ten-minute XAH note from `issuer`, issued a minute ago and
+        // laid out the way CreditNote_test builds them.
+        auto const makeNote = [&key](Env& env, Account const& issuer) {
+            // a fresh Env's clock is too young to backdate a note from
+            if (env.current()->parentCloseTime().time_since_epoch() < 1h)
+                env.close(1h);
+            auto const nowMs =
+                static_cast<std::uint64_t>(env.current()
+                                               ->parentCloseTime()
+                                               .time_since_epoch()
+                                               .count()) *
+                1000;
+            auto const issue = nowMs - 60'000;
+            return "{\"NetworkID\":" +
+                std::to_string(env.app().config().NETWORK_ID) +
+                ",\"Account\":\"" + issuer.human() +
+                "\",\"Amount\":10000000,\"IssueTime\":\"" +
+                jsontx_iso_str(issue) + "\",\"Expiration\":\"" +
+                jsontx_iso_str(issue + 600'000) + "\",\"Bearer\":\"" +
+                strHex(key.pk().slice()) + "\"}";
+        };
+
+        // A NoteClaim from `claimant` redeeming `text`, signed by `issuer`,
+        // with the bearer key's proof for `claimant`.
+        auto const claim = [&key](
+                               Account const& claimant,
+                               Account const& issuer,
+                               std::string const& text) {
+            Json::Value jv;
+            jv[jss::TransactionType] = "NoteClaim";
+            jv[jss::Account] = claimant.human();
+            jv[sfNote.fieldName] = strHex(text);
+            jv[sfNoteSignature.fieldName] = strHex(sign(
+                issuer.pk(),
+                issuer.sk(),
+                makeSlice(jsontx_signing_data(text))));
+            jv[sfPublicKey.fieldName] = strHex(issuer.pk().slice());
+            jv[sfBearerSignature.fieldName] = strHex(sign(
+                key.pk(),
+                key.sk(),
+                makeSlice(noteClaimSigningData(text, claimant.id()))));
+            return jv;
+        };
+
+        // otxn: bearer (the claimant)
+        // tsh bearer
+        // w/s: strong
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice", KeyType::ed25519);
+            auto const bearer = Account("bob");
+            env.fund(XRP(1000), issuer, bearer);
+            env.close();
+
+            if (!testStrong)
+                addWeakTSH(env, bearer);
+
+            setTSHHook(env, bearer, testStrong);
+
+            env(claim(bearer, issuer, makeNote(env, issuer)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
+
+        // otxn: bearer
+        // tsh issuer
+        // w/s: strong
+        //
+        // The issuer is who pays, so their hook may roll the redemption back.
+        for (bool const testStrong : {true, false})
+        {
+            test::jtx::Env env{
+                *this,
+                network::makeNetworkConfig(21337, "10", "1000000", "200000"),
+                features};
+
+            auto const issuer = Account("alice", KeyType::ed25519);
+            auto const bearer = Account("bob");
+            env.fund(XRP(1000), issuer, bearer);
+            env.close();
+
+            if (!testStrong)
+                addWeakTSH(env, issuer);
+
+            setTSHHook(env, issuer, testStrong);
+
+            env(claim(bearer, issuer, makeNote(env, issuer)),
+                fee(XRP(1)),
+                ter(tesSUCCESS));
+            env.close();
+
+            testTSHStrongWeak(env, tshSTRONG, __LINE__);
+        }
     }
 
     // SetManifest
