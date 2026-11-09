@@ -27,6 +27,7 @@
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/json/json_reader.h>
+#include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Indexes.h>
@@ -123,7 +124,7 @@ Ingest::parse(Slice blob, beast::Journal j)
         // the ledger, hashed from its header fields as an XPOP gives them
         LedgerInfo info;
         auto const& lg = x[jss::ledger];
-        auto const coins = parse_uint64(str(lg[jss::coins]));
+        auto const coins = to_uint64(str(lg[jss::coins]));
         if (!coins || !info.parentHash.parseHex(str(lg[jss::phash])) ||
             !info.txHash.parseHex(str(lg[jss::txroot])) ||
             !info.accountHash.parseHex(str(lg[jss::acroot])))

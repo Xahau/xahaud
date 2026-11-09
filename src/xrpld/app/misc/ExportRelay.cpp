@@ -1002,7 +1002,7 @@ class Relay final : public ExportRelay
 
 public:
     explicit Relay(Application& app, Section const& sec)
-        : cfg_{app, sec.get<std::string>("vl_url").value_or(""), std::nullopt}
+        : cfg_{app, sec.get<std::string>("vl_url").value_or("")}
     {
         if (auto const nid = sec.get<std::uint32_t>("network_id").value_or(0))
             cfg_.nid = nid;
