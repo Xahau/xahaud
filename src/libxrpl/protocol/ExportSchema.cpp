@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpl/basics/contract.h>
 #include <xrpl/protocol/ExportSchema.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Rules.h>
@@ -25,405 +24,277 @@
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/TxFlags.h>
-#include <xrpl/protocol/XrplDefinitions.h>
-#include <libxrpl/protocol/xrpl_server_definitions.h>
-#include <stdexcept>
+#include <xrpl/protocol/TxFormats.h>
 
 namespace ripple {
-
-namespace xrpl_defs {
-namespace detail {
-
-void
-malformed(char const* what)
-{
-    // only reached at run time, which the constexpr reads below never are
-    Throw<std::logic_error>(
-        std::string("xrpl_server_definitions.json: ") + what);
-}
-
-}  // namespace detail
-}  // namespace xrpl_defs
-
 namespace {
 
 //------------------------------------------------------------------------------
 //
-// Policy: which transaction types may be exported, and since which
-// amendment. This is the only hand-maintained part of the schema. A row
-// names a transaction type as both networks name it; the build checks it
-// has the same code on both and that this network can read every field the
-// other requires on it, so a row for a type only one network has, or that
-// the two number differently, does not compile.
+// THE TABLE IS CONSENSUS. Every row below decides whether a ttEXPORT applies,
+// so no row may be added, removed or changed except behind an amendment: a
+// new row carries `since(fixExportSchemaX)`, a dropped one `until(...)`, and
+// the amendment is voted on like any other. Without that, validators on the
+// old and new binary disagree on the first export that differs.
 //
-// To open a type later: add a row gated on the feature that brings it in,
-// refreshing xrpl_server_definitions.json first if the other network has
-// added it since. To close one: set removedBy.
+// What belongs here: the transactions the other network has that this one
+// has under the same type code, and on them the fields the other network
+// lists that this network defines with the same name, type and code (a code
+// the two networks assigned to different fields is out, so neither can
+// misread the other's), which of those it requires, and the flags it
+// accepts. bin/export-schema-check.py compares this table with a live
+// rippled's `server_definitions` and prints what has drifted.
 //
 // Left out on purpose: AccountDelete and SetRegularKey, which would take the
 // exporter's account there out from under the signer list this ledger keeps
-// for it; anything that is not a plain account's business.
+// for it; and anything that is not a plain account's business.
 
-struct Policy
+struct Rule
 {
-    std::string_view tx;
-    uint256 const& addedBy;
-    uint256 const* removedBy;
-};
+    SField const* field = nullptr;
+    bool required = false;
+    uint256 const* since = nullptr;  // enabled with the type if null
+    uint256 const* until = nullptr;
 
-constexpr Policy policy[] = {
-    {"Payment", featureExport, nullptr},
-    {"TrustSet", featureExport, nullptr},
-    {"AccountSet", featureExport, nullptr},
-    {"OfferCreate", featureExport, nullptr},
-    {"OfferCancel", featureExport, nullptr},
-    {"EscrowCreate", featureExport, nullptr},
-    {"EscrowFinish", featureExport, nullptr},
-    {"EscrowCancel", featureExport, nullptr},
-    {"CheckCreate", featureExport, nullptr},
-    {"CheckCash", featureExport, nullptr},
-    {"CheckCancel", featureExport, nullptr},
-    {"PaymentChannelCreate", featureExport, nullptr},
-    {"PaymentChannelFund", featureExport, nullptr},
-    {"PaymentChannelClaim", featureExport, nullptr},
-    {"DepositPreauth", featureExport, nullptr},
-    {"TicketCreate", featureExport, nullptr},
-    {"SignerListSet", featureExport, nullptr},
-};
-
-// The fields every transaction on the other network may carry that an export
-// may carry too (its TxFormats common fields, less what an export must not
-// have: a signature of its own, PreviousTxnID, delegation, batching).
-// Signers is included because validators add it as they sign.
-constexpr std::string_view universalFields[] = {
-    "TransactionType",
-    "Flags",
-    "SourceTag",
-    "Account",
-    "Sequence",
-    "LastLedgerSequence",
-    "AccountTxnID",
-    "Fee",
-    "OperationLimit",
-    "Memos",
-    "SigningPubKey",
-    "TicketSequence",
-    "Signers",
-    "NetworkID",
-};
-
-//------------------------------------------------------------------------------
-
-using namespace xrpl_defs;
-
-constexpr auto xrpl = parseXrplDefinitions<xrplServerDefinitionsJson>();
-
-// This network's fields, from the table SField.cpp is built from
-struct LocalField
-{
-    std::string_view name;
-    int type;
-    int nth;
-};
-
-#pragma push_macro("UNTYPED_SFIELD")
-#undef UNTYPED_SFIELD
-#pragma push_macro("TYPED_SFIELD")
-#undef TYPED_SFIELD
-
-#define UNTYPED_SFIELD(sfName, stiSuffix, fieldValue, ...) \
-    LocalField{                                            \
-        std::string_view(#sfName).substr(2), STI_##stiSuffix, fieldValue},
-#define TYPED_SFIELD(sfName, stiSuffix, fieldValue, ...) \
-    LocalField{                                          \
-        std::string_view(#sfName).substr(2), STI_##stiSuffix, fieldValue},
-
-constexpr LocalField localFields[] = {
-#include <xrpl/protocol/detail/sfields.macro>
-};
-
-#undef TYPED_SFIELD
-#pragma pop_macro("TYPED_SFIELD")
-#undef UNTYPED_SFIELD
-#pragma pop_macro("UNTYPED_SFIELD")
-
-// and its transaction types, from the table TxFormats.cpp is built from
-struct LocalTxType
-{
-    std::string_view name;
-    int code;
-};
-
-#pragma push_macro("TRANSACTION")
-#undef TRANSACTION
-#define TRANSACTION(tag, value, name, ...) LocalTxType{#name, value},
-
-constexpr LocalTxType localTxTypes[] = {
-#include <xrpl/protocol/detail/transactions.macro>
-};
-
-#undef TRANSACTION
-#pragma pop_macro("TRANSACTION")
-
-constexpr LocalField const*
-localField(std::string_view name)
-{
-    for (auto const& f : localFields)
-        if (f.name == name)
-            return &f;
-    return nullptr;
-}
-
-constexpr LocalTxType const*
-localTxType(std::string_view name)
-{
-    for (auto const& t : localTxTypes)
-        if (t.name == name)
-            return &t;
-    return nullptr;
-}
-
-//------------------------------------------------------------------------------
-
-struct FieldCode
-{
-    int type;
-    int nth;
-
-    constexpr bool
-    operator==(FieldCode const&) const = default;
-};
-
-// A field both networks define identically: same name, type and code. Only
-// such a field reads the same on both sides of an export.
-constexpr std::optional<FieldCode>
-shared(std::string_view name)
-{
-    auto const theirs = xrpl.field(name);
-    auto const ours = localField(name);
-    if (!theirs || !ours || theirs->type != ours->type ||
-        theirs->nth != ours->nth || !theirs->serialized)
-        return std::nullopt;
-    return FieldCode{ours->type, ours->nth};
-}
-
-constexpr std::size_t maxFields = 64;
-
-struct ExportType
-{
-    std::string_view name;
-    std::uint16_t code;
-    Policy const* policy;
-    std::uint32_t flagsMask;
-    std::array<FieldCode, maxFields> allowed;
-    std::size_t nAllowed;
-    std::array<FieldCode, maxFields> required;
-    std::size_t nRequired;
-
-    constexpr bool
-    allows(FieldCode f) const
+    constexpr Rule() = default;
+    constexpr Rule(SField const& f) : field(&f)
     {
-        for (std::size_t i = 0; i < nAllowed; ++i)
-            if (allowed[i] == f)
-                return true;
-        return false;
     }
 };
 
-constexpr ExportType
-exportType(Policy const& p)
+constexpr Rule
+req(SField const& f)
 {
-    ExportType t{};
-    t.name = p.tx;
-    t.policy = &p;
-
-    auto const theirs = xrpl.txType(p.tx);
-    if (!theirs)
-        xrpl_defs::detail::malformed("policy names a transaction they lack");
-    auto const ours = localTxType(p.tx);
-    if (!ours)
-        xrpl_defs::detail::malformed("policy names a transaction we lack");
-    if (theirs->code != ours->code || theirs->code < 0 || theirs->code > 0xFFFF)
-        xrpl_defs::detail::malformed(
-            "policy names a transaction numbered differently");
-    t.code = static_cast<std::uint16_t>(ours->code);
-
-    auto const fmt = xrpl.format(p.tx);
-    if (!fmt)
-        xrpl_defs::detail::malformed(
-            "they list no format for a policy transaction");
-
-    t.flagsMask = xrpl.flagsMask(p.tx) | tfFullyCanonicalSig;
-
-    auto const allow = [&](FieldCode f) {
-        if (t.nAllowed == maxFields)
-            xrpl_defs::detail::malformed("too many fields");
-        t.allowed[t.nAllowed++] = f;
-    };
-
-    for (auto const name : universalFields)
-    {
-        auto const f = shared(name);
-        if (!f)
-            xrpl_defs::detail::malformed("a universal field is not shared");
-        allow(*f);
-    }
-
-    for (std::size_t i = 0; i < fmt->count; ++i)
-    {
-        auto const& ff = xrpl.formatFields[fmt->first + i];
-        auto const f = shared(ff.name);
-        if (!f)
-        {
-            // theirs alone, or numbered differently here: not exportable,
-            // unless they require it, in which case neither is the type
-            if (ff.optionality == 0)
-                xrpl_defs::detail::malformed(
-                    "they require a field we cannot send");
-            continue;
-        }
-        allow(*f);
-        if (ff.optionality == 0)
-            t.required[t.nRequired++] = *f;
-    }
-    return t;
+    Rule r{f};
+    r.required = true;
+    return r;
 }
 
-constexpr auto exportTypes = [] {
-    std::array<ExportType, std::size(policy)> out{};
-    for (std::size_t i = 0; i < std::size(policy); ++i)
-        out[i] = exportType(policy[i]);
-    return out;
-}();
-
-// Every field the two networks define identically, for what is nested
-constexpr auto sharedFields = [] {
-    std::array<FieldCode, std::size(localFields)> out{};
-    std::size_t n = 0;
-    for (auto const& f : localFields)
-        if (auto const s = shared(f.name))
-            out[n++] = *s;
-    return std::pair{out, n};
-}();
-
-constexpr bool
-isShared(FieldCode f)
+constexpr Rule
+since(Rule r, uint256 const& amendment)
 {
-    for (std::size_t i = 0; i < sharedFields.second; ++i)
-        if (sharedFields.first[i] == f)
-            return true;
-    return false;
+    r.since = &amendment;
+    return r;
 }
 
-// the build itself is the check: a policy row that does not hold fails above
-static_assert(exportTypes.size() == std::size(policy));
-static_assert(!xrpl.hash.empty(), "definitions carry no hash");
+constexpr Rule
+until(Rule r, uint256 const& amendment)
+{
+    r.until = &amendment;
+    return r;
+}
+
+constexpr std::size_t maxRules = 12;
+
+struct Type
+{
+    TxType type;
+    std::uint32_t flags;  // what the other network accepts, less tfUniversal
+    std::array<Rule, maxRules> fields;
+    uint256 const* since = &featureExport;
+    uint256 const* until = nullptr;
+};
+
+// The other network's flags this network has no name for
+constexpr std::uint32_t tfSponsorCreatedAccountThere = 0x00080000;  // Payment
+constexpr std::uint32_t tfHybridThere = 0x00100000;  // OfferCreate
+
+// clang-format off
+constexpr Type typeRows[] = {
+    {ttPAYMENT,
+     tfNoRippleDirect | tfPartialPayment | tfLimitQuality | tfSponsorCreatedAccountThere,
+     {req(sfDestination), req(sfAmount), sfSendMax, sfPaths, sfInvoiceID,
+      sfDestinationTag, sfDeliverMin}},
+    {ttESCROW_CREATE, 0,
+     {req(sfDestination), req(sfAmount), sfCondition, sfCancelAfter,
+      sfFinishAfter, sfDestinationTag}},
+    {ttESCROW_FINISH, 0,
+     {req(sfOwner), req(sfOfferSequence), sfFulfillment, sfCondition}},
+    {ttACCOUNT_SET,
+     tfRequireDestTag | tfOptionalDestTag | tfRequireAuth | tfOptionalAuth |
+         tfDisallowXRP | tfAllowXRP,
+     {sfEmailHash, sfWalletLocator, sfWalletSize, sfMessageKey, sfDomain,
+      sfTransferRate, sfSetFlag, sfClearFlag, sfTickSize, sfNFTokenMinter}},
+    {ttESCROW_CANCEL, 0,
+     {req(sfOwner), req(sfOfferSequence)}},
+    {ttOFFER_CREATE,
+     tfPassive | tfImmediateOrCancel | tfFillOrKill | tfSell | tfHybridThere,
+     {req(sfTakerPays), req(sfTakerGets), sfExpiration, sfOfferSequence}},
+    {ttOFFER_CANCEL, 0,
+     {req(sfOfferSequence)}},
+    {ttTICKET_CREATE, 0,
+     {req(sfTicketCount)}},
+    {ttSIGNER_LIST_SET, 0,
+     {req(sfSignerQuorum), sfSignerEntries}},
+    {ttPAYCHAN_CREATE, 0,
+     {req(sfDestination), req(sfAmount), req(sfSettleDelay), req(sfPublicKey),
+      sfCancelAfter, sfDestinationTag}},
+    {ttPAYCHAN_FUND, 0,
+     {req(sfChannel), req(sfAmount), sfExpiration}},
+    {ttPAYCHAN_CLAIM, tfRenew | tfClose,
+     {req(sfChannel), sfAmount, sfBalance, sfSignature, sfPublicKey}},
+    {ttCHECK_CREATE, 0,
+     {req(sfDestination), req(sfSendMax), sfExpiration, sfDestinationTag,
+      sfInvoiceID}},
+    {ttCHECK_CASH, 0,
+     {req(sfCheckID), sfAmount, sfDeliverMin}},
+    {ttCHECK_CANCEL, 0,
+     {req(sfCheckID)}},
+    {ttDEPOSIT_PREAUTH, 0,
+     {sfAuthorize, sfUnauthorize}},  // not the credential forms: no shared Credential
+    {ttTRUST_SET,
+     tfSetfAuth | tfSetNoRipple | tfClearNoRipple | tfSetFreeze | tfClearFreeze |
+         tfSetDeepFreeze | tfClearDeepFreeze,
+     {sfLimitAmount, sfQualityIn, sfQualityOut}},
+};
+
+// The fields every export may carry: the other network's common transaction
+// fields, less what an export must not have (a signature of its own,
+// PreviousTxnID, delegation, batching). Signers is in because validators add
+// it as they sign. Export.cpp checks Account, SigningPubKey and friends.
+constexpr std::array<Rule, 14> universal = {
+    sfTransactionType, sfFlags, sfSourceTag, sfAccount, sfSequence,
+    sfLastLedgerSequence, sfAccountTxnID, sfFee, sfOperationLimit, sfMemos,
+    sfSigningPubKey, sfTicketSequence, sfSigners, sfNetworkID,
+};
+
+// The objects an export may nest, as elements of the arrays above, and what
+// each may hold. Nothing nests deeper.
+struct Inner
+{
+    SField const* object;
+    std::array<Rule, 4> fields;
+};
+
+constexpr Inner inners[] = {
+    {&sfMemo,        {sfMemoType, sfMemoData, sfMemoFormat}},
+    {&sfSigner,      {req(sfAccount), req(sfSigningPubKey), req(sfTxnSignature)}},
+    {&sfSignerEntry, {req(sfAccount), req(sfSignerWeight), sfWalletLocator}},
+};
+// clang-format on
 
 //------------------------------------------------------------------------------
 
-constexpr ExportType const*
-find(std::uint16_t code)
+template <class Row>
+bool
+enabled(Row const& r, Rules const& rules)
 {
-    for (auto const& t : exportTypes)
-        if (t.code == code)
-            return &t;
-    return nullptr;
+    return (!r.since || rules.enabled(*r.since)) &&
+        !(r.until && rules.enabled(*r.until));
 }
 
 bool
-enabled(Policy const& p, Rules const& rules)
+same(SField const* f, SField const& g)
 {
-    return rules.enabled(p.addedBy) &&
-        !(p.removedBy && rules.enabled(*p.removedBy));
+    return f && f->fieldCode == g.fieldCode;
 }
 
-FieldCode
-codeOf(STBase const& e)
+template <std::size_t N>
+Rule const*
+find(std::array<Rule, N> const& rows, SField const& f, Rules const& rules)
 {
-    auto const& f = e.getFName();
-    return {f.fieldType, f.fieldValue};
+    for (auto const& r : rows)
+        if (same(r.field, f) && enabled(r, rules))
+            return &r;
+    return nullptr;
 }
 
-// the first field at any depth below `o` that the networks do not share
+Type const*
+findType(TxType t, Rules const& rules)
+{
+    for (auto const& row : typeRows)
+        if (row.type == t && enabled(row, rules))
+            return &row;
+    return nullptr;
+}
+
+Inner const*
+findInner(SField const& object)
+{
+    for (auto const& i : inners)
+        if (same(i.object, object))
+            return &i;
+    return nullptr;
+}
+
+// Every enabled, required rule in `rows` is present in `o`
+template <std::size_t N>
 std::optional<std::string>
-unsharedWithin(STBase const& e)
+missing(std::array<Rule, N> const& rows, STObject const& o, Rules const& rules)
 {
-    if (e.getSType() == STI_OBJECT)
-    {
-        for (auto const& inner : e.downcast<STObject>())
-        {
-            if (inner.getSType() == STI_NOTPRESENT)
-                continue;
-            if (!isShared(codeOf(inner)))
-                return inner.getFName().getName();
-            if (auto r = unsharedWithin(inner))
-                return r;
-        }
-    }
-    else if (e.getSType() == STI_ARRAY)
-    {
-        for (auto const& inner : e.downcast<STArray>())
-        {
-            if (!isShared(codeOf(inner)))
-                return inner.getFName().getName();
-            if (auto r = unsharedWithin(inner))
-                return r;
-        }
-    }
+    for (auto const& r : rows)
+        if (r.field && r.required && enabled(r, rules) &&
+            !o.isFieldPresent(*r.field))
+            return "the other network requires " + r.field->getName();
     return std::nullopt;
+}
+
+std::optional<std::string>
+rejectInner(STObject const& o, Rules const& rules)
+{
+    auto const inner = findInner(o.getFName());
+    if (!inner)
+        return "object " + o.getFName().getName() + " is not exportable";
+    for (auto const& e : o)
+    {
+        if (e.getSType() == STI_NOTPRESENT)
+            continue;
+        if (e.getSType() == STI_OBJECT || e.getSType() == STI_ARRAY)
+            return "field " + e.getFName().getName() + " nests too deep";
+        if (!find(inner->fields, e.getFName(), rules))
+            return "field " + e.getFName().getName() + " is not exportable";
+    }
+    return missing(inner->fields, o, rules);
 }
 
 }  // namespace
 
 //------------------------------------------------------------------------------
 
-std::string_view
-ExportSchema::xrplDefinitionsHash()
-{
-    return xrpl.hash;
-}
-
 std::optional<std::string>
 ExportSchema::reject(STObject const& tx, Rules const& rules)
 {
+    if (!rules.enabled(featureExport))
+        return "export is not enabled";
     if (!tx.isFieldPresent(sfTransactionType))
         return "no TransactionType";
-    auto const t = find(tx.getFieldU16(sfTransactionType));
+    auto const t =
+        findType(static_cast<TxType>(tx.getFieldU16(sfTransactionType)), rules);
     if (!t)
         return "transaction type is not exportable";
-    if (!enabled(*t->policy, rules))
-        return "transaction type is not exportable yet";
 
-    if (auto const flags = tx[~sfFlags].value_or(0); flags & ~t->flagsMask)
+    if (auto const flags = tx[~sfFlags].value_or(0);
+        flags & ~(t->flags | tfUniversal))
         return "flags the other network does not accept on it";
 
     for (auto const& e : tx)
     {
         if (e.getSType() == STI_NOTPRESENT)
             continue;
-        if (!t->allows(codeOf(e)))
-            return "field " + e.getFName().getName() + " is not exportable";
-        if (auto const f = unsharedWithin(e))
-            return "field " + *f + " is not exportable";
+        auto const& f = e.getFName();
+        if (!find(t->fields, f, rules) && !find(universal, f, rules))
+            return "field " + f.getName() + " is not exportable";
+        if (e.getSType() == STI_OBJECT)
+            return "field " + f.getName() + " is not exportable";
+        if (e.getSType() == STI_ARRAY)
+            for (auto const& o : e.downcast<STArray>())
+                if (auto r = rejectInner(o, rules))
+                    return r;
     }
 
-    for (std::size_t i = 0; i < t->nRequired; ++i)
-    {
-        auto const& f = t->required[i];
-        if (!tx.isFieldPresent(SField::getField(f.type, f.nth)))
-            return "a field the other network requires is missing";
-    }
-
-    return std::nullopt;
+    return missing(t->fields, tx, rules);
 }
 
 std::vector<std::string_view>
 ExportSchema::types(Rules const& rules)
 {
     std::vector<std::string_view> out;
-    for (auto const& t : exportTypes)
-        if (enabled(*t.policy, rules))
-            out.push_back(t.name);
+    if (!rules.enabled(featureExport))
+        return out;
+    for (auto const& row : typeRows)
+        if (enabled(row, rules))
+            if (auto const f = TxFormats::getInstance().findByType(row.type))
+                out.push_back(f->getName());
     return out;
 }
 

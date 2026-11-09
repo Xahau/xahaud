@@ -20,7 +20,6 @@
 #ifndef RIPPLE_PROTOCOL_EXPORTSCHEMA_H_INCLUDED
 #define RIPPLE_PROTOCOL_EXPORTSCHEMA_H_INCLUDED
 
-#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -34,38 +33,16 @@ class STObject;
 /** What a hook may export (featureExport): the transactions both networks
     read the same way, and nothing else.
 
-    The other network's `server_definitions` is checked in as
-    src/libxrpl/protocol/xrpl_server_definitions.json and read at compile
-    time (XrplDefinitions.h). From it and this network's own field
-    and transaction tables (sfields.macro, transactions.macro) the build
-    derives, for each transaction type an amendment has opened for export:
-
-      - the type itself, which must have the same name and code on both
-        networks (a type this network numbered differently is out, whatever
-        it is called);
-      - the fields it may carry: the type's own fields as the other network
-        lists them, plus the fields every transaction there carries, each
-        kept only if this network defines a field of the same name with the
-        same type and code (a code the two networks assigned to different
-        fields is out, so neither can misread the other's);
-      - the fields the other network requires;
-      - the flags the other network accepts on it.
-
-    Anything nested (Memos, Paths, SignerEntries, Signers) must likewise be
-    made only of fields both networks define identically.
-
-    Types are opened by amendment, in the policy table in ExportSchema.cpp:
-    adding a type there, gated on a new feature, lets developers try it on a
-    test network as soon as both networks have it, while mainnet waits for
-    the vote. The json is refreshed from a node there (see RippledCore.cmake)
-    whenever the other network's definitions change; refreshing it never
-    widens the set by itself, only a policy row does. */
+    The set is a hand-maintained table in ExportSchema.cpp: for each
+    transaction type the other network has under the same code as this one,
+    the fields it lists that this network defines identically, which of them
+    it requires, the flags it accepts, and the objects (Memos, Signers,
+    SignerEntries) an export may nest. The table is consensus, so every
+    change to it is gated behind an amendment, row by row; the first version
+    ships with featureExport. bin/export-schema-check.py compares the table
+    with a live rippled and prints what has drifted. */
 struct ExportSchema
 {
-    /** The `hash` of the other network's definitions this build read */
-    static std::string_view
-    xrplDefinitionsHash();
-
     /** Why `tx`, a transaction built for the other network (with or without
         Signers), may not be exported under `rules`; nullopt if it may */
     static std::optional<std::string>

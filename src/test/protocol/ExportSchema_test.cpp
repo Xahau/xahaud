@@ -27,7 +27,6 @@
 #include <xrpl/protocol/STObject.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/TxFormats.h>
-#include <xrpl/protocol/XrplDefinitions.h>
 #include <algorithm>
 #include <stdexcept>
 #include <string_view>
@@ -72,19 +71,6 @@ class ExportSchema_test : public beast::unit_test::suite
     rules(bool exportOn) const
     {
         return Rules{exportOn ? exportFeature_ : noFeatures_};
-    }
-
-    void
-    testDefinitions()
-    {
-        testcase("definitions");
-
-        // the hash of the other network's definitions the build read
-        auto const hash = ExportSchema::xrplDefinitionsHash();
-        BEAST_EXPECT(hash.size() == 64);
-        BEAST_EXPECT(std::all_of(hash.begin(), hash.end(), [](char c) {
-            return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F');
-        }));
     }
 
     void
@@ -181,6 +167,35 @@ class ExportSchema_test : public beast::unit_test::suite
             BEAST_EXPECT(ExportSchema::allowed(t, on));
         }
 
+        // an inner object with a field it may not hold, or missing one it
+        // must, or an array of something the schema does not nest
+        {
+            auto t = payment(alice);
+            STArray memos(sfMemos);
+            memos.push_back(STObject::makeInnerObject(sfMemo));
+            memos.back().setFieldVL(sfMemoData, Slice{"hi", 2});
+            memos.back().setFieldU32(sfSequence, 1);
+            t.setFieldArray(sfMemos, memos);
+            BEAST_EXPECT(!ExportSchema::allowed(t, on));
+        }
+        {
+            auto t = payment(alice);
+            STArray signers(sfSigners);
+            signers.push_back(STObject::makeInnerObject(sfSigner));
+            signers.back()[sfAccount] = alice;
+            t.setFieldArray(sfSigners, signers);
+            BEAST_EXPECT(!ExportSchema::allowed(t, on));
+        }
+        {
+            auto t = payment(alice);
+            STArray memos(sfMemos);
+            memos.push_back(STObject::makeInnerObject(sfSignerEntry));
+            memos.back()[sfAccount] = alice;
+            memos.back()[sfSignerWeight] = 1;
+            t.setFieldArray(sfMemos, memos);
+            BEAST_EXPECT(!ExportSchema::allowed(t, on));
+        }
+
         // this network's own fields, in a shared type
         {
             auto t = payment(alice);
@@ -224,139 +239,6 @@ class ExportSchema_test : public beast::unit_test::suite
         }
     }
 
-    // a small definitions file in the shape the reader expects (with a
-    // key it skips), and an empty one
-    static constexpr std::string_view smallDefinitions = R"({
-        "hash": "ABCD",
-        "TYPES": {"UInt32": 2, "Amount": 6, "Unknown": -2},
-        "FIELDS": [
-            ["Sequence", {"nth": 4, "isVLEncoded": false,
-                          "isSerialized": true, "isSigningField": true,
-                          "type": "UInt32"}],
-            ["Amount", {"nth": 1, "isVLEncoded": false,
-                        "isSerialized": true, "isSigningField": true,
-                        "type": "Amount"}],
-            ["Generic", {"nth": 0, "isVLEncoded": false,
-                         "isSerialized": false, "isSigningField": false,
-                         "type": "Unknown", "extra": 1}]
-        ],
-        "LEDGER_ENTRY_TYPES": {"a": [], "b": {},
-                               "c": [1, -2, "s", true, false, null,
-                                     {"d": [{}]}]},
-        "TRANSACTION_TYPES": {"Payment": 0, "TicketCreate": 10},
-        "TRANSACTION_FORMATS": {
-            "Payment": [{"name": "Amount", "optionality": 0, "x": -1}],
-            "TicketCreate": []
-        },
-        "TRANSACTION_FLAGS": {
-            "Payment": {"tfPartialPayment": 131072,
-                        "tfNoRippleDirect": 65536},
-            "TicketCreate": {}
-        },
-        "TRANSACTION_RESULTS": {"tesSUCCESS": 0}
-    })";
-    static constexpr std::string_view emptyDefinitions = R"({
-        "hash": "", "TYPES": {}, "FIELDS": [], "TRANSACTION_TYPES": {},
-        "TRANSACTION_FORMATS": {}, "TRANSACTION_FLAGS": {}
-    })";
-
-    void
-    testReader()
-    {
-        testcase("reader");
-        // No `using namespace xrpl_defs` here: `Definitions` and `detail`
-        // also exist in namespace ripple (SField.h, STVar.h), and bringing
-        // both into scope makes unqualified lookup ambiguous.
-        using xrpl_defs::Counts;
-        using xrpl_defs::countXrplDefinitions;
-
-        // The build runs the reader at compile time over the checked-in
-        // file (ExportSchema.cpp), where a malformed file fails to compile.
-        // Run it here at run time, where the same faults throw, over a
-        // small file: what it reads, what it skips, and what it refuses.
-        constexpr Counts n = countXrplDefinitions<smallDefinitions>();
-        static_assert(
-            n.types == 3 && n.fields == 3 && n.txTypes == 2 && n.formats == 2 &&
-            n.formatFields == 1 && n.flags == 2);
-
-        xrpl_defs::Definitions<n> d{};
-        BEAST_EXPECT(
-            xrpl_defs::detail::read(smallDefinitions, &d).fields == n.fields);
-        BEAST_EXPECT(d.hash == "ABCD");
-        BEAST_EXPECT(d.type("Amount") && d.type("Amount")->value == 6);
-        BEAST_EXPECT(!d.type("Hash256"));
-        if (auto const f = d.field("Sequence"); BEAST_EXPECT(f))
-            BEAST_EXPECT(
-                f->type == 2 && f->nth == 4 && f->serialized && f->signing &&
-                !f->vlEncoded);
-        if (auto const f = d.field("Generic"); BEAST_EXPECT(f))
-            BEAST_EXPECT(f->type == -2 && !f->serialized);
-        BEAST_EXPECT(!d.field("Nope"));
-        BEAST_EXPECT(
-            d.txType("TicketCreate") && d.txType("TicketCreate")->code == 10);
-        BEAST_EXPECT(!d.txType("Nope"));
-        if (auto const fmt = d.format("Payment"); BEAST_EXPECT(fmt))
-        {
-            BEAST_EXPECT(fmt->count == 1);
-            BEAST_EXPECT(d.formatFields[fmt->first].name == "Amount");
-            BEAST_EXPECT(d.formatFields[fmt->first].optionality == 0);
-        }
-        BEAST_EXPECT(
-            d.format("TicketCreate") && d.format("TicketCreate")->count == 0);
-        BEAST_EXPECT(!d.format("Nope"));
-        BEAST_EXPECT(d.flagsMask("Payment") == 0x30000);
-        BEAST_EXPECT(d.flagsMask("TicketCreate") == 0);
-
-        // empty sections, and no sections at all
-        constexpr Counts zero = countXrplDefinitions<emptyDefinitions>();
-        static_assert(zero.types == 0 && zero.fields == 0 && zero.flags == 0);
-        xrpl_defs::Definitions<zero> e{};
-        BEAST_EXPECT(
-            xrpl_defs::detail::read(emptyDefinitions, &e).formats == 0 &&
-            e.hash.empty());
-        BEAST_EXPECT(
-            xrpl_defs::detail::read(std::string_view{"{}"}, &e).types == 0);
-
-        // what it refuses: counting (no output) and filling alike
-        using None = xrpl_defs::Definitions<Counts{}>;
-        auto const bad = [](std::string_view json, auto* out) {
-            try
-            {
-                xrpl_defs::detail::read(json, out);
-            }
-            catch (std::logic_error const&)
-            {
-                return true;
-            }
-            return false;
-        };
-        None* const count = nullptr;
-        BEAST_EXPECT(!bad("{}", count));
-        BEAST_EXPECT(bad("", count));
-        BEAST_EXPECT(bad("[]", count));
-        BEAST_EXPECT(bad(R"({"hash" "x"})", count));
-        BEAST_EXPECT(bad(R"({"ha\"sh": "x"})", count));
-        BEAST_EXPECT(bad(R"({"hash)", count));
-        BEAST_EXPECT(bad(R"({"TYPES": {"UInt32": x}})", count));
-        BEAST_EXPECT(bad(R"({"TYPES": {"UInt32": 1.5}})", count));
-        BEAST_EXPECT(bad(R"({"FIELDS": [["A", {"isSerialized": 1}]]})", count));
-        BEAST_EXPECT(
-            bad(R"({"TRANSACTION_FLAGS": {"T": {"f": 4294967296}}})", count));
-        BEAST_EXPECT(bad(R"({"TRANSACTION_FLAGS": {"T": {"f": -1}}})", count));
-        BEAST_EXPECT(bad(R"({} x)", count));
-        BEAST_EXPECT(bad(R"({"x": [1,)", count));
-        // more entries than counted for, and a field of a type not listed
-        None none{};
-        BEAST_EXPECT(bad(R"({"TYPES": {"UInt32": 2}})", &none));
-        xrpl_defs::Definitions<Counts{1, 1, 0, 0, 0, 0}> one{};
-        BEAST_EXPECT(
-            bad(R"({"FIELDS": [["A", {"nth": 1, "type": "Nope"}]]})", &one));
-        BEAST_EXPECT(!bad(
-            R"({"TYPES": {"Nope": 1},
-                "FIELDS": [["A", {"nth": 1, "type": "Nope"}]]})",
-            &one));
-    }
-
     void
     testFlags()
     {
@@ -381,8 +263,6 @@ public:
     void
     run() override
     {
-        testDefinitions();
-        testReader();
         testTypes();
         testFields();
         testFlags();
