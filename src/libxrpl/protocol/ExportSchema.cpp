@@ -70,14 +70,14 @@ req(SField const& f)
     return r;
 }
 
-constexpr Rule
+[[maybe_unused]] constexpr Rule
 since(Rule r, uint256 const& amendment)
 {
     r.since = &amendment;
     return r;
 }
 
-constexpr Rule
+[[maybe_unused]] constexpr Rule
 until(Rule r, uint256 const& amendment)
 {
     r.until = &amendment;
@@ -158,18 +158,19 @@ constexpr std::array<Rule, 14> universal = {
     sfSigningPubKey, sfTicketSequence, sfSigners, sfNetworkID,
 };
 
-// The objects an export may nest, as elements of the arrays above, and what
-// each may hold. Nothing nests deeper.
+// The arrays an export may carry, the one object each may hold, and what
+// that object may hold. Nothing nests deeper.
 struct Inner
 {
+    SField const* array;
     SField const* object;
     std::array<Rule, 4> fields;
 };
 
 constexpr Inner inners[] = {
-    {&sfMemo,        {sfMemoType, sfMemoData, sfMemoFormat}},
-    {&sfSigner,      {req(sfAccount), req(sfSigningPubKey), req(sfTxnSignature)}},
-    {&sfSignerEntry, {req(sfAccount), req(sfSignerWeight), sfWalletLocator}},
+    {&sfMemos,         &sfMemo,        {sfMemoType, sfMemoData, sfMemoFormat}},
+    {&sfSigners,       &sfSigner,      {req(sfAccount), req(sfSigningPubKey), req(sfTxnSignature)}},
+    {&sfSignerEntries, &sfSignerEntry, {req(sfAccount), req(sfSignerWeight), sfWalletLocator}},
 };
 // clang-format on
 
@@ -209,10 +210,10 @@ findType(TxType t, Rules const& rules)
 }
 
 Inner const*
-findInner(SField const& object)
+findInner(SField const& array)
 {
     for (auto const& i : inners)
-        if (same(i.object, object))
+        if (same(i.array, array))
             return &i;
     return nullptr;
 }
@@ -229,22 +230,23 @@ missing(std::array<Rule, N> const& rows, STObject const& o, Rules const& rules)
     return std::nullopt;
 }
 
+// `o` is an element of the array `inner` describes
 std::optional<std::string>
-rejectInner(STObject const& o, Rules const& rules)
+rejectInner(Inner const& inner, STObject const& o, Rules const& rules)
 {
-    auto const inner = findInner(o.getFName());
-    if (!inner)
-        return "object " + o.getFName().getName() + " is not exportable";
+    if (!same(inner.object, o.getFName()))
+        return "object " + o.getFName().getName() + " is not exportable in " +
+            inner.array->getName();
     for (auto const& e : o)
     {
         if (e.getSType() == STI_NOTPRESENT)
             continue;
         if (e.getSType() == STI_OBJECT || e.getSType() == STI_ARRAY)
             return "field " + e.getFName().getName() + " nests too deep";
-        if (!find(inner->fields, e.getFName(), rules))
+        if (!find(inner.fields, e.getFName(), rules))
             return "field " + e.getFName().getName() + " is not exportable";
     }
-    return missing(inner->fields, o, rules);
+    return missing(inner.fields, o, rules);
 }
 
 }  // namespace
@@ -277,9 +279,14 @@ ExportSchema::reject(STObject const& tx, Rules const& rules)
         if (e.getSType() == STI_OBJECT)
             return "field " + f.getName() + " is not exportable";
         if (e.getSType() == STI_ARRAY)
+        {
+            auto const inner = findInner(f);
+            if (!inner)
+                return "field " + f.getName() + " is not exportable";
             for (auto const& o : e.downcast<STArray>())
-                if (auto r = rejectInner(o, rules))
+                if (auto r = rejectInner(*inner, o, rules))
                     return r;
+        }
     }
 
     return missing(t->fields, tx, rules);

@@ -167,8 +167,9 @@ class ExportSchema_test : public beast::unit_test::suite
             BEAST_EXPECT(ExportSchema::allowed(t, on));
         }
 
-        // an inner object with a field it may not hold, or missing one it
-        // must, or an array of something the schema does not nest
+        // an inner object with a field it may not hold; one missing a field
+        // it must hold (built free-form: makeInnerObject fills the
+        // template's required fields in); the wrong object in an array
         {
             auto t = payment(alice);
             STArray memos(sfMemos);
@@ -181,8 +182,9 @@ class ExportSchema_test : public beast::unit_test::suite
         {
             auto t = payment(alice);
             STArray signers(sfSigners);
-            signers.push_back(STObject::makeInnerObject(sfSigner));
-            signers.back()[sfAccount] = alice;
+            STObject signer(sfSigner);
+            signer[sfAccount] = alice;
+            signers.push_back(std::move(signer));
             t.setFieldArray(sfSigners, signers);
             BEAST_EXPECT(!ExportSchema::allowed(t, on));
         }
