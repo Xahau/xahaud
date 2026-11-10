@@ -637,23 +637,32 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
     {sfDomainID, soeREQUIRED},
 }))
 
-/** featureRNG: a validator's entropy contribution for one ledger.
+/** featureRNG: validator entropy contributions for one ledger.
 
-    Each proposing UNLReport validator places exactly one of these in its own
-    initial position when it closes the ledger. It reveals the secret behind
-    the validator's commitment currently stored in the Random object (if any)
-    and commits to the secret it will reveal next time. It never enters the
-    open ledger, so a reveal only becomes public after the revealing
-    validator's transaction set is locked.
+    Individual form (featureRNGV2 disabled): each proposing UNLReport validator
+    places exactly one of these in its own initial position when it closes the
+    ledger, carrying sfPublicKey and sfNextRandomDigest. It reveals the secret
+    behind the validator's commitment currently stored in the Random object (if
+    any) and commits to the secret it will reveal next time. It never enters
+    the open ledger, so a reveal only becomes public after the revealing
+    validator's transaction set is locked. The ledger records one per validator.
+
+    Aggregate form (featureRNGV2 enabled): the individual-form items of the
+    consensus set are collapsed at ledger-build time into exactly one
+    transaction carrying sfRandomDigests, one entry per contributing validator
+    (sfPublicKey, sfNextRandomDigest, optional sfRandomData), sorted by
+    sfPublicKey. The ledger records one per ledger. Individual form is not
+    valid in a ledger once featureRNGV2 is enabled.
  */
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Change.h>
 #endif
 TRANSACTION(ttENTROPY, 89, Entropy, ({
     {sfLedgerSequence, soeREQUIRED},
-    {sfPublicKey, soeREQUIRED},
-    {sfNextRandomDigest, soeREQUIRED},
+    {sfPublicKey, soeOPTIONAL},
+    {sfNextRandomDigest, soeOPTIONAL},
     {sfRandomData, soeOPTIONAL},
+    {sfRandomDigests, soeOPTIONAL},
 }))
 
 /* sfAccount is supplied by TxFormats::commonFields; listing it here as well

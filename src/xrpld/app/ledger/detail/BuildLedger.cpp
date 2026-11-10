@@ -24,7 +24,11 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Change.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/STTx.h>
+#include <map>
+#include <optional>
 
 namespace ripple {
 
@@ -84,6 +88,102 @@ buildLedgerImpl(
     return built;
 }
 
+/** featureRNGV2: collapse the individual-form ttENTROPY items of a consensus
+    set into one aggregate-form ttENTROPY.
+
+    Every ttENTROPY is erased from txns, so none is retried or applied by the
+    normal passes. An item contributes iff it is individual form, for this
+    ledger, has a valid key that is on the UNLReport (when there is one), and
+    is the first such item for its key. Everything else, including an
+    aggregate-form item injected into the set, is ignored and its id put in
+    failed: one bad item never voids the others.
+
+    @return the aggregate, or nullopt if nothing contributed.
+*/
+static std::optional<STTx>
+collapseEntropy(
+    CanonicalTXSet& txns,
+    std::set<TxID>& failed,
+    OpenView const& view,
+    beast::Journal j)
+{
+    // contributions by public key bytes, so they come out sorted
+    std::map<Blob, STObject> contributions;
+
+    for (auto it = txns.begin(); it != txns.end();)
+    {
+        if (it->second->getTxnType() != ttENTROPY)
+        {
+            ++it;
+            continue;
+        }
+
+        auto const txid = it->first.getTXID();
+        bool contributes = false;
+        try
+        {
+            auto const& tx = *it->second;
+            if (!tx.isFieldPresent(sfRandomDigests) &&
+                tx.isFieldPresent(sfPublicKey) &&
+                tx.isFieldPresent(sfNextRandomDigest) &&
+                tx.getFieldU32(sfLedgerSequence) == view.seq())
+            {
+                auto pk = tx.getFieldVL(sfPublicKey);
+
+                // Only the exact bytes a validator builds (as in
+                // RCLConsensus::Adaptor::forcedTxOwner), which is everything
+                // Change::preflight would have required of the item.
+                STTx const canonical(ttENTROPY, [&](auto& obj) {
+                    obj.setFieldU32(sfLedgerSequence, view.seq());
+                    obj.setFieldVL(sfPublicKey, pk);
+                    obj.setFieldH256(
+                        sfNextRandomDigest,
+                        tx.getFieldH256(sfNextRandomDigest));
+                    if (tx.isFieldPresent(sfRandomData))
+                        obj.setFieldH256(
+                            sfRandomData, tx.getFieldH256(sfRandomData));
+                });
+
+                if (canonical.getTransactionID() == txid &&
+                    publicKeyType(makeSlice(pk)) &&
+                    Change::entropyKeyAllowed(view, makeSlice(pk)) &&
+                    !contributions.count(pk))
+                {
+                    STObject entry(sfRandomDigestEntry);
+                    entry.setFieldVL(sfPublicKey, pk);
+                    entry.setFieldH256(
+                        sfNextRandomDigest,
+                        tx.getFieldH256(sfNextRandomDigest));
+                    if (tx.isFieldPresent(sfRandomData))
+                        entry.setFieldH256(
+                            sfRandomData, tx.getFieldH256(sfRandomData));
+                    contributions.emplace(std::move(pk), std::move(entry));
+                    contributes = true;
+                }
+            }
+        }
+        catch (std::exception const& ex)
+        {
+            JLOG(j.warn()) << "Entropy " << txid << " throws: " << ex.what();
+        }
+
+        if (!contributes)
+            failed.insert(txid);
+        it = txns.erase(it);
+    }
+
+    if (contributions.empty())
+        return std::nullopt;
+
+    return STTx(ttENTROPY, [&](auto& obj) {
+        obj.setFieldU32(sfLedgerSequence, view.seq());
+        STArray digests(sfRandomDigests);
+        for (auto& [pk, entry] : contributions)
+            digests.push_back(std::move(entry));
+        obj.setFieldArray(sfRandomDigests, digests);
+    });
+}
+
 /** Apply a set of consensus transactions to a ledger.
 
   @param app Handle to application
@@ -111,7 +211,24 @@ applyTransactions(
     // Pseudo-transactions otherwise sort to an arbitrary position. Each is
     // attempted exactly once; one that fails is never retried later, where it
     // could change the seed after Hooks had drawn from it.
-    if (view.rules().enabled(featureRNG))
+    if (view.rules().enabled(featureRNG) && view.rules().enabled(featureRNGV2))
+    {
+        // the ledger records one aggregate ttENTROPY, never the individual ones
+        if (auto const agg = collapseEntropy(txns, failed, view, j))
+        {
+            try
+            {
+                if (applyTransaction(app, view, *agg, false, tapNONE, j) ==
+                    ApplyTransactionResult::Success)
+                    ++count;
+            }
+            catch (std::exception const& ex)
+            {
+                JLOG(j.warn()) << "Aggregate entropy throws: " << ex.what();
+            }
+        }
+    }
+    else if (view.rules().enabled(featureRNG))
     {
         for (auto it = txns.begin(); it != txns.end();)
         {

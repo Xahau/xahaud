@@ -55,6 +55,15 @@ public:
     static TER
     preclaim(PreclaimContext const& ctx);
 
+    /** featureRNG: may this validator key contribute entropy in this view?
+
+        Only validators on the UNLReport may, when there is one. Without a
+        UNLReport (new networks, standalone, unit tests) inclusion by consensus
+        is the only gate.
+     */
+    static bool
+    entropyKeyAllowed(ReadView const& view, Slice const& pk);
+
 private:
     void
     activateTrustLinesToSelfFix();
