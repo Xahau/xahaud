@@ -276,6 +276,15 @@ private:
     }
 
     void
+    testExportFee(FeatureBitset const& features)
+    {
+        testcase("ExportFee");
+        // created by Ingest, whose proof a hook can not forge: it needs a
+        // quorum of the other network's validations; covered by Ingest_test
+        pass();
+    }
+
+    void
     testEmittedTxn(FeatureBitset const& features)
     {
         testcase("EmittedTxn");

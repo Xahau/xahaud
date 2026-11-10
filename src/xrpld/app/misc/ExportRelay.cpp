@@ -109,8 +109,8 @@ struct Config
 {
     Application& app;
     std::string vlURL;
-    std::optional<std::uint32_t> nid;
-    std::optional<std::pair<PublicKey, SecretKey>> account;  // ingests from
+    std::optional<std::uint32_t> nid{};
+    std::optional<std::pair<PublicKey, SecretKey>> account{};  // ingests from
     std::uint32_t ingestEvery = 64;
     std::atomic<bool> stop{false};
 };
