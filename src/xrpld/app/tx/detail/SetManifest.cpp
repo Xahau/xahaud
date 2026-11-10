@@ -165,6 +165,14 @@ SetManifest::preflight(PreflightContext const& ctx)
     auto& tx = ctx.tx;
     auto& j = ctx.j;
 
+    if (tx.isFieldPresent(sfTime))
+    {
+        // SetManifest already pins Sequence to 0 for reasons of their own - a
+        // manifest is derived from the manifest alone, so an sfTime would
+        // silently reinterpret them as time-sequenced.
+        return temMALFORMED;
+    }
+
     if (tx.getFlags() & tfUniversalMask)
     {
         JLOG(j.warn()) << "SetManifest: Invalid flags set.";
