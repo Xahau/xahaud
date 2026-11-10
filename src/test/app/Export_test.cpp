@@ -810,7 +810,7 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(view.exists(k));
         BEAST_EXPECT(!view.exists(keylet::shadowTicket(alice.id(), 0, 9)));
         BEAST_EXPECT(
-            ExportTickets::load(*view.read(keylet::account(alice.id())))
+            ExportTickets::load(*view.read(keylet::exporter(alice.id(), 0)))
                 .contains(9));
 
         // but not when another export has since taken the ticket over: the
@@ -819,12 +819,12 @@ class Export_test : public beast::unit_test::suite
         // its refill (hookMayUse), so give the pool another: then a hook may
         // name 9 again, as an identical export repeated would.
         {
-            auto acc =
-                std::make_shared<SLE>(*view.read(keylet::account(alice.id())));
-            auto tickets = ExportTickets::load(*acc);
+            auto ex = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), 0)));
+            auto tickets = ExportTickets::load(*ex);
             tickets.insert(8);
-            tickets.store(*acc);
-            view.rawReplace(acc);
+            tickets.store(*ex);
+            view.rawReplace(ex);
         }
         auto const later = payment(alice.id(), 31, 9, nid);
         BEAST_EXPECT(

@@ -373,8 +373,11 @@ class Ingest_test : public beast::unit_test::suite
             BEAST_EXPECT((*sle)[sfSampleFee] == 5'000);
         }
 
-        // never backwards
+        // never backwards: an older ledger is not free, so unpaid it fails
+        // the fee check before preclaim sees it; paid, it is still refused
         env(ingest(alice, 101, OtherNetwork::proof(l2, l2.inner)),
+            ter(telINSUF_FEE_P));
+        env(ingest(alice, 101, OtherNetwork::proof(l2, l2.inner), std::nullopt),
             ter(tefPAST_SEQ));
 
         // a ledger must be newer than the one proven to be free, and the
