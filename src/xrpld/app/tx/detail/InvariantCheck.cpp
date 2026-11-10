@@ -286,7 +286,8 @@ XRPNotCreated::finalize(
     if (view.rules().enabled(featureExport) && tt == ttEXPORT_AUTO &&
         isTesSuccess(res))
     {
-        auto const nid = Export::destination(tx.getFieldObject(sfExportedTxn));
+        auto const nid = Export::destination(
+            tx.peekAtField(sfExportedTxn).downcast<STObject>());
         return -drops_ == Export::autoFee(view, tx[sfOwner], nid).drops();
     }
 
