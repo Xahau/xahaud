@@ -584,8 +584,20 @@ class ExportKeys_test : public beast::unit_test::suite
             BEAST_EXPECT(r[jss::tx_json][sfSignerQuorum.jsonName] == 2);
             BEAST_EXPECT(r[jss::tx_json][sfOperationLimit.jsonName] == nid);
             BEAST_EXPECT(r["export_keys_seq"] == 3);
+            BEAST_EXPECT(r[jss::network_id] == 0);
+            BEAST_EXPECT(!r[jss::tx_json].isMember(sfNetworkID.jsonName));
+            BEAST_EXPECT(
+                r["instructions"].isArray() && r["instructions"].size() == 4);
+            // no wallet is assumed: the Xaman link is opt-in
+            BEAST_EXPECT(!r.isMember("xaman_url"));
+        }
 
-            // a Xaman link to the same transaction
+        {
+            // a Xaman link to the same transaction, on request
+            Json::Value p;
+            p["xaman"] = true;
+            auto const r =
+                env.rpc("json", "export_setup", to_string(p))[jss::result];
             std::string const prefix = "https://xaman.app/detect/";
             auto const url = r["xaman_url"].asString();
             BEAST_EXPECT(url.starts_with(prefix));
@@ -610,6 +622,20 @@ class ExportKeys_test : public beast::unit_test::suite
                 accountsOf(r) == (std::set<std::string>{acc(k1), acc(k2a)}));
             BEAST_EXPECT(r[jss::tx_json][sfSignerQuorum.jsonName] == 1);
             BEAST_EXPECT(r[jss::tx_json][jss::Account] == v1.human());
+        }
+
+        {
+            // for a network above 1024, which requires NetworkID on the
+            // transaction; a network below it gets none
+            Json::Value p;
+            p[jss::network_id] = 21338;
+            auto r = env.rpc("json", "export_setup", to_string(p))[jss::result];
+            BEAST_EXPECT(r[jss::network_id] == 21338);
+            BEAST_EXPECT(r[jss::tx_json][sfNetworkID.jsonName] == 21338);
+            p[jss::network_id] = 1;
+            r = env.rpc("json", "export_setup", to_string(p))[jss::result];
+            BEAST_EXPECT(r[jss::network_id] == 1);
+            BEAST_EXPECT(!r[jss::tx_json].isMember(sfNetworkID.jsonName));
         }
 
         {

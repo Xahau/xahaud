@@ -38,8 +38,9 @@ isUnsigned(Json::Value const& v)
     return v.isUInt() || (v.isInt() && v.asInt() >= 0);
 }
 
-/** export_setup: the SignerListSet that sets an account up on the network
-    it exports to (see Export.h), as a sign request for Xaman.
+/** export_setup: the SignerListSet that sets an account up on a network it
+    exports to (see Export.h), to be signed and submitted there by whatever
+    the operator signs with, then imported here as an XPOP.
 
     Takes the usual ledger selectors, plus optional:
         account    the account, filled into tx_json
@@ -49,17 +50,25 @@ isUnsigned(Json::Value const& v)
         quorum     SignerQuorum (default: 80% of the signers, rounded up)
         as_of      ripple epoch seconds: each validator's newest export key
                    recorded at or before then (default: the current keys)
+        xaman      true to add a Xaman sign-request link as well
 
     Returns:
-        tx_json          the SignerListSet. Xaman fills in Fee and Sequence.
+        tx_json          the SignerListSet, complete but for Account (when
+                         not given), Sequence and Fee, which the signing
+                         library's autofill supplies from the other network.
                          OperationLimit is this network's ID, so the
                          transaction's XPOP can be imported here, which is
                          what records the list for xport().
+        network_id       the network tx_json is for
         signers          the export keys it lists, and their validators
         export_keys_seq  UNLReport.ExportKeysSeq; the list needs updating
                          when this changes
-        xaman_url        a link Xaman opens tx_json from; render it as a
-                         QR code to sign from a phone
+        instructions     the steps from here, in words: autofill, sign and
+                         submit tx_json on that network with any XRPL
+                         library (xrpl.js, xrpl-py, xrpl4j...), then
+                         Import its XPOP here
+        xaman_url        only with xaman=true: a link Xaman opens tx_json
+                         from; render it as a QR code to sign from a phone
 
     Hooks need none of this: xport() a SignerListSet without SignerEntries.
 */
@@ -130,8 +139,36 @@ doExportSetup(RPC::JsonContext& context)
         e[sfSignerEntry.jsonName][sfSignerWeight.jsonName] = 1;
     }
 
+    result[jss::network_id] = nid;
+
+    // how to get it onto the other network and its proof back here, with
+    // no particular wallet or library assumed
+    Json::Value& steps = result["instructions"] = Json::arrayValue;
+    steps.append(
+        "Submit tx_json on network " + std::to_string(nid) +
+        " from the account it is for. Any XRPL library does this: autofill "
+        "(which supplies Sequence, Fee and LastLedgerSequence there), sign "
+        "with the account's key there, submit, and wait for validation. "
+        "For example with xrpl.js: client.submitAndWait(tx_json, { wallet }).");
+    steps.append(
+        "Make an XPOP of the validated transaction (its binary form, "
+        "metadata, the ledger it closed in and that ledger's validations "
+        "and UNL); xpop generators such as the xpop-generator service or "
+        "library produce one from the transaction hash.");
+    steps.append(
+        "Submit an Import here with that XPOP as Blob, signed by the same "
+        "account: it records the list for xport() and, where the list "
+        "names the UNL's export keys, makes the account an exporter on "
+        "network " +
+        std::to_string(nid) + ".");
+    steps.append(
+        "Repeat when export_keys_seq changes; while the account is an "
+        "exporter the ledger does this refresh itself.");
+
     // Xaman reads a hex JSON template from its detect link
-    result["xaman_url"] = "https://xaman.app/detect/" + strHex(to_string(tx));
+    if (params.isMember("xaman") && params["xaman"].asBool())
+        result["xaman_url"] =
+            "https://xaman.app/detect/" + strHex(to_string(tx));
     return result;
 }
 
