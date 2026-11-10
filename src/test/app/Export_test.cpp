@@ -57,7 +57,7 @@ class Export_test : public beast::unit_test::suite
     // meaning 0, XRPL) and is refused for this one, so the node under test
     // must not be network 0 itself, as the default test config is.
     static std::unique_ptr<Config>
-    xahau(std::unique_ptr<Config> cfg = envconfig())
+    xahau(std::unique_ptr<Config> cfg = jtx::envconfig())
     {
         cfg->NETWORK_ID = 21337;
         return cfg;
