@@ -53,6 +53,16 @@ class Export_test : public beast::unit_test::suite
 {
     using KeyPair = std::pair<PublicKey, SecretKey>;
 
+    // An export names another network (Export::destination, absent NetworkID
+    // meaning 0, XRPL) and is refused for this one, so the node under test
+    // must not be network 0 itself, as the default test config is.
+    static std::unique_ptr<Config>
+    xahau(std::unique_ptr<Config> cfg = envconfig())
+    {
+        cfg->NETWORK_ID = 21337;
+        return cfg;
+    }
+
     // a payment from `from` on the other network, ready to be multisigned
     static STObject
     payment(
@@ -272,7 +282,7 @@ class Export_test : public beast::unit_test::suite
         testcase("export preflight");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"};
         auto const nid = env.app().config().NETWORK_ID;
         auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
@@ -373,7 +383,7 @@ class Export_test : public beast::unit_test::suite
         testcase("export sign and final preflight");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"};
         auto const nid = env.app().config().NETWORK_ID;
         auto const kp = randomKeyPair(KeyType::ed25519);
@@ -486,7 +496,7 @@ class Export_test : public beast::unit_test::suite
         testcase("shadow tickets");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
         env.close();
@@ -548,8 +558,8 @@ class Export_test : public beast::unit_test::suite
         // gets no ticket from a pool of one, named or not, but with two
         // draws the lowest, and the last stays.
         auto const setPool = [&](std::vector<std::uint32_t> tickets) {
-            auto sle =
-                std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            auto sle = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), 0)));
             ExportTickets t;
             for (auto const x : tickets)
                 t.insert(x);
@@ -557,7 +567,8 @@ class Export_test : public beast::unit_test::suite
             view.rawReplace(sle);
         };
         auto const pool = [&]() {
-            return ExportTickets::load(*view.read(keylet::account(alice)));
+            return ExportTickets::load(
+                *view.read(keylet::exporter(alice.id(), 0)));
         };
         setPool({20});
         BEAST_EXPECT(apply(payment(alice.id(), 6, {}, nid)) == tecNO_ENTRY);
@@ -578,7 +589,7 @@ class Export_test : public beast::unit_test::suite
         testcase("export signer list");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"}, bob{"bob"};
         env.fund(XRP(10000), alice, bob);
         env.close();
@@ -681,7 +692,7 @@ class Export_test : public beast::unit_test::suite
 
         Env env{
             *this,
-            envconfig(validator, ""),
+            xahau(envconfig(validator, "")),
             supported_amendments() | featureExport};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
@@ -1049,7 +1060,7 @@ class Export_test : public beast::unit_test::suite
         testcase("exporter flag");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"}, bob{"bob"};
         env.fund(XRP(10000), alice, bob);
         env.close();
@@ -1105,7 +1116,7 @@ class Export_test : public beast::unit_test::suite
         testcase("automatic exports");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
 
         // An exporter is looked at in ledgers where (seq + slot) is a
         // multiple of autoEvery. Raw state injected into the open ledger is
@@ -1222,7 +1233,7 @@ class Export_test : public beast::unit_test::suite
         testcase("sequenced backstop");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         env.close();
         auto const seq = env.current()->seq() + 1;
         auto const slotOf = [](AccountID const& id) {
@@ -1683,7 +1694,7 @@ class Export_test : public beast::unit_test::suite
         // alice holds lists on the XRPL and on testnet; an export names its
         // network by the inner's NetworkID, and draws on that network's
         // pool, shadow tickets and fee record alone
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
         env.close();

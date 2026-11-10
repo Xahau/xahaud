@@ -307,7 +307,14 @@ class ExportHook_test : public beast::unit_test::suite
         using namespace jtx;
         using enum hook_api::hook_return_code;
 
-        Env env{*this, supported_amendments() | featureExport};
+        // not network 0: an export to XRPL (0) is refused from there
+        Env env{
+            *this,
+            envconfig([](std::unique_ptr<Config> cfg) {
+                cfg->NETWORK_ID = 21337;
+                return cfg;
+            }),
+            supported_amendments() | featureExport};
         Account const bob{"bob"};
         env.fund(XRP(10000), bob);
         env.close();

@@ -148,6 +148,9 @@ class Ingest_test : public beast::unit_test::suite
                     10, fees[n].first / (1 + fees[n].second));
                 l.burn += fees[n].first;
             }
+            // inner hashes are lazy: adding an item zeroes them up the
+            // path, and only hashing the map fills them back in
+            auto const txHash = map.getHash().as_uint256();
             map.visitNodes([&](SHAMapTreeNode& n) {
                 if (n.isInner())
                 {
@@ -163,7 +166,7 @@ class Ingest_test : public beast::unit_test::suite
             i.seq = parent.seq + 1;
             i.drops = parent.drops - XRPAmount{std::int64_t(l.burn)};
             i.parentHash = calculateLedgerHash(parent);
-            i.txHash = map.getHash().as_uint256();
+            i.txHash = txHash;
             i.accountHash = uint256{2};
             i.parentCloseTime =
                 NetClock::time_point{NetClock::duration{closeTime - 10}};
