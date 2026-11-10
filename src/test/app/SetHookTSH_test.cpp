@@ -3260,6 +3260,17 @@ private:
         pass();
     }
 
+    void
+    testIngestTSH(FeatureBitset features)
+    {
+        testcase("ingest tsh");
+
+        // a proof of fees concerns no account but its submitter, and a
+        // valid one needs a proven ledger of another network; see
+        // Ingest_test
+        pass();
+    }
+
     // GenesisMint
     // | otxn  | tsh |  mint |
     // |   A   |  A  |   S   |
