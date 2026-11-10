@@ -140,13 +140,20 @@ Import::checkExtraFeatures(PreflightContext const& ctx)
 NotTEC
 Import::preflight(PreflightContext const& ctx)
 {
+    if (ctx.tx.isFieldPresent(sfTime))
+    {
+        // Import already pins Sequence to 0 for reasons of their own - a first
+        // Import creates its account, so an sfTime would silently reinterpret
+        // them as time-sequenced.
+        return temMALFORMED;
+    }
+
     if (ctx.tx.isFieldPresent(sfIssuer) &&
         ctx.tx.getAccountID(sfIssuer) == ctx.tx.getAccountID(sfAccount))
     {
         JLOG(ctx.j.warn()) << "Import: Issuer cannot be the source account.";
         return temMALFORMED;
     }
-
     auto& tx = ctx.tx;
 
     if (!tx.isFieldPresent(sfBlob))

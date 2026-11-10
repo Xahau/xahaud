@@ -35,6 +35,17 @@ MPTokenIssuanceCreate::getFlagsMask(PreflightContext const& ctx)
 NotTEC
 MPTokenIssuanceCreate::preflight(PreflightContext const& ctx)
 {
+    // MPTokenIssuanceCreate keys the object it creates by the raw sequence
+    // value, (sequence, account). Every other creator goes through seqID(),
+    // which falls back to the transaction id when the SeqProxy is sequence(0)
+    // - an emitted or a time-sequenced transaction - but this id is a fixed
+    // format with no room for one. Two such transactions from one account
+    // would name the same object, and inserting over an existing key is a
+    // LogicError on every node that builds the ledger. So it needs a real
+    // Sequence or a Ticket.
+    if (ctx.tx.getSeqProxy() == SeqProxy::sequence(0))
+        return temBAD_SEQUENCE;
+
     if (auto const fee = ctx.tx[~sfTransferFee])
     {
         if (fee > maxTransferFee)

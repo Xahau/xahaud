@@ -159,6 +159,14 @@ SetManifest::preflight(PreflightContext const& ctx)
     auto& tx = ctx.tx;
     auto& j = ctx.j;
 
+    if (tx.isFieldPresent(sfTime))
+    {
+        // SetManifest already pins Sequence to 0 for reasons of their own - a
+        // manifest is derived from the manifest alone, so an sfTime would
+        // silently reinterpret them as time-sequenced.
+        return temMALFORMED;
+    }
+
     // The envelope carries no account signature: authority comes solely from
     // the manifest's own master and ephemeral signatures, which do not cover
     // it. So the whole envelope is one exact transaction per manifest, with
