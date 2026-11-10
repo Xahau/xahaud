@@ -24,6 +24,7 @@
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/ledger/OpenView.h>
+#include <xrpld/ledger/Sandbox.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/Feature.h>
@@ -97,22 +98,40 @@ class Export_test : public beast::unit_test::suite
         return a;
     }
 
-    // `acc`'s signer list on the other network, as Import records it
+    // `acc`'s signer list on network `nid`, as Import records it: in its
+    // ltEXPORTER, made here if need be
     static void
     setSignerList(
         OpenView& view,
         AccountID const& acc,
         STArray const& entries,
-        std::uint32_t quorum = 1)
+        std::uint32_t quorum = 1,
+        std::uint32_t nid = 0)
     {
-        auto sle = std::make_shared<SLE>(*view.read(keylet::account(acc)));
+        Sandbox sb(&view, tapNONE);
+        auto const account = sb.peek(keylet::account(acc));
+        bool const had = sb.exists(keylet::exporter(acc, nid));
+        auto const ex = exporterOf(
+            sb, account, nid, beast::Journal{beast::Journal::getNullSink()});
         auto l = STObject::makeInnerObject(sfExportSignerList);
         l[sfSignerQuorum] = quorum;
         l.setFieldArray(sfSignerEntries, entries);
         l[sfLedgerSequence] = 1;
         l[sfTransactionIndex] = 0;
-        sle->peekFieldObject(sfExportSignerList) = std::move(l);
-        view.rawReplace(sle);
+        ex->peekFieldObject(sfExportSignerList) = std::move(l);
+        if (had)
+            sb.update(ex);
+        else
+            sb.insert(ex);
+        sb.update(account);
+        sb.apply(view);
+    }
+
+    // `acc`'s ltEXPORTER on network `nid`, as the open ledger has it
+    static std::shared_ptr<SLE const>
+    exporter(jtx::Env& env, jtx::Account const& acc, std::uint32_t nid = 0)
+    {
+        return env.le(keylet::exporter(acc.id(), nid));
     }
 
     // ttEXPORT's doApply, as the hook's emission would reach it
@@ -488,7 +507,7 @@ class Export_test : public beast::unit_test::suite
             return applyExport(env, view, exportTx(env, alice.id(), inner));
         };
         auto const ticket = [&](std::uint32_t t) {
-            return view.read(keylet::shadowTicket(alice.id(), t));
+            return view.read(keylet::shadowTicket(alice.id(), 0, t));
         };
 
         auto const before = owners();
@@ -635,7 +654,7 @@ class Export_test : public beast::unit_test::suite
             applyExport(env, view, exportTx(env, alice.id(), sls)) ==
             tesSUCCESS);
 
-        auto const st = view.read(keylet::shadowTicket(alice.id(), 3));
+        auto const st = view.read(keylet::shadowTicket(alice.id(), 0, 3));
         auto const p = st ? view.read(keylet::exportedTxn(
                                 view.seq(), (*st)[sfTransactionHash]))
                           : nullptr;
@@ -772,13 +791,13 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(
             applyExport(env, view, exportTx(env, alice.id(), lonely)) ==
             tesSUCCESS);
-        BEAST_EXPECT(view.exists(keylet::shadowTicket(alice.id(), 9)));
+        BEAST_EXPECT(view.exists(keylet::shadowTicket(alice.id(), 0, 9)));
         auto const kLonely =
             pending(view, alice.id(), lonely, createdOld, entries, uint256{3});
         BEAST_EXPECT(Export::accept(env.app(), view, env.journal));
         BEAST_EXPECT(!view.exists(kLonely));
         BEAST_EXPECT(view.exists(k));
-        BEAST_EXPECT(!view.exists(keylet::shadowTicket(alice.id(), 9)));
+        BEAST_EXPECT(!view.exists(keylet::shadowTicket(alice.id(), 0, 9)));
         BEAST_EXPECT(
             ExportTickets::load(*view.read(keylet::account(alice.id())))
                 .contains(9));
@@ -804,7 +823,7 @@ class Export_test : public beast::unit_test::suite
             pending(view, alice.id(), lonely, createdOld - 1, entries);
         BEAST_EXPECT(Export::accept(env.app(), view, env.journal));
         BEAST_EXPECT(!view.exists(kStale));
-        auto const st = view.read(keylet::shadowTicket(alice.id(), 9));
+        auto const st = view.read(keylet::shadowTicket(alice.id(), 0, 9));
         BEAST_EXPECT(st && (*st)[sfTransactionHash] == txid(later));
     }
 
@@ -1002,8 +1021,8 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(u.ranges()[0].count == 255 && u.ranges()[1].count == 245);
         BEAST_EXPECT(ExportTickets(u.pack()).count() == 500);
 
-        // on an account root: absent when empty
-        auto sle = std::make_shared<SLE>(keylet::account(AccountID{1}));
+        // on an ltEXPORTER: absent when empty
+        auto sle = std::make_shared<SLE>(keylet::exporter(AccountID{1}, 0));
         t.store(*sle);
         BEAST_EXPECT(sle->isFieldPresent(sfExportTickets));
         BEAST_EXPECT(ExportTickets::load(*sle).count() == t.count());
@@ -1048,23 +1067,35 @@ class Export_test : public beast::unit_test::suite
             return true;
         });
         env(fset(alice, asfExporter));
-        if (auto const sle = env.le(alice); BEAST_EXPECT(sle))
+        if (auto const ex = exporter(env, alice); BEAST_EXPECT(ex))
         {
-            BEAST_EXPECT(sle->isFlag(lsfExporter));
             // listed, so Export::accept looks after its tickets and keys
-            BEAST_EXPECT(sle->isFieldPresent(sfExportNode));
+            BEAST_EXPECT(isExporter(*ex));
             BEAST_EXPECT(env.current()->exists(keylet::exporterDir()));
+            // the record is the account's, against its reserve
+            BEAST_EXPECT((*ex)[sfRemoteNetworkID] == 0);
+            BEAST_EXPECT(env.le(alice)->getFieldU32(sfOwnerCount) == 1);
         }
-        auto const info = env.rpc("account_info", alice.human())[jss::result];
-        BEAST_EXPECT(info[jss::account_flags]["exporter"] == true);
 
         // and can opt out again
         env(fclear(alice, asfExporter));
-        if (auto const sle = env.le(alice); BEAST_EXPECT(sle))
-        {
-            BEAST_EXPECT(!sle->isFlag(lsfExporter));
-            BEAST_EXPECT(!sle->isFieldPresent(sfExportNode));
-        }
+        if (auto const ex = exporter(env, alice); BEAST_EXPECT(ex))
+            BEAST_EXPECT(!isExporter(*ex));
+        BEAST_EXPECT(!env.current()->exists(keylet::exporterDir()));
+
+        // a record on a second network is listed and unlisted along with it
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            setSignerList(view, alice.id(), signerEntries({a}), 1, 2);
+            return true;
+        });
+        env(fset(alice, asfExporter));
+        BEAST_EXPECT(
+            exporter(env, alice, 2) && isExporter(*exporter(env, alice, 2)));
+        BEAST_EXPECT(
+            exporter(env, alice, 0) && isExporter(*exporter(env, alice, 0)));
+        BEAST_EXPECT(env.le(alice)->getFieldU32(sfOwnerCount) == 2);
+        env(fclear(alice, asfExporter));
+        BEAST_EXPECT(!isExporter(*exporter(env, alice, 2)));
         BEAST_EXPECT(!env.current()->exists(keylet::exporterDir()));
     }
 
@@ -1083,7 +1114,7 @@ class Export_test : public beast::unit_test::suite
         env.close();
         auto const seq = env.current()->seq() + 1;
         auto const slotOf = [](AccountID const& id) {
-            return Export::slotOf(keylet::account(id).key);
+            return Export::slotOf(keylet::exporter(id, 0).key);
         };
         std::string name = "alice";
         for (int i = 0; (seq + slotOf(Account{name}.id())) % Export::autoEvery;
@@ -1102,8 +1133,8 @@ class Export_test : public beast::unit_test::suite
                 calcAccountID(randomKeyPair(KeyType::ed25519).first));
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
             setSignerList(view, alice.id(), signerEntries(signers), 2);
-            auto sle =
-                std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            auto sle = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), 0)));
             ExportTickets t;
             t.add(100, 2);
             t.store(*sle);
@@ -1112,7 +1143,7 @@ class Export_test : public beast::unit_test::suite
         });
         env(fset(alice, asfExporter));
         auto const pool = [&](ReadView const& view) {
-            auto const sle = view.read(keylet::account(alice));
+            auto const sle = view.read(keylet::exporter(alice.id(), 0));
             return sle ? ExportTickets::load(*sle).count() : 0;
         };
         BEAST_EXPECT(pool(*env.current()) == 2);
@@ -1128,11 +1159,11 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(changed);
 
         auto const cur = env.current();
-        auto const cost = Export::autoFee(*cur, alice.id());
+        auto const cost = Export::autoFee(*cur, alice.id(), 0);
         BEAST_EXPECT(cost == cur->fees().base * 5);
         BEAST_EXPECT(env.balance(alice).value().xrp() == before - cost);
         BEAST_EXPECT(pool(*cur) == 1);
-        if (auto const sle = env.le(alice); BEAST_EXPECT(sle))
+        if (auto const sle = exporter(env, alice); BEAST_EXPECT(sle))
             BEAST_EXPECT((*sle)[~sfExportTicketPending] == 100u);
 
         // the open ledger keeps no metadata, so look at what was left
@@ -1152,6 +1183,7 @@ class Export_test : public beast::unit_test::suite
         if (BEAST_EXPECT(exported))
         {
             BEAST_EXPECT((*exported)[sfOwner] == alice.id());
+            BEAST_EXPECT((*exported)[sfRemoteNetworkID] == 0);
             BEAST_EXPECT((*exported)[sfLedgerSequence] == seq);
             auto const& inner =
                 exported->peekAtField(sfExportedTxn).downcast<STObject>();
@@ -1179,7 +1211,7 @@ class Export_test : public beast::unit_test::suite
             base = &v;
         }
         BEAST_EXPECT(pool(*base) == 2);
-        if (auto const sle = base->read(keylet::account(alice));
+        if (auto const sle = base->read(keylet::exporter(alice.id(), 0));
             BEAST_EXPECT(sle))
             BEAST_EXPECT(!sle->isFieldPresent(sfExportTicketPending));
     }
@@ -1194,7 +1226,7 @@ class Export_test : public beast::unit_test::suite
         env.close();
         auto const seq = env.current()->seq() + 1;
         auto const slotOf = [](AccountID const& id) {
-            return Export::slotOf(keylet::account(id).key);
+            return Export::slotOf(keylet::exporter(id, 0).key);
         };
         std::string name = "alice";
         for (int i = 0; (seq + slotOf(Account{name}.id())) % Export::autoEvery;
@@ -1213,8 +1245,8 @@ class Export_test : public beast::unit_test::suite
         auto const setup = [&](std::optional<std::uint32_t> sequence) {
             env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
                 setSignerList(view, alice.id(), signerEntries(signers), 2);
-                auto sle =
-                    std::make_shared<SLE>(*view.read(keylet::account(alice)));
+                auto sle = std::make_shared<SLE>(
+                    *view.read(keylet::exporter(alice.id(), 0)));
                 (*sle)[~sfExportSequence] = sequence;
                 view.rawReplace(sle);
                 return true;
@@ -1231,7 +1263,7 @@ class Export_test : public beast::unit_test::suite
         };
         auto const pending = [&](ReadView const& view) {
             std::optional<std::uint32_t> p;
-            if (auto const sle = view.read(keylet::account(alice)))
+            if (auto const sle = view.read(keylet::exporter(alice.id(), 0)))
                 p = (*sle)[~sfExportTicketPending];
             return p;
         };
@@ -1252,10 +1284,10 @@ class Export_test : public beast::unit_test::suite
         auto const cur = env.current();
         BEAST_EXPECT(
             env.balance(alice).value().xrp() ==
-            before - Export::autoFee(*cur, alice.id()));
+            before - Export::autoFee(*cur, alice.id(), 0));
         BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == owners);
         BEAST_EXPECT(pending(*cur) == 1000u);
-        BEAST_EXPECT(!env.le(alice)->isFieldPresent(sfExportTickets));
+        BEAST_EXPECT(!exporter(env, alice)->isFieldPresent(sfExportTickets));
         auto const key = cur->succ(
             keylet::exportedTxn(0, beast::zero).key,
             keylet::exportedTxn(seq + 1, beast::zero).key);
@@ -1304,8 +1336,8 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(tryApply(backstop(999)) == tefPAST_SEQ);
         BEAST_EXPECT(tryApply(backstop(1001)) == tefPAST_SEQ);
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
-            auto sle =
-                std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            auto sle = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), 0)));
             sle->makeFieldAbsent(sfExportTicketPending);
             ExportTickets t;
             t.insert(5);
@@ -1315,8 +1347,8 @@ class Export_test : public beast::unit_test::suite
         });
         BEAST_EXPECT(tryApply(backstop(1000)) == tefFAILURE);
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
-            auto sle =
-                std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            auto sle = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), 0)));
             sle->setFieldU32(sfExportTicketPending, 1000);
             ExportTickets{}.store(*sle);
             view.rawReplace(sle);
@@ -1378,9 +1410,10 @@ class Export_test : public beast::unit_test::suite
             return true;
         });
         for (auto t : {7u, 8u, 9u})
-            BEAST_EXPECT(env.le(keylet::shadowTicket(alice.id(), t)));
+            BEAST_EXPECT(env.le(keylet::shadowTicket(alice.id(), 0, t)));
 
         auto const sle = [&]() { return env.le(keylet::account(alice.id())); };
+        auto const ex = [&]() { return exporter(env, alice); };
         auto const seqBefore = (*sle())[sfSequence];
         auto const ownersBefore = (*sle())[sfOwnerCount];
         auto const balanceBefore = env.balance(alice);
@@ -1442,7 +1475,7 @@ class Export_test : public beast::unit_test::suite
 
         // the export comes back: free, no sequence used, ticket consumed
         env(import(paid, 100), seq(0u), fee(drops(0)), ter(tesSUCCESS));
-        BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), 7)));
+        BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), 0, 7)));
         BEAST_EXPECT((*sle())[sfSequence] == seqBefore);
         BEAST_EXPECT((*sle())[sfOwnerCount] == ownersBefore - 1);
         BEAST_EXPECT(env.balance(alice) == balanceBefore);
@@ -1471,8 +1504,8 @@ class Export_test : public beast::unit_test::suite
         };
         env(import(sls(8, b), 100), seq(0u), fee(drops(0)), ter(tesSUCCESS));
         BEAST_EXPECT(!env.le(keylet::signers(alice.id())));
-        if (auto const l = sle()->isFieldPresent(sfExportSignerList)
-                ? &sle()->peekAtField(sfExportSignerList).downcast<STObject>()
+        if (auto const l = ex()->isFieldPresent(sfExportSignerList)
+                ? &ex()->peekAtField(sfExportSignerList).downcast<STObject>()
                 : nullptr;
             BEAST_EXPECT(l))
         {
@@ -1486,9 +1519,9 @@ class Export_test : public beast::unit_test::suite
 
         // one from an earlier ledger there arriving later does not win
         env(import(sls(9, a), 99), seq(0u), fee(drops(0)), ter(tesSUCCESS));
-        BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), 9)));
-        if (auto const l = sle()->isFieldPresent(sfExportSignerList)
-                ? &sle()->peekAtField(sfExportSignerList).downcast<STObject>()
+        BEAST_EXPECT(!env.le(keylet::shadowTicket(alice.id(), 0, 9)));
+        if (auto const l = ex()->isFieldPresent(sfExportSignerList)
+                ? &ex()->peekAtField(sfExportSignerList).downcast<STObject>()
                 : nullptr;
             BEAST_EXPECT(l))
         {
@@ -1550,7 +1583,7 @@ class Export_test : public beast::unit_test::suite
                 return import::import(
                     alice, other.xpop(tx, seq, closeTime, result, affect));
             };
-        auto const pool = [&]() { return ExportTickets::load(*sle()); };
+        auto const pool = [&]() { return ExportTickets::load(*ex()); };
 
         // one that made tickets: pooled, watermarks and Sequence recorded
         auto const tc = ticketCreate(5, 3);
@@ -1560,8 +1593,8 @@ class Export_test : public beast::unit_test::suite
             ter(tesSUCCESS));
         BEAST_EXPECT(
             (pool().ranges() == std::vector<ExportTickets::Range>{{6, 3}}));
-        BEAST_EXPECT((*sle())[~sfExportTicketNext] == 9u);
-        BEAST_EXPECT((*sle())[~sfExportSequence] == 9u);
+        BEAST_EXPECT((*ex())[~sfExportTicketNext] == 9u);
+        BEAST_EXPECT((*ex())[~sfExportSequence] == 9u);
         BEAST_EXPECT(!sle()->isFieldPresent(sfImportSequence));
         BEAST_EXPECT((*sle())[sfSequence] == seqNow);
 
@@ -1575,7 +1608,8 @@ class Export_test : public beast::unit_test::suite
         // backstop needs to know: recorded, and the backstop it was (by
         // that Sequence) is no longer out; nothing else changes
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
-            auto s = std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            auto s = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), 0)));
             s->setFieldU32(sfExportTicketPending, 9);
             view.rawReplace(s);
             return true;
@@ -1586,9 +1620,9 @@ class Export_test : public beast::unit_test::suite
             fee(drops(0)),
             ter(tesSUCCESS));
         BEAST_EXPECT(pool().count() == 3);
-        BEAST_EXPECT((*sle())[~sfExportTicketNext] == 9u);
-        BEAST_EXPECT((*sle())[~sfExportSequence] == 10u);
-        BEAST_EXPECT(!sle()->isFieldPresent(sfExportTicketPending));
+        BEAST_EXPECT((*ex())[~sfExportTicketNext] == 9u);
+        BEAST_EXPECT((*ex())[~sfExportSequence] == 10u);
+        BEAST_EXPECT(!ex()->isFieldPresent(sfExportTicketPending));
         env(sync(failed, 103, tecINSUFFICIENT_RESERVE, made(10, {})),
             seq(0u),
             fee(drops(0)),
@@ -1629,13 +1663,85 @@ class Export_test : public beast::unit_test::suite
             ter(tesSUCCESS));
         env.close();
         if (auto const sb = env.le(bob); BEAST_EXPECT(sb))
-        {
-            BEAST_EXPECT(!sb->isFlag(lsfExporter));
-            BEAST_EXPECT(sb->isFieldPresent(sfExportSignerList));
             BEAST_EXPECT((*sb)[~sfImportSequence] == 2u);
+        if (auto const eb = exporter(env, bob); BEAST_EXPECT(eb))
+        {
+            BEAST_EXPECT(!isExporter(*eb));
+            BEAST_EXPECT(eb->isFieldPresent(sfExportSignerList));
+            BEAST_EXPECT((*eb)[sfRemoteNetworkID] == 0);
         }
         BEAST_EXPECT(env.le(keylet::signers(bob.id())));
         BEAST_EXPECT(env.seq(bob) == bobSeq + 1);
+    }
+
+    void
+    testNetworks()
+    {
+        testcase("other networks");
+        using namespace jtx;
+
+        // alice holds lists on the XRPL and on testnet; an export names its
+        // network by the inner's NetworkID, and draws on that network's
+        // pool, shadow tickets and fee record alone
+        Env env{*this, supported_amendments() | featureExport};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const nid = env.app().config().NETWORK_ID;
+        OpenView view(open_ledger, env.closed()->rules(), env.closed());
+        auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        setSignerList(view, alice.id(), signerEntries({a}), 1, 0);
+        setSignerList(view, alice.id(), signerEntries({a, a}), 1, 1);
+        for (std::uint32_t net : {0u, 1u})
+        {
+            auto ex = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), net)));
+            ExportTickets t;
+            t.add(10 * (net + 1), 2);
+            t.store(*ex);
+            view.rawReplace(ex);
+        }
+        auto const apply = [&](STObject inner) {
+            return applyExport(env, view, exportTx(env, alice.id(), inner));
+        };
+        auto const pool = [&](std::uint32_t net) {
+            return ExportTickets::load(
+                       *view.read(keylet::exporter(alice.id(), net)))
+                .count();
+        };
+
+        // to testnet: its ticket, its shadow ticket, no NetworkID sent
+        // (testnet refuses the field) and its two signers paid for
+        auto tn = payment(alice.id(), 1, {}, nid);
+        tn[sfNetworkID] = 1;
+        tn.setFieldAmount(sfFee, XRPAmount{0});
+        BEAST_EXPECT(apply(tn) == tesSUCCESS);
+        BEAST_EXPECT(pool(1) == 1 && pool(0) == 2);
+        BEAST_EXPECT(view.exists(keylet::shadowTicket(alice.id(), 1, 20)));
+        BEAST_EXPECT(!view.exists(keylet::shadowTicket(alice.id(), 0, 20)));
+        auto const key = view.succ(
+            keylet::exportedTxn(0, beast::zero).key,
+            keylet::exportedTxn(view.seq() + 1, beast::zero).key);
+        if (auto const sle =
+                key ? view.read(Keylet{ltEXPORTED_TXN, *key}) : nullptr;
+            BEAST_EXPECT(sle))
+        {
+            BEAST_EXPECT((*sle)[sfRemoteNetworkID] == 1);
+            auto const& inner =
+                sle->peekAtField(sfExportedTxn).downcast<STObject>();
+            BEAST_EXPECT(!inner.isFieldPresent(sfNetworkID));
+            BEAST_EXPECT(inner[sfTicketSequence] == 20);
+            BEAST_EXPECT(
+                inner.getFieldAmount(sfFee).xrp() == Export::xrplBaseFee * 3);
+        }
+
+        // to the XRPL by default, and a network with no list is refused
+        BEAST_EXPECT(apply(payment(alice.id(), 2, {}, nid)) == tesSUCCESS);
+        BEAST_EXPECT(pool(0) == 1);
+        auto dn = payment(alice.id(), 3, {}, nid);
+        dn[sfNetworkID] = 2;
+        BEAST_EXPECT(apply(dn) == tefINTERNAL);
     }
 
 public:
@@ -1652,6 +1758,7 @@ public:
         testAutomatic();
         testBackstop();
         testLoopbackImport();
+        testNetworks();
     }
 };
 

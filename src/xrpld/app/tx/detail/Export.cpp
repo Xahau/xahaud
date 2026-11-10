@@ -54,7 +54,8 @@ obj(STObject const& o, SField const& f)
 // not a pseudo-txn, not replayable here, and bound back here. Every export
 // uses a ticket (one without TicketSequence gets one when it applies), so
 // Sequence is 0; except the backstop TicketCreate of an exporter whose pool
-// is empty, which is `sequenced` (Sequence set, no ticket) instead.
+// is empty, which is `sequenced` (Sequence set, no ticket) instead. Its
+// NetworkID is the destination (Export::destination), never this network.
 static std::optional<STTx>
 exportedTx(
     STObject const& inner,
@@ -74,8 +75,8 @@ exportedTx(
         if (t[sfAccount] == account && t.getSigningPubKey().empty() &&
             !t.isFieldPresent(sfTxnSignature) && !t.isFieldPresent(sfSigners) &&
             !t.isFieldPresent(sfEmitDetails) && !isPseudoTx(t) &&
-            t[~sfNetworkID] != nid && seqOk && t[~sfOperationLimit] == nid &&
-            ExportSchema::allowed(t, rules))
+            Export::destination(t) != nid && seqOk &&
+            t[~sfOperationLimit] == nid && ExportSchema::allowed(t, rules))
             return t;
     }
     catch (std::exception const&)
@@ -124,12 +125,13 @@ static TER
 setShadowTicket(
     ApplyView& view,
     AccountID const& acc,
+    std::uint32_t nid,
     std::uint32_t ticket,
     uint256 const& txid,
     std::optional<uint256> const& hook,
     beast::Journal j)
 {
-    auto const k = keylet::shadowTicket(acc, ticket);
+    auto const k = keylet::shadowTicket(acc, nid, ticket);
     if (auto const st = view.peek(k))
     {
         st->setFieldH256(sfTransactionHash, txid);
@@ -152,6 +154,7 @@ setShadowTicket(
 
     auto const st = std::make_shared<SLE>(k);
     st->setAccountID(sfAccount, acc);
+    st->setFieldU32(sfRemoteNetworkID, nid);
     st->setFieldU32(sfTicketSequence, ticket);
     st->setFieldH256(sfTransactionHash, txid);
     (*st)[~sfEmitHookHash] = hook;
@@ -167,10 +170,11 @@ static bool
 eraseShadowTicket(
     ApplyView& view,
     AccountID const& acc,
+    std::uint32_t nid,
     std::uint32_t ticket,
     uint256 const& txid)
 {
-    auto const k = keylet::shadowTicket(acc, ticket);
+    auto const k = keylet::shadowTicket(acc, nid, ticket);
     auto const st = view.peek(k);
     if (!st || (*st)[sfTransactionHash] != txid)
         return false;
@@ -321,20 +325,20 @@ ExportTickets::pack() const
 }
 
 void
-ExportTickets::store(SLE& acc) const
+ExportTickets::store(SLE& exporter) const
 {
     if (ranges_.empty())
-        acc.makeFieldAbsent(sfExportTickets);
+        exporter.makeFieldAbsent(sfExportTickets);
     else
-        acc.setFieldV256(sfExportTickets, pack());
+        exporter.setFieldV256(sfExportTickets, pack());
 }
 
 ExportTickets
-ExportTickets::load(SLE const& acc)
+ExportTickets::load(SLE const& exporter)
 {
-    if (!acc.isFieldPresent(sfExportTickets))
+    if (!exporter.isFieldPresent(sfExportTickets))
         return {};
-    return ExportTickets(acc.getFieldV256(sfExportTickets));
+    return ExportTickets(exporter.getFieldV256(sfExportTickets));
 }
 
 bool
@@ -350,34 +354,64 @@ Export::hookMayUse(
 }
 
 TER
-setExporter(ApplyView& view, std::shared_ptr<SLE> const& acc, bool on)
+setExporter(ApplyView& view, std::shared_ptr<SLE> const& ex, bool on)
 {
-    auto const id = acc->getAccountID(sfAccount);
-    bool const was = acc->isFlag(lsfExporter);
+    bool const was = isExporter(*ex);
     if (on && !was)
     {
         auto const page = view.dirInsert(
-            keylet::exporterDir(),
-            keylet::account(id),
-            [](std::shared_ptr<SLE> const&) {});
+            keylet::exporterDir(), ex->key(), [](std::shared_ptr<SLE> const&) {
+            });
         if (!page)
             return tecDIR_FULL;
-        acc->setFieldU64(sfExportNode, *page);
-        acc->setFlag(lsfExporter);
+        ex->setFieldU64(sfExportNode, *page);
     }
     else if (!on && was)
     {
-        if (acc->isFieldPresent(sfExportNode) &&
-            !view.dirRemove(
-                keylet::exporterDir(),
-                (*acc)[sfExportNode],
-                keylet::account(id),
-                false))
+        if (!view.dirRemove(
+                keylet::exporterDir(), (*ex)[sfExportNode], ex->key(), false))
             return tefBAD_LEDGER;
-        acc->makeFieldAbsent(sfExportNode);
-        acc->clearFlag(lsfExporter);
+        ex->makeFieldAbsent(sfExportNode);
     }
     return tesSUCCESS;
+}
+
+std::vector<std::shared_ptr<SLE const>>
+exportersOf(ReadView const& view, AccountID const& account)
+{
+    std::vector<std::shared_ptr<SLE const>> out;
+    forEachItem(view, account, [&](std::shared_ptr<SLE const> const& sle) {
+        if (sle && sle->getType() == ltEXPORTER)
+            out.push_back(sle);
+    });
+    return out;
+}
+
+std::shared_ptr<SLE>
+exporterOf(
+    ApplyView& view,
+    std::shared_ptr<SLE> const& acc,
+    std::uint32_t nid,
+    beast::Journal j)
+{
+    auto const id = acc->getAccountID(sfAccount);
+    auto const k = keylet::exporter(id, nid);
+    if (auto const ex = view.peek(k))
+        return ex;
+    auto const page =
+        view.dirInsert(keylet::ownerDir(id), k, describeOwnerDir(id));
+    if (!page)
+        return nullptr;
+    auto const ex = std::make_shared<SLE>(k);
+    ex->setAccountID(sfAccount, id);
+    ex->setFieldU32(sfRemoteNetworkID, nid);
+    ex->setFieldU64(sfOwnerNode, *page);
+    // not adjustOwnerCount: `acc` may be an account this very Import is
+    // creating, which is not in the view yet for it to update
+    auto const count = (*acc)[sfOwnerCount];
+    view.adjustOwnerCountHook(id, count, count + 1);
+    acc->setFieldU32(sfOwnerCount, count + 1);
+    return ex;
 }
 
 //------------------------------------------------------------------------------
@@ -470,12 +504,12 @@ exportWeight(STObject const& exported)
     return weight;
 }
 
-// the exporter's signer list on the other network (a copy: the SLE read
-// here does not outlive this function)
+// the signer list `acc` holds on network `nid` (a copy: the SLE read here
+// does not outlive this function)
 static std::optional<STObject>
-signerList(ReadView const& view, AccountID const& acc)
+signerList(ReadView const& view, AccountID const& acc, std::uint32_t nid)
 {
-    auto const sle = view.read(keylet::account(acc));
+    auto const sle = view.read(keylet::exporter(acc, nid));
     if (sle && sle->isFieldPresent(sfExportSignerList))
     {
         auto const& list = obj(*sle, sfExportSignerList);
@@ -487,20 +521,21 @@ signerList(ReadView const& view, AccountID const& acc)
     return std::nullopt;
 }
 
-// what an export by `acc` costs: one signature per listed signer plus a final
+// what an export by `acc` to `nid` costs: one signature per listed signer
+// plus a final
 static XRPAmount
-fanOutFee(ReadView const& view, AccountID const& acc)
+fanOutFee(ReadView const& view, AccountID const& acc, std::uint32_t nid)
 {
-    auto const list = signerList(view, acc);
+    auto const list = signerList(view, acc, nid);
     std::int64_t const n =
         list ? list->getFieldArray(sfSignerEntries).size() : 0;
     return view.fees().base * (n + 1);
 }
 
 XRPAmount
-Export::autoFee(ReadView const& view, AccountID const& owner)
+Export::autoFee(ReadView const& view, AccountID const& owner, std::uint32_t nid)
 {
-    return fanOutFee(view, owner) + view.fees().base;
+    return fanOutFee(view, owner, nid) + view.fees().base;
 }
 
 // the owner of an export: the hook account, or the exporter of an automatic one
@@ -516,7 +551,7 @@ Export::calculateBaseFee(ReadView const& view, STTx const& tx)
     if (tx.getTxnType() != ttEXPORT)
         return XRPAmount{0};
     return Transactor::calculateBaseFee(view, tx) +
-        fanOutFee(view, tx[sfAccount]);
+        fanOutFee(view, tx[sfAccount], destination(obj(tx, sfExportedTxn)));
 }
 
 NotTEC
@@ -589,25 +624,29 @@ Export::preclaim(PreclaimContext const& ctx)
     if (tx.getTxnType() == ttEXPORT || tx.getTxnType() == ttEXPORT_AUTO)
     {
         auto const owner = ownerOf(tx);
-        if (!signerList(ctx.view, owner))
+        auto const& inner = obj(tx, sfExportedTxn);
+        auto const nid = destination(inner);
+        if (!signerList(ctx.view, owner, nid))
             return tecNO_TARGET;
         if (tx.getTxnType() == ttEXPORT_AUTO)
         {
-            auto const sle = ctx.view.read(keylet::account(owner));
-            if (!sle || !sle->isFlag(lsfExporter))
+            auto const ex = ctx.view.read(keylet::exporter(owner, nid));
+            auto const acc = ctx.view.read(keylet::account(owner));
+            if (!ex || !acc || !isExporter(*ex))
                 return tecNO_PERMISSION;
-            if (sle->getFieldAmount(sfBalance).xrp() < autoFee(ctx.view, owner))
+            if (acc->getFieldAmount(sfBalance).xrp() <
+                autoFee(ctx.view, owner, nid))
                 return tecINSUFFICIENT_FUNDS;
             // The backstop: only for an empty pool, only at the Sequence the
             // ledger knows the account to be at there, and only once per
             // such Sequence. Every node must inject the same one.
-            if (auto const& inner = obj(tx, sfExportedTxn); sequenced(inner))
+            if (sequenced(inner))
             {
                 auto const seq = inner[sfSequence];
-                if ((*sle)[~sfExportSequence] != seq)
+                if ((*ex)[~sfExportSequence] != seq)
                     return tefPAST_SEQ;
-                if (!ExportTickets::load(*sle).empty() ||
-                    (*sle)[~sfExportTicketPending] == seq)
+                if (!ExportTickets::load(*ex).empty() ||
+                    (*ex)[~sfExportTicketPending] == seq)
                     return tefFAILURE;
             }
         }
@@ -658,10 +697,12 @@ Export::createExport(
 {
     auto& view = ctx_.view();
     auto const nid = ctx_.app.config().NETWORK_ID;
+    auto const dest = destination(inner);
 
     auto const acc = view.peek(keylet::account(owner));
-    auto const list = signerList(view, owner);
-    if (!acc || !list)
+    auto const ex = view.peek(keylet::exporter(owner, dest));
+    auto const list = signerList(view, owner, dest);
+    if (!acc || !ex || !list)
         return tefINTERNAL;
 
     auto const type = inner.getFieldU16(sfTransactionType);
@@ -689,7 +730,7 @@ Export::createExport(
     // spend the pool's last ticket, which carries the ledger's refill
     // (hookMayUse; xport() tells the hook so before it emits). The backstop
     // TicketCreate of an empty pool is sequenced instead and needs none.
-    auto tickets = ExportTickets::load(*acc);
+    auto tickets = ExportTickets::load(*ex);
     bool const backstop = sequenced(inner);
     std::optional<std::uint32_t> ticket;
     if (backstop)
@@ -725,7 +766,7 @@ Export::createExport(
     if (!inner.isFieldPresent(sfFee) ||
         inner.getFieldAmount(sfFee) == beast::zero)
     {
-        auto const fee = view.read(keylet::exportFee());
+        auto const fee = view.read(keylet::exportFee(dest));
         XRPAmount const unit{
             fee ? std::int64_t{(*fee)[sfExportFeeUnit]} : xrplBaseFee.drops()};
         inner.setFieldAmount(
@@ -734,6 +775,11 @@ Export::createExport(
                 static_cast<std::int64_t>(
                     list->getFieldArray(sfSignerEntries).size() + 1));
     }
+
+    // a destination below 1024 refuses NetworkID: it named the network here
+    // (Export::destination) and goes no further
+    if (dest <= 1024 && inner.isFieldPresent(sfNetworkID))
+        inner.makeFieldAbsent(sfNetworkID);
 
     auto const t = exportedTx(inner, owner, nid, view.rules(), backstop);
     if (!t)
@@ -747,36 +793,38 @@ Export::createExport(
     // an automatic export is paid by its owner, as a hook's is by its account
     if (automatic)
     {
-        auto const fee = autoFee(view, owner);
+        auto const fee = autoFee(view, owner, dest);
         auto const bal = acc->getFieldAmount(sfBalance).xrp();
         if (bal < fee)
             return tecINSUFFICIENT_FUNDS;
         acc->setFieldAmount(sfBalance, bal - fee);
         ctx_.destroyXRP(fee);
+        view.update(acc);
     }
 
-    tickets.store(*acc);
+    tickets.store(*ex);
     if (automatic && type == ttTICKET_CREATE)
-        acc->setFieldU32(sfExportTicketPending, seqProxyOf(inner));
+        ex->setFieldU32(sfExportTicketPending, seqProxyOf(inner));
     if (automatic && type == ttSIGNER_LIST_SET)
     {
         auto const unl = view.read(keylet::UNLReport());
-        acc->setFieldU32(
+        ex->setFieldU32(
             sfExportKeysSeq, unl ? (*unl)[~sfExportKeysSeq].value_or(0) : 0);
     }
-    view.update(acc);
+    view.update(ex);
 
     // The XPOP of whatever uses the ticket there may come back once. A
     // sequenced backstop has no ticket: its result returns as a sync import
     // of the exporter's own TicketCreate.
     if (ticket)
         if (auto const ter =
-                setShadowTicket(view, owner, *ticket, id, hook, j_);
+                setShadowTicket(view, owner, dest, *ticket, id, hook, j_);
             !isTesSuccess(ter))
             return ter;
 
     auto const sle = std::make_shared<SLE>(k);
     sle->setAccountID(sfOwner, owner);
+    sle->setFieldU32(sfRemoteNetworkID, dest);
     sle->peekFieldObject(sfExportedTxn) = inner;
     sle->setFieldH256(sfTransactionHash, id);
     sle->setFieldU32(sfLedgerSequence, view.seq());
@@ -820,6 +868,7 @@ Export::doApply()
     if (tx.getTxnType() == ttEXPORT_FINAL)
     {
         auto const owner = (*sle)[sfOwner];
+        auto const dest = (*sle)[sfRemoteNetworkID];
         auto const& inner = obj(*sle, sfExportedTxn);
         if (exportWeight(*sle) < (*sle)[sfSignerQuorum])
         {
@@ -827,7 +876,7 @@ Export::doApply()
             // ticket there: back to the pool, shadow ticket gone. Tell the
             // hook, as for an emitted txn that failed, and let the ledger
             // try an automatic export again.
-            auto const acc = view.peek(keylet::account(owner));
+            auto const acc = view.peek(keylet::exporter(owner, dest));
             auto const ticket = inner[~sfTicketSequence];
             if (acc)
             {
@@ -840,7 +889,11 @@ Export::doApply()
                 // (A sequenced backstop has no ticket to return.)
                 if (ticket &&
                     eraseShadowTicket(
-                        view, owner, *ticket, (*sle)[sfTransactionHash]) &&
+                        view,
+                        owner,
+                        dest,
+                        *ticket,
+                        (*sle)[sfTransactionHash]) &&
                     *ticket < (*acc)[~sfExportTicketNext].value_or(
                                   std::numeric_limits<std::uint32_t>::max()))
                 {
@@ -963,11 +1016,11 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
     std::uint32_t const keysSeq =
         unl ? (*unl)[~sfExportKeysSeq].value_or(0) : 0;
     auto const examine = [&](std::shared_ptr<SLE const> const& acc) {
-        if (!acc || acc->getType() != ltACCOUNT_ROOT ||
-            !acc->isFlag(lsfExporter) ||
+        if (!acc || acc->getType() != ltEXPORTER || !isExporter(*acc) ||
             !acc->isFieldPresent(sfExportSignerList))
             return;
         auto const id = acc->getAccountID(sfAccount);
+        auto const dest = (*acc)[sfRemoteNetworkID];
 
         auto const tickets = ExportTickets::load(*acc);
         auto const automatic = [&](auto&& assemble) {
@@ -979,6 +1032,8 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
                 in[sfAccount] = id;
                 in[sfSequence] = 0;
                 in[sfOperationLimit] = nid;
+                if (dest)
+                    in[sfNetworkID] = dest;
                 in.setFieldAmount(sfFee, XRPAmount{0});
                 in[sfSigningPubKey] = Slice{};
                 assemble(in);
@@ -1022,7 +1077,7 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
     {
         for (auto const& key : page->getFieldV256(sfIndexes))
             if ((seq + slotOf(key)) % autoEvery == 0)
-                examine(view.read(Keylet{ltACCOUNT_ROOT, key}));
+                examine(view.read(Keylet{ltEXPORTER, key}));
         auto const next = (*page)[~sfIndexNext].value_or(0);
         page = next ? view.read(keylet::page(keylet::exporterDir(), next))
                     : nullptr;

@@ -32,8 +32,19 @@ namespace ripple {
 class ExportTickets;
 class ValidatorKeys;
 
-/** Export: UNL validators multisign transactions for another network on
+/** Export: UNL validators multisign transactions for other networks on
     behalf of a hook's account, which has the same AccountID there.
+
+    Networks. Every XRPL-protocol network has an id (0 XRPL, 1 testnet, 2
+    devnet, 21337 Xahau). An export names its destination by the NetworkID
+    of the transaction the hook supplies, absent meaning 0: that is how such
+    a transaction names its network anyway where the id is over 1024, and
+    below that (where the other network refuses the field) the ledger strips
+    it when the export applies. Everything the ledger keeps about an account
+    on another network is per network: its ltEXPORTER, its shadow tickets,
+    the fee proven there (ltEXPORT_FEE). What comes back names its network
+    by the validator list that proves it (Import). Validators' export keys
+    are the same on every network, so nothing about them is per network.
 
     Export keys. Every UNLReport validator nominates its current export key,
     with a proof of possession, in its flag ledger validations. The UNL
@@ -43,10 +54,11 @@ class ValidatorKeys;
     A validator whose account does not exist yet gets one, with
     validatorFundingDrops, from the next ttGENESIS_MINT.
 
-    Exporters. An account becomes an exporter (lsfExporter, listed in
+    Exporters. An account's standing on one other network is its ltEXPORTER
+    (keylet::exporter(account, nid)). It becomes an exporter there (listed in
     keylet::exporterDir()) when an Import it signs records its signer list on
-    the other network (sfExportSignerList): the one Import an operator sends
-    by hand. From then on the ledger keeps three things in step for it, and a
+    that network (sfExportSignerList): the one Import an operator sends by
+    hand. From then on the ledger keeps four things in step for it, and a
     hook needs to track none of them:
 
       - sfExportSignerList, as last proven by an Import of its SignerListSet.
@@ -73,12 +85,14 @@ class ValidatorKeys;
         entries (ttEXPORT_AUTO); its old list signs, so keys rotate without
         lockout, and the Import that brings it back records the new list.
 
-    Servers with [xrpl_relay] watch every exporter on XRPL and Import, free
-    of charge, each transaction of theirs that changes any of the four: the
-    XRPL fee it burned pays for the Import (isLoopback). Such an Import
-    records; it never installs keys here, mints nothing, consumes no sequence
-    and runs the exporter's hooks only as a collect call (hsfCOLLECT on the
-    hook, lsfTshCollect on the account). asfExporter clears the flag.
+    Servers with an [export_relay] section per network watch every exporter
+    there and Import, free of charge, each transaction of theirs that changes
+    any of the four: the fee it burned there pays for the Import
+    (isLoopback). Such an Import records; it never installs keys here, mints
+    nothing, consumes no sequence and runs the exporter's hooks only as a
+    collect call (hsfCOLLECT on the hook, lsfTshCollect on the account).
+    asfExporter unlists the account on every network, and lists it again
+    wherever it holds a list.
 
     1. A hook calls xport() with the transaction: TransactionType and its
        own fields, which must be ones both networks read the same way
@@ -144,15 +158,23 @@ public:
         that sets its own Fee is left alone. */
     static constexpr XRPAmount xrplBaseFee{10};
 
+    /** The network an export is for: the NetworkID of the transaction the
+        hook supplied, absent meaning XRPL (see the class comment) */
+    static std::uint32_t
+    destination(STObject const& inner)
+    {
+        return inner[~sfNetworkID].value_or(0);
+    }
+
     /** Each exporter is considered for an automatic export once every this
         many ledgers, at a ledger chosen by its entry in keylet::exporterDir()
         (slotOf), so the ledger reads only a fraction of the exporters each
         ledger */
     static constexpr std::uint32_t autoEvery = 16;
 
-    /** The ledgers at which the exporter whose account root has key `key`
-        is examined: those where (seq + slotOf(key)) % autoEvery == 0. Taken
-        from the directory entry so the account need not be read first. */
+    /** The ledgers at which the exporter whose ltEXPORTER has key `key` is
+        examined: those where (seq + slotOf(key)) % autoEvery == 0. Taken
+        from the directory entry so the object need not be read first. */
     static std::uint32_t
     slotOf(uint256 const& key)
     {
@@ -179,10 +201,10 @@ public:
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
 
-    /** What an automatic export costs its owner, debited by createExport:
-        the pseudo-transaction itself carries no fee */
+    /** What an automatic export to network `nid` costs its owner, debited by
+        createExport: the pseudo-transaction itself carries no fee */
     static XRPAmount
-    autoFee(ReadView const& view, AccountID const& owner);
+    autoFee(ReadView const& view, AccountID const& owner, std::uint32_t nid);
 
     static NotTEC
     preflight(PreflightContext const& ctx);
@@ -292,13 +314,13 @@ public:
     STVector256
     pack() const;
 
-    /** Write to an exporter's account root, removing the field when empty */
+    /** Write to an ltEXPORTER, removing the field when empty */
     void
-    store(SLE& acc) const;
+    store(SLE& exporter) const;
 
-    /** Read from an account root; empty if absent */
+    /** Read from an ltEXPORTER; empty if absent */
     static ExportTickets
-    load(SLE const& acc);
+    load(SLE const& exporter);
 
 private:
     void
@@ -326,10 +348,31 @@ exportKeyProofData(
     PublicKey const& exportKey,
     std::uint32_t networkID);
 
-/** Set or clear lsfExporter on `acc`, keeping keylet::exporterDir() in
-    step. `acc` is updated by the caller. */
+/** List or unlist the ltEXPORTER `ex` in keylet::exporterDir() (sfExportNode
+    holds its page while listed). `ex` is updated by the caller. */
 TER
-setExporter(ApplyView& view, std::shared_ptr<SLE> const& acc, bool on);
+setExporter(ApplyView& view, std::shared_ptr<SLE> const& ex, bool on);
+
+/** Whether the ltEXPORTER `ex` is listed: the ledger acts for it there */
+inline bool
+isExporter(SLE const& ex)
+{
+    return ex.isFieldPresent(sfExportNode);
+}
+
+/** The ltEXPORTERs of `account`, one per network it holds a record on */
+std::vector<std::shared_ptr<SLE const>>
+exportersOf(ReadView const& view, AccountID const& account);
+
+/** The ltEXPORTER of `account` on network `nid`, made if absent (in its
+    owner directory, counted against its reserve). `acc` is updated by the
+    caller; the result is inserted or updated by the caller too. */
+std::shared_ptr<SLE>
+exporterOf(
+    ApplyView& view,
+    std::shared_ptr<SLE> const& acc,
+    std::uint32_t nid,
+    beast::Journal j);
 
 /** One export key per UNLReport validator: its newest recorded at or before
     `asOf` (default: now), sorted by account, at most maxMultiSigners. */
@@ -390,8 +433,9 @@ private:
     std::vector<Key> keys_;  // oldest first, back() is the nominee
 };
 
-/** [xrpl_relay]: carries exports to XRPL and exporters' activity there back.
-    Stops and joins on destruction. Null unless configured. */
+/** [export_relay] sections: carry exports to other networks and exporters'
+    activity there back. Stops and joins on destruction. Null in standalone
+    mode; otherwise does nothing unless configured. */
 struct ExportRelay
 {
     virtual ~ExportRelay() = default;

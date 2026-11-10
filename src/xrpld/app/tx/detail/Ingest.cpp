@@ -21,6 +21,7 @@
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/Ingest.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/shamap/SHAMapInnerNode.h>
@@ -285,7 +286,7 @@ Ingest::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     // a ledger newer than the one recorded is free; the same one again,
     // with more of its tree, is not
-    auto const sle = view.read(keylet::exportFee());
+    auto const sle = view.read(keylet::exportFee(tx[sfRemoteNetworkID]));
     if (!sle || tx[sfLedgerSequence] > (*sle)[sfLedgerSequence])
         return XRPAmount{0};
     return Transactor::calculateBaseFee(view, tx);
@@ -313,7 +314,8 @@ TER
 Ingest::preclaim(PreclaimContext const& ctx)
 {
     auto const seq = ctx.tx[sfLedgerSequence];
-    auto const sle = ctx.view.read(keylet::exportFee());
+    auto const nid = ctx.tx[sfRemoteNetworkID];
+    auto const sle = ctx.view.read(keylet::exportFee(nid));
     std::uint32_t const have = sle ? (*sle)[sfLedgerSequence] : 0;
     if (seq < have)
         return tefPAST_SEQ;
@@ -326,23 +328,17 @@ Ingest::preclaim(PreclaimContext const& ctx)
     if (sle && seq == have && x->leaves <= (*sle)[sfTransactionCount])
         return tefALREADY;
 
-    // the UNL's publisher must be one Import trusts, its list in date and
-    // no older than one already used
+    // the UNL's publisher must be one Import trusts for this very network,
+    // its list in date and no older than one already used
     auto const now = ctx.view.parentCloseTime().time_since_epoch().count();
     if (x->vlEffective > now || x->vlExpiration <= now)
         return temMALFORMED;
     if (auto const vl = ctx.view.read(keylet::import_vlseq(x->vlKey));
         vl && (*vl)[sfImportSequence] > x->vlSeq)
         return tefPAST_IMPORT_VL_SEQ;
-    for (auto const& [s, k] : ctx.app.config().IMPORT_VL_KEYS)
-        if (k == x->vlKey)
-            return tesSUCCESS;
-    if (auto const unl = ctx.view.read(keylet::UNLReport());
-        unl && unl->isFieldPresent(sfImportVLKeys))
-        for (auto const& k : unl->getFieldArray(sfImportVLKeys))
-            if (PublicKey(k[sfPublicKey]) == x->vlKey)
-                return tesSUCCESS;
-    return telIMPORT_VL_KEY_NOT_RECOGNISED;
+    if (Import::vlNetwork(ctx.app.config(), ctx.view, strHex(x->vlKey)) != nid)
+        return telIMPORT_VL_KEY_NOT_RECOGNISED;
+    return tesSUCCESS;
 }
 
 TER
@@ -353,10 +349,14 @@ Ingest::doApply()
         return tefINTERNAL;
 
     auto& view = ctx_.view();
-    auto sle = view.peek(keylet::exportFee());
+    auto const nid = ctx_.tx[sfRemoteNetworkID];
+    auto sle = view.peek(keylet::exportFee(nid));
     bool const created = !sle;
     if (created)
-        sle = std::make_shared<SLE>(keylet::exportFee());
+    {
+        sle = std::make_shared<SLE>(keylet::exportFee(nid));
+        (*sle)[sfRemoteNetworkID] = nid;
+    }
 
     // A newer ledger folds the one recorded into the unit first; the same
     // ledger, with more of its tree, only replaces what was recorded of it.

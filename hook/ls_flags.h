@@ -20,7 +20,6 @@ enum ltACCOUNT_ROOT {
     lsfDisallowIncomingTrustline = 0x20000000,
     lsfURITokenIssuer = 0x40000000,
     lsfDisallowIncomingRemit = 0x80000000,
-    lsfExporter = 0x00004000,
     lsfAllowTrustLineClawback = 0x00001000,
 };
 enum ltOFFER {

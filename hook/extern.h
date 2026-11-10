@@ -353,7 +353,7 @@ xport(
     uint32_t read_len);
 
 extern int64_t
-xport_tickets();
+xport_tickets(uint32_t network_id);
 
 #ifdef __cplusplus
 }

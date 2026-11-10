@@ -47,12 +47,15 @@
 #include <set>
 #include <thread>
 
-/*  [xrpl_relay]: one XRPL peer connection per "host [port [node key]]"
-    line, plus optional vl_url=, network_id= (the XRPL's, default 0),
-    account= (a seed) and ingest_every= (Xahau ledgers, default 64). The
-    node public key (base58, as the peer's server_info shows it) pins the
-    peer: the handshake proves it and the session is dropped otherwise.
-    Peer TLS is self-signed, so without it any on-path party could stand in.
+/*  [export_relay], and [export_relay_<name>] for every further network: one
+    peer connection to that network per "host [port [node key]]" line, plus
+    optional network_id= (its id; 0, XRPL, by default), vl_url=, account= (a
+    seed) and ingest_every= (Xahau ledgers, default 64). The node public key
+    (base58, as the peer's server_info shows it) pins the peer: the handshake
+    proves it and the session is dropped otherwise. Peer TLS is self-signed,
+    so without it any on-path party could stand in. A relay carries only
+    exports bound for its network and imports only what its network's lists
+    prove (Import::vlNetwork).
 
     Proof of fees. With account=, every ingest_every Xahau ledgers the next
     complete XRPL ledger is sent as a ttINGEST (see Ingest.h) from that
@@ -83,8 +86,8 @@
     Cost. Every XRPL ledger reaching quorum has its whole transaction tree
     fetched (liTX_NODE, depth 3, up to 16 rounds), since which transactions
     used a shadow ticket cannot be known in advance. That is a steady draw
-    on the peer, so relayers should point [xrpl_relay] at a hub they run or
-    have an arrangement with, not at public servers.
+    on the peer, so relayers should point each [export_relay*] at a hub they
+    run or have an arrangement with, not at public servers.
 */
 
 namespace ripple {
@@ -109,7 +112,14 @@ struct Config
 {
     Application& app;
     std::string vlURL;
-    std::optional<std::uint32_t> nid{};
+    std::optional<std::uint32_t> nid{};  // the other network's, none for 0
+
+    std::uint32_t
+    network() const
+    {
+        return nid.value_or(0);
+    }
+
     std::optional<std::pair<PublicKey, SecretKey>> account{};  // ingests from
     std::uint32_t ingestEvery = 64;
     std::atomic<bool> stop{false};
@@ -663,7 +673,7 @@ private:
         if (!cfg_.account || now < ingested_ + cfg_.ingestEvery)
             return;
         auto const view = app_.openLedger().current();
-        auto const fee = view->read(keylet::exportFee());
+        auto const fee = view->read(keylet::exportFee(cfg_.network()));
         auto const parent = ledgers_.find(l.info->parentHash);
         auto const acc =
             view->read(keylet::account(calcAccountID(cfg_.account->first)));
@@ -705,6 +715,7 @@ private:
             o[sfSequence] = (*acc)[sfSequence];
             o[sfFee] = XRPAmount{0};
             o[sfSigningPubKey] = cfg_.account->first.slice();
+            o[sfRemoteNetworkID] = cfg_.network();
             o[sfLedgerSequence] = l.seq;
             o[sfBlob] = makeSlice(blob);
             if (nid > 1024)
@@ -738,14 +749,16 @@ private:
     static constexpr std::size_t deferMax = 4096;
 
     // whether Import::preclaim would take it against `view` now
-    static bool
-    wanted(ReadView const& view, Candidate const& c)
+    bool
+    wanted(ReadView const& view, Candidate const& c) const
     {
-        auto const acc = view.read(keylet::account(c.account));
-        bool const exporter = acc && acc->isFlag(lsfExporter);
+        auto const nid = cfg_.network();
+        auto const ex = view.read(keylet::exporter(c.account, nid));
+        bool const exporter = ex && isExporter(*ex);
         if (c.ticket)
-            return view.exists(keylet::shadowTicket(c.account, *c.ticket)) ||
-                (exporter && ExportTickets::load(*acc).contains(*c.ticket));
+            return view.exists(
+                       keylet::shadowTicket(c.account, nid, *c.ticket)) ||
+                (exporter && ExportTickets::load(*ex).contains(*c.ticket));
         return exporter &&
             (c.type == ttTICKET_CREATE || c.type == ttSIGNER_LIST_SET);
     }
@@ -787,8 +800,9 @@ private:
             SerialIter st(makeSlice(tx));
             STTx const t(st);
             auto const view = app_.openLedger().current();
-            auto const acc = view->read(keylet::account(t[sfAccount]));
-            if (!acc || !acc->isFieldPresent(sfExportSignerList))
+            auto const ex =
+                view->read(keylet::exporter(t[sfAccount], cfg_.network()));
+            if (!ex || !ex->isFieldPresent(sfExportSignerList))
                 return;
 
             Candidate c{
@@ -847,13 +861,14 @@ private:
     static constexpr std::uint32_t resendEvery = 8;
     static constexpr std::uint32_t recoverDepth = 256;
 
-    static bool
-    waitedFor(ReadView const& view, Held const& h)
+    bool
+    waitedFor(ReadView const& view, Held const& h) const
     {
+        auto const nid = cfg_.network();
         if (h.ticket)
-            return view.exists(keylet::shadowTicket(h.owner, *h.ticket));
-        auto const acc = view.read(keylet::account(h.owner));
-        return acc && (*acc)[~sfExportTicketPending] == h.sequence;
+            return view.exists(keylet::shadowTicket(h.owner, nid, *h.ticket));
+        auto const ex = view.read(keylet::exporter(h.owner, nid));
+        return ex && (*ex)[~sfExportTicketPending] == h.sequence;
     }
 
     void
@@ -880,7 +895,8 @@ private:
         uint256 key;
         if (h.ticket)
         {
-            auto const st = keylet::shadowTicket(owner, *h.ticket);
+            auto const st =
+                keylet::shadowTicket(owner, cfg_.network(), *h.ticket);
             auto const sle = now.read(st);
             if (!sle || (*sle)[sfTransactionHash] != id)
                 return;
@@ -890,7 +906,7 @@ private:
         {
             if (h.sequence == 0 || !waitedFor(now, h))
                 return;
-            key = keylet::account(owner).key;
+            key = keylet::exporter(owner, cfg_.network()).key;
         }
         Serializer s;
         in.add(s);
@@ -919,6 +935,7 @@ private:
                     n.peekAtField(sfFinalFields).downcast<STObject>();
                 if (!ff.isFieldPresent(sfExportedTxn) ||
                     !ff.isFieldPresent(sfSignerEntries) ||
+                    ff[~sfRemoteNetworkID] != cfg_.network() ||
                     exportWeight(ff) < ff[~sfSignerQuorum].value_or(0))
                     continue;
                 hold(
@@ -956,7 +973,8 @@ private:
              k = *next)
         {
             auto const sle = l->read(Keylet{ltEXPORTED_TXN, *next});
-            if (!sle || exportWeight(*sle) < (*sle)[sfSignerQuorum])
+            if (!sle || (*sle)[sfRemoteNetworkID] != cfg_.network() ||
+                exportWeight(*sle) < (*sle)[sfSignerQuorum])
                 continue;
             hold(
                 *l,
@@ -1010,7 +1028,8 @@ public:
         {
             auto const seed = parseGenericSeed(*s);
             if (!seed)
-                Throw<std::runtime_error>("[xrpl_relay] account: not a seed");
+                Throw<std::runtime_error>(
+                    "[" + sec.name() + "] account: not a seed");
             cfg_.account = generateKeyPair(KeyType::secp256k1, *seed);
         }
         cfg_.ingestEvery =
@@ -1026,7 +1045,7 @@ public:
                 pin = parseBase58<PublicKey>(TokenType::NodePublic, key);
                 if (!pin)
                     Throw<std::runtime_error>(
-                        "[xrpl_relay] " + host + ": '" + key +
+                        "[" + sec.name() + "] " + host + ": '" + key +
                         "' is not a node public key");
             }
             threads_.emplace_back(
@@ -1042,15 +1061,29 @@ public:
     }
 };
 
+// one Relay per [export_relay*] section, each for its own network
+class Relays final : public ExportRelay
+{
+    std::vector<std::unique_ptr<Relay>> relays_;
+
+public:
+    explicit Relays(Application& app)
+    {
+        for (auto const& [name, sec] : app.config())
+            if (name == SECTION_EXPORT_RELAY ||
+                name.rfind(std::string(SECTION_EXPORT_RELAY) + "_", 0) == 0)
+                relays_.push_back(std::make_unique<Relay>(app, sec));
+    }
+};
+
 }  // namespace
 
 std::unique_ptr<ExportRelay>
 makeExportRelay(Application& app)
 {
-    if (app.config().standalone() || !app.config().exists(SECTION_XRPL_RELAY))
+    if (app.config().standalone())
         return nullptr;
-    return std::make_unique<Relay>(
-        app, app.config().section(SECTION_XRPL_RELAY));
+    return std::make_unique<Relays>(app);
 }
 
 }  // namespace ripple

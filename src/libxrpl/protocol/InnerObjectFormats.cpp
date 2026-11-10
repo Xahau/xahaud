@@ -141,6 +141,7 @@ InnerObjectFormats::InnerObjectFormats()
         {
             {sfPublicKey, soeREQUIRED},
             {sfAccount, soeOPTIONAL},
+            {sfRemoteNetworkID, soeOPTIONAL},
         });
 
     add(sfRandomDigestEntry.jsonName,

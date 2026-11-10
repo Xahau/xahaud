@@ -847,10 +847,12 @@ HookAPI::xport(Slice const& txBlob) const
 {
     Serializer s;
     std::optional<std::uint32_t> ticket;
+    std::uint32_t dest = 0;
     try
     {
         SerialIter sit{txBlob};
         STObject inner{sit, sfExportedTxn};
+        dest = Export::destination(inner);
         if (!inner.isFieldPresent(sfAccount))
             inner[sfAccount] = hookCtx.result.account;
         if (!inner.isFieldPresent(sfSigningPubKey))
@@ -888,28 +890,28 @@ HookAPI::xport(Slice const& txBlob) const
     if (!blob)
         return Unexpected(blob.error());
 
-    // The ticket is filled in from the pool when the export applies: tell the
-    // hook now if there is none it may have (the pool's last ticket is the
-    // ledger's, see Export::hookMayUse). A ticket of its own, outside the
-    // pool, is always the hook's to spend.
+    // The ticket is filled in from the pool on the destination network when
+    // the export applies: tell the hook now if there is none it may have
+    // (the pool's last ticket is the ledger's, see Export::hookMayUse). A
+    // ticket of its own, outside the pool, is always the hook's to spend.
     {
-        auto const acc = hookCtx.applyCtx.view().read(
-            keylet::account(hookCtx.result.account));
+        auto const ex = hookCtx.applyCtx.view().read(
+            keylet::exporter(hookCtx.result.account, dest));
         if (!Export::hookMayUse(
-                acc ? ExportTickets::load(*acc) : ExportTickets{}, ticket))
+                ex ? ExportTickets::load(*ex) : ExportTickets{}, ticket))
             return Unexpected(NO_TICKET);
     }
     return emit(makeSlice(*blob));
 }
 
 Expected<uint64_t, HookReturnCode>
-HookAPI::xport_tickets() const
+HookAPI::xport_tickets(std::uint32_t nid) const
 {
-    auto const acc =
-        hookCtx.applyCtx.view().read(keylet::account(hookCtx.result.account));
-    if (!acc)
+    auto const ex = hookCtx.applyCtx.view().read(
+        keylet::exporter(hookCtx.result.account, nid));
+    if (!ex)
         return Unexpected(DOESNT_EXIST);
-    return ExportTickets::load(*acc).count();
+    return ExportTickets::load(*ex).count();
 }
 
 Expected<uint64_t, HookReturnCode>

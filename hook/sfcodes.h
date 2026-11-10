@@ -74,6 +74,7 @@
 #define sfLockCount ((2U << 16U) + 49U)
 #define sfFirstNFTokenSequence ((2U << 16U) + 50U)
 #define sfOracleDocumentID ((2U << 16U) + 51U)
+#define sfRemoteNetworkID ((2U << 16U) + 85U)
 #define sfTransactionCount ((2U << 16U) + 86U)
 #define sfSampleFee ((2U << 16U) + 87U)
 #define sfExportFeeUnit ((2U << 16U) + 88U)

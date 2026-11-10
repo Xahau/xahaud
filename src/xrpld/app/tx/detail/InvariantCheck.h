@@ -753,6 +753,7 @@ class ValidExportTickets
     struct Change
     {
         AccountID account;
+        std::uint32_t nid;  // the network the tickets are held on
         std::shared_ptr<SLE const> before;
         std::shared_ptr<SLE const> after;
     };

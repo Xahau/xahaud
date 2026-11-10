@@ -43,6 +43,9 @@ isUnsigned(Json::Value const& v)
 
     Takes the usual ledger selectors, plus optional:
         account    the account, filled into tx_json
+        network_id the network the list is for (default 0, the XRPL); above
+                   1024 it is set as the transaction's NetworkID, which such
+                   networks require
         quorum     SignerQuorum (default: 80% of the signers, rounded up)
         as_of      ripple epoch seconds: each validator's newest export key
                    recorded at or before then (default: the current keys)
@@ -66,6 +69,11 @@ doExportSetup(RPC::JsonContext& context)
     auto const& params = context.params;
     if (params.isMember("as_of") && !isUnsigned(params["as_of"]))
         return RPC::invalid_field_error("as_of");
+    if (params.isMember(jss::network_id) &&
+        !isUnsigned(params[jss::network_id]))
+        return RPC::invalid_field_error(jss::network_id);
+    std::uint32_t const nid =
+        params.isMember(jss::network_id) ? params[jss::network_id].asUInt() : 0;
 
     std::optional<AccountID> account;
     if (params.isMember(jss::account) &&
@@ -105,6 +113,8 @@ doExportSetup(RPC::JsonContext& context)
         tx[jss::Account] = toBase58(*account);
     tx[sfSignerQuorum.jsonName] = quorum;
     tx[sfOperationLimit.jsonName] = context.app.config().NETWORK_ID;
+    if (nid > 1024)
+        tx[sfNetworkID.jsonName] = nid;
     Json::Value& entries = tx[sfSignerEntries.jsonName] = Json::arrayValue;
     Json::Value& list = result["signers"] = Json::arrayValue;
     for (auto const& s : signers)

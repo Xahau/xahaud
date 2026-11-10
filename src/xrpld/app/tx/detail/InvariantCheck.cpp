@@ -2099,10 +2099,14 @@ ValidExportTickets::visitEntry(
     auto const& any = after ? after : before;
     if (!any)
         return;
-    if (any->getType() == ltACCOUNT_ROOT &&
+    if (any->getType() == ltEXPORTER &&
         ((before && before->isFieldPresent(sfExportTickets)) ||
          (after && after->isFieldPresent(sfExportTickets))))
-        accounts_.push_back({any->getAccountID(sfAccount), before, after});
+        accounts_.push_back(
+            {any->getAccountID(sfAccount),
+             (*any)[sfRemoteNetworkID],
+             before,
+             after});
     // ApplyStateTable::visit hands an erased entry over as `after` too, so
     // only a shadow ticket the transaction leaves standing counts: the one a
     // below-quorum ttEXPORT_FINAL erases while returning its ticket must not
@@ -2121,7 +2125,7 @@ ValidExportTickets::finalize(
     if (!view.rules().enabled(featureExport) || !isTesSuccess(res))
         return true;
     auto const tt = tx.getTxnType();
-    for (auto const& [account, before, after] : accounts_)
+    for (auto const& [account, nid, before, after] : accounts_)
     {
         ExportTickets const b =
             before ? ExportTickets::load(*before) : ExportTickets{};
@@ -2154,6 +2158,7 @@ ValidExportTickets::finalize(
         }
         for (auto const& st : shadows_)
             if (st->getAccountID(sfAccount) == account &&
+                (*st)[sfRemoteNetworkID] == nid &&
                 a.contains((*st)[sfTicketSequence]))
             {
                 JLOG(j.fatal())
@@ -2168,7 +2173,7 @@ ValidExportTickets::finalize(
             for (auto const& r : a.ranges())
                 for (std::uint32_t t = r.first; t < r.first + r.count; ++t)
                     if (!b.contains(t) &&
-                        view.exists(keylet::shadowTicket(account, t)))
+                        view.exists(keylet::shadowTicket(account, nid, t)))
                     {
                         JLOG(j.fatal())
                             << "Invariant failed: ticket " << t << " of "

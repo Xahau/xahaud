@@ -97,6 +97,7 @@ enum class LedgerNameSpace : std::uint16_t {
     RANDOM = 0x526E,  // Rn
     EXPORTED_TXN = 'X',
     SHADOW_TICKET = 'Y',
+    EXPORTER = 'V',
     EXPORTER_DIR = LEDGER_NAMESPACE2(0x01, 'X'),
     EXPORT_FEE = 'Z',
 
@@ -719,11 +720,20 @@ exportedTxn(std::uint32_t seq, uint256 const& txid) noexcept
 }
 
 Keylet
-shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept
+shadowTicket(
+    AccountID const& account,
+    std::uint32_t nid,
+    std::uint32_t ticketSeq) noexcept
 {
     return {
         ltSHADOW_TICKET,
-        indexHash(LedgerNameSpace::SHADOW_TICKET, account, ticketSeq)};
+        indexHash(LedgerNameSpace::SHADOW_TICKET, account, nid, ticketSeq)};
+}
+
+Keylet
+exporter(AccountID const& account, std::uint32_t nid) noexcept
+{
+    return {ltEXPORTER, indexHash(LedgerNameSpace::EXPORTER, account, nid)};
 }
 
 Keylet const&
@@ -734,12 +744,10 @@ exporterDir() noexcept
     return ret;
 }
 
-Keylet const&
-exportFee() noexcept
+Keylet
+exportFee(std::uint32_t nid) noexcept
 {
-    static Keylet const ret{
-        ltEXPORT_FEE, indexHash(LedgerNameSpace::EXPORT_FEE)};
-    return ret;
+    return {ltEXPORT_FEE, indexHash(LedgerNameSpace::EXPORT_FEE, nid)};
 }
 
 }  // namespace keylet

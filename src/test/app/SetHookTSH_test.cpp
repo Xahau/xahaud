@@ -3190,7 +3190,7 @@ private:
                 ter(tesSUCCESS));
             env.close();
             {
-                auto const sle = env.le(alice);
+                auto const sle = env.le(keylet::exporter(alice.id(), 0));
                 BEAST_EXPECT(sle && sle->isFieldPresent(sfExportSignerList));
             }
 

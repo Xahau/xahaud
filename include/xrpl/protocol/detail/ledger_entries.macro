@@ -120,6 +120,7 @@ LEDGER_ENTRY(ltHOOK_DEFINITION, 'D', HookDefinition, hook_definition, ({
 */
 LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
     {sfOwner,                soeREQUIRED},
+    {sfRemoteNetworkID,      soeREQUIRED},
     {sfExportedTxn,          soeREQUIRED},
     {sfTransactionHash,      soeREQUIRED},
     {sfLedgerSequence,       soeREQUIRED},
@@ -139,6 +140,7 @@ LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
 */
 LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     {sfAccount,              soeREQUIRED},
+    {sfRemoteNetworkID,      soeREQUIRED},
     {sfTicketSequence,       soeREQUIRED},
     {sfTransactionHash,      soeREQUIRED},
     {sfEmitHookHash,         soeOPTIONAL},
@@ -147,15 +149,46 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
-/** featureExport: what transactions on the other network pay, as proven by
-    ttINGEST (see Ingest.h). A singleton. sfExportFeeUnit is the drops per
-    signature xport() fills in for a hook that sets no Fee; the rest
-    describes the latest ledger proven: its index, its transactions, the
-    drops they burned between them and the median unit sampled among them.
+/** featureExport: an account's standing on another network it exports to
+    (sfRemoteNetworkID), one per account and network: the signer list it
+    holds there, as last proven by an Import of its SignerListSet; the
+    tickets it holds unused there, as proven by Imports of its TicketCreates
+    (ExportTickets in Export.h); one past the highest ticket ever recorded;
+    its Sequence there, as last proven by an Import (the AccountRoot node of
+    every transaction's metadata carries it); the ticket, or for a sequenced
+    backstop the Sequence, of an automatic TicketCreate export still out;
+    the UNLReport.ExportKeysSeq its signer list was last refreshed to; and,
+    while the ledger acts for it there (an exporter), its page in
+    keylet::exporterDir().
+
+    \sa keylet::exporter
+*/
+LEDGER_ENTRY(ltEXPORTER, 'V', Exporter, exporter, ({
+    {sfAccount,              soeREQUIRED},
+    {sfRemoteNetworkID,      soeREQUIRED},
+    {sfExportSignerList,     soeOPTIONAL},
+    {sfExportTickets,        soeOPTIONAL},
+    {sfExportTicketNext,     soeOPTIONAL},
+    {sfExportSequence,       soeOPTIONAL},
+    {sfExportTicketPending,  soeOPTIONAL},
+    {sfExportKeysSeq,        soeOPTIONAL},
+    {sfExportNode,           soeOPTIONAL},
+    {sfOwnerNode,            soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+/** featureExport: what transactions on another network (sfRemoteNetworkID)
+    pay, as proven by ttINGEST (see Ingest.h), one per network.
+    sfExportFeeUnit is the drops per signature xport() fills in for a hook
+    that sets no Fee; the rest describes the latest ledger proven: its
+    index, its transactions, the drops they burned between them and the
+    median unit sampled among them.
 
     \sa keylet::exportFee
 */
 LEDGER_ENTRY(ltEXPORT_FEE, 'Z', ExportFee, export_fee, ({
+    {sfRemoteNetworkID,      soeREQUIRED},
     {sfExportFeeUnit,        soeREQUIRED},
     {sfLedgerSequence,       soeREQUIRED},
     {sfTransactionCount,     soeREQUIRED},
@@ -362,25 +395,9 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfAMMID,                soeOPTIONAL},
     {sfAppLoaderSequence,    soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
-    /* featureExport: a validator's export keys, newest first */
+    /* featureExport: a validator's export keys, newest first (what the
+       account holds on other networks is in ltEXPORTER, one per network) */
     {sfExportKeys,           soeOPTIONAL},
-    /* featureExport: the signer list this account holds on the network it
-       exports to, as last proven by an Import of its SignerListSet */
-    {sfExportSignerList,     soeOPTIONAL},
-    /* featureExport, exporters (lsfExporter): the tickets this account holds
-       unused on the network it exports to, as proven by Imports of its
-       TicketCreates (see ExportTickets in Export.h); one past the highest
-       ticket ever recorded; its Sequence there, as last proven by an Import
-       (the AccountRoot node of every transaction's metadata carries it);
-       the ticket, or for a sequenced backstop the Sequence, of an automatic
-       TicketCreate export still out; the UNLReport.ExportKeysSeq its signer
-       list was last refreshed to; its page in keylet::exporterDir() */
-    {sfExportTickets,        soeOPTIONAL},
-    {sfExportTicketNext,     soeOPTIONAL},
-    {sfExportSequence,       soeOPTIONAL},
-    {sfExportTicketPending,  soeOPTIONAL},
-    {sfExportKeysSeq,        soeOPTIONAL},
-    {sfExportNode,           soeOPTIONAL},
     {sfLastTxnTime,          soeOPTIONAL},
 }))
 

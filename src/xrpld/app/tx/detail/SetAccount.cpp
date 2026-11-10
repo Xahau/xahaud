@@ -28,6 +28,7 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/st.h>
+#include <algorithm>
 
 namespace ripple {
 
@@ -276,15 +277,22 @@ SetAccount::preclaim(PreclaimContext const& ctx)
 
     //
     // Exporter (featureExport): only an Import the account signs can make it
-    // one; this re-enables after asfExporter was cleared
+    // one somewhere; this re-enables, wherever it holds a list, after
+    // asfExporter was cleared
     //
-    if (ctx.view.rules().enabled(featureExport) && uSetFlag == asfExporter &&
-        (!sle->isFieldPresent(sfExportSignerList) ||
-         sle->peekAtField(sfExportSignerList)
-             .downcast<STObject>()
-             .getFieldArray(sfSignerEntries)
-             .empty()))
-        return tecNO_TARGET;
+    if (ctx.view.rules().enabled(featureExport) && uSetFlag == asfExporter)
+    {
+        auto const exporters = exportersOf(ctx.view, id);
+        if (std::none_of(
+                exporters.begin(), exporters.end(), [](auto const& ex) {
+                    return ex->isFieldPresent(sfExportSignerList) &&
+                        !ex->peekAtField(sfExportSignerList)
+                             .template downcast<STObject>()
+                             .getFieldArray(sfSignerEntries)
+                             .empty();
+                }))
+            return tecNO_TARGET;
+    }
 
     //
     // Clawback
@@ -747,13 +755,25 @@ SetAccount::doApply()
     if (uFlagsIn != uFlagsOut)
         sle->setFieldU32(sfFlags, uFlagsOut);
 
-    // Exporter (featureExport): keeps keylet::exporterDir() in step
+    // Exporter (featureExport): lists or unlists the account on every
+    // network it holds a record on, keeping keylet::exporterDir() in step
     if (ctx_.view().rules().enabled(featureExport) &&
         (uSetFlag == asfExporter || uClearFlag == asfExporter))
     {
-        if (auto const ter = setExporter(view(), sle, uSetFlag == asfExporter);
-            !isTesSuccess(ter))
-            return ter;
+        for (auto const& found : exportersOf(view(), account_))
+        {
+            auto const ex = view().peek(Keylet{ltEXPORTER, found->key()});
+            bool const on = uSetFlag == asfExporter &&
+                ex->isFieldPresent(sfExportSignerList) &&
+                !ex->peekAtField(sfExportSignerList)
+                     .downcast<STObject>()
+                     .getFieldArray(sfSignerEntries)
+                     .empty();
+            if (auto const ter = setExporter(view(), ex, on);
+                !isTesSuccess(ter))
+                return ter;
+            view().update(ex);
+        }
     }
 
     // HookStateScale

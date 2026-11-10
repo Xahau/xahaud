@@ -312,6 +312,6 @@ HOOK_API_DEFINITION(
   featureExport)
 
 HOOK_API_DEFINITION(
-  int64_t, xport_tickets, (),
+  int64_t, xport_tickets, (uint32_t network_id),
   featureExport)
 // clang-format on

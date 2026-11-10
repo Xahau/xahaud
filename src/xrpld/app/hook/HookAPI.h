@@ -359,7 +359,7 @@ public:
     // featureExport: how many tickets the hook account holds unused on the
     // other network, each good for one export
     Expected<uint64_t, HookReturnCode>
-    xport_tickets() const;
+    xport_tickets(std::uint32_t nid) const;
 
     Expected<uint64_t, HookReturnCode>
     etxn_burden() const;

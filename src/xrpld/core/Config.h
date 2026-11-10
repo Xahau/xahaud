@@ -154,6 +154,8 @@ public:
 
     std::map<std::string, PublicKey>
         IMPORT_VL_KEYS;  // hex string -> class PublicKey (for caching purposes)
+    std::map<std::string, std::uint32_t>
+        IMPORT_VL_NETWORKS;  // hex string -> the network its lists govern
 
     std::vector<std::string> DATAGRAM_MONITOR;
 

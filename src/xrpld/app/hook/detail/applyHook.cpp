@@ -2716,8 +2716,9 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-/* Export a transaction for the other network: wrap it in a ttEXPORT and emit
- * that. Writes the ttEXPORT's id. */
+/* Export a transaction for another network (its NetworkID, absent for XRPL;
+ * see Export.h): wrap it in a ttEXPORT and emit that. Writes the ttEXPORT's
+ * id. */
 DEFINE_HOOK_FUNCTION(
     int64_t,
     xport,
@@ -2747,13 +2748,14 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
-/* How many tickets the hook account holds unused on the other network */
-DEFINE_HOOK_FUNCTION(int64_t, xport_tickets)
+/* How many tickets the hook account holds unused on network `network_id` (0
+ * for XRPL) */
+DEFINE_HOOK_FUNCTION(int64_t, xport_tickets, uint32_t network_id)
 {
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    auto const res = api.xport_tickets();
+    auto const res = api.xport_tickets(network_id);
     if (!res)
         return res.error();
     return res.value();

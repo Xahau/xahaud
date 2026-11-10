@@ -117,6 +117,7 @@ TYPED_SFIELD(sfLockCount,                UINT32,    49)
 TYPED_SFIELD(sfFirstNFTokenSequence,     UINT32,    50)
 TYPED_SFIELD(sfOracleDocumentID,         UINT32,    51)
 
+TYPED_SFIELD(sfRemoteNetworkID,          UINT32,    85)
 TYPED_SFIELD(sfTransactionCount,         UINT32,    86)
 TYPED_SFIELD(sfSampleFee,                UINT32,    87)
 TYPED_SFIELD(sfExportFeeUnit,            UINT32,    88)

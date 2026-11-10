@@ -311,12 +311,6 @@ DeleteAccount::preclaim(PreclaimContext const& ctx)
         sleAccount->isFieldPresent(sfManifestID))
         return tecHAS_OBLIGATIONS;
 
-    // An exporter is listed in keylet::exporterDir() and the ledger acts for
-    // it on the other network. Clear asfExporter first (which unlists it).
-    if (ctx.view.rules().enabled(featureExport) &&
-        sleAccount->isFlag(lsfExporter))
-        return tecHAS_OBLIGATIONS;
-
     // The account of a UNLReport validator holds its export keys, and the
     // next ttGENESIS_MINT would re-create it with validatorFundingDrops:
     // deleting it would be minting. Off the UNLReport it may go.

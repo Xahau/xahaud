@@ -30,7 +30,8 @@ namespace ripple {
 /** Ingest: what transactions on the other network pay, proven (featureExport).
 
     An XPOF (proof of fees) is an XPOP without a transaction: the header of
-    an XRPL ledger and its parent, the UNL and validations that prove it, and
+    a ledger of another network and its parent, the UNL and validations that
+    prove it, and
     its transaction tree down to the leaves — every inner node, but of the
     leaves only the hashes. Nothing about any one transaction is recorded.
 
@@ -54,8 +55,13 @@ namespace ripple {
     unit as each newer ledger arrives, by eighths, never below
     Export::xrplBaseFee. A hook that sets its own Fee is left alone.
 
-    Who pays. An entry for an XRPL ledger newer than the recorded one is
-    free; one for the same ledger with more leaves pays the base fee. */
+    Who pays. An entry for a ledger newer than the one recorded for its
+    network is free; one for the same ledger with more leaves pays the base
+    fee.
+
+    Networks. sfRemoteNetworkID names the network the ledger belongs to;
+    the list that proves it must be one Import trusts for that network
+    (Import::vlNetwork), and each network has an ltEXPORT_FEE of its own. */
 class Ingest : public Transactor
 {
 public:

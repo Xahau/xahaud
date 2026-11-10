@@ -276,6 +276,15 @@ private:
     }
 
     void
+    testExporter(FeatureBitset const& features)
+    {
+        testcase("Exporter");
+        // created by an Import recording the account's signer list on
+        // another network, which a hook can not forge; covered by Export_test
+        pass();
+    }
+
+    void
     testExportFee(FeatureBitset const& features)
     {
         testcase("ExportFee");

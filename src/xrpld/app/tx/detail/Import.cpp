@@ -296,9 +296,9 @@ Import::preflight(PreflightContext const& ctx)
 
     // A loopback Import (Sequence 0 by an existing account) brings an
     // exporter's activity on the other network back: an export coming back,
-    // which can only be a ticketed txn, or (lsfExporter) a TicketCreate or
-    // SignerListSet of theirs. It is authorised by the ledger (preclaim), not
-    // by the outer signature: nobody could co-sign an export with the UNL's
+    // which can only be a ticketed txn, or (an exporter there) a TicketCreate
+    // or SignerListSet of theirs. It is authorised by the ledger (preclaim),
+    // not by the outer signature: nobody could co-sign an export with the UNL's
     // keys, so anyone may relay it. The XRPL fee the inner txn burned paid
     // for it, so it is free and uses no sequence here.
     // A first Import also has Sequence 0 (there is no account yet), so the
@@ -1022,6 +1022,25 @@ Import::preclaim(PreclaimContext const& ctx)
 
     auto const& sle = ctx.view.read(keylet::account(ctx.tx[sfAccount]));
 
+    // featureExport: the network this comes from, by the list that proves it
+    // (an unknown list is refused below, as before); the account's standing
+    // there; and whether the ledger acts for it there. Only an exporter's
+    // activity returns from a network other than XRPL: first imports and
+    // the imports an account signs to bring its keys over are XRPL's.
+    bool const loopback = sle && isLoopback(ctx.view.rules(), ctx.tx);
+    auto const net =
+        vlNetwork(
+            ctx.app.config(),
+            ctx.view,
+            (*xpop)[jss::validation][jss::unl][jss::public_key].asString())
+            .value_or(0);
+    if (net != 0 && !loopback)
+        return telIMPORT_VL_KEY_NOT_RECOGNISED;
+    auto const ex = ctx.view.rules().enabled(featureExport)
+        ? ctx.view.read(keylet::exporter(ctx.tx[sfAccount], net))
+        : nullptr;
+    bool const exporter = ex && isExporter(*ex);
+
     auto const tt = stpTrans->getTxnType();
     if ((tt == ttSIGNER_LIST_SET || tt == ttREGULAR_KEY_SET) &&
         ctx.view.rules().enabled(fixReduceImport) && sle)
@@ -1064,12 +1083,12 @@ Import::preclaim(PreclaimContext const& ctx)
     {
         // an export coming back, or (exporters) any transaction there that
         // used a ticket the ledger still holds as unused
-        if (!ctx.view.exists(keylet::shadowTicket(ctx.tx[sfAccount], *t)) &&
-            !(sle && sle->isFlag(lsfExporter) &&
-              ExportTickets::load(*sle).contains(*t)))
+        if (!ctx.view.exists(
+                keylet::shadowTicket(ctx.tx[sfAccount], net, *t)) &&
+            !(exporter && ExportTickets::load(*ex).contains(*t)))
             return tefNO_TICKET;
     }
-    else if (sle && isLoopback(ctx.view.rules(), ctx.tx))
+    else if (loopback)
     {
         // A sync import: only an exporter's TicketCreate or SignerListSet,
         // and only one that records something the ledger has not yet: the
@@ -1079,30 +1098,29 @@ Import::preclaim(PreclaimContext const& ctx)
         // and uses no sequence, so one recording nothing could otherwise be
         // re-imported under a new outer key without end; each of the three
         // records only moves forward, so none can be imported twice.
-        if (!sle->isFlag(lsfExporter))
+        if (!exporter)
             return tefPAST_SEQ;
         if (ctx.tx.getFieldAmount(sfFee) != beast::zero)
             return temBAD_FEE;
-        auto const tt = stpTrans->getTxnType();
         if (tt != ttTICKET_CREATE && tt != ttSIGNER_LIST_SET)
             return tefPAST_SEQ;
         bool records = sequenceThere(*meta, ctx.tx[sfAccount]) >
-            (*sle)[~sfExportSequence].value_or(0);
+            (*ex)[~sfExportSequence].value_or(0);
         if (isTesSuccess(meta->getFieldU8(sfTransactionResult)))
         {
             if (tt == ttTICKET_CREATE)
                 records |= stpTrans->getFieldU32(sfSequence) + 1 >=
-                    (*sle)[~sfExportTicketNext].value_or(0);
+                    (*ex)[~sfExportTicketNext].value_or(0);
             else
             {
                 std::pair const at{
                     (*xpop)[jss::ledger][jss::index].asUInt(),
                     (*meta)[~sfTransactionIndex].value_or(0)};
-                if (!sle->isFieldPresent(sfExportSignerList))
+                if (!ex->isFieldPresent(sfExportSignerList))
                     records = true;
                 else
                 {
-                    auto const& old = sle->peekAtField(sfExportSignerList)
+                    auto const& old = ex->peekAtField(sfExportSignerList)
                                           .downcast<STObject>();
                     records |= std::pair{
                                    old[sfLedgerSequence],
@@ -1159,34 +1177,37 @@ Import::preclaim(PreclaimContext const& ctx)
     }
 
     // check master VL key
-    std::string strPk =
-        (*xpop)[jss::validation][jss::unl][jss::public_key].asString();
-
-    if (auto const& found = ctx.app.config().IMPORT_VL_KEYS.find(strPk);
-        found != ctx.app.config().IMPORT_VL_KEYS.end())
-        return tesSUCCESS;
-
-    auto pkHex = strUnHex(strPk);
-    if (!pkHex)
-        return tefINTERNAL;
-
-    auto const pkType = publicKeyType(makeSlice(*pkHex));
-    if (!pkType)
-        return tefINTERNAL;
-
-    PublicKey const pk(makeSlice(*pkHex));
-
-    // check on ledger
-    if (auto const unlRep = ctx.view.read(keylet::UNLReport()); unlRep)
+    if (!vlNetwork(
+            ctx.app.config(),
+            ctx.view,
+            (*xpop)[jss::validation][jss::unl][jss::public_key].asString()))
     {
-        auto const& vlKeys = unlRep->getFieldArray(sfImportVLKeys);
-        for (auto const& k : vlKeys)
-            if (PublicKey(k[sfPublicKey]) == pk)
-                return tesSUCCESS;
+        JLOG(ctx.j.warn()) << "Import: import vl key not recognized, bailing.";
+        return telIMPORT_VL_KEY_NOT_RECOGNISED;
     }
+    return tesSUCCESS;
+}
 
-    JLOG(ctx.j.warn()) << "Import: import vl key not recognized, bailing.";
-    return telIMPORT_VL_KEY_NOT_RECOGNISED;
+std::optional<std::uint32_t>
+Import::vlNetwork(
+    Config const& config,
+    ReadView const& view,
+    std::string const& pkHex)
+{
+    if (config.IMPORT_VL_KEYS.count(pkHex))
+    {
+        auto const n = config.IMPORT_VL_NETWORKS.find(pkHex);
+        return n == config.IMPORT_VL_NETWORKS.end() ? 0 : n->second;
+    }
+    auto const raw = strUnHex(pkHex);
+    if (!raw || !publicKeyType(makeSlice(*raw)))
+        return std::nullopt;
+    PublicKey const pk(makeSlice(*raw));
+    if (auto const unl = view.read(keylet::UNLReport()))
+        for (auto const& k : unl->getFieldArray(sfImportVLKeys))
+            if (PublicKey(k[sfPublicKey]) == pk)
+                return k[~sfRemoteNetworkID].value_or(0);
+    return std::nullopt;
 }
 
 void
@@ -1446,6 +1467,17 @@ Import::doApply()
     // the XRPL fee it burned paid for it, so it mints nothing, uses no
     // sequence, installs no keys and runs hooks only as a collect call
     bool const loopback = sle && isLoopback(view().rules(), ctx_.tx);
+    // the network it comes from (preclaim refused an unknown list) and the
+    // account's standing there, made below if a signer list is recorded
+    auto const net =
+        vlNetwork(
+            ctx_.app.config(),
+            view(),
+            (*xpop)[jss::validation][jss::unl][jss::public_key].asString())
+            .value_or(0);
+    auto ex = view().rules().enabled(featureExport)
+        ? view().peek(keylet::exporter(id, net))
+        : nullptr;
 
     // A loopback never touches sfImportSequence: preclaim replay-protects it
     // by the ledger's own records (shadow ticket, sfExportTicketNext,
@@ -1559,13 +1591,18 @@ Import::doApply()
         std::pair const at{
             (*xpop)[jss::ledger][jss::index].asUInt(),
             (*meta)[~sfTransactionIndex].value_or(0)};
-        auto const old = sle->isFieldPresent(sfExportSignerList)
-            ? &sle->peekAtField(sfExportSignerList).downcast<STObject>()
+        auto const old = ex && ex->isFieldPresent(sfExportSignerList)
+            ? &ex->peekAtField(sfExportSignerList).downcast<STObject>()
             : nullptr;
         if (!old ||
             std::pair{(*old)[sfLedgerSequence], (*old)[sfTransactionIndex]} <
                 at)
         {
+            bool const had = ex != nullptr;
+            if (!ex)
+                ex = exporterOf(view(), sle, net, ctx_.journal);
+            if (!ex)
+                return tecDIR_FULL;
             // A SignerListSet without entries deletes the list there. It is
             // recorded as an empty list rather than removed, so the position
             // (ledger, index) stays and an older SignerListSet imported later
@@ -1580,7 +1617,7 @@ Import::doApply()
                     : STArray(sfSignerEntries));
             l[sfLedgerSequence] = at.first;
             l[sfTransactionIndex] = at.second;
-            sle->peekFieldObject(sfExportSignerList) = std::move(l);
+            ex->peekFieldObject(sfExportSignerList) = std::move(l);
             // Signed by the account and listing the UNL's export keys: it
             // is now an exporter, and the ledger keeps its tickets and list
             // in step from here on. A list of the account's own keys is
@@ -1592,28 +1629,32 @@ Import::doApply()
                 listsExportKey(
                     view(), stpTrans->getFieldArray(sfSignerEntries)))
             {
-                if (auto const ter = setExporter(view(), sle, true);
+                if (auto const ter = setExporter(view(), ex, true);
                     !isTesSuccess(ter))
                     return ter;
             }
+            if (had)
+                view().update(ex);
+            else
+                view().insert(ex);
         }
     }
 
     // featureExport, exporters: the tickets this account holds unused
     // there, its Sequence there, and whether its refill is still out
-    if (view().rules().enabled(featureExport) && sle->isFlag(lsfExporter))
+    if (ex && isExporter(*ex))
     {
-        auto tickets = ExportTickets::load(*sle);
+        auto tickets = ExportTickets::load(*ex);
         std::uint32_t sequence = std::max(
-            (*sle)[~sfExportSequence].value_or(0), sequenceThere(*meta, id));
+            (*ex)[~sfExportSequence].value_or(0), sequenceThere(*meta, id));
         if (ticket)
             tickets.remove(*ticket);
         // the automatic TicketCreate that was out came back, whether it
         // made its tickets or not: by its ticket, or (the backstop of an
         // empty pool) by the Sequence it was sent with
-        if ((*sle)[~sfExportTicketPending] ==
+        if ((*ex)[~sfExportTicketPending] ==
             ticket.value_or(stpTrans->getFieldU32(sfSequence)))
-            sle->makeFieldAbsent(sfExportTicketPending);
+            ex->makeFieldAbsent(sfExportTicketPending);
         if (stpTrans->getTxnType() == ttTICKET_CREATE &&
             isTesSuccess(meta->getFieldU8(sfTransactionResult)))
         {
@@ -1635,23 +1676,24 @@ Import::doApply()
                         hi = std::max(hi, *t);
                     }
                 }
-            auto const next = (*sle)[~sfExportTicketNext].value_or(0);
+            auto const next = (*ex)[~sfExportTicketNext].value_or(0);
             if (lo != 0 && hi >= next)
             {
                 // never below the high-water mark: a replay of an older
                 // TicketCreate must not revive consumed tickets
                 lo = std::max(lo, next);
                 tickets.add(lo, hi - lo + 1);
-                sle->setFieldU32(sfExportTicketNext, hi + 1);
+                ex->setFieldU32(sfExportTicketNext, hi + 1);
                 // tickets are taken from the sequence there, so it is past
                 // the last one made (a lower bound, should the metadata
                 // not carry the account root)
                 sequence = std::max(sequence, hi + 1);
             }
         }
-        tickets.store(*sle);
+        tickets.store(*ex);
         if (sequence != 0)
-            sle->setFieldU32(sfExportSequence, sequence);
+            ex->setFieldU32(sfExportSequence, sequence);
+        view().update(ex);
     }
 
     if (create)
@@ -1669,7 +1711,7 @@ Import::doApply()
     bool shadow = false;
     if (ticket)
     {
-        auto const k = keylet::shadowTicket(id, *ticket);
+        auto const k = keylet::shadowTicket(id, net, *ticket);
         if (auto const st = view().peek(k))
         {
             if (!view().dirRemove(

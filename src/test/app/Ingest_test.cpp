@@ -263,6 +263,7 @@ class Ingest_test : public beast::unit_test::suite
         Json::Value jv;
         jv[jss::TransactionType] = "Ingest";
         jv[jss::Account] = from.human();
+        jv[sfRemoteNetworkID.jsonName] = 0;
         jv[sfLedgerSequence.jsonName] = seq;
         jv[jss::Blob] = strHex(xpof);
         if (fee)
@@ -296,7 +297,7 @@ class Ingest_test : public beast::unit_test::suite
         genesis.drops = XRPAmount{99'999'999'999'999'000LL};
         auto const l1 = other.ledger(genesis, closeTime, fees);
         BEAST_EXPECT(l1.inner.size() > 1 && l1.leaves.size() == 40);
-        auto const feeObj = [&] { return env.le(keylet::exportFee()); };
+        auto const feeObj = [&] { return env.le(keylet::exportFee(0)); };
 
         // an incomplete tree: one inner node left out that no sample path
         // crosses. It counts fewer leaves and still proves, for free.

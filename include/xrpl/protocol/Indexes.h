@@ -402,17 +402,24 @@ manifestDir() noexcept;
 Keylet
 exportedTxn(std::uint32_t seq, uint256 const& txid) noexcept;
 
-/** The shadow ticket for an export using `ticketSeq` on the other network. */
+/** The shadow ticket for an export using `ticketSeq` on network `nid`. */
 Keylet
-shadowTicket(AccountID const& account, std::uint32_t ticketSeq) noexcept;
+shadowTicket(
+    AccountID const& account,
+    std::uint32_t nid,
+    std::uint32_t ticketSeq) noexcept;
 
-/** The directory of exporter accounts (lsfExporter), by account keylet. */
+/** An account's standing on network `nid` (ltEXPORTER, see Export.h). */
+Keylet
+exporter(AccountID const& account, std::uint32_t nid) noexcept;
+
+/** The directory of exporters (ltEXPORTER keys the ledger acts for). */
 Keylet const&
 exporterDir() noexcept;
 
-/** What transactions on the other network pay (ltEXPORT_FEE, Ingest.h). */
-Keylet const&
-exportFee() noexcept;
+/** What transactions on network `nid` pay (ltEXPORT_FEE, Ingest.h). */
+Keylet
+exportFee(std::uint32_t nid) noexcept;
 
 }  // namespace keylet
 
