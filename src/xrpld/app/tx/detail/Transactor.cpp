@@ -132,32 +132,7 @@ preflight1(PreflightContext const& ctx)
         // absurd Time from being held and retried as terPRE_SEQ.
         if (*time > jsontx_max_time)
             return temMALFORMED;
-
-        // These already pin Sequence to 0 for reasons of their own - a first
-        // Import creates its account, a manifest is derived from the
-        // manifest alone - so an sfTime would silently reinterpret them as
-        // time-sequenced.
-        if (ctx.tx.getTxnType() == ttIMPORT ||
-            ctx.tx.getTxnType() == ttMANIFEST_SET)
-            return temMALFORMED;
     }
-
-    // MPTokenIssuanceCreate and PermissionedDomainSet key the object they
-    // create by the raw sequence value, (sequence, account). Every other
-    // creator goes through seqID(), which falls back to the transaction id
-    // when the SeqProxy is sequence(0) - an emitted or a time-sequenced
-    // transaction - but these two ids are fixed formats with no room for one.
-    // Two such transactions from one account would name the same object,
-    // and inserting over an existing key is a LogicError on every node that
-    // builds the ledger. So they need a real Sequence or a Ticket.
-    //
-    // This needs no amendment gate: MPTokensV1 and PermissionedDomains are
-    // both Supported::no, so neither transaction type has ever reached a
-    // ledger on any network, and there is no prior behaviour to preserve.
-    if ((ctx.tx.getTxnType() == ttMPTOKEN_ISSUANCE_CREATE ||
-         ctx.tx.getTxnType() == ttPERMISSIONED_DOMAIN_SET) &&
-        ctx.tx.getSeqProxy() == SeqProxy::sequence(0))
-        return temBAD_SEQUENCE;
 
     auto const ret = preflight0(ctx);
     if (!isTesSuccess(ret))
