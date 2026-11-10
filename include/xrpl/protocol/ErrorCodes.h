@@ -157,7 +157,11 @@ enum error_code_i {
     // Simulate
     rpcTX_SIGNED = 97,
 
-    rpcLAST = rpcTX_SIGNED  // rpcLAST should always equal the last code.
+    // account_by_index
+    rpcACT_INDEX_BUILDING = 98,
+
+    // rpcLAST should always equal the last code.
+    rpcLAST = rpcACT_INDEX_BUILDING
 };
 
 /** Codes returned in the `warnings` array of certain RPC commands.

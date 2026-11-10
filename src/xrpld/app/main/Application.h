@@ -52,6 +52,7 @@ class PerfLog;
 }
 
 // VFALCO TODO Fix forward declares required for header dependency loops
+class AccountIndexer;
 class AmendmentTable;
 
 template <
@@ -218,6 +219,8 @@ public:
     getLedgerMaster() = 0;
     virtual LedgerCleaner&
     getLedgerCleaner() = 0;
+    virtual AccountIndexer&
+    getAccountIndexer() = 0;
     virtual LedgerReplayer&
     getLedgerReplayer() = 0;
     virtual NetworkOPs&
