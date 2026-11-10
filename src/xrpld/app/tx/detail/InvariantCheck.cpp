@@ -280,10 +280,15 @@ XRPNotCreated::finalize(
     }
 
     // featureExport: an automatic export is paid by its owner, which
-    // Export::createExport debits and destroys; the pseudo-txn itself is free
+    // Export::createExport debits and destroys; the pseudo-txn itself is
+    // free. The fee is the destination network's, named by the inner
+    // transaction as every export's is.
     if (view.rules().enabled(featureExport) && tt == ttEXPORT_AUTO &&
         isTesSuccess(res))
-        return -drops_ == Export::autoFee(view, tx[sfOwner]).drops();
+    {
+        auto const nid = Export::destination(tx.getFieldObject(sfExportedTxn));
+        return -drops_ == Export::autoFee(view, tx[sfOwner], nid).drops();
+    }
 
     // The net change should never be positive, as this would mean that the
     // transaction created XRP out of thin air. That's not possible.
