@@ -157,6 +157,9 @@ TrafficCount::categorize(
     if (type == protocol::mtTRANSACTIONS)
         return TrafficCount::category::requested_transactions;
 
+    if (type == protocol::mtENTROPY_SET)
+        return TrafficCount::category::entropy_set;
+
     return TrafficCount::category::unknown;
 }
 

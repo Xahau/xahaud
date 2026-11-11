@@ -27,6 +27,7 @@ enum MessageType
     mtREPLAY_DELTA_RESPONSE     = 60;
     mtHAVE_TRANSACTIONS         = 63;
     mtTRANSACTIONS              = 64;
+    mtENTROPY_SET               = 65;
 }
 
 // token, iterations, target, challenge = issue demand for proof of work
@@ -179,6 +180,18 @@ message TMHaveTransactionSet
 {
     required TxSetStatus status     = 1;
     required bytes hash             = 2;
+}
+
+// featureRNG: every ttENTROPY pseudo-transaction in one of a validator's
+// positions, so that a server holding the rest of that position's transactions
+// can build the transaction set without requesting it.
+message TMEntropySet
+{
+    required bytes previousLedger       = 1;
+    required bytes setHash              = 2;    // the transaction set the position names
+    repeated bytes transactions         = 3;    // serialized, ordered by transaction ID
+    required bytes nodePubKey           = 4;
+    required bytes signature            = 5;    // of the fields above
 }
 
 // Validator list (UNL)
