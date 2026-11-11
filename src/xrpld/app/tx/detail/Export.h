@@ -58,8 +58,14 @@ class ValidatorKeys;
     (keylet::exporter(account, nid)). It becomes an exporter there (listed in
     keylet::exporterDir()) when an Import it signs records its signer list on
     that network (sfExportSignerList): the one Import an operator sends by
-    hand. From then on the ledger keeps four things in step for it, and a
-    hook needs to track none of them:
+    hand. Only a list that is one of ours (listsExportKey: it names an
+    export key, current or past, of a UNLReport validator) makes an
+    exporter. A list recorded later that is not, the owner's own keys or
+    none at all, unlists the record again, as does an export closing below
+    quorum under such a list: the ledger cannot sign for it, so it stops
+    exporting for it rather than try for ever. asfExporter lists it again
+    once the list there is ours. From then on the ledger keeps four things
+    in step for it, and a hook needs to track none of them:
 
       - sfExportSignerList, as last proven by an Import of its SignerListSet.
       - sfExportTickets, the tickets it holds unused there, as proven by
@@ -100,9 +106,10 @@ class ValidatorKeys;
        and flags the other network accepts on it; NOT_EXPORTABLE otherwise).
        Account, SigningPubKey, Sequence (0) and OperationLimit are filled in
        at emission; TicketSequence (the lowest ticket of the smallest range
-       in sfExportTickets) and Fee ((signers + 1) x the unit ltEXPORT_FEE
-       holds, see Ingest.h) when the ttEXPORT applies, unless the hook set
-       them.
+       in sfExportTickets), Fee ((signers + 1) x the unit ltEXPORT_FEE
+       holds, see Ingest.h) and LastLedgerSequence (`expiry` past the ledger
+       ltEXPORT_FEE last recorded for that network; none while nothing has
+       been recorded) when the ttEXPORT applies, unless the hook set them.
        Applying it copies sfExportSignerList into a new ltEXPORTED_TXN and
        writes an ltSHADOW_TICKET: the XPOP of whichever transaction uses that
        ticket there can be imported once, calling the hook back. A ticket is
@@ -121,14 +128,48 @@ class ValidatorKeys;
     4. The XPOP of the transaction that used the ticket there is imported
        here by anyone: free, consuming no sequence and running none of the
        account's hooks, it consumes the shadow ticket.
+    5. An export with a LastLedgerSequence that has not come back by the
+       time a ledger `expiryGrace` past it is proven for that network
+       (ttINGEST) is expired: a ttEXPORT_FINAL naming its shadow ticket
+       erases it, returns the ticket to the pool and calls the hook back as
+       failed. The other network refuses the transaction from that ledger
+       on, so nothing is left waiting on it and no export stays stuck.
+       (The ledger's own automatic exports carry no LastLedgerSequence:
+       they are resent until they land.)
 
     Callbacks. A hook hears of its export as it would of an emitted txn, by
     cbak, once: what == 2 when the Import of step 4 lands (xpop_slot() gives
     the transaction there and its meta, which may be another transaction that
-    used the same ticket), or what == 1 if the export closes below quorum in
-    step 3 or fails to apply. A transaction the other network rejects outright
-    never comes back, so no callback follows; its ticket is still there, and
-    relays keep resubmitting while it is.
+    used the same ticket), or what == 1 if the export fails to apply, closes
+    below quorum in step 3 or expires in step 5 (the otxn is then the
+    ttEXPORT_FINAL, which carries sfLedgerIndex only when it is an expiry).
+    A transaction the other network rejects outright never comes back; it
+    expires instead, unless it has no LastLedgerSequence (the hook removed
+    it, or nothing was known of that network's ledger yet), in which case
+    its ticket stays and relays keep resubmitting.
+    What what == 1 proves. After an expiry: that the transaction can no
+    longer be included there, and that its result had not been imported
+    `expiryGrace` ledgers after it last could have been. That is the ledger
+    saying it failed; the one thing it cannot rule out is a transaction that
+    did land in time and whose XPOP no relay brought back within that grace
+    (it can still be imported afterwards, but the hook is not called again).
+    After a close below quorum: only that the ledger did not gather a quorum
+    on-ledger. Signatures are public as soon as they are proposed, including
+    any that reached no ledger before the window closed, so until its
+    LastLedgerSequence has passed there the transaction could still be
+    assembled and submitted by someone else.
+
+    The account there. Export is one way to act for the account on the other
+    network, not the only one. The signer list hands it to the UNL's export
+    keys at quorum, but nothing here disables or even sees the account's
+    master key or regular key there: whoever holds them can still send
+    transactions for it outside any export, spend tickets the ledger counts
+    as pooled, or replace the signer list. The ledger learns of a
+    TicketCreate, a SignerListSet or a pooled ticket spent that way when it
+    is imported, and of nothing else. Whether those keys should be disabled
+    there (asfDisableMaster, no regular key) is the account holder's
+    decision and depends on what the hook is trusted with; export_setup says
+    so too.
 */
 class Export : public Transactor
 {
@@ -157,6 +198,26 @@ public:
         transactions there actually pay (ltEXPORT_FEE, see Ingest.h). A hook
         that sets its own Fee is left alone. */
     static constexpr XRPAmount xrplBaseFee{10};
+
+    /** A hook's export that sets no LastLedgerSequence is given one this
+        many ledgers past the ledger last proven for its network
+        (ltEXPORT_FEE.sfLedgerSequence, kept current by ttINGEST), if any
+        has been: long enough for the signing window, the relay and an
+        ingest_every of lag in that record. */
+    static constexpr std::uint32_t expiry = 256;
+
+    /** An export with a LastLedgerSequence is declared failed once a ledger
+        this many past it has been proven for its network and its result
+        has not been imported: the time relays are given to bring back a
+        result from a ledger at or before the LastLedgerSequence. */
+    static constexpr std::uint32_t expiryGrace = 32;
+
+    /** The most exports with a LastLedgerSequence one account may have out
+        on one network (the size of its ltEXPORTER's sfIndexes) */
+    static constexpr std::size_t maxExpiring = 256;
+
+    /** The most exports of one exporter expired in one ledger */
+    static constexpr std::size_t maxExpirePerSlot = 16;
 
     /** The network an export is for: the NetworkID of the transaction the
         hook supplied, absent meaning XRPL (see the class comment) */
@@ -329,12 +390,29 @@ private:
     std::vector<Range> ranges_;
 };
 
-/** Whether `entries` lists the account of any UNLReport validator's export
-    key. Importing such a SignerListSet records it as the account's list
-    there but never installs it here, as that would let the UNL sign for
-    the account on this network. */
+/** Whether a signer list is "one of ours": whether `entries` lists the
+    account of any export key, current or past (everything still in
+    sfExportKeys), of any UNLReport validator. Importing such a
+    SignerListSet records it as the account's list there but never installs
+    it here, as that would let the UNL sign for the account on this network.
+    A list that is not ours is the owner's own: the ledger cannot sign for
+    it, so the record is not (or no longer) listed as an exporter. */
 bool
 listsExportKey(ReadView const& view, STArray const& entries);
+
+/** Whether the UNLReport's validators are all there in `view`. The first
+    validator report of a ledger resets the list and the rest refill it, so
+    part-way through such a ledger a key that is not found may only be not
+    found yet: nothing is concluded from its absence then (no record is
+    unlisted, no signer list is built from it). */
+bool
+exportKeysSettled(ReadView const& view);
+
+/** Stop looking for the shadow ticket `key` among the exports of the
+    ltEXPORTER `ex` that may expire (sfIndexes). True if it was there; `ex`
+    is then updated by the caller. */
+bool
+untrackExpiry(SLE& ex, uint256 const& key);
 
 /** The weight of the signatures an export has gathered: an ltEXPORTED_TXN,
     or the FinalFields its ttEXPORT_FINAL left in its DeletedNode */

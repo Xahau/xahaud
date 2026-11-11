@@ -1584,6 +1584,7 @@ Import::doApply()
 
     // featureExport: remember the signer list the account now holds there,
     // unless a later SignerListSet (by ledger, then index) was already seen
+    bool notOurs = false;
     if (view().rules().enabled(featureExport) &&
         stpTrans->getTxnType() == ttSIGNER_LIST_SET &&
         isTesSuccess(meta->getFieldU8(sfTransactionResult)))
@@ -1625,13 +1626,38 @@ Import::doApply()
             // on record) but makes it no exporter: the ledger would export
             // for it, pay fan-out fees from it and close every export below
             // quorum, since nobody holds its keys.
-            if (!loopback && stpTrans->isFieldPresent(sfSignerEntries) &&
-                listsExportKey(
-                    view(), stpTrans->getFieldArray(sfSignerEntries)))
+            // One of ours or not (listsExportKey): a list naming no export
+            // key of the UNL, current or past, is the owner's own, or none
+            // at all. Nobody here can sign for it, so a record that was
+            // listed is unlisted below, once this Import's own ticket and
+            // Sequence are recorded: no more automatic exports for it, nor
+            // their fees. However the list got there, by the account's key
+            // or by an export of its hook.
+            bool const ours = stpTrans->isFieldPresent(sfSignerEntries) &&
+                listsExportKey(view(),
+                               stpTrans->getFieldArray(sfSignerEntries));
+            // (nothing is concluded from a key not being found while the
+            // UNLReport is being rebuilt: see exportKeysSettled)
+            notOurs = !ours && exportKeysSettled(view());
+            if (ours && !loopback)
             {
                 if (auto const ter = setExporter(view(), ex, true);
                     !isTesSuccess(ter))
                     return ter;
+                // The first time, the ticket watermark starts at the
+                // account's Sequence there: every ticket a TicketCreate made
+                // before now is numbered below it, and whether any of them
+                // is still unused there the ledger cannot know. Without
+                // this a stranger could sync-import such an old TicketCreate
+                // and pool tickets long since spent, for exports to be
+                // drawn on and never return. The backstop makes the first
+                // batch from this Sequence (see Export.h).
+                if (!ex->isFieldPresent(sfExportTicketNext))
+                    ex->setFieldU32(
+                        sfExportTicketNext,
+                        std::max(
+                            sequenceThere(*meta, id),
+                            stpTrans->getFieldU32(sfSequence) + 1));
             }
             if (had)
                 view().update(ex);
@@ -1693,6 +1719,12 @@ Import::doApply()
         tickets.store(*ex);
         if (sequence != 0)
             ex->setFieldU32(sfExportSequence, sequence);
+        if (notOurs)
+        {
+            if (auto const ter = setExporter(view(), ex, false);
+                !isTesSuccess(ter))
+                return ter;
+        }
         view().update(ex);
     }
 
@@ -1722,6 +1754,9 @@ Import::doApply()
                 callback_ = HookCallback{id, (*st)[sfEmitHookHash], 2};
             view().erase(st);
             adjustOwnerCount(view(), sle, -1, ctx_.journal);
+            // it came back, so it is no longer one to expire
+            if (ex && untrackExpiry(*ex, k.key))
+                view().update(ex);
             shadow = true;
         }
     }

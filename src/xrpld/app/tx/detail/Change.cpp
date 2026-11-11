@@ -105,6 +105,26 @@ Change::preflight(PreflightContext const& ctx)
         bool const hasAV = ctx.tx.isFieldPresent(sfActiveValidator);
         bool const hasVL = ctx.tx.isFieldPresent(sfImportVLKey);
 
+        // featureExport: an import VL key is voted for the network whose
+        // lists it signs. Absent means the XRPL (0), which is how every
+        // vote before the amendment reads, so 0 is never spelled out.
+        if (hasVL)
+        {
+            auto const nid = ctx.tx.peekAtField(sfImportVLKey)
+                                 .downcast<STObject>()[~sfRemoteNetworkID];
+            if (nid && !ctx.rules.enabled(featureExport))
+            {
+                JLOG(ctx.j.warn()) << "Change: Export is not enabled.";
+                return temDISABLED;
+            }
+            if (nid == 0u)
+            {
+                JLOG(ctx.j.warn()) << "Change: sfImportVLKey for the XRPL "
+                                      "carries no RemoteNetworkID";
+                return temMALFORMED;
+            }
+        }
+
         if (ctx.tx.isFieldPresent(sfExportKeyReport))
         {
             if (!ctx.rules.enabled(featureExport))
@@ -260,9 +280,23 @@ Change::preclaim(PreclaimContext const& ctx)
                                     .downcast<STObject>();
             auto const pkBlob = inner.getFieldVL(sfPublicKey);
             std::string const strPk = strHex(makeSlice(pkBlob));
+            // featureExport: the vote is for a key and the network its
+            // lists govern, so both must be the ones we know: a key we
+            // trust for one network is not approved for another
+            bool const exportOn = ctx.view.rules().enabled(featureExport);
+            std::uint32_t const nid = inner[~sfRemoteNetworkID].value_or(0);
             if (ctx.app.config().IMPORT_VL_KEYS.find(strPk) !=
                 ctx.app.config().IMPORT_VL_KEYS.end())
-                return tesSUCCESS;
+            {
+                if (!exportOn)
+                    return tesSUCCESS;
+                auto const n = ctx.app.config().IMPORT_VL_NETWORKS.find(strPk);
+                if ((n == ctx.app.config().IMPORT_VL_NETWORKS.end()
+                         ? 0
+                         : n->second) == nid)
+                    return tesSUCCESS;
+                return telIMPORT_VL_KEY_NOT_RECOGNISED;
+            }
 
             auto const pkType = publicKeyType(makeSlice(pkBlob));
             if (!pkType)
@@ -276,7 +310,8 @@ Change::preclaim(PreclaimContext const& ctx)
             {
                 auto const& vlKeys = unlRep->getFieldArray(sfImportVLKeys);
                 for (auto const& k : vlKeys)
-                    if (PublicKey(k[sfPublicKey]) == pk)
+                    if (PublicKey(k[sfPublicKey]) == pk &&
+                        (!exportOn || k[~sfRemoteNetworkID].value_or(0) == nid))
                         return tesSUCCESS;
             }
 
@@ -544,7 +579,12 @@ Change::applyUNLReport()
             : sle->getFieldArray(arrayType);
 
         // canonically order using std::set
-        std::map<PublicKey, AccountID> ordered;
+        // (featureExport: an import VL key also carries the network whose
+        // lists it signs, absent for the XRPL. A key has one network: were
+        // it reported for two, a proof under it could be taken for either,
+        // so the first report of a key in a ledger stands and a later one
+        // naming another network changes nothing.)
+        std::map<PublicKey, std::pair<AccountID, std::uint32_t>> ordered;
         for (auto const& obj : existing)
         {
             auto pk = obj.getFieldVL(sfPublicKey);
@@ -554,31 +594,40 @@ Change::applyUNLReport()
             PublicKey p(makeSlice(pk));
             ordered.emplace(
                 p,
-                obj.isFieldPresent(sfAccount) ? obj.getAccountID(sfAccount)
-                                              : calcAccountID(p));
+                std::make_pair(
+                    obj.isFieldPresent(sfAccount) ? obj.getAccountID(sfAccount)
+                                                  : calcAccountID(p),
+                    exportOn ? obj[~sfRemoteNetworkID].value_or(0) : 0u));
         };
 
         if (ctx_.tx.isFieldPresent(objType))
         {
-            auto pk = const_cast<ripple::STTx&>(ctx_.tx)
-                          .getField(objType)
-                          .downcast<STObject>()
-                          .getFieldVL(sfPublicKey);
+            auto const& reported = const_cast<ripple::STTx&>(ctx_.tx)
+                                       .getField(objType)
+                                       .downcast<STObject>();
+            auto pk = reported.getFieldVL(sfPublicKey);
 
             if (publicKeyType(makeSlice(pk)))
             {
                 PublicKey p(makeSlice(pk));
-                ordered.emplace(p, calcAccountID(p));
+                ordered.emplace(
+                    p,
+                    std::make_pair(
+                        calcAccountID(p),
+                        exportOn ? reported[~sfRemoteNetworkID].value_or(0)
+                                 : 0u));
             }
         }
 
         std::vector<STObject> out;
         out.reserve(ordered.size());
-        for (auto const& [k, a] : ordered)
+        for (auto const& [k, v] : ordered)
         {
             out.emplace_back(objType);
             out.back().setFieldVL(sfPublicKey, k);
-            out.back().setAccountID(sfAccount, a);
+            out.back().setAccountID(sfAccount, v.first);
+            if (v.second != 0)
+                out.back().setFieldU32(sfRemoteNetworkID, v.second);
         }
 
         return out;

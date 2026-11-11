@@ -131,7 +131,8 @@ public:
     static std::vector<STTx>
     generateImportVLVoteTx(
         std::map<std::string, PublicKey> const& importVLKeys,
-        LedgerIndex seq);
+        LedgerIndex seq,
+        std::map<std::string, std::uint32_t> const* networks = nullptr);
 
 private:
     NodeID const myId_;
@@ -178,7 +179,10 @@ private:
      * As above, but make a vl import report object instead of an n-unl
      */
     void
-    addImportVLTx(LedgerIndex seq, std::shared_ptr<SHAMap> const& initalSet);
+    addImportVLTx(
+        LedgerIndex seq,
+        std::shared_ptr<SHAMap> const& initalSet,
+        bool withNetworks = false);
 
     /** Export key and proof of possession, per validator, as nominated in
         its flag ledger validation (featureExport). */

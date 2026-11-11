@@ -277,19 +277,22 @@ SetAccount::preclaim(PreclaimContext const& ctx)
 
     //
     // Exporter (featureExport): only an Import the account signs can make it
-    // one somewhere; this re-enables, wherever it holds a list, after
-    // asfExporter was cleared
+    // one somewhere; this re-enables, wherever it holds a list that is one
+    // of ours (it names an export key of the UNL, see listsExportKey), after
+    // asfExporter was cleared or the ledger unlisted it. A list of the
+    // account's own keys is not one the ledger can sign for.
     //
     if (ctx.view.rules().enabled(featureExport) && uSetFlag == asfExporter)
     {
         auto const exporters = exportersOf(ctx.view, id);
         if (std::none_of(
-                exporters.begin(), exporters.end(), [](auto const& ex) {
+                exporters.begin(), exporters.end(), [&](auto const& ex) {
                     return ex->isFieldPresent(sfExportSignerList) &&
-                        !ex->peekAtField(sfExportSignerList)
-                             .template downcast<STObject>()
-                             .getFieldArray(sfSignerEntries)
-                             .empty();
+                        listsExportKey(
+                               ctx.view,
+                               ex->peekAtField(sfExportSignerList)
+                                   .template downcast<STObject>()
+                                   .getFieldArray(sfSignerEntries));
                 }))
             return tecNO_TARGET;
     }
@@ -765,10 +768,10 @@ SetAccount::doApply()
             auto const ex = view().peek(Keylet{ltEXPORTER, found->key()});
             bool const on = uSetFlag == asfExporter &&
                 ex->isFieldPresent(sfExportSignerList) &&
-                !ex->peekAtField(sfExportSignerList)
-                     .downcast<STObject>()
-                     .getFieldArray(sfSignerEntries)
-                     .empty();
+                listsExportKey(view(),
+                               ex->peekAtField(sfExportSignerList)
+                                   .downcast<STObject>()
+                                   .getFieldArray(sfSignerEntries));
             if (auto const ter = setExporter(view(), ex, on);
                 !isTesSuccess(ter))
                 return ter;

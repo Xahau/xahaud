@@ -35,6 +35,8 @@
 #include <xrpl/protocol/st.h>
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/filesystem.hpp>
+#include <algorithm>
+#include <cerrno>
 #include <fcntl.h>
 #include <fstream>
 #include <limits>
@@ -129,6 +131,7 @@ setShadowTicket(
     std::uint32_t ticket,
     uint256 const& txid,
     std::optional<uint256> const& hook,
+    std::optional<std::uint32_t> const& lastLedger,
     beast::Journal j)
 {
     auto const k = keylet::shadowTicket(acc, nid, ticket);
@@ -136,6 +139,7 @@ setShadowTicket(
     {
         st->setFieldH256(sfTransactionHash, txid);
         (*st)[~sfEmitHookHash] = hook;
+        (*st)[~sfLastLedgerSequence] = lastLedger;
         view.update(st);
         return tesSUCCESS;
     }
@@ -158,6 +162,7 @@ setShadowTicket(
     st->setFieldU32(sfTicketSequence, ticket);
     st->setFieldH256(sfTransactionHash, txid);
     (*st)[~sfEmitHookHash] = hook;
+    (*st)[~sfLastLedgerSequence] = lastLedger;
     st->setFieldU64(sfOwnerNode, *page);
     view.insert(st);
     adjustOwnerCount(view, sle, 1, j);
@@ -187,6 +192,59 @@ eraseShadowTicket(
         view, sle, -1, beast::Journal{beast::Journal::getNullSink()});
     view.update(sle);
     return true;
+}
+
+// The shadow tickets of an ltEXPORTER whose exports carry a
+// LastLedgerSequence are listed on it (sfIndexes), so Export::accept can
+// find the ones to expire without walking the owner directory. False if
+// the list is full.
+static bool
+trackExpiry(SLE& ex, uint256 const& key)
+{
+    auto keys = ex.isFieldPresent(sfIndexes) ? ex.getFieldV256(sfIndexes)
+                                             : STVector256(sfIndexes);
+    if (std::find(keys.begin(), keys.end(), key) != keys.end())
+        return true;
+    if (keys.size() >= Export::maxExpiring)
+        return false;
+    keys.push_back(key);
+    ex.setFieldV256(sfIndexes, keys);
+    return true;
+}
+
+bool
+untrackExpiry(SLE& ex, uint256 const& key)
+{
+    if (!ex.isFieldPresent(sfIndexes))
+        return false;
+    auto keys = ex.getFieldV256(sfIndexes);
+    auto const it = std::find(keys.begin(), keys.end(), key);
+    if (it == keys.end())
+        return false;
+    keys.erase(it);
+    if (keys.empty())
+        ex.makeFieldAbsent(sfIndexes);
+    else
+        ex.setFieldV256(sfIndexes, keys);
+    return true;
+}
+
+// Whether the export behind shadow ticket `st` has failed for good: it has a
+// LastLedgerSequence, the ledger proven for its network (ltEXPORT_FEE, which
+// ttINGEST keeps moving) is Export::expiryGrace past it, and its result was
+// not imported in between or `st` would be gone. Its own signing window here
+// must have closed first, so that no export is ever closed twice (a hook can
+// set a LastLedgerSequence already in the past).
+static bool
+expired(ReadView const& view, SLE const& st)
+{
+    auto const last = st[~sfLastLedgerSequence];
+    if (!last || view.seq() <= st[sfPreviousTxnLgrSeq] + 2 * Export::window)
+        return false;
+    auto const record = view.read(keylet::exportFee(st[sfRemoteNetworkID]));
+    return record &&
+        std::uint64_t{(*record)[sfLedgerSequence]} >=
+        std::uint64_t{*last} + Export::expiryGrace;
 }
 
 //------------------------------------------------------------------------------
@@ -491,6 +549,15 @@ listsExportKey(ReadView const& view, STArray const& entries)
     return found;
 }
 
+bool
+exportKeysSettled(ReadView const& view)
+{
+    // under featureExport every validator report stamps the ledger it was
+    // applied in (Change::applyUNLReport)
+    auto const unl = view.read(keylet::UNLReport());
+    return !unl || (*unl)[~sfLedgerSequence] != view.seq();
+}
+
 std::uint32_t
 exportWeight(STObject const& exported)
 {
@@ -536,6 +603,22 @@ XRPAmount
 Export::autoFee(ReadView const& view, AccountID const& owner, std::uint32_t nid)
 {
     return fanOutFee(view, owner, nid) + view.fees().base;
+}
+
+// What `inner` must pay there beyond one unit per signature and one for
+// itself, in units: an EscrowFinish carrying a Fulfillment is charged
+// 32 + size / 16 reference fees more (EscrowFinish::calculateBaseFee there),
+// and without them it would never clear the other network's fee check.
+static std::int64_t
+extraFeeUnits(STObject const& inner)
+{
+    if (inner[~sfTransactionType] ==
+            static_cast<std::uint16_t>(ttESCROW_FINISH) &&
+        inner.isFieldPresent(sfFulfillment))
+        return 32 +
+            static_cast<std::int64_t>(inner.getFieldVL(sfFulfillment).size()) /
+            16;
+    return 0;
 }
 
 // the owner of an export: the hook account, or the exporter of an automatic one
@@ -594,6 +677,23 @@ Export::preflight(PreflightContext const& ctx)
 
     if (tx.getTxnType() == ttEXPORT_SIGN)
     {
+        // Nothing but what Export::accept builds. It is free and its one
+        // check is a signature anybody can copy out of a proposed set, so
+        // any other field (Memos, SourceTag, LastLedgerSequence, an explicit
+        // Flags of 0...) would be a way to put data into the ledger for
+        // nothing, and to give one signature as many txids as wanted.
+        for (auto const& f : tx)
+        {
+            if (f.getSType() == STI_NOTPRESENT)
+                continue;
+            auto const& n = f.getFName();
+            if (n != sfTransactionType && n != sfAccount && n != sfSequence &&
+                n != sfFee && n != sfSigningPubKey && n != sfNetworkID &&
+                n != sfLedgerSequence && n != sfTransactionHash &&
+                n != sfSigner)
+                return temMALFORMED;
+        }
+
         auto const& s = obj(tx, sfSigner);
         auto const pk = s[sfSigningPubKey];
         if (!publicKeyType(pk) || s[sfAccount] != calcAccountID(PublicKey(pk)))
@@ -650,6 +750,21 @@ Export::preclaim(PreclaimContext const& ctx)
                     return tefFAILURE;
             }
         }
+        return tesSUCCESS;
+    }
+
+    // An expiry: the shadow ticket it names is that export's still, and the
+    // ledger proven for its network has left its LastLedgerSequence behind.
+    // Every node injects the same one from the same ledger state.
+    if (tx.getTxnType() == ttEXPORT_FINAL && tx.isFieldPresent(sfLedgerIndex))
+    {
+        auto const st =
+            ctx.view.read(Keylet{ltSHADOW_TICKET, tx[sfLedgerIndex]});
+        if (!st || (*st)[sfAccount] != tx[sfOwner] ||
+            (*st)[sfTransactionHash] != tx[sfTransactionHash] ||
+            (*st)[~sfLastLedgerSequence] != tx[sfLedgerSequence] ||
+            !expired(ctx.view, *st))
+            return tefFAILURE;
         return tesSUCCESS;
     }
 
@@ -711,6 +826,12 @@ Export::createExport(
     // export keys: its old list signs, so keys rotate without lockout
     if (type == ttSIGNER_LIST_SET && !inner.isFieldPresent(sfSignerEntries))
     {
+        // Never from a UNLReport that is part-way through being rebuilt:
+        // the list would name only the validators reported so far in this
+        // ledger, and hand the account there to that handful. The ledger
+        // tries again at the exporter's next slot.
+        if (!exportKeysSettled(view))
+            return tecNO_TARGET;
         auto const signers = exportSigners(view);
         if (signers.empty())
             return tecNO_TARGET;
@@ -763,18 +884,34 @@ Export::createExport(
     // ledger has seen transactions pay there (ltEXPORT_FEE, see Ingest.h),
     // or the reference fee until one is proven. Fee 0 stands for "fill in"
     // since the format requires the field to be present.
+    auto const record = view.read(keylet::exportFee(dest));
     if (!inner.isFieldPresent(sfFee) ||
         inner.getFieldAmount(sfFee) == beast::zero)
     {
-        auto const fee = view.read(keylet::exportFee(dest));
         XRPAmount const unit{
-            fee ? std::int64_t{(*fee)[sfExportFeeUnit]} : xrplBaseFee.drops()};
+            record ? std::int64_t{(*record)[sfExportFeeUnit]}
+                   : xrplBaseFee.drops()};
         inner.setFieldAmount(
             sfFee,
             unit *
-                static_cast<std::int64_t>(
-                    list->getFieldArray(sfSignerEntries).size() + 1));
+                (static_cast<std::int64_t>(
+                     list->getFieldArray(sfSignerEntries).size() + 1) +
+                 extraFeeUnits(inner)));
     }
+
+    // The last ledger there that may include it. With one, an export that
+    // never lands (a fee too low for too long, a reserve short there) can
+    // be told from one that is merely late: once the ledger proven for that
+    // network has passed it the export is expired and its hook told so,
+    // instead of holding its ticket for ever (see Export.h, step 5). A hook
+    // may set its own. Until a first ledger is proven for the network there
+    // is nothing to count from, and the export goes without. The ledger's
+    // automatic exports go without too: they are resent until they land.
+    if (!automatic && record && !inner.isFieldPresent(sfLastLedgerSequence))
+        inner[sfLastLedgerSequence] = (*record)[sfLedgerSequence] + expiry;
+    std::optional<std::uint32_t> lastLedger;
+    if (!automatic)
+        lastLedger = inner[~sfLastLedgerSequence];
 
     // a destination below 1024 refuses NetworkID: it named the network here
     // (Export::destination) and goes no further
@@ -803,6 +940,16 @@ Export::createExport(
     }
 
     tickets.store(*ex);
+    if (ticket)
+    {
+        // where Export::accept will look for it once it may have expired
+        // (a ticket exported again without one is looked for no longer)
+        auto const shadow = keylet::shadowTicket(owner, dest, *ticket).key;
+        if (!lastLedger)
+            untrackExpiry(*ex, shadow);
+        else if (!trackExpiry(*ex, shadow))
+            return tecDIR_FULL;
+    }
     if (automatic && type == ttTICKET_CREATE)
         ex->setFieldU32(sfExportTicketPending, seqProxyOf(inner));
     if (automatic && type == ttSIGNER_LIST_SET)
@@ -817,8 +964,8 @@ Export::createExport(
     // sequenced backstop has no ticket: its result returns as a sync import
     // of the exporter's own TicketCreate.
     if (ticket)
-        if (auto const ter =
-                setShadowTicket(view, owner, dest, *ticket, id, hook, j_);
+        if (auto const ter = setShadowTicket(
+                view, owner, dest, *ticket, id, hook, lastLedger, j_);
             !isTesSuccess(ter))
             return ter;
 
@@ -861,6 +1008,41 @@ Export::doApply()
         return createExport(
             tx[sfOwner], obj(tx, sfExportedTxn), std::nullopt, true);
 
+    if (tx.getTxnType() == ttEXPORT_FINAL && tx.isFieldPresent(sfLedgerIndex))
+    {
+        // An expiry (preclaim checked that it is one): the export was signed
+        // and sent, the other network can no longer include it and nothing
+        // came back. Its shadow ticket goes, its ticket returns to the pool
+        // (on the same terms as after a close below quorum) and its hook is
+        // told it failed.
+        auto const st = view.peek(Keylet{ltSHADOW_TICKET, tx[sfLedgerIndex]});
+        if (!st)
+            return tefINTERNAL;
+        AccountID const owner = (*st)[sfAccount];
+        std::uint32_t const dest = (*st)[sfRemoteNetworkID];
+        std::uint32_t const ticket = (*st)[sfTicketSequence];
+        std::optional<uint256> const hook = (*st)[~sfEmitHookHash];
+        auto const key = st->key();
+        if (!eraseShadowTicket(
+                view, owner, dest, ticket, tx[sfTransactionHash]))
+            return tefINTERNAL;
+        if (auto const ex = view.peek(keylet::exporter(owner, dest)))
+        {
+            untrackExpiry(*ex, key);
+            if (ticket < (*ex)[~sfExportTicketNext].value_or(
+                             std::numeric_limits<std::uint32_t>::max()))
+            {
+                auto tickets = ExportTickets::load(*ex);
+                tickets.insert(ticket);
+                tickets.store(*ex);
+            }
+            view.update(ex);
+        }
+        if (hook)
+            callback_ = HookCallback{owner, *hook, 1};
+        return tesSUCCESS;
+    }
+
     auto const sle = view.peek(exportKeylet(tx));
     if (!sle)
         return tefINTERNAL;
@@ -887,13 +1069,14 @@ Export::doApply()
                 // makes it, if any. Below the watermark, or where nothing
                 // was ever recorded, the hook is trusted on its own tickets.
                 // (A sequenced backstop has no ticket to return.)
-                if (ticket &&
+                bool const erased =
+                    ticket &&
                     eraseShadowTicket(
-                        view,
-                        owner,
-                        dest,
-                        *ticket,
-                        (*sle)[sfTransactionHash]) &&
+                        view, owner, dest, *ticket, (*sle)[sfTransactionHash]);
+                if (erased)
+                    untrackExpiry(
+                        *acc, keylet::shadowTicket(owner, dest, *ticket).key);
+                if (erased &&
                     *ticket < (*acc)[~sfExportTicketNext].value_or(
                                   std::numeric_limits<std::uint32_t>::max()))
                 {
@@ -908,6 +1091,23 @@ Export::doApply()
                 if (inner[sfTransactionType] == ttSIGNER_LIST_SET &&
                     !sle->isFieldPresent(sfEmitHookHash))
                     acc->makeFieldAbsent(sfExportKeysSeq);
+                // Below quorum under a list that is not one of ours (the
+                // owner's own keys, or export keys no validator on the
+                // UNLReport holds any more): nobody here can sign for it,
+                // so the ledger stops exporting for it rather than try,
+                // and charge it, every autoEvery ledgers for ever. A list
+                // of ours merely short of signatures this time is retried.
+                if (isExporter(*acc) && exportKeysSettled(view) &&
+                    !(acc->isFieldPresent(sfExportSignerList) &&
+                      listsExportKey(
+                          view,
+                          obj(*acc, sfExportSignerList)
+                              .getFieldArray(sfSignerEntries))))
+                {
+                    if (auto const ter = setExporter(view, acc, false);
+                        !isTesSuccess(ter))
+                        return ter;
+                }
                 view.update(acc);
             }
             if (sle->isFieldPresent(sfEmitHookHash))
@@ -1016,8 +1216,38 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
     std::uint32_t const keysSeq =
         unl ? (*unl)[~sfExportKeysSeq].value_or(0) : 0;
     auto const examine = [&](std::shared_ptr<SLE const> const& acc) {
-        if (!acc || acc->getType() != ltEXPORTER || !isExporter(*acc) ||
-            !acc->isFieldPresent(sfExportSignerList))
+        if (!acc || acc->getType() != ltEXPORTER || !isExporter(*acc))
+            return;
+
+        // Its exports that were signed and sent, have a LastLedgerSequence
+        // the ledger proven for that network has left behind, and never
+        // came back: each is closed as failed (see Export.h, step 5).
+        if (acc->isFieldPresent(sfIndexes))
+        {
+            std::size_t n = 0;
+            for (auto const& key : acc->getFieldV256(sfIndexes))
+            {
+                auto const st = view.read(Keylet{ltSHADOW_TICKET, key});
+                if (!st || !expired(view, *st))
+                    continue;
+                inject(ttEXPORT_FINAL, [&](STObject& o) {
+                    o[sfAccount] = AccountID();
+                    o[sfOwner] = (*st)[sfAccount];
+                    o[sfLedgerSequence] = *(*st)[~sfLastLedgerSequence];
+                    o[sfTransactionHash] = (*st)[sfTransactionHash];
+                    o[sfLedgerIndex] = key;
+                });
+                if (++n >= maxExpirePerSlot)
+                    break;
+            }
+        }
+
+        // (an empty list records that the one there was deleted: preclaim
+        // would refuse every automatic export with tecNO_TARGET, each slot)
+        if (!acc->isFieldPresent(sfExportSignerList) ||
+            obj(*acc, sfExportSignerList)
+                .getFieldArray(sfSignerEntries)
+                .empty())
             return;
         auto const id = acc->getAccountID(sfAccount);
         auto const dest = (*acc)[sfRemoteNetworkID];
@@ -1137,6 +1367,16 @@ ExportKeys::ExportKeys(
     }
     JLOG(j_.info()) << "ExportKeys: loaded " << keys_.size() << " from "
                     << *file_;
+    // An empty file is not refused the way a malformed one is: there is no
+    // key in it to have been lost. But a file that should have held keys and
+    // does not is worth saying so before new ones are made in their place.
+    if (keys_.empty())
+        JLOG(j_.warn())
+            << "ExportKeys: " << *file_
+            << " holds no keys; a new export key will be generated and "
+               "nominated. If this validator had export keys before, restore "
+               "the file from backup: exporters still listing the old keys "
+               "cannot be signed for without them.";
 }
 
 ExportKeys::Key
@@ -1159,25 +1399,41 @@ ExportKeys::save() const
     auto const tmp = boost::filesystem::path(file_->string() + ".tmp");
     boost::system::error_code ec;
     {
-        if (int const fd = ::open(
-                tmp.string().c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
-            fd < 0)
+        // O_EXCL: never a file somebody else made and may hold open or own
+        // (a stale one of ours is removed first), and the secrets go through
+        // this descriptor, so nothing depends on a later chmod succeeding
+        ::unlink(tmp.string().c_str());
+        int const fd =
+            ::open(tmp.string().c_str(), O_WRONLY | O_CREAT | O_EXCL, 0600);
+        if (fd < 0)
         {
             JLOG(j_.error()) << "ExportKeys: cannot create " << tmp;
             return false;
         }
-        else
-            ::close(fd);
-        boost::filesystem::permissions(
-            tmp,
-            boost::filesystem::owner_read | boost::filesystem::owner_write,
-            ec);
-        std::ofstream out(tmp.string(), std::ios::trunc);
+        std::string data;
         for (auto const& k : keys_)
-            out << strHex(k.sk.data(), k.sk.data() + k.sk.size()) << "\n";
-        if (!out.flush())
+            data += strHex(k.sk.data(), k.sk.data() + k.sk.size()) + "\n";
+        bool ok = true;
+        for (std::size_t off = 0; ok && off < data.size();)
+        {
+            auto const n = ::write(fd, data.data() + off, data.size() - off);
+            if (n < 0 && errno == EINTR)
+                continue;
+            if (n <= 0)
+                ok = false;
+            else
+                off += static_cast<std::size_t>(n);
+        }
+        // on disk before it replaces the old file: a crash after the rename
+        // must not leave an empty file where the keys were
+        ok = ok && ::fsync(fd) == 0;
+        ok = (::close(fd) == 0) && ok;
+        // overwritten best-effort: std::string leaves no way to guarantee it
+        std::fill(data.begin(), data.end(), '\0');
+        if (!ok)
         {
             JLOG(j_.error()) << "ExportKeys: cannot write " << tmp;
+            ::unlink(tmp.string().c_str());
             return false;
         }
     }

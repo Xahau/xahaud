@@ -2588,11 +2588,18 @@ Transactor::finishApply(
         {
             auto const& d =
                 ctx_.tx.peekAtField(sfEmitDetails).downcast<STObject>();
+            // (an export that failed to apply is reported like an emission
+            // that failed, what == 1, as Export.h documents: 0 is not a
+            // value an export's callback otherwise has)
             if (d.isFieldPresent(sfEmitCallback))
                 callback_ = HookCallback{
                     d.getAccountID(sfEmitCallback),
                     d.getFieldH256(sfEmitHookHash),
-                    ctx_.tx.getTxnType() == ttEMIT_FAILURE ? 1u : 0u};
+                    ctx_.tx.getTxnType() == ttEMIT_FAILURE ||
+                            (ctx_.tx.getTxnType() == ttEXPORT &&
+                             !isTesSuccess(result))
+                        ? 1u
+                        : 0u};
         }
         if (callback_ && callback_->hook != beast::zero)
             doHookCallback(proMeta, *callback_);

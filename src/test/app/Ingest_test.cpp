@@ -25,6 +25,7 @@
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpld/shamap/SHAMapLeafNode.h>
 #include <xrpl/basics/base64.h>
+#include <xrpl/json/json_reader.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
@@ -33,6 +34,8 @@
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
+#include <algorithm>
+#include <cctype>
 
 namespace ripple {
 namespace test {
@@ -347,6 +350,52 @@ class Ingest_test : public beast::unit_test::suite
             Ingest::Nodes broken = l1.inner;
             broken.erase(l1.info.txHash);
             env(ingest(alice, 100, OtherNetwork::proof(l1, broken)),
+                ter(temMALFORMED));
+        }
+
+        // JSON of the wrong shape is refused before anything is read through
+        // it: a number, string or array where an object belongs is not
+        // something Json::Value::operator[] may be asked a member of
+        for (auto const* bad :
+             {R"([1])",
+              R"({"ledger":1})",
+              R"({"ledger":"x","validation":{"unl":{}}})",
+              R"({"ledger":{},"validation":"x"})",
+              R"({"ledger":{},"validation":{"unl":[1]}})",
+              R"({"ledger":{},"validation":{"unl":{}},"tree":{},"samples":[]})",
+              R"({"ledger":{},"validation":{"unl":{}},"tree":[],"samples":1})"})
+            env(ingest(alice, 100, bad), ter(temMALFORMED));
+
+        // And a proof is taken in its one canonical form only, so that a
+        // free transaction cannot carry anything else into the ledger: not
+        // a byte after it, not a key it does not need, not a tree node or a
+        // validation twice, not another spelling of the same hex.
+        env(ingest(alice, 100, full + " "), ter(temMALFORMED));
+        {
+            Json::Value x;
+            BEAST_EXPECT(Json::Reader().parse(full, x));
+            // (as parsed and written back it is the proof itself)
+            BEAST_EXPECT(Json::FastWriter().write(x) == full);
+
+            auto padded = x;
+            padded["memo"] = std::string(1024, 'x');
+            env(ingest(alice, 100, Json::FastWriter().write(padded)),
+                ter(temMALFORMED));
+
+            auto twice = x;
+            twice["tree"].append(x["tree"][0u]);
+            env(ingest(alice, 100, Json::FastWriter().write(twice)),
+                ter(temMALFORMED));
+
+            auto lower = x;
+            auto parent = x["parent"].asString();
+            std::transform(
+                parent.begin(), parent.end(), parent.begin(), [](char c) {
+                    return static_cast<char>(
+                        std::tolower(static_cast<unsigned char>(c)));
+                });
+            lower["parent"] = parent;
+            env(ingest(alice, 100, Json::FastWriter().write(lower)),
                 ter(temMALFORMED));
         }
 

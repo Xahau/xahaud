@@ -134,7 +134,10 @@ LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
     Only ttEXPORT creates these. They are not hook state because a hook can
     write any namespace of its own account's state, so it could forge one and
     import the same XPOP again and again. sfEmitHookHash is the hook whose
-    cbak the Import calls.
+    cbak the Import calls. sfLastLedgerSequence is the export's own, on the
+    other network: once the ledger proven for that network (ltEXPORT_FEE) is
+    Export::expiryGrace past it without the export having come back, an
+    expiry ttEXPORT_FINAL erases this and calls the hook back as failed.
 
     \sa keylet::shadowTicket
 */
@@ -144,6 +147,7 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     {sfTicketSequence,       soeREQUIRED},
     {sfTransactionHash,      soeREQUIRED},
     {sfEmitHookHash,         soeOPTIONAL},
+    {sfLastLedgerSequence,   soeOPTIONAL},
     {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
@@ -157,9 +161,11 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     its Sequence there, as last proven by an Import (the AccountRoot node of
     every transaction's metadata carries it); the ticket, or for a sequenced
     backstop the Sequence, of an automatic TicketCreate export still out;
-    the UNLReport.ExportKeysSeq its signer list was last refreshed to; and,
-    while the ledger acts for it there (an exporter), its page in
-    keylet::exporterDir().
+    the UNLReport.ExportKeysSeq its signer list was last refreshed to; the
+    keys of its shadow tickets that carry a LastLedgerSequence (sfIndexes,
+    at most Export::maxExpiring), which is where Export::accept looks for
+    exports to expire; and, while the ledger acts for it there (an
+    exporter), its page in keylet::exporterDir().
 
     \sa keylet::exporter
 */
@@ -172,6 +178,7 @@ LEDGER_ENTRY(ltEXPORTER, 'V', Exporter, exporter, ({
     {sfExportSequence,       soeOPTIONAL},
     {sfExportTicketPending,  soeOPTIONAL},
     {sfExportKeysSeq,        soeOPTIONAL},
+    {sfIndexes,              soeOPTIONAL},
     {sfExportNode,           soeOPTIONAL},
     {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},

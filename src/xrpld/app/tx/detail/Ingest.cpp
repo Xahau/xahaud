@@ -38,6 +38,7 @@
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <set>
 
@@ -49,6 +50,29 @@
                  wire (SHAMapTreeNode::serializeForWire)
         samples  [{blob, meta}]: the transactions at Ingest::sampleLeaves,
                  in that order, each as its serialized form and metadata
+
+    Canonical form. A proof that is free must not be a way to store other
+    data, so there is exactly one sequence of bytes for what an XPOF proves
+    and nothing else is accepted: Ingest::parse rebuilds the document from
+    what it verified and compares it with the blob, byte for byte. That
+    leaves no room for unknown or repeated keys, whitespace, a node or a
+    validation given twice, one that proves nothing (another ledger's, a
+    key off the list), a second spelling of a number or of hex or base64,
+    or an inner node in the wire format its branch count does not call for.
+    The canonical form is Json::to_string of:
+
+        ledger      {acroot, close, coins, cres, flags, index, pclose,
+                     phash, txroot}: hashes upper-case hex, coins a decimal
+                     string, the rest numbers
+        parent      upper-case hex
+        validation  {data, unl}: data maps each validator's node public key
+                     (base58) to its validation, upper-case hex, for every
+                     validation that counts and no other; unl is
+                     {blob, manifest, public_key, signature, version} with
+                     blob and manifest padded base64 without line breaks,
+                     public_key and signature upper-case hex
+        tree        upper-case hex, in ascending order of node hash
+        samples     [{blob, meta}], upper-case hex
 */
 
 namespace ripple {
@@ -122,6 +146,15 @@ Ingest::parse(Slice blob, beast::Journal j)
             !x.isObject())
             return fail("not JSON");
 
+        // Json::Value::operator[] on anything but an object (or null) is
+        // undefined behaviour, not an exception the catch below would see,
+        // and this runs in preflight on whatever blob a transaction brings:
+        // so the shape is checked before anything is read through it.
+        if (!x[jss::ledger].isObject() || !x[jss::validation].isObject() ||
+            !x[jss::validation][jss::unl].isObject() || !x["tree"].isArray() ||
+            !x["samples"].isArray())
+            return fail("not an XPOF");
+
         // the ledger, hashed from its header fields as an XPOP gives them
         LedgerInfo info;
         auto const& lg = x[jss::ledger];
@@ -138,6 +171,10 @@ Ingest::parse(Slice blob, beast::Journal j)
             NetClock::time_point{NetClock::duration{lg[jss::close].asUInt()}};
         info.closeTimeResolution = NetClock::duration{lg[jss::cres].asUInt()};
         info.closeFlags = lg[jss::flags].asUInt();
+        // the header hashes these two as single bytes, so a larger number
+        // would be a second way of writing the same ledger
+        if (lg[jss::cres].asUInt() > 0xFF || lg[jss::flags].asUInt() > 0xFF)
+            return fail("bad ledger header");
         info.hash = calculateLedgerHash(info);
 
         // its parent, bound by phash: what was burned between them is what
@@ -161,38 +198,43 @@ Ingest::parse(Slice blob, beast::Journal j)
         Json::Value list;
         if (!m || !m->signingKey || !m->verify() || !sig ||
             !verify(*m->signingKey, makeSlice(data), makeSlice(*sig)) ||
-            !Json::Reader().parse(data, list) ||
+            !Json::Reader().parse(data, list) || !list.isObject() ||
             !list[jss::validators].isArray())
             return fail("bad UNL");
         std::set<PublicKey> keys;
         for (auto const& v : list[jss::validators])
+        {
+            // the list is only known to be its publisher's own here (who
+            // that is, preclaim checks), so its entries are untrusted too
+            if (!v.isObject())
+                return fail("bad UNL");
             if (auto const vm =
                     deserializeManifest(base64_decode(str(v[jss::manifest])));
                 vm && vm->signingKey && vm->verify())
                 keys.insert(*vm->signingKey);
+        }
         auto const quorum =
             std::max<std::size_t>(1, list[jss::validators].size() * 4 / 5);
 
+        // the validations: every one given must count (canonical form),
+        // so none that fails to parse or verify, is for another ledger or
+        // is from a key off the list is passed over, as an XPOP's are
         std::set<PublicKey> agreed;
+        Json::Value canonData{Json::objectValue};
         for (auto const& v : x[jss::validation][jss::data])
         {
             auto const raw = hex(v);
             if (!raw)
-                continue;
-            try
-            {
-                SerialIter sit(makeSlice(*raw));
-                STValidation const val(
-                    sit,
-                    [](PublicKey const& pk) { return calcNodeID(pk); },
-                    false);
-                if (val.getLedgerHash() == info.hash &&
-                    keys.count(val.getSignerPublic()) && val.isValid())
-                    agreed.insert(val.getSignerPublic());
-            }
-            catch (std::exception const&)
-            {
-            }
+                return fail("bad validation");
+            SerialIter sit(makeSlice(*raw));
+            STValidation const val(
+                sit, [](PublicKey const& pk) { return calcNodeID(pk); }, false);
+            if (val.getLedgerHash() != info.hash ||
+                !keys.count(val.getSignerPublic()) || !val.isValid() ||
+                !agreed.insert(val.getSignerPublic()).second)
+                return fail("validation does not count");
+            canonData[toBase58(TokenType::NodePublic, val.getSignerPublic())] =
+                strHex(*raw);
         }
         if (agreed.size() < quorum)
             return fail("below quorum");
@@ -207,7 +249,8 @@ Ingest::parse(Slice blob, beast::Journal j)
                 raw ? SHAMapTreeNode::makeFromWire(makeSlice(*raw)) : nullptr;
             if (!node || !node->isInner())
                 return fail("bad tree node");
-            nodes.emplace(node->getHash().as_uint256(), node);
+            if (!nodes.emplace(node->getHash().as_uint256(), node).second)
+                return fail("tree node given twice");
         }
         std::set<uint256> reached;
         std::uint32_t leaves = 0;
@@ -239,12 +282,18 @@ Ingest::parse(Slice blob, beast::Journal j)
         if (want.empty() || !given.isArray() || given.size() != want.size())
             return fail("samples missing");
         std::vector<std::uint64_t> units;
+        Json::Value canonSamples{Json::arrayValue};
         for (Json::UInt i = 0; i < want.size(); ++i)
         {
+            if (!given[i].isObject())
+                return fail("bad sample");
             auto const tx = hex(given[i][jss::blob]);
             auto const meta = hex(given[i][jss::meta]);
             if (!tx || !meta)
                 return fail("bad sample");
+            auto& cs = canonSamples.append(Json::objectValue);
+            cs[jss::blob] = strHex(*tx);
+            cs[jss::meta] = strHex(*meta);
             Serializer s;
             s.addVL(*tx);
             s.addVL(*meta);
@@ -263,6 +312,45 @@ Ingest::parse(Slice blob, beast::Journal j)
                 t.getFieldAmount(sfFee).xrp().drops() / (1 + signers)));
         }
         std::sort(units.begin(), units.end());
+
+        // The canonical form (see the top of this file): the document as
+        // rebuilt from what was verified above must be the blob itself.
+        {
+            Json::Value c{Json::objectValue};
+            auto& cl = c[jss::ledger] = Json::objectValue;
+            cl[jss::index] = info.seq;
+            cl[jss::coins] = std::to_string(info.drops.drops());
+            cl[jss::phash] = to_string(info.parentHash);
+            cl[jss::txroot] = to_string(info.txHash);
+            cl[jss::acroot] = to_string(info.accountHash);
+            cl[jss::pclose] = info.parentCloseTime.time_since_epoch().count();
+            cl[jss::close] = info.closeTime.time_since_epoch().count();
+            cl[jss::cres] = info.closeTimeResolution.count();
+            cl[jss::flags] = info.closeFlags;
+            c["parent"] = strHex(*parent);
+            auto& cv = c[jss::validation] = Json::objectValue;
+            cv[jss::data] = std::move(canonData);
+            auto& cu = cv[jss::unl] = Json::objectValue;
+            cu[jss::public_key] = strHex(m->masterKey);
+            cu[jss::manifest] =
+                base64_encode(base64_decode(str(unl[jss::manifest])));
+            cu[jss::blob] = base64_encode(data);
+            cu[jss::signature] = strHex(*sig);
+            cu[jss::version] = unl[jss::version].asUInt();
+            auto& ct = c["tree"] = Json::arrayValue;
+            for (auto const& [hash, node] : nodes)
+            {
+                Serializer s;
+                node->serializeForWire(s);
+                ct.append(strHex(s.slice()));
+            }
+            c["samples"] = std::move(canonSamples);
+            auto const canonical = to_string(c);
+            if (canonical.size() != blob.size() ||
+                std::memcmp(canonical.data(), blob.data(), blob.size()) != 0)
+                return fail("not in canonical form");
+        }
+
         return Xpof{
             info,
             burn,

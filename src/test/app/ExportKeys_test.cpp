@@ -587,27 +587,18 @@ class ExportKeys_test : public beast::unit_test::suite
             BEAST_EXPECT(r[jss::network_id] == 0);
             BEAST_EXPECT(!r[jss::tx_json].isMember(sfNetworkID.jsonName));
             BEAST_EXPECT(
-                r["instructions"].isArray() && r["instructions"].size() == 4);
-            // no wallet is assumed: the Xaman link is opt-in
-            BEAST_EXPECT(!r.isMember("xaman_url"));
+                r["instructions"].isArray() && r["instructions"].size() == 5);
         }
 
         {
-            // a Xaman link to the same transaction, on request
+            // no wallet or signing service is assumed, or linked to on
+            // request: tx_json is all there is to sign
             Json::Value p;
             p["xaman"] = true;
             auto const r =
                 env.rpc("json", "export_setup", to_string(p))[jss::result];
-            std::string const prefix = "https://xaman.app/detect/";
-            auto const url = r["xaman_url"].asString();
-            BEAST_EXPECT(url.starts_with(prefix));
-            auto const json = strUnHex(url.substr(prefix.size()));
-            Json::Value tx;
-            BEAST_EXPECT(
-                json &&
-                Json::Reader().parse(
-                    std::string(json->begin(), json->end()), tx) &&
-                tx == r[jss::tx_json]);
+            BEAST_EXPECT(r.isMember(jss::tx_json));
+            BEAST_EXPECT(!r.isMember("xaman_url"));
         }
 
         {

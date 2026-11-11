@@ -1055,7 +1055,13 @@ hook::apply(
     std::optional<ripple::STObject> const& emitFailureTxn)
 {
     std::optional<ripple::STObject> emitFailure;
-    if (isCallback && (wasmParam & 1))
+    // Only a ttEMIT_FAILURE has a failed emission to read back. An export
+    // that closes below quorum (ttEXPORT_FINAL) or fails to apply (ttEXPORT)
+    // calls back with what == 1 as well (see Export.h) and has no
+    // ltEMITTED_TXN entry: without fix20261005 the read below would
+    // dereference a null entry for the one and throw for the other.
+    if (isCallback && (wasmParam & 1) &&
+        applyCtx.tx.getTxnType() == ttEMIT_FAILURE)
     {
         if (applyCtx.view().rules().enabled(fix20261005))
         {
