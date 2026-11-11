@@ -1467,12 +1467,14 @@ ExportKeys::ExportKeys(
     // key in it to have been lost. But a file that should have held keys and
     // does not is worth saying so before new ones are made in their place.
     if (keys_.empty())
+    {
         JLOG(j_.warn())
             << "ExportKeys: " << *file_
             << " holds no keys; a new export key will be generated and "
                "nominated. If this validator had export keys before, restore "
                "the file from backup: exporters still listing the old keys "
                "cannot be signed for without them.";
+    }
 }
 
 ExportKeys::Key
@@ -1560,6 +1562,7 @@ ExportKeys::nominate(ReadView const& ledger)
         if (it != onLedger.end())
             unrecorded_ = 0;
         else if (++unrecorded_ >= 3)
+        {
             JLOG(j_.warn())
                 << "ExportKeys: our export key " << strHex(keys_.back().pk)
                 << " has been nominated " << unrecorded_
@@ -1568,6 +1571,7 @@ ExportKeys::nominate(ReadView const& ledger)
                    "(share one [export_key_file]), and no further key is "
                    "recorded for this validator until the next rotation "
                    "epoch";
+        }
         // the ledger moved past ours (an older backup), or a new epoch
         bool const superseded = it != onLedger.end() && it != onLedger.begin();
         rotate = superseded ||

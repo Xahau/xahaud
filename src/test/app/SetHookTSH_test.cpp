@@ -23,9 +23,11 @@
 #include <test/jtx/AMM.h>
 #include <test/jtx/Oracle.h>
 #include <test/jtx/TestHelpers.h>
+#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
@@ -3207,8 +3209,28 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
+            // The hook names ticket 1, which must be one the ledger knows of
+            // there (Export::ticketUsable): pooled, and not the pool's last,
+            // which is the ledger's. Only a sync import of a TicketCreate of
+            // an exporter's fills the pool, and a close rebuilds the ledger
+            // from its transactions, so the pool is written to the open
+            // ledger and nothing closes from here on: the hook fires there,
+            // and its export is applied there directly, as the next ledger
+            // would apply it.
+            env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+                auto const sle = view.read(keylet::exporter(alice.id(), 0));
+                if (!sle)
+                    return false;
+                auto ex = std::make_shared<SLE>(*sle);
+                ExportTickets tickets;
+                tickets.insert(1);
+                tickets.insert(2);
+                tickets.store(*ex);
+                view.rawReplace(ex);
+                return true;
+            });
+
             env(pay(carol, alice, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
-            env.close();
 
             // the hook emitted the export
             auto const meta = env.meta();
@@ -3219,17 +3241,30 @@ private:
                 continue;
             auto const id = emissions[0].getFieldH256(sfEmittedTxnID);
 
-            // it lands in the next ledger and applies, and bob's hook, a
-            // stakeholder of the payment anywhere else, does not run
-            env.close();
-            Json::Value params;
-            params[jss::transaction] = to_string(id);
-            auto const r =
-                env.rpc("json", "tx", to_string(params))[jss::result];
-            BEAST_EXPECT(r[jss::TransactionType] == "Export");
-            BEAST_EXPECT(
-                r[jss::meta][sfTransactionResult.jsonName] == "tesSUCCESS");
-            validateTSHStrongWeak(r[jss::meta], tshNONE, __LINE__);
+            auto const sleE = env.le(keylet::emittedTxn(id));
+            if (!BEAST_EXPECT(sleE))
+                continue;
+            Serializer s;
+            sleE->getField(sfEmittedTxn).downcast<STObject>().add(s);
+            SerialIter sit{s.slice()};
+            STTx const emitted{sit};
+            BEAST_EXPECT(emitted.getTxnType() == ttEXPORT);
+            BEAST_EXPECT(emitted.getTransactionID() == id);
+
+            // it applies, and bob's hook, a stakeholder of the payment
+            // anywhere else, does not run
+            std::optional<ApplyResult> res;
+            env.app().openLedger().modify(
+                [&](OpenView& view, beast::Journal j) {
+                    res.emplace(
+                        ripple::apply(env.app(), view, emitted, tapNONE, j));
+                    return res->applied;
+                });
+            if (!BEAST_EXPECT(res && res->applied && res->metadata))
+                continue;
+            BEAST_EXPECT(res->ter == tesSUCCESS);
+            validateTSHStrongWeak(
+                res->metadata->getJson(JsonOptions::none), tshNONE, __LINE__);
         }
     }
 
