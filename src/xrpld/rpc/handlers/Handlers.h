@@ -65,6 +65,8 @@ doDepositAuthorized(RPC::JsonContext&);
 Json::Value
 doExportSetup(RPC::JsonContext&);
 Json::Value
+doExportInfo(RPC::JsonContext&);
+Json::Value
 doFeature(RPC::JsonContext&);
 Json::Value
 doFee(RPC::JsonContext&);

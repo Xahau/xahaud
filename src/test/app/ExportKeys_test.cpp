@@ -271,10 +271,23 @@ class ExportKeys_test : public beast::unit_test::suite
         BEAST_EXPECT(keysOf(env, val) == std::vector<Blob>{blob(k1.first)});
         BEAST_EXPECT(keysSeq(env) == 1);
 
-        // a new key in the same epoch replaces the head
+        // a new key in the same epoch (a lost key file, say) goes in front
+        // of it: the one before stays, so the validator can go on signing
+        // with it for exporters that still list it
         auto const k2 = randomKeyPair(KeyType::ed25519);
         nominate(env, val.pk(), k2);
-        BEAST_EXPECT(keysOf(env, val) == std::vector<Blob>{blob(k2.first)});
+        BEAST_EXPECT(
+            keysOf(env, val) ==
+            (std::vector<Blob>{blob(k2.first), blob(k1.first)}));
+        BEAST_EXPECT(keysSeq(env) == 2);
+
+        // and that is all for this epoch: a further key is not recorded and
+        // changes nothing, so re-keying cannot be kept up flag ledger after
+        // flag ledger at every exporter's expense
+        nominate(env, val.pk(), randomKeyPair(KeyType::ed25519));
+        BEAST_EXPECT(
+            keysOf(env, val) ==
+            (std::vector<Blob>{blob(k2.first), blob(k1.first)}));
         BEAST_EXPECT(keysSeq(env) == 2);
 
         // a new key in a later epoch is pushed
@@ -283,7 +296,8 @@ class ExportKeys_test : public beast::unit_test::suite
         nominate(env, val.pk(), k3);
         BEAST_EXPECT(
             keysOf(env, val) ==
-            (std::vector<Blob>{blob(k3.first), blob(k2.first)}));
+            (std::vector<Blob>{
+                blob(k3.first), blob(k2.first), blob(k1.first)}));
         BEAST_EXPECT(keysSeq(env) == 3);
 
         // an older key never comes back
@@ -599,6 +613,30 @@ class ExportKeys_test : public beast::unit_test::suite
                 env.rpc("json", "export_setup", to_string(p))[jss::result];
             BEAST_EXPECT(r.isMember(jss::tx_json));
             BEAST_EXPECT(!r.isMember("xaman_url"));
+        }
+
+        {
+            // export_info: how the UNL's keys stand, and what is out
+            auto const r = env.rpc("json", "export_info", "{}")[jss::result];
+            BEAST_EXPECT(r["enabled"] == true);
+            BEAST_EXPECT(r["keys"]["export_keys_seq"] == 3);
+            BEAST_EXPECT(r["keys"]["validators"] == 3);
+            BEAST_EXPECT(r["keys"]["with_key"] == 2);
+            BEAST_EXPECT(r["keys"]["signers"] == 2);
+            BEAST_EXPECT(r["keys"]["quorum"] == 2);
+            BEAST_EXPECT(
+                r["validators"].isArray() && r["validators"].size() == 3);
+            BEAST_EXPECT(r["pending"].isArray() && r["pending"].size() == 0);
+            BEAST_EXPECT(
+                r["exporters"].isArray() && r["exporters"].size() == 0);
+            BEAST_EXPECT(r["exporters_listed"] == 0);
+
+            // and for one account: no records
+            Json::Value p;
+            p[jss::account] = v1.human();
+            auto const a =
+                env.rpc("json", "export_info", to_string(p))[jss::result];
+            BEAST_EXPECT(a["records"].isArray() && a["records"].size() == 0);
         }
 
         {

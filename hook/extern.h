@@ -355,6 +355,9 @@ xport(
 extern int64_t
 xport_tickets(uint32_t network_id);
 
+extern int64_t
+xport_ticket(uint32_t network_id, uint32_t index);
+
 #ifdef __cplusplus
 }
 #endif

@@ -23,6 +23,7 @@
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/ledger/OpenView.h>
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpl/basics/base64.h>
@@ -665,6 +666,39 @@ class Export_test : public beast::unit_test::suite
         };
         BEAST_EXPECT(preclaim(alice.id()) == tesSUCCESS);
         BEAST_EXPECT(preclaim(bob.id()) == tecNO_TARGET);
+
+        // A ticket the hook names must be one the ledger knows of there: in
+        // its pool (and not the pool's last, which is the ledger's), or
+        // held by an export of its own in flight. Anything else is refused
+        // before it can wait on a ticket that never was, or is long spent.
+        {
+            auto const named = [&](std::uint32_t ticket) {
+                return Export::preclaim(PreclaimContext(
+                    env.app(),
+                    view,
+                    tesSUCCESS,
+                    exportTx(env, alice.id(), payment(alice.id(), 1, ticket)),
+                    tapNONE));
+            };
+            auto const pool = [&](std::vector<std::uint32_t> const& held) {
+                auto ex = std::make_shared<SLE>(
+                    *view.read(keylet::exporter(alice.id(), 0)));
+                ExportTickets t;
+                for (auto const ticket : held)
+                    t.insert(ticket);
+                t.store(*ex);
+                view.rawReplace(ex);
+            };
+            BEAST_EXPECT(named(55) == tecNO_ENTRY);
+            pool({55, 56});
+            BEAST_EXPECT(named(55) == tesSUCCESS);
+            BEAST_EXPECT(named(57) == tecNO_ENTRY);
+            pool({55});
+            BEAST_EXPECT(named(55) == tecNO_ENTRY);
+            pool({});
+            BEAST_EXPECT(
+                Export::ticketUsable(view, alice.id(), 0, 55) == false);
+        }
 
         // the pending export snapshots it
         auto const pay = payment(alice.id(), 1, 7, nid);
@@ -1841,6 +1875,73 @@ class Export_test : public beast::unit_test::suite
     }
 
     void
+    testSetupOtherNetwork()
+    {
+        testcase("setup on another network");
+        using namespace jtx;
+
+        // the one VL key trusted here is trusted for network 1 (a testnet)
+        OtherNetwork other;
+        auto cfg = network::makeNetworkVLConfig(21337, {other.vlKeyHex()});
+        cfg->IMPORT_VL_NETWORKS[other.vlKeyHex()] = 1;
+        Env env{*this, std::move(cfg), supported_amendments() | featureExport};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), bob);
+        env.close();
+
+        auto const nid = env.app().config().NETWORK_ID;
+        // so that is where an export naming no network goes
+        BEAST_EXPECT(
+            Import::soleNetwork(env.app().config(), *env.current()) == 1);
+
+        // bob's SignerListSet there, naming an export key of the UNL, signed
+        // by bob and imported by bob: the Import export_setup describes
+        auto const kb = randomKeyPair(KeyType::ed25519).first;
+        auto const b = calcAccountID(kb);
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            registerExportKeys(view, {kb});
+            return true;
+        });
+        STTx list(ttSIGNER_LIST_SET, [&](STObject& o) {
+            o[sfAccount] = bob.id();
+            o.setFieldAmount(sfFee, XRPAmount{1000});
+            o[sfSequence] = 2;
+            o[sfOperationLimit] = nid;
+            o[sfSigningPubKey] = bob.pk().slice();
+            o[sfSignerQuorum] = 1;
+            o.setFieldArray(sfSignerEntries, signerEntries({b}));
+        });
+        list.sign(bob.pk(), bob.sk());
+        auto const closeTime = static_cast<std::uint32_t>(
+            env.closed()->info().closeTime.time_since_epoch().count());
+        auto const before = env.balance(bob).value().xrp();
+        auto const importFee = env.current()->fees().base * 10;
+        env(import::import(bob, other.xpop(list, 105, closeTime)),
+            fee(importFee),
+            ter(tesSUCCESS));
+
+        // It makes bob an exporter on network 1, and does nothing else: no
+        // record on the XRPL, no keys installed here, nothing minted, and
+        // the XRPL's import sequence untouched.
+        if (auto const ex = exporter(env, bob, 1); BEAST_EXPECT(ex))
+        {
+            BEAST_EXPECT(isExporter(*ex));
+            BEAST_EXPECT(ex->isFieldPresent(sfExportSignerList));
+            BEAST_EXPECT((*ex)[~sfExportTicketNext] == 3u);
+        }
+        BEAST_EXPECT(!exporter(env, bob, 0));
+        BEAST_EXPECT(!env.le(keylet::signers(bob.id())));
+        if (auto const sle = env.le(bob); BEAST_EXPECT(sle))
+            BEAST_EXPECT(!sle->isFieldPresent(sfImportSequence));
+        BEAST_EXPECT(env.balance(bob).value().xrp() == before - importFee);
+
+        // the same list again records nothing new
+        env(import::import(bob, other.xpop(list, 105, closeTime)),
+            fee(importFee),
+            ter(tefALREADY));
+    }
+
+    void
     testExpiry()
     {
         testcase("expiry");
@@ -1910,12 +2011,25 @@ class Export_test : public beast::unit_test::suite
 
         // Nothing is known of the other network's ledger yet, so there is
         // nothing to count a LastLedgerSequence from: the export goes
-        // without, is not looked for, and cannot be expired.
+        // without. It is listed as in flight like any other, but cannot
+        // be expired.
         BEAST_EXPECT(apply(payment(alice.id(), 1, {}, nid)) == tesSUCCESS);
         if (auto const st = shadow(10); BEAST_EXPECT(st))
             BEAST_EXPECT(!st->isFieldPresent(sfLastLedgerSequence));
-        BEAST_EXPECT(!ex()->isFieldPresent(sfIndexes));
+        auto const key10 = keylet::shadowTicket(alice.id(), 0, 10).key;
+        if (BEAST_EXPECT(ex()->isFieldPresent(sfIndexes)))
+            BEAST_EXPECT(
+                ex()->getFieldV256(sfIndexes).value() ==
+                std::vector<uint256>{key10});
         BEAST_EXPECT(expire(10) == tefFAILURE);
+        // it names the ttEXPORT that made it, which is what the hook's
+        // cbak gets as otxn_id; nothing is signed for it yet
+        if (auto const st = shadow(10); BEAST_EXPECT(st))
+        {
+            BEAST_EXPECT(st->isFieldPresent(sfExportTxnID));
+            BEAST_EXPECT(!st->isFieldPresent(sfExportedTxn));
+            BEAST_EXPECT(!st->isFieldPresent(sfRemoteTxnID));
+        }
 
         // With ledger 1000 proven there, the next export may be included
         // up to Export::expiry ledgers later, and is one to look for.
@@ -1928,8 +2042,8 @@ class Export_test : public beast::unit_test::suite
         auto const key = keylet::shadowTicket(alice.id(), 0, 11).key;
         if (BEAST_EXPECT(ex()->isFieldPresent(sfIndexes)))
             BEAST_EXPECT(
-                ex()->getFieldV256(sfIndexes).value() ==
-                std::vector<uint256>{key});
+                (ex()->getFieldV256(sfIndexes).value() ==
+                 std::vector<uint256>{key10, key}));
 
         // a hook's own LastLedgerSequence is left alone
         {
@@ -1938,7 +2052,7 @@ class Export_test : public beast::unit_test::suite
             BEAST_EXPECT(apply(own) == tesSUCCESS);
             if (auto const st = shadow(77); BEAST_EXPECT(st))
                 BEAST_EXPECT((*st)[~sfLastLedgerSequence] == 5000u);
-            BEAST_EXPECT(ex()->getFieldV256(sfIndexes).size() == 2);
+            BEAST_EXPECT(ex()->getFieldV256(sfIndexes).size() == 3);
         }
 
         // Not expired while the other network could still include it, nor
@@ -1967,8 +2081,9 @@ class Export_test : public beast::unit_test::suite
             (*view.read(keylet::account(alice.id())))[sfOwnerCount] ==
             owners - 1);
         BEAST_EXPECT(
-            ex()->getFieldV256(sfIndexes).value() ==
-            std::vector<uint256>{keylet::shadowTicket(alice.id(), 0, 77).key});
+            (ex()->getFieldV256(sfIndexes).value() ==
+             std::vector<uint256>{
+                 key10, keylet::shadowTicket(alice.id(), 0, 77).key}));
         // and only once
         BEAST_EXPECT(expire(11) == tefFAILURE);
     }
@@ -1988,6 +2103,7 @@ public:
         testBackstop();
         testLoopbackImport();
         testNetworks();
+        testSetupOtherNetwork();
         testExpiry();
     }
 };

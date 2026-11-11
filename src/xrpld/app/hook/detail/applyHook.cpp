@@ -1052,7 +1052,8 @@ hook::apply(
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     std::shared_ptr<STObject const> const& provisionalMeta,
-    std::optional<ripple::STObject> const& emitFailureTxn)
+    std::optional<ripple::STObject> const& emitFailureTxn,
+    ripple::uint256 const& otxnID)
 {
     std::optional<ripple::STObject> emitFailure;
     // Only a ttEMIT_FAILURE has a failed emission to read back. An export
@@ -1114,6 +1115,7 @@ hook::apply(
         .emitFailure = std::move(emitFailure),
         .module = nullptr,
         .api_ = nullptr};
+    hookCtx.otxnID = otxnID;
 
     auto const& j = applyCtx.app.journal("View");
 
@@ -2762,6 +2764,22 @@ DEFINE_HOOK_FUNCTION(int64_t, xport_tickets, uint32_t network_id)
                    // hookCtx on current stack
 
     auto const res = api.xport_tickets(network_id);
+    if (!res)
+        return res.error();
+    return res.value();
+
+    HOOK_TEARDOWN();
+}
+
+/* The `index`th of those tickets, lowest first: its TicketSequence on network
+ * `network_id`. DOESNT_EXIST past the last. The pool's last ticket is the
+ * ledger's own (see xport), so of n tickets a hook may name n - 1. */
+DEFINE_HOOK_FUNCTION(int64_t, xport_ticket, uint32_t network_id, uint32_t index)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const res = api.xport_ticket(network_id, index);
     if (!res)
         return res.error();
     return res.value();

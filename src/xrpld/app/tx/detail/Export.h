@@ -40,11 +40,20 @@ class ValidatorKeys;
     of the transaction the hook supplies, absent meaning 0: that is how such
     a transaction names its network anyway where the id is over 1024, and
     below that (where the other network refuses the field) the ledger strips
-    it when the export applies. Everything the ledger keeps about an account
-    on another network is per network: its ltEXPORTER, its shadow tickets,
-    the fee proven there (ltEXPORT_FEE). What comes back names its network
-    by the validator list that proves it (Import). Validators' export keys
-    are the same on every network, so nothing about them is per network.
+    it when the export applies, having recorded where it is bound
+    (sfRemoteNetworkID). One convenience: where exactly one import VL key is
+    trusted at all, xport() and export_setup take a transaction that names
+    no network to be for that key's network rather than for 0
+    (Import::soleNetwork), so a network that only knows a testnet, say,
+    need not say so each time. An account becomes an exporter on any of
+    them the same way, by the Import it signs of its SignerListSet there;
+    from a network other than the XRPL that Import records the list and
+    does nothing else (no keys installed here, nothing minted).
+    Everything the ledger keeps about an account on another network is per
+    network: its ltEXPORTER, its shadow tickets, the fee proven there
+    (ltEXPORT_FEE). What comes back names its network by the validator list
+    that proves it (Import). Validators' export keys are the same on every
+    network, so nothing about them is per network.
 
     Export keys. Every UNLReport validator nominates its current export key,
     with a proof of possession, in its flag ledger validations. The UNL
@@ -87,9 +96,20 @@ class ValidatorKeys;
         ledger sees the next Sequence, and nobody needs the account's keys
         to get it going again: funding the account there is enough.
       - sfExportKeysSeq, the UNLReport.ExportKeysSeq its list was built for.
-        When the UNL's keys change the ledger exports a SignerListSet without
-        entries (ttEXPORT_AUTO); its old list signs, so keys rotate without
-        lockout, and the Import that brings it back records the new list.
+        When the UNL's keys have changed the ledger exports a SignerListSet
+        without entries (ttEXPORT_AUTO); its old list signs, so keys rotate
+        without lockout, and the Import that brings it back records the new
+        list. This is batched, not done change by change: an exporter is
+        brought up to date at most once every keyRefreshEvery ledgers, and
+        only if its list would differ. A validator's new key goes in front
+        of its old ones (at most maxKeysPerEpoch per rotation epoch), and it
+        keeps signing with the old ones while its account lists them, so
+        nothing is lost by waiting and the other network sees one
+        SignerListSet per exporter however many keys turned over.
+
+    It also keeps the account's XRP balance there as last proven by an
+    Import (sfBalance), which relays hold an export back on while it cannot
+    pay its fee, and the list of its exports in flight (sfIndexes).
 
     Servers with an [export_relay] section per network watch every exporter
     there and Import, free of charge, each transaction of theirs that changes
@@ -104,6 +124,9 @@ class ValidatorKeys;
        own fields, which must be ones both networks read the same way
        (ExportSchema: a type opened for export by amendment, with the fields
        and flags the other network accepts on it; NOT_EXPORTABLE otherwise).
+       A TicketSequence the hook sets itself must be one the ledger knows
+       of there (ticketUsable; NO_TICKET otherwise): xport_tickets() and
+       xport_ticket() tell it which it holds.
        Account, SigningPubKey, Sequence (0) and OperationLimit are filled in
        at emission; TicketSequence (the lowest ticket of the smallest range
        in sfExportTickets), Fee ((signers + 1) x the unit ltEXPORT_FEE
@@ -137,11 +160,20 @@ class ValidatorKeys;
        (The ledger's own automatic exports carry no LastLedgerSequence:
        they are resent until they land.)
 
-    Callbacks. A hook hears of its export as it would of an emitted txn, by
-    cbak, once: what == 2 when the Import of step 4 lands (xpop_slot() gives
-    the transaction there and its meta, which may be another transaction that
-    used the same ticket), or what == 1 if the export fails to apply, closes
-    below quorum in step 3 or expires in step 5 (the otxn is then the
+    Callbacks. In every callback about an export, otxn_id() is the id of
+    the ttEXPORT the hook emitted, the 32 bytes xport() wrote: that is how a
+    hook tells which of its exports it is hearing about, whichever
+    transaction brought the news (otxn_id(1) is that transaction's own id).
+    The export records it (sfExportTxnID) on its ltEXPORTED_TXN and shadow
+    ticket for the purpose. A hook hears of its export as it would of an
+    emitted txn, by cbak, once: what == 2 when the Import of step 4 brings
+    back the export itself (xpop_slot() gives the transaction there and its
+    meta), or what == 1 if that Import brings back anything else that used
+    the ticket (the export then never will run; it is told apart by its id
+    without signatures, sfTransactionHash, since any quorum of the UNL's
+    signatures makes a transaction with an id of its own there), or if the
+    export fails to apply, closes below quorum in step 3 or expires in
+    step 5 (the otxn is then the
     ttEXPORT_FINAL, which carries sfLedgerIndex only when it is an expiry).
     A transaction the other network rejects outright never comes back; it
     expires instead, unless it has no LastLedgerSequence (the hook removed
@@ -212,9 +244,24 @@ public:
         result from a ledger at or before the LastLedgerSequence. */
     static constexpr std::uint32_t expiryGrace = 32;
 
-    /** The most exports with a LastLedgerSequence one account may have out
-        on one network (the size of its ltEXPORTER's sfIndexes) */
+    /** The most exports one account may have in flight on one network (the
+        size of its ltEXPORTER's sfIndexes; the other network allows an
+        account 250 tickets, and every export in flight holds one) */
     static constexpr std::size_t maxExpiring = 256;
+
+    /** An exporter's signer list is brought up to the UNL's current export
+        keys at most once every this many ledgers, at a ledger its directory
+        entry picks. Keys change rarely and validators keep signing with the
+        old ones for as long as their accounts list them, so however many
+        validators re-key in the meantime it costs each exporter, and the
+        other network, one SignerListSet. */
+    static constexpr std::uint32_t keyRefreshEvery = 4096;
+
+    /** The most export keys recorded for one validator in one rotation
+        epoch: its key for the epoch and one replacement (a lost key file).
+        A further nomination waits for the next epoch, so a validator, or two
+        servers sharing its token, cannot keep the UNL's keys changing. */
+    static constexpr std::size_t maxKeysPerEpoch = 2;
 
     /** The most exports of one exporter expired in one ledger */
     static constexpr std::size_t maxExpirePerSlot = 16;
@@ -244,10 +291,25 @@ public:
 
     /** Whether a hook may spend `ticket` (or, without one, the next pooled
         ticket) of `pool`: the last pooled ticket is kept for the ledger's own
-        TicketCreate, which needs a ticket to carry it. A ticket the pool does
-        not hold is the hook's own business. */
+        TicketCreate, which needs a ticket to carry it. Whether a ticket the
+        pool does not hold may be named at all is ticketUsable's to say. */
     static bool
     hookMayUse(ExportTickets const& pool, std::optional<std::uint32_t> ticket);
+
+    /** Whether a hook of `account` may name `ticket` for an export to
+        network `nid`: only a ticket the ledger knows of. Either one in its
+        pool there (and not the last, see hookMayUse), or one an export of
+        its own is in flight on (it has a shadow ticket), which the new
+        export then takes over: the way to replace an export that is stuck.
+        Any other ticket the ledger never saw created, or saw spent, and an
+        export on it could only wait for something that cannot come.
+        xport() tells the hook (NO_TICKET); ttEXPORT's preclaim enforces it. */
+    static bool
+    ticketUsable(
+        ReadView const& view,
+        AccountID const& account,
+        std::uint32_t nid,
+        std::uint32_t ticket);
 
     static constexpr std::uint32_t
     rotationEpoch(std::uint32_t closeTime)
@@ -408,11 +470,18 @@ listsExportKey(ReadView const& view, STArray const& entries);
 bool
 exportKeysSettled(ReadView const& view);
 
-/** Stop looking for the shadow ticket `key` among the exports of the
-    ltEXPORTER `ex` that may expire (sfIndexes). True if it was there; `ex`
-    is then updated by the caller. */
+/** Take the shadow ticket `key` off the list of exports in flight of the
+    ltEXPORTER `ex` (sfIndexes). True if it was there; `ex` is then updated
+    by the caller. */
 bool
 untrackExpiry(SLE& ex, uint256 const& key);
+
+/** The id `tx`, a transaction of another network, has without its
+    signatures: what an export is known by here from the moment it is made
+    (sfTransactionHash), whichever of the UNL's signatures it ends up
+    carrying there. Zero if `tx` is not a transaction this network can read. */
+uint256
+exportUnsignedID(STObject const& tx);
 
 /** The weight of the signatures an export has gathered: an ltEXPORTED_TXN,
     or the FinalFields its ttEXPORT_FINAL left in its DeletedNode */
@@ -508,7 +577,8 @@ private:
     std::uint32_t const networkID_;
     std::optional<boost::filesystem::path> file_;
     mutable std::mutex mutex_;
-    std::vector<Key> keys_;  // oldest first, back() is the nominee
+    std::vector<Key> keys_;         // oldest first, back() is the nominee
+    std::uint32_t unrecorded_ = 0;  // flag ledgers our nominee went unrecorded
 };
 
 /** [export_relay] sections: carry exports to other networks and exporters'

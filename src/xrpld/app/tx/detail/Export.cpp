@@ -32,6 +32,7 @@
 #include <xrpl/protocol/HashPrefix.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/TxFlags.h>
+#include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/st.h>
 #include <boost/algorithm/string/trim.hpp>
 #include <boost/filesystem.hpp>
@@ -132,6 +133,7 @@ setShadowTicket(
     uint256 const& txid,
     std::optional<uint256> const& hook,
     std::optional<std::uint32_t> const& lastLedger,
+    uint256 const& exportID,
     beast::Journal j)
 {
     auto const k = keylet::shadowTicket(acc, nid, ticket);
@@ -140,6 +142,13 @@ setShadowTicket(
         st->setFieldH256(sfTransactionHash, txid);
         (*st)[~sfEmitHookHash] = hook;
         (*st)[~sfLastLedgerSequence] = lastLedger;
+        st->setFieldH256(sfExportTxnID, exportID);
+        // the export that held the ticket is taken over: what was signed
+        // for it is no longer what the ledger waits for
+        if (st->isFieldPresent(sfRemoteTxnID))
+            st->makeFieldAbsent(sfRemoteTxnID);
+        if (st->isFieldPresent(sfExportedTxn))
+            st->makeFieldAbsent(sfExportedTxn);
         view.update(st);
         return tesSUCCESS;
     }
@@ -163,6 +172,7 @@ setShadowTicket(
     st->setFieldH256(sfTransactionHash, txid);
     (*st)[~sfEmitHookHash] = hook;
     (*st)[~sfLastLedgerSequence] = lastLedger;
+    st->setFieldH256(sfExportTxnID, exportID);
     st->setFieldU64(sfOwnerNode, *page);
     view.insert(st);
     adjustOwnerCount(view, sle, 1, j);
@@ -409,6 +419,44 @@ Export::hookMayUse(
     if (ticket && !pool.contains(*ticket))
         return true;
     return pool.count() >= 2;
+}
+
+bool
+Export::ticketUsable(
+    ReadView const& view,
+    AccountID const& account,
+    std::uint32_t nid,
+    std::uint32_t ticket)
+{
+    if (view.exists(keylet::shadowTicket(account, nid, ticket)))
+        return true;
+    auto const ex = view.read(keylet::exporter(account, nid));
+    if (!ex)
+        return false;
+    auto const pool = ExportTickets::load(*ex);
+    return pool.contains(ticket) && hookMayUse(pool, ticket);
+}
+
+uint256
+exportUnsignedID(STObject const& tx)
+{
+    try
+    {
+        // as Export::createExport computed it: the transaction parsed
+        // under this network's formats, without what signing adds
+        STObject o{tx};
+        if (o.isFieldPresent(sfSigners))
+            o.makeFieldAbsent(sfSigners);
+        if (o.isFieldPresent(sfTxnSignature))
+            o.makeFieldAbsent(sfTxnSignature);
+        Serializer s;
+        o.add(s);
+        return STTx{SerialIter{s.slice()}}.getTransactionID();
+    }
+    catch (std::exception const&)
+    {
+        return uint256{};
+    }
 }
 
 TER
@@ -728,6 +776,11 @@ Export::preclaim(PreclaimContext const& ctx)
         auto const nid = destination(inner);
         if (!signerList(ctx.view, owner, nid))
             return tecNO_TARGET;
+        // a ticket the hook names must be one the ledger knows of there
+        if (auto const t = inner[~sfTicketSequence]; t &&
+            tx.getTxnType() == ttEXPORT &&
+            !ticketUsable(ctx.view, owner, nid, *t))
+            return tecNO_ENTRY;
         if (tx.getTxnType() == ttEXPORT_AUTO)
         {
             auto const ex = ctx.view.read(keylet::exporter(owner, nid));
@@ -940,16 +993,12 @@ Export::createExport(
     }
 
     tickets.store(*ex);
-    if (ticket)
-    {
-        // where Export::accept will look for it once it may have expired
-        // (a ticket exported again without one is looked for no longer)
-        auto const shadow = keylet::shadowTicket(owner, dest, *ticket).key;
-        if (!lastLedger)
-            untrackExpiry(*ex, shadow);
-        else if (!trackExpiry(*ex, shadow))
-            return tecDIR_FULL;
-    }
+    // every export in flight is listed on the record by its shadow ticket:
+    // where Export::accept looks for exports to expire, relays for exports
+    // to send, and export_info for what is out
+    if (ticket &&
+        !trackExpiry(*ex, keylet::shadowTicket(owner, dest, *ticket).key))
+        return tecDIR_FULL;
     if (automatic && type == ttTICKET_CREATE)
         ex->setFieldU32(sfExportTicketPending, seqProxyOf(inner));
     if (automatic && type == ttSIGNER_LIST_SET)
@@ -965,7 +1014,15 @@ Export::createExport(
     // of the exporter's own TicketCreate.
     if (ticket)
         if (auto const ter = setShadowTicket(
-                view, owner, dest, *ticket, id, hook, lastLedger, j_);
+                view,
+                owner,
+                dest,
+                *ticket,
+                id,
+                hook,
+                lastLedger,
+                ctx_.tx.getTransactionID(),
+                j_);
             !isTesSuccess(ter))
             return ter;
 
@@ -978,6 +1035,8 @@ Export::createExport(
     sle->setFieldArray(sfSignerEntries, list->getFieldArray(sfSignerEntries));
     sle->setFieldU32(sfSignerQuorum, (*list)[sfSignerQuorum]);
     (*sle)[~sfEmitHookHash] = hook;
+    // what the hook was given by xport(), and gets back as otxn_id in cbak
+    sle->setFieldH256(sfExportTxnID, ctx_.tx.getTransactionID());
     view.insert(sle);
     return tesSUCCESS;
 }
@@ -1022,6 +1081,7 @@ Export::doApply()
         std::uint32_t const dest = (*st)[sfRemoteNetworkID];
         std::uint32_t const ticket = (*st)[sfTicketSequence];
         std::optional<uint256> const hook = (*st)[~sfEmitHookHash];
+        uint256 const exportID = (*st)[~sfExportTxnID].value_or(uint256{});
         auto const key = st->key();
         if (!eraseShadowTicket(
                 view, owner, dest, ticket, tx[sfTransactionHash]))
@@ -1039,7 +1099,7 @@ Export::doApply()
             view.update(ex);
         }
         if (hook)
-            callback_ = HookCallback{owner, *hook, 1};
+            callback_ = HookCallback{owner, *hook, 1, exportID};
         return tesSUCCESS;
     }
 
@@ -1111,7 +1171,38 @@ Export::doApply()
                 view.update(acc);
             }
             if (sle->isFieldPresent(sfEmitHookHash))
-                callback_ = HookCallback{owner, (*sle)[sfEmitHookHash], 1};
+                callback_ = HookCallback{
+                    owner,
+                    (*sle)[sfEmitHookHash],
+                    1,
+                    (*sle)[~sfExportTxnID].value_or(uint256{})};
+        }
+        else if (auto const ticket = inner[~sfTicketSequence])
+        {
+            // At quorum the transaction is in flight, and its shadow ticket
+            // (if it still names this export) takes it over as signed, with
+            // the id it has there: the ledger itself then holds what relays
+            // are to send for as long as it is wanted, so a relay that
+            // starts later, or again, finds it without having seen this
+            // ledger. (Any quorum of these signatures makes a valid
+            // transaction there with an id of its own, so what comes back
+            // is told by its unsigned id, sfTransactionHash; see Import.)
+            if (auto const st =
+                    view.peek(keylet::shadowTicket(owner, dest, *ticket));
+                st &&
+                st->getFieldH256(sfTransactionHash) ==
+                    sle->getFieldH256(sfTransactionHash))
+            {
+                Serializer s;
+                inner.add(s);
+                // (hashed as STTx::getTransactionID does, without parsing
+                // it again)
+                st->setFieldH256(
+                    sfRemoteTxnID,
+                    sha512Half(HashPrefix::transactionID, s.slice()));
+                st->peekFieldObject(sfExportedTxn) = inner;
+                view.update(st);
+            }
         }
         view.erase(sle);
         return tesSUCCESS;
@@ -1295,13 +1386,33 @@ Export::accept(Application& app, OpenView& view, beast::Journal j)
                 in[sfSequence] = *sequence;
             });
 
+        // The UNL's export keys have changed since its list was made. Keys
+        // change rarely and in bursts (a rotation epoch turns every
+        // validator's over within a few flag ledgers), and validators go on
+        // signing with the old ones while their accounts list them. So the
+        // list is not chased change by change: each exporter is brought up
+        // to date at most once every keyRefreshEvery ledgers, at a ledger
+        // of its own, and only if the list it would get differs from the
+        // one it has. One SignerListSet there, however many keys turned.
         if (keysSeq != 0 && (*acc)[~sfExportKeysSeq].value_or(0) != keysSeq &&
-            tickets.count() >= 2)
-            automatic([&](STObject& in) {
-                in[sfTransactionType] =
-                    static_cast<std::uint16_t>(ttSIGNER_LIST_SET);
-                in[sfSignerQuorum] = 0;
-            });
+            tickets.count() >= 2 &&
+            (seq + slotOf(acc->key())) % keyRefreshEvery == 0)
+        {
+            auto const now = exportSigners(view);
+            auto const& have = obj(*acc, sfExportSignerList);
+            auto const& entries = have.getFieldArray(sfSignerEntries);
+            bool const same = now.size() == entries.size() &&
+                have[sfSignerQuorum] == (now.size() * 4 + 4) / 5 &&
+                std::all_of(now.begin(), now.end(), [&](auto const& s) {
+                                  return listed(entries, s.account);
+                              });
+            if (!now.empty() && !same)
+                automatic([&](STObject& in) {
+                    in[sfTransactionType] =
+                        static_cast<std::uint16_t>(ttSIGNER_LIST_SET);
+                    in[sfSignerQuorum] = 0;
+                });
+        }
     };
     for (auto page = view.read(keylet::exporterDir()); page;)
     {
@@ -1476,6 +1587,21 @@ ExportKeys::nominate(ReadView const& ledger)
         auto const it = at(keys_.back().pk);
         auto const now = static_cast<std::uint32_t>(
             ledger.info().closeTime.time_since_epoch().count());
+        // Nominated flag ledger after flag ledger and never recorded: the
+        // ledger takes at most Export::maxKeysPerEpoch keys per validator
+        // in a rotation epoch, so somebody else is nominating keys for this
+        // validator too, and ours has to wait for the next epoch.
+        if (it != onLedger.end())
+            unrecorded_ = 0;
+        else if (++unrecorded_ >= 3)
+            JLOG(j_.warn())
+                << "ExportKeys: our export key " << strHex(keys_.back().pk)
+                << " has been nominated " << unrecorded_
+                << " times without being recorded; another server may be "
+                   "validating with this token and its own export keys "
+                   "(share one [export_key_file]), and no further key is "
+                   "recorded for this validator until the next rotation "
+                   "epoch";
         // the ledger moved past ours (an older backup), or a new epoch
         bool const superseded = it != onLedger.end() && it != onLedger.begin();
         rotate = superseded ||

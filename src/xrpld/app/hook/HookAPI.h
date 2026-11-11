@@ -361,6 +361,11 @@ public:
     Expected<uint64_t, HookReturnCode>
     xport_tickets(std::uint32_t nid) const;
 
+    // featureExport: the `index`th of those tickets, lowest first, so a
+    // hook can see which it holds and name one (DOESNT_EXIST past the end)
+    Expected<uint64_t, HookReturnCode>
+    xport_ticket(std::uint32_t nid, std::uint32_t index) const;
+
     Expected<uint64_t, HookReturnCode>
     etxn_burden() const;
 

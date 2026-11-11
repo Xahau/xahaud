@@ -930,6 +930,8 @@ private:
         std::optional<std::uint32_t> ticket;
         std::uint32_t sequence;
         std::optional<std::uint32_t> lastLedger;  // its LastLedgerSequence
+        uint256 id;     // without signatures, as its shadow ticket names it
+        XRPAmount fee;  // what it pays there
         Blob blob;
     };
     std::map<uint256, Held> held_;  // by shadow ticket, or account root key
@@ -941,9 +943,28 @@ private:
     {
         auto const nid = cfg_.network();
         if (h.ticket)
-            return view.exists(keylet::shadowTicket(h.owner, nid, *h.ticket));
+        {
+            // its shadow ticket stands and is still this export's: one
+            // exported again on the same ticket makes this one stale
+            auto const st =
+                view.read(keylet::shadowTicket(h.owner, nid, *h.ticket));
+            return st && (*st)[sfTransactionHash] == h.id;
+        }
         auto const ex = view.read(keylet::exporter(h.owner, nid));
         return ex && (*ex)[~sfExportTicketPending] == h.sequence;
+    }
+
+    // Whether the account can pay for it there, by the balance the ledger
+    // last saw proven (ltEXPORTER.sfBalance; unknown counts as yes). One
+    // that cannot is held back rather than dropped: sent an eighth as
+    // often, since the ledger only learns of money arriving there with the
+    // account's next transaction that comes back, and that may be this one.
+    bool
+    funded(ReadView const& view, Held const& h) const
+    {
+        auto const ex = view.read(keylet::exporter(h.owner, cfg_.network()));
+        return !ex || !ex->isFieldPresent(sfBalance) ||
+            ex->getFieldAmount(sfBalance).xrp() >= h.fee;
     }
 
     void
@@ -971,6 +992,8 @@ private:
             in[~sfTicketSequence],
             in[~sfSequence].value_or(0),
             in[~sfLastLedgerSequence],
+            id,
+            in.getFieldAmount(sfFee).xrp(),
             {}};
         uint256 key;
         if (h.ticket)
@@ -991,8 +1014,54 @@ private:
         Serializer s;
         in.add(s);
         h.blob = s.peekData();
-        submit(h.blob);
+        // already held as it is: the same export reaches here from its
+        // final, from the ledger's own record of it and from every later
+        // pass, and is sent on the resend schedule, not once for each
+        if (auto const it = held_.find(key); it != held_.end() &&
+            it->second.id == id && it->second.blob == h.blob)
+            return;
+        if (funded(now, h))
+            submit(h.blob);
+        else
+            JLOG(j_.info())
+                << "holding back export " << id << " of " << toBase58(owner)
+                << ": its balance on network " << cfg_.network()
+                << " does not cover its fee of " << h.fee;
         held_.insert_or_assign(key, std::move(h));
+    }
+
+    // Every export in flight that the ledger holds signed (the shadow
+    // tickets of the exporters listed for this network, see ttEXPORT_FINAL):
+    // what a relay that has just started, or was away for longer than
+    // recoverDepth, still has to carry. The ledger is the one record of
+    // what is wanted, so nothing stale comes back from here: a shadow ticket
+    // that has gone, or been taken over by a later export, holds nothing.
+    void
+    recover(ReadView const& l)
+    {
+        for (auto page = l.read(keylet::exporterDir()); page;)
+        {
+            for (auto const& key : page->getFieldV256(sfIndexes))
+            {
+                auto const ex = l.read(Keylet{ltEXPORTER, key});
+                if (!ex || (*ex)[sfRemoteNetworkID] != cfg_.network() ||
+                    !ex->isFieldPresent(sfIndexes))
+                    continue;
+                for (auto const& k : ex->getFieldV256(sfIndexes))
+                {
+                    auto const st = l.read(Keylet{ltSHADOW_TICKET, k});
+                    if (st && st->isFieldPresent(sfExportedTxn))
+                        hold(
+                            l,
+                            (*st)[sfAccount],
+                            st->peekAtField(sfExportedTxn).downcast<STObject>(),
+                            (*st)[sfTransactionHash]);
+                }
+            }
+            auto const next = (*page)[~sfIndexNext].value_or(0);
+            page = next ? l.read(keylet::page(keylet::exporterDir(), next))
+                        : nullptr;
+        }
     }
 
     // the exports whose window closed in `l`, as their finals left them
@@ -1038,9 +1107,14 @@ private:
         // every ledger since the last one seen here, bounded by recoverDepth
         // and by the history this server keeps
         auto from = xahau_ ? xahau_ + 1 : 1;
+        // just started, or away for longer than the finals read back below
+        // reach: what is in flight is then taken from the ledger itself
+        bool const resync = xahau_ == 0 || from + recoverDepth < seq;
         if (from + recoverDepth < seq)
             from = seq - recoverDepth;
         xahau_ = seq;
+        if (resync)
+            recover(*l);
         for (auto s = from; s < seq; ++s)
             if (auto const past = app_.getLedgerMaster().getLedgerBySeq(s))
                 finals(*past, *l);
@@ -1071,7 +1145,10 @@ private:
             {
                 // (not once the other network is past its last ledger: it
                 // can no longer be included, and the ledger will expire it)
-                if (seq % resendEvery == 0 &&
+                if (seq %
+                            (funded(*l, it->second) ? resendEvery
+                                                    : resendEvery * 8) ==
+                        0 &&
                     !(it->second.lastLedger &&
                       highest_ > *it->second.lastLedger))
                     submit(it->second.blob);

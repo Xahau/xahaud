@@ -127,6 +127,7 @@ LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
     {sfSignerEntries,        soeREQUIRED},
     {sfSignerQuorum,         soeREQUIRED},
     {sfEmitHookHash,         soeOPTIONAL},
+    {sfExportTxnID,          soeOPTIONAL},
 }))
 
 /** A shadow ticket: lets one XPOP of a ticketed export that is bound back to
@@ -138,6 +139,14 @@ LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
     other network: once the ledger proven for that network (ltEXPORT_FEE) is
     Export::expiryGrace past it without the export having come back, an
     expiry ttEXPORT_FINAL erases this and calls the hook back as failed.
+    sfExportTxnID is the ttEXPORT (or ttEXPORT_AUTO) that made the export,
+    which is what the hook's cbak sees as otxn_id. sfTransactionHash is the
+    export's id on the other network without its signatures, which is what
+    tells the transaction that comes back for this ticket from any other.
+    Once the signing window has closed at quorum the transaction as signed
+    is kept here too (sfExportedTxn, with its id there in sfRemoteTxnID), so
+    that a relay can find and send it for as long as it is still wanted,
+    whenever it starts.
 
     \sa keylet::shadowTicket
 */
@@ -148,6 +157,9 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     {sfTransactionHash,      soeREQUIRED},
     {sfEmitHookHash,         soeOPTIONAL},
     {sfLastLedgerSequence,   soeOPTIONAL},
+    {sfExportTxnID,          soeOPTIONAL},
+    {sfRemoteTxnID,          soeOPTIONAL},
+    {sfExportedTxn,          soeOPTIONAL},
     {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
@@ -162,10 +174,13 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     every transaction's metadata carries it); the ticket, or for a sequenced
     backstop the Sequence, of an automatic TicketCreate export still out;
     the UNLReport.ExportKeysSeq its signer list was last refreshed to; the
-    keys of its shadow tickets that carry a LastLedgerSequence (sfIndexes,
-    at most Export::maxExpiring), which is where Export::accept looks for
-    exports to expire; and, while the ledger acts for it there (an
-    exporter), its page in keylet::exporterDir().
+    keys of its shadow tickets, one per export in flight (sfIndexes, at most
+    Export::maxExpiring), which is where Export::accept looks for exports to
+    expire and relays for exports to send; its XRP balance there as last
+    proven by an Import (sfBalance, from the same AccountRoot node, with the
+    ledger and transaction index there it was proven at), which relays hold
+    an export back on while it cannot pay its fee; and, while the ledger
+    acts for it there (an exporter), its page in keylet::exporterDir().
 
     \sa keylet::exporter
 */
@@ -179,6 +194,9 @@ LEDGER_ENTRY(ltEXPORTER, 'V', Exporter, exporter, ({
     {sfExportTicketPending,  soeOPTIONAL},
     {sfExportKeysSeq,        soeOPTIONAL},
     {sfIndexes,              soeOPTIONAL},
+    {sfBalance,              soeOPTIONAL},
+    {sfLedgerSequence,       soeOPTIONAL},
+    {sfTransactionIndex,     soeOPTIONAL},
     {sfExportNode,           soeOPTIONAL},
     {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},

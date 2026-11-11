@@ -65,6 +65,32 @@ sequenceThere(STObject const& meta, AccountID const& account)
     return 0;
 }
 
+// featureExport: the XRP balance `account` has on the other network after
+// the transaction `meta` describes, from the same AccountRoot node.
+static std::optional<STAmount>
+balanceThere(STObject const& meta, AccountID const& account)
+{
+    if (!meta.isFieldPresent(sfAffectedNodes))
+        return std::nullopt;
+    for (auto const& n : meta.getFieldArray(sfAffectedNodes))
+    {
+        if (n[~sfLedgerEntryType] != static_cast<std::uint16_t>(ltACCOUNT_ROOT))
+            continue;
+        auto const& f =
+            n.getFName() == sfCreatedNode ? sfNewFields : sfFinalFields;
+        if (!n.isFieldPresent(f))
+            continue;
+        auto const& fields = n.peekAtField(f).downcast<STObject>();
+        if (fields[~sfAccount] == account && fields.isFieldPresent(sfBalance))
+        {
+            auto const bal = fields.getFieldAmount(sfBalance);
+            if (bal.native())
+                return bal;
+        }
+    }
+    return std::nullopt;
+}
+
 TxConsequences
 Import::makeTxConsequences(PreflightContext const& ctx)
 {
@@ -1034,14 +1060,38 @@ Import::preclaim(PreclaimContext const& ctx)
             ctx.view,
             (*xpop)[jss::validation][jss::unl][jss::public_key].asString())
             .value_or(0);
-    if (net != 0 && !loopback)
+    auto const tt = stpTrans->getTxnType();
+    // The one Import an account signs from another network than the XRPL:
+    // that of its SignerListSet there, which is how it becomes an exporter
+    // on that network (export_setup). It records the list and nothing else:
+    // no keys are installed here, nothing is minted, and sfImportSequence
+    // (the XRPL's) is neither consulted nor moved (doApply). The list's
+    // position there is what keeps an older one from being imported again.
+    bool const setup = net != 0 && !loopback && sle &&
+        ctx.view.rules().enabled(featureExport) && tt == ttSIGNER_LIST_SET &&
+        !stpTrans->isFieldPresent(sfTicketSequence);
+    if (net != 0 && !loopback && !setup)
         return telIMPORT_VL_KEY_NOT_RECOGNISED;
     auto const ex = ctx.view.rules().enabled(featureExport)
         ? ctx.view.read(keylet::exporter(ctx.tx[sfAccount], net))
         : nullptr;
     bool const exporter = ex && isExporter(*ex);
+    if (setup)
+    {
+        if (!isTesSuccess(meta->getFieldU8(sfTransactionResult)))
+            return tefALREADY;
+        if (ex && ex->isFieldPresent(sfExportSignerList))
+        {
+            auto const& old =
+                ex->peekAtField(sfExportSignerList).downcast<STObject>();
+            if (std::pair{old[sfLedgerSequence], old[sfTransactionIndex]} >=
+                std::pair{
+                    (*xpop)[jss::ledger][jss::index].asUInt(),
+                    (*meta)[~sfTransactionIndex].value_or(0)})
+                return tefALREADY;
+        }
+    }
 
-    auto const tt = stpTrans->getTxnType();
     if ((tt == ttSIGNER_LIST_SET || tt == ttREGULAR_KEY_SET) &&
         ctx.view.rules().enabled(fixReduceImport) && sle)
     {
@@ -1131,7 +1181,7 @@ Import::preclaim(PreclaimContext const& ctx)
         if (!records)
             return tefALREADY;
     }
-    else if (sle && sle->isFieldPresent(sfImportSequence))
+    else if (!setup && sle && sle->isFieldPresent(sfImportSequence))
     {
         uint32_t sleImportSequence = sle->getFieldU32(sfImportSequence);
 
@@ -1186,6 +1236,25 @@ Import::preclaim(PreclaimContext const& ctx)
         return telIMPORT_VL_KEY_NOT_RECOGNISED;
     }
     return tesSUCCESS;
+}
+
+std::uint32_t
+Import::soleNetwork(Config const& config, ReadView const& view)
+{
+    std::map<PublicKey, std::uint32_t> keys;
+    for (auto const& [hex, pk] : config.IMPORT_VL_KEYS)
+    {
+        auto const n = config.IMPORT_VL_NETWORKS.find(hex);
+        keys.emplace(pk, n == config.IMPORT_VL_NETWORKS.end() ? 0 : n->second);
+    }
+    if (auto const unl = view.read(keylet::UNLReport());
+        unl && unl->isFieldPresent(sfImportVLKeys))
+        for (auto const& k : unl->getFieldArray(sfImportVLKeys))
+            if (publicKeyType(k[sfPublicKey]))
+                keys.emplace(
+                    PublicKey(k[sfPublicKey]),
+                    k[~sfRemoteNetworkID].value_or(0));
+    return keys.size() == 1 ? keys.begin()->second : 0;
 }
 
 std::optional<std::uint32_t>
@@ -1478,13 +1547,16 @@ Import::doApply()
     auto ex = view().rules().enabled(featureExport)
         ? view().peek(keylet::exporter(id, net))
         : nullptr;
+    // an account's setup import from another network than the XRPL (see
+    // preclaim): it records the account's signer list there, and that is all
+    bool const foreign = net != 0 && !loopback;
 
     // A loopback never touches sfImportSequence: preclaim replay-protects it
     // by the ledger's own records (shadow ticket, sfExportTicketNext,
     // sfExportSequence, the signer list's position), so a sync import of an
     // older TicketCreate or SignerListSet must not be refused by a later
     // Import the account signed.
-    if (!ticket && !loopback && sle &&
+    if (!ticket && !loopback && !foreign && sle &&
         sle->getFieldU32(sfImportSequence) >= importSequence)
     {
         // make double sure import seq hasn't passed
@@ -1510,9 +1582,10 @@ Import::doApply()
 
     uint64_t creditDrops = burn.xrp().drops();
 
-    if (loopback)
+    if (loopback || foreign)
     {
-        // the burned fee paid for this Import
+        // the burned fee paid for this Import; and nothing burned on a
+        // network other than the XRPL is ever minted here
         creditDrops = 0;
     }
     else if (view().rules().enabled(featureZeroB2M))
@@ -1578,7 +1651,7 @@ Import::doApply()
         }
     }
 
-    if (!loopback)
+    if (!loopback && !foreign)
         sle->setFieldU32(sfImportSequence, importSequence);
     sle->setFieldAmount(sfBalance, finalBal);
 
@@ -1709,6 +1782,16 @@ Import::doApply()
                 // TicketCreate must not revive consumed tickets
                 lo = std::max(lo, next);
                 tickets.add(lo, hi - lo + 1);
+                // not one an export is already in flight on: a ticket is
+                // never both pooled and shadowed (ValidExportTickets)
+                if (hi - lo < 256)
+                    for (std::uint32_t t = lo;; ++t)
+                    {
+                        if (view().exists(keylet::shadowTicket(id, net, t)))
+                            tickets.remove(t);
+                        if (t == hi)
+                            break;
+                    }
                 ex->setFieldU32(sfExportTicketNext, hi + 1);
                 // tickets are taken from the sequence there, so it is past
                 // the last one made (a lower bound, should the metadata
@@ -1719,6 +1802,23 @@ Import::doApply()
         tickets.store(*ex);
         if (sequence != 0)
             ex->setFieldU32(sfExportSequence, sequence);
+        // its balance there, as of the latest transaction of its own seen
+        // (by ledger, then index): what relays hold an export back on
+        // while it cannot pay its fee
+        if (auto const bal = balanceThere(*meta, id))
+        {
+            std::pair const at{
+                (*xpop)[jss::ledger][jss::index].asUInt(),
+                (*meta)[~sfTransactionIndex].value_or(0)};
+            if (std::pair{
+                    (*ex)[~sfLedgerSequence].value_or(0),
+                    (*ex)[~sfTransactionIndex].value_or(0)} <= at)
+            {
+                ex->setFieldAmount(sfBalance, *bal);
+                ex->setFieldU32(sfLedgerSequence, at.first);
+                ex->setFieldU32(sfTransactionIndex, at.second);
+            }
+        }
         if (notOurs)
         {
             if (auto const ter = setExporter(view(), ex, false);
@@ -1749,9 +1849,25 @@ Import::doApply()
             if (!view().dirRemove(
                     keylet::ownerDir(id), (*st)[sfOwnerNode], k, false))
                 return tefBAD_LEDGER;
-            // the exporting hook's callback, deferred until now (see Export.h)
+            // The exporting hook's callback, deferred until now (see
+            // Export.h). The ticket is spent there either way, but only the
+            // export itself coming back is the export having run: it is
+            // told from anything else that used the ticket by its id
+            // without signatures, which the shadow ticket has held since
+            // the export was made (any quorum of the UNL's signatures makes
+            // a transaction with a different id there). Anything else means
+            // the export never will run, and the hook is told it failed.
+            // Either way otxn_id is the ttEXPORT the hook emitted, and
+            // xpop_slot() what used the ticket.
             if (st->isFieldPresent(sfEmitHookHash))
-                callback_ = HookCallback{id, (*st)[sfEmitHookHash], 2};
+                callback_ = HookCallback{
+                    id,
+                    (*st)[sfEmitHookHash],
+                    exportUnsignedID(*stpTrans) ==
+                            st->getFieldH256(sfTransactionHash)
+                        ? 2u
+                        : 1u,
+                    (*st)[~sfExportTxnID].value_or(uint256{})};
             view().erase(st);
             adjustOwnerCount(view(), sle, -1, ctx_.journal);
             // it came back, so it is no longer one to expire
@@ -1772,7 +1888,8 @@ Import::doApply()
     // (never for a loopback: only an Import the account signed may change
     // its keys here, or the UNL's keys could take the account)
     //
-    if (!loopback && isTesSuccess(meta->getFieldU8(sfTransactionResult)))
+    if (!loopback && !foreign &&
+        isTesSuccess(meta->getFieldU8(sfTransactionResult)))
     {
         auto const tt = stpTrans->getTxnType();
         if (tt == ttSIGNER_LIST_SET &&

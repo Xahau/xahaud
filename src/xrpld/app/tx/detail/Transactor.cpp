@@ -1732,7 +1732,8 @@ Transactor::doHookCallback(
                 cb.what,
                 hook_no - 1,
                 provisionalMeta,
-                emitFailureTxn_);
+                emitFailureTxn_,
+                cb.otxn);
 
             executedHookCount_++;
 

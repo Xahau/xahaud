@@ -508,14 +508,25 @@ Change::applyExportKeyReport()
     entry.setFieldVL(sfExportKey, key);
     entry.setFieldU32(sfCloseTime, now);
 
-    // At most one key per epoch: a later epoch pushes, the same epoch (a lost
-    // key file, an emergency rotation) replaces the current key. So however
-    // often a validator rekeys, the array spans maxExportKeys epochs.
-    if (!keys.empty() &&
-        Export::rotationEpoch(now) <=
-            Export::rotationEpoch(keys[0].getFieldU32(sfCloseTime)))
-        keys[0] = std::move(entry);
-    else
+    // At most Export::maxKeysPerEpoch keys per rotation epoch: the epoch's
+    // own, and one replacement (a lost key file, an emergency rotation). A
+    // key is always added in front of the others, never in place of one, so
+    // the validator can go on signing with the one before for exporters
+    // that still list it, and nothing has to follow at once. A further
+    // nomination in the same epoch is not recorded, and nothing changes:
+    // that is what keeps one validator re-keying (or two servers sharing
+    // its token, each with its own keys) from changing the UNL's keys, and
+    // so every exporter's signer list, at every flag ledger.
+    auto const epoch = Export::rotationEpoch(now);
+    if (std::count_if(keys.begin(), keys.end(), [&](STObject const& e) {
+            return Export::rotationEpoch(e.getFieldU32(sfCloseTime)) >= epoch;
+        }) >= static_cast<std::ptrdiff_t>(Export::maxKeysPerEpoch))
+    {
+        JLOG(j_.debug()) << "Change: export key of "
+                         << toBase58(TokenType::NodePublic, master)
+                         << " not recorded, it has had its keys this epoch";
+        return tesSUCCESS;
+    }
     {
         STArray next(sfExportKeys);
         next.push_back(std::move(entry));

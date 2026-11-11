@@ -19,6 +19,7 @@
 
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/rpc/Context.h>
@@ -44,9 +45,10 @@ isUnsigned(Json::Value const& v)
 
     Takes the usual ledger selectors, plus optional:
         account    the account, filled into tx_json
-        network_id the network the list is for (default 0, the XRPL); above
-                   1024 it is set as the transaction's NetworkID, which such
-                   networks require
+        network_id the network the list is for (default: the one network
+                   an import VL key is trusted for here, if there is exactly
+                   one; otherwise 0, the XRPL); above 1024 it is set as the
+                   transaction's NetworkID, which such networks require
         quorum     SignerQuorum (default: 80% of the signers, rounded up)
         as_of      ripple epoch seconds: each validator's newest export key
                    recorded at or before then (default: the current keys)
@@ -84,8 +86,6 @@ doExportSetup(RPC::JsonContext& context)
     if (params.isMember(jss::network_id) &&
         !isUnsigned(params[jss::network_id]))
         return RPC::invalid_field_error(jss::network_id);
-    std::uint32_t const nid =
-        params.isMember(jss::network_id) ? params[jss::network_id].asUInt() : 0;
 
     std::optional<AccountID> account;
     if (params.isMember(jss::account) &&
@@ -97,6 +97,11 @@ doExportSetup(RPC::JsonContext& context)
     auto result = RPC::lookupLedger(ledger, context);
     if (!ledger)
         return result;
+
+    // as xport() does for a hook that names no network
+    std::uint32_t const nid = params.isMember(jss::network_id)
+        ? params[jss::network_id].asUInt()
+        : Import::soleNetwork(context.app.config(), *ledger);
 
     auto const unl = ledger->read(keylet::UNLReport());
     result["export_keys_seq"] = unl ? (*unl)[~sfExportKeysSeq].value_or(0) : 0;

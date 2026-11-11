@@ -852,6 +852,17 @@ HookAPI::xport(Slice const& txBlob) const
     {
         SerialIter sit{txBlob};
         STObject inner{sit, sfExportedTxn};
+        // The destination: the NetworkID the hook gave, none meaning the
+        // XRPL (0), unless exactly one other network is known here at all
+        // (one trusted import VL key), in which case none means that one.
+        // It stays on the transaction until the export applies, which
+        // records it (RemoteNetworkID) and takes it off again for networks
+        // of 1024 and below, where the field is not allowed.
+        if (!inner.isFieldPresent(sfNetworkID))
+            if (auto const sole = Import::soleNetwork(
+                    hookCtx.applyCtx.app.config(), hookCtx.applyCtx.view());
+                sole != 0)
+                inner[sfNetworkID] = sole;
         dest = Export::destination(inner);
         if (!inner.isFieldPresent(sfAccount))
             inner[sfAccount] = hookCtx.result.account;
@@ -892,13 +903,24 @@ HookAPI::xport(Slice const& txBlob) const
 
     // The ticket is filled in from the pool on the destination network when
     // the export applies: tell the hook now if there is none it may have
-    // (the pool's last ticket is the ledger's, see Export::hookMayUse). A
-    // ticket of its own, outside the pool, is always the hook's to spend.
+    // (the pool's last ticket is the ledger's, see Export::hookMayUse).
     {
         auto const ex = hookCtx.applyCtx.view().read(
             keylet::exporter(hookCtx.result.account, dest));
-        if (!Export::hookMayUse(
-                ex ? ExportTickets::load(*ex) : ExportTickets{}, ticket))
+        // A ticket the hook names must be one the ledger knows of there:
+        // pooled, or held by an export of its own in flight, which this
+        // one then replaces (Export::ticketUsable). With no record on that
+        // network at all there is nothing to check it against, and the
+        // export is refused when it applies for want of a signer list.
+        if (ticket ? (ex &&
+                      !Export::ticketUsable(
+                          hookCtx.applyCtx.view(),
+                          hookCtx.result.account,
+                          dest,
+                          *ticket))
+                   : !Export::hookMayUse(
+                         ex ? ExportTickets::load(*ex) : ExportTickets{},
+                         std::nullopt))
             return Unexpected(NO_TICKET);
     }
     return emit(makeSlice(*blob));
@@ -912,6 +934,23 @@ HookAPI::xport_tickets(std::uint32_t nid) const
     if (!ex)
         return Unexpected(DOESNT_EXIST);
     return ExportTickets::load(*ex).count();
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_ticket(std::uint32_t nid, std::uint32_t index) const
+{
+    auto const ex = hookCtx.applyCtx.view().read(
+        keylet::exporter(hookCtx.result.account, nid));
+    if (!ex)
+        return Unexpected(DOESNT_EXIST);
+    // ranges are sorted and disjoint, so this is the pool in ascending order
+    for (auto const& r : ExportTickets::load(*ex).ranges())
+    {
+        if (index < r.count)
+            return std::uint64_t{r.first} + index;
+        index -= r.count;
+    }
+    return Unexpected(DOESNT_EXIST);
 }
 
 Expected<uint64_t, HookReturnCode>
@@ -1675,6 +1714,13 @@ HookAPI::otxn_field(uint32_t field_id) const
 Expected<uint256, HookReturnCode>
 HookAPI::otxn_id(uint32_t flags) const
 {
+    // featureExport: a callback about an export is about the ttEXPORT the
+    // hook emitted, whichever transaction brought the news (an Import, a
+    // ttEXPORT_FINAL), as an emit failure's is about the emitted txn. With
+    // flags, as there, the transaction that brought it.
+    if (!flags && hookCtx.otxnID != beast::zero)
+        return hookCtx.otxnID;
+
     auto const& txID =
         (hookCtx.emitFailure && !flags
              ? hookCtx.applyCtx.tx.getFieldH256(sfTransactionHash)
