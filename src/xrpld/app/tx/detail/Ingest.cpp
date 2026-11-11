@@ -51,28 +51,15 @@
         samples  [{blob, meta}]: the transactions at Ingest::sampleLeaves,
                  in that order, each as its serialized form and metadata
 
-    Canonical form. A proof that is free must not be a way to store other
-    data, so there is exactly one sequence of bytes for what an XPOF proves
-    and nothing else is accepted: Ingest::parse rebuilds the document from
-    what it verified and compares it with the blob, byte for byte. That
-    leaves no room for unknown or repeated keys, whitespace, a node or a
-    validation given twice, one that proves nothing (another ledger's, a
-    key off the list), a second spelling of a number or of hex or base64,
-    or an inner node in the wire format its branch count does not call for.
-    The canonical form is Json::to_string of:
-
-        ledger      {acroot, close, coins, cres, flags, index, pclose,
-                     phash, txroot}: hashes upper-case hex, coins a decimal
-                     string, the rest numbers
-        parent      upper-case hex
-        validation  {data, unl}: data maps each validator's node public key
-                     (base58) to its validation, upper-case hex, for every
-                     validation that counts and no other; unl is
-                     {blob, manifest, public_key, signature, version} with
-                     blob and manifest padded base64 without line breaks,
-                     public_key and signature upper-case hex
-        tree        upper-case hex, in ascending order of node hash
-        samples     [{blob, meta}], upper-case hex
+    Canonical form. A free proof must not be a way to store other data, so
+    there is one sequence of bytes for what an XPOF proves: Ingest::parse
+    rebuilds the document from what it verified and compares it with the
+    blob. That is Json::to_string of {ledger, parent, samples, tree,
+    validation: {data, unl}} with numbers as numbers (coins a decimal
+    string), hex in upper case, base64 padded and unbroken, validations keyed
+    by node public key (only ones that count), and tree nodes in ascending
+    order of hash in the wire format their branch count calls for. No other
+    keys, whitespace, repeats or spellings.
 */
 
 namespace ripple {

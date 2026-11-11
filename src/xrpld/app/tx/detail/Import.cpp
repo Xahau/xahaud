@@ -41,54 +41,45 @@
 
 namespace ripple {
 
-// featureExport: the Sequence `account` has on the other network after the
-// transaction `meta` describes, from the AccountRoot node its metadata always
-// carries (the fee is paid from it; FinalFields holds every field, changed or
-// not). 0 if the metadata has no such node.
-static std::uint32_t
-sequenceThere(STObject const& meta, AccountID const& account)
+// featureExport: `account`'s AccountRoot on the other network after the
+// transaction `meta` describes. Every transaction's metadata carries it (the
+// fee is paid from it) with every field, changed or not. Null if it does not.
+static STObject const*
+accountThere(STObject const& meta, AccountID const& account)
 {
     if (!meta.isFieldPresent(sfAffectedNodes))
-        return 0;
+        return nullptr;
     for (auto const& n : meta.getFieldArray(sfAffectedNodes))
     {
-        if (n[~sfLedgerEntryType] != static_cast<std::uint16_t>(ltACCOUNT_ROOT))
-            continue;
         auto const& f =
             n.getFName() == sfCreatedNode ? sfNewFields : sfFinalFields;
-        if (!n.isFieldPresent(f))
+        if (n[~sfLedgerEntryType] !=
+                static_cast<std::uint16_t>(ltACCOUNT_ROOT) ||
+            !n.isFieldPresent(f))
             continue;
         auto const& fields = n.peekAtField(f).downcast<STObject>();
         if (fields[~sfAccount] == account)
-            return fields[~sfSequence].value_or(0);
+            return &fields;
     }
-    return 0;
+    return nullptr;
 }
 
-// featureExport: the XRP balance `account` has on the other network after
-// the transaction `meta` describes, from the same AccountRoot node.
-static std::optional<STAmount>
-balanceThere(STObject const& meta, AccountID const& account)
+// its Sequence there (0 if unknown)
+static std::uint32_t
+sequenceThere(STObject const& meta, AccountID const& account)
 {
-    if (!meta.isFieldPresent(sfAffectedNodes))
-        return std::nullopt;
-    for (auto const& n : meta.getFieldArray(sfAffectedNodes))
-    {
-        if (n[~sfLedgerEntryType] != static_cast<std::uint16_t>(ltACCOUNT_ROOT))
-            continue;
-        auto const& f =
-            n.getFName() == sfCreatedNode ? sfNewFields : sfFinalFields;
-        if (!n.isFieldPresent(f))
-            continue;
-        auto const& fields = n.peekAtField(f).downcast<STObject>();
-        if (fields[~sfAccount] == account && fields.isFieldPresent(sfBalance))
-        {
-            auto const bal = fields.getFieldAmount(sfBalance);
-            if (bal.native())
-                return bal;
-        }
-    }
-    return std::nullopt;
+    auto const root = accountThere(meta, account);
+    return root ? (*root)[~sfSequence].value_or(0) : 0;
+}
+
+// Where on the other network the transaction of `xpop` is: its ledger, then
+// its index in it. What orders two proofs about one account.
+static std::pair<std::uint32_t, std::uint32_t>
+positionThere(Json::Value const& xpop, STObject const& meta)
+{
+    return {
+        xpop[jss::ledger][jss::index].asUInt(),
+        meta[~sfTransactionIndex].value_or(0)};
 }
 
 TxConsequences
@@ -321,15 +312,12 @@ Import::preflight(PreflightContext const& ctx)
         return temMALFORMED;
 
     // A loopback Import (Sequence 0 by an existing account) brings an
-    // exporter's activity on the other network back: an export coming back,
-    // which can only be a ticketed txn, or (an exporter there) a TicketCreate
-    // or SignerListSet of theirs. It is authorised by the ledger (preclaim),
-    // not by the outer signature: nobody could co-sign an export with the UNL's
-    // keys, so anyone may relay it. The XRPL fee the inner txn burned paid
-    // for it, so it is free and uses no sequence here.
-    // A first Import also has Sequence 0 (there is no account yet), so the
-    // fee of an unticketed one is checked in preclaim, where the account is
-    // known; a ticketed XPOP can only come back to an existing account.
+    // exporter's activity on the other network back: an export coming back
+    // (always ticketed), or a TicketCreate or SignerListSet of its own. The
+    // ledger authorises it (preclaim), not the outer signature, so anyone may
+    // relay it; the fee the inner txn burned there paid for it. A first Import
+    // also has Sequence 0, so what differs between the two is checked in
+    // preclaim, where the account is known.
     bool const shadow = stpTrans->isFieldPresent(sfTicketSequence);
     if (shadow &&
         (!ctx.rules.enabled(featureExport) || !isLoopback(ctx.rules, tx) ||
@@ -1085,9 +1073,7 @@ Import::preclaim(PreclaimContext const& ctx)
             auto const& old =
                 ex->peekAtField(sfExportSignerList).downcast<STObject>();
             if (std::pair{old[sfLedgerSequence], old[sfTransactionIndex]} >=
-                std::pair{
-                    (*xpop)[jss::ledger][jss::index].asUInt(),
-                    (*meta)[~sfTransactionIndex].value_or(0)})
+                positionThere(*xpop, *meta))
                 return tefALREADY;
         }
     }
@@ -1140,14 +1126,12 @@ Import::preclaim(PreclaimContext const& ctx)
     }
     else if (loopback)
     {
-        // A sync import: only an exporter's TicketCreate or SignerListSet,
-        // and only one that records something the ledger has not yet: the
-        // tickets it made, the list it set, or (succeeded or failed there)
-        // the Sequence it consumed, which the backstop TicketCreate of an
-        // empty pool needs (see Export.h). Like a first Import it is free
-        // and uses no sequence, so one recording nothing could otherwise be
-        // re-imported under a new outer key without end; each of the three
-        // records only moves forward, so none can be imported twice.
+        // A sync import: an exporter's TicketCreate or SignerListSet, and only
+        // one that records something new: the tickets it made, the list it set,
+        // or (failed or not) the Sequence it consumed, which the backstop
+        // needs. It is free and uses no sequence, so one recording nothing
+        // could be re-imported without end; each of the three records only
+        // moves forward, so none is imported twice.
         if (!exporter)
             return tefPAST_SEQ;
         if (ctx.tx.getFieldAmount(sfFee) != beast::zero)
@@ -1163,9 +1147,7 @@ Import::preclaim(PreclaimContext const& ctx)
                     (*ex)[~sfExportTicketNext].value_or(0);
             else
             {
-                std::pair const at{
-                    (*xpop)[jss::ledger][jss::index].asUInt(),
-                    (*meta)[~sfTransactionIndex].value_or(0)};
+                auto const at = positionThere(*xpop, *meta);
                 if (!ex->isFieldPresent(sfExportSignerList))
                     records = true;
                 else
@@ -1243,10 +1225,7 @@ Import::soleNetwork(Config const& config, ReadView const& view)
 {
     std::map<PublicKey, std::uint32_t> keys;
     for (auto const& [hex, pk] : config.IMPORT_VL_KEYS)
-    {
-        auto const n = config.IMPORT_VL_NETWORKS.find(hex);
-        keys.emplace(pk, n == config.IMPORT_VL_NETWORKS.end() ? 0 : n->second);
-    }
+        keys.emplace(pk, config.importVLNetwork(hex));
     if (auto const unl = view.read(keylet::UNLReport());
         unl && unl->isFieldPresent(sfImportVLKeys))
         for (auto const& k : unl->getFieldArray(sfImportVLKeys))
@@ -1264,10 +1243,7 @@ Import::vlNetwork(
     std::string const& pkHex)
 {
     if (config.IMPORT_VL_KEYS.count(pkHex))
-    {
-        auto const n = config.IMPORT_VL_NETWORKS.find(pkHex);
-        return n == config.IMPORT_VL_NETWORKS.end() ? 0 : n->second;
-    }
+        return config.importVLNetwork(pkHex);
     auto const raw = strUnHex(pkHex);
     if (!raw || !publicKeyType(makeSlice(*raw)))
         return std::nullopt;
@@ -1662,9 +1638,7 @@ Import::doApply()
         stpTrans->getTxnType() == ttSIGNER_LIST_SET &&
         isTesSuccess(meta->getFieldU8(sfTransactionResult)))
     {
-        std::pair const at{
-            (*xpop)[jss::ledger][jss::index].asUInt(),
-            (*meta)[~sfTransactionIndex].value_or(0)};
+        auto const at = positionThere(*xpop, *meta);
         auto const old = ex && ex->isFieldPresent(sfExportSignerList)
             ? &ex->peekAtField(sfExportSignerList).downcast<STObject>()
             : nullptr;
@@ -1692,20 +1666,12 @@ Import::doApply()
             l[sfLedgerSequence] = at.first;
             l[sfTransactionIndex] = at.second;
             ex->peekFieldObject(sfExportSignerList) = std::move(l);
-            // Signed by the account and listing the UNL's export keys: it
-            // is now an exporter, and the ledger keeps its tickets and list
-            // in step from here on. A list of the account's own keys is
-            // recorded (an export would be refused at preclaim without one
-            // on record) but makes it no exporter: the ledger would export
-            // for it, pay fan-out fees from it and close every export below
-            // quorum, since nobody holds its keys.
-            // One of ours or not (listsExportKey): a list naming no export
-            // key of the UNL, current or past, is the owner's own, or none
-            // at all. Nobody here can sign for it, so a record that was
-            // listed is unlisted below, once this Import's own ticket and
-            // Sequence are recorded: no more automatic exports for it, nor
-            // their fees. However the list got there, by the account's key
-            // or by an export of its hook.
+            // One of ours (listsExportKey) and signed by the account: it is now
+            // an exporter, and the ledger keeps its tickets and list in step. A
+            // list that is not ours, the owner's own keys or none, is still
+            // recorded (an export needs one on record) but nobody here can sign
+            // for it: a listed record is unlisted below, once this Import's own
+            // ticket and Sequence are recorded, however the list got there.
             bool const ours = stpTrans->isFieldPresent(sfSignerEntries) &&
                 listsExportKey(view(),
                                stpTrans->getFieldArray(sfSignerEntries));
@@ -1717,14 +1683,11 @@ Import::doApply()
                 if (auto const ter = setExporter(view(), ex, true);
                     !isTesSuccess(ter))
                     return ter;
-                // The first time, the ticket watermark starts at the
-                // account's Sequence there: every ticket a TicketCreate made
-                // before now is numbered below it, and whether any of them
-                // is still unused there the ledger cannot know. Without
-                // this a stranger could sync-import such an old TicketCreate
-                // and pool tickets long since spent, for exports to be
-                // drawn on and never return. The backstop makes the first
-                // batch from this Sequence (see Export.h).
+                // The watermark starts at the account's Sequence there: tickets
+                // made before now are numbered below it, and whether they are
+                // still unused the ledger cannot know, so an old TicketCreate
+                // must not be sync-imported into the pool. The backstop makes
+                // the first batch from this Sequence.
                 if (!ex->isFieldPresent(sfExportTicketNext))
                     ex->setFieldU32(
                         sfExportTicketNext,
@@ -1803,18 +1766,17 @@ Import::doApply()
         if (sequence != 0)
             ex->setFieldU32(sfExportSequence, sequence);
         // its balance there, as of the latest transaction of its own seen
-        // (by ledger, then index): what relays hold an export back on
-        // while it cannot pay its fee
-        if (auto const bal = balanceThere(*meta, id))
+        // (by ledger, then index): what relays hold an unfunded export on
+        if (auto const root = accountThere(*meta, id); root &&
+            root->isFieldPresent(sfBalance) &&
+            root->getFieldAmount(sfBalance).native())
         {
-            std::pair const at{
-                (*xpop)[jss::ledger][jss::index].asUInt(),
-                (*meta)[~sfTransactionIndex].value_or(0)};
+            auto const at = positionThere(*xpop, *meta);
             if (std::pair{
                     (*ex)[~sfLedgerSequence].value_or(0),
                     (*ex)[~sfTransactionIndex].value_or(0)} <= at)
             {
-                ex->setFieldAmount(sfBalance, *bal);
+                ex->setFieldAmount(sfBalance, root->getFieldAmount(sfBalance));
                 ex->setFieldU32(sfLedgerSequence, at.first);
                 ex->setFieldU32(sfTransactionIndex, at.second);
             }
@@ -1849,16 +1811,12 @@ Import::doApply()
             if (!view().dirRemove(
                     keylet::ownerDir(id), (*st)[sfOwnerNode], k, false))
                 return tefBAD_LEDGER;
-            // The exporting hook's callback, deferred until now (see
-            // Export.h). The ticket is spent there either way, but only the
-            // export itself coming back is the export having run: it is
-            // told from anything else that used the ticket by its id
-            // without signatures, which the shadow ticket has held since
-            // the export was made (any quorum of the UNL's signatures makes
-            // a transaction with a different id there). Anything else means
-            // the export never will run, and the hook is told it failed.
-            // Either way otxn_id is the ttEXPORT the hook emitted, and
-            // xpop_slot() what used the ticket.
+            // The exporting hook's callback, deferred until now. Only the
+            // export itself coming back is the export having run; it is told
+            // from anything else that used the ticket by its id without
+            // signatures (every quorum of signatures has a different signed
+            // id). Anything else means it never will run: what == 1. otxn_id is
+            // the ttEXPORT; xpop_slot() what used the ticket.
             if (st->isFieldPresent(sfEmitHookHash))
                 callback_ = HookCallback{
                     id,

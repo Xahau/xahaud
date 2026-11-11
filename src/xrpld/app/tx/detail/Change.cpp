@@ -290,12 +290,9 @@ Change::preclaim(PreclaimContext const& ctx)
             {
                 if (!exportOn)
                     return tesSUCCESS;
-                auto const n = ctx.app.config().IMPORT_VL_NETWORKS.find(strPk);
-                if ((n == ctx.app.config().IMPORT_VL_NETWORKS.end()
-                         ? 0
-                         : n->second) == nid)
-                    return tesSUCCESS;
-                return telIMPORT_VL_KEY_NOT_RECOGNISED;
+                return ctx.app.config().importVLNetwork(strPk) == nid
+                    ? TER{tesSUCCESS}
+                    : TER{telIMPORT_VL_KEY_NOT_RECOGNISED};
             }
 
             auto const pkType = publicKeyType(makeSlice(pkBlob));

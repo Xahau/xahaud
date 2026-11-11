@@ -100,7 +100,7 @@ exportInfoRecord(ReadView const& view, SLE const& ex, bool detail)
         sl["signers"] = static_cast<Json::UInt>(entries.size());
         // one of ours: it names an export key of the UNL, so the ledger
         // can sign for it
-        sl["ours"] = listsExportKey(view, entries);
+        sl["ours"] = holdsOurList(view, ex);
         sl[jss::ledger_index] = l[sfLedgerSequence];
         if (detail)
         {
@@ -153,43 +153,26 @@ exportInfoRecord(ReadView const& view, SLE const& ex, bool detail)
     return o;
 }
 
-/** export_info: the state of featureExport (see Export.h) as a ledger has
-    it. Takes the usual ledger selectors, plus optional:
+/** export_info: the state of featureExport (see Export.h) in a ledger. Takes
+    the usual ledger selectors, plus optional:
 
         account    only this account's records, one per network, each with
                    its signers and every export it has in flight
-        limit      exporters returned per call (default 50, at most 400)
-        marker     where the last call's list of exporters left off
+        limit      exporters per call (default 50, at most 400)
+        marker     where the last call's exporters left off
 
-    Without `account` it returns:
-
-        enabled             whether the amendment is
-        network_id          this network's id
-        default_network_id  where an export goes that names no network
-                            (Import::soleNetwork)
-        keys                the UNL's export keys: export_keys_seq, the
-                            rotation period, the current epoch and when it
-                            ends, how many UNLReport validators there are,
-                            how many hold a key, how many have had one
-                            recorded this epoch, and the signer list an
-                            exporter set up now would get (signers, quorum)
-        validators          per UNLReport validator: its account, how many
-                            keys it holds on ledger, its current key and
-                            that key's account, when it was recorded and
-                            whether that was in this epoch
-        networks            per network a VL key is trusted for, or 0: how
-                            many keys, and what ttINGEST last proved of it
-                            (ledger, fee unit, sample fee, transactions)
-        pending             exports in their signing window: owner, network,
-                            the ledger they were made in and close in, their
-                            ids, and signatures gathered against the quorum
-        exporters           the directory of listed exporters, a page of it:
-                            each record with its tickets (as ranges), its
-                            Sequence and balance there, its signer list and
-                            whether that is one of ours, and how many
-                            exports it has in flight
-        exporters_listed    how many are listed in all
-        marker              present if there are more exporters
+    Without `account`: enabled, network_id, default_network_id
+    (Import::soleNetwork), and
+        keys        the UNL's export keys: export_keys_seq, the rotation
+                    epoch and when it ends, how many UNLReport validators
+                    hold a key and had one recorded this epoch, and the
+                    signer list a new exporter would get
+        validators  each one's account, current key and when it was recorded
+        networks    per trusted network: VL keys, and what ttINGEST proved
+        pending     exports in their signing window, with their signatures
+        exporters   a page of the listed exporters (exporters_listed in all):
+                    tickets as ranges, Sequence, balance, signer list and
+                    whether it is ours, exports in flight
 */
 Json::Value
 doExportInfo(RPC::JsonContext& context)
@@ -297,7 +280,7 @@ doExportInfo(RPC::JsonContext& context)
         keys["with_key"] = withKey;
         keys["rotated_this_epoch"] = thisEpoch;
         keys["signers"] = static_cast<Json::UInt>(signers.size());
-        keys["quorum"] = static_cast<Json::UInt>((signers.size() * 4 + 4) / 5);
+        keys["quorum"] = Export::quorumOf(signers.size());
     }
 
     // the networks known here, and what has been proven of each
@@ -305,8 +288,7 @@ doExportInfo(RPC::JsonContext& context)
         std::map<std::uint32_t, Json::UInt> nets{{0, 0}};
         for (auto const& [hex, pk] : config.IMPORT_VL_KEYS)
         {
-            auto const n = config.IMPORT_VL_NETWORKS.find(hex);
-            ++nets[n == config.IMPORT_VL_NETWORKS.end() ? 0 : n->second];
+            ++nets[config.importVLNetwork(hex)];
         }
         if (unl && unl->isFieldPresent(sfImportVLKeys))
             for (auto const& k : unl->getFieldArray(sfImportVLKeys))
@@ -364,32 +346,19 @@ doExportInfo(RPC::JsonContext& context)
         Json::UInt listed = 0, given = 0;
         bool skipping = static_cast<bool>(marker);
         std::optional<uint256> last, more;
-        for (auto page = view.read(keylet::exporterDir()); page;)
-        {
-            for (auto const& key : page->getFieldV256(sfIndexes))
+        forEachExporter(view, [&](uint256 const& key) {
+            ++listed;
+            if (skipping)
+                skipping = key != *marker;
+            else if (given == limit)
+                more = last;
+            else if (auto const ex = view.read(Keylet{ltEXPORTER, key}))
             {
-                ++listed;
-                if (skipping)
-                {
-                    skipping = key != *marker;
-                    continue;
-                }
-                if (given == limit)
-                {
-                    more = last;
-                    continue;
-                }
-                if (auto const ex = view.read(Keylet{ltEXPORTER, key}))
-                {
-                    exporters.append(exportInfoRecord(view, *ex, false));
-                    ++given;
-                    last = key;
-                }
+                exporters.append(exportInfoRecord(view, *ex, false));
+                ++given;
+                last = key;
             }
-            auto const next = (*page)[~sfIndexNext].value_or(0);
-            page = next ? view.read(keylet::page(keylet::exporterDir(), next))
-                        : nullptr;
-        }
+        });
         result["exporters_listed"] = listed;
         if (more)
             result[jss::marker] = to_string(*more);

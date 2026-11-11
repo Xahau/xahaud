@@ -48,54 +48,37 @@
 #include <set>
 #include <thread>
 
-/*  [export_relay], and [export_relay_<name>] for every further network: one
-    peer connection to that network per "host [port [node key]]" line, plus
-    optional network_id= (its id; 0, XRPL, by default), vl_url=, account= (a
-    seed), ingest_every= (Xahau ledgers, default 64), and max_ledgers= and
-    max_ledger_bytes= (see Bounds; no limit by default). The node public key
-    (base58, as the peer's server_info shows it) pins the peer: the handshake
-    proves it and the session is dropped otherwise. Peer TLS is self-signed,
-    so without it any on-path party could stand in. A relay carries only
-    exports bound for its network and imports only what its network's lists
-    prove (Import::vlNetwork).
+/*  [export_relay], and [export_relay_<name>] per further network. Each line
+    "host [port [node key]]" is a peer of that network; the node public key
+    pins it (peer TLS is self-signed, so without it anyone on the path could
+    stand in). Options: network_id= (default 0, the XRPL), vl_url=, account=
+    (a seed), ingest_every= (Xahau ledgers, default 64), max_ledgers= and
+    max_ledger_bytes= (default: no limit). A relay carries only exports for
+    its network and imports only what that network's lists prove.
 
-    Proof of fees. With account=, every ingest_every Xahau ledgers the next
-    complete XRPL ledger is sent as a ttINGEST (see Ingest.h) from that
-    account: free, since the ledger must be newer than the one recorded.
-    The account need only exist; its hooks run on the entry as on any
-    transaction of its own.
+    Inbound. The UNL is the newest validator list signed by a key trusted for
+    this network ([import_vl_keys] or UNLReport ImportVLKeys), from the peer
+    or vl_url. When a ledger has validations from 80% of it, its header and
+    whole transaction tree are fetched (which transactions used a shadow
+    ticket cannot be known in advance) and every transaction returning an
+    export, or recording an exporter's activity, is imported. With account=,
+    every ingest_every Xahau ledgers the next complete ledger is also sent
+    as a ttINGEST (see Ingest.h), free of charge.
 
-    XRPL to Xahau. The UNL is the newest validator list signed by a key this
-    network trusts for Import ([import_vl_keys] or UNLReport ImportVLKeys),
-    from the peer or vl_url. Import consults only the manifests embedded in
-    it, so manifest gossip is not needed. When a ledger has validations from
-    80% of it, its header and transaction tree are fetched, and every txn in
-    it returning a pending export (its shadow ticket exists) is imported.
+    Outbound. On each validated ledger, exports at quorum are sent to the
+    peer, and resent while the ledger still waits for them (the shadow
+    ticket stands; or, for the sequenced backstop TicketCreate, which has
+    none, sfExportTicketPending still holds its Sequence).
 
-    Xahau to XRPL. On each validated ledger, pending exports whose signatures
-    meet the exporter's quorum are sent to the peer, and resent while the
-    ledger still waits for them: while the shadow ticket stands, or for the
-    sequenced backstop TicketCreate of an empty pool (which has no ticket),
-    while sfExportTicketPending still holds its Sequence.
-
-    Bounds. The peer is trusted for nothing: validations are checked against
-    the UNL, headers against their hash, and the transaction tree against
-    the header's root. What is held is what the other network itself
-    produces: ledgers are kept for 32 sequences below the highest validated
-    by its UNL, each has one transaction tree, tree nodes are taken only in
-    answer to a request, and they are dropped as soon as a ledger is done
-    with. So nothing further is imposed by default. A relayer who wants a
-    hard ceiling anyway (the peer is not theirs, say, or the server is
-    small) sets max_ledgers= (ledgers held at once; the oldest goes first)
-    and/or max_ledger_bytes= (tree node bytes per ledger, as received; a
-    ledger over it is given up on, so nothing in it is relayed). 0, the
-    default, means no limit. A peer can still not send a frame over 64 MiB.
-
-    Cost. Every XRPL ledger reaching quorum has its whole transaction tree
-    fetched (liTX_NODE, depth 3, up to 16 rounds), since which transactions
-    used a shadow ticket cannot be known in advance. That is a steady draw
-    on the peer, so relayers should point each [export_relay*] at a hub they
-    run or have an arrangement with, not at public servers.
+    Trust and bounds. The peer is trusted for nothing: validations are
+    checked against the UNL, headers against their hash, the tree against
+    the header's root. Ledgers are kept for 32 sequences below the highest
+    validated, tree nodes are taken only in answer to a request and dropped
+    once a ledger is done with, and no frame may exceed 64 MiB. Beyond that
+    nothing is capped unless max_ledgers= (the oldest goes first) or
+    max_ledger_bytes= (a ledger over it is skipped) says so. The fetching is
+    a steady draw on the peer: point a relay at a hub you run, not at a
+    public server.
 */
 
 namespace ripple {
@@ -436,15 +419,11 @@ private:
         // and only if it is trusted for this relay's network: Import takes
         // a proof's network from the key that signed its list, so another
         // network's list must never become this one's UNL
-        auto const& nets = app_.config().IMPORT_VL_NETWORKS;
         for (auto const& [hex, k] : app_.config().IMPORT_VL_KEYS)
             if (k == pk)
-            {
-                auto const n = nets.find(hex);
-                if ((n == nets.end() ? 0 : n->second) != cfg_.network())
-                    return std::nullopt;
-                return hex;
-            }
+                return app_.config().importVLNetwork(hex) == cfg_.network()
+                    ? std::optional{hex}
+                    : std::nullopt;
         auto const l = app_.getLedgerMaster().getValidatedLedger();
         auto const unl = l ? l->read(keylet::UNLReport()) : nullptr;
         if (unl && unl->isFieldPresent(sfImportVLKeys))
@@ -548,12 +527,8 @@ private:
         if (cfg_.maxLedgers && !ledgers_.count(h) &&
             ledgers_.size() >= cfg_.maxLedgers)
         {
-            auto const oldest = std::min_element(
-                ledgers_.begin(),
-                ledgers_.end(),
-                [](auto const& a, auto const& b) {
-                    return a.second.seq < b.second.seq;
-                });
+            auto const oldest = std::ranges::min_element(
+                ledgers_, {}, [](auto const& e) { return e.second.seq; });
             if (oldest->second.seq >= seq)
                 return;
             ledgers_.erase(oldest);
@@ -1039,29 +1014,22 @@ private:
     void
     recover(ReadView const& l)
     {
-        for (auto page = l.read(keylet::exporterDir()); page;)
-        {
-            for (auto const& key : page->getFieldV256(sfIndexes))
+        forEachExporter(l, [&](uint256 const& key) {
+            auto const ex = l.read(Keylet{ltEXPORTER, key});
+            if (!ex || (*ex)[sfRemoteNetworkID] != cfg_.network() ||
+                !ex->isFieldPresent(sfIndexes))
+                return;
+            for (auto const& k : ex->getFieldV256(sfIndexes))
             {
-                auto const ex = l.read(Keylet{ltEXPORTER, key});
-                if (!ex || (*ex)[sfRemoteNetworkID] != cfg_.network() ||
-                    !ex->isFieldPresent(sfIndexes))
-                    continue;
-                for (auto const& k : ex->getFieldV256(sfIndexes))
-                {
-                    auto const st = l.read(Keylet{ltSHADOW_TICKET, k});
-                    if (st && st->isFieldPresent(sfExportedTxn))
-                        hold(
-                            l,
-                            (*st)[sfAccount],
-                            st->peekAtField(sfExportedTxn).downcast<STObject>(),
-                            (*st)[sfTransactionHash]);
-                }
+                auto const st = l.read(Keylet{ltSHADOW_TICKET, k});
+                if (st && st->isFieldPresent(sfExportedTxn))
+                    hold(
+                        l,
+                        (*st)[sfAccount],
+                        st->peekAtField(sfExportedTxn).downcast<STObject>(),
+                        (*st)[sfTransactionHash]);
             }
-            auto const next = (*page)[~sfIndexNext].value_or(0);
-            page = next ? l.read(keylet::page(keylet::exporterDir(), next))
-                        : nullptr;
-        }
+        });
     }
 
     // the exports whose window closed in `l`, as their finals left them

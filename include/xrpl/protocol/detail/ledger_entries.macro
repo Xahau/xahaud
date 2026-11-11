@@ -130,23 +130,15 @@ LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
     {sfExportTxnID,          soeOPTIONAL},
 }))
 
-/** A shadow ticket: lets one XPOP of a ticketed export that is bound back to
-    this network (OperationLimit == NETWORK_ID) be imported, which consumes it.
-    Only ttEXPORT creates these. They are not hook state because a hook can
-    write any namespace of its own account's state, so it could forge one and
-    import the same XPOP again and again. sfEmitHookHash is the hook whose
-    cbak the Import calls. sfLastLedgerSequence is the export's own, on the
-    other network: once the ledger proven for that network (ltEXPORT_FEE) is
-    Export::expiryGrace past it without the export having come back, an
-    expiry ttEXPORT_FINAL erases this and calls the hook back as failed.
-    sfExportTxnID is the ttEXPORT (or ttEXPORT_AUTO) that made the export,
-    which is what the hook's cbak sees as otxn_id. sfTransactionHash is the
-    export's id on the other network without its signatures, which is what
-    tells the transaction that comes back for this ticket from any other.
-    Once the signing window has closed at quorum the transaction as signed
-    is kept here too (sfExportedTxn, with its id there in sfRemoteTxnID), so
-    that a relay can find and send it for as long as it is still wanted,
-    whenever it starts.
+/** A shadow ticket: lets the XPOP of whatever uses one ticket on another
+    network be imported once, which consumes it. Only an export creates one
+    (not hook state: a hook could forge that). sfTransactionHash is the
+    export's id there without signatures, which tells it from anything else
+    that used the ticket; sfExportTxnID the ttEXPORT that made it (otxn_id in
+    the cbak of the hook sfEmitHookHash); sfLastLedgerSequence the export's
+    own, after which it is expired (Export.h). Once signed at quorum the
+    transaction is kept here (sfExportedTxn, its id there sfRemoteTxnID) for
+    relays to send.
 
     \sa keylet::shadowTicket
 */
@@ -165,22 +157,14 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
-/** featureExport: an account's standing on another network it exports to
-    (sfRemoteNetworkID), one per account and network: the signer list it
-    holds there, as last proven by an Import of its SignerListSet; the
-    tickets it holds unused there, as proven by Imports of its TicketCreates
-    (ExportTickets in Export.h); one past the highest ticket ever recorded;
-    its Sequence there, as last proven by an Import (the AccountRoot node of
-    every transaction's metadata carries it); the ticket, or for a sequenced
-    backstop the Sequence, of an automatic TicketCreate export still out;
-    the UNLReport.ExportKeysSeq its signer list was last refreshed to; the
-    keys of its shadow tickets, one per export in flight (sfIndexes, at most
-    Export::maxExpiring), which is where Export::accept looks for exports to
-    expire and relays for exports to send; its XRP balance there as last
-    proven by an Import (sfBalance, from the same AccountRoot node, with the
-    ledger and transaction index there it was proven at), which relays hold
-    an export back on while it cannot pay its fee; and, while the ledger
-    acts for it there (an exporter), its page in keylet::exporterDir().
+/** featureExport: an account's standing on one other network
+    (sfRemoteNetworkID), see Export.h: its signer list there, unused tickets
+    (ExportTickets), ticket watermark, Sequence and XRP balance (with the
+    ledger and index there it was proven at), all as last proven by Import;
+    the ticket or Sequence of an automatic TicketCreate still out; the
+    ExportKeysSeq its list was built for; the shadow tickets of its exports
+    in flight (sfIndexes, at most Export::maxExpiring); and, while the ledger
+    acts for it there, its page in keylet::exporterDir().
 
     \sa keylet::exporter
 */
