@@ -97,7 +97,9 @@ public:
         {
             JLOG(j_.error())
                 << "UDP set reuse_address failed: " << ec.message();
-            close();
+            // Not close(): it needs shared_from_this(), which throws
+            // until the constructor has returned.
+            socket_.close(ec);
             return;
         }
 
@@ -129,7 +131,7 @@ public:
             // unbound socket, which would silently bind an ephemeral port.
             JLOG(j_.error()) << "UDP socket bind to " << udp_endpoint
                              << " failed: " << ec.message();
-            close();
+            socket_.close(ec);
             return;
         }
 
@@ -138,7 +140,7 @@ public:
         if (!ec)
             local_endpoint_ = endpoint_type(bound.address(), bound.port());
 
-        JLOG(j_.info()) << "UDP listening on " << udp_endpoint;
+        JLOG(j_.info()) << "UDP listening on " << local_endpoint_;
     }
 
     endpoint_type

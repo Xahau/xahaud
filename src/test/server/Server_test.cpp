@@ -630,6 +630,24 @@ public:
         }
 
         s = nullptr;
+
+        // A door that cannot bind logs the failure and stays closed; it
+        // must not throw out of ports(). 192.0.2.1 (TEST-NET-1) is never a
+        // local address.
+        {
+            auto s2 = make_Server(handler, thread.get_io_context(), journal);
+            ports.back().ip = boost::asio::ip::make_address("192.0.2.1");
+            ports.back().port = 1;
+            try
+            {
+                s2->ports(ports);
+                pass();
+            }
+            catch (std::exception const& e)
+            {
+                fail(e.what());
+            }
+        }
     }
 
     // UDP-RPC answers admin addresses only, and a udp port must name them.
@@ -693,6 +711,8 @@ public:
 
         // Admin address: answered. The subscription keeps the door's send
         // callback alive in UDPInfoSub; env's destructor must still return.
+        // It is deliberately never unsubscribed: the server has to drop it
+        // on the way down, or ~InfoSub crashes the process at exit.
         {
             Env env{*this, udpConfig(getEnvLocalhostAddr())};
             BEAST_EXPECT(ok(exchange(env, R"({"command":"ping"})", 5s)));
