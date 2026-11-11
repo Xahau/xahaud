@@ -233,6 +233,12 @@ enum ClaimRewardFlags : uint32_t {
 };
 constexpr std::uint32_t const tfClaimRewardMask = ~(tfUniversal | tfOptOut);
 
+// Remit flags:
+enum RemitFlags : uint32_t {
+    tfRequireTrustline = 0x00000001,
+};
+constexpr std::uint32_t const tfRemitMask = ~(tfUniversal | tfRequireTrustline);
+
 // Remarks flags:
 constexpr std::uint32_t const tfImmutable = 1;
 
