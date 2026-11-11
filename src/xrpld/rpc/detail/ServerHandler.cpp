@@ -965,12 +965,16 @@ ServerHandler::processPWARequest(
             // the object is a strong validator for its content.
             std::string const etag =
                 "\"" + to_string(sle->getFieldH256(sfPreviousTxnID)) + "\"";
+            std::string const& coop = session->port().pwa_coop;
             headers = {
                 "Content-Security-Policy: sandbox allow-scripts allow-forms "
                 "allow-popups",
                 "X-Frame-Options: DENY",
                 "Cross-Origin-Resource-Policy: same-origin",
-                "Cross-Origin-Opener-Policy: same-origin",
+                // The default severs a popup the document opens from it; an
+                // operator may relax that. See "coop" in xahaud-example.cfg.
+                "Cross-Origin-Opener-Policy: " +
+                    (coop.empty() ? "same-origin" : coop),
                 "Cache-Control: no-cache",  // store, but revalidate
                 "ETag: " + etag,
                 // Enough for a client to vet the document against a second
@@ -2075,6 +2079,7 @@ to_Port(ParsedPort const& parsed, std::ostream& log)
     p.pwa_domains = parsed.pwa_domains;
     p.pwa_custom_domains = parsed.pwa_custom_domains;
     p.pwa_resolver = parsed.pwa_resolver;
+    p.pwa_coop = parsed.pwa_coop;
 
     return p;
 }
@@ -2149,9 +2154,9 @@ parse_Ports(Config const& config, std::ostream& log)
         if (p.protocol.count("pwa") == 0)
         {
             if (!p.pwa_domains.empty() || p.pwa_custom_domains ||
-                p.pwa_resolver)
+                p.pwa_resolver || !p.pwa_coop.empty())
                 fail(
-                    "domain, custom_domains and resolver apply to pwa "
+                    "domain, custom_domains, resolver and coop apply to pwa "
                     "ports only");
             continue;
         }
