@@ -990,7 +990,8 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"permissioned domain with no rules."}},
             [](Account const& A1, Account const&, ApplyContext& ac) {
-                Keylet const pdKeylet = keylet::permissionedDomain(A1.id(), 10);
+                Keylet const pdKeylet =
+                    keylet::permissionedDomain(A1.id(), uint32_t(10));
                 auto slePd = std::make_shared<SLE>(pdKeylet);
                 slePd->setAccountID(sfOwner, A1);
                 slePd->setFieldU32(sfSequence, 10);
@@ -1009,7 +1010,8 @@ class Invariants_test : public beast::unit_test::suite
             {{"permissioned domain bad credentials size " +
               std::to_string(tooBig)}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
-                Keylet const pdKeylet = keylet::permissionedDomain(A1.id(), 10);
+                Keylet const pdKeylet =
+                    keylet::permissionedDomain(A1.id(), uint32_t(10));
                 auto slePd = std::make_shared<SLE>(pdKeylet);
                 slePd->setAccountID(sfOwner, A1);
                 slePd->setFieldU32(sfSequence, 10);
@@ -1038,7 +1040,8 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"permissioned domain credentials aren't sorted"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
-                Keylet const pdKeylet = keylet::permissionedDomain(A1.id(), 10);
+                Keylet const pdKeylet =
+                    keylet::permissionedDomain(A1.id(), uint32_t(10));
                 auto slePd = std::make_shared<SLE>(pdKeylet);
                 slePd->setAccountID(sfOwner, A1);
                 slePd->setFieldU32(sfSequence, 10);
@@ -1067,7 +1070,8 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"permissioned domain credentials aren't unique"}},
             [](Account const& A1, Account const& A2, ApplyContext& ac) {
-                Keylet const pdKeylet = keylet::permissionedDomain(A1.id(), 10);
+                Keylet const pdKeylet =
+                    keylet::permissionedDomain(A1.id(), uint32_t(10));
                 auto slePd = std::make_shared<SLE>(pdKeylet);
                 slePd->setAccountID(sfOwner, A1);
                 slePd->setFieldU32(sfSequence, 10);
@@ -1113,7 +1117,8 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"permissioned domain with no rules."}},
             [createPD](Account const& A1, Account const& A2, ApplyContext& ac) {
-                Keylet const pdKeylet = keylet::permissionedDomain(A1.id(), 10);
+                Keylet const pdKeylet =
+                    keylet::permissionedDomain(A1.id(), uint32_t(10));
                 auto slePd = std::make_shared<SLE>(pdKeylet);
 
                 // create PD
@@ -1137,7 +1142,8 @@ class Invariants_test : public beast::unit_test::suite
             {{"permissioned domain bad credentials size " +
               std::to_string(tooBig)}},
             [createPD](Account const& A1, Account const& A2, ApplyContext& ac) {
-                Keylet const pdKeylet = keylet::permissionedDomain(A1.id(), 10);
+                Keylet const pdKeylet =
+                    keylet::permissionedDomain(A1.id(), uint32_t(10));
                 auto slePd = std::make_shared<SLE>(pdKeylet);
 
                 // create PD
@@ -1172,7 +1178,8 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"permissioned domain credentials aren't sorted"}},
             [createPD](Account const& A1, Account const& A2, ApplyContext& ac) {
-                Keylet const pdKeylet = keylet::permissionedDomain(A1.id(), 10);
+                Keylet const pdKeylet =
+                    keylet::permissionedDomain(A1.id(), uint32_t(10));
                 auto slePd = std::make_shared<SLE>(pdKeylet);
 
                 // create PD
@@ -1207,7 +1214,8 @@ class Invariants_test : public beast::unit_test::suite
         doInvariantCheck(
             {{"permissioned domain credentials aren't unique"}},
             [createPD](Account const& A1, Account const& A2, ApplyContext& ac) {
-                Keylet const pdKeylet = keylet::permissionedDomain(A1.id(), 10);
+                Keylet const pdKeylet =
+                    keylet::permissionedDomain(A1.id(), uint32_t(10));
                 auto slePd = std::make_shared<SLE>(pdKeylet);
 
                 // create PD
