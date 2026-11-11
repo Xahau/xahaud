@@ -253,6 +253,9 @@ public:
     // Enable the experimental Ledger Replay functionality
     bool LEDGER_REPLAY = false;
 
+    // Maintain an AccountIndex -> AccountID index (see AccountIndexer)
+    bool ACCOUNT_INDEX = false;
+
     // Work queue limits
     int MAX_TRANSACTIONS = 1000;
     static constexpr int MAX_JOB_QUEUE_TX = 1000;

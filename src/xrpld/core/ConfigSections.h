@@ -42,6 +42,7 @@ struct ConfigSection
 };
 
 // VFALCO TODO Rename and replace these macros with variables.
+#define SECTION_ACCOUNT_INDEX "account_index"
 #define SECTION_AMENDMENTS "amendments"
 #define SECTION_AMENDMENT_MAJORITY_TIME "amendment_majority_time"
 #define SECTION_BETA_RPC_API "beta_rpc_api"

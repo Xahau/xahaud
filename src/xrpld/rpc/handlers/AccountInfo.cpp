@@ -25,6 +25,7 @@
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/hook/Misc.h>
 #include <xrpl/json/json_value.h>
+#include <xrpl/protocol/AccountNumber.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/RPCErr.h>
@@ -315,6 +316,17 @@ doAccountInfo(RPC::JsonContext& context)
         Json::Value jvAccepted(Json::objectValue);
         RPC::injectSLE(jvAccepted, *sleAccepted);
         result[jss::account_data] = jvAccepted;
+
+        // Human-facing account number: AccountIndex (decimal) with three
+        // check digits derived from the AccountID. Distinct from the hex
+        // AccountIndex inside account_data; see AccountNumber.h.
+        if (sleAccepted->isFieldPresent(sfAccountIndex))
+        {
+            if (auto const number = accountNumber::make(
+                    sleAccepted->getFieldU64(sfAccountIndex),
+                    sleAccepted->getAccountID(sfAccount)))
+                result[jss::account_number] = accountNumber::toString(*number);
+        }
 
         Json::Value acctFlags{Json::objectValue};
         for (auto const& lsf : lsFlags)
