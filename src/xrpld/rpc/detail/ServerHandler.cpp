@@ -146,9 +146,9 @@ ServerHandler::ServerHandler(
 ServerHandler::~ServerHandler()
 {
     m_server = nullptr;
-    // The doors are gone and the job queue stopped before the server did,
-    // so nothing adds a subscription now. NetworkOPs, which ~InfoSub calls
-    // into, is still alive.
+    // The doors are gone, and on a normal shutdown the job queue stopped
+    // before the server did, so nothing adds a subscription now.
+    // NetworkOPs, which ~InfoSub calls into, is still alive.
     UDPInfoSub::clear(m_networkOPs);
 }
 
