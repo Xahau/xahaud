@@ -3245,7 +3245,7 @@ private:
             if (!BEAST_EXPECT(sleE))
                 continue;
             Serializer s;
-            sleE->getField(sfEmittedTxn).downcast<STObject>().add(s);
+            sleE->peekAtField(sfEmittedTxn).downcast<STObject>().add(s);
             SerialIter sit{s.slice()};
             STTx const emitted{sit};
             BEAST_EXPECT(emitted.getTxnType() == ttEXPORT);
