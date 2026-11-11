@@ -146,6 +146,9 @@ JSS(account_data);           // out: AccountInfo
 JSS(account_flags);          // out: AccountInfo
 JSS(account_hash);           // out: LedgerToJson
 JSS(account_id);             // out: WalletPropose
+JSS(account_index);          // in/out: AccountByIndex (hex, like the SLE)
+JSS(account_number);         // in/out: AccountByIndex; out: AccountInfo
+JSS(account_count);          // out: AccountByIndex (hex, like the SLE)
 JSS(account_namespace);      // out: AccountNamespace
 JSS(account_nfts);           // out: AccountNFTs
 JSS(account_objects);        // out: AccountObjects

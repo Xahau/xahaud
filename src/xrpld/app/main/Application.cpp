@@ -36,6 +36,7 @@
 #include <xrpld/app/main/NodeIdentity.h>
 #include <xrpld/app/main/NodeStoreScheduler.h>
 #include <xrpld/app/main/Tuning.h>
+#include <xrpld/app/misc/AccountIndexer.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/DatagramMonitor.h>
 #include <xrpld/app/misc/HashRouter.h>
@@ -199,6 +200,7 @@ public:
     std::unique_ptr<PathRequests> m_pathRequests;
     std::unique_ptr<LedgerMaster> m_ledgerMaster;
     std::unique_ptr<LedgerCleaner> ledgerCleaner_;
+    std::unique_ptr<AccountIndexer> accountIndexer_;
     std::unique_ptr<InboundLedgers> m_inboundLedgers;
     std::unique_ptr<InboundTransactions> m_inboundTransactions;
     std::unique_ptr<LedgerReplayer> m_ledgerReplayer;
@@ -377,6 +379,9 @@ public:
         , ledgerCleaner_(
               make_LedgerCleaner(*this, logs_->journal("LedgerCleaner")))
 
+        , accountIndexer_(
+              make_AccountIndexer(*this, logs_->journal("AccountIndexer")))
+
         // VFALCO NOTE must come before NetworkOPs to prevent a crash due
         //             to dependencies in the destructor.
         //
@@ -502,6 +507,7 @@ public:
         //
 
         add(ledgerCleaner_.get());
+        add(accountIndexer_.get());
     }
 
     //--------------------------------------------------------------------------
@@ -624,6 +630,12 @@ public:
     getLedgerCleaner() override
     {
         return *ledgerCleaner_;
+    }
+
+    AccountIndexer&
+    getAccountIndexer() override
+    {
+        return *accountIndexer_;
     }
 
     LedgerReplayer&
@@ -1589,6 +1601,7 @@ ApplicationImp::start(bool withTimers)
             *config_, {{SECTION_PORT_GRPC, grpcServer_->getEndpoint()}});
 
     ledgerCleaner_->start();
+    accountIndexer_->start();
     perfLog_->start();
 }
 
@@ -1685,6 +1698,7 @@ ApplicationImp::run()
     m_inboundTransactions->stop();
     m_inboundLedgers->stop();
     ledgerCleaner_->stop();
+    accountIndexer_->stop();
     m_nodeStore->stop();
     perfLog_->stop();
 

@@ -25,6 +25,8 @@
 namespace ripple {
 
 Json::Value
+doAccountByIndex(RPC::JsonContext&);
+Json::Value
 doAccountCurrencies(RPC::JsonContext&);
 Json::Value
 doAccountInfo(RPC::JsonContext&);

@@ -26,6 +26,7 @@
 #include <xrpld/app/ledger/PendingSaves.h>
 #include <xrpld/app/ledger/detail/PublishGap.h>
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/AccountIndexer.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
@@ -290,6 +291,7 @@ LedgerMaster::setValidLedger(std::shared_ptr<Ledger const> const& l)
     app_.getSHAMapStore().onLedgerClosed(getValidatedLedger());
     mLedgerHistory.validatedLedger(l, consensusHash);
     app_.getAmendmentTable().doValidatedLedger(l);
+    app_.getAccountIndexer().onValidatedLedger(l->info().seq);
 
     using namespace std::chrono_literals;
 

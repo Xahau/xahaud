@@ -113,7 +113,9 @@ constexpr static ErrorInfo unorderedErrorInfos[]{
     {rpcLEDGER_MISSING,         "ledgerMissing",        "One or more ledgers in the specified range is missing", 406},
     {rpcORACLE_MALFORMED,       "oracleMalformed",      "Oracle request is malformed.", 400},
     {rpcBAD_CREDENTIALS,        "badCredentials",       "Credentials do not exist, are not accepted, or have expired.", 400},
-    {rpcTX_SIGNED,              "transactionSigned",    "Transaction should not be signed.", 400}};
+    {rpcTX_SIGNED,              "transactionSigned",    "Transaction should not be signed.", 400},
+    {rpcACT_INDEX_BUILDING,     "actIndexBuilding",     "Account index is still being built.", 503},
+    {rpcACT_NUMBER_MISMATCH,    "actNumberMismatch",    "Account number check digits do not match.", 400}};
 // clang-format on
 
 // Sort and validate unorderedErrorInfos at compile time.  Should be
