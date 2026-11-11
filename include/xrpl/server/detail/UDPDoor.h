@@ -84,10 +84,23 @@ public:
         // Create UDP endpoint from port configuration
         boost::asio::ip::udp::endpoint udp_endpoint(port_.ip, port_.port);
 
+        // A udp port the operator configured must not go missing behind a
+        // log line, so it fails startup as a TCP port does. The highway
+        // door on a peer port is best effort and just stays closed.
+        // Not close(): it needs shared_from_this(), which throws until the
+        // constructor has returned.
+        auto const fail = [this] {
+            error_code ignored;
+            socket_.close(ignored);
+            if (port_.has_udp())
+                Throw<std::exception>();
+        };
+
         socket_.open(udp_endpoint.protocol(), ec);
         if (ec)
         {
             JLOG(j_.error()) << "UDP socket open failed: " << ec.message();
+            fail();
             return;
         }
 
@@ -97,9 +110,7 @@ public:
         {
             JLOG(j_.error())
                 << "UDP set reuse_address failed: " << ec.message();
-            // Not close(): it needs shared_from_this(), which throws
-            // until the constructor has returned.
-            socket_.close(ec);
+            fail();
             return;
         }
 
@@ -131,7 +142,7 @@ public:
             // unbound socket, which would silently bind an ephemeral port.
             JLOG(j_.error()) << "UDP socket bind to " << udp_endpoint
                              << " failed: " << ec.message();
-            socket_.close(ec);
+            fail();
             return;
         }
 

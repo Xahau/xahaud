@@ -631,21 +631,25 @@ public:
 
         s = nullptr;
 
-        // A door that cannot bind logs the failure and stays closed; it
-        // must not throw out of ports(). 192.0.2.1 (TEST-NET-1) is never a
-        // local address.
+        // A udp port that cannot bind fails ports(), as a TCP port does,
+        // and not with bad_weak_ptr out of the door's constructor. A
+        // socket without reuse_address holds the port.
         {
+            udp::socket holder(io, udp::endpoint(addr, 0));
+            ports.back().port = holder.local_endpoint().port();
             auto s2 = make_Server(handler, thread.get_io_context(), journal);
-            ports.back().ip = boost::asio::ip::make_address("192.0.2.1");
-            ports.back().port = 1;
             try
             {
                 s2->ports(ports);
-                pass();
+                fail("bind should have failed");
             }
-            catch (std::exception const& e)
+            catch (std::bad_weak_ptr const&)
             {
-                fail(e.what());
+                fail("bad_weak_ptr");
+            }
+            catch (std::exception const&)
+            {
+                pass();
             }
         }
     }
