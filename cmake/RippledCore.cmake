@@ -101,18 +101,17 @@ target_link_libraries(xrpl.libxrpl.json PUBLIC xrpl.libxrpl.basics)
 add_module(xrpl crypto)
 target_link_libraries(xrpl.libxrpl.crypto PUBLIC xrpl.libxrpl.basics)
 
-add_module(xrpl hook)
-target_link_libraries(xrpl.libxrpl.hook PUBLIC xrpl.libxrpl.basics)
-
 # Level 04
 add_module(xrpl protocol)
 target_link_libraries(xrpl.libxrpl.protocol PUBLIC
   xrpl.libxrpl.crypto
-  xrpl.libxrpl.hook
   xrpl.libxrpl.json
 )
 
 # Level 05
+add_module(xrpl hook)
+target_link_libraries(xrpl.libxrpl.hook PUBLIC xrpl.libxrpl.protocol)
+
 add_module(xrpl resource)
 target_link_libraries(xrpl.libxrpl.resource PUBLIC xrpl.libxrpl.protocol)
 

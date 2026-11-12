@@ -30,6 +30,7 @@
 #include <xrpl/hook/Guard.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STAccount.h>
 #include <xrpl/protocol/STArray.h>
 #include <xrpl/protocol/STObject.h>
@@ -115,8 +116,8 @@ validateHookGrants(SetHookCtx& ctx, STArray const& hookGrants)
 bool
 validateHookParams(SetHookCtx& ctx, STArray const& hookParams)
 {
-    const int paramKeyMax = hook::maxHookParameterKeySize();
-    const int paramValueMax = hook::maxHookParameterValueSize();
+    const int paramKeyMax = maxHookParameterKeySize;
+    const int paramValueMax = maxHookParameterValueSize;
 
     int paramCount = (int)(hookParams.size());
     if (paramCount > 16)
@@ -1136,8 +1137,8 @@ updateHookParameters(
     ripple::STArray const& oldParameters,
     ripple::STObject& newHook)
 {
-    const int paramKeyMax = hook::maxHookParameterKeySize();
-    const int paramValueMax = hook::maxHookParameterValueSize();
+    const int paramKeyMax = maxHookParameterKeySize;
+    const int paramValueMax = maxHookParameterValueSize;
 
     std::map<ripple::Blob, std::optional<ripple::Blob>> parameters;
 

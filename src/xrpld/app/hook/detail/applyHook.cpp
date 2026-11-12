@@ -11,6 +11,7 @@
 #include <xrpl/basics/Slice.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
@@ -3952,13 +3953,13 @@ DEFINE_HOOK_FUNCTION(
         if (kread_len < 1)
             return TOO_SMALL;
 
-        if (kread_len > hook::maxHookParameterKeySize())
+        if (kread_len > maxHookParameterKeySize)
             return TOO_BIG;
 
         if (hread_len != 32)
             return INVALID_ARGUMENT;
 
-        if (read_len > hook::maxHookParameterValueSize())
+        if (read_len > maxHookParameterValueSize)
             return TOO_BIG;
     }
 

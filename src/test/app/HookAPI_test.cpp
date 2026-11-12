@@ -22,6 +22,7 @@
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>
 #include <xrpl/json/json_writer.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
 #include <limits>
@@ -2448,15 +2449,11 @@ public:
             auto& api = hookCtx.api();
             BEAST_EXPECT(
                 api.hook_param_set(
-                       hash,
-                       Bytes(hook::maxHookParameterKeySize() + 1, 1),
-                       Bytes{})
+                       hash, Bytes(maxHookParameterKeySize + 1, 1), Bytes{})
                     .error() == TOO_BIG);
             BEAST_EXPECT(
                 api.hook_param_set(
-                       hash,
-                       Bytes{1},
-                       Bytes(hook::maxHookParameterValueSize() + 1, 1))
+                       hash, Bytes{1}, Bytes(maxHookParameterValueSize + 1, 1))
                     .error() == TOO_BIG);
             BEAST_EXPECT(
                 api.hook_param_set(hash, Bytes{1}, Bytes{1}).error() ==
