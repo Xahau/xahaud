@@ -148,7 +148,8 @@ InnerObjectFormats::InnerObjectFormats()
         {
             {sfPublicKey, soeREQUIRED},
             {sfNextRandomDigest, soeREQUIRED},
-            {sfLedgerSequence, soeREQUIRED},
+            {sfLedgerSequence, soeOPTIONAL},
+            {sfRandomData, soeOPTIONAL},
         });
 
     add(sfAmountEntry.jsonName,
