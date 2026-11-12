@@ -23,12 +23,12 @@
 #include <test/jtx/AMM.h>
 #include <test/jtx/Oracle.h>
 #include <test/jtx/TestHelpers.h>
-#include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/ledger/OpenView.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Feature.h>
@@ -3212,36 +3212,44 @@ private:
             // The hook names ticket 1, which must be one the ledger knows of
             // there (Export::ticketUsable): pooled, and not the pool's last,
             // which is the ledger's. Only a sync import of a TicketCreate of
-            // an exporter's fills the pool, and a close rebuilds the ledger
-            // from its transactions, so the pool is written to the open
-            // ledger and nothing closes from here on: the hook fires there,
-            // and its export is applied there directly, as the next ledger
-            // would apply it.
-            env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            // an exporter's fills the pool, so it is written straight into a
+            // view over the last closed ledger, and the payment and then the
+            // export it emits are applied to that view, as the next ledger
+            // would apply them. The view must not be open: an open view
+            // keeps no metadata and adds no emitted txns to the ledger
+            // (finalizeHookResult), and Env::meta() would close the ledger,
+            // rebuilding it from its transactions without the pool.
+            auto const closed = env.closed();
+            OpenView view(&*closed, closed);
+            {
                 auto const sle = view.read(keylet::exporter(alice.id(), 0));
-                if (!sle)
-                    return false;
+                if (!BEAST_EXPECT(sle))
+                    continue;
                 auto ex = std::make_shared<SLE>(*sle);
                 ExportTickets tickets;
                 tickets.insert(1);
                 tickets.insert(2);
                 tickets.store(*ex);
                 view.rawReplace(ex);
-                return true;
-            });
+            }
 
-            env(pay(carol, alice, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
+            auto const payment = env.jt(pay(carol, alice, XRP(1)), fee(XRP(1)));
+            auto const paid = ripple::apply(
+                env.app(), view, *payment.stx, tapNONE, env.journal);
+            if (!BEAST_EXPECT(
+                    paid.applied && paid.ter == tesSUCCESS && paid.metadata))
+                continue;
 
             // the hook emitted the export
-            auto const meta = env.meta();
-            if (!BEAST_EXPECT(meta && meta->isFieldPresent(sfHookEmissions)))
+            auto const meta = paid.metadata->getAsObject();
+            if (!BEAST_EXPECT(meta.isFieldPresent(sfHookEmissions)))
                 continue;
-            auto const& emissions = meta->getFieldArray(sfHookEmissions);
+            auto const& emissions = meta.getFieldArray(sfHookEmissions);
             if (!BEAST_EXPECT(emissions.size() == 1))
                 continue;
             auto const id = emissions[0].getFieldH256(sfEmittedTxnID);
 
-            auto const sleE = env.le(keylet::emittedTxn(id));
+            auto const sleE = view.read(keylet::emittedTxn(id));
             if (!BEAST_EXPECT(sleE))
                 continue;
             Serializer s;
@@ -3253,18 +3261,13 @@ private:
 
             // it applies, and bob's hook, a stakeholder of the payment
             // anywhere else, does not run
-            std::optional<ApplyResult> res;
-            env.app().openLedger().modify(
-                [&](OpenView& view, beast::Journal j) {
-                    res.emplace(
-                        ripple::apply(env.app(), view, emitted, tapNONE, j));
-                    return res->applied;
-                });
-            if (!BEAST_EXPECT(res && res->applied && res->metadata))
+            auto const res =
+                ripple::apply(env.app(), view, emitted, tapNONE, env.journal);
+            if (!BEAST_EXPECT(res.applied && res.metadata))
                 continue;
-            BEAST_EXPECT(res->ter == tesSUCCESS);
+            BEAST_EXPECT(res.ter == tesSUCCESS);
             validateTSHStrongWeak(
-                res->metadata->getJson(JsonOptions::none), tshNONE, __LINE__);
+                res.metadata->getJson(JsonOptions::none), tshNONE, __LINE__);
         }
     }
 
