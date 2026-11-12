@@ -27,6 +27,7 @@
 #include <boost/smart_ptr/intrusive_ptr.hpp>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -82,6 +83,13 @@ looksLikeEntropyTx(Slice const& tx);
 */
 boost::intrusive_ptr<SHAMapItem const>
 makeItem(Slice const& tx);
+
+/** The ledger a ttENTROPY is for: its sfLedgerSequence.
+
+    @param item An item makeItem made.
+*/
+std::uint32_t
+ledgerSeq(SHAMapItem const& item);
 
 /** Whether a transaction set item is one makeItem would have made.
 

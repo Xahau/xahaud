@@ -3217,26 +3217,43 @@ PeerImp::checkEntropySet(
         txns.push_back(std::move(item));
     }
 
-    // Use and relay each content once, whichever validator's copy got here
-    // first. The others are valid, but have nothing to add.
-    auto const toSkip = app_.getHashRouter().shouldRelay(digest);
-    if (!toSkip)
+    // A set for a ledger we have validated can never be used, and without
+    // this any peer could replay old signed sets to push live ones out of
+    // the pending list. An honest peer can lose this race, so no charge.
+    auto const validated = app_.getLedgerMaster().getValidLedgerIndex();
+    for (auto const& item : txns)
     {
-        JLOG(p_journal_.trace()) << "EntropySet: content already relayed";
-        return;
+        if (entropy_set::ledgerSeq(*item) <= validated)
+        {
+            JLOG(p_journal_.trace())
+                << "EntropySet: for a ledger already validated";
+            return;
+        }
     }
 
     JLOG(p_journal_.debug())
         << "EntropySet: " << txns.size() << " entropy txns for tx set "
         << uint256{set.sethash()};
 
-    // Like a proposal, it is only relayed if it is for the round we are in.
+    // Every valid copy goes to consensus, which ignores content it already
+    // holds. Like a proposal, it is only relayed if it is for the round we
+    // are in, so this comes before marking the content as relayed: a copy
+    // that arrives too early must not stop the later ones.
     if (!app_.getOPs().processEntropySet(
             uint256{set.previousledger()},
             uint256{set.sethash()},
             std::move(txns)))
     {
         JLOG(p_journal_.trace()) << "EntropySet: not for our round";
+        return;
+    }
+
+    // Relay each content once, whichever validator's copy got here first.
+    // The others are valid, but have nothing to add.
+    auto const toSkip = app_.getHashRouter().shouldRelay(digest);
+    if (!toSkip)
+    {
+        JLOG(p_journal_.trace()) << "EntropySet: content already relayed";
         return;
     }
 

@@ -409,6 +409,40 @@ class RCLConsensusEntropySet_test : public beast::unit_test::suite
     }
 
     void
+    testSameContent()
+    {
+        testcase("Same content");
+        using namespace jtx;
+
+        // Every validator that reaches a position pushes the same content,
+        // and each copy reaches consensus. Remembering it again would push
+        // out entropy sets that are still needed.
+        Env env{*this, envconfig(validator, ""), supported_amendments()};
+        prepare(env);
+
+        auto& ops = env.app().getOPs();
+        auto const prev = env.closed()->info().hash;
+        auto const seq = env.closed()->info().seq + 1;
+        auto const base = openTxns(env);
+
+        auto const e1 = entropyTx(seq, 1);
+        auto const h1 = hashOf(makeSet(env, with(base, {e1})));
+
+        BEAST_EXPECT(!ops.processEntropySet(prev, h1, {e1}));
+
+        // some other round's, many times over
+        for (std::size_t i = 0; i < maxPending + 1; ++i)
+        {
+            BEAST_EXPECT(!ops.processEntropySet(
+                sha512Half(prev), sha512Half(prev, 1), {e1}));
+        }
+
+        startRound(env);
+        closeOpenLedger(env);
+        BEAST_EXPECT(have(env, h1));
+    }
+
+    void
     testNotValidating()
     {
         testcase("Not validating");
@@ -446,6 +480,7 @@ public:
         testBeforeOurPosition();
         testWithOurPosition();
         testBounded();
+        testSameContent();
         testNotValidating();
     }
 };

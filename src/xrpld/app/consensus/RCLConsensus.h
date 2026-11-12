@@ -226,7 +226,8 @@ class RCLConsensus
         forcedTxOwner(RCLCxTx const& tx, RCLCxLedger const& prevLedger) const;
 
         /** featureRNG: remember an entropy set a trusted validator pushed,
-            until rebuildEntropySets can build its transaction set.
+            until rebuildEntropySets can build its transaction set. Content
+            already remembered is not remembered again.
 
             Must be called under the consensus lock.
 
