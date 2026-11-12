@@ -446,6 +446,45 @@ class PeerEntropySet_test : public beast::unit_test::suite
     }
 
     void
+    testStale()
+    {
+        testcase("Stale");
+        using namespace jtx;
+
+        Env env{*this, config(), supported_amendments()};
+        establish(env);
+
+        auto const prev = env.closed()->info().hash;
+        auto const seq = env.closed()->info().seq;
+        BEAST_EXPECT(env.app().getLedgerMaster().getValidLedgerIndex() == seq);
+
+        auto const a = makePeer(env, 1);
+        auto const b = makePeer(env, 2);
+        auto const base = openTxns(env);
+
+        // Signed for the round we are in, so it would be used and relayed,
+        // but the ledger it is for is one we have already validated.
+        {
+            Txns const txns{entropyTx(seq, 1)};
+            auto const set = setHash(env, base, txns);
+            receive(env, *a, makePacket(v1_, prev, set, txns));
+            BEAST_EXPECT(!have(env, set));
+            BEAST_EXPECT(relayed(*a).empty());
+            BEAST_EXPECT(relayed(*b).empty());
+        }
+
+        // The same, for the next ledger.
+        {
+            Txns const txns{entropyTx(seq + 1, 1)};
+            auto const set = setHash(env, base, txns);
+            receive(env, *a, makePacket(v1_, prev, set, txns));
+            BEAST_EXPECT(have(env, set));
+            BEAST_EXPECT(relayed(*a).empty());
+            BEAST_EXPECT(relayed(*b).size() == 1);
+        }
+    }
+
+    void
     testMalformed()
     {
         testcase("Malformed");
@@ -555,6 +594,7 @@ public:
     {
         testRelay();
         testNotRelayed();
+        testStale();
         testMalformed();
     }
 };

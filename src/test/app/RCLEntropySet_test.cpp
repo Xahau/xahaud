@@ -137,6 +137,7 @@ class RCLEntropySet_test : public beast::unit_test::suite
                 BEAST_EXPECT(made->key() == txID(makeSlice(e)));
                 BEAST_EXPECT(made->slice() == makeSlice(e));
                 BEAST_EXPECT(isEntropyItem(*made));
+                BEAST_EXPECT(ledgerSeq(*made) == 7);
             }
         }
 

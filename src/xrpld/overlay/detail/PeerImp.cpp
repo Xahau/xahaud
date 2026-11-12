@@ -3217,6 +3217,20 @@ PeerImp::checkEntropySet(
         txns.push_back(std::move(item));
     }
 
+    // A set for a ledger we have validated can never be used, and without
+    // this any peer could replay old signed sets to push live ones out of
+    // the pending list. An honest peer can lose this race, so no charge.
+    auto const validated = app_.getLedgerMaster().getValidLedgerIndex();
+    for (auto const& item : txns)
+    {
+        if (entropy_set::ledgerSeq(*item) <= validated)
+        {
+            JLOG(p_journal_.trace())
+                << "EntropySet: for a ledger already validated";
+            return;
+        }
+    }
+
     // Use and relay each content once, whichever validator's copy got here
     // first. The others are valid, but have nothing to add.
     auto const toSkip = app_.getHashRouter().shouldRelay(digest);

@@ -87,6 +87,13 @@ makeItem(Slice const& tx)
     return make_shamapitem(id, tx);
 }
 
+std::uint32_t
+ledgerSeq(SHAMapItem const& item)
+{
+    SerialIter sit(item.slice());
+    return STTx(sit).getFieldU32(sfLedgerSequence);
+}
+
 bool
 isEntropyItem(SHAMapItem const& item)
 {
