@@ -16,8 +16,8 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
-#include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <test/jtx/Import_json.h>
 #include <xrpld/app/hook/HookAPI.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/beast/unit_test/suite.h>

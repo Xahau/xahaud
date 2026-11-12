@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <test/jtx/Import_json.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/digest.h>

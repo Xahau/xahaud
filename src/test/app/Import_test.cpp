@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <test/jtx/AMM.h>
 #include <test/jtx/CaptureLogs.h>
+#include <test/jtx/Import_json.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
