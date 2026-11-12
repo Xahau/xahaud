@@ -784,6 +784,14 @@ TRANSACTION(ttENTROPY, 89, Entropy,
     {sfRandomData, soeOPTIONAL},
 }))
 
+/** This transaction type updates a hook definition */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/HookDefinitionUpdate.h>
+#endif
+TRANSACTION(ttHOOK_DEFINITION_UPDATE, 90, HookDefinitionUpdate, ({
+    {sfHookHash, soeREQUIRED}, 
+}))
+
 /* sfAccount is supplied by TxFormats::commonFields; listing it here as well
    makes the SOTemplate reject the format at construction. */
 #if TRANSACTION_INCLUDE

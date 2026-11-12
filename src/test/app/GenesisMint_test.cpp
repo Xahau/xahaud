@@ -682,6 +682,7 @@ public:
         auto const sa = supported_amendments();
         testWithFeats(sa);
         testWithFeats(sa - fixHookAPI20251128);
+        testWithFeats(sa - featureHookFeeV2);
     }
 };
 

@@ -74,14 +74,24 @@ doHookValidate(RPC::JsonContext& context)
         loggerStream;
     std::string exceptionMsg;
     std::optional<std::pair<uint64_t, uint64_t>> result;
+    std::optional<std::pair<uint64_t, uint64_t>> cost;
     try
     {
-        result = validateGuards(
-            *blob,
-            logger,
-            "",
-            hook_api::getImportWhitelist(rules),
-            hook_api::getGuardRulesVersion(rules));
+        auto const validate = [&](bool returnCost, auto log) {
+            return validateGuards(
+                *blob,
+                log,
+                "",
+                returnCost,
+                hook_api::getImportWhitelist(rules),
+                hook_api::getGuardRulesVersion(rules));
+        };
+        // instruction counts are always reported; the HookFeeV2 cost units
+        // are reported separately so the fields never change meaning. The
+        // second pass only differs in its return value, so it is not logged.
+        result = validate(false, logger);
+        if (result && rules.enabled(featureHookFeeV2))
+            cost = validate(true, std::nullopt);
     }
     catch (std::exception const& e)
     {
@@ -94,6 +104,11 @@ doHookValidate(RPC::JsonContext& context)
     {
         jvResult[jss::instruction_count_hook] = std::to_string(result->first);
         jvResult[jss::instruction_count_cbak] = std::to_string(result->second);
+        if (cost)
+        {
+            jvResult[jss::hook_cost] = std::to_string(cost->first);
+            jvResult[jss::hook_callback_cost] = std::to_string(cost->second);
+        }
 
         if (auto const vmError =
                 hook::HookExecutor::validateWasm(blob->data(), blob->size()))
