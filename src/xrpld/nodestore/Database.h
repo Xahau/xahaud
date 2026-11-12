@@ -31,7 +31,6 @@
 
 namespace ripple {
 
-class Ledger;
 namespace NodeStore {
 
 /** Persistency layer for NodeObject
@@ -161,14 +160,6 @@ public:
         std::uint32_t ledgerSeq,
         std::function<void(std::shared_ptr<NodeObject> const&)>&& callback);
 
-    /** Store a ledger from a different database.
-
-        @param srcLedger The ledger to store.
-        @return true if the operation was successful
-    */
-    virtual bool
-    storeLedger(std::shared_ptr<Ledger const> const& srcLedger) = 0;
-
     /** Remove expired entries from the positive and negative caches. */
     virtual void
     sweep() = 0;
@@ -265,10 +256,6 @@ protected:
     // Called by the public import function
     void
     importInternal(Backend& dstBackend, Database& srcDB);
-
-    // Called by the public storeLedger function
-    bool
-    storeLedger(Ledger const& srcLedger, std::shared_ptr<Backend> dstBackend);
 
     void
     updateFetchMetrics(uint64_t fetches, uint64_t hits, uint64_t duration)

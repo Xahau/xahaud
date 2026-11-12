@@ -104,17 +104,6 @@ DatabaseRotatingImp::importDatabase(Database& source)
     importInternal(*backend, source);
 }
 
-bool
-DatabaseRotatingImp::storeLedger(std::shared_ptr<Ledger const> const& srcLedger)
-{
-    auto const backend = [&] {
-        std::shared_lock const lock(mutex_);
-        return writableBackend_;
-    }();
-
-    return Database::storeLedger(*srcLedger, backend);
-}
-
 void
 DatabaseRotatingImp::sync()
 {

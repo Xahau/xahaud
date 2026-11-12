@@ -136,8 +136,6 @@ public:
     bool
     syncPinned();
 
-    bool
-    storeLedger(std::shared_ptr<Ledger const> const& srcLedger) override;
     void
     sweep() override;
 

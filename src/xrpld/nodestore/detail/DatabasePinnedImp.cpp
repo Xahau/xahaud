@@ -247,13 +247,6 @@ DatabasePinnedImp::sync()
     persistent_->sync();
 }
 
-bool
-DatabasePinnedImp::storeLedger(std::shared_ptr<Ledger const> const& srcLedger)
-{
-    // Store to persistent since ledger headers should be pinned
-    return Database::storeLedger(*srcLedger, persistent_);
-}
-
 void
 DatabasePinnedImp::sweep()
 {

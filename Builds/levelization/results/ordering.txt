@@ -166,6 +166,7 @@ xrpld.app > test.unit_test
 xrpld.app > xrpl.basics
 xrpld.app > xrpld.conditions
 xrpld.app > xrpld.consensus
+xrpld.app > xrpld.nodestore
 xrpld.app > xrpld.perflog
 xrpld.app > xrpl.hook
 xrpld.app > xrpl.json

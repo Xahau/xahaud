@@ -13,9 +13,6 @@ Loop: xrpld.app xrpld.ledger
 Loop: xrpld.app xrpld.net
   xrpld.app > xrpld.net
 
-Loop: xrpld.app xrpld.nodestore
-  xrpld.app > xrpld.nodestore
-
 Loop: xrpld.app xrpld.overlay
   xrpld.overlay == xrpld.app
 
