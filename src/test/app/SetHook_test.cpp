@@ -1288,8 +1288,6 @@ public:
             makePageCapConfig(features, 21337, "10", "1000000", "200000", 0),
             features};
 
-        bool const hasFix = env.current()->rules().enabled(fixPageCap);
-
         auto const alice = Account{"alice"};
         env.memoize(alice);
 
@@ -1334,12 +1332,8 @@ public:
             ter(tesSUCCESS));
         env.close();
 
-        BEAST_EXPECT(
-            (*env.le(alice))[sfHookStateCount] ==
-            (hasFix ? preHookCount + 201 : preHookCount + 65));
-        BEAST_EXPECT(
-            (*env.le(alice))[sfOwnerCount] ==
-            (hasFix ? preHookCount + 203 : preHookCount + 67));
+        BEAST_EXPECT((*env.le(alice))[sfHookStateCount] == preHookCount + 201);
+        BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == preHookCount + 203);
     }
 
     void
@@ -16611,12 +16605,11 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 6> const feats{
+        static std::array<FeatureBitset, 5> const feats{
             all,
             all - fixNSDelete,
-            all - fixNSDelete - fixPageCap,
-            all - fixNSDelete - fixPageCap - featureHookCanEmit,
-            all - fixNSDelete - fixPageCap - featureExtendedHookState,
+            all - fixNSDelete - featureHookCanEmit,
+            all - fixNSDelete - featureExtendedHookState,
             all - featureNamedHooks,
         };
 
@@ -16984,15 +16977,13 @@ protected:
 SETHOOK_TEST(1, false)
 SETHOOK_TEST(2, false)
 SETHOOK_TEST(3, false)
-SETHOOK_TEST(4, false)
-SETHOOK_TEST(5, true)
+SETHOOK_TEST(4, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook2, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M
