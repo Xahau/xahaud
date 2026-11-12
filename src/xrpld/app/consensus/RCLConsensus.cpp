@@ -318,6 +318,23 @@ RCLConsensus::Adaptor::addEntropySet(
     if (inboundTransactions_.getSet(setHash, false))
         return;
 
+    // Every validator that reaches a position pushes the same content, and
+    // each copy gets here. Compare the transactions as well as the hashes: a
+    // wrong list signed for a real set hash must not block the right one.
+    for (auto const& pending : pendingEntropySets_)
+    {
+        if (pending.prevLedger == prevLedger && pending.setHash == setHash &&
+            std::equal(
+                pending.txns.begin(),
+                pending.txns.end(),
+                txns.begin(),
+                txns.end(),
+                [](auto const& a, auto const& b) {
+                    return a->key() == b->key();
+                }))
+            return;
+    }
+
     if (pendingEntropySets_.size() >= maxPendingEntropySets)
         pendingEntropySets_.erase(pendingEntropySets_.begin());
 
