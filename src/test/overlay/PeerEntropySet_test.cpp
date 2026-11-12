@@ -511,6 +511,51 @@ class PeerEntropySet_test : public beast::unit_test::suite
     }
 
     void
+    testPushed()
+    {
+        testcase("Pushed with our proposal");
+        using namespace jtx;
+
+        Env env{*this, config(), supported_amendments()};
+        prepare(env);
+
+        auto const prev = env.closed()->info().hash;
+        auto const seq = env.closed()->info().seq + 1;
+        auto const a = makePeer(env, 1);
+        auto const b = makePeer(env, 2);
+
+        startRound(env);
+
+        auto const sentA = relayed(*a);
+        auto const sentB = relayed(*b);
+        if (!BEAST_EXPECT(sentA.size() == 1 && sentB.size() == 1))
+            return;
+        auto const& m = sentA[0];
+        BEAST_EXPECT(m.SerializeAsString() == sentB[0].SerializeAsString());
+
+        BEAST_EXPECT(uint256{m.previousledger()} == prev);
+        PublicKey const pk{makeSlice(m.nodepubkey())};
+        BEAST_EXPECT(pk == env.app().getValidationPublicKey());
+
+        if (!BEAST_EXPECT(m.transactions_size() == 1))
+            return;
+        auto const item = entropy_set::makeItem(makeSlice(m.transactions(0)));
+        if (!BEAST_EXPECT(item))
+            return;
+        BEAST_EXPECT(entropy_set::ledgerSeq(*item) == seq);
+
+        uint256 const set{m.sethash()};
+        BEAST_EXPECT(set == setHash(env, openTxns(env), {item}));
+        BEAST_EXPECT(have(env, set));
+
+        BEAST_EXPECT(verifyDigest(
+            pk,
+            entropy_set::digest(prev, set, std::vector<uint256>{item->key()}),
+            makeSlice(m.signature()),
+            false));
+    }
+
+    void
     testStale()
     {
         testcase("Stale");
@@ -660,6 +705,7 @@ public:
         testRelay();
         testNotRelayed();
         testRelayedInRound();
+        testPushed();
         testStale();
         testMalformed();
     }
