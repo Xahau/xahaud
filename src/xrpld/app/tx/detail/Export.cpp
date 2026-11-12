@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/ValidatorKeys.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/View.h>
@@ -51,14 +52,32 @@ obj(STObject const& o, SField const& f)
     return o.peekAtField(f).downcast<STObject>();
 }
 
+// Whether `t` is shaped for multisigning by the UNL: from `account`,
+// unsigned, not emitted, not a pseudo-txn, not replayable here, and bound
+// back here. Every export uses a ticket (one without TicketSequence gets one
+// when it applies), so Sequence is 0; except the backstop TicketCreate of an
+// exporter whose pool is empty, which is `sequenced` (Sequence set, no
+// ticket) instead. Its NetworkID is the destination (Export::destination),
+// never this network.
+static bool
+shaped(
+    STTx const& t,
+    AccountID const& account,
+    std::uint32_t nid,
+    bool sequenced)
+{
+    bool const seqOk = sequenced
+        ? (t[sfSequence] != 0 && !t.isFieldPresent(sfTicketSequence))
+        : t[sfSequence] == 0;
+    return t[sfAccount] == account && t.getSigningPubKey().empty() &&
+        !t.isFieldPresent(sfTxnSignature) && !t.isFieldPresent(sfSigners) &&
+        !t.isFieldPresent(sfEmitDetails) && !isPseudoTx(t) &&
+        Export::destination(t) != nid && seqOk && t[~sfOperationLimit] == nid;
+}
+
 // `inner` as a transaction, if it parses under this network's formats, is
 // one both networks read the same way (ExportSchema, under `rules`) and is
-// shaped for multisigning by the UNL: from `account`, unsigned, not emitted,
-// not a pseudo-txn, not replayable here, and bound back here. Every export
-// uses a ticket (one without TicketSequence gets one when it applies), so
-// Sequence is 0; except the backstop TicketCreate of an exporter whose pool
-// is empty, which is `sequenced` (Sequence set, no ticket) instead. Its
-// NetworkID is the destination (Export::destination), never this network.
+// `shaped`.
 static std::optional<STTx>
 exportedTx(
     STObject const& inner,
@@ -72,20 +91,36 @@ exportedTx(
         Serializer s;
         inner.add(s);
         STTx const t{SerialIter{s.slice()}};
-        bool const seqOk = sequenced
-            ? (t[sfSequence] != 0 && !t.isFieldPresent(sfTicketSequence))
-            : t[sfSequence] == 0;
-        if (t[sfAccount] == account && t.getSigningPubKey().empty() &&
-            !t.isFieldPresent(sfTxnSignature) && !t.isFieldPresent(sfSigners) &&
-            !t.isFieldPresent(sfEmitDetails) && !isPseudoTx(t) &&
-            Export::destination(t) != nid && seqOk &&
-            t[~sfOperationLimit] == nid && ExportSchema::allowed(t, rules))
+        if (shaped(t, account, nid, sequenced) &&
+            ExportSchema::allowed(t, rules))
             return t;
     }
     catch (std::exception const&)
     {
     }
     return std::nullopt;
+}
+
+// Whether `inner` carries a fee the other network could take: in drops, and
+// not none. Nothing is filled in for a hook's export, so a Fee of 0 is no
+// longer a request for one (it still is on the ledger's own exports, which
+// are priced as they apply).
+static bool
+paysFee(STObject const& inner)
+{
+    if (!inner.isFieldPresent(sfFee))
+        return false;
+    auto const& fee = inner.getFieldAmount(sfFee);
+    return fee.native() && fee.signum() > 0;
+}
+
+bool
+Export::complete(
+    STTx const& inner,
+    AccountID const& account,
+    std::uint32_t here)
+{
+    return shaped(inner, account, here, false) && paysFee(inner);
 }
 
 static Keylet
@@ -683,20 +718,76 @@ Export::autoFee(ReadView const& view, AccountID const& owner, std::uint32_t nid)
     return fanOutFee(view, owner, nid) + view.fees().base;
 }
 
-// What `inner` must pay there beyond one unit per signature and one for
-// itself, in units: an EscrowFinish carrying a Fulfillment is charged
-// 32 + size / 16 reference fees more (EscrowFinish::calculateBaseFee there),
-// and without them it would never clear the other network's fee check.
-static std::int64_t
-extraFeeUnits(STObject const& inner)
+XRPAmount
+Export::feeUnit(ReadView const& view, std::uint32_t nid)
 {
-    if (inner[~sfTransactionType] ==
-            static_cast<std::uint16_t>(ttESCROW_FINISH) &&
-        inner.isFieldPresent(sfFulfillment))
-        return 32 +
-            static_cast<std::int64_t>(inner.getFieldVL(sfFulfillment).size()) /
-            16;
-    return 0;
+    auto const record = view.read(keylet::exportFee(nid));
+    return XRPAmount{
+        record ? std::int64_t{(*record)[sfExportFeeUnit]}
+               : xrplBaseFee.drops()};
+}
+
+// One reference fee for the transaction and one per signer listed, plus what
+// the other network charges this type on top, which only ExportSchema knows
+// (an EscrowFinish carrying a Fulfillment, say): without that the export
+// would be signed, sent and never clear the other network's fee check.
+std::optional<std::int64_t>
+Export::feeUnits(
+    ReadView const& view,
+    AccountID const& account,
+    std::uint32_t nid,
+    STObject const& inner)
+{
+    auto const list = signerList(view, account, nid);
+    if (!list)
+        return std::nullopt;
+    return static_cast<std::int64_t>(ExportSchema::feeUnits(
+        inner, list->getFieldArray(sfSignerEntries).size(), view.rules()));
+}
+
+bool
+Export::prepare(
+    ReadView const& view,
+    Config const& config,
+    AccountID const& account,
+    STObject& inner)
+{
+    // The destination: the NetworkID the hook gave, none meaning the XRPL
+    // (0), unless exactly one other network is known here at all (one
+    // trusted import VL key), in which case none means that one. It stays
+    // on the transaction until the export applies, which records it
+    // (RemoteNetworkID) and takes it off again for networks of 1024 and
+    // below, where the field is not allowed.
+    if (!inner.isFieldPresent(sfNetworkID))
+        if (auto const sole = Import::soleNetwork(config, view); sole != 0)
+            inner[sfNetworkID] = sole;
+    auto const dest = destination(inner);
+
+    if (!inner.isFieldPresent(sfAccount))
+        inner[sfAccount] = account;
+    if (!inner.isFieldPresent(sfSigningPubKey))
+        inner[sfSigningPubKey] = Slice{};
+    if (!inner.isFieldPresent(sfSequence))
+        inner[sfSequence] = 0;
+    if (!inner.isFieldPresent(sfOperationLimit))
+        inner[sfOperationLimit] = config.NETWORK_ID;
+
+    // The last ledger there that may include it, so that an export which
+    // never lands can be told from one that is late, and expired (Export.h,
+    // step 5). None until a ledger has been proven for the network.
+    if (auto const record = view.read(keylet::exportFee(dest));
+        record && !inner.isFieldPresent(sfLastLedgerSequence))
+        inner[sfLastLedgerSequence] = (*record)[sfLedgerSequence] + expiry;
+
+    // Priced last, by the transaction as it now stands, and whether or not
+    // the hook set a Fee of its own: an account with no signer list there
+    // has nothing to prepare an export for.
+    auto const units = feeUnits(view, account, dest, inner);
+    if (!units)
+        return false;
+    if (!inner.isFieldPresent(sfFee))
+        inner.setFieldAmount(sfFee, feeUnit(view, dest) * *units);
+    return true;
 }
 
 // the owner of an export: the hook account, or the exporter of an automatic one
@@ -733,6 +824,10 @@ Export::preflight(PreflightContext const& ctx)
         if (!hook::isEmittedTxn(tx) ||
             !exportedTx(obj(tx, sfExportedTxn), tx[sfAccount], nid, ctx.rules))
             return temMALFORMED;
+        // Nothing is filled in for a hook, here or when this applies (bar
+        // the ticket): the Fee it carries is the Fee the UNL signs.
+        if (!paysFee(obj(tx, sfExportedTxn)))
+            return temBAD_FEE;
         return preflight2(ctx);
     }
 
@@ -811,6 +906,20 @@ Export::preclaim(PreclaimContext const& ctx)
             tx.getTxnType() == ttEXPORT &&
             !ticketUsable(ctx.view, owner, nid, *t))
             return tecNO_ENTRY;
+        // A hook's Fee is its own to set, but not below what the other
+        // network could ever take for this transaction under this list:
+        // feeUnits reference fees. xport_prepare() prices by the same
+        // count, at emission, a ledger before this; so this is also what
+        // stops an export priced for a list that has grown since from
+        // being signed and sent for nothing. Refused here, its hook hears
+        // at once (cbak, what == 1) instead of at its expiry.
+        if (tx.getTxnType() == ttEXPORT)
+        {
+            auto const units = feeUnits(ctx.view, owner, nid, inner);
+            if (!units || !paysFee(inner) ||
+                inner.getFieldAmount(sfFee).xrp() < xrplBaseFee * *units)
+                return tecINSUFF_FEE;
+        }
         if (tx.getTxnType() == ttEXPORT_AUTO)
         {
             auto const ex = ctx.view.read(keylet::exporter(owner, nid));
@@ -962,32 +1071,30 @@ Export::createExport(
         inner[sfTicketSequence] = *ticket;
     }
 
-    // the fee there: what a multisigned transaction needs, at the unit the
-    // ledger has seen transactions pay there (ltEXPORT_FEE, see Ingest.h),
-    // or the reference fee until one is proven. Fee 0 stands for "fill in"
-    // since the format requires the field to be present.
-    auto const record = view.read(keylet::exportFee(dest));
-    if (!inner.isFieldPresent(sfFee) ||
-        inner.getFieldAmount(sfFee) == beast::zero)
-    {
-        XRPAmount const unit{
-            record ? std::int64_t{(*record)[sfExportFeeUnit]}
-                   : xrplBaseFee.drops()};
+    // The fee there. A hook's export carries its own, as xport_prepare()
+    // priced it or as the hook chose (preflight and preclaim held it to the
+    // least the other network could take). The ledger's own exports are
+    // priced here, as xport_prepare() would: what a multisigned transaction
+    // of its type needs, at the unit the ledger has seen transactions pay
+    // there (ltEXPORT_FEE, see Ingest.h), or the reference fee until one is
+    // proven. On those a Fee of 0 stands for "fill in", since the format
+    // requires the field to be present.
+    if (automatic &&
+        (!inner.isFieldPresent(sfFee) ||
+         inner.getFieldAmount(sfFee) == beast::zero))
         inner.setFieldAmount(
             sfFee,
-            unit *
-                (static_cast<std::int64_t>(
-                     list->getFieldArray(sfSignerEntries).size() + 1) +
-                 extraFeeUnits(inner)));
-    }
+            feeUnit(view, dest) *
+                static_cast<std::int64_t>(ExportSchema::feeUnits(
+                    inner,
+                    list->getFieldArray(sfSignerEntries).size(),
+                    view.rules())));
 
     // The last ledger there that may include it, so that an export which never
     // lands can be told from one that is late, and expired (Export.h, step 5).
-    // A hook may set its own. None until a ledger has been proven for the
-    // network, and none for the ledger's own exports, which are resent until
-    // they land.
-    if (!automatic && record && !inner.isFieldPresent(sfLastLedgerSequence))
-        inner[sfLastLedgerSequence] = (*record)[sfLedgerSequence] + expiry;
+    // It is the hook's to set (xport_prepare() does, once a ledger has been
+    // proven for the network); an export without one cannot expire. The
+    // ledger's own exports carry none: they are resent until they land.
     std::optional<std::uint32_t> lastLedger;
     if (!automatic)
         lastLedger = inner[~sfLastLedgerSequence];

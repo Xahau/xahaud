@@ -7,6 +7,11 @@ this never edits anything: it prints the rows that would be added, changed
 or dropped, for a developer to paste in behind `since(fixExportSchemaX)`.
 Run it before a release, or whenever the other network ships new types.
 
+A row also says what its type pays the other network on top of the ordinary
+fee (ExtraFee), which xport_prepare() prices an export by. No definitions
+file says that, so it is checked against SPECIAL_FEES below, a list kept by
+hand from the other network's code: keep it current, or this check is not.
+
     bin/export-schema-check.py                       # ask s1.ripple.com
     bin/export-schema-check.py --xrpl defs.json      # or a saved file
     bin/export-schema-check.py --candidates          # also list types not yet opened
@@ -36,6 +41,36 @@ EXCLUDED_UNIVERSAL = {"TxnSignature", "PreviousTxnID", "Delegate", "BatchSigners
 EXCLUDED_TYPES = {"AccountDelete", "SetRegularKey", "EnableAmendment", "SetFee", "UNLModify"}
 # shared, but their elements (Credential) are not, so the table omits them
 EXCLUDED_FIELDS = {"AuthorizeCredentials", "UnauthorizeCredentials"}
+
+# What the other network charges on top of the ordinary fee (one reference fee
+# and one more per signature). `server_definitions` says nothing of fees: they
+# are in each transactor's calculateBaseFee there, so THIS LIST IS KEPT BY
+# HAND and is only as good as its last reading of that code (rippled develop,
+# f2856b4, 2026-11-11: `grep -rn "::calculateBaseFee" src/libxrpl/tx`). Read
+# it again whenever the other network ships new types.
+#
+# {type: {field, or None for the type whatever it holds: (what, fee)}} where
+# `fee` is how the table's ExtraFee says it, (flat, present, per) in reference
+# fees, or None if it cannot: such a type, or field, must stay out of the
+# table, because xport_prepare() could not fill in a Fee that covers it.
+SPECIAL_FEES = {
+    "EscrowFinish": {
+        "Fulfillment": ("32 reference fees and one more per 16 bytes", (0, 32, 16)),
+        "Gas": ("the gas allowance at that network's gas price", None),
+    },
+    "EscrowCreate": {"Bytecode": ("9 reference fees and 5 drops per byte", None)},
+    "AccountDelete": {None: ("an owner reserve", None)},
+    "AMMCreate": {None: ("an owner reserve", None)},
+    "LedgerStateFix": {None: ("an owner reserve", None)},
+    "Batch": {None: ("its inner transactions' fees and their signers'", None)},
+    "LoanSet": {None: ("a reference fee per counterparty signature", None)},
+    "LoanPay": {None: ("a fee that depends on the loan's state", None)},
+    "SetRegularKey": {None: ("nothing, once, by the master key", None)},
+    **{
+        "ConfidentialMPT" + t: {None: ("9 reference fees", (9, 0, 0))}
+        for t in ("Convert", "ConvertBack", "Send", "MergeInbox", "Clawback", "MirrorUpdate", "HolderKeyUpdate")
+    },
+}
 
 
 def read(path):
@@ -90,8 +125,19 @@ def shared(name, xrpl_fields, local_fields):
     return bool(theirs and ours and theirs[2] and theirs[:2] == ours)
 
 
+def braces(text):
+    """The contents of the brace group `text` opens with, and what follows it"""
+    depth = 0
+    for i, c in enumerate(text):
+        depth += (c == "{") - (c == "}")
+        if depth == 0:
+            return text[1:i], text[i + 1 :]
+    return text[1:], ""
+
+
 def parse_table(src, local_flags):
-    """{tx name: (flag mask, {field: required}, raw text)} from ExportSchema.cpp"""
+    """{tx tag: (flag mask, {field: required}, fee)} from ExportSchema.cpp, the
+    fee as (flat, field or None, present, per), or None if the row has none"""
     body = src[src.index("constexpr Type typeRows[] = {"):]
     body = body[: body.index("\n};")]
     # the other network's flags named locally in the file
@@ -99,22 +145,64 @@ def parse_table(src, local_flags):
     rows = {}
     for chunk in re.split(r"\n    \{(?=tt)", body)[1:]:
         tag = re.match(r"(tt\w+)", chunk)[1]
-        head, _, fields = chunk.partition("{")
+        head, brace, rest = chunk.partition("{")
+        # the fields are the row's first brace group; a second, if there is
+        # one, is its ExtraFee
+        fields, rest = braces(brace + rest)
         mask = 0
         for name in re.findall(r"\b(tf\w+)\b", head):
             mask |= local_flags.get(name) or file_flags.get(name) or 0
         req = set(re.findall(r"req\(sf(\w+)\)", fields))
         all_ = re.findall(r"\bsf(\w+)", fields)
-        rows[tag] = (mask, {f: f in req for f in all_})
+        fee = None
+        m = re.match(r"\s*,\s*\{\s*(\d+)\s*(?:,\s*(?:&sf(\w+)|nullptr)\s*(?:,\s*(\d+)\s*(?:,\s*(\d+)\s*)?)?)?\}", rest)
+        if m:
+            fee = (int(m[1]), m[2], int(m[3] or 0), int(m[4] or 0))
+        rows[tag] = (mask, {f: f in req for f in all_}, fee)
     return rows
+
+
+def expected_fee(tx, fields):
+    """What a row for `tx` holding `fields` must say of its fee: (fee, problems),
+    the fee as parse_table gives it"""
+    fee, problems = None, []
+    for field, (what, units) in SPECIAL_FEES.get(tx, {}).items():
+        if field is not None and field not in fields:
+            continue
+        where = f"with {field} it" if field else "it"
+        if units is None:
+            problems.append(f"{where} pays {what} there, which the table's ExtraFee cannot express")
+        elif fee is not None:
+            problems.append(f"{where} pays {what} there, a second rule for one row, which ExtraFee cannot hold")
+        elif field is None:
+            fee = (units[0], None, 0, 0)
+        else:
+            fee = (units[0], field, units[1], units[2])
+    return fee, problems
+
+
+def fee_text(fee):
+    if fee is None:
+        return "none"
+    flat, field, present, per = fee
+    return f"{{{flat}, &sf{field}, {present}, {per}}}" if field else f"{{{flat}}}"
 
 
 def expected(tx, xrpl, local):
     xrpl_fields, _, formats, xrpl_flags = xrpl
     local_fields, _, _ = local
     fields, problems = {}, []
+    # a field (or a whole type) whose fee the table cannot express is not one
+    # to export: nothing here could price it
+    unpriced = {f for f, (_, units) in SPECIAL_FEES.get(tx, {}).items() if units is None}
+    if None in unpriced:
+        problems.append(f"pays {SPECIAL_FEES[tx][None][0]} there, which the table's ExtraFee cannot express")
     for name, opt in formats.get(tx, []):
         if name in EXCLUDED_FIELDS:
+            continue
+        if name in unpriced:
+            if opt == 0:
+                problems.append(f"requires {name}, whose fee the table cannot express")
             continue
         if shared(name, xrpl_fields, local_fields):
             fields[name] = opt == 0
@@ -138,7 +226,9 @@ def row(tag, mask, fields, tx, xrpl_flags, local_flags, since=None):
     fs = ", ".join((f"req(sf{n})" if r else f"sf{n}") for n, r in fields.items())
     if since:
         fs = ", ".join(f"since({x}, {since})" for x in fs.split(", ")) if fs else fs
-    return f"    {{{tag}, {flag_names(mask, tx, xrpl_flags, local_flags)},\n     {{{fs}}}}},"
+    fee, _ = expected_fee(tx, fields)
+    fee = f",\n     {fee_text(fee)}" if fee else ""
+    return f"    {{{tag}, {flag_names(mask, tx, xrpl_flags, local_flags)},\n     {{{fs}}}{fee}}},"
 
 
 def main():
@@ -174,8 +264,17 @@ def main():
     by_tag = {tag: name for name, (tag, _) in local_tx.items()}
     drift = 0
 
-    for tag, (mask, fields) in table.items():
+    for tag, (mask, fields, fee) in table.items():
         name = by_tag.get(tag, tag)
+        # the fee is checked against this script's own list, whatever the
+        # other network's definitions say: by the fields the row holds
+        efee, fee_problems = expected_fee(name, fields)
+        for p in fee_problems:
+            print(f"- {name}: {p}; the row (or that field) must go behind until(...)")
+            drift += 1
+        if fee != efee:
+            print(f"~ {name}: fee {fee_text(fee)} -> {fee_text(efee)} (SPECIAL_FEES; if the row is right, this script is behind)")
+            drift += 1
         if name not in candidates:
             print(f"- {name}: no longer exportable there (gate the row with until(...))")
             drift += 1

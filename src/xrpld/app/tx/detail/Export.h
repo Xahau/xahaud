@@ -29,6 +29,7 @@
 
 namespace ripple {
 
+class Config;
 class ExportTickets;
 class ValidatorKeys;
 
@@ -82,14 +83,31 @@ class ValidatorKeys;
 
     An export's life:
     1. A hook calls xport() with a transaction ExportSchema allows
-       (NOT_EXPORTABLE otherwise). Account, SigningPubKey, Sequence (0) and
-       OperationLimit are filled in at emission; TicketSequence (from the
-       pool), Fee ((signers + 1) x ltEXPORT_FEE's unit, see Ingest.h) and
-       LastLedgerSequence (`expiry` past the ledger last proven there, if
-       any) when the ttEXPORT applies, unless the hook set them. A ticket
-       the hook names must be known to the ledger (ticketUsable). Applying
-       it creates an ltEXPORTED_TXN, with a copy of the signer list, and an
-       ltSHADOW_TICKET. A ticket is never both pooled and shadowed.
+       (NOT_EXPORTABLE otherwise) that is complete (INVALID_ARGUMENT
+       otherwise): as with emit(), nothing is filled in for it, so what
+       the hook hands over is what the UNL signs. xport_prepare() is how
+       a hook completes one (see prepare): it fills in Account,
+       SigningPubKey (empty), Sequence (0), OperationLimit, the
+       destination where there is only one, Fee (feeUnits x feeUnit: what
+       ExportSchema says the transaction pays there, at the unit
+       ltEXPORT_FEE holds; see Ingest.h, and xport_fee() for a hook to
+       read that record itself) and LastLedgerSequence (`expiry` past the
+       ledger last proven there, if any), each only if the hook left it
+       out, and gives the result back for the hook to look at, change and
+       pass to xport(). A Fee below feeUnits at the reference fee could
+       never be included there and is refused when the ttEXPORT applies
+       (tecINSUFF_FEE), which is also what catches a signer list that
+       grew between emission and then.
+       One field is still assigned as the ttEXPORT applies: the
+       TicketSequence, from the pool, unless the hook names one. A ticket
+       is not a value to work out but something to allot, and that cannot
+       be done at emission: the ttEXPORT applies a ledger later, and until
+       then every other execution of the hook sees the same pool and
+       would be given the same ticket, the later export taking over the
+       earlier one's. A ticket the hook names must be known to the ledger
+       (ticketUsable). Applying the ttEXPORT creates an ltEXPORTED_TXN,
+       with a copy of the signer list, and an ltSHADOW_TICKET. A ticket is
+       never both pooled and shadowed.
     2. Each validator holding a listed key applies a ttEXPORT_SIGN to its
        open ledger. Proposed by one validator, it loses its first round and
        lands a ledger later (not being a pseudo-txn, it is retried). It is
@@ -145,14 +163,14 @@ public:
     static constexpr std::uint32_t ticketLow = 10;
     static constexpr std::uint32_t ticketBatch = 50;
 
-    /** The other network's reference fee: the least an exported transaction
-        pays per signature, and what it pays until ttINGEST has proven what
-        transactions there actually pay (ltEXPORT_FEE, see Ingest.h). A hook
-        that sets its own Fee is left alone. */
+    /** The other network's reference fee: the least feeUnit is, what it is
+        until ttINGEST has proven what transactions there actually pay
+        (ltEXPORT_FEE, see Ingest.h), and the unit a hook's own Fee is held
+        to (preclaim): at least feeUnits of these, above that as it likes. */
     static constexpr XRPAmount xrplBaseFee{10};
 
-    /** A hook's export that sets no LastLedgerSequence is given one this
-        many ledgers past the ledger last proven for its network
+    /** xport_prepare() gives an export that sets no LastLedgerSequence one
+        this many ledgers past the ledger last proven for its network
         (ltEXPORT_FEE.sfLedgerSequence, kept current by ttINGEST), if any
         has been: long enough for the signing window, the relay and an
         ingest_every of lag in that record. */
@@ -243,6 +261,56 @@ public:
     {
         return static_cast<std::uint32_t>((signers * 4 + 4) / 5);
     }
+
+    /** What one reference fee is taken to cost on network `nid`, in drops:
+        the unit its ltEXPORT_FEE holds (the median of what transactions
+        there pay per signature, smoothed; see Ingest.h), or xrplBaseFee
+        until a ledger has been proven for it. */
+    static XRPAmount
+    feeUnit(ReadView const& view, std::uint32_t nid);
+
+    /** What `inner`, exported by `account` to network `nid`, must pay there
+        in reference fees: one for itself, one for every signer on the
+        account's list there (all of them may sign, and each signature is
+        charged for) and what ExportSchema says its type pays on top.
+        Nothing if the account has no signer list there. */
+    static std::optional<std::int64_t>
+    feeUnits(
+        ReadView const& view,
+        AccountID const& account,
+        std::uint32_t nid,
+        STObject const& inner);
+
+    /** What xport_prepare() does: complete `inner`, a transaction a hook of
+        `account` means to export, leaving alone every field it already
+        carries. Filled in if absent:
+          - NetworkID, with the one network this one knows
+            (Import::soleNetwork), if there is exactly one. Otherwise none
+            stays none, which is the XRPL;
+          - Account, SigningPubKey (empty), Sequence (0) and OperationLimit
+            (this network);
+          - LastLedgerSequence, `expiry` past the ledger last proven for the
+            destination, if one has been (none otherwise: such an export
+            cannot expire);
+          - Fee, feeUnits x feeUnit.
+        Not TicketSequence: see the class comment. False, with `inner`
+        possibly part filled, if the account has no signer list on the
+        destination: there is nothing to price the export by, and it could
+        not apply. */
+    static bool
+    prepare(
+        ReadView const& view,
+        Config const& config,
+        AccountID const& account,
+        STObject& inner);
+
+    /** Whether `inner` is complete as a hook's export from `account` on
+        network `here`, the schema aside: from the account, unsigned with an
+        empty SigningPubKey, Sequence 0, bound back here by OperationLimit,
+        for another network, and paying a fee in drops. What ttEXPORT's
+        preflight requires, for xport() to tell the hook first. */
+    static bool
+    complete(STTx const& inner, AccountID const& account, std::uint32_t here);
 
     explicit Export(ApplyContext& ctx) : Transactor(ctx)
     {

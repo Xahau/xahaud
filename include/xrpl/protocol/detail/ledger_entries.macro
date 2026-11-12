@@ -189,10 +189,11 @@ LEDGER_ENTRY(ltEXPORTER, 'V', Exporter, exporter, ({
 
 /** featureExport: what transactions on another network (sfRemoteNetworkID)
     pay, as proven by ttINGEST (see Ingest.h), one per network.
-    sfExportFeeUnit is the drops per signature xport() fills in for a hook
-    that sets no Fee; the rest describes the latest ledger proven: its
-    index, its transactions, the drops they burned between them and the
-    median unit sampled among them.
+    sfExportFeeUnit is the drops per signature xport_prepare() prices an
+    export by for a hook that sets no Fee; the rest describes the latest
+    ledger proven: its index, its transactions, the drops they burned
+    between them and the median unit sampled among them. xport_fee() gives
+    a hook each of them.
 
     \sa keylet::exportFee
 */

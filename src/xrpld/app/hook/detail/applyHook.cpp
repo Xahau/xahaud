@@ -2726,7 +2726,8 @@ DEFINE_HOOK_FUNCTION(
 
 /* Export a transaction for another network (its NetworkID, absent for XRPL;
  * see Export.h): wrap it in a ttEXPORT and emit that. Writes the ttEXPORT's
- * id. */
+ * id. As with emit, the transaction must be complete and is not modified:
+ * xport_prepare completes one. */
 DEFINE_HOOK_FUNCTION(
     int64_t,
     xport,
@@ -2752,6 +2753,59 @@ DEFINE_HOOK_FUNCTION(
     std::memcpy(memory + write_ptr, (*res)->getID().data(), 32);
     hookCtx.result.emittedTxn.push(*res);
     return uint64_t{32};
+
+    HOOK_TEARDOWN();
+}
+
+/* Complete a transaction for another network so that xport will take it:
+ * everything the hook left out but the ticket, with a Fee that covers its
+ * type and every signer on the account's list there (see Export::prepare).
+ * Writes the completed transaction, for the hook to pass to xport as it is
+ * or changed, and returns its length. DOESNT_EXIST if the hook account has
+ * no signer list on that network. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    xport_prepare,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length) ||
+        NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const res =
+        api.xport_prepare(ripple::Slice{memory + read_ptr, read_len});
+    if (!res)
+        return res.error();
+
+    // never part of one: a truncated transaction is still a transaction
+    if (write_len < res->size())
+        return TOO_SMALL;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, res->data(), res->size(), memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+/* What the ledger has proven of the fees on network `network_id` (0 for
+ * XRPL): `what` is one of hook_api::xport_fee_code (XPORT_FEE_* in
+ * hookapi.h). The unit (0) is always there, the reference fee until a ledger
+ * has been proven; the rest are DOESNT_EXIST until then. */
+DEFINE_HOOK_FUNCTION(int64_t, xport_fee, uint32_t network_id, uint32_t what)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const res = api.xport_fee(network_id, what);
+    if (!res)
+        return res.error();
+    return res.value();
 
     HOOK_TEARDOWN();
 }

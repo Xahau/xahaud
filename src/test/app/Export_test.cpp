@@ -382,7 +382,7 @@ class Export_test : public beast::unit_test::suite
             STObject sls(sfExportedTxn);
             sls.setFieldU16(sfTransactionType, ttSIGNER_LIST_SET);
             sls.setAccountID(sfAccount, alice.id());
-            sls.setFieldAmount(sfFee, XRPAmount{0});
+            sls.setFieldAmount(sfFee, XRPAmount{1000});
             sls.setFieldU32(sfSequence, 0);
             sls.setFieldU32(sfSignerQuorum, 0);
             sls.setFieldVL(sfSigningPubKey, Slice{});
@@ -393,6 +393,17 @@ class Export_test : public beast::unit_test::suite
             BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == tesSUCCESS);
             sls.setFieldU32(sfSequence, 5);
             BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == temMALFORMED);
+        }
+
+        // Nothing is filled in for a hook, so the Fee it emits is the Fee
+        // the UNL signs: a Fee of 0, which once asked the ledger for one,
+        // is no fee. (xport_prepare() is what prices an export now.)
+        {
+            auto unpriced = good;
+            unpriced.setFieldAmount(sfFee, XRPAmount{0});
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), unpriced)) == temBAD_FEE);
+            unpriced.setFieldAmount(sfFee, XRPAmount{1});
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), unpriced)) == tesSUCCESS);
         }
 
         // one base fee per signer in the account's list
@@ -1842,10 +1853,13 @@ class Export_test : public beast::unit_test::suite
         };
 
         // to testnet: its ticket, its shadow ticket, no NetworkID sent
-        // (testnet refuses the field) and its two signers paid for
+        // (testnet refuses the field) and, priced as xport_prepare() prices
+        // it, its two signers paid for. Nothing is repriced as it applies.
         auto tn = payment(alice.id(), 1, {}, nid);
         tn[sfNetworkID] = 1;
-        tn.setFieldAmount(sfFee, XRPAmount{0});
+        tn.makeFieldAbsent(sfFee);
+        BEAST_EXPECT(Export::prepare(view, env.app().config(), alice.id(), tn));
+        BEAST_EXPECT(tn.getFieldAmount(sfFee).xrp() == Export::xrplBaseFee * 3);
         BEAST_EXPECT(apply(tn) == tesSUCCESS);
         BEAST_EXPECT(pool(1) == 1 && pool(0) == 2);
         BEAST_EXPECT(view.exists(keylet::shadowTicket(alice.id(), 1, 20)));
@@ -2009,11 +2023,24 @@ class Export_test : public beast::unit_test::suite
             return ripple::apply(env.app(), view, tx, tapNONE, env.journal).ter;
         };
 
+        // as xport_prepare() completes a hook's export before it is emitted
+        // (the Fee here is the hook's own already): nothing is added to it
+        // as it applies
+        auto const prepared = [&](STObject inner) {
+            BEAST_EXPECT(
+                Export::prepare(view, env.app().config(), alice.id(), inner));
+            return inner;
+        };
+
         // Nothing is known of the other network's ledger yet, so there is
         // nothing to count a LastLedgerSequence from: the export goes
         // without. It is listed as in flight like any other, but cannot
         // be expired.
-        BEAST_EXPECT(apply(payment(alice.id(), 1, {}, nid)) == tesSUCCESS);
+        {
+            auto const first = prepared(payment(alice.id(), 1, {}, nid));
+            BEAST_EXPECT(!first.isFieldPresent(sfLastLedgerSequence));
+            BEAST_EXPECT(apply(first) == tesSUCCESS);
+        }
         if (auto const st = shadow(10); BEAST_EXPECT(st))
             BEAST_EXPECT(!st->isFieldPresent(sfLastLedgerSequence));
         auto const key10 = keylet::shadowTicket(alice.id(), 0, 10).key;
@@ -2031,11 +2058,16 @@ class Export_test : public beast::unit_test::suite
             BEAST_EXPECT(!st->isFieldPresent(sfRemoteTxnID));
         }
 
-        // With ledger 1000 proven there, the next export may be included
-        // up to Export::expiry ledgers later, and is one to look for.
+        // With ledger 1000 proven there, the next export is prepared to be
+        // included up to Export::expiry ledgers later, and is one to look
+        // for.
         proven(1000);
-        BEAST_EXPECT(apply(payment(alice.id(), 2, {}, nid)) == tesSUCCESS);
         std::uint32_t const last = 1000 + Export::expiry;
+        {
+            auto const second = prepared(payment(alice.id(), 2, {}, nid));
+            BEAST_EXPECT(second[~sfLastLedgerSequence] == last);
+            BEAST_EXPECT(apply(second) == tesSUCCESS);
+        }
         if (auto const st = shadow(11); BEAST_EXPECT(st))
             BEAST_EXPECT((*st)[~sfLastLedgerSequence] == last);
         BEAST_EXPECT(pool() == 1);
@@ -2049,6 +2081,7 @@ class Export_test : public beast::unit_test::suite
         {
             auto own = payment(alice.id(), 3, 77, nid);
             own.setFieldU32(sfLastLedgerSequence, 5000);
+            own = prepared(own);
             BEAST_EXPECT(apply(own) == tesSUCCESS);
             if (auto const st = shadow(77); BEAST_EXPECT(st))
                 BEAST_EXPECT((*st)[~sfLastLedgerSequence] == 5000u);
@@ -2088,6 +2121,198 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(expire(11) == tefFAILURE);
     }
 
+    void
+    testPrepare()
+    {
+        testcase("prepare and fees");
+        using namespace jtx;
+
+        Env env{*this, xahau(), supported_amendments() | featureExport};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const nid = env.app().config().NETWORK_ID;
+        auto const& config = env.app().config();
+        OpenView view(open_ledger, env.closed()->rules(), env.closed());
+        auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        auto const b = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        auto const c = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+
+        // what a hook starts from: a type and that type's own fields
+        auto const bare = [](TxType type) {
+            STObject t(sfExportedTxn);
+            t.setFieldU16(sfTransactionType, type);
+            return t;
+        };
+        auto pay = bare(ttPAYMENT);
+        pay.setAccountID(sfDestination, noAccount());
+        pay.setFieldAmount(sfAmount, XRPAmount{1});
+        auto const asTx = [](STObject const& inner) {
+            Serializer s;
+            inner.add(s);
+            return STTx{SerialIter{s.slice()}};
+        };
+        auto const drops = [](STObject const& inner) {
+            return inner.getFieldAmount(sfFee).xrp();
+        };
+        // what ttINGEST has proven of network `net` (see Ingest.h)
+        auto const proven =
+            [&](std::uint32_t net, std::uint32_t unit, std::uint32_t seq) {
+                auto const sle = std::make_shared<SLE>(keylet::exportFee(net));
+                sle->setFieldU32(sfRemoteNetworkID, net);
+                sle->setFieldU32(sfExportFeeUnit, unit);
+                sle->setFieldU32(sfLedgerSequence, seq);
+                sle->setFieldU32(sfTransactionCount, 1);
+                sle->setFieldU64(sfBurnedDrops, unit);
+                sle->setFieldU32(sfSampleFee, unit);
+                view.rawInsert(sle);
+            };
+
+        // no signer list on the destination: nothing to price an export
+        // by, and nothing that could sign it
+        {
+            auto t = pay;
+            BEAST_EXPECT(!Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(!Export::feeUnits(view, alice.id(), 0, pay));
+        }
+
+        setSignerList(view, alice.id(), signerEntries({a, b, c}), 3);
+
+        // Completed: from the account, unsigned, ticketed (Sequence 0),
+        // bound back here, for the XRPL, and priced at the reference fee
+        // for itself and every one of the three signers. No ledger is
+        // proven there, so no LastLedgerSequence. And no ticket: that is
+        // the pool's to give as the export applies.
+        {
+            auto t = pay;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(t[sfAccount] == alice.id());
+            BEAST_EXPECT(t.getFieldVL(sfSigningPubKey).empty());
+            BEAST_EXPECT(t[sfSequence] == 0u);
+            BEAST_EXPECT(t[sfOperationLimit] == nid);
+            BEAST_EXPECT(!t.isFieldPresent(sfNetworkID));
+            BEAST_EXPECT(!t.isFieldPresent(sfTicketSequence));
+            BEAST_EXPECT(!t.isFieldPresent(sfLastLedgerSequence));
+            BEAST_EXPECT(Export::feeUnits(view, alice.id(), 0, t) == 4);
+            BEAST_EXPECT(drops(t) == Export::xrplBaseFee * 4);
+
+            // which is what xport() and ttEXPORT's preflight ask of it
+            auto const tx = asTx(t);
+            BEAST_EXPECT(Export::complete(tx, alice.id(), nid));
+            BEAST_EXPECT(!Export::complete(tx, a, nid));
+            BEAST_EXPECT(!Export::complete(tx, alice.id(), nid + 1));
+            // what the hook starts from is not: it does not even parse
+            // (no Account, Fee, Sequence or SigningPubKey), which xport()
+            // reports as INVALID_ARGUMENT
+            try
+            {
+                asTx(pay);
+                fail("an incomplete export parsed");
+            }
+            catch (std::exception const&)
+            {
+                pass();
+            }
+            // and one field short of complete is not complete
+            {
+                auto unbound = t;
+                unbound.makeFieldAbsent(sfOperationLimit);
+                BEAST_EXPECT(!Export::complete(asTx(unbound), alice.id(), nid));
+                auto unpriced = t;
+                unpriced.setFieldAmount(sfFee, XRPAmount{0});
+                BEAST_EXPECT(
+                    !Export::complete(asTx(unpriced), alice.id(), nid));
+            }
+        }
+
+        // whatever the hook set itself is left as it is
+        {
+            auto t = pay;
+            t.setFieldAmount(sfFee, XRPAmount{777});
+            t.setFieldU32(sfLastLedgerSequence, 5000);
+            t.setFieldU32(sfTicketSequence, 9);
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(drops(t) == XRPAmount{777});
+            BEAST_EXPECT(t[sfLastLedgerSequence] == 5000u);
+            BEAST_EXPECT(t[sfTicketSequence] == 9u);
+        }
+
+        // Once a ledger has been proven there: the unit it holds (which is
+        // what xport_fee() gives a hook), and a deadline counted from it.
+        // Each network has its own.
+        BEAST_EXPECT(Export::feeUnit(view, 0) == Export::xrplBaseFee);
+        proven(0, 25, 1000);
+        BEAST_EXPECT(Export::feeUnit(view, 0) == XRPAmount{25});
+        BEAST_EXPECT(Export::feeUnit(view, 1) == Export::xrplBaseFee);
+        {
+            auto t = pay;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(drops(t) == XRPAmount{25 * 4});
+            BEAST_EXPECT(t[sfLastLedgerSequence] == 1000 + Export::expiry);
+        }
+
+        // What a type pays the other network on top comes from the schema:
+        // an EscrowFinish is an ordinary transaction until it carries a
+        // Fulfillment, then 32 + 36 / 16 reference fees more for one of 36
+        // bytes. Priced without them it would be signed, sent and never
+        // included.
+        auto finish = bare(ttESCROW_FINISH);
+        finish.setAccountID(sfOwner, alice.id());
+        finish.setFieldU32(sfOfferSequence, 1);
+        {
+            auto t = finish;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(drops(t) == XRPAmount{25 * 4});
+        }
+        finish.setFieldVL(sfFulfillment, Blob(36, 0xA0));
+        BEAST_EXPECT(Export::feeUnits(view, alice.id(), 0, finish) == 4 + 34);
+        auto priced = finish;
+        BEAST_EXPECT(Export::prepare(view, config, alice.id(), priced));
+        BEAST_EXPECT(drops(priced) == XRPAmount{25 * 38});
+
+        // A hook may set a Fee of its own, above that or below it, but not
+        // below the same count at the reference fee, which the other
+        // network could never take: such an export is refused as it
+        // applies, instead of being signed and sent for nothing.
+        auto const claim = [&](STObject inner, std::int64_t fee) {
+            inner.setFieldAmount(sfFee, XRPAmount{fee});
+            return Export::preclaim(PreclaimContext(
+                env.app(),
+                view,
+                tesSUCCESS,
+                exportTx(env, alice.id(), inner),
+                tapNONE));
+        };
+        {
+            auto t = pay;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(claim(t, 25 * 4) == tesSUCCESS);
+            BEAST_EXPECT(claim(t, 40) == tesSUCCESS);
+            BEAST_EXPECT(claim(t, 39) == tecINSUFF_FEE);
+            BEAST_EXPECT(claim(t, 1'000'000) == tesSUCCESS);
+        }
+        BEAST_EXPECT(claim(priced, 380) == tesSUCCESS);
+        BEAST_EXPECT(claim(priced, 379) == tecINSUFF_FEE);
+
+        // That is also what catches a signer list that grew between the
+        // hook pricing its export and the export applying, a ledger later:
+        // every signer may sign, and each signature is charged for.
+        {
+            auto t = pay;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(claim(t, 40) == tesSUCCESS);
+            auto const d = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+            setSignerList(view, alice.id(), signerEntries({a, b, c, d}), 3);
+            BEAST_EXPECT(claim(t, 40) == tecINSUFF_FEE);
+            BEAST_EXPECT(claim(t, 50) == tesSUCCESS);
+        }
+
+        // The ledger's own exports are priced as they apply, by the same
+        // rule: testAutomatic and testBackstop have a TicketCreate at
+        // (signers + 1) reference fees.
+    }
+
 public:
     void
     run() override
@@ -2105,6 +2330,7 @@ public:
         testNetworks();
         testSetupOtherNetwork();
         testExpiry();
+        testPrepare();
     }
 };
 

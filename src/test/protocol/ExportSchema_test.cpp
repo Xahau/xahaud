@@ -28,9 +28,11 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/TxFormats.h>
 #include <algorithm>
+#include <initializer_list>
 #include <stdexcept>
 #include <string_view>
 #include <unordered_set>
+#include <utility>
 
 namespace ripple {
 
@@ -261,6 +263,54 @@ class ExportSchema_test : public beast::unit_test::suite
         BEAST_EXPECT(!with(0x1));
     }
 
+    void
+    testFees()
+    {
+        testcase("fees");
+
+        auto const on = rules(true);
+        auto const off = rules(false);
+        auto const alice = AccountID{1};
+
+        // the ordinary fee: one reference fee, and one more per signature
+        BEAST_EXPECT(ExportSchema::extraFeeUnits(payment(alice), on) == 0);
+        BEAST_EXPECT(ExportSchema::feeUnits(payment(alice), 0, on) == 1);
+        BEAST_EXPECT(ExportSchema::feeUnits(payment(alice), 5, on) == 6);
+
+        // An EscrowFinish pays that and no more until it carries a
+        // Fulfillment for the other network to check: then 32 reference
+        // fees, and one more for every 16 bytes of it.
+        auto finish = base(ttESCROW_FINISH, alice);
+        finish.setAccountID(sfOwner, alice);
+        finish.setFieldU32(sfOfferSequence, 1);
+        BEAST_EXPECT(ExportSchema::allowed(finish, on));
+        BEAST_EXPECT(ExportSchema::extraFeeUnits(finish, on) == 0);
+        BEAST_EXPECT(ExportSchema::feeUnits(finish, 5, on) == 6);
+
+        // (a Condition is not what is charged for)
+        finish.setFieldVL(sfCondition, Blob(39, 0xA0));
+        BEAST_EXPECT(ExportSchema::extraFeeUnits(finish, on) == 0);
+
+        for (auto const& [size, extra] :
+             std::initializer_list<std::pair<std::size_t, std::uint64_t>>{
+                 {0, 32}, {15, 32}, {16, 33}, {36, 34}, {256, 48}})
+        {
+            finish.setFieldVL(sfFulfillment, Blob(size, 0xA0));
+            BEAST_EXPECT(ExportSchema::allowed(finish, on));
+            BEAST_EXPECT(ExportSchema::extraFeeUnits(finish, on) == extra);
+            BEAST_EXPECT(ExportSchema::feeUnits(finish, 5, on) == 6 + extra);
+        }
+
+        // nothing is known of a transaction the schema has no row for, of
+        // one without a type, or of any before the amendment
+        BEAST_EXPECT(
+            ExportSchema::extraFeeUnits(base(ttINVOKE, alice), on) == 0);
+        BEAST_EXPECT(
+            ExportSchema::extraFeeUnits(STObject(sfExportedTxn), on) == 0);
+        BEAST_EXPECT(ExportSchema::extraFeeUnits(finish, off) == 0);
+        BEAST_EXPECT(ExportSchema::feeUnits(finish, 5, off) == 6);
+    }
+
 public:
     void
     run() override
@@ -268,6 +318,7 @@ public:
         testTypes();
         testFields();
         testFlags();
+        testFees();
     }
 };
 

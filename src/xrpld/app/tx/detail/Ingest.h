@@ -45,9 +45,11 @@ namespace ripple {
 
     What it records, in the network's ltEXPORT_FEE: the latest ledger's
     index, leaves, burn and median, and sfExportFeeUnit, the per-signature
-    fee (Fee / (1 + signers)) xport() fills in for a hook that sets none.
-    Each newer ledger folds the median into it by eighths (fold), never
-    below Export::xrplBaseFee. The index is also the clock exports expire by.
+    fee (Fee / (1 + signers)) xport_prepare() prices an export by for a hook
+    that sets no Fee (Export::feeUnit). Each newer ledger folds the median
+    into it by eighths (fold), never below Export::xrplBaseFee. The index is
+    also the clock exports expire by. A hook reads all of it with
+    xport_fee().
 
     An entry for a ledger newer than the one recorded is free; one for the
     same ledger must carry more leaves and pays the base fee. The list that
