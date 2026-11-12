@@ -23,6 +23,8 @@
 #include <xrpl/json/json_writer.h>
 #include <xrpl/json/to_string.h>
 
+#include <cmath>
+
 namespace Json {
 
 const Value Value::null;
@@ -672,7 +674,8 @@ Value::isConvertibleTo(ValueType other) const
                 (other == intValue && value_.real_ >= minInt &&
                  value_.real_ <= maxInt) ||
                 (other == uintValue && value_.real_ >= 0 &&
-                 value_.real_ <= maxUInt) ||
+                 value_.real_ <= maxUInt &&
+                 std::floor(value_.real_) == value_.real_) ||
                 other == realValue || other == stringValue ||
                 other == booleanValue;
 
