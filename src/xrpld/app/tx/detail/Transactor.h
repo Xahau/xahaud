@@ -183,12 +183,16 @@ public:
         bool collectCallsOnly = false);
 
 protected:
-    /** A hook callback: the hook `hook` on `account`, cbak(`what`) */
+    /** A hook callback: the hook `hook` on `account`, cbak(`what`). `otxn`,
+        if not zero, is what the hook's otxn_id() gives in place of this
+        transaction's id: the transaction of the hook's own that this
+        callback is about (featureExport: the ttEXPORT it emitted). */
     struct HookCallback
     {
         AccountID account;
         uint256 hook;
         std::uint32_t what;
+        uint256 otxn{};
     };
 
     void

@@ -45,6 +45,14 @@ namespace {
 // accepts. bin/export-schema-check.py compares this table with a live
 // rippled's `server_definitions` and prints what has drifted.
 //
+// And what the type pays there (ExtraFee, below). The other network's fee rules
+// are in its code, not its `server_definitions`, so the checker cannot read
+// them: it carries a list of the types and fields known to be priced
+// specially there and says when a row, or a row it proposes, has one. A fee
+// the ledger cannot fill in correctly is an export that is signed, sent and
+// never included, so a field whose price it cannot express stays out of
+// its row.
+//
 // Left out on purpose: AccountDelete and SetRegularKey, which would take the
 // exporter's account there out from under the signer list this ledger keeps
 // for it; and anything that is not a plain account's business.
@@ -86,11 +94,41 @@ until(Rule r, uint256 const& amendment)
 
 constexpr std::size_t maxRules = 12;
 
+// What a type pays the other network on top of the ordinary fee, in that
+// network's reference fees. The ordinary fee is one reference fee for the
+// transaction and one more per signature (its Transactor::calculateBaseFee);
+// this is what the type's own calculateBaseFee adds:
+//   - `flat`, whatever the transaction holds; and
+//   - if it carries `field`, a blob: `present`, plus one for every `per`
+//     bytes of it (rounded down; none if `per` is 0).
+//
+// Part of the row, so consensus like the rest of it (the fee xport_prepare()
+// fills in comes from here, and ttEXPORT holds a hook's own Fee to it): a
+// change goes in a new row behind an amendment, the old one `until` it.
+//
+// What this cannot express has no row, or not the field that brings it:
+//   - a fee that is not in reference fees: an owner reserve (AccountDelete,
+//     AMMCreate and LedgerStateFix there), drops per byte (EscrowCreate's
+//     Bytecode) or gas (EscrowFinish's Gas). The ledger knows the other
+//     network's fee level (ltEXPORT_FEE) but not its reserve or gas price;
+//   - a fee that depends on that network's state or on other signatures
+//     (Batch, a sponsor's or counterparty's signers).
+// Opening any of those needs this struct, and what ttINGEST proves, to grow
+// first.
+struct ExtraFee
+{
+    std::uint32_t flat = 0;
+    SField const* field = nullptr;
+    std::uint32_t present = 0;
+    std::uint32_t per = 0;
+};
+
 struct Type
 {
     TxType type;
     std::uint32_t flags;  // what the other network accepts, less tfUniversal
     std::array<Rule, maxRules> fields;
+    ExtraFee fee = {};
     uint256 const* since = &featureExport;
     uint256 const* until = nullptr;
 };
@@ -108,8 +146,11 @@ constexpr Type typeRows[] = {
     {ttESCROW_CREATE, 0,
      {req(sfDestination), req(sfAmount), sfCondition, sfCancelAfter,
       sfFinishAfter, sfDestinationTag}},
+    // a Fulfillment is checked there at 32 reference fees and one more per
+    // 16 bytes of it (EscrowFinish::calculateBaseFee)
     {ttESCROW_FINISH, 0,
-     {req(sfOwner), req(sfOfferSequence), sfFulfillment, sfCondition}},
+     {req(sfOwner), req(sfOfferSequence), sfFulfillment, sfCondition},
+     {0, &sfFulfillment, 32, 16}},
     {ttACCOUNT_SET,
      tfRequireDestTag | tfOptionalDestTag | tfRequireAuth | tfOptionalAuth |
          tfDisallowXRP | tfAllowXRP,
@@ -290,6 +331,36 @@ ExportSchema::reject(STObject const& tx, Rules const& rules)
     }
 
     return missing(t->fields, tx, rules);
+}
+
+std::uint64_t
+ExportSchema::extraFeeUnits(STObject const& tx, Rules const& rules)
+{
+    if (!rules.enabled(featureExport) || !tx.isFieldPresent(sfTransactionType))
+        return 0;
+    auto const t =
+        findType(static_cast<TxType>(tx.getFieldU16(sfTransactionType)), rules);
+    if (!t)
+        return 0;
+
+    std::uint64_t units = t->fee.flat;
+    if (auto const f = t->fee.field; f && tx.isFieldPresent(*f))
+    {
+        units += t->fee.present;
+        // (only a blob has a size to charge for; the table names no other)
+        if (t->fee.per != 0 && f->fieldType == STI_VL)
+            units += tx.getFieldVL(*f).size() / t->fee.per;
+    }
+    return units;
+}
+
+std::uint64_t
+ExportSchema::feeUnits(
+    STObject const& tx,
+    std::size_t signers,
+    Rules const& rules)
+{
+    return 1 + std::uint64_t{signers} + extraFeeUnits(tx, rules);
 }
 
 std::vector<std::string_view>

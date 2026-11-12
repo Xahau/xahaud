@@ -133,7 +133,10 @@ apply(
     // fix20261005: the original emitted transaction for a ttEMIT_FAILURE
     // callback, captured before the cleanup pseudo removed its
     // ltEMITTED_TXN entry. Ignored before the fix.
-    std::optional<ripple::STObject> const& emitFailureTxn = std::nullopt);
+    std::optional<ripple::STObject> const& emitFailureTxn = std::nullopt,
+    // featureExport: in a callback about an export, the ttEXPORT the hook
+    // emitted, which otxn_id() then gives (zero: none)
+    ripple::uint256 const& otxnID = ripple::uint256{});
 
 struct HookContext;
 
@@ -230,6 +233,10 @@ struct HookContext
 
     // Lazy-initialized HookAPI member
     mutable std::unique_ptr<HookAPI> api_;
+
+    // featureExport: if not zero, what otxn_id(0) gives in a callback about
+    // an export: the ttEXPORT this hook emitted, as xport() returned it
+    ripple::uint256 otxnID{};
 
     // Access the HookAPI instance (lazy initialization)
     HookAPI&

@@ -127,14 +127,18 @@ LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
     {sfSignerEntries,        soeREQUIRED},
     {sfSignerQuorum,         soeREQUIRED},
     {sfEmitHookHash,         soeOPTIONAL},
+    {sfExportTxnID,          soeOPTIONAL},
 }))
 
-/** A shadow ticket: lets one XPOP of a ticketed export that is bound back to
-    this network (OperationLimit == NETWORK_ID) be imported, which consumes it.
-    Only ttEXPORT creates these. They are not hook state because a hook can
-    write any namespace of its own account's state, so it could forge one and
-    import the same XPOP again and again. sfEmitHookHash is the hook whose
-    cbak the Import calls.
+/** A shadow ticket: lets the XPOP of whatever uses one ticket on another
+    network be imported once, which consumes it. Only an export creates one
+    (not hook state: a hook could forge that). sfTransactionHash is the
+    export's id there without signatures, which tells it from anything else
+    that used the ticket; sfExportTxnID the ttEXPORT that made it (otxn_id in
+    the cbak of the hook sfEmitHookHash); sfLastLedgerSequence the export's
+    own, after which it is expired (Export.h). Once signed at quorum the
+    transaction is kept here (sfExportedTxn, its id there sfRemoteTxnID) for
+    relays to send.
 
     \sa keylet::shadowTicket
 */
@@ -144,22 +148,23 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     {sfTicketSequence,       soeREQUIRED},
     {sfTransactionHash,      soeREQUIRED},
     {sfEmitHookHash,         soeOPTIONAL},
+    {sfLastLedgerSequence,   soeOPTIONAL},
+    {sfExportTxnID,          soeOPTIONAL},
+    {sfRemoteTxnID,          soeOPTIONAL},
+    {sfExportedTxn,          soeOPTIONAL},
     {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
 
-/** featureExport: an account's standing on another network it exports to
-    (sfRemoteNetworkID), one per account and network: the signer list it
-    holds there, as last proven by an Import of its SignerListSet; the
-    tickets it holds unused there, as proven by Imports of its TicketCreates
-    (ExportTickets in Export.h); one past the highest ticket ever recorded;
-    its Sequence there, as last proven by an Import (the AccountRoot node of
-    every transaction's metadata carries it); the ticket, or for a sequenced
-    backstop the Sequence, of an automatic TicketCreate export still out;
-    the UNLReport.ExportKeysSeq its signer list was last refreshed to; and,
-    while the ledger acts for it there (an exporter), its page in
-    keylet::exporterDir().
+/** featureExport: an account's standing on one other network
+    (sfRemoteNetworkID), see Export.h: its signer list there, unused tickets
+    (ExportTickets), ticket watermark, Sequence and XRP balance (with the
+    ledger and index there it was proven at), all as last proven by Import;
+    the ticket or Sequence of an automatic TicketCreate still out; the
+    ExportKeysSeq its list was built for; the shadow tickets of its exports
+    in flight (sfIndexes, at most Export::maxExpiring); and, while the ledger
+    acts for it there, its page in keylet::exporterDir().
 
     \sa keylet::exporter
 */
@@ -172,6 +177,10 @@ LEDGER_ENTRY(ltEXPORTER, 'V', Exporter, exporter, ({
     {sfExportSequence,       soeOPTIONAL},
     {sfExportTicketPending,  soeOPTIONAL},
     {sfExportKeysSeq,        soeOPTIONAL},
+    {sfIndexes,              soeOPTIONAL},
+    {sfBalance,              soeOPTIONAL},
+    {sfLedgerSequence,       soeOPTIONAL},
+    {sfTransactionIndex,     soeOPTIONAL},
     {sfExportNode,           soeOPTIONAL},
     {sfOwnerNode,            soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
@@ -180,10 +189,11 @@ LEDGER_ENTRY(ltEXPORTER, 'V', Exporter, exporter, ({
 
 /** featureExport: what transactions on another network (sfRemoteNetworkID)
     pay, as proven by ttINGEST (see Ingest.h), one per network.
-    sfExportFeeUnit is the drops per signature xport() fills in for a hook
-    that sets no Fee; the rest describes the latest ledger proven: its
-    index, its transactions, the drops they burned between them and the
-    median unit sampled among them.
+    sfExportFeeUnit is the drops per signature xport_prepare() prices an
+    export by for a hook that sets no Fee; the rest describes the latest
+    ledger proven: its index, its transactions, the drops they burned
+    between them and the median unit sampled among them. xport_fee() gives
+    a hook each of them.
 
     \sa keylet::exportFee
 */

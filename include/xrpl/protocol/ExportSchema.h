@@ -20,6 +20,8 @@
 #ifndef RIPPLE_PROTOCOL_EXPORTSCHEMA_H_INCLUDED
 #define RIPPLE_PROTOCOL_EXPORTSCHEMA_H_INCLUDED
 
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -36,11 +38,12 @@ class STObject;
     The set is a hand-maintained table in ExportSchema.cpp: for each
     transaction type the other network has under the same code as this one,
     the fields it lists that this network defines identically, which of them
-    it requires, the flags it accepts, and the objects (Memos, Signers,
-    SignerEntries) an export may nest. The table is consensus, so every
-    change to it is gated behind an amendment, row by row; the first version
-    ships with featureExport. bin/export-schema-check.py compares the table
-    with a live rippled and prints what has drifted. */
+    it requires, the flags it accepts, the objects (Memos, Signers,
+    SignerEntries) an export may nest, and what the type pays there on top
+    of the ordinary fee (feeUnits). The table is consensus, so every change
+    to it is gated behind an amendment, row by row; the first version ships
+    with featureExport. bin/export-schema-check.py compares the table with a
+    live rippled and prints what has drifted. */
 struct ExportSchema
 {
     /** Why `tx`, a transaction built for the other network (with or without
@@ -57,6 +60,23 @@ struct ExportSchema
     /** The transaction types exportable under `rules`, by name */
     static std::vector<std::string_view>
     types(Rules const& rules);
+
+    /** What `tx` pays on the other network on top of the ordinary fee, in
+        that network's reference fees: the ordinary fee being one reference
+        fee for the transaction and one more for each signature it carries,
+        and the rest whatever the other network charges its type for (an
+        EscrowFinish for the Fulfillment it must check, say). 0 for a
+        transaction the schema knows of no extra for, or does not allow. */
+    static std::uint64_t
+    extraFeeUnits(STObject const& tx, Rules const& rules);
+
+    /** The least `tx` can pay there when it carries `signers` signatures,
+        in that network's reference fees: 1 + signers + extraFeeUnits. What
+        xport_prepare() prices an export by, with every listed signer
+        counted, and what a ttEXPORT's Fee is held to at the reference fee
+        (see Export.h). */
+    static std::uint64_t
+    feeUnits(STObject const& tx, std::size_t signers, Rules const& rules);
 };
 
 }  // namespace ripple

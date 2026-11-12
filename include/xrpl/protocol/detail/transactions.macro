@@ -655,11 +655,17 @@ TRANSACTION(ttEXPORT_SIGN, 87, ExportSign, ({
     {sfSigner, soeREQUIRED},
 }))
 
-/** A pseudo-txn closing an export's signing window. */
+/** A pseudo-txn closing an export. Without sfLedgerIndex it closes the
+    signing window of the export created in ledger sfLedgerSequence with
+    unsigned id sfTransactionHash. With it, it expires an export that was
+    signed and sent but never came back: sfLedgerIndex is its shadow
+    ticket, sfLedgerSequence its LastLedgerSequence on the other network,
+    which the ledger proven for that network has passed (see Export.h). */
 TRANSACTION(ttEXPORT_FINAL, 90, ExportFinal, ({
     {sfOwner, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
     {sfTransactionHash, soeREQUIRED},
+    {sfLedgerIndex, soeOPTIONAL},
 }))
 
 /** A pseudo-txn exporting sfExportedTxn on behalf of sfOwner, an exporter

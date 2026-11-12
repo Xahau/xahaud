@@ -100,11 +100,15 @@ JSS(isVLEncoded);         // out: RPC server_definitions
                           // matches definitions.json format
 JSS(Invalid);                  //
 JSS(Issuer);                   // in: Credential transactions
+JSS(IssuingChainDoor);         // field.
+JSS(IssuingChainIssue);        // field.
 JSS(InvoiceID);                // field
 JSS(LastLedgerSequence);       // in: TransactionSign; field
 JSS(FirstLedgerSequence);      // in: TransactionSign; field
 JSS(LastUpdateTime);           // field.
 JSS(LimitAmount);              // field.
+JSS(LockingChainDoor);         // field.
+JSS(LockingChainIssue);        // field.
 JSS(NetworkID);                // field.
 JSS(LPTokenOut);               // in: AMM Liquidity Provider deposit tokens
 JSS(LPTokenIn);                // in: AMM Liquidity Provider withdraw tokens
@@ -504,7 +508,7 @@ JSS(namespace_id);               // in/out: AccountNamespace
 JSS(native_currency_code);       // out: RPC
 JSS(needed_state_hashes);        // out: InboundLedger
 JSS(needed_transaction_hashes);  // out: InboundLedger
-JSS(network_id);              // out: NetworkOPs
+JSS(network_id);              // in: LedgerEntry; out: NetworkOPs
 JSS(network_ledger);          // out: NetworkOPs
 JSS(next_refresh_time);       // out: ValidatorSite
 JSS(nft_id);                  // in: nft_sell_offers, nft_buy_offers
@@ -698,7 +702,8 @@ JSS(trading_fee);             // out: amm_info
 JSS(transTreeHash);           // out: ledger/Ledger.cpp
 JSS(transaction);             // in: Tx
                               // out: NetworkOPs, AcceptedLedgerTx,
-JSS(transaction_hash);        // out: RCLCxPeerPos, LedgerToJson
+JSS(transaction_hash);        // in: LedgerEntry;
+                              // out: RCLCxPeerPos, LedgerToJson
 JSS(transactions);            // out: LedgerToJson,
                               // in: AccountTx*, Unsubscribe
 JSS(transfer_rate);           // out: nft_info (clio)

@@ -26,7 +26,9 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+#include <xrpld/ledger/OpenView.h>
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Feature.h>
@@ -3110,9 +3112,35 @@ private:
     // ExportSign, ExportFinal and ExportAuto are network generated, like
     // EmitFailure and Entropy above; Export is tested through the emit path.
 
-    // A hook that xport()s a 1 drop Payment with TicketSequence 1 and Fee
-    // 1000, as ExportHook_test's xportTicketWasm (see the WAT there), whose
-    // Destination occupies its last 20 bytes, set per test.
+    // A hook that exports a 1 drop Payment with TicketSequence 1 the way a
+    // hook is meant to: it holds the type, the ticket, the Amount and the
+    // Destination, has xport_prepare() complete that (Account, Fee and the
+    // rest; see Export::prepare) and passes the result to xport(), which
+    // fills in nothing. The Destination occupies its last 20 bytes, set per
+    // test. Built with wat2wasm (wabt 1.0.34) from:
+    //
+    // (module
+    //   (import "env" "_g" (func $_g (param i32 i32) (result i32)))
+    //   (import "env" "accept" (func $accept (param i32 i32 i64) (result i64)))
+    //   (import "env" "etxn_reserve" (func $etxn_reserve (param i32) (result
+    //   i64))) (import "env" "xport" (func $xport (param i32 i32 i32 i32)
+    //   (result i64))) (import "env" "xport_prepare" (func $xport_prepare
+    //   (param i32 i32 i32 i32) (result i64))) (memory 1) (data (i32.const 0)
+    //   "\12\00\00\20\29\00\00\00\01\61\40\00\00\00\00\00\00\01\83\14\01\02\03\04\05\06\07\08\09\0a\0b\0c\0d\0e\0f\10\11\12\13\14")
+    //   (func $hook (param i32) (result i64)
+    //     (local $n i64)
+    //     (drop (call $_g (i32.const 1) (i32.const 1)))
+    //     (drop (call $etxn_reserve (i32.const 1)))
+    //     (local.set $n (call $xport_prepare (i32.const 512) (i32.const 512)
+    //     (i32.const 0) (i32.const 40))) (if (i64.lt_s (local.get $n)
+    //     (i64.const 0))
+    //       (then (drop (call $accept (i32.const 0) (i32.const 0) (local.get
+    //       $n)))))
+    //     (call $accept (i32.const 0) (i32.const 0)
+    //       (call $xport (i32.const 256) (i32.const 32) (i32.const 512)
+    //         (i32.wrap_i64 (local.get $n)))))
+    //   (export "memory" (memory 0))
+    //   (export "hook" (func $hook)))
     static std::vector<std::uint8_t>
     xportHook(AccountID const& destination)
     {
@@ -3121,27 +3149,31 @@ private:
             0x1BU, 0x04U, 0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7FU, 0x60U,
             0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x01U, 0x7FU,
             0x01U, 0x7EU, 0x60U, 0x04U, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x01U,
-            0x7EU, 0x02U, 0x36U, 0x04U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x02U,
+            0x7EU, 0x02U, 0x4AU, 0x05U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x02U,
             0x5FU, 0x67U, 0x00U, 0x00U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x06U,
             0x61U, 0x63U, 0x63U, 0x65U, 0x70U, 0x74U, 0x00U, 0x01U, 0x03U,
             0x65U, 0x6EU, 0x76U, 0x0CU, 0x65U, 0x74U, 0x78U, 0x6EU, 0x5FU,
             0x72U, 0x65U, 0x73U, 0x65U, 0x72U, 0x76U, 0x65U, 0x00U, 0x02U,
             0x03U, 0x65U, 0x6EU, 0x76U, 0x05U, 0x78U, 0x70U, 0x6FU, 0x72U,
-            0x74U, 0x00U, 0x03U, 0x03U, 0x02U, 0x01U, 0x02U, 0x05U, 0x03U,
-            0x01U, 0x00U, 0x01U, 0x07U, 0x11U, 0x02U, 0x06U, 0x6DU, 0x65U,
-            0x6DU, 0x6FU, 0x72U, 0x79U, 0x02U, 0x00U, 0x04U, 0x68U, 0x6FU,
-            0x6FU, 0x6BU, 0x00U, 0x04U, 0x0AU, 0x21U, 0x01U, 0x1FU, 0x00U,
-            0x41U, 0x01U, 0x41U, 0x01U, 0x10U, 0x00U, 0x1AU, 0x41U, 0x01U,
-            0x10U, 0x02U, 0x1AU, 0x41U, 0x00U, 0x41U, 0x00U, 0x41U, 0x80U,
-            0x02U, 0x41U, 0x20U, 0x41U, 0x00U, 0x41U, 0x36U, 0x10U, 0x03U,
-            0x10U, 0x01U, 0x0BU, 0x0BU, 0x3CU, 0x01U, 0x00U, 0x41U, 0x00U,
-            0x0BU, 0x36U, 0x12U, 0x00U, 0x00U, 0x24U, 0x00U, 0x00U, 0x00U,
-            0x00U, 0x20U, 0x29U, 0x00U, 0x00U, 0x00U, 0x01U, 0x61U, 0x40U,
-            0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x01U, 0x68U, 0x40U,
-            0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x03U, 0xE8U, 0x83U, 0x14U,
-            0x01U, 0x02U, 0x03U, 0x04U, 0x05U, 0x06U, 0x07U, 0x08U, 0x09U,
-            0x0AU, 0x0BU, 0x0CU, 0x0DU, 0x0EU, 0x0FU, 0x10U, 0x11U, 0x12U,
-            0x13U, 0x14U};
+            0x74U, 0x00U, 0x03U, 0x03U, 0x65U, 0x6EU, 0x76U, 0x0DU, 0x78U,
+            0x70U, 0x6FU, 0x72U, 0x74U, 0x5FU, 0x70U, 0x72U, 0x65U, 0x70U,
+            0x61U, 0x72U, 0x65U, 0x00U, 0x03U, 0x03U, 0x02U, 0x01U, 0x02U,
+            0x05U, 0x03U, 0x01U, 0x00U, 0x01U, 0x07U, 0x11U, 0x02U, 0x06U,
+            0x6DU, 0x65U, 0x6DU, 0x6FU, 0x72U, 0x79U, 0x02U, 0x00U, 0x04U,
+            0x68U, 0x6FU, 0x6FU, 0x6BU, 0x00U, 0x05U, 0x0AU, 0x44U, 0x01U,
+            0x42U, 0x01U, 0x01U, 0x7EU, 0x41U, 0x01U, 0x41U, 0x01U, 0x10U,
+            0x00U, 0x1AU, 0x41U, 0x01U, 0x10U, 0x02U, 0x1AU, 0x41U, 0x80U,
+            0x04U, 0x41U, 0x80U, 0x04U, 0x41U, 0x00U, 0x41U, 0x28U, 0x10U,
+            0x04U, 0x21U, 0x01U, 0x20U, 0x01U, 0x42U, 0x00U, 0x53U, 0x04U,
+            0x40U, 0x41U, 0x00U, 0x41U, 0x00U, 0x20U, 0x01U, 0x10U, 0x01U,
+            0x1AU, 0x0BU, 0x41U, 0x00U, 0x41U, 0x00U, 0x41U, 0x80U, 0x02U,
+            0x41U, 0x20U, 0x41U, 0x80U, 0x04U, 0x20U, 0x01U, 0xA7U, 0x10U,
+            0x03U, 0x10U, 0x01U, 0x0BU, 0x0BU, 0x2EU, 0x01U, 0x00U, 0x41U,
+            0x00U, 0x0BU, 0x28U, 0x12U, 0x00U, 0x00U, 0x20U, 0x29U, 0x00U,
+            0x00U, 0x00U, 0x01U, 0x61U, 0x40U, 0x00U, 0x00U, 0x00U, 0x00U,
+            0x00U, 0x00U, 0x01U, 0x83U, 0x14U, 0x01U, 0x02U, 0x03U, 0x04U,
+            0x05U, 0x06U, 0x07U, 0x08U, 0x09U, 0x0AU, 0x0BU, 0x0CU, 0x0DU,
+            0x0EU, 0x0FU, 0x10U, 0x11U, 0x12U, 0x13U, 0x14U};
         std::copy(destination.begin(), destination.end(), wasm.end() - 20);
         return wasm;
     }
@@ -3207,29 +3239,83 @@ private:
                 ter(tesSUCCESS));
             env.close();
 
-            env(pay(carol, alice, XRP(1)), fee(XRP(1)), ter(tesSUCCESS));
-            env.close();
+            // The hook names ticket 1, which must be one the ledger knows of
+            // there (Export::ticketUsable): pooled, and not the pool's last,
+            // which is the ledger's. Only a sync import of a TicketCreate of
+            // an exporter's fills the pool, so it is written straight into a
+            // view over the last closed ledger, and the payment and then the
+            // export it emits are applied to that view, as the next ledger
+            // would apply them. The view must not be open: an open view
+            // keeps no metadata and adds no emitted txns to the ledger
+            // (finalizeHookResult), and Env::meta() would close the ledger,
+            // rebuilding it from its transactions without the pool.
+            auto const closed = env.closed();
+            OpenView view(&*closed, closed);
+            {
+                auto const sle = view.read(keylet::exporter(alice.id(), 0));
+                if (!BEAST_EXPECT(sle))
+                    continue;
+                auto ex = std::make_shared<SLE>(*sle);
+                ExportTickets tickets;
+                tickets.insert(1);
+                tickets.insert(2);
+                tickets.store(*ex);
+                view.rawReplace(ex);
+            }
+
+            auto const payment = env.jt(pay(carol, alice, XRP(1)), fee(XRP(1)));
+            auto const paid = ripple::apply(
+                env.app(), view, *payment.stx, tapNONE, env.journal);
+            if (!BEAST_EXPECT(
+                    paid.applied && paid.ter == tesSUCCESS && paid.metadata))
+                continue;
 
             // the hook emitted the export
-            auto const meta = env.meta();
-            if (!BEAST_EXPECT(meta && meta->isFieldPresent(sfHookEmissions)))
+            auto const meta = paid.metadata->getAsObject();
+            if (!BEAST_EXPECT(meta.isFieldPresent(sfHookEmissions)))
                 continue;
-            auto const& emissions = meta->getFieldArray(sfHookEmissions);
+            auto const& emissions = meta.getFieldArray(sfHookEmissions);
             if (!BEAST_EXPECT(emissions.size() == 1))
                 continue;
             auto const id = emissions[0].getFieldH256(sfEmittedTxnID);
 
-            // it lands in the next ledger and applies, and bob's hook, a
-            // stakeholder of the payment anywhere else, does not run
-            env.close();
-            Json::Value params;
-            params[jss::transaction] = to_string(id);
-            auto const r =
-                env.rpc("json", "tx", to_string(params))[jss::result];
-            BEAST_EXPECT(r[jss::TransactionType] == "Export");
-            BEAST_EXPECT(
-                r[jss::meta][sfTransactionResult.jsonName] == "tesSUCCESS");
-            validateTSHStrongWeak(r[jss::meta], tshNONE, __LINE__);
+            auto const sleE = view.read(keylet::emittedTxn(id));
+            if (!BEAST_EXPECT(sleE))
+                continue;
+            Serializer s;
+            sleE->peekAtField(sfEmittedTxn).downcast<STObject>().add(s);
+            SerialIter sit{s.slice()};
+            STTx const emitted{sit};
+            BEAST_EXPECT(emitted.getTxnType() == ttEXPORT);
+            BEAST_EXPECT(emitted.getTransactionID() == id);
+
+            // what xport_prepare() completed: from alice, bound back here,
+            // and priced for itself and every signer on her list there
+            {
+                auto const& inner =
+                    emitted.peekAtField(sfExportedTxn).downcast<STObject>();
+                auto const ex = view.read(keylet::exporter(alice.id(), 0));
+                auto const signers = ex->peekAtField(sfExportSignerList)
+                                         .downcast<STObject>()
+                                         .getFieldArray(sfSignerEntries)
+                                         .size();
+                BEAST_EXPECT(inner[sfAccount] == alice.id());
+                BEAST_EXPECT(inner[sfOperationLimit] == 21337u);
+                BEAST_EXPECT(inner[sfTicketSequence] == 1u);
+                BEAST_EXPECT(
+                    inner.getFieldAmount(sfFee).xrp() ==
+                    Export::xrplBaseFee * (signers + 1));
+            }
+
+            // it applies, and bob's hook, a stakeholder of the payment
+            // anywhere else, does not run
+            auto const res =
+                ripple::apply(env.app(), view, emitted, tapNONE, env.journal);
+            if (!BEAST_EXPECT(res.applied && res.metadata))
+                continue;
+            BEAST_EXPECT(res.ter == tesSUCCESS);
+            validateTSHStrongWeak(
+                res.metadata->getJson(JsonOptions::none), tshNONE, __LINE__);
         }
     }
 
@@ -3257,6 +3343,17 @@ private:
         testcase("export auto tsh");
 
         // pseudo transaction
+        pass();
+    }
+
+    void
+    testIngestTSH(FeatureBitset features)
+    {
+        testcase("ingest tsh");
+
+        // a proof of fees concerns no account but its submitter, and a
+        // valid one needs a proven ledger of another network; see
+        // Ingest_test
         pass();
     }
 

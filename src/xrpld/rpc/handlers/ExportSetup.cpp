@@ -19,6 +19,7 @@
 
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/rpc/Context.h>
@@ -44,13 +45,13 @@ isUnsigned(Json::Value const& v)
 
     Takes the usual ledger selectors, plus optional:
         account    the account, filled into tx_json
-        network_id the network the list is for (default 0, the XRPL); above
-                   1024 it is set as the transaction's NetworkID, which such
-                   networks require
+        network_id the network the list is for (default: the one network
+                   an import VL key is trusted for here, if there is exactly
+                   one; otherwise 0, the XRPL); above 1024 it is set as the
+                   transaction's NetworkID, which such networks require
         quorum     SignerQuorum (default: 80% of the signers, rounded up)
         as_of      ripple epoch seconds: each validator's newest export key
                    recorded at or before then (default: the current keys)
-        xaman      true to add a Xaman sign-request link as well
 
     Returns:
         tx_json          the SignerListSet, complete but for Account (when
@@ -66,11 +67,15 @@ isUnsigned(Json::Value const& v)
         instructions     the steps from here, in words: autofill, sign and
                          submit tx_json on that network with any XRPL
                          library (xrpl.js, xrpl-py, xrpl4j...), then
-                         Import its XPOP here
-        xaman_url        only with xaman=true: a link Xaman opens tx_json
-                         from; render it as a QR code to sign from a phone
+                         Import its XPOP here; and what the list does and
+                         does not change about the account there
 
-    Hooks need none of this: xport() a SignerListSet without SignerEntries.
+    No wallet or signing service is assumed or linked to: tx_json is plain
+    transaction JSON, which every wallet and library takes.
+
+    An account that is already an exporter needs none of this again: the
+    ledger refreshes its list itself when export_keys_seq changes, and a hook
+    can xport() a SignerListSet without SignerEntries to the same effect.
 */
 Json::Value
 doExportSetup(RPC::JsonContext& context)
@@ -81,8 +86,6 @@ doExportSetup(RPC::JsonContext& context)
     if (params.isMember(jss::network_id) &&
         !isUnsigned(params[jss::network_id]))
         return RPC::invalid_field_error(jss::network_id);
-    std::uint32_t const nid =
-        params.isMember(jss::network_id) ? params[jss::network_id].asUInt() : 0;
 
     std::optional<AccountID> account;
     if (params.isMember(jss::account) &&
@@ -94,6 +97,11 @@ doExportSetup(RPC::JsonContext& context)
     auto result = RPC::lookupLedger(ledger, context);
     if (!ledger)
         return result;
+
+    // as xport() does for a hook that names no network
+    std::uint32_t const nid = params.isMember(jss::network_id)
+        ? params[jss::network_id].asUInt()
+        : Import::soleNetwork(context.app.config(), *ledger);
 
     auto const unl = ledger->read(keylet::UNLReport());
     result["export_keys_seq"] = unl ? (*unl)[~sfExportKeysSeq].value_or(0) : 0;
@@ -164,11 +172,15 @@ doExportSetup(RPC::JsonContext& context)
     steps.append(
         "Repeat when export_keys_seq changes; while the account is an "
         "exporter the ledger does this refresh itself.");
-
-    // Xaman reads a hex JSON template from its detect link
-    if (params.isMember("xaman") && params["xaman"].asBool())
-        result["xaman_url"] =
-            "https://xaman.app/detect/" + strHex(to_string(tx));
+    steps.append(
+        "Know what this changes there. The list replaces any signer list "
+        "the account has on network " +
+        std::to_string(nid) +
+        " and lets a quorum of the UNL's export keys sign for it. It does "
+        "not touch the account's master key or regular key there: whoever "
+        "holds them can still transact for the account outside any export, "
+        "spend its tickets or replace the list. Keep, rotate or disable "
+        "them there according to what the exporting hook is trusted with.");
     return result;
 }
 

@@ -99,6 +99,16 @@ public:
         ReadView const& view,
         std::string const& pkHex);
 
+    /** The network an export goes to when its hook names none (and
+        export_setup when asked for none): the network of the one import VL
+        key trusted here, if exactly one is ([import_vl_keys] and
+        UNLReport.ImportVLKeys together, as vlNetwork reads them); otherwise
+        0, the XRPL. So where only one other network is known at all, a
+        testnet (1) say, nothing has to name it. Like vlNetwork this reads
+        the local config first: validators must agree on [import_vl_keys]. */
+    static std::uint32_t
+    soleNetwork(Config const& config, ReadView const& view);
+
     static TxConsequences
     makeTxConsequences(PreflightContext const& ctx);
 

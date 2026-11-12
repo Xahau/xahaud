@@ -1052,10 +1052,17 @@ hook::apply(
     uint32_t wasmParam,
     uint8_t hookChainPosition,
     std::shared_ptr<STObject const> const& provisionalMeta,
-    std::optional<ripple::STObject> const& emitFailureTxn)
+    std::optional<ripple::STObject> const& emitFailureTxn,
+    ripple::uint256 const& otxnID)
 {
     std::optional<ripple::STObject> emitFailure;
-    if (isCallback && (wasmParam & 1))
+    // Only a ttEMIT_FAILURE has a failed emission to read back. An export
+    // that closes below quorum (ttEXPORT_FINAL) or fails to apply (ttEXPORT)
+    // calls back with what == 1 as well (see Export.h) and has no
+    // ltEMITTED_TXN entry: without fix20261005 the read below would
+    // dereference a null entry for the one and throw for the other.
+    if (isCallback && (wasmParam & 1) &&
+        applyCtx.tx.getTxnType() == ttEMIT_FAILURE)
     {
         if (applyCtx.view().rules().enabled(fix20261005))
         {
@@ -1108,6 +1115,7 @@ hook::apply(
         .emitFailure = std::move(emitFailure),
         .module = nullptr,
         .api_ = nullptr};
+    hookCtx.otxnID = otxnID;
 
     auto const& j = applyCtx.app.journal("View");
 
@@ -2718,7 +2726,8 @@ DEFINE_HOOK_FUNCTION(
 
 /* Export a transaction for another network (its NetworkID, absent for XRPL;
  * see Export.h): wrap it in a ttEXPORT and emit that. Writes the ttEXPORT's
- * id. */
+ * id. As with emit, the transaction must be complete and is not modified:
+ * xport_prepare completes one. */
 DEFINE_HOOK_FUNCTION(
     int64_t,
     xport,
@@ -2748,6 +2757,59 @@ DEFINE_HOOK_FUNCTION(
     HOOK_TEARDOWN();
 }
 
+/* Complete a transaction for another network so that xport will take it:
+ * everything the hook left out but the ticket, with a Fee that covers its
+ * type and every signer on the account's list there (see Export::prepare).
+ * Writes the completed transaction, for the hook to pass to xport as it is
+ * or changed, and returns its length. DOESNT_EXIST if the hook account has
+ * no signer list on that network. */
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    xport_prepare,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length) ||
+        NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const res =
+        api.xport_prepare(ripple::Slice{memory + read_ptr, read_len});
+    if (!res)
+        return res.error();
+
+    // never part of one: a truncated transaction is still a transaction
+    if (write_len < res->size())
+        return TOO_SMALL;
+
+    WRITE_WASM_MEMORY_AND_RETURN(
+        write_ptr, write_len, res->data(), res->size(), memory, memory_length);
+
+    HOOK_TEARDOWN();
+}
+
+/* What the ledger has proven of the fees on network `network_id` (0 for
+ * XRPL): `what` is one of hook_api::xport_fee_code (XPORT_FEE_* in
+ * hookapi.h). The unit (0) is always there, the reference fee until a ledger
+ * has been proven; the rest are DOESNT_EXIST until then. */
+DEFINE_HOOK_FUNCTION(int64_t, xport_fee, uint32_t network_id, uint32_t what)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const res = api.xport_fee(network_id, what);
+    if (!res)
+        return res.error();
+    return res.value();
+
+    HOOK_TEARDOWN();
+}
+
 /* How many tickets the hook account holds unused on network `network_id` (0
  * for XRPL) */
 DEFINE_HOOK_FUNCTION(int64_t, xport_tickets, uint32_t network_id)
@@ -2756,6 +2818,22 @@ DEFINE_HOOK_FUNCTION(int64_t, xport_tickets, uint32_t network_id)
                    // hookCtx on current stack
 
     auto const res = api.xport_tickets(network_id);
+    if (!res)
+        return res.error();
+    return res.value();
+
+    HOOK_TEARDOWN();
+}
+
+/* The `index`th of those tickets, lowest first: its TicketSequence on network
+ * `network_id`. DOESNT_EXIST past the last. The pool's last ticket is the
+ * ledger's own (see xport), so of n tickets a hook may name n - 1. */
+DEFINE_HOOK_FUNCTION(int64_t, xport_ticket, uint32_t network_id, uint32_t index)
+{
+    HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
+                   // hookCtx on current stack
+
+    auto const res = api.xport_ticket(network_id, index);
     if (!res)
         return res.error();
     return res.value();

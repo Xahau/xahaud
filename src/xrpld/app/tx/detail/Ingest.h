@@ -27,41 +27,33 @@
 
 namespace ripple {
 
-/** Ingest: what transactions on the other network pay, proven (featureExport).
+/** Ingest: what transactions on another network pay, proven (featureExport).
 
-    An XPOF (proof of fees) is an XPOP without a transaction: the header of
-    a ledger of another network and its parent, the UNL and validations that
-    prove it, and
-    its transaction tree down to the leaves — every inner node, but of the
-    leaves only the hashes. Nothing about any one transaction is recorded.
+    An XPOF (proof of fees) is an XPOP without a transaction: a ledger's
+    header and its parent's, the UNL and validations that prove it, every
+    inner node of its transaction tree (of the leaves only the hashes), and
+    `samples` of its transactions in full.
 
-    What it proves. Leaves are the transactions that applied there, tes or
-    tec, and every one burned its fee: parent.coins - coins is exactly what
-    they burned between them. Nobody can present a child hash the tree does
-    not hold, so no entry counts more leaves than there are; one that leaves
-    an inner node out and lets its hash pass for a leaf only counts fewer. So
-    among entries for one ledger the most leaves wins, and one honest relay
-    is enough. A burn divided by a count is a mean, though, and one
-    transaction paying 100 XRP owns the mean. So the fee is taken from a
-    median instead: `samples` leaves chosen by the ledger's own hash
-    (sampleLeaves), which the entry must carry in full, tx and meta. Neither
-    the relay nor anyone paying fees there picks which; to move the median
-    one must own a majority of every sampled ledger's transactions.
+    What it proves. Every leaf is a transaction that applied and burned its
+    fee, so parent.coins - coins is what they burned between them. Nobody can
+    present a child hash the tree does not hold, so no entry counts more
+    leaves than there are; one that leaves an inner node out only counts
+    fewer. So among entries for one ledger the most leaves wins, and one
+    honest relay is enough. A mean would be one whale's to own, so the fee is
+    a median over leaves the ledger's own hash picks (sampleLeaves): neither
+    the relay nor anyone paying fees there chooses them.
 
-    What it records, in the one ltEXPORT_FEE: the latest ledger's leaves,
-    burn and median (reference, see sfExportFeeUnit's neighbours), and
-    sfExportFeeUnit, the per-signature fee (Fee / (1 + signers)) that xport()
-    fills in for a hook that sets none: a median folded into the previous
-    unit as each newer ledger arrives, by eighths, never below
-    Export::xrplBaseFee. A hook that sets its own Fee is left alone.
+    What it records, in the network's ltEXPORT_FEE: the latest ledger's
+    index, leaves, burn and median, and sfExportFeeUnit, the per-signature
+    fee (Fee / (1 + signers)) xport_prepare() prices an export by for a hook
+    that sets no Fee (Export::feeUnit). Each newer ledger folds the median
+    into it by eighths (fold), never below Export::xrplBaseFee. The index is
+    also the clock exports expire by. A hook reads all of it with
+    xport_fee().
 
-    Who pays. An entry for a ledger newer than the one recorded for its
-    network is free; one for the same ledger with more leaves pays the base
-    fee.
-
-    Networks. sfRemoteNetworkID names the network the ledger belongs to;
-    the list that proves it must be one Import trusts for that network
-    (Import::vlNetwork), and each network has an ltEXPORT_FEE of its own. */
+    An entry for a ledger newer than the one recorded is free; one for the
+    same ledger must carry more leaves and pays the base fee. The list that
+    proves it must be one trusted for sfRemoteNetworkID (Import::vlNetwork). */
 class Ingest : public Transactor
 {
 public:

@@ -23,6 +23,7 @@
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
 #include <xrpld/app/tx/detail/Export.h>
+#include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/ledger/OpenView.h>
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpl/basics/base64.h>
@@ -37,6 +38,7 @@
 #include <xrpl/protocol/jss.h>
 
 #include <deque>
+#include <utility>
 
 namespace ripple {
 namespace test {
@@ -52,6 +54,16 @@ namespace test {
 class Export_test : public beast::unit_test::suite
 {
     using KeyPair = std::pair<PublicKey, SecretKey>;
+
+    // An export names another network (Export::destination, absent NetworkID
+    // meaning 0, XRPL) and is refused for this one, so the node under test
+    // must not be network 0 itself, as the default test config is.
+    static std::unique_ptr<Config>
+    xahau(std::unique_ptr<Config> cfg = jtx::envconfig())
+    {
+        cfg->NETWORK_ID = 21337;
+        return cfg;
+    }
 
     // a payment from `from` on the other network, ready to be multisigned
     static STObject
@@ -127,6 +139,48 @@ class Export_test : public beast::unit_test::suite
         sb.apply(view);
     }
 
+    // Makes `keys` export keys of the UNL, as its key reports would have:
+    // each the key of a validator of its own on the UNLReport, recorded on
+    // that validator's account. A signer list naming the account of any of
+    // them is then "one of ours" (listsExportKey), which is what lets the
+    // ledger act for an exporter. Nobody holds their secrets, so nothing
+    // listing them is ever signed here.
+    static void
+    registerExportKeys(OpenView& view, std::vector<PublicKey> const& keys)
+    {
+        auto const k = keylet::UNLReport();
+        bool const had = view.exists(k);
+        auto unl = had ? std::make_shared<SLE>(*view.read(k))
+                       : std::make_shared<SLE>(k);
+        STArray validators = unl->isFieldPresent(sfActiveValidators)
+            ? unl->getFieldArray(sfActiveValidators)
+            : STArray(sfActiveValidators);
+        for (auto const& key : keys)
+        {
+            auto const master = randomKeyPair(KeyType::ed25519).first;
+            auto const id = calcAccountID(master);
+            STObject v(sfActiveValidator);
+            v.setFieldVL(sfPublicKey, master.slice());
+            v.setAccountID(sfAccount, id);
+            validators.push_back(std::move(v));
+
+            auto acc = std::make_shared<SLE>(keylet::account(id));
+            acc->setAccountID(sfAccount, id);
+            acc->setFieldU32(sfSequence, 1);
+            STArray held(sfExportKeys);
+            STObject e(sfExportKeyEntry);
+            e.setFieldVL(sfExportKey, key.slice());
+            e.setFieldU32(sfCloseTime, 1);
+            held.push_back(std::move(e));
+            acc->setFieldArray(sfExportKeys, held);
+            view.rawInsert(acc);
+        }
+        unl->setFieldArray(sfActiveValidators, validators);
+        if (had)
+            view.rawReplace(unl);
+        else
+            view.rawInsert(unl);
+    }
     // `acc`'s ltEXPORTER on network `nid`, as the open ledger has it
     static std::shared_ptr<SLE const>
     exporter(jtx::Env& env, jtx::Account const& acc, std::uint32_t nid = 0)
@@ -272,7 +326,7 @@ class Export_test : public beast::unit_test::suite
         testcase("export preflight");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"};
         auto const nid = env.app().config().NETWORK_ID;
         auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
@@ -328,7 +382,7 @@ class Export_test : public beast::unit_test::suite
             STObject sls(sfExportedTxn);
             sls.setFieldU16(sfTransactionType, ttSIGNER_LIST_SET);
             sls.setAccountID(sfAccount, alice.id());
-            sls.setFieldAmount(sfFee, XRPAmount{0});
+            sls.setFieldAmount(sfFee, XRPAmount{1000});
             sls.setFieldU32(sfSequence, 0);
             sls.setFieldU32(sfSignerQuorum, 0);
             sls.setFieldVL(sfSigningPubKey, Slice{});
@@ -339,6 +393,17 @@ class Export_test : public beast::unit_test::suite
             BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == tesSUCCESS);
             sls.setFieldU32(sfSequence, 5);
             BEAST_EXPECT(pf(exportTx(env, alice.id(), sls)) == temMALFORMED);
+        }
+
+        // Nothing is filled in for a hook, so the Fee it emits is the Fee
+        // the UNL signs: a Fee of 0, which once asked the ledger for one,
+        // is no fee. (xport_prepare() is what prices an export now.)
+        {
+            auto unpriced = good;
+            unpriced.setFieldAmount(sfFee, XRPAmount{0});
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), unpriced)) == temBAD_FEE);
+            unpriced.setFieldAmount(sfFee, XRPAmount{1});
+            BEAST_EXPECT(pf(exportTx(env, alice.id(), unpriced)) == tesSUCCESS);
         }
 
         // one base fee per signer in the account's list
@@ -373,7 +438,7 @@ class Export_test : public beast::unit_test::suite
         testcase("export sign and final preflight");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"};
         auto const nid = env.app().config().NETWORK_ID;
         auto const kp = randomKeyPair(KeyType::ed25519);
@@ -439,6 +504,18 @@ class Export_test : public beast::unit_test::suite
                 BEAST_EXPECT(pf(make(type, bad)) == temMALFORMED);
         }
 
+        // a signature carries nothing but what the ledger builds: it is
+        // free, and any other field would give one signature another txid
+        BEAST_EXPECT(pf(make(ttEXPORT_SIGN, [](STObject& o) {
+                         o[sfLastLedgerSequence] = 100u;
+                     })) == temMALFORMED);
+        BEAST_EXPECT(pf(make(ttEXPORT_SIGN, [](STObject& o) {
+                         o[sfSourceTag] = 1u;
+                     })) == temMALFORMED);
+        BEAST_EXPECT(pf(make(ttEXPORT_SIGN, [](STObject& o) {
+                         o.setFieldU32(sfFlags, 0);
+                     })) == temMALFORMED);
+
         // the signer must be the account of a real key
         BEAST_EXPECT(pf(make(ttEXPORT_SIGN, [&](STObject& o) {
                          o.peekFieldObject(sfSigner)[sfAccount] = alice.id();
@@ -486,7 +563,7 @@ class Export_test : public beast::unit_test::suite
         testcase("shadow tickets");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
         env.close();
@@ -548,8 +625,8 @@ class Export_test : public beast::unit_test::suite
         // gets no ticket from a pool of one, named or not, but with two
         // draws the lowest, and the last stays.
         auto const setPool = [&](std::vector<std::uint32_t> tickets) {
-            auto sle =
-                std::make_shared<SLE>(*view.read(keylet::account(alice)));
+            auto sle = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), 0)));
             ExportTickets t;
             for (auto const x : tickets)
                 t.insert(x);
@@ -557,7 +634,8 @@ class Export_test : public beast::unit_test::suite
             view.rawReplace(sle);
         };
         auto const pool = [&]() {
-            return ExportTickets::load(*view.read(keylet::account(alice)));
+            return ExportTickets::load(
+                *view.read(keylet::exporter(alice.id(), 0)));
         };
         setPool({20});
         BEAST_EXPECT(apply(payment(alice.id(), 6, {}, nid)) == tecNO_ENTRY);
@@ -578,7 +656,7 @@ class Export_test : public beast::unit_test::suite
         testcase("export signer list");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"}, bob{"bob"};
         env.fund(XRP(10000), alice, bob);
         env.close();
@@ -599,6 +677,39 @@ class Export_test : public beast::unit_test::suite
         };
         BEAST_EXPECT(preclaim(alice.id()) == tesSUCCESS);
         BEAST_EXPECT(preclaim(bob.id()) == tecNO_TARGET);
+
+        // A ticket the hook names must be one the ledger knows of there: in
+        // its pool (and not the pool's last, which is the ledger's), or
+        // held by an export of its own in flight. Anything else is refused
+        // before it can wait on a ticket that never was, or is long spent.
+        {
+            auto const named = [&](std::uint32_t ticket) {
+                return Export::preclaim(PreclaimContext(
+                    env.app(),
+                    view,
+                    tesSUCCESS,
+                    exportTx(env, alice.id(), payment(alice.id(), 1, ticket)),
+                    tapNONE));
+            };
+            auto const pool = [&](std::vector<std::uint32_t> const& held) {
+                auto ex = std::make_shared<SLE>(
+                    *view.read(keylet::exporter(alice.id(), 0)));
+                ExportTickets t;
+                for (auto const ticket : held)
+                    t.insert(ticket);
+                t.store(*ex);
+                view.rawReplace(ex);
+            };
+            BEAST_EXPECT(named(55) == tecNO_ENTRY);
+            pool({55, 56});
+            BEAST_EXPECT(named(55) == tesSUCCESS);
+            BEAST_EXPECT(named(57) == tecNO_ENTRY);
+            pool({55});
+            BEAST_EXPECT(named(55) == tecNO_ENTRY);
+            pool({});
+            BEAST_EXPECT(
+                Export::ticketUsable(view, alice.id(), 0, 55) == false);
+        }
 
         // the pending export snapshots it
         auto const pay = payment(alice.id(), 1, 7, nid);
@@ -681,7 +792,7 @@ class Export_test : public beast::unit_test::suite
 
         Env env{
             *this,
-            envconfig(validator, ""),
+            xahau(envconfig(validator, "")),
             supported_amendments() | featureExport};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
@@ -799,7 +910,7 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(view.exists(k));
         BEAST_EXPECT(!view.exists(keylet::shadowTicket(alice.id(), 0, 9)));
         BEAST_EXPECT(
-            ExportTickets::load(*view.read(keylet::account(alice.id())))
+            ExportTickets::load(*view.read(keylet::exporter(alice.id(), 0)))
                 .contains(9));
 
         // but not when another export has since taken the ticket over: the
@@ -808,12 +919,12 @@ class Export_test : public beast::unit_test::suite
         // its refill (hookMayUse), so give the pool another: then a hook may
         // name 9 again, as an identical export repeated would.
         {
-            auto acc =
-                std::make_shared<SLE>(*view.read(keylet::account(alice.id())));
-            auto tickets = ExportTickets::load(*acc);
+            auto ex = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), 0)));
+            auto tickets = ExportTickets::load(*ex);
             tickets.insert(8);
-            tickets.store(*acc);
-            view.rawReplace(acc);
+            tickets.store(*ex);
+            view.rawReplace(ex);
         }
         auto const later = payment(alice.id(), 31, 9, nid);
         BEAST_EXPECT(
@@ -1049,7 +1160,7 @@ class Export_test : public beast::unit_test::suite
         testcase("exporter flag");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"}, bob{"bob"};
         env.fund(XRP(10000), alice, bob);
         env.close();
@@ -1058,11 +1169,25 @@ class Export_test : public beast::unit_test::suite
         // Import of its SignerListSet does) can be an exporter
         env(fset(bob, asfExporter), ter(tecNO_TARGET));
 
-        // alice's list, as Import would record it. The open ledger is what
+        // nor can one whose list there is its own keys: the ledger can only
+        // sign for a list that names an export key of the UNL
+        auto const own = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            setSignerList(view, bob.id(), signerEntries({own}), 1);
+            return true;
+        });
+        env(fset(bob, asfExporter), ter(tecNO_TARGET));
+        if (auto const ex = exporter(env, bob); BEAST_EXPECT(ex))
+            BEAST_EXPECT(!isExporter(*ex));
+
+        // alice's list, as Import would record it: one of ours, naming an
+        // export key of a UNLReport validator. The open ledger is what
         // the AccountSets below apply to and what env.le reads, so nothing
         // closes in between (a close rebuilds the ledger from the txns).
-        auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        auto const ka = randomKeyPair(KeyType::ed25519).first;
+        auto const a = calcAccountID(ka);
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            registerExportKeys(view, {ka});
             setSignerList(view, alice.id(), signerEntries({a}), 1);
             return true;
         });
@@ -1105,7 +1230,7 @@ class Export_test : public beast::unit_test::suite
         testcase("automatic exports");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
 
         // An exporter is looked at in ledgers where (seq + slot) is a
         // multiple of autoEvery. Raw state injected into the open ledger is
@@ -1127,11 +1252,17 @@ class Export_test : public beast::unit_test::suite
 
         // an exporter with three listed signers, quorum two, and a pool of
         // two tickets: low, so the ledger exports a TicketCreate for more
+        // (export keys of the UNL, so the list is one of ours and the
+        // ledger acts for it; see registerExportKeys)
+        std::vector<PublicKey> signerKeys;
         std::vector<AccountID> signers;
         for (int i = 0; i < 3; ++i)
-            signers.push_back(
-                calcAccountID(randomKeyPair(KeyType::ed25519).first));
+        {
+            signerKeys.push_back(randomKeyPair(KeyType::ed25519).first);
+            signers.push_back(calcAccountID(signerKeys.back()));
+        }
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            registerExportKeys(view, signerKeys);
             setSignerList(view, alice.id(), signerEntries(signers), 2);
             auto sle = std::make_shared<SLE>(
                 *view.read(keylet::exporter(alice.id(), 0)));
@@ -1222,7 +1353,7 @@ class Export_test : public beast::unit_test::suite
         testcase("sequenced backstop");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         env.close();
         auto const seq = env.current()->seq() + 1;
         auto const slotOf = [](AccountID const& id) {
@@ -1238,12 +1369,20 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(env.current()->seq() == seq);
 
         auto const nid = env.app().config().NETWORK_ID;
+        // (export keys of the UNL, so the list is one of ours and the
+        // ledger acts for it; see registerExportKeys)
+        std::vector<PublicKey> signerKeys;
         std::vector<AccountID> signers;
         for (int i = 0; i < 3; ++i)
-            signers.push_back(
-                calcAccountID(randomKeyPair(KeyType::ed25519).first));
+        {
+            signerKeys.push_back(randomKeyPair(KeyType::ed25519).first);
+            signers.push_back(calcAccountID(signerKeys.back()));
+        }
+        bool registered = false;
         auto const setup = [&](std::optional<std::uint32_t> sequence) {
             env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+                if (!std::exchange(registered, true))
+                    registerExportKeys(view, signerKeys);
                 setSignerList(view, alice.id(), signerEntries(signers), 2);
                 auto sle = std::make_shared<SLE>(
                     *view.read(keylet::exporter(alice.id(), 0)));
@@ -1391,7 +1530,8 @@ class Export_test : public beast::unit_test::suite
         env.close();
 
         auto const nid = env.app().config().NETWORK_ID;
-        auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        auto const ka = randomKeyPair(KeyType::ed25519).first;
+        auto const a = calcAccountID(ka);
 
         // alice exported three ticketed transactions bound back here, so
         // holds three shadow tickets, each naming the hook to call back.
@@ -1537,6 +1677,7 @@ class Export_test : public beast::unit_test::suite
         // Their metadata carries the account root, as every transaction's
         // does there, and the tickets they made.
         env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            registerExportKeys(view, {ka});
             setSignerList(view, alice.id(), signerEntries({a}));
             return true;
         });
@@ -1683,7 +1824,7 @@ class Export_test : public beast::unit_test::suite
         // alice holds lists on the XRPL and on testnet; an export names its
         // network by the inner's NetworkID, and draws on that network's
         // pool, shadow tickets and fee record alone
-        Env env{*this, supported_amendments() | featureExport};
+        Env env{*this, xahau(), supported_amendments() | featureExport};
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
         env.close();
@@ -1712,10 +1853,13 @@ class Export_test : public beast::unit_test::suite
         };
 
         // to testnet: its ticket, its shadow ticket, no NetworkID sent
-        // (testnet refuses the field) and its two signers paid for
+        // (testnet refuses the field) and, priced as xport_prepare() prices
+        // it, its two signers paid for. Nothing is repriced as it applies.
         auto tn = payment(alice.id(), 1, {}, nid);
         tn[sfNetworkID] = 1;
-        tn.setFieldAmount(sfFee, XRPAmount{0});
+        tn.makeFieldAbsent(sfFee);
+        BEAST_EXPECT(Export::prepare(view, env.app().config(), alice.id(), tn));
+        BEAST_EXPECT(tn.getFieldAmount(sfFee).xrp() == Export::xrplBaseFee * 3);
         BEAST_EXPECT(apply(tn) == tesSUCCESS);
         BEAST_EXPECT(pool(1) == 1 && pool(0) == 2);
         BEAST_EXPECT(view.exists(keylet::shadowTicket(alice.id(), 1, 20)));
@@ -1744,6 +1888,431 @@ class Export_test : public beast::unit_test::suite
         BEAST_EXPECT(apply(dn) == tefINTERNAL);
     }
 
+    void
+    testSetupOtherNetwork()
+    {
+        testcase("setup on another network");
+        using namespace jtx;
+
+        // the one VL key trusted here is trusted for network 1 (a testnet)
+        OtherNetwork other;
+        auto cfg = network::makeNetworkVLConfig(21337, {other.vlKeyHex()});
+        cfg->IMPORT_VL_NETWORKS[other.vlKeyHex()] = 1;
+        Env env{*this, std::move(cfg), supported_amendments() | featureExport};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), bob);
+        env.close();
+
+        auto const nid = env.app().config().NETWORK_ID;
+        // so that is where an export naming no network goes
+        BEAST_EXPECT(
+            Import::soleNetwork(env.app().config(), *env.current()) == 1);
+
+        // bob's SignerListSet there, naming an export key of the UNL, signed
+        // by bob and imported by bob: the Import export_setup describes
+        auto const kb = randomKeyPair(KeyType::ed25519).first;
+        auto const b = calcAccountID(kb);
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            registerExportKeys(view, {kb});
+            return true;
+        });
+        STTx list(ttSIGNER_LIST_SET, [&](STObject& o) {
+            o[sfAccount] = bob.id();
+            o.setFieldAmount(sfFee, XRPAmount{1000});
+            o[sfSequence] = 2;
+            o[sfOperationLimit] = nid;
+            o[sfSigningPubKey] = bob.pk().slice();
+            o[sfSignerQuorum] = 1;
+            o.setFieldArray(sfSignerEntries, signerEntries({b}));
+        });
+        list.sign(bob.pk(), bob.sk());
+        auto const closeTime = static_cast<std::uint32_t>(
+            env.closed()->info().closeTime.time_since_epoch().count());
+        auto const before = env.balance(bob).value().xrp();
+        auto const importFee = env.current()->fees().base * 10;
+        env(import::import(bob, other.xpop(list, 105, closeTime)),
+            fee(importFee),
+            ter(tesSUCCESS));
+
+        // It makes bob an exporter on network 1, and does nothing else: no
+        // record on the XRPL, no keys installed here, nothing minted, and
+        // the XRPL's import sequence untouched.
+        if (auto const ex = exporter(env, bob, 1); BEAST_EXPECT(ex))
+        {
+            BEAST_EXPECT(isExporter(*ex));
+            BEAST_EXPECT(ex->isFieldPresent(sfExportSignerList));
+            BEAST_EXPECT((*ex)[~sfExportTicketNext] == 3u);
+        }
+        BEAST_EXPECT(!exporter(env, bob, 0));
+        BEAST_EXPECT(!env.le(keylet::signers(bob.id())));
+        if (auto const sle = env.le(bob); BEAST_EXPECT(sle))
+            BEAST_EXPECT(!sle->isFieldPresent(sfImportSequence));
+        BEAST_EXPECT(env.balance(bob).value().xrp() == before - importFee);
+
+        // the same list again records nothing new
+        env(import::import(bob, other.xpop(list, 105, closeTime)),
+            fee(importFee),
+            ter(tefALREADY));
+    }
+
+    void
+    testExpiry()
+    {
+        testcase("expiry");
+        using namespace jtx;
+
+        Env env{*this, xahau(), supported_amendments() | featureExport};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        // far enough along that an export's own window can be behind it
+        for (int i = 0; i < 12; ++i)
+            env.close();
+
+        auto const nid = env.app().config().NETWORK_ID;
+        OpenView view(open_ledger, env.closed()->rules(), env.closed());
+        auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        setSignerList(view, alice.id(), signerEntries({a}));
+        {
+            auto ex = std::make_shared<SLE>(
+                *view.read(keylet::exporter(alice.id(), 0)));
+            ExportTickets t;
+            t.add(10, 3);
+            t.store(*ex);
+            view.rawReplace(ex);
+        }
+        auto const apply = [&](STObject inner) {
+            return applyExport(env, view, exportTx(env, alice.id(), inner));
+        };
+        auto const ex = [&]() {
+            return view.read(keylet::exporter(alice.id(), 0));
+        };
+        auto const pool = [&]() { return ExportTickets::load(*ex()).count(); };
+        auto const shadow = [&](std::uint32_t ticket) {
+            return view.read(keylet::shadowTicket(alice.id(), 0, ticket));
+        };
+        // the ledger last proven for the XRPL, as ttINGEST records it
+        auto const proven = [&](std::uint32_t seq) {
+            auto const k = keylet::exportFee(0);
+            bool const had = view.exists(k);
+            auto sle = had ? std::make_shared<SLE>(*view.read(k))
+                           : std::make_shared<SLE>(k);
+            sle->setFieldU32(sfRemoteNetworkID, 0);
+            sle->setFieldU32(sfExportFeeUnit, 10);
+            sle->setFieldU32(sfLedgerSequence, seq);
+            sle->setFieldU32(sfTransactionCount, 1);
+            sle->setFieldU64(sfBurnedDrops, 10);
+            sle->setFieldU32(sfSampleFee, 10);
+            if (had)
+                view.rawReplace(sle);
+            else
+                view.rawInsert(sle);
+        };
+        // the expiry Export::accept injects for the export on `ticket`
+        auto const expire = [&](std::uint32_t ticket) {
+            auto const st = shadow(ticket);
+            STTx const tx(ttEXPORT_FINAL, [&](STObject& o) {
+                o[sfAccount] = AccountID();
+                o[sfOwner] = alice.id();
+                o[sfLedgerSequence] =
+                    st ? (*st)[~sfLastLedgerSequence].value_or(0u) : 0u;
+                o[sfTransactionHash] =
+                    st ? (*st)[sfTransactionHash] : uint256{};
+                o[sfLedgerIndex] =
+                    keylet::shadowTicket(alice.id(), 0, ticket).key;
+            });
+            return ripple::apply(env.app(), view, tx, tapNONE, env.journal).ter;
+        };
+
+        // as xport_prepare() completes a hook's export before it is emitted
+        // (the Fee here is the hook's own already): nothing is added to it
+        // as it applies
+        auto const prepared = [&](STObject inner) {
+            BEAST_EXPECT(
+                Export::prepare(view, env.app().config(), alice.id(), inner));
+            return inner;
+        };
+
+        // Nothing is known of the other network's ledger yet, so there is
+        // nothing to count a LastLedgerSequence from: the export goes
+        // without. It is listed as in flight like any other, but cannot
+        // be expired.
+        {
+            auto const first = prepared(payment(alice.id(), 1, {}, nid));
+            BEAST_EXPECT(!first.isFieldPresent(sfLastLedgerSequence));
+            BEAST_EXPECT(apply(first) == tesSUCCESS);
+        }
+        if (auto const st = shadow(10); BEAST_EXPECT(st))
+            BEAST_EXPECT(!st->isFieldPresent(sfLastLedgerSequence));
+        auto const key10 = keylet::shadowTicket(alice.id(), 0, 10).key;
+        if (BEAST_EXPECT(ex()->isFieldPresent(sfIndexes)))
+            BEAST_EXPECT(
+                ex()->getFieldV256(sfIndexes).value() ==
+                std::vector<uint256>{key10});
+        BEAST_EXPECT(expire(10) == tefFAILURE);
+        // it names the ttEXPORT that made it, which is what the hook's
+        // cbak gets as otxn_id; nothing is signed for it yet
+        if (auto const st = shadow(10); BEAST_EXPECT(st))
+        {
+            BEAST_EXPECT(st->isFieldPresent(sfExportTxnID));
+            BEAST_EXPECT(!st->isFieldPresent(sfExportedTxn));
+            BEAST_EXPECT(!st->isFieldPresent(sfRemoteTxnID));
+        }
+
+        // With ledger 1000 proven there, the next export is prepared to be
+        // included up to Export::expiry ledgers later, and is one to look
+        // for.
+        proven(1000);
+        std::uint32_t const last = 1000 + Export::expiry;
+        {
+            auto const second = prepared(payment(alice.id(), 2, {}, nid));
+            BEAST_EXPECT(second[~sfLastLedgerSequence] == last);
+            BEAST_EXPECT(apply(second) == tesSUCCESS);
+        }
+        if (auto const st = shadow(11); BEAST_EXPECT(st))
+            BEAST_EXPECT((*st)[~sfLastLedgerSequence] == last);
+        BEAST_EXPECT(pool() == 1);
+        auto const key = keylet::shadowTicket(alice.id(), 0, 11).key;
+        if (BEAST_EXPECT(ex()->isFieldPresent(sfIndexes)))
+            BEAST_EXPECT(
+                (ex()->getFieldV256(sfIndexes).value() ==
+                 std::vector<uint256>{key10, key}));
+
+        // a hook's own LastLedgerSequence is left alone
+        {
+            auto own = payment(alice.id(), 3, 77, nid);
+            own.setFieldU32(sfLastLedgerSequence, 5000);
+            own = prepared(own);
+            BEAST_EXPECT(apply(own) == tesSUCCESS);
+            if (auto const st = shadow(77); BEAST_EXPECT(st))
+                BEAST_EXPECT((*st)[~sfLastLedgerSequence] == 5000u);
+            BEAST_EXPECT(ex()->getFieldV256(sfIndexes).size() == 3);
+        }
+
+        // Not expired while the other network could still include it, nor
+        // until the grace its result is given to be imported has passed
+        // there as well. (The export's own window here must be behind it
+        // too: this view never advances, so say it was created long ago.)
+        {
+            auto st = std::make_shared<SLE>(*shadow(11));
+            st->setFieldU32(sfPreviousTxnLgrSeq, 0);
+            view.rawReplace(st);
+        }
+        BEAST_EXPECT(expire(11) == tefFAILURE);
+        proven(last + Export::expiryGrace - 1);
+        BEAST_EXPECT(expire(11) == tefFAILURE);
+
+        // Then it is: the shadow ticket goes, the ticket returns to the
+        // pool, and it is looked for no longer. (Its hook is called back
+        // with what == 1; none is installed here.)
+        proven(last + Export::expiryGrace);
+        auto const owners =
+            (*view.read(keylet::account(alice.id())))[sfOwnerCount];
+        BEAST_EXPECT(expire(11) == tesSUCCESS);
+        BEAST_EXPECT(!shadow(11));
+        BEAST_EXPECT(pool() == 2);
+        BEAST_EXPECT(
+            (*view.read(keylet::account(alice.id())))[sfOwnerCount] ==
+            owners - 1);
+        BEAST_EXPECT(
+            (ex()->getFieldV256(sfIndexes).value() ==
+             std::vector<uint256>{
+                 key10, keylet::shadowTicket(alice.id(), 0, 77).key}));
+        // and only once
+        BEAST_EXPECT(expire(11) == tefFAILURE);
+    }
+
+    void
+    testPrepare()
+    {
+        testcase("prepare and fees");
+        using namespace jtx;
+
+        Env env{*this, xahau(), supported_amendments() | featureExport};
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        auto const nid = env.app().config().NETWORK_ID;
+        auto const& config = env.app().config();
+        OpenView view(open_ledger, env.closed()->rules(), env.closed());
+        auto const a = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        auto const b = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+        auto const c = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+
+        // what a hook starts from: a type and that type's own fields
+        auto const bare = [](TxType type) {
+            STObject t(sfExportedTxn);
+            t.setFieldU16(sfTransactionType, type);
+            return t;
+        };
+        auto pay = bare(ttPAYMENT);
+        pay.setAccountID(sfDestination, noAccount());
+        pay.setFieldAmount(sfAmount, XRPAmount{1});
+        auto const asTx = [](STObject const& inner) {
+            Serializer s;
+            inner.add(s);
+            return STTx{SerialIter{s.slice()}};
+        };
+        auto const drops = [](STObject const& inner) {
+            return inner.getFieldAmount(sfFee).xrp();
+        };
+        // what ttINGEST has proven of network `net` (see Ingest.h)
+        auto const proven =
+            [&](std::uint32_t net, std::uint32_t unit, std::uint32_t seq) {
+                auto const sle = std::make_shared<SLE>(keylet::exportFee(net));
+                sle->setFieldU32(sfRemoteNetworkID, net);
+                sle->setFieldU32(sfExportFeeUnit, unit);
+                sle->setFieldU32(sfLedgerSequence, seq);
+                sle->setFieldU32(sfTransactionCount, 1);
+                sle->setFieldU64(sfBurnedDrops, unit);
+                sle->setFieldU32(sfSampleFee, unit);
+                view.rawInsert(sle);
+            };
+
+        // no signer list on the destination: nothing to price an export
+        // by, and nothing that could sign it
+        {
+            auto t = pay;
+            BEAST_EXPECT(!Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(!Export::feeUnits(view, alice.id(), 0, pay));
+        }
+
+        setSignerList(view, alice.id(), signerEntries({a, b, c}), 3);
+
+        // Completed: from the account, unsigned, ticketed (Sequence 0),
+        // bound back here, for the XRPL, and priced at the reference fee
+        // for itself and every one of the three signers. No ledger is
+        // proven there, so no LastLedgerSequence. And no ticket: that is
+        // the pool's to give as the export applies.
+        {
+            auto t = pay;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(t[sfAccount] == alice.id());
+            BEAST_EXPECT(t.getFieldVL(sfSigningPubKey).empty());
+            BEAST_EXPECT(t[sfSequence] == 0u);
+            BEAST_EXPECT(t[sfOperationLimit] == nid);
+            BEAST_EXPECT(!t.isFieldPresent(sfNetworkID));
+            BEAST_EXPECT(!t.isFieldPresent(sfTicketSequence));
+            BEAST_EXPECT(!t.isFieldPresent(sfLastLedgerSequence));
+            BEAST_EXPECT(Export::feeUnits(view, alice.id(), 0, t) == 4);
+            BEAST_EXPECT(drops(t) == Export::xrplBaseFee * 4);
+
+            // which is what xport() and ttEXPORT's preflight ask of it
+            auto const tx = asTx(t);
+            BEAST_EXPECT(Export::complete(tx, alice.id(), nid));
+            BEAST_EXPECT(!Export::complete(tx, a, nid));
+            BEAST_EXPECT(!Export::complete(tx, alice.id(), nid + 1));
+            // what the hook starts from is not: it does not even parse
+            // (no Account, Fee, Sequence or SigningPubKey), which xport()
+            // reports as INVALID_ARGUMENT
+            try
+            {
+                asTx(pay);
+                fail("an incomplete export parsed");
+            }
+            catch (std::exception const&)
+            {
+                pass();
+            }
+            // and one field short of complete is not complete
+            {
+                auto unbound = t;
+                unbound.makeFieldAbsent(sfOperationLimit);
+                BEAST_EXPECT(!Export::complete(asTx(unbound), alice.id(), nid));
+                auto unpriced = t;
+                unpriced.setFieldAmount(sfFee, XRPAmount{0});
+                BEAST_EXPECT(
+                    !Export::complete(asTx(unpriced), alice.id(), nid));
+            }
+        }
+
+        // whatever the hook set itself is left as it is
+        {
+            auto t = pay;
+            t.setFieldAmount(sfFee, XRPAmount{777});
+            t.setFieldU32(sfLastLedgerSequence, 5000);
+            t.setFieldU32(sfTicketSequence, 9);
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(drops(t) == XRPAmount{777});
+            BEAST_EXPECT(t[sfLastLedgerSequence] == 5000u);
+            BEAST_EXPECT(t[sfTicketSequence] == 9u);
+        }
+
+        // Once a ledger has been proven there: the unit it holds (which is
+        // what xport_fee() gives a hook), and a deadline counted from it.
+        // Each network has its own.
+        BEAST_EXPECT(Export::feeUnit(view, 0) == Export::xrplBaseFee);
+        proven(0, 25, 1000);
+        BEAST_EXPECT(Export::feeUnit(view, 0) == XRPAmount{25});
+        BEAST_EXPECT(Export::feeUnit(view, 1) == Export::xrplBaseFee);
+        {
+            auto t = pay;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(drops(t) == XRPAmount{25 * 4});
+            BEAST_EXPECT(t[sfLastLedgerSequence] == 1000 + Export::expiry);
+        }
+
+        // What a type pays the other network on top comes from the schema:
+        // an EscrowFinish is an ordinary transaction until it carries a
+        // Fulfillment, then 32 + 36 / 16 reference fees more for one of 36
+        // bytes. Priced without them it would be signed, sent and never
+        // included.
+        auto finish = bare(ttESCROW_FINISH);
+        finish.setAccountID(sfOwner, alice.id());
+        finish.setFieldU32(sfOfferSequence, 1);
+        {
+            auto t = finish;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(drops(t) == XRPAmount{25 * 4});
+        }
+        finish.setFieldVL(sfFulfillment, Blob(36, 0xA0));
+        BEAST_EXPECT(Export::feeUnits(view, alice.id(), 0, finish) == 4 + 34);
+        auto priced = finish;
+        BEAST_EXPECT(Export::prepare(view, config, alice.id(), priced));
+        BEAST_EXPECT(drops(priced) == XRPAmount{25 * 38});
+
+        // A hook may set a Fee of its own, above that or below it, but not
+        // below the same count at the reference fee, which the other
+        // network could never take: such an export is refused as it
+        // applies, instead of being signed and sent for nothing.
+        auto const claim = [&](STObject inner, std::int64_t fee) {
+            inner.setFieldAmount(sfFee, XRPAmount{fee});
+            return Export::preclaim(PreclaimContext(
+                env.app(),
+                view,
+                tesSUCCESS,
+                exportTx(env, alice.id(), inner),
+                tapNONE));
+        };
+        {
+            auto t = pay;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(claim(t, 25 * 4) == tesSUCCESS);
+            BEAST_EXPECT(claim(t, 40) == tesSUCCESS);
+            BEAST_EXPECT(claim(t, 39) == tecINSUFF_FEE);
+            BEAST_EXPECT(claim(t, 1'000'000) == tesSUCCESS);
+        }
+        BEAST_EXPECT(claim(priced, 380) == tesSUCCESS);
+        BEAST_EXPECT(claim(priced, 379) == tecINSUFF_FEE);
+
+        // That is also what catches a signer list that grew between the
+        // hook pricing its export and the export applying, a ledger later:
+        // every signer may sign, and each signature is charged for.
+        {
+            auto t = pay;
+            BEAST_EXPECT(Export::prepare(view, config, alice.id(), t));
+            BEAST_EXPECT(claim(t, 40) == tesSUCCESS);
+            auto const d = calcAccountID(randomKeyPair(KeyType::ed25519).first);
+            setSignerList(view, alice.id(), signerEntries({a, b, c, d}), 3);
+            BEAST_EXPECT(claim(t, 40) == tecINSUFF_FEE);
+            BEAST_EXPECT(claim(t, 50) == tesSUCCESS);
+        }
+
+        // The ledger's own exports are priced as they apply, by the same
+        // rule: testAutomatic and testBackstop have a TicketCreate at
+        // (signers + 1) reference fees.
+    }
+
 public:
     void
     run() override
@@ -1759,6 +2328,9 @@ public:
         testBackstop();
         testLoopbackImport();
         testNetworks();
+        testSetupOtherNetwork();
+        testExpiry();
+        testPrepare();
     }
 };
 

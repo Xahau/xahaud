@@ -351,15 +351,32 @@ public:
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
     emit(Slice const& txBlob) const;
 
-    // featureExport: emit a ttEXPORT carrying txBlob, a transaction for the
-    // other network (Account and SigningPubKey filled in if absent)
+    // featureExport: emit a ttEXPORT carrying txBlob, a transaction for
+    // another network, complete as xport_prepare() leaves one: nothing is
+    // filled in here
     Expected<std::shared_ptr<Transaction>, HookReturnCode>
     xport(Slice const& txBlob) const;
+
+    // featureExport: txBlob, a transaction for another network, completed
+    // for xport() (Export::prepare): every field but the ticket that the
+    // hook left out, the Fee among them
+    Expected<Bytes, HookReturnCode>
+    xport_prepare(Slice const& txBlob) const;
+
+    // featureExport: what the ledger has proven of the fees on network
+    // `nid` (hook_api::xport_fee_code)
+    Expected<uint64_t, HookReturnCode>
+    xport_fee(std::uint32_t nid, std::uint32_t what) const;
 
     // featureExport: how many tickets the hook account holds unused on the
     // other network, each good for one export
     Expected<uint64_t, HookReturnCode>
     xport_tickets(std::uint32_t nid) const;
+
+    // featureExport: the `index`th of those tickets, lowest first, so a
+    // hook can see which it holds and name one (DOESNT_EXIST past the end)
+    Expected<uint64_t, HookReturnCode>
+    xport_ticket(std::uint32_t nid, std::uint32_t index) const;
 
     Expected<uint64_t, HookReturnCode>
     etxn_burden() const;
