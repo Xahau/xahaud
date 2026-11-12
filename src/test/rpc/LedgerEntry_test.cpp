@@ -24,6 +24,8 @@
 #include <test/jtx/multisign.h>
 #include <test/jtx/xchain_bridge.h>
 
+#include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/main/Application.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/json/json_value.h>
 #include <xrpl/protocol/AccountID.h>
@@ -66,6 +68,7 @@ std::vector<std::pair<Json::StaticString, FieldType>> mappings{
     {jss::issuer, FieldType::AccountField},
     {jss::key, FieldType::HashField},
     {jss::namespace_id, FieldType::HashField},
+    {jss::network_id, FieldType::UInt32Field},
     {jss::oracle_document_id, FieldType::UInt32Field},
     {jss::owner, FieldType::AccountField},
     {jss::public_key, FieldType::BlobField},
@@ -73,6 +76,7 @@ std::vector<std::pair<Json::StaticString, FieldType>> mappings{
     {jss::subject, FieldType::AccountField},
     {jss::ticket_seq, FieldType::UInt32Field},
     {jss::time, FieldType::UInt32Field},
+    {jss::transaction_hash, FieldType::HashField},
     {jss::uri, FieldType::BlobField},
 };
 
@@ -1515,6 +1519,178 @@ class LedgerEntry_test : public beast::unit_test::suite
     }
 
     void
+    testLedgerEntryExport()
+    {
+        testcase("ledger_entry Request Export entries");
+        using namespace test::jtx;
+
+        Env env{*this};
+
+        Account const alice{"alice"};
+        env.fund(XRP(10000), alice);
+        env.close();
+
+        // Export's entries are made by Imports, by what hooks emit and by
+        // proofs of fees (see Export_test). Here they only have to be there
+        // to be found, so they are written straight into the open ledger,
+        // which is the ledger a request that names none is answered from.
+        std::uint32_t const nid = 1;
+        std::uint32_t const ticket = 7;
+        std::uint32_t const created = 5;
+        uint256 const txid{0xABCDu};
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            auto const fee = std::make_shared<SLE>(keylet::exportFee(nid));
+            fee->setFieldU32(sfRemoteNetworkID, nid);
+            fee->setFieldU32(sfExportFeeUnit, 25);
+            view.rawInsert(fee);
+
+            auto const exporter =
+                std::make_shared<SLE>(keylet::exporter(alice.id(), nid));
+            exporter->setAccountID(sfAccount, alice.id());
+            exporter->setFieldU32(sfRemoteNetworkID, nid);
+            view.rawInsert(exporter);
+
+            auto const shadow = std::make_shared<SLE>(
+                keylet::shadowTicket(alice.id(), nid, ticket));
+            shadow->setAccountID(sfAccount, alice.id());
+            shadow->setFieldU32(sfRemoteNetworkID, nid);
+            shadow->setFieldU32(sfTicketSequence, ticket);
+            shadow->setFieldH256(sfTransactionHash, txid);
+            view.rawInsert(shadow);
+
+            auto const pending =
+                std::make_shared<SLE>(keylet::exportedTxn(created, txid));
+            pending->setAccountID(sfOwner, alice.id());
+            pending->setFieldU32(sfRemoteNetworkID, nid);
+            pending->setFieldH256(sfTransactionHash, txid);
+            pending->setFieldU32(sfLedgerSequence, created);
+            view.rawInsert(pending);
+            return true;
+        });
+
+        auto const request = [&](Json::StaticString const& field,
+                                 Json::Value const& value) {
+            Json::Value jvParams;
+            jvParams[field] = value;
+            return env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+        };
+        // Each entry is found by its index and by its fields, as the same
+        // entry; the same fields for another network find nothing; and an
+        // index that is some other entry's is refused.
+        auto const found = [&](Json::StaticString const& field,
+                               Keylet const& k,
+                               Json::Value const& fields,
+                               Json::StaticString const& type,
+                               Json::StaticString const& otherField) {
+            for (auto const& value : {Json::Value{to_string(k.key)}, fields})
+            {
+                auto const jrr = request(field, value);
+                if (!BEAST_EXPECT(jrr.isMember(jss::node)))
+                    continue;
+                BEAST_EXPECT(jrr[jss::index] == to_string(k.key));
+                BEAST_EXPECT(
+                    jrr[jss::node][sfLedgerEntryType.jsonName] == type);
+                BEAST_EXPECT(jrr[jss::node][sfRemoteNetworkID.jsonName] == nid);
+            }
+            auto elsewhere = fields;
+            elsewhere[jss::network_id] = nid + 1;
+            checkErrorValue(
+                request(field, elsewhere), "entryNotFound", "Entry not found.");
+            checkErrorValue(
+                request(otherField, to_string(k.key)),
+                "unexpectedLedgerType",
+                "Unexpected ledger type.");
+        };
+
+        {
+            Json::Value fields{Json::objectValue};
+            fields[jss::network_id] = nid;
+            found(
+                jss::export_fee,
+                keylet::exportFee(nid),
+                fields,
+                jss::ExportFee,
+                jss::exporter);
+            BEAST_EXPECT(
+                request(
+                    jss::export_fee,
+                    fields)[jss::node][sfExportFeeUnit.jsonName] == 25);
+        }
+        {
+            Json::Value fields{Json::objectValue};
+            fields[jss::account] = alice.human();
+            fields[jss::network_id] = nid;
+            found(
+                jss::exporter,
+                keylet::exporter(alice.id(), nid),
+                fields,
+                jss::Exporter,
+                jss::shadow_ticket);
+        }
+        {
+            Json::Value fields{Json::objectValue};
+            fields[jss::account] = alice.human();
+            fields[jss::network_id] = nid;
+            fields[jss::ticket_seq] = ticket;
+            found(
+                jss::shadow_ticket,
+                keylet::shadowTicket(alice.id(), nid, ticket),
+                fields,
+                jss::ShadowTicket,
+                jss::exported_txn);
+        }
+        {
+            // (keyed by ledger and id, not by network: nothing to look for
+            // on another one)
+            Json::Value fields{Json::objectValue};
+            fields[jss::seq] = created;
+            fields[jss::transaction_hash] = to_string(txid);
+            auto const k = keylet::exportedTxn(created, txid);
+            for (auto const& value : {Json::Value{to_string(k.key)}, fields})
+            {
+                auto const jrr = request(jss::exported_txn, value);
+                if (!BEAST_EXPECT(jrr.isMember(jss::node)))
+                    continue;
+                BEAST_EXPECT(jrr[jss::index] == to_string(k.key));
+                BEAST_EXPECT(
+                    jrr[jss::node][sfLedgerEntryType.jsonName] ==
+                    jss::ExportedTxn);
+                BEAST_EXPECT(jrr[jss::node][sfOwner.jsonName] == alice.human());
+            }
+            fields[jss::seq] = created + 1;
+            checkErrorValue(
+                request(jss::exported_txn, fields),
+                "entryNotFound",
+                "Entry not found.");
+            checkErrorValue(
+                request(jss::export_fee, to_string(k.key)),
+                "unexpectedLedgerType",
+                "Unexpected ledger type.");
+        }
+
+        // Malformed requests
+        runLedgerEntryTest(
+            env, jss::export_fee, {{jss::network_id, "malformedRequest"}});
+        runLedgerEntryTest(
+            env,
+            jss::exporter,
+            {{jss::account, "malformedAddress"},
+             {jss::network_id, "malformedRequest"}});
+        runLedgerEntryTest(
+            env,
+            jss::shadow_ticket,
+            {{jss::account, "malformedAddress"},
+             {jss::network_id, "malformedRequest"},
+             {jss::ticket_seq, "malformedRequest"}});
+        runLedgerEntryTest(
+            env,
+            jss::exported_txn,
+            {{jss::seq, "malformedRequest"},
+             {jss::transaction_hash, "malformedRequest"}});
+    }
+
+    void
     testLedgerEntryEscrow()
     {
         testcase("Escrow");
@@ -2882,6 +3058,7 @@ public:
         testLedgerEntryDepositPreauthCred();
         testLedgerEntryDirectory();
         testLedgerEntryEmittedTxn();
+        testLedgerEntryExport();
         testLedgerEntryEscrow();
         testLedgerEntryHook();
         testLedgerEntryHookDefinition();
