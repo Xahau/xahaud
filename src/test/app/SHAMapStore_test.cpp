@@ -661,7 +661,6 @@ public:
         nscfg.set("path", "rotating");
 
         auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
-            env.app(),
             scheduler,
             1,
             makeMemoryBackend(env, scheduler, "writable"),
@@ -721,7 +720,6 @@ public:
         nscfg.set("path", "rotating-accessors");
         auto makeDb = [&](std::string const& prefix) {
             return std::make_unique<NodeStore::DatabaseRotatingImp>(
-                env.app(),
                 scheduler,
                 1,
                 makeMemoryBackend(env, scheduler, prefix + "-writable"),
@@ -1069,7 +1067,6 @@ public:
         // data
         constexpr int readThreads = 4;
         auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
-            env.app(),
             scheduler,
             readThreads,
             std::move(writableBackend),

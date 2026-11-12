@@ -20,7 +20,6 @@
 #ifndef RIPPLE_NODESTORE_DATABASEPINNEDIMP_H_INCLUDED
 #define RIPPLE_NODESTORE_DATABASEPINNEDIMP_H_INCLUDED
 
-#include <xrpld/app/main/Application.h>
 #include <xrpld/nodestore/Backend.h>
 #include <xrpld/nodestore/DatabaseRotating.h>
 #include <xrpld/nodestore/NodeObject.h>
@@ -28,6 +27,7 @@
 #include <xrpl/basics/RangeSet.h>
 #include <atomic>
 #include <chrono>
+#include <functional>
 #include <memory>
 
 namespace ripple {
@@ -48,7 +48,8 @@ namespace NodeStore {
 class DatabasePinnedImp : public DatabaseRotating
 {
 private:
-    Application& app_;  // For accessing LedgerMaster's pinned ranges
+    // Returns LedgerMaster's pinned ranges
+    std::function<RangeSet<std::uint32_t>()> pinnedRanges_;
     DatabaseRotatingImp rotating_;         // Handles rotation for hot nodes
     std::shared_ptr<Backend> persistent_;  // NuDB for pinned nodes
 
@@ -66,7 +67,7 @@ public:
     static constexpr auto JournalName = "DatabasePinned";
 
     DatabasePinnedImp(
-        Application& app,
+        std::function<RangeSet<std::uint32_t>()> pinnedRanges,
         Scheduler& scheduler,
         int readThreads,
         std::shared_ptr<Backend> writableBackend,

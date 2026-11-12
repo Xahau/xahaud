@@ -41,10 +41,7 @@ public:
     DatabaseRotatingImp&
     operator=(DatabaseRotatingImp const&) = delete;
 
-    Application& app_;
-
     DatabaseRotatingImp(
-        Application& app,
         Scheduler& scheduler,
         int readThreads,
         std::shared_ptr<Backend> writableBackend,
