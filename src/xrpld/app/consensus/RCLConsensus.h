@@ -24,6 +24,7 @@
 #include <xrpld/app/consensus/RCLCxLedger.h>
 #include <xrpld/app/consensus/RCLCxPeerPos.h>
 #include <xrpld/app/consensus/RCLCxTx.h>
+#include <xrpld/app/consensus/RCLEntropySet.h>
 #include <xrpld/app/misc/FeeVote.h>
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/consensus/Consensus.h>
@@ -97,6 +98,32 @@ class RCLConsensus
         // entropy contribution, as {commitment, secret}. Only touched by
         // onClose, which runs under the consensus lock.
         std::optional<std::pair<uint256, uint256>> rngSecret_;
+
+        // featureRNG: an entropy set (see RCLEntropySet.h) a trusted
+        // validator pushed for one of its positions, whose transaction set
+        // we have not been able to build yet.
+        struct PendingEntropySet
+        {
+            RCLCxLedger::ID prevLedger;
+            RCLTxSet::ID setHash;
+            entropy_set::Txns txns;
+            // The base we last failed to build it from, so that we only try
+            // again once our own position has changed.
+            std::optional<uint256> triedBase;
+        };
+
+        // The most entropy sets we remember. A round produces about one per
+        // validator plus one per merged position, so this is several rounds.
+        constexpr static std::size_t maxPendingEntropySets = 256;
+
+        // Oldest first. Only touched under the consensus lock.
+        std::vector<PendingEntropySet> pendingEntropySets_;
+
+        // The ID of the transaction set of our position, and that set
+        // without its ttENTROPY transactions. Only touched under the
+        // consensus lock.
+        std::optional<std::pair<RCLTxSet::ID, std::shared_ptr<SHAMap>>>
+            entropyBase_;
 
     public:
         using Ledger_t = RCLCxLedger;
@@ -198,7 +225,49 @@ class RCLConsensus
         std::optional<NodeID>
         forcedTxOwner(RCLCxTx const& tx, RCLCxLedger const& prevLedger) const;
 
+        /** featureRNG: remember an entropy set a trusted validator pushed,
+            until rebuildEntropySets can build its transaction set. Content
+            already remembered is not remembered again.
+
+            Must be called under the consensus lock.
+
+            @param prevLedger The ledger the validator's position builds on
+            @param setHash The transaction set of that position
+            @param txns The ttENTROPY transactions of that set
+        */
+        void
+        addEntropySet(
+            RCLCxLedger::ID const& prevLedger,
+            RCLTxSet::ID const& setHash,
+            entropy_set::Txns txns);
+
+        /** featureRNG: build the transaction sets of the entropy sets we
+            remember for this round from the transactions of our own position.
+
+            Each set that hashes to what its validator named is handed over as
+            if it had been acquired from a peer. The others stay until our
+            position changes or they are pushed out by newer ones, and are
+            acquired from peers in the meantime as before.
+
+            Must be called under the consensus lock, and not from within a
+            call into Consensus.
+
+            @param prevLedger The ledger this round builds on
+            @param ours The transaction set of our current position
+        */
+        void
+        rebuildEntropySets(
+            RCLCxLedger::ID const& prevLedger,
+            RCLTxSet const& ours);
+
     private:
+        /** featureRNG: push the ttENTROPY transactions of the position we
+            just proposed, unless another validator has already pushed the
+            same ones for the same position.
+        */
+        void
+        shareEntropySet(RCLCxPeerPos::Proposal const& proposal);
+
         /** featureRNG: build our entropy contribution for the ledger after
             prevLedger, revealing our previous secret if the ledger holds its
             commitment, and committing to a fresh one.
@@ -526,6 +595,25 @@ public:
     void
     gotTxSet(NetClock::time_point const& now, RCLTxSet const& txSet);
 
+    /** featureRNG: a trusted validator pushed the ttENTROPY transactions of
+        one of its positions (see RCLEntropySet.h).
+
+        If they complete a transaction set we can otherwise build from our own
+        position, consensus gets that set without requesting it from a peer.
+
+        @param prevLedger The ledger the validator's position builds on
+        @param setHash The transaction set of that position
+        @param txns The ttENTROPY transactions of that set
+        @return Whether the position builds on the ledger our round builds
+                on. As with a proposal, only then should it be relayed, so
+                that an old entropy set cannot be flooded again.
+    */
+    bool
+    gotEntropySet(
+        RCLCxLedger::ID const& prevLedger,
+        RCLTxSet::ID const& setHash,
+        entropy_set::Txns txns);
+
     // @see Consensus::prevLedgerID
     RCLCxLedger::ID
     prevLedgerID() const
@@ -557,6 +645,11 @@ private:
     // guards all calls to consensus_. adaptor_ uses atomics internally
     // to allow concurrent access of its data members that have getters.
     mutable std::recursive_mutex mutex_;
+
+    // featureRNG: try the entropy sets we remember against our current
+    // position. Requires mutex_.
+    void
+    rebuildEntropySets();
 
     Adaptor adaptor_;
     Consensus<Adaptor> consensus_;

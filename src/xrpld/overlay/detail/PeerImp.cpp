@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/consensus/RCLEntropySet.h>
 #include <xrpld/app/consensus/RCLValidations.h>
 #include <xrpld/app/ledger/InboundLedgers.h>
 #include <xrpld/app/ledger/InboundTransactions.h>
@@ -31,6 +32,7 @@
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/PeerImp.h>
 #include <xrpld/overlay/detail/Tuning.h>
+#include <xrpld/overlay/predicates.h>
 #include <xrpld/perflog/PerfLog.h>
 #include <xrpld/shamap/Family.h>
 #include <xrpld/shamap/SHAMap.h>
@@ -1809,6 +1811,91 @@ PeerImp::onMessage(std::shared_ptr<protocol::TMProposeSet> const& m)
 }
 
 void
+PeerImp::onMessage(std::shared_ptr<protocol::TMEntropySet> const& m)
+{
+    protocol::TMEntropySet const& set = *m;
+
+    auto const sig = makeSlice(set.signature());
+
+    // The same preliminary checks as for a proposal: both are signed with
+    // the validator's ephemeral key.
+    if ((std::clamp<std::size_t>(sig.size(), 64, 72) != sig.size()) ||
+        (publicKeyType(makeSlice(set.nodepubkey())) != KeyType::secp256k1))
+    {
+        JLOG(p_journal_.warn()) << "EntropySet: malformed";
+        fee_.update(Resource::feeInvalidSignature, "entropy set signature");
+        return;
+    }
+
+    if (!stringIsUint256Sized(set.previousledger()) ||
+        !stringIsUint256Sized(set.sethash()) || set.transactions_size() == 0 ||
+        static_cast<std::size_t>(set.transactions_size()) >
+            entropy_set::maxTxns)
+    {
+        JLOG(p_journal_.warn()) << "EntropySet: malformed";
+        fee_.update(Resource::feeMalformedRequest, "entropy set");
+        return;
+    }
+
+    // Entropy sets only exist with featureRNG, and are only of use from
+    // validators whose positions we follow.
+    if (!app_.getLedgerMaster().getValidatedRules().enabled(featureRNG))
+        return;
+
+    PublicKey const publicKey{makeSlice(set.nodepubkey())};
+    if (!app_.validators().trusted(publicKey))
+        return;
+
+    // The transactions must be in ascending order of ID, which also rules out
+    // duplicates. They are only hashed here: deserializing them waits for the
+    // job, after the duplicate check.
+    std::vector<uint256> txIDs;
+    txIDs.reserve(set.transactions_size());
+    for (auto const& tx : set.transactions())
+    {
+        if (tx.size() > entropy_set::maxTxnBytes ||
+            !entropy_set::looksLikeEntropyTx(makeSlice(tx)))
+        {
+            JLOG(p_journal_.warn()) << "EntropySet: not an entropy txn";
+            fee_.update(Resource::feeInvalidData, "entropy set txn");
+            return;
+        }
+
+        auto const id = entropy_set::txID(makeSlice(tx));
+        if (!txIDs.empty() && !(txIDs.back() < id))
+        {
+            JLOG(p_journal_.warn()) << "EntropySet: txns out of order";
+            fee_.update(Resource::feeMalformedRequest, "entropy set order");
+            return;
+        }
+        txIDs.push_back(id);
+    }
+
+    uint256 const digest = entropy_set::digest(
+        uint256{set.previousledger()}, uint256{set.sethash()}, txIDs);
+
+    // Every validator that reaches a position signs the same digest. Note
+    // that this peer has the content, so that whichever copy we end up
+    // relaying is not sent back to it. This entry is never used to drop a
+    // message: only the one below is, and that one covers the signature.
+    app_.getHashRouter().addSuppressionPeer(digest, id_);
+
+    if (!app_.getHashRouter().addSuppressionPeer(
+            entropy_set::uniqueId(digest, publicKey.slice(), sig), id_))
+    {
+        JLOG(p_journal_.trace()) << "EntropySet: duplicate";
+        return;
+    }
+
+    std::weak_ptr<PeerImp> weak = shared_from_this();
+    app_.getJobQueue().addJob(
+        jtPROPOSAL_t, "recvEntropySet->checkEntropySet", [weak, m, digest]() {
+            if (auto peer = weak.lock())
+                peer->checkEntropySet(m, digest);
+        });
+}
+
+void
 PeerImp::onMessage(std::shared_ptr<protocol::TMStatusChange> const& m)
 {
     JLOG(p_journal_.trace()) << "Status: Change";
@@ -3092,6 +3179,87 @@ PeerImp::checkPropose(
                 std::move(haveMessage),
                 protocol::mtPROPOSE_LEDGER);
     }
+}
+
+void
+PeerImp::checkEntropySet(
+    std::shared_ptr<protocol::TMEntropySet> const& packet,
+    uint256 const& digest)
+{
+    XRPL_ASSERT(packet, "ripple::PeerImp::checkEntropySet : non-null packet");
+
+    protocol::TMEntropySet const& set = *packet;
+
+    PublicKey const publicKey{makeSlice(set.nodepubkey())};
+    if (!verifyDigest(publicKey, digest, makeSlice(set.signature()), false))
+    {
+        std::string desc{"EntropySet fails sig check"};
+        JLOG(p_journal_.warn()) << desc;
+        charge(Resource::feeInvalidSignature, desc);
+        return;
+    }
+
+    // The signature covers the IDs we computed from the bytes. Make sure the
+    // bytes are ttENTROPY transactions before anyone downstream sees them.
+    // A trusted validator signed this, so one we cannot read is more likely
+    // a newer format than abuse: drop it without charging the peer.
+    entropy_set::Txns txns;
+    txns.reserve(set.transactions_size());
+    for (auto const& tx : set.transactions())
+    {
+        auto item = entropy_set::makeItem(makeSlice(tx));
+        if (!item)
+        {
+            JLOG(p_journal_.warn())
+                << "EntropySet: dropping, cannot read an entropy txn";
+            return;
+        }
+        txns.push_back(std::move(item));
+    }
+
+    // A set for a ledger we have validated can never be used, and without
+    // this any peer could replay old signed sets to push live ones out of
+    // the pending list. An honest peer can lose this race, so no charge.
+    auto const validated = app_.getLedgerMaster().getValidLedgerIndex();
+    for (auto const& item : txns)
+    {
+        if (entropy_set::ledgerSeq(*item) <= validated)
+        {
+            JLOG(p_journal_.trace())
+                << "EntropySet: for a ledger already validated";
+            return;
+        }
+    }
+
+    JLOG(p_journal_.debug())
+        << "EntropySet: " << txns.size() << " entropy txns for tx set "
+        << uint256{set.sethash()};
+
+    // Every valid copy goes to consensus, which ignores content it already
+    // holds. Like a proposal, it is only relayed if it is for the round we
+    // are in, so this comes before marking the content as relayed: a copy
+    // that arrives too early must not stop the later ones.
+    if (!app_.getOPs().processEntropySet(
+            uint256{set.previousledger()},
+            uint256{set.sethash()},
+            std::move(txns)))
+    {
+        JLOG(p_journal_.trace()) << "EntropySet: not for our round";
+        return;
+    }
+
+    // Relay each content once, whichever validator's copy got here first.
+    // The others are valid, but have nothing to add.
+    auto const toSkip = app_.getHashRouter().shouldRelay(digest);
+    if (!toSkip)
+    {
+        JLOG(p_journal_.trace()) << "EntropySet: content already relayed";
+        return;
+    }
+
+    overlay_.foreach(send_if_not(
+        std::make_shared<Message>(*packet, protocol::mtENTROPY_SET),
+        peer_in_set(*toSkip)));
 }
 
 void

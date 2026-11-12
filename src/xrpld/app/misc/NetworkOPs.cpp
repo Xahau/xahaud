@@ -309,6 +309,12 @@ public:
     void
     mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire) override;
 
+    bool
+    processEntropySet(
+        uint256 const& prevLedger,
+        uint256 const& setHash,
+        std::vector<boost::intrusive_ptr<SHAMapItem const>> txns) override;
+
     // Network state machine.
 
     // Used for the "jump" case.
@@ -2283,6 +2289,15 @@ NetworkOPsImp::mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire)
     // We acquired it because consensus asked us to
     if (fromAcquire)
         mConsensus.gotTxSet(app_.timeKeeper().closeTime(), RCLTxSet{map});
+}
+
+bool
+NetworkOPsImp::processEntropySet(
+    uint256 const& prevLedger,
+    uint256 const& setHash,
+    std::vector<boost::intrusive_ptr<SHAMapItem const>> txns)
+{
+    return mConsensus.gotEntropySet(prevLedger, setHash, std::move(txns));
 }
 
 void

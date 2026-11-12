@@ -254,6 +254,166 @@ RCLConsensus::Adaptor::propose(RCLCxPeerPos::Proposal const& proposal)
     app_.getHashRouter().addSuppression(suppression);
 
     app_.overlay().broadcast(prop);
+
+    shareEntropySet(proposal);
+}
+
+void
+RCLConsensus::Adaptor::shareEntropySet(RCLCxPeerPos::Proposal const& proposal)
+{
+    if (proposal.isBowOut() || !validatorKeys_.keys)
+        return;
+
+    // Our positions are given to inboundTransactions_ as we take them.
+    auto const set = inboundTransactions_.getSet(proposal.position(), false);
+    if (!set)
+        return;
+
+    // Empty unless featureRNG is enabled.
+    auto const txns = entropy_set::entropyTxns(*set);
+    if (txns.empty() || txns.size() > entropy_set::maxTxns)
+        return;
+
+    auto const digest =
+        entropy_set::digest(proposal.prevLedger(), proposal.position(), txns);
+
+    // The digest names the content, whoever signs it. Nothing to send if a
+    // validator that reached this position before us has already pushed it,
+    // or if we did with an earlier proposal (a close time change keeps the
+    // transaction set).
+    auto const toSkip = app_.getHashRouter().shouldRelay(digest);
+    if (!toSkip)
+        return;
+
+    auto const& keys = *validatorKeys_.keys;
+
+    protocol::TMEntropySet msg;
+    msg.set_previousledger(
+        proposal.prevLedger().begin(), proposal.prevLedger().size());
+    msg.set_sethash(proposal.position().begin(), proposal.position().size());
+    for (auto const& tx : txns)
+        msg.add_transactions(tx->data(), tx->size());
+    msg.set_nodepubkey(keys.publicKey.data(), keys.publicKey.size());
+
+    auto const sig = signDigest(keys.publicKey, keys.secretKey, digest);
+    msg.set_signature(sig.data(), sig.size());
+
+    app_.getHashRouter().addSuppression(
+        entropy_set::uniqueId(digest, keys.publicKey.slice(), sig));
+
+    JLOG(j_.debug()) << "RNG: pushing " << txns.size()
+                     << " entropy txns for position " << proposal.position();
+
+    app_.overlay().foreach(send_if_not(
+        std::make_shared<Message>(msg, protocol::mtENTROPY_SET),
+        peer_in_set(*toSkip)));
+}
+
+void
+RCLConsensus::Adaptor::addEntropySet(
+    RCLCxLedger::ID const& prevLedger,
+    RCLTxSet::ID const& setHash,
+    entropy_set::Txns txns)
+{
+    if (inboundTransactions_.getSet(setHash, false))
+        return;
+
+    // Every validator that reaches a position pushes the same content, and
+    // each copy gets here. Compare the transactions as well as the hashes: a
+    // wrong list signed for a real set hash must not block the right one.
+    for (auto const& pending : pendingEntropySets_)
+    {
+        if (pending.prevLedger == prevLedger && pending.setHash == setHash &&
+            std::equal(
+                pending.txns.begin(),
+                pending.txns.end(),
+                txns.begin(),
+                txns.end(),
+                [](auto const& a, auto const& b) {
+                    return a->key() == b->key();
+                }))
+            return;
+    }
+
+    if (pendingEntropySets_.size() >= maxPendingEntropySets)
+        pendingEntropySets_.erase(pendingEntropySets_.begin());
+
+    pendingEntropySets_.push_back(
+        PendingEntropySet{prevLedger, setHash, std::move(txns), std::nullopt});
+}
+
+void
+RCLConsensus::Adaptor::rebuildEntropySets(
+    RCLCxLedger::ID const& prevLedger,
+    RCLTxSet const& ours)
+{
+    if (pendingEntropySets_.empty())
+        return;
+
+    // Our position's transactions other than ttENTROPY, worked out once per
+    // position and only if there is something to build from them.
+    std::optional<uint256> baseHash;
+    auto const base = [&]() -> SHAMap const& {
+        if (auto const id = ours.id();
+            !entropyBase_ || entropyBase_->first != id)
+        {
+            entropyBase_.emplace(id, entropy_set::withoutEntropy(*ours.map_));
+        }
+        if (!baseHash)
+            baseHash = entropyBase_->second->getHash().as_uint256();
+        return *entropyBase_->second;
+    };
+
+    std::vector<std::shared_ptr<SHAMap>> rebuilt;
+
+    for (auto it = pendingEntropySets_.begin();
+         it != pendingEntropySets_.end();)
+    {
+        // Another round's. It ages out as newer ones arrive.
+        if (it->prevLedger != prevLedger)
+        {
+            ++it;
+            continue;
+        }
+
+        // Acquired from a peer, or built by us, in the meantime.
+        if (inboundTransactions_.getSet(it->setHash, false))
+        {
+            it = pendingEntropySets_.erase(it);
+            continue;
+        }
+
+        SHAMap const& baseSet = base();
+        if (it->triedBase == baseHash)
+        {
+            ++it;
+            continue;
+        }
+
+        if (auto set = entropy_set::rebuild(baseSet, it->txns, it->setHash))
+        {
+            rebuilt.push_back(std::move(set));
+            it = pendingEntropySets_.erase(it);
+        }
+        else
+        {
+            // The validator's other transactions differ from ours.
+            JLOG(j_.debug()) << "RNG: cannot build tx set " << it->setHash
+                             << " from pushed entropy txns yet";
+            it->triedBase = baseHash;
+            ++it;
+        }
+    }
+
+    // Handing a set over calls back into consensus (NetworkOPs::mapComplete),
+    // so only do it once we are done with pendingEntropySets_.
+    for (auto const& set : rebuilt)
+    {
+        auto const hash = set->getHash().as_uint256();
+        JLOG(j_.debug()) << "RNG: built tx set " << hash
+                         << " from pushed entropy txns";
+        inboundTransactions_.giveSet(hash, set, true);
+    }
 }
 
 void
@@ -1078,6 +1238,9 @@ RCLConsensus::timerEntry(
     {
         std::lock_guard _{mutex_};
         consensus_.timerEntry(now, clog);
+
+        // We may have just taken or changed our position.
+        rebuildEntropySets();
     }
     catch (SHAMapMissingNode const& mn)
     {
@@ -1104,6 +1267,38 @@ RCLConsensus::gotTxSet(NetClock::time_point const& now, RCLTxSet const& txSet)
         JLOG(j_.error()) << "During consensus gotTxSet: " << mn.what();
         Rethrow();
     }
+}
+
+bool
+RCLConsensus::gotEntropySet(
+    RCLCxLedger::ID const& prevLedger,
+    RCLTxSet::ID const& setHash,
+    entropy_set::Txns txns)
+{
+    try
+    {
+        std::lock_guard _{mutex_};
+
+        // Keep it even if it is not for our round: it may be for the round
+        // we are about to start.
+        adaptor_.addEntropySet(prevLedger, setHash, std::move(txns));
+        rebuildEntropySets();
+
+        return prevLedger == consensus_.prevLedgerID();
+    }
+    catch (SHAMapMissingNode const& mn)
+    {
+        // This should never happen
+        JLOG(j_.error()) << "During consensus gotEntropySet: " << mn.what();
+        Rethrow();
+    }
+}
+
+void
+RCLConsensus::rebuildEntropySets()
+{
+    if (auto const ours = consensus_.ourTxSet())
+        adaptor_.rebuildEntropySets(consensus_.prevLedgerID(), *ours);
 }
 
 //! @see Consensus::simulate

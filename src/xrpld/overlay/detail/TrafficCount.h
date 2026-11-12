@@ -157,6 +157,9 @@ public:
         // TMTransactions
         requested_transactions,
 
+        // TMEntropySet
+        entropy_set,
+
         unknown  // must be last
     };
 
@@ -249,6 +252,7 @@ protected:
         {"replay_delta_response"},   // category::replay_delta_response
         {"have_transactions"},       // category::have_transactions
         {"requested_transactions"},  // category::transactions
+        {"entropy_set"},             // category::entropy_set
         {"unknown"}                  // category::unknown
     }};
 };
