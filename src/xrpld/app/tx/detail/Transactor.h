@@ -85,6 +85,9 @@ public:
 
 class TxConsequences;
 struct PreflightResult;
+// Needed for preflight specialization
+class Change;
+class Cron;
 
 class Transactor
 {
@@ -154,6 +157,35 @@ public:
     // the transaction.
     static std::vector<std::pair<AccountID, bool>>
     getTransactionalStakeHolders(STTx const& tx);
+
+    /* Do NOT define an invokePreflight function in a derived class.
+       Instead, define:
+
+        // Optional if the transaction is gated on an amendment that
+        // isn't specified in transactions.macro
+        static bool
+        checkExtraFeatures(PreflightContext const& ctx);
+
+        // Optional if the transaction uses any flags other than tfUniversal
+        static std::uint32_t
+        getFlagsMask(PreflightContext const& ctx);
+
+        // Required, even if it just returns tesSUCCESS.
+        static NotTEC
+        preflight(PreflightContext const& ctx);
+
+        // Optional, rarely needed, if the transaction does any expensive
+        // checks after the signature is verified.
+        static NotTEC preflightSigValidated(PreflightContext const& ctx);
+
+       * Do not try to call preflight1 or preflight2 directly.
+       * Do not check whether relevant amendments are enabled in preflight.
+         Instead, define checkExtraFeatures.
+       * Do not check flags in preflight. Instead, define getFlagsMask.
+    */
+    template <class T>
+    static NotTEC
+    invokePreflight(PreflightContext const& ctx);
 
     static TER
     preclaim(PreclaimContext const& ctx)
@@ -290,6 +322,29 @@ protected:
         Fees const& fees,
         ApplyFlags flags);
 
+    // Returns the fee in fee units, not scaled for load.
+    static XRPAmount
+    calculateOwnerReserveFee(ReadView const& view, STTx const& tx);
+
+    // Base class always returns true
+    static bool
+    checkExtraFeatures(PreflightContext const& ctx);
+
+    // Base class always returns tfUniversalMask
+    static std::uint32_t
+    getFlagsMask(PreflightContext const& ctx);
+
+    // Base class always returns tesSUCCESS
+    static NotTEC
+    preflightSigValidated(PreflightContext const& ctx);
+
+    static bool
+    validDataLength(std::optional<Slice> const& slice, std::size_t maxLength);
+
+    template <class T>
+    static bool
+    validNumericRange(std::optional<T> value, T max, T min = {});
+
 private:
     std::pair<TER, XRPAmount>
     reset(XRPAmount fee);
@@ -304,19 +359,97 @@ private:
     checkMultiSign(PreclaimContext const& ctx);
 
     void trapTransaction(uint256) const;
+
+    /** Performs early sanity checks on the account and fee fields.
+
+        (And passes flagMask to preflight0)
+
+        Do not try to call preflight1 from preflight() in derived classes. See
+        the description of invokePreflight for details.
+    */
+    static NotTEC
+    preflight1(PreflightContext const& ctx, std::uint32_t flagMask);
+
+    /** Checks whether the signature appears valid
+
+        Do not try to call preflight2 from preflight() in derived classes. See
+        the description of invokePreflight for details.
+    */
+    static NotTEC
+    preflight2(PreflightContext const& ctx);
 };
 
-/** Performs early sanity checks on the txid */
-NotTEC
-preflight0(PreflightContext const& ctx);
+inline bool
+Transactor::checkExtraFeatures(PreflightContext const& ctx)
+{
+    return true;
+}
 
-/** Performs early sanity checks on the account and fee fields */
+/** Performs early sanity checks on the txid and flags */
 NotTEC
-preflight1(PreflightContext const& ctx);
+preflight0(PreflightContext const& ctx, std::uint32_t flagMask);
 
-/** Checks whether the signature appears valid */
+namespace detail {
+
+/** Checks the validity of the transactor signing key.
+ *
+ * Normally called from preflight1 with ctx.tx.
+ */
 NotTEC
-preflight2(PreflightContext const& ctx);
+preflightCheckSigningKey(STObject const& sigObject, beast::Journal j);
+
+/** Checks the special signing key state needed for simulation
+ *
+ * Normally called from preflight2 with ctx.tx.
+ */
+std::optional<NotTEC>
+preflightCheckSimulateKeys(
+    ApplyFlags flags,
+    STObject const& sigObject,
+    beast::Journal j);
+}  // namespace detail
+
+// Defined in Change.cpp
+template <>
+NotTEC
+Transactor::invokePreflight<Change>(PreflightContext const& ctx);
+
+template <>
+NotTEC
+Transactor::invokePreflight<Cron>(PreflightContext const& ctx);
+
+template <class T>
+NotTEC
+Transactor::invokePreflight(PreflightContext const& ctx)
+{
+    auto const feature = txRequiredFeature(ctx.tx.getTxnType());
+
+    if (feature && !ctx.rules.enabled(*feature))
+        return temDISABLED;
+
+    if (!T::checkExtraFeatures(ctx))
+        return temDISABLED;
+
+    if (auto const ret = preflight1(ctx, T::getFlagsMask(ctx)))
+        return ret;
+
+    if (auto const ret = T::preflight(ctx))
+        return ret;
+
+    if (auto const ret = preflight2(ctx))
+        return ret;
+
+    return T::preflightSigValidated(ctx);
+}
+
+template <class T>
+bool
+Transactor::validNumericRange(std::optional<T> value, T max, T min)
+{
+    if (!value)
+        return true;
+    return value >= min && value <= max;
+}
 
 template <class C>
 inline static std::variant<uint32_t, uint256>
