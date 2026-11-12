@@ -1,17 +1,8 @@
-Loop: test.app test.jtx
-  test.app > test.jtx
-
-Loop: test.app test.rpc
-  test.rpc ~= test.app
-
 Loop: test.jtx test.toplevel
   test.toplevel > test.jtx
 
 Loop: test.jtx test.unit_test
   test.unit_test == test.jtx
-
-Loop: xrpl.protocol xrpld.app
-  xrpld.app > xrpl.protocol
 
 Loop: xrpld.app xrpld.core
   xrpld.app > xrpld.core
