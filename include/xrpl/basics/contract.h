@@ -23,6 +23,7 @@
 #include <xrpl/beast/type_name.h>
 #include <exception>
 #include <string>
+#include <type_traits>
 #include <typeinfo>
 #include <utility>
 
@@ -52,7 +53,7 @@ Rethrow()
 }
 
 template <class E, class... Args>
-[[noreturn]] inline void
+[[noreturn]] constexpr void
 Throw(Args&&... args)
 {
     static_assert(
@@ -60,10 +61,15 @@ Throw(Args&&... args)
         "Exception must derive from std::exception.");
 
     E e(std::forward<Args>(args)...);
-    LogThrow(
-        std::string(
-            "Throwing exception of type " + beast::type_name<E>() + ": ") +
-        e.what());
+
+    // Skip logging when evaluated at compile time, so that `Throw` can be
+    // called from constexpr/consteval functions.
+    if (!std::is_constant_evaluated())
+        LogThrow(
+            std::string(
+                "Throwing exception of type " + beast::type_name<E>() + ": ") +
+            e.what());
+
     throw e;
 }
 

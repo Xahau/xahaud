@@ -40,11 +40,12 @@
 
 namespace ripple {
 
+template <>
 NotTEC
-Change::preflight(PreflightContext const& ctx)
+Transactor::invokePreflight<Change>(PreflightContext const& ctx)
 {
-    auto const ret = preflight0(ctx);
-    if (!isTesSuccess(ret))
+    // 0 means "Allow any flags"
+    if (auto const ret = preflight0(ctx, 0))
         return ret;
 
     auto account = ctx.tx.getAccountID(sfAccount);
@@ -67,6 +68,16 @@ Change::preflight(PreflightContext const& ctx)
     {
         JLOG(ctx.j.warn()) << "Change: Bad signature";
         return temBAD_SIGNATURE;
+    }
+
+    // Pseudo-transactions skip preflight1, where every other transaction
+    // type has these gated on featureJsonTx. They carry no signature for a
+    // delta to reconstruct, and a node on an older build cannot parse either
+    // field, so a validator proposing one would split the network.
+    if (ctx.tx.isFieldPresent(sfTime) || ctx.tx.isFieldPresent(sfJsonTxDelta))
+    {
+        JLOG(ctx.j.warn()) << "Change: JsonTx fields on a pseudo-transaction";
+        return temMALFORMED;
     }
 
     if (ctx.tx.getFieldU32(sfSequence) != 0 ||

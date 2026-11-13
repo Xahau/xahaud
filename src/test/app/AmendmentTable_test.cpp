@@ -1272,6 +1272,79 @@ public:
     }
 
     void
+    testIgnoredUnsupported()
+    {
+        testcase("ignore_amendments");
+
+        using namespace std::chrono_literals;
+        weeks constexpr w(1);
+        test::jtx::Env env{*this, makeConfig()};
+
+        static std::vector<AmendmentTable::FeatureInfo> const supported =
+            makeDefaultYes(yes_);
+
+        // Ignore every unsupported_ amendment except the first one.
+        BEAST_EXPECT(unsupported_.size() > 1);
+        std::vector<std::string> const ignoredNames(
+            unsupported_.begin() + 1, unsupported_.end());
+
+        auto table = make_AmendmentTable(
+            env.app(),
+            w,
+            supported,
+            emptySection_,
+            emptySection_,
+            journal_,
+            makeSection(ignoredNames));
+
+        for (auto const& a : ignoredNames)
+            BEAST_EXPECT(table->isSupported(amendmentId(a)));
+        BEAST_EXPECT(!table->isSupported(amendmentId(unsupported_[0])));
+
+        majorityAmendments_t const majority;
+
+        // Enabling only ignored amendments must not block.
+        std::set<uint256> enabled;
+        for (auto const& a : ignoredNames)
+            enabled.insert(amendmentId(a));
+        table->doValidatedLedger(1, enabled, majority);
+        BEAST_EXPECT(!table->hasUnsupportedEnabled());
+        BEAST_EXPECT(table->unsupportedAmendments().empty());
+
+        // An ignored amendment must never be voted for.
+        auto const desired = table->getDesired();
+        for (auto const& a : ignoredNames)
+            BEAST_EXPECT(
+                std::find(desired.begin(), desired.end(), amendmentId(a)) ==
+                desired.end());
+
+        // A non-ignored unsupported amendment still blocks.
+        enabled.insert(amendmentId(unsupported_[0]));
+        table->doValidatedLedger(2, enabled, majority);
+        BEAST_EXPECT(table->hasUnsupportedEnabled());
+
+        // Bad entries are rejected.
+        Section bad("ignore_amendments");
+        bad.append("NotARealFeatureName");
+        try
+        {
+            make_AmendmentTable(
+                env.app(),
+                w,
+                supported,
+                emptySection_,
+                emptySection_,
+                journal_,
+                bad);
+            fail("expected bad [ignore_amendments] entry to throw");
+        }
+        catch (std::runtime_error const&)
+        {
+            pass();
+        }
+    }
+
+    void
     testFeature(FeatureBitset const& feat)
     {
         testNoOnUnknown(feat);
@@ -1294,6 +1367,7 @@ public:
         testBadConfig();
         testEnableVeto();
         testHasUnsupported();
+        testIgnoredUnsupported();
         testFeature(all - fixMajorityCalc);
         testFeature(all);
     }

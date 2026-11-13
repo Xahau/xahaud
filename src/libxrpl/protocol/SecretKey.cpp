@@ -25,6 +25,7 @@
 #include <xrpl/protocol/SecretKey.h>
 #include <xrpl/protocol/detail/secp256k1.h>
 #include <xrpl/protocol/digest.h>
+
 #include <cstring>
 #include <ed25519.h>
 
@@ -32,25 +33,7 @@ namespace ripple {
 
 SecretKey::~SecretKey()
 {
-    secure_erase(buf_, sizeof(buf_));
-}
-
-SecretKey::SecretKey(std::array<std::uint8_t, 32> const& key)
-{
-    std::memcpy(buf_, key.data(), key.size());
-}
-
-SecretKey::SecretKey(Slice const& slice)
-{
-    if (slice.size() != sizeof(buf_))
-        LogicError("SecretKey::SecretKey: invalid size");
-    std::memcpy(buf_, slice.data(), sizeof(buf_));
-}
-
-std::string
-SecretKey::to_string() const
-{
-    return strHex(*this);
+    secure_erase(buf_.data(), buf_.size());
 }
 
 namespace detail {
@@ -214,7 +197,6 @@ signDigest(PublicKey const& pk, SecretKey const& sk, uint256 const& digest)
     if (publicKeyType(pk.slice()) != KeyType::secp256k1)
         LogicError("sign: secp256k1 required for digest signing");
 
-    BOOST_ASSERT(sk.size() == 32);
     secp256k1_ecdsa_signature sig_imp;
     if (secp256k1_ecdsa_sign(
             secp256k1Context(),
@@ -226,7 +208,7 @@ signDigest(PublicKey const& pk, SecretKey const& sk, uint256 const& digest)
         LogicError("sign: secp256k1_ecdsa_sign failed");
 
     unsigned char sig[72];
-    size_t len = sizeof(sig);
+    auto len = sizeof(sig);
     if (secp256k1_ecdsa_signature_serialize_der(
             secp256k1Context(), sig, &len, &sig_imp) != 1)
         LogicError("sign: secp256k1_ecdsa_signature_serialize_der failed");

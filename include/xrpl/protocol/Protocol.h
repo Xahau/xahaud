@@ -84,6 +84,9 @@ std::uint16_t constexpr maxTransferFee = 50000;
 /** The maximum length of a URI inside an NFT */
 std::size_t constexpr maxTokenURILength = 256;
 
+/** The maximum length of a URI inside an URIToken */
+std::size_t constexpr maxURITokenURILength = 256;
+
 /** The maximum length of a Data element inside a DID */
 std::size_t constexpr maxDIDDocumentLength = 256;
 
@@ -172,6 +175,21 @@ std::size_t constexpr maxPriceScale = 20;
 /** The maximum percentage of outliers to trim
  */
 std::size_t constexpr maxTrim = 25;
+
+/** sfTime validity window (featureJsonTx).
+
+    A transaction carrying sfTime (milliseconds since the ripple epoch) is
+    accepted only while the parent ledger's close time lies within
+    [Time - txTimeMaxFuture, Time + txTimeMaxAge]. The upper bound is the
+    stand-in for LastLedgerSequence: once a validated ledger closes later
+    than Time + txTimeMaxAge the transaction can never apply. The lower bound
+    keeps the validity period of a signed transaction short and limits how
+    far ahead of the network a fast client clock can push sfLastTxnTime.
+
+    Both are consensus rules once featureJsonTx activates.
+*/
+std::uint64_t constexpr txTimeMaxAgeMs = 300'000;
+std::uint64_t constexpr txTimeMaxFutureMs = 120'000;
 
 }  // namespace ripple
 

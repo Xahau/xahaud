@@ -30,16 +30,16 @@
 
 namespace ripple {
 
+template <>
 NotTEC
-Cron::preflight(PreflightContext const& ctx)
+Transactor::invokePreflight<Cron>(PreflightContext const& ctx)
 {
     if (!ctx.rules.enabled(featureCron))
         return temDISABLED;
 
-    auto const ret = preflight0(ctx);
-    if (!isTesSuccess(ret))
+    // 0 means "Allow any flags"
+    if (auto const ret = preflight0(ctx, 0))
         return ret;
-
     auto account = ctx.tx.getAccountID(sfAccount);
     if (account != beast::zero)
     {
@@ -60,6 +60,14 @@ Cron::preflight(PreflightContext const& ctx)
     {
         JLOG(ctx.j.warn()) << "Cron: Bad signature";
         return temBAD_SIGNATURE;
+    }
+
+    // Cron skips preflight1, where every other transaction type has these
+    // gated on featureJsonTx; same reasoning as Change::preflight.
+    if (ctx.tx.isFieldPresent(sfTime) || ctx.tx.isFieldPresent(sfJsonTxDelta))
+    {
+        JLOG(ctx.j.warn()) << "Cron: JsonTx fields on a pseudo-transaction";
+        return temMALFORMED;
     }
 
     if (ctx.tx.getFieldU32(sfSequence) != 0 ||

@@ -27,22 +27,15 @@
 
 namespace ripple {
 
+bool
+PermissionedDomainSet::checkExtraFeatures(PreflightContext const& ctx)
+{
+    return ctx.rules.enabled(featureCredentials);
+}
+
 NotTEC
 PermissionedDomainSet::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featurePermissionedDomains) ||
-        !ctx.rules.enabled(featureCredentials))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    if (ctx.tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(ctx.j.debug()) << "PermissionedDomainSet: invalid flags.";
-        return temINVALID_FLAG;
-    }
-
     if (auto err = credentials::checkArray(
             ctx.tx.getFieldArray(sfAcceptedCredentials),
             maxPermissionedDomainCredentialsArraySize,
@@ -54,7 +47,7 @@ PermissionedDomainSet::preflight(PreflightContext const& ctx)
     if (domain && *domain == beast::zero)
         return temMALFORMED;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
@@ -125,14 +118,23 @@ PermissionedDomainSet::doApply()
         if (balance < reserve)
             return tecINSUFFICIENT_RESERVE;
 
-        Keylet const pdKeylet = keylet::permissionedDomain(
-            account_, ctx_.tx.getFieldU32(sfSequence));
+        // Key by seqID(), not the raw Sequence: the raw Sequence is 0 for a
+        // ticketed, emitted or time-sequenced transaction, so keying on it
+        // would give every such domain an account creates the key
+        // (account, 0), and an insert over an existing key is a LogicError
+        // when the ledger is built. seqID() is the Ticket number or the
+        // transaction id for those, as for every other sequence-keyed
+        // object. No amendment gate: PermissionedDomains is Supported::no,
+        // so no domain has ever been keyed the old way on any network.
+        std::uint32_t const seq = ctx_.tx.getSeqProxy().value();
+        Keylet const pdKeylet =
+            keylet::permissionedDomain(account_, seqID(ctx_));
         auto slePd = std::make_shared<SLE>(pdKeylet);
         if (!slePd)
             return tefINTERNAL;  // LCOV_EXCL_LINE
 
         slePd->setAccountID(sfOwner, account_);
-        slePd->setFieldU32(sfSequence, ctx_.tx.getFieldU32(sfSequence));
+        slePd->setFieldU32(sfSequence, seq);
         slePd->peekFieldArray(sfAcceptedCredentials) = std::move(sortedLE);
         auto const page = view().dirInsert(
             keylet::ownerDir(account_), pdKeylet, describeOwnerDir(account_));

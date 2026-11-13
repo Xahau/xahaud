@@ -100,11 +100,15 @@ JSS(isVLEncoded);         // out: RPC server_definitions
                           // matches definitions.json format
 JSS(Invalid);                  //
 JSS(Issuer);                   // in: Credential transactions
+JSS(IssuingChainDoor);         // field.
+JSS(IssuingChainIssue);        // field.
 JSS(InvoiceID);                // field
 JSS(LastLedgerSequence);       // in: TransactionSign; field
 JSS(FirstLedgerSequence);      // in: TransactionSign; field
 JSS(LastUpdateTime);           // field.
 JSS(LimitAmount);              // field.
+JSS(LockingChainDoor);         // field.
+JSS(LockingChainIssue);        // field.
 JSS(NetworkID);                // field.
 JSS(LPTokenOut);               // in: AMM Liquidity Provider deposit tokens
 JSS(LPTokenIn);                // in: AMM Liquidity Provider withdraw tokens
@@ -641,6 +645,7 @@ JSS(server_status);             // out: NetworkOPs
 JSS(server_version);            // out: NetworkOPs
 JSS(settle_delay);              // out: AccountChannels
 JSS(severity);                  // in: LogLevel
+JSS(sig);                       // in: Submit (JsonTx, with tx)
 JSS(signature);                 // out: NetworkOPs, ChannelAuthorize
 JSS(signature_verified);        // out: ChannelVerify
 JSS(signing_key);               // out: NetworkOPs
@@ -790,7 +795,7 @@ JSS(write_load);              // out: GetCounts
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, fields) JSS(name);
+#define TRANSACTION(tag, value, name, amendment, fields) JSS(name);
 
 #include <xrpl/protocol/detail/transactions.macro>
 

@@ -211,7 +211,8 @@ make_AmendmentTable(
     std::vector<AmendmentTable::FeatureInfo> const& supported,
     Section const& enabled,
     Section const& vetoed,
-    beast::Journal journal);
+    beast::Journal journal,
+    Section const& ignored = Section{});
 
 }  // namespace ripple
 

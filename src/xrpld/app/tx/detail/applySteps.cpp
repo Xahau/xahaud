@@ -18,61 +18,21 @@
 //==============================================================================
 
 #include <xrpld/app/tx/applySteps.h>
-#include <xrpld/app/tx/detail/AMMBid.h>
-#include <xrpld/app/tx/detail/AMMClawback.h>
-#include <xrpld/app/tx/detail/AMMCreate.h>
-#include <xrpld/app/tx/detail/AMMDelete.h>
-#include <xrpld/app/tx/detail/AMMDeposit.h>
-#include <xrpld/app/tx/detail/AMMVote.h>
-#include <xrpld/app/tx/detail/AMMWithdraw.h>
-#include <xrpld/app/tx/detail/ApplyContext.h>
-#include <xrpld/app/tx/detail/CancelCheck.h>
-#include <xrpld/app/tx/detail/CancelOffer.h>
-#include <xrpld/app/tx/detail/CashCheck.h>
-#include <xrpld/app/tx/detail/Change.h>
-#include <xrpld/app/tx/detail/ClaimReward.h>
-#include <xrpld/app/tx/detail/Clawback.h>
-#include <xrpld/app/tx/detail/CreateCheck.h>
-#include <xrpld/app/tx/detail/CreateOffer.h>
-#include <xrpld/app/tx/detail/CreateTicket.h>
-#include <xrpld/app/tx/detail/Credentials.h>
-#include <xrpld/app/tx/detail/Cron.h>
-#include <xrpld/app/tx/detail/CronSet.h>
-#include <xrpld/app/tx/detail/DID.h>
-#include <xrpld/app/tx/detail/DeleteAccount.h>
-#include <xrpld/app/tx/detail/DeleteOracle.h>
-#include <xrpld/app/tx/detail/DepositPreauth.h>
-#include <xrpld/app/tx/detail/Escrow.h>
-#include <xrpld/app/tx/detail/GenesisMint.h>
-#include <xrpld/app/tx/detail/Import.h>
-#include <xrpld/app/tx/detail/Invoke.h>
-#include <xrpld/app/tx/detail/LedgerStateFix.h>
-#include <xrpld/app/tx/detail/MPTokenAuthorize.h>
-#include <xrpld/app/tx/detail/MPTokenIssuanceCreate.h>
-#include <xrpld/app/tx/detail/MPTokenIssuanceDestroy.h>
-#include <xrpld/app/tx/detail/MPTokenIssuanceSet.h>
-#include <xrpld/app/tx/detail/NFTokenAcceptOffer.h>
-#include <xrpld/app/tx/detail/NFTokenBurn.h>
-#include <xrpld/app/tx/detail/NFTokenCancelOffer.h>
-#include <xrpld/app/tx/detail/NFTokenCreateOffer.h>
-#include <xrpld/app/tx/detail/NFTokenMint.h>
-#include <xrpld/app/tx/detail/NFTokenModify.h>
-#include <xrpld/app/tx/detail/PayChan.h>
-#include <xrpld/app/tx/detail/Payment.h>
-#include <xrpld/app/tx/detail/PermissionedDomainDelete.h>
-#include <xrpld/app/tx/detail/PermissionedDomainSet.h>
-#include <xrpld/app/tx/detail/Remit.h>
-#include <xrpld/app/tx/detail/SetAccount.h>
-#include <xrpld/app/tx/detail/SetHook.h>
-#include <xrpld/app/tx/detail/SetManifest.h>
-#include <xrpld/app/tx/detail/SetOracle.h>
-#include <xrpld/app/tx/detail/SetRegularKey.h>
-#include <xrpld/app/tx/detail/SetRemarks.h>
-#include <xrpld/app/tx/detail/SetSignerList.h>
-#include <xrpld/app/tx/detail/SetTrust.h>
-#include <xrpld/app/tx/detail/URIToken.h>
-#include <xrpld/app/tx/detail/XChainBridge.h>
-#include <xrpld/app/tx/detail/XahauGenesis.h>
+#pragma push_macro("TRANSACTION")
+#undef TRANSACTION
+
+// Do nothing
+#define TRANSACTION(...)
+#define TRANSACTION_INCLUDE 1
+
+#include <xrpl/protocol/detail/transactions.macro>
+
+#undef TRANSACTION
+#pragma pop_macro("TRANSACTION")
+
+// DO NOT INCLUDE TRANSACTOR HEADER FILES HERE.
+// See the instructions at the top of transactions.macro instead.
+
 #include <xrpl/protocol/TxFormats.h>
 
 #include <stdexcept>
@@ -100,8 +60,8 @@ with_txn_type(TxType txnType, F&& f)
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, fields) \
-    case tag:                                 \
+#define TRANSACTION(tag, value, name, amendment, fields) \
+    case tag:                                            \
         return f.template operator()<name>();
 
 #include <xrpl/protocol/detail/transactions.macro>
@@ -160,7 +120,7 @@ invoke_preflight(PreflightContext const& ctx)
     try
     {
         return with_txn_type(ctx.tx.getTxnType(), [&]<typename T>() {
-            auto const tec = T::preflight(ctx);
+            auto const tec = Transactor::invokePreflight<T>(ctx);
             return std::make_pair(
                 tec,
                 isTesSuccess(tec) ? consequences_helper<T>(ctx)
@@ -262,7 +222,8 @@ TxConsequences::TxConsequences(STTx const& tx)
                                                       : beast::zero)
     , potentialSpend_(beast::zero)
     , seqProx_(tx.getSeqProxy())
-    , sequencesConsumed_(tx.getSeqProxy().isSeq() ? 1 : 0)
+    , sequencesConsumed_(
+          tx.getSeqProxy().isSeq() && !tx.isTimeSequenced() ? 1 : 0)
 {
 }
 
