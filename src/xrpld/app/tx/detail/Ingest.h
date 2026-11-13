@@ -23,6 +23,7 @@
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
 #include <xrpl/protocol/LedgerHeader.h>
+#include <xrpl/protocol/STTx.h>
 #include <map>
 
 namespace ripple {
@@ -38,22 +39,35 @@ namespace ripple {
     fee, so parent.coins - coins is what they burned between them. Nobody can
     present a child hash the tree does not hold, so no entry counts more
     leaves than there are; one that leaves an inner node out only counts
-    fewer. So among entries for one ledger the most leaves wins, and one
-    honest relay is enough. A mean would be one whale's to own, so the fee is
-    a median over leaves the ledger's own hash picks (sampleLeaves): neither
-    the relay nor anyone paying fees there chooses them.
+    fewer, which makes the leaf count a lower bound and nothing more. A mean
+    would be one whale's to own (and would lean on that count), so the fee
+    is a median over leaves the ledger's own hash picks (sampleLeaves):
+    neither the relay nor anyone paying fees there chooses them, and every
+    inner node on the way to them must be given, so it is the same whatever
+    else a proof leaves out.
 
     What it records, in the network's ltEXPORT_FEE: the latest ledger's
-    index, leaves, burn and median, and sfExportFeeUnit, the per-signature
-    fee (Fee / (1 + signers)) xport_prepare() prices an export by for a hook
-    that sets no Fee (Export::feeUnit). Each newer ledger folds the median
-    into it by eighths (fold), never below Export::xrplBaseFee. The index is
-    also the clock exports expire by. A hook reads all of it with
-    xport_fee().
+    index, leaves (as counted), burn and median, and sfExportFeeUnit, the
+    per-signature fee (Fee / (1 + signers)) xport_prepare() prices an export
+    by for a hook that sets no Fee (Export::feeUnit). Each newer ledger folds
+    the median into it by eighths (fold), never below Export::xrplBaseFee.
+    The index is also the clock exports expire by. A hook reads all of it
+    with xport_fee().
 
-    An entry for a ledger newer than the one recorded is free; one for the
-    same ledger must carry more leaves and pays the base fee. The list that
-    proves it must be one trusted for sfRemoteNetworkID (Import::vlNetwork). */
+    Nobody's transaction. A proof is its own authority, so a ttINGEST has no
+    account: it is the one envelope `make` builds around the proof, from
+    account zero, unsigned, unsequenced and free, and whoever holds a proof
+    may submit it. It is not a pseudo-transaction (it is relayed, and comes
+    from outside the network), but it applies like one: nobody is charged,
+    no Sequence is used and no hook runs, there being no account to have
+    one. In place of a signature the proof itself is checked wherever a
+    signature would be (checkValidity).
+
+    One entry per ledger: only a ledger strictly newer than the one recorded
+    for sfRemoteNetworkID is taken (tefPAST_SEQ otherwise), so the record
+    only moves forward and whichever proof of a ledger lands first is the
+    one kept. The list that proves it must be one trusted for
+    sfRemoteNetworkID (Import::vlNetwork). */
 class Ingest : public Transactor
 {
 public:
@@ -82,6 +96,32 @@ public:
         is trusted, the list in date and the ledger newer than recorded. */
     static std::optional<Xpof>
     parse(Slice blob, beast::Journal j);
+
+    /** The one transaction that may carry `blob`, an XPOF of ledger `seq`
+        of network `remote`, on network `networkID` (this one): Account zero,
+        Sequence 0, Fee 0, an empty SigningPubKey, NetworkID as every
+        transaction here has it or has it not (preflight0), and the three
+        fields of its own. No signature, and no other field: it is free and
+        unsigned, so any would be a way to put data into the ledger for
+        nothing and to give one proof as many ids as wanted. */
+    static STTx
+    make(
+        std::uint32_t networkID,
+        std::uint32_t remote,
+        std::uint32_t seq,
+        Slice blob);
+
+    /** Whether `tx` is, byte for byte, what `make` builds from its own
+        sfRemoteNetworkID, sfLedgerSequence and sfBlob */
+    static bool
+    isCanonical(STTx const& tx, std::uint32_t networkID) noexcept;
+
+    /** What `tx` proves, if it is canonical (isCanonical) and its blob an
+        XPOF (parse) of the ledger it names, no larger than maxBlob. All a
+        ttINGEST can be held to without a ledger: what preflight requires,
+        and checkValidity in place of a signature. */
+    static std::optional<Xpof>
+    proof(STTx const& tx, std::uint32_t networkID, beast::Journal j);
 
     /** The leaf hashes a complete tree for `ledger` with root `root` must
         carry in full: for sample i, descend from the root along the nibbles
@@ -114,6 +154,12 @@ public:
 
     TER
     doApply() override;
+
+    void
+    preCompute() override
+    {
+        // there is no account
+    }
 };
 
 }  // namespace ripple

@@ -58,8 +58,13 @@
     validation: {data, unl}} with numbers as numbers (coins a decimal
     string), hex in upper case, base64 padded and unbroken, validations keyed
     by node public key (only ones that count), and tree nodes in ascending
-    order of hash in the wire format their branch count calls for. No other
+    order of hash in the wire format their branch count calls for. The
+    list's version is 1, the form it is given in here (one blob, one
+    signature) whatever its publisher serves: nothing reads it, and nothing
+    signs it, so any other number would only be a second spelling. No other
     keys, whitespace, repeats or spellings.
+
+    The envelope is as fixed as the blob: see Ingest::make.
 */
 
 namespace ripple {
@@ -323,7 +328,7 @@ Ingest::parse(Slice blob, beast::Journal j)
                 base64_encode(base64_decode(str(unl[jss::manifest])));
             cu[jss::blob] = base64_encode(data);
             cu[jss::signature] = strHex(*sig);
-            cu[jss::version] = unl[jss::version].asUInt();
+            cu[jss::version] = 1;
             auto& ct = c["tree"] = Json::arrayValue;
             for (auto const& [hash, node] : nodes)
             {
@@ -356,25 +361,96 @@ Ingest::parse(Slice blob, beast::Journal j)
     }
 }
 
-XRPAmount
-Ingest::calculateBaseFee(ReadView const& view, STTx const& tx)
+STTx
+Ingest::make(
+    std::uint32_t networkID,
+    std::uint32_t remote,
+    std::uint32_t seq,
+    Slice blob)
 {
-    // a ledger newer than the one recorded is free; the same one again,
-    // with more of its tree, is not
-    auto const sle = view.read(keylet::exportFee(tx[sfRemoteNetworkID]));
-    if (!sle || tx[sfLedgerSequence] > (*sle)[sfLedgerSequence])
-        return XRPAmount{0};
-    return Transactor::calculateBaseFee(view, tx);
+    return STTx(ttINGEST, [&](STObject& o) {
+        o[sfAccount] = AccountID{};
+        o[sfSequence] = 0;
+        o[sfFee] = XRPAmount{0};
+        o[sfSigningPubKey] = Slice{};
+        // as preflight0 has it: required above 1024, refused at or below
+        if (networkID > 1024)
+            o[sfNetworkID] = networkID;
+        o[sfRemoteNetworkID] = remote;
+        o[sfLedgerSequence] = seq;
+        o[sfBlob] = blob;
+    });
+}
+
+bool
+Ingest::isCanonical(STTx const& tx, std::uint32_t networkID) noexcept
+{
+    try
+    {
+        if (tx.getTxnType() != ttINGEST)
+            return false;
+        auto const blob = tx.getFieldVL(sfBlob);
+        auto const actual = tx.getSerializer();
+        auto const canonical = make(
+                                   networkID,
+                                   tx[sfRemoteNetworkID],
+                                   tx[sfLedgerSequence],
+                                   makeSlice(blob))
+                                   .getSerializer();
+        return actual.slice() == canonical.slice();
+    }
+    catch (std::exception const&)
+    {
+        return false;
+    }
+}
+
+std::optional<Ingest::Xpof>
+Ingest::proof(STTx const& tx, std::uint32_t networkID, beast::Journal j)
+{
+    if (!isCanonical(tx, networkID))
+    {
+        JLOG(j.warn()) << "Ingest: not the canonical envelope";
+        return std::nullopt;
+    }
+    auto const blob = tx.getFieldVL(sfBlob);
+    if (blob.size() > maxBlob)
+        return std::nullopt;
+    auto x = parse(makeSlice(blob), j);
+    if (!x || x->ledger.seq != tx[sfLedgerSequence])
+        return std::nullopt;
+    return x;
+}
+
+XRPAmount
+Ingest::calculateBaseFee(ReadView const&, STTx const&)
+{
+    // nobody's transaction, so nobody's to pay for (see Ingest.h)
+    return XRPAmount{0};
+}
+
+// A ttINGEST has no account and no signature (see Ingest.h), so like Change
+// and Cron it takes preflight0 in place of preflight1, which requires an
+// account, and of preflight2, which requires its signature: what stands in
+// for both is Ingest::preflight, the one envelope and the proof inside it.
+template <>
+NotTEC
+Transactor::invokePreflight<Ingest>(PreflightContext const& ctx)
+{
+    if (!ctx.rules.enabled(featureExport))
+        return temDISABLED;
+
+    // 0 means "Allow any flags": the canonical envelope has no Flags at all
+    if (auto const ret = preflight0(ctx, 0))
+        return ret;
+
+    return Ingest::preflight(ctx);
 }
 
 NotTEC
 Ingest::preflight(PreflightContext const& ctx)
 {
-    auto const blob = ctx.tx.getFieldVL(sfBlob);
-    if (blob.size() > maxBlob)
-        return temMALFORMED;
-    auto const x = parse(makeSlice(blob), ctx.j);
-    if (!x || x->ledger.seq != ctx.tx[sfLedgerSequence])
+    if (!proof(ctx.tx, ctx.app.config().NETWORK_ID, ctx.j))
         return temMALFORMED;
     return tesSUCCESS;
 }
@@ -382,20 +458,16 @@ Ingest::preflight(PreflightContext const& ctx)
 TER
 Ingest::preclaim(PreclaimContext const& ctx)
 {
+    // one entry per ledger of the other network, and only ever a newer one
     auto const seq = ctx.tx[sfLedgerSequence];
     auto const nid = ctx.tx[sfRemoteNetworkID];
-    auto const sle = ctx.view.read(keylet::exportFee(nid));
-    std::uint32_t const have = sle ? (*sle)[sfLedgerSequence] : 0;
-    if (seq < have)
+    if (auto const sle = ctx.view.read(keylet::exportFee(nid));
+        sle && seq <= (*sle)[sfLedgerSequence])
         return tefPAST_SEQ;
 
     auto const x = parse(makeSlice(ctx.tx.getFieldVL(sfBlob)), ctx.j);
     if (!x)
         return tefINTERNAL;
-
-    // the same ledger again counts only with more of its tree
-    if (sle && seq == have && x->leaves <= (*sle)[sfTransactionCount])
-        return tefALREADY;
 
     // the UNL's publisher must be one Import trusts for this very network,
     // its list in date and no older than one already used
@@ -427,12 +499,11 @@ Ingest::doApply()
         (*sle)[sfRemoteNetworkID] = nid;
     }
 
-    // A newer ledger folds the one recorded into the unit first; the same
-    // ledger, with more of its tree, only replaces what was recorded of it.
-    // So the unit trails the record by one ledger, and nothing is unwound.
+    // A newer ledger (preclaim takes no other) folds the one recorded into
+    // the unit first, so the unit trails the record by one ledger.
     if (created)
         (*sle)[sfExportFeeUnit] = x->median;
-    else if (x->ledger.seq > (*sle)[sfLedgerSequence])
+    else
         (*sle)[sfExportFeeUnit] =
             fold((*sle)[sfExportFeeUnit], (*sle)[sfSampleFee]);
     (*sle)[sfLedgerSequence] = x->ledger.seq;

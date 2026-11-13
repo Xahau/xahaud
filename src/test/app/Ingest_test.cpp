@@ -20,6 +20,8 @@
 #include <test/jtx.h>
 #include <test/shamap/common.h>
 #include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Ingest.h>
 #include <xrpld/shamap/SHAMap.h>
@@ -36,6 +38,7 @@
 #include <xrpl/protocol/jss.h>
 #include <algorithm>
 #include <cctype>
+#include <functional>
 
 namespace ripple {
 namespace test {
@@ -259,12 +262,64 @@ class Ingest_test : public beast::unit_test::suite
         }
     };
 
-    static Json::Value
+    // The transaction that carries `xpof` as a proof of ledger `seq` of the
+    // XRPL: field for field what Ingest::make builds, then `tweak`ed
+    static std::shared_ptr<STTx const>
     ingest(
-        jtx::Account const& from,
+        jtx::Env& env,
         std::uint32_t seq,
         std::string const& xpof,
-        std::optional<std::string> fee = "0")
+        std::function<void(STObject&)> const& tweak = {})
+    {
+        return std::make_shared<STTx const>(ttINGEST, [&](STObject& o) {
+            o[sfAccount] = AccountID{};
+            o[sfSequence] = 0;
+            o[sfFee] = XRPAmount{0};
+            o[sfSigningPubKey] = Slice{};
+            o[sfNetworkID] = env.app().config().NETWORK_ID;
+            o[sfRemoteNetworkID] = 0;
+            o[sfLedgerSequence] = seq;
+            o[sfBlob] = makeSlice(xpof);
+            if (tweak)
+                tweak(o);
+        });
+    }
+
+    // Through the front door, as anyone would send it: the submit RPC, and
+    // so checkValidity and the queue. The engine result, or the RPC error
+    // if it never got that far.
+    static std::string
+    submit(jtx::Env& env, STTx const& tx)
+    {
+        Serializer s;
+        tx.add(s);
+        auto const jr = env.rpc("submit", strHex(s.slice()))[jss::result];
+        return jr.isMember(jss::engine_result)
+            ? jr[jss::engine_result].asString()
+            : jr[jss::error].asString();
+    }
+
+    // Straight to the open ledger, past checkValidity (which would turn a
+    // bad proof away as a bad signature): what the transactor itself says,
+    // as it must of a transaction that reaches it in a proposed set.
+    static TER
+    applyDirect(jtx::Env& env, STTx const& tx)
+    {
+        TER ret = tesSUCCESS;
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal j) {
+            ret = ripple::apply(env.app(), view, tx, tapNONE, j).ter;
+            return false;  // discard
+        });
+        return ret;
+    }
+
+    // What a ttINGEST was before it had no account: from one, signed and
+    // sequenced by jtx
+    static Json::Value
+    signedIngest(
+        jtx::Account const& from,
+        std::uint32_t seq,
+        std::string const& xpof)
     {
         Json::Value jv;
         jv[jss::TransactionType] = "Ingest";
@@ -272,8 +327,6 @@ class Ingest_test : public beast::unit_test::suite
         jv[sfRemoteNetworkID.jsonName] = 0;
         jv[sfLedgerSequence.jsonName] = seq;
         jv[jss::Blob] = strHex(xpof);
-        if (fee)
-            jv[jss::Fee] = *fee;
         return jv;
     }
 
@@ -306,7 +359,7 @@ class Ingest_test : public beast::unit_test::suite
         auto const feeObj = [&] { return env.le(keylet::exportFee(0)); };
 
         // an incomplete tree: one inner node left out that no sample path
-        // crosses. It counts fewer leaves and still proves, for free.
+        // crosses. It counts fewer leaves and still proves.
         Ingest::Nodes fewer = l1.inner;
         auto const want =
             Ingest::sampleLeaves(l1.inner, l1.info.txHash, l1.info.hash);
@@ -321,7 +374,28 @@ class Ingest_test : public beast::unit_test::suite
             fewer.emplace(h, node);
         }
         BEAST_EXPECT(fewer.size() == l1.inner.size() - 1);
-        env(ingest(alice, 100, OtherNetwork::proof(l1, fewer)));
+
+        // Nobody's transaction: the one envelope, from account zero, with
+        // no signature, sent by whoever holds the proof. It moves the
+        // record and nothing else: no account is charged or sequenced, no
+        // XAH is burned and no hook runs.
+        auto const first = ingest(env, 100, OtherNetwork::proof(l1, fewer));
+        {
+            auto const made = Ingest::make(
+                21337, 0, 100, makeSlice(OtherNetwork::proof(l1, fewer)));
+            BEAST_EXPECT(made.getTransactionID() == first->getTransactionID());
+            BEAST_EXPECT(Ingest::isCanonical(*first, 21337));
+            // (it is this network's: another's would carry its NetworkID)
+            BEAST_EXPECT(!Ingest::isCanonical(*first, 21338));
+            BEAST_EXPECT(first->getAccountID(sfAccount) == AccountID{});
+            BEAST_EXPECT(first->getSigningPubKey().empty());
+            BEAST_EXPECT(!first->isFieldPresent(sfTxnSignature));
+        }
+        auto const coins = env.current()->info().drops;
+        auto const aliceSeq = env.seq(alice);
+        auto const aliceBalance = env.balance(alice);
+        BEAST_EXPECT(!env.le(keylet::account(AccountID{})));
+        BEAST_EXPECT(submit(env, *first) == "tesSUCCESS");
         env.close();
         auto sle = feeObj();
         if (BEAST_EXPECT(sle))
@@ -332,25 +406,74 @@ class Ingest_test : public beast::unit_test::suite
             BEAST_EXPECT((*sle)[sfSampleFee] == l1.median);
             BEAST_EXPECT((*sle)[sfExportFeeUnit] == l1.median);
         }
+        BEAST_EXPECT(env.closed()->info().drops == coins);
+        BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        BEAST_EXPECT(env.balance(alice) == aliceBalance);
+        BEAST_EXPECT(!env.le(keylet::account(AccountID{})));
+        {
+            auto const [tx, meta] =
+                env.closed()->txRead(first->getTransactionID());
+            if (BEAST_EXPECT(tx && meta))
+            {
+                auto const& nodes = meta->getFieldArray(sfAffectedNodes);
+                BEAST_EXPECT(
+                    nodes.size() == 1 && nodes[0].getFName() == sfCreatedNode &&
+                    nodes[0].getFieldU16(sfLedgerEntryType) == ltEXPORT_FEE);
+                BEAST_EXPECT(!meta->isFieldPresent(sfHookExecutions));
+            }
+        }
 
-        // the same ledger again is not free; complete, and paid for, it wins
+        // One entry per ledger: the same ledger again is refused, though
+        // this proof holds the whole tree and would count more of it
         auto const full = OtherNetwork::proof(l1, l1.inner);
-        env(ingest(alice, 100, full), ter(telINSUF_FEE_P));
-        env(ingest(alice, 100, full, std::nullopt));
-        env.close();
+        BEAST_EXPECT(submit(env, *ingest(env, 100, full)) == "tefPAST_SEQ");
         sle = feeObj();
         if (BEAST_EXPECT(sle))
-            BEAST_EXPECT((*sle)[sfTransactionCount] == 40);
-        env(ingest(alice, 100, OtherNetwork::proof(l1, fewer), std::nullopt),
-            ter(tefALREADY));
+            BEAST_EXPECT((*sle)[sfTransactionCount] < 40);
+
+        // Only the one envelope. A good proof of a newer ledger from an
+        // account, signed and paid for, is refused whole: the account
+        // keeps its Sequence and its fee.
+        auto const l2 = other.ledger(l1.info, closeTime + 4, fees);
+        auto const p2 = OtherNetwork::proof(l2, l2.inner);
+        env(signedIngest(alice, 101, p2), ter(temMALFORMED));
+        BEAST_EXPECT(env.seq(alice) == aliceSeq);
+        BEAST_EXPECT(env.balance(alice) == aliceBalance);
+
+        // Nor with anything changed or added: it is free and unsigned, so
+        // any other field would be data put into the ledger for nothing,
+        // and another id for the same proof.
+        {
+            std::vector<std::function<void(STObject&)>> const tweaks{
+                [&](STObject& o) { o[sfAccount] = alice.id(); },
+                [](STObject& o) { o[sfSequence] = 1; },
+                [](STObject& o) { o[sfFee] = XRPAmount{10}; },
+                [](STObject& o) { o[sfFlags] = 0u; },
+                [](STObject& o) { o[sfSourceTag] = 7u; },
+                [](STObject& o) { o[sfLastLedgerSequence] = 1'000'000u; },
+                [](STObject& o) { o[sfTxnSignature] = Slice{}; },
+                // (it does prove a ledger, but not the one it names)
+                [](STObject& o) { o[sfLedgerSequence] = 102u; }};
+            for (auto const& tweak : tweaks)
+                BEAST_EXPECT(
+                    applyDirect(env, *ingest(env, 101, p2, tweak)) ==
+                    temMALFORMED);
+            // and at the door such a one is just a transaction nobody
+            // signed
+            BEAST_EXPECT(
+                submit(env, *ingest(env, 101, p2, tweaks[4])) ==
+                "invalidTransaction");
+        }
 
         // an inner node on a sample path left out: no transaction hashes to
         // what then passes for the leaf
         {
             Ingest::Nodes broken = l1.inner;
             broken.erase(l1.info.txHash);
-            env(ingest(alice, 100, OtherNetwork::proof(l1, broken)),
-                ter(temMALFORMED));
+            BEAST_EXPECT(
+                applyDirect(
+                    env, *ingest(env, 100, OtherNetwork::proof(l1, broken))) ==
+                temMALFORMED);
         }
 
         // JSON of the wrong shape is refused before anything is read through
@@ -364,28 +487,35 @@ class Ingest_test : public beast::unit_test::suite
               R"({"ledger":{},"validation":{"unl":[1]}})",
               R"({"ledger":{},"validation":{"unl":{}},"tree":{},"samples":[]})",
               R"({"ledger":{},"validation":{"unl":{}},"tree":[],"samples":1})"})
-            env(ingest(alice, 100, bad), ter(temMALFORMED));
+            BEAST_EXPECT(
+                applyDirect(env, *ingest(env, 100, bad)) == temMALFORMED);
 
         // And a proof is taken in its one canonical form only, so that a
         // free transaction cannot carry anything else into the ledger: not
         // a byte after it, not a key it does not need, not a tree node or a
-        // validation twice, not another spelling of the same hex.
-        env(ingest(alice, 100, full + " "), ter(temMALFORMED));
+        // validation twice, not another spelling of the same hex, not a
+        // list version nothing reads.
+        BEAST_EXPECT(
+            applyDirect(env, *ingest(env, 101, p2 + " ")) == temMALFORMED);
         {
             Json::Value x;
-            BEAST_EXPECT(Json::Reader().parse(full, x));
+            BEAST_EXPECT(Json::Reader().parse(p2, x));
             // (as parsed and written back it is the proof itself)
-            BEAST_EXPECT(Json::FastWriter().write(x) == full);
+            BEAST_EXPECT(Json::FastWriter().write(x) == p2);
 
             auto padded = x;
             padded["memo"] = std::string(1024, 'x');
-            env(ingest(alice, 100, Json::FastWriter().write(padded)),
-                ter(temMALFORMED));
+            BEAST_EXPECT(
+                applyDirect(
+                    env, *ingest(env, 101, Json::FastWriter().write(padded))) ==
+                temMALFORMED);
 
             auto twice = x;
             twice["tree"].append(x["tree"][0u]);
-            env(ingest(alice, 100, Json::FastWriter().write(twice)),
-                ter(temMALFORMED));
+            BEAST_EXPECT(
+                applyDirect(
+                    env, *ingest(env, 101, Json::FastWriter().write(twice))) ==
+                temMALFORMED);
 
             auto lower = x;
             auto parent = x["parent"].asString();
@@ -395,23 +525,43 @@ class Ingest_test : public beast::unit_test::suite
                         std::tolower(static_cast<unsigned char>(c)));
                 });
             lower["parent"] = parent;
-            env(ingest(alice, 100, Json::FastWriter().write(lower)),
-                ter(temMALFORMED));
+            BEAST_EXPECT(
+                applyDirect(
+                    env, *ingest(env, 101, Json::FastWriter().write(lower))) ==
+                temMALFORMED);
+
+            auto versioned = x;
+            versioned[jss::validation][jss::unl][jss::version] = 2;
+            BEAST_EXPECT(
+                applyDirect(
+                    env,
+                    *ingest(env, 101, Json::FastWriter().write(versioned))) ==
+                temMALFORMED);
+
+            // At the door a proof that does not verify is what a bad
+            // signature is to any other transaction: it never reaches the
+            // engine.
+            BEAST_EXPECT(
+                submit(
+                    env, *ingest(env, 101, Json::FastWriter().write(padded))) ==
+                "invalidTransaction");
         }
 
         // newer ledgers fold the recorded median into the unit, one behind
-        auto const l2 = other.ledger(l1.info, closeTime + 4, fees);
         std::vector<std::pair<std::int64_t, int>> dear(40, {5'000, 0});
         auto const l3 = other.ledger(l2.info, closeTime + 8, dear);
-        env(ingest(alice, 101, OtherNetwork::proof(l2, l2.inner)));
+        auto const p3 = OtherNetwork::proof(l3, l3.inner);
+        BEAST_EXPECT(submit(env, *ingest(env, 101, p2)) == "tesSUCCESS");
         env.close();
         sle = feeObj();
         if (BEAST_EXPECT(sle))
         {
+            BEAST_EXPECT((*sle)[sfLedgerSequence] == 101);
+            BEAST_EXPECT((*sle)[sfTransactionCount] == 40);
             BEAST_EXPECT((*sle)[sfExportFeeUnit] == l1.median);
             BEAST_EXPECT((*sle)[sfSampleFee] == l2.median);
         }
-        env(ingest(alice, 102, OtherNetwork::proof(l3, l3.inner)));
+        BEAST_EXPECT(submit(env, *ingest(env, 102, p3)) == "tesSUCCESS");
         env.close();
         sle = feeObj();
         if (BEAST_EXPECT(sle))
@@ -422,17 +572,42 @@ class Ingest_test : public beast::unit_test::suite
             BEAST_EXPECT((*sle)[sfSampleFee] == 5'000);
         }
 
-        // never backwards: an older ledger is not free, so unpaid it fails
-        // the fee check before preclaim sees it; paid, it is still refused
-        env(ingest(alice, 101, OtherNetwork::proof(l2, l2.inner)),
-            ter(telINSUF_FEE_P));
-        env(ingest(alice, 101, OtherNetwork::proof(l2, l2.inner), std::nullopt),
-            ter(tefPAST_SEQ));
+        // Strictly newer, always: not an older ledger, and not the one
+        // recorded, which is the very transaction that recorded it
+        BEAST_EXPECT(submit(env, *ingest(env, 101, p2)) == "tefPAST_SEQ");
+        BEAST_EXPECT(submit(env, *ingest(env, 102, p3)) == "tefPAST_SEQ");
+        BEAST_EXPECT(applyDirect(env, *ingest(env, 102, p3)) == tefPAST_SEQ);
+        sle = feeObj();
+        if (BEAST_EXPECT(sle))
+            BEAST_EXPECT((*sle)[sfLedgerSequence] == 102);
 
-        // a ledger must be newer than the one proven to be free, and the
-        // leaf count can only be undercounted, so the median is the fee: a
-        // whale in forty transactions never owns eight samples' middle
+        // All of it for nothing: three ledgers proven and no drop burned
+        // (the refused, signed one was never applied)
+        BEAST_EXPECT(env.closed()->info().drops == coins);
+
+        // the leaf count can only be undercounted, so the median is the
+        // fee: a whale in forty transactions never owns eight samples'
+        // middle
         BEAST_EXPECT(l1.median < 1'000'000);
+    }
+
+    void
+    testDisabled()
+    {
+        testcase("disabled");
+        using namespace jtx;
+
+        // Without the amendment the envelope is nothing: refused at the
+        // door without being held against whoever sent it (it is good once
+        // the amendment is enabled), and by the transactor.
+        Env env{
+            *this,
+            network::makeNetworkVLConfig(21337, {}),
+            supported_amendments() - featureExport};
+        auto const tx = ingest(env, 100, "{}");
+        BEAST_EXPECT(Ingest::isCanonical(*tx, 21337));
+        BEAST_EXPECT(submit(env, *tx) == "invalidTransaction");
+        BEAST_EXPECT(applyDirect(env, *tx) == temDISABLED);
     }
 
     void
@@ -452,6 +627,7 @@ public:
     {
         testFold();
         testIngest();
+        testDisabled();
     }
 };
 

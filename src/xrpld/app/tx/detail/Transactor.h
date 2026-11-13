@@ -89,6 +89,7 @@ struct PreflightResult;
 class Change;
 class Cron;
 class Export;
+class Ingest;
 
 class Transactor
 {
@@ -445,6 +446,11 @@ Transactor::invokePreflight<Cron>(PreflightContext const& ctx);
 template <>
 NotTEC
 Transactor::invokePreflight<Export>(PreflightContext const& ctx);
+
+// Defined in Ingest.cpp: a ttINGEST has no account either
+template <>
+NotTEC
+Transactor::invokePreflight<Ingest>(PreflightContext const& ctx);
 
 template <class T>
 NotTEC

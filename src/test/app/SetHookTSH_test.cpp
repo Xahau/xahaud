@@ -3351,9 +3351,9 @@ private:
     {
         testcase("ingest tsh");
 
-        // a proof of fees concerns no account but its submitter, and a
-        // valid one needs a proven ledger of another network; see
-        // Ingest_test
+        // a proof of fees concerns no account, not even a submitter's: it
+        // comes from account zero. A valid one needs a proven ledger of
+        // another network; see Ingest_test
         pass();
     }
 

@@ -51,8 +51,8 @@
 /*  [export_relay], and [export_relay_<name>] per further network. Each line
     "host [port [node key]]" is a peer of that network; the node public key
     pins it (peer TLS is self-signed, so without it anyone on the path could
-    stand in). Options: network_id= (default 0, the XRPL), vl_url=, account=
-    (a seed), ingest_every= (Xahau ledgers, default 64), max_ledgers= and
+    stand in). Options: network_id= (default 0, the XRPL), vl_url=,
+    ingest_every= (Xahau ledgers, default 64, 0 for never), max_ledgers= and
     max_ledger_bytes= (default: no limit). A relay carries only exports for
     its network and imports only what that network's lists prove.
 
@@ -61,9 +61,12 @@
     or vl_url. When a ledger has validations from 80% of it, its header and
     whole transaction tree are fetched (which transactions used a shadow
     ticket cannot be known in advance) and every transaction returning an
-    export, or recording an exporter's activity, is imported. With account=,
-    every ingest_every Xahau ledgers the next complete ledger is also sent
-    as a ttINGEST (see Ingest.h), free of charge.
+    export, or recording an exporter's activity, is imported. And once the
+    ledger proven for the network (ltEXPORT_FEE) has stood for ingest_every
+    Xahau ledgers, the next complete ledger is also sent as a ttINGEST (see
+    Ingest.h): it needs no account and costs nothing, so every relay does,
+    and since they go by the record, not by what each last sent, any number
+    of relays add one entry per ingest_every ledgers between them.
 
     Outbound. On each validated ledger, exports at quorum are sent to the
     peer, and resent while the ledger still waits for them (the shadow
@@ -111,8 +114,7 @@ struct Config
         return nid.value_or(0);
     }
 
-    std::optional<std::pair<PublicKey, SecretKey>> account{};  // ingests from
-    std::uint32_t ingestEvery = 64;
+    std::uint32_t ingestEvery = 64;    // 0: never
     std::size_t maxLedgers = 0;        // held at once; 0: no limit
     std::uint64_t maxLedgerBytes = 0;  // of nodes per ledger; 0: no limit
     std::atomic<bool> stop{false};
@@ -684,20 +686,23 @@ private:
 
     // The ledger as a proof of fees (Ingest.h), if one is due, its parent's
     // header is still held and the ledger is newer than the one recorded
-    // (so the entry is free). The whole tree was fetched for relay() anyway.
+    // (no other is taken). Due by the record: ingest_every ledgers since it
+    // last changed, whoever changed it; and by this relay's own last, so
+    // that one the ledger refuses is not sent again for every ledger there.
+    // The whole tree was fetched for relay() anyway.
     void
     ingest(uint256 const& h, Ledger const& l)
     {
         auto const now = app_.getLedgerMaster().getValidLedgerIndex();
-        if (!cfg_.account || now < ingested_ + cfg_.ingestEvery)
+        if (!cfg_.ingestEvery || now < ingested_ + cfg_.ingestEvery)
             return;
         auto const view = app_.openLedger().current();
         auto const fee = view->read(keylet::exportFee(cfg_.network()));
         auto const parent = ledgers_.find(l.info->parentHash);
-        auto const acc =
-            view->read(keylet::account(calcAccountID(cfg_.account->first)));
-        if ((fee && (*fee)[sfLedgerSequence] >= l.seq) ||
-            parent == ledgers_.end() || !parent->second.info || !acc)
+        if ((fee &&
+             ((*fee)[sfLedgerSequence] >= l.seq ||
+              now < (*fee)[sfPreviousTxnLgrSeq] + cfg_.ingestEvery)) ||
+            parent == ledgers_.end() || !parent->second.info)
             return;
 
         Json::Value x = proven(l);
@@ -719,6 +724,7 @@ private:
             u[jss::blob] =
                 base64_encode(base64_decode(unl_[jss::blob].asString()));
             u[jss::signature] = strHex(*sig);
+            u[jss::version] = 1;
         }
         Serializer ph;
         addRaw(*parent->second.info, ph);
@@ -748,10 +754,12 @@ private:
 
         auto const nid = app_.config().NETWORK_ID;
         auto const blob = to_string(x);
-        // never one the ledger would refuse: that would only spend the
-        // account's Sequence on a malformed transaction
-        if (blob.size() > Ingest::maxBlob ||
-            !Ingest::parse(makeSlice(blob), j_))
+        // The one transaction that may carry it: from no account, so
+        // nothing is signed and there is nothing to pay or sequence. Never
+        // one the ledger would refuse: peers would take that for a bad
+        // signature.
+        auto tx = Ingest::make(nid, cfg_.network(), l.seq, makeSlice(blob));
+        if (!Ingest::proof(tx, nid, j_))
         {
             JLOG(j_.warn())
                 << "not ingesting ledger " << l.seq << " of network "
@@ -759,18 +767,6 @@ private:
                 << " bytes, too large or not provable";
             return;
         }
-        STTx tx(ttINGEST, [&](auto& o) {
-            o[sfAccount] = acc->getAccountID(sfAccount);
-            o[sfSequence] = (*acc)[sfSequence];
-            o[sfFee] = XRPAmount{0};
-            o[sfSigningPubKey] = cfg_.account->first.slice();
-            o[sfRemoteNetworkID] = cfg_.network();
-            o[sfLedgerSequence] = l.seq;
-            o[sfBlob] = makeSlice(blob);
-            if (nid > 1024)
-                o[sfNetworkID] = nid;
-        });
-        tx.sign(cfg_.account->first, cfg_.account->second);
         app_.getOPs().submitTransaction(
             std::make_shared<STTx const>(std::move(tx)));
         ingested_ = now;
@@ -1153,28 +1149,6 @@ public:
     {
         if (auto const nid = sec.get<std::uint32_t>("network_id").value_or(0))
             cfg_.nid = nid;
-        if (auto const s = sec.get<std::string>("account"))
-        {
-            // A family seed (s...) is a secp256k1 account's, as everywhere
-            // else; an sEd... seed, the encoding wallets give ed25519
-            // accounts, is an ed25519 account's (as RPC::parseRippleLibSeed
-            // reads it). Nothing else is taken: parseGenericSeed would turn
-            // any other string, a mistyped seed included, into a passphrase
-            // and the relay would sign from an account nobody meant.
-            if (auto const lib = decodeBase58Token(*s, TokenType::None);
-                lib.size() == 18 &&
-                static_cast<std::uint8_t>(lib[0]) == std::uint8_t(0xE1) &&
-                static_cast<std::uint8_t>(lib[1]) == std::uint8_t(0x4B))
-                cfg_.account = generateKeyPair(
-                    KeyType::ed25519, Seed(makeSlice(lib.substr(2))));
-            else if (auto const seed = parseBase58<Seed>(*s))
-                cfg_.account = generateKeyPair(KeyType::secp256k1, *seed);
-            else
-                Throw<std::runtime_error>(
-                    "[" + sec.name() +
-                    "] account: not a seed (expected a base58 family seed, "
-                    "s..., or an ed25519 seed, sEd...)");
-        }
         cfg_.ingestEvery =
             sec.get<std::uint32_t>("ingest_every").value_or(cfg_.ingestEvery);
         cfg_.maxLedgers = sec.get<std::size_t>("max_ledgers").value_or(0);
