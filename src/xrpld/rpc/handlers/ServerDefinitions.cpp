@@ -59,6 +59,7 @@ MAGIC_ENUM_FLAG(ripple::PaymentChannelClaimFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenMintFlags);
 MAGIC_ENUM_FLAG(ripple::NFTokenCreateOfferFlags);
 MAGIC_ENUM_FLAG(ripple::ClaimRewardFlags);
+MAGIC_ENUM_FLAG(ripple::RemitFlags);
 MAGIC_ENUM_16(ripple::AccountFlags);
 
 // hook_return_code spans [-10024, 0] because of INVALID_FLOAT
@@ -380,6 +381,7 @@ private:
         addFlagsToJson<NFTokenCreateOfferFlags>(ret, "NFTokenCreateOffer");
         addFlagsToJson<ClaimRewardFlags>(ret, "ClaimReward");
         addFlagsToJson<CronSetFlags>(ret, "CronSet");
+        addFlagsToJson<RemitFlags>(ret, "Remit");
         addFlagsToJson<BridgeModifyFlags>(ret, "XChainModifyBridge");
         addFlagsToJson<MPTokenIssuanceCreateFlags>(
             ret, "MPTokenIssuanceCreate");
