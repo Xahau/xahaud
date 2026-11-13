@@ -110,10 +110,10 @@ struct CatalogueEnvOpts
 // envconfig with pinned_type set so catalogue_load passes the config guard.
 //
 // envconfig() selects [node_db] type=rwdb, which is the tree-only null node
-// store: SHAMapStore never builds DatabasePinned on it, so catalogue_load
-// would refuse to run. Use the in-memory "memory" store for the hot side
-// instead. It is shared by path within the process, so each config gets its
-// own path (SHAMapStore creates the directory; nothing is written to it).
+// store unless pinned_type is also set. Use the in-memory "memory" store for
+// the hot side so the Env's node store is the same shape as a persisting
+// one. It is shared by path within the process, so each config gets its own
+// path (SHAMapStore creates the directory; nothing is written to it).
 // The pinned side uses rwdb, an in-memory persistent backend.
 inline std::unique_ptr<Config>
 catalogueEnvconfig(CatalogueEnvOpts const& opts = {})
@@ -1416,13 +1416,14 @@ public:
         using namespace test::jtx;
         using beast::severities::kDisabled;
 
-        // pinned_type is set, but [node_db] type=rwdb is the null node
-        // store, on which SHAMapStore never builds the pinned store.
+        // pinned_type is set, but online_delete is not, so SHAMapStore
+        // builds a plain node store rather than DatabasePinned. (Config
+        // validation rejects this combination from a config file; jtx
+        // sets sections directly and bypasses it.)
         {
             auto cfg = test::jtx::envconfig();
             auto& nodeDb = cfg->section(ConfigSection::nodeDatabase());
             nodeDb.set("pinned_type", "rwdb");
-            nodeDb.set("online_delete", "256");
             Env env{*this, std::move(cfg), features, nullptr, kDisabled};
 
             Json::Value params{Json::objectValue};

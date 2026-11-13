@@ -76,6 +76,10 @@ class SHAMapStore_test : public beast::unit_test::suite
         return cfg;
     }
 
+    // DatabasePinned with the in-memory RWDB backend as the rotating hot
+    // store and NuDB as the pinned store, over a persistent SQLite
+    // relational database and a file-backed state.db. This is the
+    // production shape for "rwdb + pinned_type".
     static auto
     pinnedPersistent(
         std::unique_ptr<Config> cfg,
@@ -96,8 +100,9 @@ class SHAMapStore_test : public beast::unit_test::suite
     }
 
     // Online delete with DatabasePinned over in-memory backends. Unlike
-    // pinnedPersistent, the hot store keeps nodes (type=rwdb is the null
-    // node store), so ledgers closed in the test can be fetched. There is
+    // pinnedPersistent, the hot store is the process-shared "memory"
+    // backend and the pinned store is in-memory too, so ledgers closed in
+    // the test can be fetched without touching disk. There is
     // no database_path, so every SHAMapStoreImp opens its own private
     // state.db: a second instance built by a test does not see (or trip
     // over) the rotation state of the Env's own.
@@ -936,15 +941,22 @@ public:
         Config upperCfg;
         Config nudbCfg;
         Config emptyCfg;
+        Config pinnedCfg;
         rwdbCfg.section(ConfigSection::nodeDatabase()).set("type", "rwdb");
         upperCfg.section(ConfigSection::nodeDatabase()).set("type", "RWDB");
         nudbCfg.section(ConfigSection::nodeDatabase()).set("type", "NuDB");
+        pinnedCfg.section(ConfigSection::nodeDatabase()).set("type", "rwdb");
+        pinnedCfg.section(ConfigSection::nodeDatabase())
+            .set("pinned_type", "NuDB");
 
         // Evaluated per Config object, not latched process-wide.
         BEAST_EXPECT(rwdbCfg.nullBackend());
         BEAST_EXPECT(upperCfg.nullBackend());
         BEAST_EXPECT(!nudbCfg.nullBackend());
         BEAST_EXPECT(!emptyCfg.nullBackend());
+        // pinned_type turns type=rwdb into the rotating hot store under
+        // DatabasePinned, not the null node store.
+        BEAST_EXPECT(!pinnedCfg.nullBackend());
         BEAST_EXPECT(rwdbCfg.nullBackend());
     }
 
