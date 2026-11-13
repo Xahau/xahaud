@@ -425,11 +425,15 @@ class PWAServe_test : public beast::unit_test::suite,
         for (auto const& [k, v] :
              std::vector<std::pair<char const*, std::string>>{
                  {"custom_domains", "2"},
+                 {"coop", "none"},
                  {"resolver", "localhost"},
                  {"resolver", "0.0.0.0"},
                  {"resolver", "::1"}})
             BEAST_EXPECTS(!accepts(set(k, v)), std::string(k) + "=" + v);
         BEAST_EXPECT(accepts(set("custom_domains", "1")));
+        for (auto const v :
+             {"same-origin", "same-origin-allow-popups", "unsafe-none"})
+            BEAST_EXPECT(accepts(set("coop", v)));
         BEAST_EXPECT(accepts(set("resolver", "127.0.0.1:5353")));
 
         // pwa settings belong to pwa ports only.
@@ -437,6 +441,7 @@ class PWAServe_test : public beast::unit_test::suite,
              std::vector<std::pair<char const*, std::string>>{
                  {"domain", zone},
                  {"custom_domains", "1"},
+                 {"coop", "same-origin"},
                  {"resolver", "127.0.0.1"}})
             BEAST_EXPECTS(
                 !accepts(
@@ -475,6 +480,19 @@ class PWAServe_test : public beast::unit_test::suite,
         BEAST_EXPECT(
             hdr(r, "Content-Security-Policy").rfind("sandbox ", 0) == 0);
         BEAST_EXPECT(hdr(r, "X-Frame-Options") == "DENY");
+        BEAST_EXPECT(hdr(r, "Cross-Origin-Opener-Policy") == "same-origin");
+        {
+            // The operator may relax the policy so that popups the document
+            // opens keep window.opener (#911).
+            Env env2{*this, pwaConfig([](Config& c) {
+                         c["port_pwa"].set("coop", "same-origin-allow-popups");
+                     })};
+            env2.fund(XRP(1000), alice);
+            publish(env2, alice, doc());
+            BEAST_EXPECT(
+                hdr(getDoc(env2, alice, yield), "Cross-Origin-Opener-Policy") ==
+                "same-origin-allow-popups");
+        }
         BEAST_EXPECT(hdr(r, "X-Content-Type-Options") == "nosniff");
         BEAST_EXPECT(hdr(r, "Cache-Control") == "no-cache");
         // What a client needs to vet the document against a second node.
@@ -993,6 +1011,7 @@ class PWAServe_test : public beast::unit_test::suite,
             r[jss::ports][0u][jss::name] == "port_pwa");
         BEAST_EXPECT(r[jss::ports][0u]["domains"][0u] == zone);
         BEAST_EXPECT(r[jss::ports][0u]["custom_domains"] == false);
+        BEAST_EXPECT(r[jss::ports][0u]["coop"] == "same-origin");
 
         auto const etag = hdr(getDoc(env, alice, yield), "ETag");
         getDoc(
