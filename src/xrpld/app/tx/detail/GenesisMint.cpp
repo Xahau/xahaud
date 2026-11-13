@@ -35,18 +35,21 @@ GenesisMint::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, TxConsequences::normal};
 }
 
+uint32_t
+GenesisMint::getFlagsMask(PreflightContext const& ctx)
+{
+    return 0;
+}
+
+bool
+GenesisMint::checkExtraFeatures(PreflightContext const& ctx)
+{
+    return ctx.rules.enabled(featureHooks);
+}
+
 NotTEC
 GenesisMint::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureHooks))
-        return temDISABLED;
-
-    if (!ctx.rules.enabled(featureXahauGenesis))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto& tx = ctx.tx;
 
     auto const id = ctx.tx[sfAccount];
@@ -140,18 +143,12 @@ GenesisMint::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
 GenesisMint::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureHooks))
-        return temDISABLED;
-
-    if (!ctx.view.rules().enabled(featureXahauGenesis))
-        return temDISABLED;
-
     // RH UPTO:
     // check that printing won't exceed 200% of the total coins on the ledger
     // this will act as a hard cap against malfunction

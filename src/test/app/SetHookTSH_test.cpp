@@ -8771,7 +8771,8 @@ private:
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, fields) test##name##TSH(features);
+#define TRANSACTION(tag, value, name, amendment, fields) \
+    test##name##TSH(features);
 
 #include <xrpl/protocol/detail/transactions.macro>
 

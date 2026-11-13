@@ -806,21 +806,39 @@ Export::calculateBaseFee(ReadView const& view, STTx const& tx)
         fanOutFee(view, tx[sfAccount], destination(obj(tx, sfExportedTxn)));
 }
 
+// Export is four transaction types, and only a ttEXPORT has an account: the
+// rest are network generated and, like Change and Cron, take preflight0 in
+// place of preflight1 and preflight2.
+template <>
+NotTEC
+Transactor::invokePreflight<Export>(PreflightContext const& ctx)
+{
+    if (!ctx.rules.enabled(featureExport))
+        return temDISABLED;
+
+    if (ctx.tx.getTxnType() != ttEXPORT)
+    {
+        // 0 means "Allow any flags": Export::preflight allows none
+        if (auto const ret = preflight0(ctx, 0))
+            return ret;
+        return Export::preflight(ctx);
+    }
+
+    if (auto const ret = preflight1(ctx, tfUniversalMask))
+        return ret;
+    if (auto const ret = Export::preflight(ctx))
+        return ret;
+    return preflight2(ctx);
+}
+
 NotTEC
 Export::preflight(PreflightContext const& ctx)
 {
     auto const& tx = ctx.tx;
-    if (!ctx.rules.enabled(featureExport))
-        return temDISABLED;
-
     auto const nid = ctx.app.config().NETWORK_ID;
 
     if (tx.getTxnType() == ttEXPORT)
     {
-        if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-            return ret;
-        if (tx.getFlags() & tfUniversalMask)
-            return temINVALID_FLAG;
         if (!hook::isEmittedTxn(tx) ||
             !exportedTx(obj(tx, sfExportedTxn), tx[sfAccount], nid, ctx.rules))
             return temMALFORMED;
@@ -828,11 +846,8 @@ Export::preflight(PreflightContext const& ctx)
         // the ticket): the Fee it carries is the Fee the UNL signs.
         if (!paysFee(obj(tx, sfExportedTxn)))
             return temBAD_FEE;
-        return preflight2(ctx);
+        return tesSUCCESS;
     }
-
-    if (auto const ret = preflight0(ctx); !isTesSuccess(ret))
-        return ret;
 
     // network generated: account zero, free, unsigned, unsequenced, no flags
     if (tx[sfAccount] != beast::zero || tx[sfFee] != beast::zero ||

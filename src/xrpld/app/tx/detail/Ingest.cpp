@@ -370,19 +370,13 @@ Ingest::calculateBaseFee(ReadView const& view, STTx const& tx)
 NotTEC
 Ingest::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureExport))
-        return temDISABLED;
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-    if (ctx.tx.getFlags() & tfUniversalMask)
-        return temINVALID_FLAG;
     auto const blob = ctx.tx.getFieldVL(sfBlob);
     if (blob.size() > maxBlob)
         return temMALFORMED;
     auto const x = parse(makeSlice(blob), ctx.j);
     if (!x || x->ledger.seq != ctx.tx[sfLedgerSequence])
         return temMALFORMED;
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
