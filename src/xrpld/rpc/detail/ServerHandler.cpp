@@ -900,9 +900,11 @@ PWAPolicy::verdict(ReadView const* view, AccountID const& account) const
             if (auto const sle = view->read(
                     keylet::hookState(provider, key, pwaListNamespace)))
             {
+                // The first byte is the verdict; whatever follows it is
+                // the provider's own. state_set never stores an empty
+                // value, but if one turned up it would refuse.
                 auto const v = sle->getFieldVL(sfHookStateData);
-                return std::any_of(
-                    v.begin(), v.end(), [](auto b) { return b != 0; });
+                return !v.empty() && v.front() != 0;
             }
     }
     return cfg.allow.empty() && file.allow.empty();
@@ -919,9 +921,9 @@ PWAPolicy::conflicts() const
     return out;
 }
 
-// The lists file: [pwa_allowlist] and [pwa_blocklist] sections of one
-// r-address per line, '#' comments. Returns why it is unusable, if it is;
-// no file at all is two empty lists.
+/** Read the lists file: [pwa_allowlist] and [pwa_blocklist] sections of
+    one r-address per line, '#' comments. Returns why it is unusable, if it
+    is; no file at all (or a symbolic link to none) is two empty lists. */
 static std::optional<std::string>
 readPWAListsFile(boost::filesystem::path const& path, PWALists& out)
 {
@@ -966,6 +968,8 @@ readPWAListsFile(boost::filesystem::path const& path, PWALists& out)
     return std::nullopt;
 }
 
+/** The lists file's contents for `lists`, as readPWAListsFile reads them
+    back: a header, then each section sorted by AccountID. */
 static std::string
 pwaListsText(PWALists const& lists)
 {
@@ -985,26 +989,54 @@ pwaListsText(PWALists const& lists)
     return text;
 }
 
-// Replace the file at `path` (through a symlink: its target) with `text`:
-// write a sibling temporary with the old file's mode, fsync it and rename it
-// over. Returns why that failed, if it did; the old file is then untouched.
+/** Follow `path` for as long as it is a symbolic link, leaving the path
+    of what it finally names. That need not exist: canonical() would refuse
+    a link to a file that is yet to be created, and the first edit of the
+    lists file has to be able to create it there. Returns why the links
+    could not be followed, if they could not. */
 static std::optional<std::string>
-replaceFile(boost::filesystem::path path, std::string const& text)
+followSymlinks(boost::filesystem::path& path)
 {
     namespace fs = boost::filesystem;
-    // A missing target is fine: the first edit creates it. As with
-    // status(), symlink_status() sets ec to ENOENT then, so test the type.
-    boost::system::error_code ec;
-    auto const st = fs::symlink_status(path, ec);
-    if (st.type() == fs::symlink_file)
+    auto const start = path.string();
+    // As many hops as Linux itself allows before it reports a loop.
+    for (int hops = 0; hops < 40; ++hops)
     {
-        auto target = fs::canonical(path, ec);
+        // As with status(), symlink_status() sets ec to ENOENT for a
+        // missing file, which is no error here, so test the type first.
+        boost::system::error_code ec;
+        auto const st = fs::symlink_status(path, ec);
+        if (st.type() != fs::symlink_file)
+        {
+            if (ec && st.type() != fs::file_not_found)
+                return path.string() + ": " + ec.message();
+            return std::nullopt;
+        }
+        auto const target = fs::read_symlink(path, ec);
         if (ec)
             return path.string() + ": " + ec.message();
-        path = std::move(target);
+        path = target.is_absolute() ? target : path.parent_path() / target;
     }
-    else if (ec && st.type() != fs::file_not_found)
-        return path.string() + ": " + ec.message();
+    return start + ": too many levels of symbolic links";
+}
+
+/** Replace the file at `path` (through a symlink: its target) with `text`:
+    write a sibling temporary with the old file's mode, fsync it and rename
+    it over. Returns why that failed, if it did; the old file is then
+    untouched.
+
+    Success means the new file is in place. If its directory could then not
+    be flushed, `unsynced` says why: the rename is done but a crash might
+    still undo it, which the caller should report rather than hide. */
+static std::optional<std::string>
+replaceFile(
+    boost::filesystem::path path,
+    std::string const& text,
+    std::optional<std::string>& unsynced)
+{
+    // A missing target is fine: the first edit creates it.
+    if (auto why = followSymlinks(path))
+        return why;
 
     // A stale temporary (from a crash) is removed first, and O_EXCL then
     // refuses to follow anything planted in its place.
@@ -1045,15 +1077,19 @@ replaceFile(boost::filesystem::path path, std::string const& text)
         return err;
     }
 
-    // Make the rename itself durable. Best effort: the new file is already
-    // in place, so a failure here is not reported as a failed edit.
+    // Make the rename itself durable. The new file is already in place, so
+    // a failure here is not a failed edit, but it is not a durable one
+    // either: say so.
     auto dir = path.parent_path();
     if (dir.empty())
         dir = ".";
-    if (int const dfd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-        dfd >= 0)
+    int const dfd = ::open(dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (dfd < 0)
+        unsynced = dir.string() + ": open: " + std::strerror(errno);
+    else
     {
-        ::fsync(dfd);
+        if (::fsync(dfd) != 0)
+            unsynced = dir.string() + ": fsync: " + std::strerror(errno);
         ::close(dfd);
     }
     return std::nullopt;
@@ -1114,8 +1150,10 @@ ServerHandler::pwaListsEdit(
             toBase58(*both.begin()) + " would be on both lists");
 
     // Persist first: if the write fails nothing has changed.
+    std::optional<std::string> unsynced;
     if (next.file != onDisk)
-        if (auto const why = replaceFile(path, pwaListsText(next.file)))
+        if (auto const why =
+                replaceFile(path, pwaListsText(next.file), unsynced))
             return RPC::make_error(
                 rpcINTERNAL, "Cannot write the lists file: " + *why);
     bool const changed = next != *current;
@@ -1145,6 +1183,20 @@ ServerHandler::pwaListsEdit(
     if (!path.empty())
         ret["file"] = path.string();
     ret["changed"] = changed;
+    if (unsynced)
+    {
+        // The file on disk and the live policy agree, so the edit stands;
+        // what cannot be promised is that the file survives a crash.
+        JLOG(m_journal.warn())
+            << "PWA lists file " << path.string()
+            << " was replaced but its directory could not be synced: "
+            << *unsynced;
+        ret["warning"] =
+            "The lists file was written and is in effect, but its "
+            "directory could not be synced, so a crash may bring the "
+            "old file back: " +
+            *unsynced;
+    }
     return ret;
 }
 
@@ -2517,17 +2569,18 @@ setup_Overlay(ServerHandler::Setup& setup)
     setup.overlay = {iter->ip, iter->port};
 }
 
-// The three sources of the PWA policy, one r-address per line each:
-// [pwa_allowlist] and [pwa_blocklist] in the cfg file (fixed) and in the
-// lists file (edited by the pwa_list RPC), and [pwa_list_providers] in the
-// cfg file. The lists file is opt-in: the one named by [pwa_list_file],
-// relative to the cfg file's directory. It need not exist yet (the RPC
-// creates it), but its directory must.
-static void
+/** Load the three sources of the PWA policy, one r-address per line each:
+    [pwa_allowlist] and [pwa_blocklist] in the cfg file (fixed) and in the
+    lists file (edited by the pwa_list RPC), and [pwa_list_providers] in the
+    cfg file. The lists file is opt-in: the one named by [pwa_list_file],
+    relative to the cfg file's directory. Neither it nor, if it is a
+    symbolic link, what it names need exist yet (the RPC creates it), but
+    the directory it will be created in must. */
+void
 setup_PWAPolicy(
     Config const& config,
     ServerHandler::Setup& setup,
-    std::ostream& log)
+    std::ostream&& log)
 {
     auto const fail = [&](std::string const& why) {
         log << why;
@@ -2543,6 +2596,8 @@ setup_PWAPolicy(
         }
     };
     auto& policy = setup.pwaPolicy;
+    policy = {};
+    setup.pwaListsFile.clear();
     read(SECTION_PWA_ALLOWLIST, [&](auto const& a) {
         policy.cfg.allow.insert(a);
     });
@@ -2561,9 +2616,14 @@ setup_PWAPolicy(
             fail("Invalid path in [" SECTION_PWA_LIST_FILE "]");
         if (path.is_relative() && !config.CONFIG_DIR.empty())
             path = config.CONFIG_DIR / path;
-        // Catch a mistyped path now rather than at the first edit.
+        // Catch a mistyped path now rather than at the first edit. Edits
+        // go through a symbolic link to its target, which need not exist
+        // yet either, so it is the target's directory that must.
+        auto target = path;
+        if (auto const why = followSymlinks(target))
+            fail("[" SECTION_PWA_LIST_FILE "]: " + *why);
         boost::system::error_code ec;
-        auto const dir = boost::filesystem::absolute(path).parent_path();
+        auto const dir = boost::filesystem::absolute(target).parent_path();
         if (!boost::filesystem::is_directory(dir, ec))
             fail(
                 "[" SECTION_PWA_LIST_FILE "]: no such directory: " +
@@ -2582,9 +2642,11 @@ setup_PWAPolicy(
 ServerHandler::Setup
 setup_ServerHandler(Config const& config, std::ostream&& log)
 {
+    // The command line client calls this too, and ignores what it throws,
+    // so nothing here may depend on more than the cfg file: the PWA policy
+    // and its lists file are loaded by setup_PWAPolicy, server side only.
     ServerHandler::Setup setup;
     setup.ports = parse_Ports(config, log);
-    setup_PWAPolicy(config, setup, log);
 
     if (config.UDP_HIGHWAY)
     {

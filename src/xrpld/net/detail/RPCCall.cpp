@@ -1412,7 +1412,12 @@ private:
         return jvRequest;
     }
 
-    // pwa_list [reload] [allow|block|unallow|unblock <account>]...
+    /** pwa_list [reload] [allow|block|unallow|unblock <account>]...
+
+        Each operation takes one account and may be repeated; the accounts
+        of one operation are collected into an array under its name.
+        "reload" takes none and may appear once. Anything else, or an
+        operation with no account after it, is invalidParams. */
     Json::Value
     parsePWAList(Json::Value const& jvParams)
     {

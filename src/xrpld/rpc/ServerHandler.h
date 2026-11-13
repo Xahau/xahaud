@@ -74,8 +74,9 @@ struct PWALists
       1. the blocklists (cfg and file): refused;
       2. the allowlists (cfg and file): served;
       3. `providers`, in order: the first with a hook state entry for the
-         account under pwaListNamespace decides (all-zero data refuses,
-         anything else serves). Needs a ledger;
+         account under pwaListNamespace decides, by the first byte of its
+         data: 0x00 refuses, anything else serves. The rest of the data
+         is the provider's own. Needs a ledger;
       4. listed nowhere: served, unless an allowlist is non-empty.
 
     A snapshot is immutable once built; ServerHandler replaces it whole. */
@@ -166,7 +167,8 @@ public:
         boost::asio::ip::tcp::endpoint overlay;
 
         // The PWA policy as read at startup; pwaListsFile (empty: none) is
-        // where the pwa_list RPC persists its edits to policy.file.
+        // where the pwa_list RPC persists its edits to policy.file. Both
+        // are filled in by setup_PWAPolicy, not setup_ServerHandler.
         PWAPolicy pwaPolicy;
         boost::filesystem::path pwaListsFile;
 
@@ -290,6 +292,9 @@ public:
         return pwaStats_;
     }
 
+    /** The live PWA policy. A snapshot: it never changes once returned, so
+        a caller sees one consistent set of lists however long it holds
+        it. */
     std::shared_ptr<PWAPolicy const>
     pwaPolicy() const
     {
@@ -300,7 +305,8 @@ public:
     /** The pwa_list RPC: optionally reread the lists file, take `remove`
         off and then put `add` on the file's lists, write the file if that
         changed it, then publish the new policy. All or nothing. Returns the
-        RPC result. */
+        RPC result, with a "warning" if the file was replaced but could not
+        be made crash-durable. */
     Json::Value
     pwaListsEdit(PWALists const& add, PWALists const& remove, bool reload);
 
@@ -428,8 +434,24 @@ private:
     statusResponse(http_request_type const& request) const;
 };
 
+/** The ports, and from them the client and overlay endpoints. Shared by
+    the server and the command line client, so it reads nothing but the
+    cfg file. Throws std::exception, having written why to `log`. */
 ServerHandler::Setup
 setup_ServerHandler(Config const& c, std::ostream&& log);
+
+/** Load the PWA policy into `setup`: [pwa_allowlist], [pwa_blocklist] and
+    [pwa_list_providers] from the cfg file, plus the lists file named by
+    [pwa_list_file] if there is one. Server only. It is kept out of
+    setup_ServerHandler so that the command line client, which need not
+    even be able to read the lists file, never depends on it: a lists file
+    broken by hand must not stop `xahaud stop` from finding the node.
+    Throws std::exception, having written why to `log`. */
+void
+setup_PWAPolicy(
+    Config const& c,
+    ServerHandler::Setup& setup,
+    std::ostream&& log);
 
 std::unique_ptr<ServerHandler>
 make_ServerHandler(

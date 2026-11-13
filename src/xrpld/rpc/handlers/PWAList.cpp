@@ -35,8 +35,11 @@ namespace ripple {
     it. Entries from the cfg file are fixed.
 
     Returns the lists file's "allowlist" and "blocklist", the cfg file's
-    "cfg_allowlist" and "cfg_blocklist" when non-empty, the "file" path and
-    whether anything "changed". Every pwa port applies the union.
+    "cfg_allowlist", "cfg_blocklist" and "providers" when non-empty, the
+    "file" path and whether anything "changed". Every pwa port applies the
+    union. A "warning" means the edit is in effect and written to the file,
+    but the file's directory could not be synced, so a crash might still
+    bring the old file back.
 */
 Json::Value
 doPWAList(RPC::JsonContext& context)
