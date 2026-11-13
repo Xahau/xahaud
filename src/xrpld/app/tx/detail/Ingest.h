@@ -47,12 +47,13 @@ namespace ripple {
     else a proof leaves out.
 
     What it records, in the network's ltEXPORT_FEE: the latest ledger's
-    index, leaves (as counted), burn and median, and sfExportFeeUnit, the
-    per-signature fee (Fee / (1 + signers)) xport_prepare() prices an export
-    by for a hook that sets no Fee (Export::feeUnit). Each newer ledger folds
-    the median into it by eighths (fold), never below Export::xrplBaseFee.
-    The index is also the clock exports expire by. A hook reads all of it
-    with xport_fee().
+    index, burn and median, and sfExportFeeUnit, the per-signature fee
+    (Fee / (1 + signers)) xport_prepare() prices an export by for a hook
+    that sets no Fee (Export::feeUnit). Each newer ledger folds the median
+    into it by eighths (fold), never below Export::xrplBaseFee. The index is
+    also the clock exports expire by. A hook reads these with xport_fee().
+    Beside them, for admitting the next proof only (below): this network's
+    clock when the record was taken, and the leaves its proof counted.
 
     Nobody's transaction. A proof is its own authority, so a ttINGEST has no
     account: it is the one envelope `make` builds around the proof, from
@@ -63,11 +64,41 @@ namespace ripple {
     one. In place of a signature the proof itself is checked wherever a
     signature would be (checkValidity).
 
-    One entry per ledger: only a ledger strictly newer than the one recorded
-    for sfRemoteNetworkID is taken (tefPAST_SEQ otherwise), so the record
-    only moves forward and whichever proof of a ledger lands first is the
-    one kept. The list that proves it must be one trusted for
-    sfRemoteNetworkID (Import::vlNetwork). */
+    One sample a minute. A proof is free and up to maxBlob long, so a
+    network's record is taken at most once per `spacing` of this network's
+    own clock, the parent close time in the header of the ledger a proof is
+    applied to (tefALREADY sooner), and only from a ledger strictly newer
+    than the one recorded (tefPAST_SEQ otherwise): the record only moves
+    forward.
+
+    The fullest proof is the sample. Of the proofs offered for one minute,
+    the one that counts the most leaves is the one to keep: a count is a
+    lower bound that cannot be inflated, so that is the proof that leaves
+    the least out, and of several ledgers the one that most transactions
+    paid in, which is the hardest for whoever is submitting to have chosen
+    for what it holds. The envelope repeats the count the proof arrives at
+    (sfTransactionCount, checked against it like sfLedgerSequence), so
+    that it can be compared without parsing anything, twice over:
+
+      - a transaction set applies its ttINGESTs fullest first
+        (CanonicalTXSet), so in a closed ledger the fullest valid proof is
+        the one that lands and every other is refused for counting no more;
+      - until that ledger closes, a proof that counts strictly more leaves
+        than the one recorded in it, of that ledger or a newer one, takes
+        its place (tefALREADY otherwise), so an open ledger passes a
+        fuller proof on rather than stopping at the first to arrive.
+
+    That second comparison is why the record keeps the count at all (an
+    open ledger does not thread an entry to the transaction that changed
+    it, so there is nowhere else to read it from). It is the bar a rival
+    must clear and nothing more: burn and median are the same however much
+    of the tree a proof gives, so nothing else rests on it, and neither
+    xport_fee() nor export_info reports it.
+
+    The list that proves a ledger must be one trusted for sfRemoteNetworkID
+    (Import::vlNetwork), and in date: a proof that is not, or not yet, is
+    refused with a tef, not as malformed, so that the one id it has is not
+    remembered as bad by a node that only saw it too early. */
 class Ingest : public Transactor
 {
 public:
@@ -78,6 +109,10 @@ public:
 
     /** The largest XPOF accepted, as for an XPOP (Import) */
     static constexpr std::size_t maxBlob = 512 * 1024;
+
+    /** The least time between two records of one network, in seconds of
+        this network's parent close time */
+    static constexpr std::uint32_t spacing = 60;
 
     using Nodes = std::map<uint256, std::shared_ptr<SHAMapTreeNode>>;
 
@@ -98,28 +133,31 @@ public:
     parse(Slice blob, beast::Journal j);
 
     /** The one transaction that may carry `blob`, an XPOF of ledger `seq`
-        of network `remote`, on network `networkID` (this one): Account zero,
-        Sequence 0, Fee 0, an empty SigningPubKey, NetworkID as every
-        transaction here has it or has it not (preflight0), and the three
-        fields of its own. No signature, and no other field: it is free and
-        unsigned, so any would be a way to put data into the ledger for
-        nothing and to give one proof as many ids as wanted. */
+        of network `remote` counting `leaves`, on network `networkID` (this
+        one): Account zero, Sequence 0, Fee 0, an empty SigningPubKey,
+        NetworkID as every transaction here has it or has it not
+        (preflight0), and the four fields of its own. No signature, and no
+        other field: it is free and unsigned, so any would be a way to put
+        data into the ledger for nothing and to give one proof as many ids
+        as wanted. */
     static STTx
     make(
         std::uint32_t networkID,
         std::uint32_t remote,
         std::uint32_t seq,
+        std::uint32_t leaves,
         Slice blob);
 
     /** Whether `tx` is, byte for byte, what `make` builds from its own
-        sfRemoteNetworkID, sfLedgerSequence and sfBlob */
+        sfRemoteNetworkID, sfLedgerSequence, sfTransactionCount and sfBlob */
     static bool
     isCanonical(STTx const& tx, std::uint32_t networkID) noexcept;
 
     /** What `tx` proves, if it is canonical (isCanonical) and its blob an
-        XPOF (parse) of the ledger it names, no larger than maxBlob. All a
-        ttINGEST can be held to without a ledger: what preflight requires,
-        and checkValidity in place of a signature. */
+        XPOF (parse) of the ledger it names, counting the leaves it says,
+        no larger than maxBlob. All a ttINGEST can be held to without a
+        ledger: what checkValidity requires in place of a signature, and
+        preflight of it. */
     static std::optional<Xpof>
     proof(STTx const& tx, std::uint32_t networkID, beast::Journal j);
 

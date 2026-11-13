@@ -818,9 +818,11 @@ TRANSACTION(ttEXPORT_AUTO, 86, ExportAuto,
     behind it, its transaction tree down to the leaf hashes, and
     Ingest::samples of its transactions in full. sfRemoteNetworkID is that
     network, sfLedgerSequence the ledger's index, which must be newer than
-    the one recorded for the network. Nobody's transaction: Account zero,
-    unsigned, unsequenced and free, and nothing but these fields
-    (Ingest::make), so anyone may submit it. Not a pseudo-txn: it is
+    the one recorded for the network, and sfTransactionCount the leaves the
+    proof counts in its tree: both are what the proof itself says, repeated
+    where they can be read without parsing it. Nobody's transaction:
+    Account zero, unsigned, unsequenced and free, and nothing but these
+    fields (Ingest::make), so anyone may submit it. Not a pseudo-txn: it is
     relayed. */
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Ingest.h>
@@ -830,6 +832,7 @@ TRANSACTION(ttINGEST, 85, Ingest,
     ({
     {sfRemoteNetworkID, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionCount, soeREQUIRED},
     {sfBlob, soeREQUIRED},
 }))
 

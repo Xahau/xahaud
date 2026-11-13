@@ -52,9 +52,9 @@
     "host [port [node key]]" is a peer of that network; the node public key
     pins it (peer TLS is self-signed, so without it anyone on the path could
     stand in). Options: network_id= (default 0, the XRPL), vl_url=,
-    ingest_every= (Xahau ledgers, default 64, 0 for never), max_ledgers= and
-    max_ledger_bytes= (default: no limit). A relay carries only exports for
-    its network and imports only what that network's lists prove.
+    ingest_every= (seconds, default and least 60, 0 for never), max_ledgers=
+    and max_ledger_bytes= (default: no limit). A relay carries only exports
+    for its network and imports only what that network's lists prove.
 
     Inbound. The UNL is the newest validator list signed by a key trusted for
     this network ([import_vl_keys] or UNLReport ImportVLKeys), from the peer
@@ -63,10 +63,12 @@
     ticket cannot be known in advance) and every transaction returning an
     export, or recording an exporter's activity, is imported. And once the
     ledger proven for the network (ltEXPORT_FEE) has stood for ingest_every
-    Xahau ledgers, the next complete ledger is also sent as a ttINGEST (see
-    Ingest.h): it needs no account and costs nothing, so every relay does,
-    and since they go by the record, not by what each last sent, any number
-    of relays add one entry per ingest_every ledgers between them.
+    seconds of this network's clock (never less than Ingest::spacing, which
+    is as often as the ledger takes one), the next complete ledger is also
+    sent as a ttINGEST (see Ingest.h): it needs no account and costs
+    nothing, so every relay does, and since they go by the record, not by
+    what each last sent, any number of relays add one entry per
+    ingest_every seconds between them.
 
     Outbound. On each validated ledger, exports at quorum are sent to the
     peer, and resent while the ledger still waits for them (the shadow
@@ -114,7 +116,8 @@ struct Config
         return nid.value_or(0);
     }
 
-    std::uint32_t ingestEvery = 64;    // 0: never
+    // seconds of parent close time between proofs; 0: never
+    std::uint32_t ingestEvery = Ingest::spacing;
     std::size_t maxLedgers = 0;        // held at once; 0: no limit
     std::uint64_t maxLedgerBytes = 0;  // of nodes per ledger; 0: no limit
     std::atomic<bool> stop{false};
@@ -211,8 +214,8 @@ class Peer
     std::map<uint256, Ledger> ledgers_;
     LedgerIndex highest_ = 0;         // the highest ledger seq validated so far
     std::optional<PublicKey> vlKey_;  // the UNL's publisher (master key)
-    LedgerIndex xahau_ = 0;     // the last validated ledger whose exports went
-    LedgerIndex ingested_ = 0;  // the validated ledger at the last ttINGEST
+    LedgerIndex xahau_ = 0;  // the last validated ledger whose exports went
+    std::uint64_t ingested_ = 0;  // parent close time at the last ttINGEST
     std::chrono::steady_clock::time_point nextVL_{};
 
 public:
@@ -686,22 +689,24 @@ private:
 
     // The ledger as a proof of fees (Ingest.h), if one is due, its parent's
     // header is still held and the ledger is newer than the one recorded
-    // (no other is taken). Due by the record: ingest_every ledgers since it
-    // last changed, whoever changed it; and by this relay's own last, so
-    // that one the ledger refuses is not sent again for every ledger there.
-    // The whole tree was fetched for relay() anyway.
+    // (no other is taken). Due by the record: ingest_every seconds of this
+    // network's parent close time, the clock the ledger spaces records by,
+    // since it last changed, whoever changed it; and by this relay's own
+    // last, so that one the ledger refuses is not sent again for every
+    // ledger there. The whole tree was fetched for relay() anyway.
     void
     ingest(uint256 const& h, Ledger const& l)
     {
-        auto const now = app_.getLedgerMaster().getValidLedgerIndex();
+        auto const view = app_.openLedger().current();
+        std::uint64_t const now =
+            view->parentCloseTime().time_since_epoch().count();
         if (!cfg_.ingestEvery || now < ingested_ + cfg_.ingestEvery)
             return;
-        auto const view = app_.openLedger().current();
         auto const fee = view->read(keylet::exportFee(cfg_.network()));
         auto const parent = ledgers_.find(l.info->parentHash);
         if ((fee &&
              ((*fee)[sfLedgerSequence] >= l.seq ||
-              now < (*fee)[sfPreviousTxnLgrSeq] + cfg_.ingestEvery)) ||
+              now < (*fee)[sfParentCloseTime] + cfg_.ingestEvery)) ||
             parent == ledgers_.end() || !parent->second.info)
             return;
 
@@ -755,11 +760,14 @@ private:
         auto const nid = app_.config().NETWORK_ID;
         auto const blob = to_string(x);
         // The one transaction that may carry it: from no account, so
-        // nothing is signed and there is nothing to pay or sequence. Never
-        // one the ledger would refuse: peers would take that for a bad
-        // signature.
-        auto tx = Ingest::make(nid, cfg_.network(), l.seq, makeSlice(blob));
-        if (!Ingest::proof(tx, nid, j_))
+        // nothing is signed and there is nothing to pay or sequence, and
+        // saying of the proof what the proof says of itself (its ledger and
+        // the leaves it counts). Never one the ledger would refuse: peers
+        // would take that for a bad signature.
+        auto const xpof = blob.size() <= Ingest::maxBlob
+            ? Ingest::parse(makeSlice(blob), j_)
+            : std::nullopt;
+        if (!xpof)
         {
             JLOG(j_.warn())
                 << "not ingesting ledger " << l.seq << " of network "
@@ -768,7 +776,12 @@ private:
             return;
         }
         app_.getOPs().submitTransaction(
-            std::make_shared<STTx const>(std::move(tx)));
+            std::make_shared<STTx const>(Ingest::make(
+                nid,
+                cfg_.network(),
+                xpof->ledger.seq,
+                xpof->leaves,
+                makeSlice(blob))));
         ingested_ = now;
         JLOG(j_.info()) << "ingesting XRPL ledger " << l.seq << ", "
                         << blob.size() << " bytes";
@@ -1149,8 +1162,9 @@ public:
     {
         if (auto const nid = sec.get<std::uint32_t>("network_id").value_or(0))
             cfg_.nid = nid;
-        cfg_.ingestEvery =
-            sec.get<std::uint32_t>("ingest_every").value_or(cfg_.ingestEvery);
+        // (sooner than the ledger takes one would only be refused)
+        if (auto const every = sec.get<std::uint32_t>("ingest_every"))
+            cfg_.ingestEvery = *every ? std::max(*every, Ingest::spacing) : 0;
         cfg_.maxLedgers = sec.get<std::size_t>("max_ledgers").value_or(0);
         cfg_.maxLedgerBytes =
             sec.get<std::uint64_t>("max_ledger_bytes").value_or(0);

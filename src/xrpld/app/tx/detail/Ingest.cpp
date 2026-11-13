@@ -19,7 +19,9 @@
 
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/main/Application.h>
+#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/Manifest.h>
+#include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/Ingest.h>
@@ -64,7 +66,9 @@
     signs it, so any other number would only be a second spelling. No other
     keys, whitespace, repeats or spellings.
 
-    The envelope is as fixed as the blob: see Ingest::make.
+    The envelope is as fixed as the blob: see Ingest::make. It repeats two
+    things the proof says, the ledger's index and the leaves counted, so
+    that both can be compared without parsing the blob (Ingest::preclaim).
 */
 
 namespace ripple {
@@ -366,6 +370,7 @@ Ingest::make(
     std::uint32_t networkID,
     std::uint32_t remote,
     std::uint32_t seq,
+    std::uint32_t leaves,
     Slice blob)
 {
     return STTx(ttINGEST, [&](STObject& o) {
@@ -378,6 +383,7 @@ Ingest::make(
             o[sfNetworkID] = networkID;
         o[sfRemoteNetworkID] = remote;
         o[sfLedgerSequence] = seq;
+        o[sfTransactionCount] = leaves;
         o[sfBlob] = blob;
     });
 }
@@ -395,6 +401,7 @@ Ingest::isCanonical(STTx const& tx, std::uint32_t networkID) noexcept
                                    networkID,
                                    tx[sfRemoteNetworkID],
                                    tx[sfLedgerSequence],
+                                   tx[sfTransactionCount],
                                    makeSlice(blob))
                                    .getSerializer();
         return actual.slice() == canonical.slice();
@@ -417,7 +424,8 @@ Ingest::proof(STTx const& tx, std::uint32_t networkID, beast::Journal j)
     if (blob.size() > maxBlob)
         return std::nullopt;
     auto x = parse(makeSlice(blob), j);
-    if (!x || x->ledger.seq != tx[sfLedgerSequence])
+    if (!x || x->ledger.seq != tx[sfLedgerSequence] ||
+        x->leaves != tx[sfTransactionCount])
         return std::nullopt;
     return x;
 }
@@ -450,7 +458,14 @@ Transactor::invokePreflight<Ingest>(PreflightContext const& ctx)
 NotTEC
 Ingest::preflight(PreflightContext const& ctx)
 {
-    if (!proof(ctx.tx, ctx.app.config().NETWORK_ID, ctx.j))
+    // The proof is checked where any other transaction's signature is, and
+    // remembered there by id (checkValidity): once for a transaction,
+    // however often it is offered or applied. Anything but the one envelope
+    // has no proof to stand in for a signature, whatever it is signed with.
+    if (!isCanonical(ctx.tx, ctx.app.config().NETWORK_ID) ||
+        checkValidity(
+            ctx.app.getHashRouter(), ctx.tx, ctx.rules, ctx.app.config())
+                .first == Validity::SigBad)
         return temMALFORMED;
     return tesSUCCESS;
 }
@@ -458,22 +473,47 @@ Ingest::preflight(PreflightContext const& ctx)
 TER
 Ingest::preclaim(PreclaimContext const& ctx)
 {
-    // one entry per ledger of the other network, and only ever a newer one
+    // Whether the record has room for this proof is decided first and from
+    // the envelope alone, which says what the proof says of its ledger and
+    // its leaves (proof): most that are refused are refused here, and none
+    // of those is parsed for it.
     auto const seq = ctx.tx[sfLedgerSequence];
     auto const nid = ctx.tx[sfRemoteNetworkID];
-    if (auto const sle = ctx.view.read(keylet::exportFee(nid));
-        sle && seq <= (*sle)[sfLedgerSequence])
-        return tefPAST_SEQ;
+    std::uint64_t const now =
+        ctx.view.parentCloseTime().time_since_epoch().count();
+    if (auto const sle = ctx.view.read(keylet::exportFee(nid)))
+    {
+        std::uint64_t const last = (*sle)[sfParentCloseTime];
+        if (last != now)
+        {
+            // one sample a minute, and only ever of a newer ledger
+            if (now < last + spacing)
+                return tefALREADY;
+            if (seq <= (*sle)[sfLedgerSequence])
+                return tefPAST_SEQ;
+        }
+        else
+        {
+            // Recorded in this very ledger: only a proof that counts
+            // strictly more leaves takes its place, and never to move the
+            // record back. (A closed ledger applies the fullest first, so
+            // there this only ever refuses.)
+            if (ctx.tx[sfTransactionCount] <= (*sle)[sfTransactionCount] ||
+                seq < (*sle)[sfLedgerSequence])
+                return tefALREADY;
+        }
+    }
 
     auto const x = parse(makeSlice(ctx.tx.getFieldVL(sfBlob)), ctx.j);
     if (!x)
         return tefINTERNAL;
 
-    // the UNL's publisher must be one Import trusts for this very network,
-    // its list in date and no older than one already used
-    auto const now = ctx.view.parentCloseTime().time_since_epoch().count();
+    // The UNL's publisher must be one Import trusts for this very network,
+    // its list in date and no older than one already used. A list not yet
+    // effective, or expired, is no fault in the transaction: a tef, so the
+    // proof is not remembered as malformed by a node that saw it too early.
     if (x->vlEffective > now || x->vlExpiration <= now)
-        return temMALFORMED;
+        return tefFAILURE;
     if (auto const vl = ctx.view.read(keylet::import_vlseq(x->vlKey));
         vl && (*vl)[sfImportSequence] > x->vlSeq)
         return tefPAST_IMPORT_VL_SEQ;
@@ -499,17 +539,21 @@ Ingest::doApply()
         (*sle)[sfRemoteNetworkID] = nid;
     }
 
-    // A newer ledger (preclaim takes no other) folds the one recorded into
-    // the unit first, so the unit trails the record by one ledger.
+    // A newer sample (preclaim takes no other) folds the one recorded into
+    // the unit first, so the unit trails the record by one sample. A fuller
+    // proof taking the place of one recorded in this same ledger folds
+    // nothing: the sample it replaces never stood.
+    std::uint32_t const now = view.parentCloseTime().time_since_epoch().count();
     if (created)
         (*sle)[sfExportFeeUnit] = x->median;
-    else
+    else if ((*sle)[sfParentCloseTime] != now)
         (*sle)[sfExportFeeUnit] =
             fold((*sle)[sfExportFeeUnit], (*sle)[sfSampleFee]);
     (*sle)[sfLedgerSequence] = x->ledger.seq;
     (*sle)[sfTransactionCount] = x->leaves;
     (*sle)[sfBurnedDrops] = x->burn;
     (*sle)[sfSampleFee] = x->median;
+    (*sle)[sfParentCloseTime] = now;
     if (created)
         view.insert(sle);
     else

@@ -2002,6 +2002,7 @@ class Export_test : public beast::unit_test::suite
             sle->setFieldU32(sfTransactionCount, 1);
             sle->setFieldU64(sfBurnedDrops, 10);
             sle->setFieldU32(sfSampleFee, 10);
+            sle->setFieldU32(sfParentCloseTime, 0);
             if (had)
                 view.rawReplace(sle);
             else
@@ -2166,6 +2167,7 @@ class Export_test : public beast::unit_test::suite
                 sle->setFieldU32(sfTransactionCount, 1);
                 sle->setFieldU64(sfBurnedDrops, unit);
                 sle->setFieldU32(sfSampleFee, unit);
+                sle->setFieldU32(sfParentCloseTime, 0);
                 view.rawInsert(sle);
             };
 

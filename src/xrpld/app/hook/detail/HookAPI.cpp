@@ -974,8 +974,6 @@ HookAPI::xport_fee(std::uint32_t nid, std::uint32_t what) const
             return std::uint64_t{(*record)[sfSampleFee]};
         case LEDGER:
             return std::uint64_t{(*record)[sfLedgerSequence]};
-        case TXNS:
-            return std::uint64_t{(*record)[sfTransactionCount]};
         default:
             // (a hook API returns an int64, and negative is an error)
             return std::min<std::uint64_t>(

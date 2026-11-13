@@ -307,7 +307,6 @@ doExportInfo(RPC::JsonContext& context)
                 o[jss::ledger_index] = (*fee)[sfLedgerSequence];
                 o["fee_unit"] = (*fee)[sfExportFeeUnit];
                 o["sample_fee"] = (*fee)[sfSampleFee];
-                o["transactions"] = (*fee)[sfTransactionCount];
             }
         }
     }

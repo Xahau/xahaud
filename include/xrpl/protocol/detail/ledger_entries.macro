@@ -191,9 +191,13 @@ LEDGER_ENTRY(ltEXPORTER, 'V', Exporter, exporter, ({
     pay, as proven by ttINGEST (see Ingest.h), one per network.
     sfExportFeeUnit is the drops per signature xport_prepare() prices an
     export by for a hook that sets no Fee; the rest describes the latest
-    ledger proven: its index, its transactions, the drops they burned
-    between them and the median unit sampled among them. xport_fee() gives
-    a hook each of them.
+    ledger proven: its index, the drops its transactions burned between
+    them and the median unit sampled among them. xport_fee() gives a hook
+    each of them. The other two are how the next proof is admitted (see
+    Ingest.h): sfParentCloseTime is this network's clock when the record
+    was taken (the parent close time of that ledger), which the next is
+    spaced from, and sfTransactionCount the leaves its proof counted, which
+    one offered in that same ledger must exceed to take its place.
 
     \sa keylet::exportFee
 */
@@ -204,6 +208,7 @@ LEDGER_ENTRY(ltEXPORT_FEE, 'Z', ExportFee, export_fee, ({
     {sfTransactionCount,     soeREQUIRED},
     {sfBurnedDrops,          soeREQUIRED},
     {sfSampleFee,            soeREQUIRED},
+    {sfParentCloseTime,      soeREQUIRED},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))

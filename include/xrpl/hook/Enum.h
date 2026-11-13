@@ -330,9 +330,7 @@ enum xport_fee_code : uint32_t {
                  // until one has been
     MEDIAN = 1,  // the median over the last proven ledger's samples
     LEDGER = 2,  // that ledger's index: the clock exports expire by
-    TXNS = 3,    // how many transactions it held, at least: a proof may
-                 // count fewer than there were, never more (see Ingest.h)
-    BURNED = 4,  // the drops they burned between them
+    BURNED = 3,  // the drops its transactions burned between them
     LAST = BURNED
 };
 }

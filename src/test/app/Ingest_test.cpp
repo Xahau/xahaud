@@ -21,6 +21,7 @@
 #include <test/shamap/common.h>
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/ledger/OpenLedger.h>
+#include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Ingest.h>
@@ -105,6 +106,7 @@ class Ingest_test : public beast::unit_test::suite
         KeyPair valMaster = randomKeyPair(KeyType::ed25519);
         KeyPair valSigning = randomKeyPair(KeyType::secp256k1);
         beast::Journal j{beast::Journal::getNullSink()};
+        std::uint32_t effective = 0;  // of the lists its ledgers are given
 
         std::string
         vlKeyHex() const
@@ -211,7 +213,7 @@ class Ingest_test : public beast::unit_test::suite
 
             Json::Value list;
             list[jss::sequence] = 1;
-            list[jss::effective] = 0;
+            list[jss::effective] = effective;
             list[jss::expiration] = closeTime + 365 * 24 * 60 * 60;
             auto& entry = list[jss::validators].append(Json::objectValue);
             entry[jss::validation_public_key] = strHex(valMaster.first);
@@ -263,7 +265,8 @@ class Ingest_test : public beast::unit_test::suite
     };
 
     // The transaction that carries `xpof` as a proof of ledger `seq` of the
-    // XRPL: field for field what Ingest::make builds, then `tweak`ed
+    // XRPL: field for field what Ingest::make builds, counting the leaves
+    // the proof arrives at (none, if it is no proof), then `tweak`ed
     static std::shared_ptr<STTx const>
     ingest(
         jtx::Env& env,
@@ -271,6 +274,8 @@ class Ingest_test : public beast::unit_test::suite
         std::string const& xpof,
         std::function<void(STObject&)> const& tweak = {})
     {
+        auto const x = Ingest::parse(
+            makeSlice(xpof), beast::Journal{beast::Journal::getNullSink()});
         return std::make_shared<STTx const>(ttINGEST, [&](STObject& o) {
             o[sfAccount] = AccountID{};
             o[sfSequence] = 0;
@@ -279,6 +284,7 @@ class Ingest_test : public beast::unit_test::suite
             o[sfNetworkID] = env.app().config().NETWORK_ID;
             o[sfRemoteNetworkID] = 0;
             o[sfLedgerSequence] = seq;
+            o[sfTransactionCount] = x ? x->leaves : 0;
             o[sfBlob] = makeSlice(xpof);
             if (tweak)
                 tweak(o);
@@ -326,6 +332,7 @@ class Ingest_test : public beast::unit_test::suite
         jv[jss::Account] = from.human();
         jv[sfRemoteNetworkID.jsonName] = 0;
         jv[sfLedgerSequence.jsonName] = seq;
+        jv[sfTransactionCount.jsonName] = 40;
         jv[jss::Blob] = strHex(xpof);
         return jv;
     }
@@ -360,29 +367,40 @@ class Ingest_test : public beast::unit_test::suite
 
         // an incomplete tree: one inner node left out that no sample path
         // crosses. It counts fewer leaves and still proves.
-        Ingest::Nodes fewer = l1.inner;
-        auto const want =
-            Ingest::sampleLeaves(l1.inner, l1.info.txHash, l1.info.hash);
-        for (auto const& [h, node] : l1.inner)
-        {
-            if (h == l1.info.txHash)
-                continue;
-            fewer.erase(h);
-            if (Ingest::sampleLeaves(fewer, l1.info.txHash, l1.info.hash) ==
-                want)
-                break;
-            fewer.emplace(h, node);
-        }
-        BEAST_EXPECT(fewer.size() == l1.inner.size() - 1);
+        auto const thin = [&](OtherNetwork::Ledger const& l) {
+            Ingest::Nodes fewer = l.inner;
+            auto const want =
+                Ingest::sampleLeaves(l.inner, l.info.txHash, l.info.hash);
+            for (auto const& [h, node] : l.inner)
+            {
+                if (h == l.info.txHash)
+                    continue;
+                fewer.erase(h);
+                if (Ingest::sampleLeaves(fewer, l.info.txHash, l.info.hash) ==
+                    want)
+                    break;
+                fewer.emplace(h, node);
+            }
+            BEAST_EXPECT(fewer.size() == l.inner.size() - 1);
+            return OtherNetwork::proof(l, fewer);
+        };
+        auto const inLedger = [&](std::shared_ptr<STTx const> const& tx) {
+            return env.closed()->txRead(tx->getTransactionID()).first !=
+                nullptr;
+        };
 
         // Nobody's transaction: the one envelope, from account zero, with
         // no signature, sent by whoever holds the proof. It moves the
         // record and nothing else: no account is charged or sequenced, no
         // XAH is burned and no hook runs.
-        auto const first = ingest(env, 100, OtherNetwork::proof(l1, fewer));
+        auto const first = ingest(env, 100, thin(l1));
         {
+            // (the envelope says what the proof counts: fewer than the
+            // ledger held, and nothing else would be the proof's)
+            auto const counted = (*first)[sfTransactionCount];
+            BEAST_EXPECT(counted > 0 && counted < 40);
             auto const made = Ingest::make(
-                21337, 0, 100, makeSlice(OtherNetwork::proof(l1, fewer)));
+                21337, 0, 100, counted, makeSlice(first->getFieldVL(sfBlob)));
             BEAST_EXPECT(made.getTransactionID() == first->getTransactionID());
             BEAST_EXPECT(Ingest::isCanonical(*first, 21337));
             // (it is this network's: another's would carry its NetworkID)
@@ -400,11 +418,17 @@ class Ingest_test : public beast::unit_test::suite
         auto sle = feeObj();
         if (BEAST_EXPECT(sle))
         {
+            // burn and median are the same however much of the tree the
+            // proof gave
             BEAST_EXPECT((*sle)[sfLedgerSequence] == 100);
-            BEAST_EXPECT((*sle)[sfTransactionCount] < 40);
             BEAST_EXPECT((*sle)[sfBurnedDrops] == l1.burn);
             BEAST_EXPECT((*sle)[sfSampleFee] == l1.median);
             BEAST_EXPECT((*sle)[sfExportFeeUnit] == l1.median);
+            // and, for admitting the next: what this proof counted, and
+            // this network's clock when it was taken
+            BEAST_EXPECT(
+                (*sle)[sfTransactionCount] == (*first)[sfTransactionCount]);
+            BEAST_EXPECT((*sle)[sfParentCloseTime] == closeTime);
         }
         BEAST_EXPECT(env.closed()->info().drops == coins);
         BEAST_EXPECT(env.seq(alice) == aliceSeq);
@@ -423,19 +447,24 @@ class Ingest_test : public beast::unit_test::suite
             }
         }
 
-        // One entry per ledger: the same ledger again is refused, though
-        // this proof holds the whole tree and would count more of it
+        // One sample a minute, by this network's clock: until it has
+        // passed nothing is taken, not the whole tree of the ledger
+        // recorded (that ledger has closed, and nothing the record keeps
+        // would change) and not a newer ledger. Refused from the envelope
+        // alone, and not as malformed: the same proof is good in a minute.
         auto const full = OtherNetwork::proof(l1, l1.inner);
-        BEAST_EXPECT(submit(env, *ingest(env, 100, full)) == "tefPAST_SEQ");
-        sle = feeObj();
-        if (BEAST_EXPECT(sle))
-            BEAST_EXPECT((*sle)[sfTransactionCount] < 40);
+        auto const l2 = other.ledger(l1.info, closeTime + 4, fees);
+        auto const p2 = OtherNetwork::proof(l2, l2.inner);
+        BEAST_EXPECT(submit(env, *ingest(env, 100, full)) == "tefALREADY");
+        BEAST_EXPECT(submit(env, *ingest(env, 101, p2)) == "tefALREADY");
+        BEAST_EXPECT(
+            !(env.app().getHashRouter().getFlags(
+                  ingest(env, 101, p2)->getTransactionID()) &
+              SF_BAD));
 
         // Only the one envelope. A good proof of a newer ledger from an
         // account, signed and paid for, is refused whole: the account
         // keeps its Sequence and its fee.
-        auto const l2 = other.ledger(l1.info, closeTime + 4, fees);
-        auto const p2 = OtherNetwork::proof(l2, l2.inner);
         env(signedIngest(alice, 101, p2), ter(temMALFORMED));
         BEAST_EXPECT(env.seq(alice) == aliceSeq);
         BEAST_EXPECT(env.balance(alice) == aliceBalance);
@@ -453,7 +482,10 @@ class Ingest_test : public beast::unit_test::suite
                 [](STObject& o) { o[sfLastLedgerSequence] = 1'000'000u; },
                 [](STObject& o) { o[sfTxnSignature] = Slice{}; },
                 // (it does prove a ledger, but not the one it names)
-                [](STObject& o) { o[sfLedgerSequence] = 102u; }};
+                [](STObject& o) { o[sfLedgerSequence] = 102u; },
+                // (nor does it count the leaves it says: a proof cannot be
+                // passed off as fuller than it is)
+                [](STObject& o) { o[sfTransactionCount] = 41u; }};
             for (auto const& tweak : tweaks)
                 BEAST_EXPECT(
                     applyDirect(env, *ingest(env, 101, p2, tweak)) ==
@@ -547,12 +579,31 @@ class Ingest_test : public beast::unit_test::suite
                 "invalidTransaction");
         }
 
-        // newer ledgers fold the recorded median into the unit, one behind
+        // The minute over, the record is open again, to a newer ledger
+        // only.
         std::vector<std::pair<std::int64_t, int>> dear(40, {5'000, 0});
         auto const l3 = other.ledger(l2.info, closeTime + 8, dear);
         auto const p3 = OtherNetwork::proof(l3, l3.inner);
-        BEAST_EXPECT(submit(env, *ingest(env, 101, p2)) == "tesSUCCESS");
+        auto const minute = std::chrono::seconds{2 * Ingest::spacing};
+        env.close(minute);
+        BEAST_EXPECT(submit(env, *ingest(env, 100, full)) == "tefPAST_SEQ");
+
+        // The fullest proof is the sample. While the ledger a proof was
+        // recorded in is open, one that counts more leaves takes its place
+        // (and folds nothing more into the unit); one that counts fewer or
+        // as many does not, whichever ledger it proves.
+        auto const thin2 = ingest(env, 101, thin(l2));
+        auto const full2 = ingest(env, 101, p2);
+        BEAST_EXPECT((*full2)[sfTransactionCount] == 40);
+        BEAST_EXPECT(submit(env, *thin2) == "tesSUCCESS");
+        BEAST_EXPECT(submit(env, *full2) == "tesSUCCESS");
+        BEAST_EXPECT(applyDirect(env, *thin2) == tefALREADY);
+        BEAST_EXPECT(submit(env, *ingest(env, 102, p3)) == "tefALREADY");
+        // Both went into the set, and the set applies the fullest first:
+        // that one lands and the other is refused for counting no more, so
+        // a closed ledger holds one proof a minute and no more.
         env.close();
+        BEAST_EXPECT(inLedger(full2) && !inLedger(thin2));
         sle = feeObj();
         if (BEAST_EXPECT(sle))
         {
@@ -561,6 +612,9 @@ class Ingest_test : public beast::unit_test::suite
             BEAST_EXPECT((*sle)[sfExportFeeUnit] == l1.median);
             BEAST_EXPECT((*sle)[sfSampleFee] == l2.median);
         }
+
+        // newer ledgers fold the recorded median into the unit, one behind
+        env.close(minute);
         BEAST_EXPECT(submit(env, *ingest(env, 102, p3)) == "tesSUCCESS");
         env.close();
         sle = feeObj();
@@ -574,6 +628,7 @@ class Ingest_test : public beast::unit_test::suite
 
         // Strictly newer, always: not an older ledger, and not the one
         // recorded, which is the very transaction that recorded it
+        env.close(minute);
         BEAST_EXPECT(submit(env, *ingest(env, 101, p2)) == "tefPAST_SEQ");
         BEAST_EXPECT(submit(env, *ingest(env, 102, p3)) == "tefPAST_SEQ");
         BEAST_EXPECT(applyDirect(env, *ingest(env, 102, p3)) == tefPAST_SEQ);
@@ -581,7 +636,26 @@ class Ingest_test : public beast::unit_test::suite
         if (BEAST_EXPECT(sle))
             BEAST_EXPECT((*sle)[sfLedgerSequence] == 102);
 
-        // All of it for nothing: three ledgers proven and no drop burned
+        // A list that is not in date is no fault in the proof: refused
+        // with a tef, so that the one id the proof has is not remembered
+        // as bad, and taken once the list is effective.
+        {
+            other.effective = closeTime + 100 * Ingest::spacing;
+            auto const l4 = other.ledger(l3.info, closeTime + 12, fees);
+            auto const early =
+                ingest(env, 103, OtherNetwork::proof(l4, l4.inner));
+            BEAST_EXPECT(applyDirect(env, *early) == tefFAILURE);
+            BEAST_EXPECT(submit(env, *early) == "tefFAILURE");
+            BEAST_EXPECT(!(
+                env.app().getHashRouter().getFlags(early->getTransactionID()) &
+                SF_BAD));
+            env.close(std::chrono::seconds{101 * Ingest::spacing});
+            BEAST_EXPECT(submit(env, *early) == "tesSUCCESS");
+            env.close();
+            BEAST_EXPECT(inLedger(early));
+        }
+
+        // All of it for nothing: four ledgers proven and no drop burned
         // (the refused, signed one was never applied)
         BEAST_EXPECT(env.closed()->info().drops == coins);
 

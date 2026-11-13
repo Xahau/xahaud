@@ -458,7 +458,7 @@ static std::vector<std::uint8_t> const xportFeeWasm = {
 };
 
 // xport_fee(): every code, each in decimal places of its own: the unit, 100
-// x the median, 10^4 x the ledger, 10^8 x its transactions, 10^10 x its burn.
+// x the median, 10^4 x the ledger, 10^8 x its burn.
 //
 // (module
 //   (import "env" "_g" (func $_g (param i32 i32) (result i32)))
@@ -475,10 +475,8 @@ static std::vector<std::uint8_t> const xportFeeWasm = {
 //           1))))
 //         (i64.add
 //           (i64.mul (i64.const 10000) (call $xport_fee (i32.const 0)
-//           (i32.const 2))) (i64.add
-//             (i64.mul (i64.const 100000000) (call $xport_fee (i32.const 0)
-//             (i32.const 3))) (i64.mul (i64.const 10000000000) (call $xport_fee
-//             (i32.const 0) (i32.const 4))))))))
+//           (i32.const 2))) (i64.mul (i64.const 100000000) (call $xport_fee
+//           (i32.const 0) (i32.const 3)))))))
 //   (export "memory" (memory 0))
 //   (export "hook" (func $hook)))
 static std::vector<std::uint8_t> const xportFeeAllWasm = {
@@ -491,14 +489,12 @@ static std::vector<std::uint8_t> const xportFeeAllWasm = {
     0x70U, 0x6FU, 0x72U, 0x74U, 0x5FU, 0x66U, 0x65U, 0x65U, 0x00U, 0x02U, 0x03U,
     0x02U, 0x01U, 0x03U, 0x05U, 0x03U, 0x01U, 0x00U, 0x01U, 0x07U, 0x11U, 0x02U,
     0x06U, 0x6DU, 0x65U, 0x6DU, 0x6FU, 0x72U, 0x79U, 0x02U, 0x00U, 0x04U, 0x68U,
-    0x6FU, 0x6FU, 0x6BU, 0x00U, 0x03U, 0x0AU, 0x49U, 0x01U, 0x47U, 0x00U, 0x41U,
+    0x6FU, 0x6FU, 0x6BU, 0x00U, 0x03U, 0x0AU, 0x3BU, 0x01U, 0x39U, 0x00U, 0x41U,
     0x01U, 0x41U, 0x01U, 0x10U, 0x00U, 0x1AU, 0x41U, 0x00U, 0x41U, 0x00U, 0x41U,
     0x00U, 0x41U, 0x00U, 0x10U, 0x02U, 0x42U, 0xE4U, 0x00U, 0x41U, 0x00U, 0x41U,
     0x01U, 0x10U, 0x02U, 0x7EU, 0x7CU, 0x42U, 0x90U, 0xCEU, 0x00U, 0x41U, 0x00U,
     0x41U, 0x02U, 0x10U, 0x02U, 0x7EU, 0x42U, 0x80U, 0xC2U, 0xD7U, 0x2FU, 0x41U,
-    0x00U, 0x41U, 0x03U, 0x10U, 0x02U, 0x7EU, 0x42U, 0x80U, 0xC8U, 0xAFU, 0xA0U,
-    0x25U, 0x41U, 0x00U, 0x41U, 0x04U, 0x10U, 0x02U, 0x7EU, 0x7CU, 0x7CU, 0x7CU,
-    0x10U, 0x01U, 0x0BU,
+    0x00U, 0x41U, 0x03U, 0x10U, 0x02U, 0x7EU, 0x7CU, 0x7CU, 0x10U, 0x01U, 0x0BU,
 };
 
 }  // namespace
@@ -613,7 +609,6 @@ class ExportHook_test : public beast::unit_test::suite
         std::uint32_t unit,
         std::uint32_t median,
         std::uint32_t ledger,
-        std::uint32_t txns,
         std::uint64_t burned)
     {
         auto const sle = std::make_shared<SLE>(keylet::exportFee(0));
@@ -621,8 +616,11 @@ class ExportHook_test : public beast::unit_test::suite
         sle->setFieldU32(sfExportFeeUnit, unit);
         sle->setFieldU32(sfSampleFee, median);
         sle->setFieldU32(sfLedgerSequence, ledger);
-        sle->setFieldU32(sfTransactionCount, txns);
+        sle->setFieldU32(sfTransactionCount, 1);
         sle->setFieldU64(sfBurnedDrops, burned);
+        sle->setFieldU32(
+            sfParentCloseTime,
+            view.parentCloseTime().time_since_epoch().count());
         view.rawInsert(sle);
     }
 
@@ -779,7 +777,7 @@ class ExportHook_test : public beast::unit_test::suite
             OpenView view(&*closed, closed);
             makeExporter(view, account.id(), 3);
             if (proven)
-                makeProven(view, unit, unit, *proven, 1, unit);
+                makeProven(view, unit, unit, *proven, unit);
 
             auto const [codes, emitted] = payHook(env, view, bob, account);
             BEAST_EXPECT(codes == std::vector<std::uint64_t>{32});
@@ -851,23 +849,22 @@ class ExportHook_test : public beast::unit_test::suite
                 1000});
 
         // With a ledger proven: the unit it left, and of that ledger its
-        // median, index, transactions and burn.
+        // median, index and burn.
         {
             auto const account = install(env, xportFeeAllWasm);
             auto const closed = env.closed();
             OpenView view(&*closed, closed);
-            makeProven(view, 25, 30, 7, 3, 9);
+            makeProven(view, 25, 30, 7, 9);
             BEAST_EXPECT(
                 payHook(env, view, bob, account).first ==
                 std::vector<std::uint64_t>{
-                    25 + 100 * 30 + 10'000 * 7 + 100'000'000ULL * 3 +
-                    10'000'000'000ULL * 9});
+                    25 + 100 * 30 + 10'000 * 7 + 100'000'000ULL * 9});
         }
         {
             auto const account = install(env, xportFeeWasm);
             auto const closed = env.closed();
             OpenView view(&*closed, closed);
-            makeProven(view, 25, 30, 7, 3, 9);
+            makeProven(view, 25, 30, 7, 9);
             BEAST_EXPECT(
                 payHook(env, view, bob, account).first ==
                 std::vector<std::uint64_t>{25 + 1000});
