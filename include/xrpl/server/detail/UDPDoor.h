@@ -29,6 +29,7 @@
 #include <boost/asio/buffer.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/post.hpp>
 #include <boost/asio/spawn.hpp>
 #include <boost/beast/core/detect_ssl.hpp>
 #include <boost/beast/core/multi_buffer.hpp>
@@ -60,6 +61,9 @@ private:
     std::vector<char> recv_buffer_;
     endpoint_type local_endpoint_;  // Store TCP-style endpoint
 
+    // Large enough for one maximum-size datagram (see do_send).
+    static constexpr int minSendBufferSize = 256 * 1024;
+
 public:
     UDPDoor(
         Handler& handler,
@@ -80,10 +84,23 @@ public:
         // Create UDP endpoint from port configuration
         boost::asio::ip::udp::endpoint udp_endpoint(port_.ip, port_.port);
 
+        // A udp port the operator configured must not go missing behind a
+        // log line, so it fails startup as a TCP port does. The highway
+        // door on a peer port is best effort and just stays closed.
+        // Not close(): it needs shared_from_this(), which throws until the
+        // constructor has returned.
+        auto const fail = [this] {
+            error_code ignored;
+            socket_.close(ignored);
+            if (port_.has_udp())
+                Throw<std::exception>();
+        };
+
         socket_.open(udp_endpoint.protocol(), ec);
         if (ec)
         {
             JLOG(j_.error()) << "UDP socket open failed: " << ec.message();
+            fail();
             return;
         }
 
@@ -93,8 +110,29 @@ public:
         {
             JLOG(j_.error())
                 << "UDP set reuse_address failed: " << ec.message();
-            close();
+            fail();
             return;
+        }
+
+        // Some platforms (macOS: net.inet.udp.maxdgram = 9216) cap outgoing
+        // datagrams at SO_SNDBUF, so a full-size fragment fails with
+        // EMSGSIZE unless the send buffer is at least that large.
+        {
+            boost::asio::socket_base::send_buffer_size current;
+            socket_.get_option(current, ec);
+            if (!ec && current.value() < minSendBufferSize)
+            {
+                socket_.set_option(
+                    boost::asio::socket_base::send_buffer_size(
+                        minSendBufferSize),
+                    ec);
+                if (ec)
+                {
+                    JLOG(j_.warn())
+                        << "UDP set send_buffer_size failed: " << ec.message();
+                }
+            }
+            ec.clear();
         }
 
         socket_.bind(udp_endpoint, ec);
@@ -104,11 +142,16 @@ public:
             // unbound socket, which would silently bind an ephemeral port.
             JLOG(j_.error()) << "UDP socket bind to " << udp_endpoint
                              << " failed: " << ec.message();
-            close();
+            fail();
             return;
         }
 
-        JLOG(j_.info()) << "UDP listening on " << udp_endpoint;
+        // Report the port the socket actually bound (port 0 asks the OS).
+        auto const bound = socket_.local_endpoint(ec);
+        if (!ec)
+            local_endpoint_ = endpoint_type(bound.address(), bound.port());
+
+        JLOG(j_.info()) << "UDP listening on " << local_endpoint_;
     }
 
     endpoint_type
@@ -129,6 +172,9 @@ public:
     void
     close() override
     {
+        if (!strand_.running_in_this_thread())
+            return boost::asio::post(
+                strand_, std::bind(&UDPDoor::close, this->shared_from_this()));
         error_code ec;
         socket_.close(ec);
     }
@@ -174,22 +220,54 @@ private:
             std::string(recv_buffer_.data(), bytes_transferred),
             tcp_endpoint,
             port_,
-            [this, tcp_endpoint](std::string const& response) {
-                do_send(response, tcp_endpoint);
+            // A weak reference: subscriptions keep this callback alive in
+            // UDPInfoSub, and a strong one would stop the door (and so the
+            // server) from ever shutting down.
+            [weak = this->weak_from_this(),
+             tcp_endpoint](std::string const& response) {
+                if (auto self = weak.lock())
+                    self->do_send(response, tcp_endpoint);
             });
 
         do_receive();
     }
 
+    // The payload must stay alive until the send completes, and the socket
+    // is only touched on the strand.
+    void
+    send_datagram(
+        std::shared_ptr<std::string const> payload,
+        boost::asio::ip::udp::endpoint const& udp_endpoint)
+    {
+        boost::asio::post(
+            strand_,
+            [this,
+             self = this->shared_from_this(),
+             payload = std::move(payload),
+             udp_endpoint]() {
+                if (!socket_.is_open())
+                    return;
+
+                socket_.async_send_to(
+                    boost::asio::buffer(*payload),
+                    udp_endpoint,
+                    boost::asio::bind_executor(
+                        strand_,
+                        [self, payload](
+                            error_code ec, std::size_t bytes_transferred) {
+                            if (ec &&
+                                ec != boost::asio::error::operation_aborted)
+                            {
+                                JLOG(self->j_.error())
+                                    << "UDP send failed: " << ec.message();
+                            }
+                        }));
+            });
+    }
+
     void
     do_send(std::string const& response, endpoint_type const& tcp_endpoint)
     {
-        if (!socket_.is_open())
-        {
-            std::cout << "UDP SOCKET NOT OPEN WHEN SENDING\n\n";
-            return;
-        }
-
         const size_t HEADER_SIZE = 16;
         const size_t MAX_DATAGRAM_SIZE =
             65487;  // Allow for ipv6 header 40 bytes + 8 bytes of udp header
@@ -202,19 +280,8 @@ private:
         // If message fits in single datagram, send normally
         if (response.length() <= MAX_DATAGRAM_SIZE)
         {
-            socket_.async_send_to(
-                boost::asio::buffer(response),
-                udp_endpoint,
-                boost::asio::bind_executor(
-                    strand_,
-                    [this, self = this->shared_from_this()](
-                        error_code ec, std::size_t bytes_transferred) {
-                        if (ec && ec != boost::asio::error::operation_aborted)
-                        {
-                            JLOG(j_.error())
-                                << "UDP send failed: " << ec.message();
-                        }
-                    }));
+            send_datagram(
+                std::make_shared<std::string const>(response), udp_endpoint);
             return;
         }
 
@@ -233,51 +300,39 @@ private:
         // Send fragmented packets
         for (uint16_t packet_num = 0; packet_num < total_packets; packet_num++)
         {
-            std::string fragment;
-            fragment.reserve(MAX_DATAGRAM_SIZE);
+            auto fragment = std::make_shared<std::string>();
+            fragment->reserve(MAX_DATAGRAM_SIZE);
 
             // Add header - 4 bytes of zeros
-            fragment.push_back(0);
-            fragment.push_back(0);
-            fragment.push_back(0);
-            fragment.push_back(0);
+            fragment->push_back(0);
+            fragment->push_back(0);
+            fragment->push_back(0);
+            fragment->push_back(0);
 
             // Add packet number (little endian)
-            fragment.push_back(packet_num & 0xFF);
-            fragment.push_back((packet_num >> 8) & 0xFF);
+            fragment->push_back(packet_num & 0xFF);
+            fragment->push_back((packet_num >> 8) & 0xFF);
 
             // Add total packets (little endian)
-            fragment.push_back(total_packets & 0xFF);
-            fragment.push_back((total_packets >> 8) & 0xFF);
+            fragment->push_back(total_packets & 0xFF);
+            fragment->push_back((total_packets >> 8) & 0xFF);
 
             // Add timestamp (8 bytes, little endian)
-            fragment.push_back(timestamp & 0xFF);
-            fragment.push_back((timestamp >> 8) & 0xFF);
-            fragment.push_back((timestamp >> 16) & 0xFF);
-            fragment.push_back((timestamp >> 24) & 0xFF);
-            fragment.push_back((timestamp >> 32) & 0xFF);
-            fragment.push_back((timestamp >> 40) & 0xFF);
-            fragment.push_back((timestamp >> 48) & 0xFF);
-            fragment.push_back((timestamp >> 56) & 0xFF);
+            fragment->push_back(timestamp & 0xFF);
+            fragment->push_back((timestamp >> 8) & 0xFF);
+            fragment->push_back((timestamp >> 16) & 0xFF);
+            fragment->push_back((timestamp >> 24) & 0xFF);
+            fragment->push_back((timestamp >> 32) & 0xFF);
+            fragment->push_back((timestamp >> 40) & 0xFF);
+            fragment->push_back((timestamp >> 48) & 0xFF);
+            fragment->push_back((timestamp >> 56) & 0xFF);
 
             // Calculate payload slice
             size_t start = packet_num * payload_size;
             size_t length = std::min(payload_size, response.length() - start);
-            fragment.append(response.substr(start, length));
+            fragment->append(response, start, length);
 
-            socket_.async_send_to(
-                boost::asio::buffer(fragment),
-                udp_endpoint,
-                boost::asio::bind_executor(
-                    strand_,
-                    [this, self = this->shared_from_this()](
-                        error_code ec, std::size_t bytes_transferred) {
-                        if (ec && ec != boost::asio::error::operation_aborted)
-                        {
-                            JLOG(j_.error())
-                                << "UDP send failed: " << ec.message();
-                        }
-                    }));
+            send_datagram(std::move(fragment), udp_endpoint);
         }
     }
 
