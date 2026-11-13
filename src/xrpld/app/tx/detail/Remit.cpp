@@ -50,21 +50,17 @@ Remit::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, native};
 }
 
+std::uint32_t
+Remit::getFlagsMask(PreflightContext const& ctx)
+{
+    return ctx.tx.getFlags() &
+        (ctx.rules.enabled(featureRemitNoAutoTrustline) ? tfRemitMask
+                                                        : tfUniversalMask);
+}
+
 NotTEC
 Remit::preflight(PreflightContext const& ctx)
 {
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
-    // tfRequireTrustline is only valid once RemitNoAutoTrustline is enabled
-    if (ctx.tx.getFlags() &
-        (ctx.rules.enabled(featureRemitNoAutoTrustline) ? tfRemitMask
-                                                        : tfUniversalMask))
-    {
-        JLOG(ctx.j.warn()) << "Malformed transaction: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
-
     AccountID const dstID = ctx.tx.getAccountID(sfDestination);
     AccountID const srcID = ctx.tx.getAccountID(sfAccount);
 
@@ -236,16 +232,13 @@ Remit::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
 Remit::doApply()
 {
     Sandbox sb(&ctx_.view());
-
-    if (!sb.rules().enabled(featureRemit))
-        return temDISABLED;
 
     beast::Journal const& j = ctx_.journal;
 
