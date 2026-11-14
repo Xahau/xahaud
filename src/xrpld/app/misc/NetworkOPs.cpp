@@ -1641,7 +1641,18 @@ NetworkOPsImp::apply(std::unique_lock<std::mutex>& batchLock)
             }
 #endif
 
-            bool addLocal = e.local;
+            // featureExport: a proof of fees (ttINGEST) is never kept in
+            // LocalTxs, which re-applies what it holds to each new open
+            // ledger. LocalTxs::sweep drops an entry once its account's
+            // Sequence has passed it; a ttINGEST has no account, so it
+            // would stay for all of holdLedgers, and one refused at submit
+            // only for coming too soon (tefALREADY, Ingest::spacing) would
+            // apply by itself a few ledgers later. The cost: one that
+            // applied to the open ledger but missed the closed one is not
+            // retried either, and has to be submitted again. Proofs from
+            // ExportRelay were never local (submitTransaction).
+            bool addLocal = e.local &&
+                e.transaction->getSTransaction()->getTxnType() != ttINGEST;
 
             if (isTesSuccess(e.result))
             {
