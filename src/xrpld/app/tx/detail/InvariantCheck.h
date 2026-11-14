@@ -746,6 +746,34 @@ public:
         beast::Journal const&);
 };
 
+/*
+ * Verify that when an object with an associated pseudo-account is deleted,
+ * its pseudo-account is also deleted.
+ *
+ * The reverse (pseudo-account deleted -> object deleted) is enforced by
+ * AccountRootsDeletedClean.
+ */
+class ObjectHasPseudoAccount
+{
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    [[nodiscard]] bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&) const;
+
+private:
+    std::vector<std::shared_ptr<SLE const>> deletedObjSles_;
+};
+
 using InvariantChecks = std::tuple<
     TransactionFeeCheck,
     AccountRootsNotDeleted,
@@ -766,7 +794,8 @@ using InvariantChecks = std::tuple<
     ValidPermissionedDomain,
     ValidAMM,
     ValidLockedBalance,
-    ValidAppLoader>;
+    ValidAppLoader,
+    ObjectHasPseudoAccount>;
 
 /**
  * @brief get a tuple of all invariant checks

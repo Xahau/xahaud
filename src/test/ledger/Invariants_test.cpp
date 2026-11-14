@@ -1456,6 +1456,35 @@ public:
     }
 
     void
+    testObjectHasPseudoAccount()
+    {
+        testcase("object has pseudo-account");
+        using namespace test::jtx;
+
+        // AMM: object deleted without its pseudo-account
+        uint256 ammID{};
+        Account const gw{"gw"};
+        doInvariantCheck(
+            {{"deleted AMM without deleting its pseudo-account"}},
+            [&ammID](Account const&, Account const&, ApplyContext& ac) {
+                auto sle = ac.view().peek(keylet::amm(ammID));
+                if (!sle)
+                    return false;
+                ac.view().erase(sle);
+                return true;
+            },
+            XRPAmount{},
+            STTx{ttAMM_DELETE, [](STObject&) {}},
+            {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
+            [&ammID, &gw](Account const&, Account const&, Env& env) {
+                env.fund(XRP(1'000), gw);
+                AMM const amm(env, gw, XRP(100), gw["USD"](100));
+                ammID = amm.ammID();
+                return true;
+            });
+    }
+
+    void
     run() override
     {
         testXRPNotCreated();
@@ -1472,6 +1501,7 @@ public:
         testValidNewAccountRoot();
         testNFTokenPageInvariants();
         testAMMDeleteInvariants();
+        testObjectHasPseudoAccount();
         testPermissionedDomainInvariants();
         testLockedBalance();
         testAppLoader();

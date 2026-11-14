@@ -39,6 +39,25 @@
 
 namespace ripple {
 
+// Returns the human-readable name of a ledger entry's type, falling back to
+// the numeric type if the format is somehow unknown.
+static std::string
+ledgerEntryTypeName(SLE const& sle)
+{
+    auto const item = LedgerFormats::getInstance().findByType(sle.getType());
+
+    if (item == nullptr)
+    {
+        // LCOV_EXCL_START
+        UNREACHABLE(
+            "ripple::ledgerEntryTypeName : ledger entry has no known ledger "
+            "format");
+        return std::to_string(sle.getType());
+        // LCOV_EXCL_STOP
+    }
+    return item->getName();
+}
+
 void
 TransactionFeeCheck::visitEntry(
     bool,
@@ -2123,6 +2142,73 @@ ValidAppLoader::finalize(
             return fail("sequence does not match its owner's");
     }
     return true;
+}
+
+void
+ObjectHasPseudoAccount::visitEntry(
+    bool isDelete,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    if (!isDelete)
+        return;
+
+    // Before should never be null when isDelete = true
+    if (!before)
+    {
+        // LCOV_EXCL_START
+        UNREACHABLE(
+            "ripple::ObjectHasPseudoAccount::visitEntry : deleted ledger "
+            "entry missing before state");
+        return;
+        // LCOV_EXCL_STOP
+    }
+
+    switch (before->getType())
+    {
+        case ltAMM:
+            deletedObjSles_.push_back(before);
+            break;
+        default:
+            return;
+    }
+}
+
+[[nodiscard]] bool
+ObjectHasPseudoAccount::finalize(
+    STTx const&,
+    TER const,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j) const
+{
+    if (deletedObjSles_.empty())
+        return true;
+
+    bool failed = false;
+    for (auto const& sle : deletedObjSles_)
+    {
+        if (!sle->isFieldPresent(sfAccount))
+        {
+            JLOG(j.fatal())
+                << "Invariant failed: deleted " << ledgerEntryTypeName(*sle)
+                << " is missing pseudo-account field";
+            failed = true;
+            continue;
+        }
+
+        // The pseudo-account must NOT exist on the ledger after the object is
+        // deleted.
+        if (view.exists(keylet::account(sle->getAccountID(sfAccount))))
+        {
+            JLOG(j.fatal())
+                << "Invariant failed: deleted " << ledgerEntryTypeName(*sle)
+                << " without deleting its pseudo-account";
+            failed = true;
+        }
+    }
+
+    return !failed;
 }
 
 }  // namespace ripple
