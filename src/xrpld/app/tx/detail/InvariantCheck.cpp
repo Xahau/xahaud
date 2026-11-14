@@ -1658,7 +1658,15 @@ ValidAMM::visitEntry(
     std::shared_ptr<SLE const> const& after)
 {
     if (isDelete)
+    {
+        if (before && before->getType() == ltAMM)
+        {
+            ammDeleted_ = true;
+            lptAMMBalanceBeforeDeletion_ =
+                before->getFieldAmount(sfLPTokenBalance);
+        }
         return;
+    }
 
     if (after)
     {
@@ -1796,7 +1804,11 @@ ValidAMM::finalizeCreate(
 }
 
 bool
-ValidAMM::finalizeDelete(bool enforce, TER res, beast::Journal const& j) const
+ValidAMM::finalizeDelete(
+    bool enforce,
+    bool enforceAMMDelete,
+    TER res,
+    beast::Journal const& j) const
 {
     if (ammAccount_)
     {
@@ -1808,6 +1820,47 @@ ValidAMM::finalizeDelete(bool enforce, TER res, beast::Journal const& j) const
         if (enforce)
             return false;
         // LCOV_EXCL_STOP
+    }
+    if (enforceAMMDelete)
+    {
+        if (res == tesSUCCESS)
+        {
+            if (!ammDeleted_)
+            {
+                // LCOV_EXCL_START
+                JLOG(j.error()) << "AMMDelete invariant failed: AMM object "
+                                   "remained on tesSUCCESS";
+                return false;
+                // LCOV_EXCL_STOP
+            }
+            if (!lptAMMBalanceBeforeDeletion_)
+            {
+                // LCOV_EXCL_START
+                JLOG(j.error()) << "AMMDelete invariant failed: AMM object "
+                                   "deleted without LP balance";
+                return false;
+                // LCOV_EXCL_STOP
+            }
+            if (*lptAMMBalanceBeforeDeletion_ != beast::zero)
+            {
+                // LCOV_EXCL_START
+                JLOG(j.error()) << "AMMDelete invariant failed: AMM object "
+                                   "deleted with non-zero LP balance: "
+                                << *lptAMMBalanceBeforeDeletion_;
+                return false;
+                // LCOV_EXCL_STOP
+            }
+        }
+        else if (ammDeleted_)
+        {
+            // AMM should only be fully deleted when AMMDelete returns
+            // tesSUCCESS.
+            // LCOV_EXCL_START
+            JLOG(j.error()) << "AMMDelete invariant failed: AMM object "
+                               "deleted when result is not tesSUCCESS";
+            return false;
+            // LCOV_EXCL_STOP
+        }
     }
 
     return true;
@@ -1894,16 +1947,21 @@ ValidAMM::finalizeWithdraw(
     ripple::STTx const& tx,
     ripple::ReadView const& view,
     bool enforce,
+    bool enforceAMMDelete,
     beast::Journal const& j) const
 {
-    if (!ammAccount_)
+    if (enforceAMMDelete && ammDeleted_)
     {
-        // Last Withdraw or Clawback deleted AMM
+        // Last Withdraw or Clawback can delete the AMM. We don't have to check
+        // the LPToken balance because a final AMMWithdraw or AMMClawback can
+        // redeem the remaining LP tokens and delete the AMM entry in the same
+        // transaction.
+        return true;
     }
-    else if (!generalInvariant(tx, view, ZeroAllowed::Yes, j))
+    if (ammAccount_ && !generalInvariant(tx, view, ZeroAllowed::Yes, j) &&
+        enforce)
     {
-        if (enforce)
-            return false;
+        return false;
     }
 
     return true;
@@ -1923,6 +1981,26 @@ ValidAMM::finalize(
         return true;
 
     bool const enforce = true;  // view.rules().enabled(fixAMMv1_3);
+    bool const enforceAMMDelete = true;
+
+    // AMM can only be deleted by AMMWithdraw, AMMClawback, and AMMDelete
+    if (enforceAMMDelete && ammDeleted_)
+    {
+        switch (tx.getTxnType())
+        {
+            case ttAMM_WITHDRAW:
+            case ttAMM_CLAWBACK:
+            case ttAMM_DELETE:
+                break;
+            default:
+                // LCOV_EXCL_START
+                JLOG(j.error()) << "AMM invariant failed: unexpected AMM "
+                                   "deletion by "
+                                << tx.getTxnType();
+                return false;
+                // LCOV_EXCL_STOP
+        }
+    }
 
     switch (tx.getTxnType())
     {
@@ -1932,13 +2010,13 @@ ValidAMM::finalize(
             return finalizeDeposit(tx, view, enforce, j);
         case ttAMM_CLAWBACK:
         case ttAMM_WITHDRAW:
-            return finalizeWithdraw(tx, view, enforce, j);
+            return finalizeWithdraw(tx, view, enforce, enforceAMMDelete, j);
         case ttAMM_BID:
             return finalizeBid(enforce, j);
         case ttAMM_VOTE:
             return finalizeVote(enforce, j);
         case ttAMM_DELETE:
-            return finalizeDelete(enforce, result, j);
+            return finalizeDelete(enforce, enforceAMMDelete, result, j);
         case ttCHECK_CASH:
         case ttOFFER_CREATE:
         case ttPAYMENT:
