@@ -41,10 +41,7 @@ public:
     DatabaseRotatingImp&
     operator=(DatabaseRotatingImp const&) = delete;
 
-    Application& app_;
-
     DatabaseRotatingImp(
-        Application& app,
         Scheduler& scheduler,
         int readThreads,
         std::shared_ptr<Backend> writableBackend,
@@ -86,9 +83,6 @@ public:
 
     void
     sync() override;
-
-    bool
-    storeLedger(std::shared_ptr<Ledger const> const& srcLedger) override;
 
     void
     sweep() override;

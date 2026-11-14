@@ -87,6 +87,12 @@ std::size_t constexpr maxTokenURILength = 256;
 /** The maximum length of a URI inside an URIToken */
 std::size_t constexpr maxURITokenURILength = 256;
 
+/** The maximum length of a HookParameterName */
+std::size_t constexpr maxHookParameterKeySize = 32;
+
+/** The maximum length of a HookParameterValue */
+std::size_t constexpr maxHookParameterValueSize = 256;
+
 /** The maximum length of a Data element inside a DID */
 std::size_t constexpr maxDIDDocumentLength = 256;
 

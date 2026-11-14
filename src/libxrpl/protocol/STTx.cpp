@@ -21,7 +21,6 @@
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/basics/safe_cast.h>
-#include <xrpl/hook/Enum.h>
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
@@ -468,8 +467,8 @@ STTx::checkMultiSign(
 static bool
 isMemoOkay(STObject const& st, std::string& reason)
 {
-    auto const maxKey = hook::maxHookParameterKeySize();
-    auto const maxVal = hook::maxHookParameterValueSize();
+    auto const maxKey = maxHookParameterKeySize;
+    auto const maxVal = maxHookParameterValueSize;
 
     // piggyback otxn hookparameter checking here
     if (st.isFieldPresent(sfHookParameters))

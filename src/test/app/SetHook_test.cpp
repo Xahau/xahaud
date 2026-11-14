@@ -16,9 +16,9 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
-#include <test/app/Import_json.h>
 #include <test/app/SetHook_wasm.h>
 #include <test/jtx.h>
+#include <test/jtx/Import_json.h>
 #include <test/jtx/hook.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/detail/SetHook.h>
