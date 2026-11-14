@@ -215,7 +215,7 @@ AMMClawback::applyGuts(Sandbox& sb)
                 *clawAmount);
 
     if (result != tesSUCCESS)
-        return result;  // LCOV_EXCL_LINE
+        return result;
 
     if (auto const ter = checkAMMPrecisionLoss(
             sb, ammAccount, asset, asset2, newLPTokenBalance, j_);
@@ -308,6 +308,12 @@ AMMClawback::equalWithdrawMatchingOneAmount(
 
     auto amountRounded =
         getRoundedAsset(rules, amountBalance, frac, IsDeposit::No);
+
+    // The requested clawback amount is likely too small and results in
+    // one-sided pool withdrawal due to round off. Fail so the issuer can
+    // clawback a larger amount.
+    if (amountRounded == beast::zero || amount2Rounded == beast::zero)
+        return {tecAMM_FAILED, STAmount{}, STAmount{}, STAmount{}};
 
     return AMMWithdraw::withdraw(
         sb,

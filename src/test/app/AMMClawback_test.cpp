@@ -2111,6 +2111,43 @@ class AMMClawback_test : public beast::unit_test::suite
     }
 
     void
+    testAMMClawbackAmountRoundsToZero(FeatureBitset features)
+    {
+        // Ensure a clawback whose paired XRP amount rounds down to zero drops
+        // fails with tecAMM_FAILED instead of silently burning the holder's
+        // LP tokens in a one-sided withdrawal.
+        testcase("test AMMClawback amount that rounds down to zero");
+        using namespace jtx;
+
+        Env env(*this, features);
+        Account const gw{"gateway"};
+        Account const alice{"alice"};
+        env.fund(XRP(10'000), gw, alice);
+        env.close();
+
+        env(fset(gw, asfAllowTrustLineClawback));
+        env.close();
+
+        auto const usd = gw["USD"];
+        env.trust(usd(100'000), alice);
+        env(pay(gw, alice, usd(20'000)));
+        env.close();
+
+        AMM amm(env, alice, usd(10'000), XRP(10));
+        env.close();
+        auto const poolBefore = amm.balances(usd, xrpIssue());
+        auto const lpBefore = amm.getLPTokensBalance(alice);
+
+        // 0.0001 USD is 1e-8 of the USD pool, i.e. 0.1 drop of XRP.
+        env(amm::ammClawback(gw, alice, usd, xrpIssue(), STAmount{usd, 1, -4}),
+            ter(tecAMM_FAILED));
+        env.close();
+
+        BEAST_EXPECT(amm.balances(usd, xrpIssue()) == poolBefore);
+        BEAST_EXPECT(amm.getLPTokensBalance(alice) == lpBefore);
+    }
+
+    void
     testExactLPTokenEquality(FeatureBitset features)
     {
         using namespace jtx;
@@ -2183,6 +2220,7 @@ class AMMClawback_test : public beast::unit_test::suite
             testSingleDepositAndClawback(features);
             testLastHolderLPTokenBalance(features);
             testClawbackBypassesReserve(features);
+            testAMMClawbackAmountRoundsToZero(features);
             testExactLPTokenEquality(features);
         }
     }
