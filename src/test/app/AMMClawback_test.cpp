@@ -2046,6 +2046,71 @@ class AMMClawback_test : public beast::unit_test::suite
     }
 
     void
+    testClawbackBypassesReserve(FeatureBitset features)
+    {
+        // Clawback must not fail the holder-side reserve check: a holder could
+        // otherwise veto it by omitting the paired trustline. AMMWithdraw still
+        // enforces the check.
+        testcase("test clawback bypasses recipient reserve");
+        using namespace jtx;
+
+        Env env(*this, features);
+        Account const gw{"gateway"};
+        Account const carol{"carol"};
+        Account const alice{"alice"};
+
+        auto const usd = gw["USD"];
+        auto const eur = gw["EUR"];
+        auto const baseFee = env.current()->fees().base;
+
+        env.fund(XRP(1'000'000), carol);
+        // Low XRP so the issuer-balance check cannot pass.
+        env.fund(env.current()->fees().accountReserve(0) + baseFee * 10, gw);
+        // Reserve for the USD trustline and LP token trustline.
+        env.fund(env.current()->fees().accountReserve(2) + baseFee * 5, alice);
+        env.close();
+
+        env(fset(gw, asfAllowTrustLineClawback));
+        env.close();
+
+        env.trust(usd(1'000'000), carol);
+        env.trust(eur(1'000'000), carol);
+        env(pay(gw, carol, usd(100'000)));
+        env(pay(gw, carol, eur(100'000)));
+        env.close();
+        AMM amm(env, carol, usd(1'000), eur(1'000), ter(tesSUCCESS));
+        env.close();
+
+        // alice holds a USD trustline and LP tokens, but no EUR trustline.
+        env.trust(usd(100'000), alice);
+        env(pay(gw, alice, usd(1'000)));
+        env.close();
+        amm.deposit(alice, usd(100));
+
+        BEAST_EXPECT(env.ownerCount(alice) == 2);
+        // alice cannot afford a third owner object.
+        BEAST_EXPECT(
+            env.balance(alice) <
+            STAmount(env.current()->fees().accountReserve(3)));
+
+        // AMMWithdraw still enforces the reserve check.
+        amm.withdraw(WithdrawArg{
+            .account = alice,
+            .asset1Out = eur(1),
+            .err = ter(tecINSUFFICIENT_RESERVE)});
+        BEAST_EXPECT(env.ownerCount(alice) == 2);
+
+        // Reserve check skipped; the paired EUR returns to alice on a newly
+        // created EUR trustline.
+        env(amm::ammClawback(gw, alice, usd, eur, usd(10)), ter(tesSUCCESS));
+        env.close();
+
+        BEAST_EXPECT(env.le(keylet::line(alice.id(), eur.issue())));
+        BEAST_EXPECT(env.balance(alice, eur) > eur(0));
+        BEAST_EXPECT(env.ownerCount(alice) == 3);
+    }
+
+    void
     testExactLPTokenEquality(FeatureBitset features)
     {
         using namespace jtx;
@@ -2117,6 +2182,7 @@ class AMMClawback_test : public beast::unit_test::suite
             testAssetFrozen(features);
             testSingleDepositAndClawback(features);
             testLastHolderLPTokenBalance(features);
+            testClawbackBypassesReserve(features);
             testExactLPTokenEquality(features);
         }
     }

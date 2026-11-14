@@ -506,6 +506,7 @@ AMMWithdraw::withdraw(
         lpTokensWithdraw,
         tfee,
         issuerFreezeHandling(),
+        ReserveHandling::EnforceReserve,
         isWithdrawAll(ctx_.tx),
         mPriorBalance,
         j_);
@@ -525,6 +526,7 @@ AMMWithdraw::withdraw(
     STAmount const& lpTokensWithdraw,
     std::uint16_t tfee,
     FreezeHandling freezeHandling,
+    ReserveHandling reserveHandling,
     WithdrawAll withdrawAll,
     XRPAmount const& priorBalance,
     beast::Journal const& journal)
@@ -631,6 +633,13 @@ AMMWithdraw::withdraw(
             return tesSUCCESS;
         if (!view.exists(keylet::line(account, issue)))
         {
+            // Intentionally ignore the reserve check for AMMClawback, so the
+            // holder can not avoid clawback by deleting the trustline and
+            // keeping a low spendable balance. AMMClawback has a higher
+            // priority than the reserve check.
+            if (reserveHandling == ReserveHandling::IgnoreReserve)
+                return tesSUCCESS;
+
             auto const sleAccount = view.read(keylet::account(account));
             if (!sleAccount)
                 return tecINTERNAL;  // LCOV_EXCL_LINE
@@ -755,6 +764,7 @@ AMMWithdraw::equalWithdrawTokens(
             lpTokensWithdraw,
             tfee,
             issuerFreezeHandling(),
+            ReserveHandling::EnforceReserve,
             isWithdrawAll(ctx_.tx),
             mPriorBalance,
             ctx_.journal);
@@ -805,6 +815,7 @@ AMMWithdraw::equalWithdrawTokens(
     STAmount const& lpTokensWithdraw,
     std::uint16_t tfee,
     FreezeHandling freezeHanding,
+    ReserveHandling reserveHandling,
     WithdrawAll withdrawAll,
     XRPAmount const& priorBalance,
     beast::Journal const& journal)
@@ -826,6 +837,7 @@ AMMWithdraw::equalWithdrawTokens(
                 lpTokensWithdraw,
                 tfee,
                 freezeHanding,
+                reserveHandling,
                 WithdrawAll::Yes,
                 priorBalance,
                 journal);
@@ -861,6 +873,7 @@ AMMWithdraw::equalWithdrawTokens(
             tokensAdj,
             tfee,
             freezeHanding,
+            reserveHandling,
             withdrawAll,
             priorBalance,
             journal);

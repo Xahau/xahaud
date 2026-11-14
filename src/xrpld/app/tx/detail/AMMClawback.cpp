@@ -197,6 +197,7 @@ AMMClawback::applyGuts(Sandbox& sb)
                 holdLPtokens,
                 0,
                 FreezeHandling::fhIGNORE_FREEZE,
+                ReserveHandling::IgnoreReserve,
                 WithdrawAll::Yes,
                 mPriorBalance,
                 ctx_.journal);
@@ -286,6 +287,7 @@ AMMClawback::equalWithdrawMatchingOneAmount(
             holdLPtokens,
             0,
             FreezeHandling::fhIGNORE_FREEZE,
+            ReserveHandling::IgnoreReserve,
             WithdrawAll::Yes,
             mPriorBalance,
             ctx_.journal);
@@ -319,6 +321,7 @@ AMMClawback::equalWithdrawMatchingOneAmount(
         tokensAdj,
         0,
         FreezeHandling::fhIGNORE_FREEZE,
+        ReserveHandling::IgnoreReserve,
         WithdrawAll::No,
         mPriorBalance,
         ctx_.journal);

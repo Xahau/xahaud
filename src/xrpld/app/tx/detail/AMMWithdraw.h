@@ -66,6 +66,11 @@ class Sandbox;
 
 enum class WithdrawAll : bool { No = false, Yes };
 
+/** Controls whether the recipient owner-reserve check is enforced when
+ * auto-creating a trustline during AMMWithdraw or AMMClawback.
+ */
+enum class ReserveHandling : bool { EnforceReserve, IgnoreReserve };
+
 class AMMWithdraw : public Transactor
 {
 public:
@@ -101,6 +106,8 @@ public:
      * @param lpTokens current LPT balance
      * @param lpTokensWithdraw amount of tokens to withdraw
      * @param tfee trading fee in basis points
+     * @param reserveHandling whether the recipient owner-reserve check is
+     *        enforced when a trustline has to be auto-created
      * @param withdrawAll if withdrawing all lptokens
      * @param priorBalance balance before fees
      * @return
@@ -118,6 +125,7 @@ public:
         STAmount const& lpTokensWithdraw,
         std::uint16_t tfee,
         FreezeHandling freezeHanding,
+        ReserveHandling reserveHandling,
         WithdrawAll withdrawAll,
         XRPAmount const& priorBalance,
         beast::Journal const& journal);
@@ -134,6 +142,8 @@ public:
      * @param lpTokensAMMBalance current AMM LPT balance
      * @param lpTokensWithdraw amount of lptokens to withdraw
      * @param tfee trading fee in basis points
+     * @param reserveHandling whether the recipient owner-reserve check is
+     *        enforced when a trustline has to be auto-created
      * @param withdrawAll if withdraw all lptokens
      * @param priorBalance balance before fees
      * @return
@@ -151,6 +161,7 @@ public:
         STAmount const& lpTokensWithdraw,
         std::uint16_t tfee,
         FreezeHandling freezeHandling,
+        ReserveHandling reserveHandling,
         WithdrawAll withdrawAll,
         XRPAmount const& priorBalance,
         beast::Journal const& journal);
