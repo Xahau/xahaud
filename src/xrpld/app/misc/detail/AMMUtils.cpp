@@ -381,6 +381,9 @@ initializeFeeAuctionVote(
         auctionSlot.setFieldU16(sfDiscountedFee, dfee);
     else if (auctionSlot.isFieldPresent(sfDiscountedFee))
         auctionSlot.makeFieldAbsent(sfDiscountedFee);  // LCOV_EXCL_LINE
+    // Clear stale auth accounts from any previous auction slot holder.
+    if (auctionSlot.isFieldPresent(sfAuthAccounts))
+        auctionSlot.makeFieldAbsent(sfAuthAccounts);
 }
 
 Expected<bool, TER>

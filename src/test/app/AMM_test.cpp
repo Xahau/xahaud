@@ -7130,6 +7130,89 @@ private:
     }
 
     void
+    testStaleAuthAccountsAfterReinit(FeatureBitset features)
+    {
+        testcase("Test AuthAccounts reset after empty pool reinitialization");
+        using namespace jtx;
+
+        Env env(
+            *this,
+            envconfig([](std::unique_ptr<Config> cfg) {
+                cfg->FEES.reference_fee = XRPAmount(1);
+                return cfg;
+            }),
+            features);
+        Account const dan("dan");
+        Account const ed("ed");
+        fund(env, gw, {alice, carol, bob, dan, ed}, XRP(50'000), {USD(50'000)});
+        AMM amm(env, alice, XRP(10'000), USD(10'000));
+        // Create excess trustlines to prevent AMM auto-deletion on withdrawal.
+        for (auto i = 0; i < maxDeletableAMMTrustLines + 10; ++i)
+        {
+            Account const a{std::to_string(i)};
+            env.fund(XRP(1'000), a);
+            env(trust(a, STAmount{amm.lptIssue(), 10'000}));
+            env.close();
+        }
+        // Carol deposits so she has LP tokens to bid.
+        amm.deposit(carol, 1'000'000);
+        // Carol wins the auction slot, authorizing bob and dan.
+        env(amm.bid({
+            .account = carol,
+            .bidMin = 100,
+            .authAccounts = {bob, dan},
+        }));
+        env.close();
+        BEAST_EXPECT(amm.expectAuctionSlot({bob.id(), dan.id()}));
+        // Withdraw all - AMM enters empty state but is not deleted because
+        // excess trustlines prevent auto-deletion.
+        amm.withdrawAll(alice);
+        amm.withdrawAll(carol);
+        BEAST_EXPECT(amm.ammExists());
+        // Pre-conditions before re-init: AMM is empty and stale sfAuthAccounts
+        // from carol's bid are still present.
+        BEAST_EXPECT(amm.getLPTokensBalance() == IOUAmount{0});
+        BEAST_EXPECT(amm.expectAuctionSlot({bob.id(), dan.id()}));
+        // Ed re-initializes the AMM via tfTwoAssetIfEmpty with fee=500.
+        amm.deposit(
+            ed,
+            std::nullopt,
+            XRP(10'000),
+            USD(10'000),
+            std::nullopt,
+            tfTwoAssetIfEmpty,
+            std::nullopt,
+            std::nullopt,
+            500);
+
+        auto const ammSle =
+            env.current()->read(keylet::amm(xrpIssue(), USD.issue()));
+        BEAST_EXPECT(ammSle && ammSle->isFieldPresent(sfAuctionSlot));
+        auto const& slot =
+            static_cast<STObject const&>(ammSle->peekAtField(sfAuctionSlot));
+
+        // sfDiscountedFee = 500 / AUCTION_SLOT_DISCOUNTED_FEE_FRACTION = 50,
+        // sfPrice = 0 (reset on init), time interval = 0 (freshly issued slot).
+        BEAST_EXPECT(amm.expectAuctionSlot(50, 0, IOUAmount{0}));
+        // sfAccount must be the re-initializing depositor, not the previous
+        // slot holder (carol).
+        BEAST_EXPECT(slot[sfAccount] == ed.id());
+        // sfTradingFee on the AMM SLE must reflect ed's deposit fee.
+        BEAST_EXPECT(ammSle->getFieldU16(sfTradingFee) == 500);
+        // sfVoteSlots must be reset to a single entry for ed.
+        auto const& votes = ammSle->getFieldArray(sfVoteSlots);
+        BEAST_EXPECT(votes.size() == 1);
+        if (!votes.empty())
+        {
+            BEAST_EXPECT(votes[0].getAccountID(sfAccount) == ed.id());
+            BEAST_EXPECT(votes[0].getFieldU16(sfTradingFee) == 500);
+            BEAST_EXPECT(
+                votes[0].getFieldU32(sfVoteWeight) == VOTE_WEIGHT_SCALE_FACTOR);
+        }
+        BEAST_EXPECT(!slot.isFieldPresent(sfAuthAccounts));
+    }
+
+    void
     run() override
     {
         FeatureBitset const all{
@@ -7175,6 +7258,7 @@ private:
         testDepositRounding(all);
         testWithdrawRounding(all);
         // testFailedPseudoAccount();
+        testStaleAuthAccountsAfterReinit(all);
     }
 };
 
