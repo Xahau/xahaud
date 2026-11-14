@@ -20,7 +20,9 @@
 
 #include <xrpld/app/misc/AMMUtils.h>
 
+#include <xrpl/protocol/AmountConversions.h>
 #include <xrpl/protocol/Feature.h>
+#include <xrpl/protocol/STAmount.h>
 
 namespace ripple {
 namespace test {
@@ -2044,6 +2046,58 @@ class AMMClawback_test : public beast::unit_test::suite
     }
 
     void
+    testExactLPTokenEquality(FeatureBitset features)
+    {
+        using namespace jtx;
+
+        testcase("test exact LP token equality boundary");
+
+        Env env(*this, features);
+        Account const gw{"gateway"}, alice{"alice"}, bob{"bob"};
+        env.fund(XRP(100000), gw, alice, bob);
+        env.close();
+        env(fset(gw, asfAllowTrustLineClawback));
+        env.close();
+
+        auto const usd = gw["USD"];
+        env.trust(usd(100000), alice);
+        env(pay(gw, alice, usd(50000)));
+        env.trust(usd(100000), bob);
+        env(pay(gw, bob, usd(40000)));
+        env.close();
+
+        // bob keeps alice from being the sole LP, otherwise the clawback
+        // first rewrites the AMM's LP balance to alice's tokens and the
+        // boundary is no longer distinguishable.
+        AMM amm(env, alice, XRP(2), usd(1));
+        amm.deposit(alice, IOUAmount{1'876123487565916, -15});
+        amm.deposit(bob, IOUAmount{1'000'000});
+
+        auto const [amountBalance, amount2Balance, lptAMMBalance] =
+            amm.balances(usd, xrpIssue());
+        auto const aliceLP = amm.getLPTokensBalance(alice);
+        auto const holderLPTokens = STAmount{aliceLP, amm.lptIssue()};
+        BEAST_EXPECT(lptAMMBalance > holderLPTokens);
+
+        // Clawing alice's pro-rata share lands the transactor's computed LP
+        // amount exactly on her balance.
+        auto const amount = toSTAmount(
+            usd, Number{amountBalance} * holderLPTokens / lptAMMBalance);
+        BEAST_EXPECT(
+            toSTAmount(
+                lptAMMBalance.issue(),
+                lptAMMBalance * (Number{amount} / amountBalance)) ==
+            holderLPTokens);
+
+        env(amm::ammClawback(gw, alice, usd, xrpIssue(), amount));
+        env.close();
+
+        // Equality takes the withdraw-all path, redeeming alice's tokens
+        // exactly.
+        BEAST_EXPECT(amm.getLPTokensBalance(alice) == IOUAmount(0));
+    }
+
+    void
     run() override
     {
         FeatureBitset const all{
@@ -2063,6 +2117,7 @@ class AMMClawback_test : public beast::unit_test::suite
             testAssetFrozen(features);
             testSingleDepositAndClawback(features);
             testLastHolderLPTokenBalance(features);
+            testExactLPTokenEquality(features);
         }
     }
 };
