@@ -187,6 +187,14 @@ constexpr Type typeRows[] = {
      tfSetfAuth | tfSetNoRipple | tfClearNoRipple | tfSetFreeze | tfClearFreeze |
          tfSetDeepFreeze | tfClearDeepFreeze,
      {sfLimitAmount, sfQualityIn, sfQualityOut}},
+    // tfTrustLine is gone there (fixRemoveNFTokenAutoTrustLine). Amount
+    // with Destination is the sell offer created with the mint.
+    {ttNFTOKEN_MINT,
+     tfBurnable | tfOnlyXRP | tfTransferable | tfMutable,
+     {req(sfNFTokenTaxon), sfTransferFee, sfIssuer, sfURI, sfAmount,
+      sfDestination, sfExpiration}},
+    {ttNFTOKEN_BURN, 0,
+     {req(sfNFTokenID), sfOwner}},
 };
 
 // The fields every export may carry: the other network's common transaction
