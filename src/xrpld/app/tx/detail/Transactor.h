@@ -88,6 +88,8 @@ struct PreflightResult;
 // Needed for preflight specialization
 class Change;
 class Cron;
+class Export;
+class Ingest;
 
 class Transactor
 {
@@ -215,8 +217,22 @@ public:
         bool collectCallsOnly = false);
 
 protected:
+    /** A hook callback: the hook `hook` on `account`, cbak(`what`). `otxn`,
+        if not zero, is what the hook's otxn_id() gives in place of this
+        transaction's id: the transaction of the hook's own that this
+        callback is about (featureExport: the ttEXPORT it emitted). */
+    struct HookCallback
+    {
+        AccountID account;
+        uint256 hook;
+        std::uint32_t what;
+        uint256 otxn{};
+    };
+
     void
-    doHookCallback(std::shared_ptr<STObject const> const& provisionalMeta);
+    doHookCallback(
+        std::shared_ptr<STObject const> const& provisionalMeta,
+        HookCallback const& cb);
 
     TER
     doTSH(
@@ -269,6 +285,10 @@ protected:
     // featureHooks is enabled
     int executedHookCount_ =
         0;  // record how many hooks have executed across the whole transactor
+    // The callback made once this txn has applied with tesSUCCESS. If unset,
+    // an emitted txn calls back the hook that emitted it. doApply may
+    // redirect that, or defer it with a zero hook (see Export.h).
+    std::optional<HookCallback> callback_;
     std::set<AccountID>
         additionalWeakTSH_;  // any TSH that needs weak hook execution at the
                              // end of the transactor, who isn't able to be
@@ -283,6 +303,9 @@ protected:
                           // emitted transaction, captured before doApply
                           // erases its ltEMITTED_TXN entry. Consumed by the
                           // callback in doHookCallback.
+    // featureExport: a sync import (see Export.h) runs the account's own hooks
+    // as a weak TSH, so only as a collect call the account pays for
+    bool originatorAsWeakTSH_ = false;
 
     // The post-apply pipeline of operator(): tec handling (reset),
     // invariants, balance rewards, weak hooks and commit.
@@ -417,6 +440,17 @@ Transactor::invokePreflight<Change>(PreflightContext const& ctx);
 template <>
 NotTEC
 Transactor::invokePreflight<Cron>(PreflightContext const& ctx);
+
+// Defined in Export.cpp: ttEXPORT_SIGN, ttEXPORT_FINAL and ttEXPORT_AUTO are
+// Export too, and have no account
+template <>
+NotTEC
+Transactor::invokePreflight<Export>(PreflightContext const& ctx);
+
+// Defined in Ingest.cpp: a ttINGEST has no account either
+template <>
+NotTEC
+Transactor::invokePreflight<Ingest>(PreflightContext const& ctx);
 
 template <class T>
 NotTEC

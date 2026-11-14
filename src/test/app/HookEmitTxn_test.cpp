@@ -257,6 +257,43 @@ private:
     }
 
     void
+    testExportedTxn(FeatureBitset const& features)
+    {
+        testcase("ExportedTxn");
+        // created by an emitted Export, which preclaim rejects (tecNO_TARGET)
+        // unless the account carries an ExportSignerList, and only Import
+        // of a validly signed xpop sets one; covered by Export_test
+        pass();
+    }
+
+    void
+    testShadowTicket(FeatureBitset const& features)
+    {
+        testcase("ShadowTicket");
+        // created alongside ExportedTxn by the same emitted Export; see
+        // testExportedTxn and Export_test
+        pass();
+    }
+
+    void
+    testExporter(FeatureBitset const& features)
+    {
+        testcase("Exporter");
+        // created by an Import recording the account's signer list on
+        // another network, which a hook can not forge; covered by Export_test
+        pass();
+    }
+
+    void
+    testExportFee(FeatureBitset const& features)
+    {
+        testcase("ExportFee");
+        // created by Ingest, whose proof a hook can not forge: it needs a
+        // quorum of the other network's validations; covered by Ingest_test
+        pass();
+    }
+
+    void
     testEmittedTxn(FeatureBitset const& features)
     {
         testcase("EmittedTxn");

@@ -221,9 +221,28 @@ private:
     std::unordered_map<std::string, Section> map_;
 
 public:
+    using const_iterator =
+        std::unordered_map<std::string, Section>::const_iterator;
+
     /** Returns `true` if a section with the given name exists. */
     bool
     exists(std::string const& name) const;
+
+    /** Iteration over every section, as name and Section pairs, in no
+        particular order. */
+    /** @{ */
+    const_iterator
+    begin() const
+    {
+        return map_.cbegin();
+    }
+
+    const_iterator
+    end() const
+    {
+        return map_.cend();
+    }
+    /** @} */
 
     /** Returns the section with the given name.
         If the section does not exist, an empty section is returned.

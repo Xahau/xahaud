@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/SetAccount.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/View.h>
@@ -27,6 +28,7 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Quality.h>
 #include <xrpl/protocol/st.h>
+#include <algorithm>
 
 namespace ripple {
 
@@ -272,6 +274,21 @@ SetAccount::preclaim(PreclaimContext const& ctx)
             JLOG(ctx.j.trace()) << "Retry: Owner directory not empty.";
             return (ctx.flags & tapRETRY) ? TER{terOWNERS} : TER{tecOWNERS};
         }
+    }
+
+    //
+    // Exporter (featureExport): only an Import the account signs can make it
+    // one somewhere; this re-enables, wherever it holds a list that is one
+    // of ours (it names an export key of the UNL, see listsExportKey), after
+    // asfExporter was cleared or the ledger unlisted it. A list of the
+    // account's own keys is not one the ledger can sign for.
+    //
+    if (ctx.view.rules().enabled(featureExport) && uSetFlag == asfExporter)
+    {
+        if (std::ranges::none_of(
+                exportersOf(ctx.view, id),
+                [&](auto const& ex) { return holdsOurList(ctx.view, *ex); }))
+            return tecNO_TARGET;
     }
 
     //
@@ -734,6 +751,23 @@ SetAccount::doApply()
 
     if (uFlagsIn != uFlagsOut)
         sle->setFieldU32(sfFlags, uFlagsOut);
+
+    // Exporter (featureExport): lists or unlists the account on every
+    // network it holds a record on, keeping keylet::exporterDir() in step
+    if (ctx_.view().rules().enabled(featureExport) &&
+        (uSetFlag == asfExporter || uClearFlag == asfExporter))
+    {
+        for (auto const& found : exportersOf(view(), account_))
+        {
+            auto const ex = view().peek(Keylet{ltEXPORTER, found->key()});
+            bool const on =
+                uSetFlag == asfExporter && holdsOurList(view(), *ex);
+            if (auto const ter = setExporter(view(), ex, on);
+                !isTesSuccess(ter))
+                return ter;
+            view().update(ex);
+        }
+    }
 
     // HookStateScale
     if (tx.isFieldPresent(sfHookStateScale))

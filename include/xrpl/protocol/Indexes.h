@@ -398,6 +398,29 @@ manifest(PublicKey const& pk) noexcept;
 Keylet const&
 manifestDir() noexcept;
 
+/** A pending export, ordered by creation ledger so TxQ can walk them. */
+Keylet
+exportedTxn(std::uint32_t seq, uint256 const& txid) noexcept;
+
+/** The shadow ticket for an export using `ticketSeq` on network `nid`. */
+Keylet
+shadowTicket(
+    AccountID const& account,
+    std::uint32_t nid,
+    std::uint32_t ticketSeq) noexcept;
+
+/** An account's standing on network `nid` (ltEXPORTER, see Export.h). */
+Keylet
+exporter(AccountID const& account, std::uint32_t nid) noexcept;
+
+/** The directory of exporters (ltEXPORTER keys the ledger acts for). */
+Keylet const&
+exporterDir() noexcept;
+
+/** What transactions on network `nid` pay (ltEXPORT_FEE, Ingest.h). */
+Keylet
+exportFee(std::uint32_t nid) noexcept;
+
 }  // namespace keylet
 
 // Everything below is deprecated and should be removed in favor of keylets:

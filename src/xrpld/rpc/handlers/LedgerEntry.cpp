@@ -401,6 +401,71 @@ parseEscrow(Json::Value const& params, Json::StaticString const fieldName)
     return keylet::escrow(*id, *seq).key;
 }
 
+// featureExport's entries (see Export.h). Each is kept per network, and a
+// request by fields always names the network: network_id, 0 for the XRPL.
+
+// A pending export: by the ledger its ttEXPORT applied in and the id its
+// transaction has without signatures (sfLedgerSequence, sfTransactionHash).
+static Expected<uint256, Json::Value>
+parseExportedTxn(Json::Value const& params, Json::StaticString const fieldName)
+{
+    if (!params.isObject())
+    {
+        return parseObjectID(params, fieldName);
+    }
+
+    auto const seq = LedgerEntryHelpers::requiredUInt32(
+        params, jss::seq, "malformedRequest");
+    if (!seq)
+        return Unexpected(seq.error());
+
+    auto const hash = LedgerEntryHelpers::requiredUInt256(
+        params, jss::transaction_hash, "malformedRequest");
+    if (!hash)
+        return Unexpected(hash.error());
+
+    return keylet::exportedTxn(*seq, *hash).key;
+}
+
+// An account's standing on another network
+static Expected<uint256, Json::Value>
+parseExporter(Json::Value const& params, Json::StaticString const fieldName)
+{
+    if (!params.isObject())
+    {
+        return parseObjectID(params, fieldName);
+    }
+
+    auto const id = LedgerEntryHelpers::requiredAccountID(
+        params, jss::account, "malformedAddress");
+    if (!id)
+        return Unexpected(id.error());
+
+    auto const nid = LedgerEntryHelpers::requiredUInt32(
+        params, jss::network_id, "malformedRequest");
+    if (!nid)
+        return Unexpected(nid.error());
+
+    return keylet::exporter(*id, *nid).key;
+}
+
+// What ttINGEST has proven of another network's fees
+static Expected<uint256, Json::Value>
+parseExportFee(Json::Value const& params, Json::StaticString const fieldName)
+{
+    if (!params.isObject())
+    {
+        return parseObjectID(params, fieldName);
+    }
+
+    auto const nid = LedgerEntryHelpers::requiredUInt32(
+        params, jss::network_id, "malformedRequest");
+    if (!nid)
+        return Unexpected(nid.error());
+
+    return keylet::exportFee(*nid).key;
+}
+
 static Expected<uint256, Json::Value>
 parseEmittedTxn(Json::Value const& params, Json::StaticString const fieldName)
 {
@@ -719,6 +784,34 @@ parseRippleState(
     }
 
     return keylet::line(*id1, *id2, uCurrency).key;
+}
+
+// featureExport: the shadow ticket of an export in flight, by the account,
+// the network and the ticket the export uses there
+static Expected<uint256, Json::Value>
+parseShadowTicket(Json::Value const& params, Json::StaticString const fieldName)
+{
+    if (!params.isObject())
+    {
+        return parseObjectID(params, fieldName);
+    }
+
+    auto const id = LedgerEntryHelpers::requiredAccountID(
+        params, jss::account, "malformedAddress");
+    if (!id)
+        return Unexpected(id.error());
+
+    auto const nid = LedgerEntryHelpers::requiredUInt32(
+        params, jss::network_id, "malformedRequest");
+    if (!nid)
+        return Unexpected(nid.error());
+
+    auto const ticket = LedgerEntryHelpers::requiredUInt32(
+        params, jss::ticket_seq, "malformedRequest");
+    if (!ticket)
+        return Unexpected(ticket.error());
+
+    return keylet::shadowTicket(*id, *nid, *ticket).key;
 }
 
 static Expected<uint256, Json::Value>

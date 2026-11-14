@@ -38,6 +38,7 @@
 #include <iostream>
 #include <iterator>
 #include <regex>
+#include <sstream>
 #include <thread>
 
 #if BOOST_OS_WINDOWS
@@ -939,8 +940,14 @@ Config::loadFromString(std::string const& fileContents)
                     getIniFileSection(iniFile, SECTION_IMPORT_VL_KEYS);
                 importKeys)
             {
-                for (std::string const& strPk : *importKeys)
+                for (std::string const& line : *importKeys)
                 {
+                    // "<hex key> [network id]": the network whose lists the
+                    // key signs, XRPL (0) unless said (featureExport)
+                    std::istringstream ss(line);
+                    std::string strPk;
+                    std::uint32_t nid = 0;
+                    ss >> strPk >> nid;
                     auto pkHex = strUnHex(strPk);
                     if (!pkHex)
                         Throw<std::runtime_error>(
@@ -952,6 +959,7 @@ Config::loadFromString(std::string const& fileContents)
                             "Import VL Key '" + strPk +
                             "' was not a valid key type.");
                     IMPORT_VL_KEYS.emplace(strPk, makeSlice(*pkHex));
+                    IMPORT_VL_NETWORKS.emplace(strPk, nid);
                 }
             }
 

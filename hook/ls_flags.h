@@ -72,4 +72,4 @@ enum ltCREDENTIAL {
     lsfAccepted = 0x00010000,
 };
 
-#endif // HOOKLSFLAGS_INCLUDED
+#endif  // HOOKLSFLAGS_INCLUDED

@@ -18,6 +18,7 @@
 #define featureRNG "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
+#define featureExport "1"
 namespace hook_api {
 struct Rules
 {
@@ -318,6 +319,22 @@ enum keylet_code : uint32_t {
 };
 }
 
+// featureExport: what xport_fee() reports of another network, from the
+// ledger last proven for it (its ltEXPORT_FEE, see Ingest.h). Fees are in
+// drops per reference fee: what a transaction there pays for itself, and
+// again for each signature it carries.
+namespace xport_fee_code {
+enum xport_fee_code : uint32_t {
+    UNIT = 0,    // what xport_prepare() prices by: the medians of the
+                 // ledgers proven so far, smoothed; the reference fee (10)
+                 // until one has been
+    MEDIAN = 1,  // the median over the last proven ledger's samples
+    LEDGER = 2,  // that ledger's index: the clock exports expire by
+    BURNED = 3,  // the drops its transactions burned between them
+    LAST = BURNED
+};
+}
+
 namespace compare_mode {
 enum compare_mode : uint32_t { EQUAL = 1, LESS = 2, GREATER = 4 };
 }
@@ -387,8 +404,11 @@ enum class hook_return_code : int64_t {
     TOO_MANY_STATE_MODIFICATIONS = -44,  // more than 256 modified state
                                          // entires in the combined hook chains
     TOO_MANY_NAMESPACES = -45,
-    TOO_LITTLE_ENTROPY = -46  // featureRNG: no seed for this ledger, or too few
-                              // validators contributed to it
+    TOO_LITTLE_ENTROPY = -46,  // featureRNG: no seed for this ledger, or too
+                               // few validators contributed to it
+    NO_TICKET = -47,      // featureExport: the exporter holds no unused ticket
+    NOT_EXPORTABLE = -48  // featureExport: not a transaction both networks
+                          // read the same way (type, field or flag)
 };
 
 enum class ExitType : uint8_t {

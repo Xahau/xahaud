@@ -87,6 +87,28 @@ public:
     static XRPAmount
     calculateBaseFee(ReadView const& view, STTx const& tx);
 
+    /** The network whose validator lists the publisher key `pkHex` (as an
+        XPOP's unl.public_key gives it) is trusted for: from [import_vl_keys]
+        or UNLReport.ImportVLKeys, XRPL (0) where neither says. Nullopt if it
+        is not trusted at all. (featureExport: an account's standing on each
+        network it exports to is kept apart, so what comes back must name
+        its network, and the list that proves it is what names it.) */
+    static std::optional<std::uint32_t>
+    vlNetwork(
+        Config const& config,
+        ReadView const& view,
+        std::string const& pkHex);
+
+    /** The network an export goes to when its hook names none (and
+        export_setup when asked for none): the network of the one import VL
+        key trusted here, if exactly one is ([import_vl_keys] and
+        UNLReport.ImportVLKeys together, as vlNetwork reads them); otherwise
+        0, the XRPL. So where only one other network is known at all, a
+        testnet (1) say, nothing has to name it. Like vlNetwork this reads
+        the local config first: validators must agree on [import_vl_keys]. */
+    static std::uint32_t
+    soleNetwork(Config const& config, ReadView const& view);
+
     static TxConsequences
     makeTxConsequences(PreflightContext const& ctx);
 

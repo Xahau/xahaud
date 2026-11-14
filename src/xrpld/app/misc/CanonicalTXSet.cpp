@@ -30,8 +30,9 @@ operator<(CanonicalTXSet::Key const& lhs, CanonicalTXSet::Key const& rhs)
     if (lhs.account_ > rhs.account_)
         return false;
 
-    // Empty for everything but a time-sequenced transaction, so this sorts
-    // those after the rest of the account's and leaves the rest alone.
+    // Empty for everything but a time-sequenced transaction and a proof of
+    // fees (see makeKey), so this sorts those after the rest of the
+    // account's and leaves the rest alone.
     if (lhs.time_ != rhs.time_)
         return lhs.time_ < rhs.time_;
 
@@ -59,13 +60,18 @@ CanonicalTXSet::makeKey(
     STTx const& tx,
     uint256 const& id)
 {
-    return Key(
-        account,
-        tx.getSeqProxy(),
-        tx.isTimeSequenced()
-            ? std::optional<std::uint64_t>(tx.getFieldU64(sfTime))
-            : std::nullopt,
-        id);
+    // featureExport: a proof of fees (ttINGEST) has no account, Sequence
+    // or Time to be ordered by, only a rival for the one record a minute
+    // (see Ingest.h). It takes the same place by the complement of the
+    // leaves it counts, so that a set applies the fullest first and that
+    // is the one that lands. The count is the envelope's own field: nothing
+    // is parsed to compare two.
+    std::optional<std::uint64_t> order;
+    if (tx.isTimeSequenced())
+        order = tx.getFieldU64(sfTime);
+    else if (tx.getTxnType() == ttINGEST)
+        order = ~std::uint64_t{tx.getFieldU32(sfTransactionCount)};
+    return Key(account, tx.getSeqProxy(), order, id);
 }
 
 void

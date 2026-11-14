@@ -111,7 +111,6 @@ target_link_libraries(xrpl.libxrpl.protocol PUBLIC
   xrpl.libxrpl.hook
   xrpl.libxrpl.json
 )
-
 # Level 05
 add_module(xrpl resource)
 target_link_libraries(xrpl.libxrpl.resource PUBLIC xrpl.libxrpl.protocol)

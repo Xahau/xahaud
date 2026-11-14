@@ -109,6 +109,110 @@ LEDGER_ENTRY(ltHOOK_DEFINITION, 'D', HookDefinition, hook_definition, ({
     {sfPreviousTxnLgrSeq,    soeOPTIONAL},
 }))
 
+/** A pending export: the transaction being multisigned for another network,
+    gathering UNL signatures in its sfSigners until ttEXPORT_FINAL deletes it,
+    with the exporter's signer list there when it was created. sfOwner is the
+    exporting account, so the signatures and the result are attributed to it
+    in metadata. sfEmitHookHash is the hook to call back if it closes below
+    quorum.
+
+    \sa keylet::exportedTxn
+*/
+LEDGER_ENTRY(ltEXPORTED_TXN, 'X', ExportedTxn, exported_txn, ({
+    {sfOwner,                soeREQUIRED},
+    {sfRemoteNetworkID,      soeREQUIRED},
+    {sfExportedTxn,          soeREQUIRED},
+    {sfTransactionHash,      soeREQUIRED},
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfSignerEntries,        soeREQUIRED},
+    {sfSignerQuorum,         soeREQUIRED},
+    {sfEmitHookHash,         soeOPTIONAL},
+    {sfExportTxnID,          soeOPTIONAL},
+}))
+
+/** A shadow ticket: lets the XPOP of whatever uses one ticket on another
+    network be imported once, which consumes it. Only an export creates one
+    (not hook state: a hook could forge that). sfTransactionHash is the
+    export's id there without signatures, which tells it from anything else
+    that used the ticket; sfExportTxnID the ttEXPORT that made it (otxn_id in
+    the cbak of the hook sfEmitHookHash); sfLastLedgerSequence the export's
+    own, after which it is expired (Export.h). Once signed at quorum the
+    transaction is kept here (sfExportedTxn, its id there sfRemoteTxnID) for
+    relays to send.
+
+    \sa keylet::shadowTicket
+*/
+LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
+    {sfAccount,              soeREQUIRED},
+    {sfRemoteNetworkID,      soeREQUIRED},
+    {sfTicketSequence,       soeREQUIRED},
+    {sfTransactionHash,      soeREQUIRED},
+    {sfEmitHookHash,         soeOPTIONAL},
+    {sfLastLedgerSequence,   soeOPTIONAL},
+    {sfExportTxnID,          soeOPTIONAL},
+    {sfRemoteTxnID,          soeOPTIONAL},
+    {sfExportedTxn,          soeOPTIONAL},
+    {sfOwnerNode,            soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+/** featureExport: an account's standing on one other network
+    (sfRemoteNetworkID), see Export.h: its signer list there, unused tickets
+    (ExportTickets), ticket watermark, Sequence and XRP balance (with the
+    ledger and index there it was proven at), all as last proven by Import;
+    the ticket or Sequence of an automatic TicketCreate still out; the
+    ExportKeysSeq its list was built for; the shadow tickets of its exports
+    in flight (sfIndexes, at most Export::maxExpiring); and, while the ledger
+    acts for it there, its page in keylet::exporterDir().
+
+    \sa keylet::exporter
+*/
+LEDGER_ENTRY(ltEXPORTER, 'V', Exporter, exporter, ({
+    {sfAccount,              soeREQUIRED},
+    {sfRemoteNetworkID,      soeREQUIRED},
+    {sfExportSignerList,     soeOPTIONAL},
+    {sfExportTickets,        soeOPTIONAL},
+    {sfExportTicketNext,     soeOPTIONAL},
+    {sfExportSequence,       soeOPTIONAL},
+    {sfExportTicketPending,  soeOPTIONAL},
+    {sfExportKeysSeq,        soeOPTIONAL},
+    {sfIndexes,              soeOPTIONAL},
+    {sfBalance,              soeOPTIONAL},
+    {sfLedgerSequence,       soeOPTIONAL},
+    {sfTransactionIndex,     soeOPTIONAL},
+    {sfExportNode,           soeOPTIONAL},
+    {sfOwnerNode,            soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
+/** featureExport: what transactions on another network (sfRemoteNetworkID)
+    pay, as proven by ttINGEST (see Ingest.h), one per network.
+    sfExportFeeUnit is the drops per signature xport_prepare() prices an
+    export by for a hook that sets no Fee; the rest describes the latest
+    ledger proven: its index, the drops its transactions burned between
+    them and the median unit sampled among them. xport_fee() gives a hook
+    each of them. The other two are how the next proof is admitted (see
+    Ingest.h): sfParentCloseTime is this network's clock when the record
+    was taken (the parent close time of that ledger), which the next is
+    spaced from, and sfTransactionCount the leaves its proof counted, which
+    one offered in that same ledger must exceed to take its place.
+
+    \sa keylet::exportFee
+*/
+LEDGER_ENTRY(ltEXPORT_FEE, 'Z', ExportFee, export_fee, ({
+    {sfRemoteNetworkID,      soeREQUIRED},
+    {sfExportFeeUnit,        soeREQUIRED},
+    {sfLedgerSequence,       soeREQUIRED},
+    {sfTransactionCount,     soeREQUIRED},
+    {sfBurnedDrops,          soeREQUIRED},
+    {sfSampleFee,            soeREQUIRED},
+    {sfParentCloseTime,      soeREQUIRED},
+    {sfPreviousTxnID,        soeREQUIRED},
+    {sfPreviousTxnLgrSeq,    soeREQUIRED},
+}))
+
 /** A ledger object containing a hook-emitted transaction from a previous hook execution.
 
     \sa keylet::emitted
@@ -192,6 +296,12 @@ LEDGER_ENTRY(ltNFTOKEN_PAGE, 0x0050, NFTokenPage, nft_page, ({
 LEDGER_ENTRY_DUPLICATE(ltUNL_REPORT, 0x0052, UNLReport, unl_report, ({
     {sfImportVLKeys,         soeOPTIONAL},
     {sfActiveValidators,     soeOPTIONAL},
+    /* featureExport: the ledger of the last ActiveValidator/ImportVLKey
+       report, which decides when the arrays above are reset. Export key
+       reports also modify this object, so PreviousTxnLgrSeq no longer can. */
+    {sfLedgerSequence,       soeOPTIONAL},
+    /* featureExport: bumped whenever a validator's export key changes. */
+    {sfExportKeysSeq,        soeOPTIONAL},
     {sfPreviousTxnID,        soeREQUIRED},
     {sfPreviousTxnLgrSeq,    soeREQUIRED},
 }))
@@ -300,6 +410,9 @@ LEDGER_ENTRY(ltACCOUNT_ROOT, 0x0061, AccountRoot, account, ({
     {sfAMMID,                soeOPTIONAL},
     {sfAppLoaderSequence,    soeOPTIONAL},
     {sfManifestID,           soeOPTIONAL},
+    /* featureExport: a validator's export keys, newest first (what the
+       account holds on other networks is in ltEXPORTER, one per network) */
+    {sfExportKeys,           soeOPTIONAL},
     {sfLastTxnTime,          soeOPTIONAL},
 }))
 

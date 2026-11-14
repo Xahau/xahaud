@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
 #include <xrpld/app/tx/apply.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SignerEntries.h>
@@ -727,6 +728,11 @@ Transactor::checkSeqProxy(
         tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
+    // An export coming back is replay protected by its shadow ticket
+    // (Import::preclaim), so it is likewise pinned to 0 and not consumed.
+    if (isLoopback(view.rules(), tx))
+        return tesSUCCESS;
+
     SeqProxy const a_seq = SeqProxy::sequence((*sle)[sfSequence]);
 
     // pass all emitted tx provided their seq is 0
@@ -932,6 +938,8 @@ Transactor::consumeSeqProxy(SLE::pointer const& sleAccount)
     // tec / failed-invariant path.
     if (view().rules().enabled(featureOnChainManifests) &&
         ctx_.tx.getTxnType() == ttMANIFEST_SET)
+        return tesSUCCESS;
+    if (isLoopback(view().rules(), ctx_.tx))
         return tesSUCCESS;
 
     // A time-sequenced transaction records its Time, which is what
@@ -1711,28 +1719,15 @@ Transactor::executeHookChain(
 
 void
 Transactor::doHookCallback(
-    std::shared_ptr<STObject const> const& provisionalMeta)
+    std::shared_ptr<STObject const> const& provisionalMeta,
+    HookCallback const& cb)
 {
-    // Finally check if there is a callback
-    if (!ctx_.tx.isFieldPresent(sfEmitDetails))
-        return;
-
-    auto const& emitDetails = const_cast<ripple::STTx&>(ctx_.tx)
-                                  .getField(sfEmitDetails)
-                                  .downcast<STObject>();
-
-    // callbacks are optional so if there isn't a callback then skip
-    if (!emitDetails.isFieldPresent(sfEmitCallback))
-        return;
-
-    bool const isEmitFailure = ctx_.tx.getTxnType() == ttEMIT_FAILURE;
-
     // fix20261005: an emit failure callback is only meaningful with the
     // original emitted transaction. If it wasn't in the ledger when this
     // pseudo was applied there is nothing to report on, so skip rather than
     // read the (already removed) entry.
-    if (isEmitFailure && view().rules().enabled(fix20261005) &&
-        !emitFailureTxn_)
+    if (ctx_.tx.getTxnType() == ttEMIT_FAILURE &&
+        view().rules().enabled(fix20261005) && !emitFailureTxn_)
     {
         JLOG(j_.warn()) << "HookError["
                         << ctx_.tx.getFieldH256(sfTransactionHash)
@@ -1740,9 +1735,8 @@ Transactor::doHookCallback(
         return;
     }
 
-    AccountID const& callbackAccountID =
-        emitDetails.getAccountID(sfEmitCallback);
-    uint256 const& callbackHookHash = emitDetails.getFieldH256(sfEmitHookHash);
+    AccountID const& callbackAccountID = cb.account;
+    uint256 const& callbackHookHash = cb.hook;
 
     auto const& hooksCallback = view().peek(keylet::hook(callbackAccountID));
     auto const& hookDef = view().peek(keylet::hookDefinition(callbackHookHash));
@@ -1823,10 +1817,11 @@ Transactor::doHookCallback(
                 true,
                 true,
                 false,
-                isEmitFailure ? 1UL : 0UL,
+                cb.what,
                 hook_no - 1,
                 provisionalMeta,
-                emitFailureTxn_);
+                emitFailureTxn_,
+                cb.otxn);
 
             executedHookCount_++;
 
@@ -1908,6 +1903,9 @@ Transactor::doTSH(
         for (auto& weakTsh : additionalWeakTSH_)
             tsh.emplace_back(weakTsh, false);
 
+        if (originatorAsWeakTSH_)
+            tsh.emplace_back(account_, false);
+
         if (view.rules().enabled(fixHookAPI20251128))
         {
             // if account_ is not included in tsh , add it only once
@@ -1938,7 +1936,7 @@ Transactor::doTSH(
         // as a TSH because they already had first execution
         if (!view.rules().enabled(fixHookAPI20251128))
         {
-            if (tshAccountID == account_)
+            if (tshAccountID == account_ && !originatorAsWeakTSH_)
                 continue;
         }
 
@@ -1959,8 +1957,8 @@ Transactor::doTSH(
         if (view.rules().enabled(fixHookAPI20251128))
         {
             // After fixHookAPI20251128, the otxn account is prosessed as
-            // touched account
-            if (tshAccountID == account_)
+            // touched account (unless, for a sync import, it is the one TSH)
+            if (tshAccountID == account_ && !originatorAsWeakTSH_)
                 continue;
         }
 
@@ -2241,8 +2239,9 @@ Transactor::operator()()
         auto const& hooksOriginator = view().read(keylet::hook(accountID));
 
         // First check if the Sending account has any hooks that can be fired
+        // (an export coming back calls back the exporting hook instead)
         if (hooksOriginator && hooksOriginator->isFieldPresent(sfHooks) &&
-            !ctx_.isEmittedTxn())
+            !ctx_.isEmittedTxn() && !isLoopback(view().rules(), ctx_.tx))
             result = executeHookChain(
                 hooksOriginator,
                 stateMap,
@@ -2670,9 +2669,29 @@ Transactor::finishApply(
         std::shared_ptr<STObject const> proMeta =
             std::make_shared<STObject const>(meta.getAsObject());
 
-        // perform callback logic if applicable
-        if (ctx_.tx.isFieldPresent(sfEmitDetails))
-            doHookCallback(proMeta);
+        // perform callback logic if applicable: doApply's redirect, if it
+        // succeeded, else the emitting hook's callback
+        if (!isTesSuccess(result))
+            callback_.reset();
+        if (!callback_ && ctx_.tx.isFieldPresent(sfEmitDetails))
+        {
+            auto const& d =
+                ctx_.tx.peekAtField(sfEmitDetails).downcast<STObject>();
+            // (an export that failed to apply is reported like an emission
+            // that failed, what == 1, as Export.h documents: 0 is not a
+            // value an export's callback otherwise has)
+            if (d.isFieldPresent(sfEmitCallback))
+                callback_ = HookCallback{
+                    d.getAccountID(sfEmitCallback),
+                    d.getFieldH256(sfEmitHookHash),
+                    ctx_.tx.getTxnType() == ttEMIT_FAILURE ||
+                            (ctx_.tx.getTxnType() == ttEXPORT &&
+                             !isTesSuccess(result))
+                        ? 1u
+                        : 0u};
+        }
+        if (callback_ && callback_->hook != beast::zero)
+            doHookCallback(proMeta, *callback_);
 
         // remove emission entry if this is an emitted transaction
         hook::removeEmissionEntry(ctx_);

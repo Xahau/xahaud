@@ -96,6 +96,9 @@ enum class HashPrefix : std::uint32_t {
 
     /** Credentials signature */
     credential = detail::make_hash_prefix('C', 'R', 'D'),
+
+    /** Proof that a validator holds the export key it nominates */
+    exportKeyProof = detail::make_hash_prefix('E', 'K', 'P'),
 };
 
 template <class Hasher>
