@@ -225,21 +225,17 @@ AMMWithdraw::preclaim(PreclaimContext const& ctx)
                     << amount->issue();
                 return ter;
             }
-            // AMM account or currency frozen
-            if (isFrozen(ctx.view, ammAccountID, amount->issue()))
+            if (auto const ret = checkWithdrawFreeze(
+                    ctx.view,
+                    ammAccountID,
+                    accountID,
+                    accountID,
+                    amount->issue()))
             {
                 JLOG(ctx.j.debug())
-                    << "AMM Withdraw: AMM account or currency is frozen, "
-                    << to_string(accountID);
-                return tecFROZEN;
-            }
-            // Account frozen
-            if (isIndividualFrozen(ctx.view, accountID, amount->issue()))
-            {
-                JLOG(ctx.j.debug()) << "AMM Withdraw: account is frozen, "
-                                    << to_string(accountID) << " "
-                                    << to_string(amount->issue().currency);
-                return tecFROZEN;
+                    << "AMM Withdraw: frozen, " << to_string(accountID) << " "
+                    << to_string(amount->issue().currency);
+                return ret;
             }
         }
         return tesSUCCESS;
@@ -292,6 +288,22 @@ AMMWithdraw::preclaim(PreclaimContext const& ctx)
     return tesSUCCESS;
 }
 
+FreezeHandling
+AMMWithdraw::issuerFreezeHandling() const
+{
+    // When the withdrawer is the issuer of a pool asset, the issuer can
+    // always receive their own token - even when the pool is frozen.
+    // Use IgnoreFreeze so ammHolds returns real balances instead of zero.
+    auto const asset1 = ctx_.tx[sfAsset].get<Issue>();
+    auto const asset2 = ctx_.tx[sfAsset2].get<Issue>();
+    if (!isXRP(asset1) && account_ == asset1.account)
+        return FreezeHandling::fhIGNORE_FREEZE;
+    if (!isXRP(asset2) && account_ == asset2.account)
+        return FreezeHandling::fhIGNORE_FREEZE;
+
+    return FreezeHandling::fhZERO_IF_FROZEN;
+}
+
 std::pair<TER, bool>
 AMMWithdraw::applyGuts(Sandbox& sb)
 {
@@ -320,12 +332,14 @@ AMMWithdraw::applyGuts(Sandbox& sb)
 
     auto const tfee = getTradingFee(ctx_.view(), *ammSle, account_);
 
+    auto const freezeHandling = issuerFreezeHandling();
+
     auto const expected = ammHolds(
         sb,
         *ammSle,
         amount ? amount->issue() : std::optional<Issue>{},
         amount2 ? amount2->issue() : std::optional<Issue>{},
-        FreezeHandling::fhZERO_IF_FROZEN,
+        freezeHandling,
         ctx_.journal);
     if (!expected)
         return {expected.error(), false};
@@ -471,7 +485,7 @@ AMMWithdraw::withdraw(
         lpTokensAMMBalance,
         lpTokensWithdraw,
         tfee,
-        FreezeHandling::fhZERO_IF_FROZEN,
+        issuerFreezeHandling(),
         isWithdrawAll(ctx_.tx),
         mPriorBalance,
         j_);
@@ -720,7 +734,7 @@ AMMWithdraw::equalWithdrawTokens(
             lpTokens,
             lpTokensWithdraw,
             tfee,
-            FreezeHandling::fhZERO_IF_FROZEN,
+            issuerFreezeHandling(),
             isWithdrawAll(ctx_.tx),
             mPriorBalance,
             ctx_.journal);

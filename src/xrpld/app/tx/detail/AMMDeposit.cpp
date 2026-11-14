@@ -246,10 +246,13 @@ AMMDeposit::preclaim(PreclaimContext const& ctx)
             : tecUNFUNDED_AMM;
     };
 
-    if (ctx.view.rules().enabled(featureAMMClawback))
+    auto const amount = ctx.tx[~sfAmount];
+    auto const amount2 = ctx.tx[~sfAmount2];
+    auto const ammAccountID = ammSle->getAccountID(sfAccount);
+
     {
-        // Check if either of the assets is frozen, AMMDeposit is not allowed
-        // if either asset is frozen
+        // Unified deposit freeze check for both pool assets.
+        // AMMDeposit is not allowed if either asset is frozen.
         auto checkAsset = [&](Issue const& asset) -> TER {
             if (auto const ter = requireAuth(ctx.view, asset, accountID))
             {
@@ -257,16 +260,14 @@ AMMDeposit::preclaim(PreclaimContext const& ctx)
                     << "AMM Deposit: account is not authorized, " << asset;
                 return ter;
             }
-
-            if (isFrozen(ctx.view, accountID, asset))
+            if (auto const ter = checkDepositFreeze(
+                    ctx.view, accountID, ammAccountID, asset))
             {
                 JLOG(ctx.j.debug())
-                    << "AMM Deposit: account or currency is frozen, "
-                    << to_string(accountID) << " " << to_string(asset.currency);
-
-                return tecFROZEN;
+                    << "AMM Deposit: frozen, " << to_string(accountID) << " "
+                    << to_string(asset.currency);
+                return ter;
             }
-
             return tesSUCCESS;
         };
 
@@ -276,10 +277,6 @@ AMMDeposit::preclaim(PreclaimContext const& ctx)
         if (auto const ter = checkAsset(ctx.tx[sfAsset2].get<Issue>()))
             return ter;
     }
-
-    auto const amount = ctx.tx[~sfAmount];
-    auto const amount2 = ctx.tx[~sfAmount2];
-    auto const ammAccountID = ammSle->getAccountID(sfAccount);
 
     auto checkAmount = [&](std::optional<STAmount> const& amount,
                            bool checkBalance) -> TER {
@@ -297,22 +294,6 @@ AMMDeposit::preclaim(PreclaimContext const& ctx)
                     << amount->issue();
                 return ter;
                 // LCOV_EXCL_STOP
-            }
-            // AMM account or currency frozen
-            if (isFrozen(ctx.view, ammAccountID, amount->issue()))
-            {
-                JLOG(ctx.j.debug())
-                    << "AMM Deposit: AMM account or currency is frozen, "
-                    << to_string(accountID);
-                return tecFROZEN;
-            }
-            // Account frozen
-            if (isIndividualFrozen(ctx.view, accountID, amount->issue()))
-            {
-                JLOG(ctx.j.debug()) << "AMM Deposit: account is frozen, "
-                                    << to_string(accountID) << " "
-                                    << to_string(amount->issue().currency);
-                return tecFROZEN;
             }
             if (checkBalance)
             {

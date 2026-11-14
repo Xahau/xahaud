@@ -165,6 +165,11 @@ public:
         beast::Journal const& journal);
 
 private:
+    /** Returns fhIGNORE_FREEZE when the withdrawer is the issuer of a pool
+     *  asset, fhZERO_IF_FROZEN otherwise. */
+    [[nodiscard]] FreezeHandling
+    issuerFreezeHandling() const;
+
     std::pair<TER, bool>
     applyGuts(Sandbox& view);
 

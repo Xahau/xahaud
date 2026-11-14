@@ -44,6 +44,52 @@ ammPoolHolds(
     FreezeHandling freezeHandling,
     beast::Journal const j);
 
+/** Checks freeze compliance for withdrawing an asset from an AMM
+ * pseudo-account to a destination account.
+ *
+ * Issuer exemption: returns tesSUCCESS immediately when dstAcct is the asset
+ * issuer - the issuer can always receive their own token, even when the pool
+ * is frozen.
+ *
+ * Otherwise checks, in order:
+ *   1. If the asset is globally frozen the remaining checks are redundant.
+ *   2. The pseudo-account's trustline must not be frozen for sending.
+ *   3. Skipped when submitter == dst (self-withdrawal); a regular freeze
+ *      should not prevent recovering one's own funds.
+ *   4. The destination must not be deep-frozen (cannot receive under any
+ *      circumstance).
+ *
+ * @return tesSUCCESS if the withdrawal is permitted, tecFROZEN otherwise.
+ */
+[[nodiscard]] TER
+checkWithdrawFreeze(
+    ReadView const& view,
+    AccountID const& srcAcct,
+    AccountID const& submitterAcct,
+    AccountID const& dstAcct,
+    Issue const& issue);
+
+/** Checks freeze compliance for depositing an asset into an AMM
+ * pseudo-account.
+ *
+ * Checks, in order:
+ *   1. If the asset is globally frozen the remaining checks are redundant.
+ *   2. The depositor must not be individually frozen. Skipped when srcAcct is
+ *      the asset issuer, since the issuer can always send its own asset.
+ *   3. The pseudo-account must not be individually frozen for the asset.
+ *      Unlike regular accounts, pseudo-accounts cannot receive deposits under
+ *      a regular freeze because the deposited funds could not later be
+ *      withdrawn.
+ *
+ * @return tesSUCCESS if the deposit is permitted, tecFROZEN otherwise.
+ */
+[[nodiscard]] TER
+checkDepositFreeze(
+    ReadView const& view,
+    AccountID const& srcAcct,
+    AccountID const& dstAcct,
+    Issue const& issue);
+
 inline Number const kAMMInvariantRelativeTolerance{1, -11};
 
 /** Check AMM pool product invariant after an AMM operation that changes LP

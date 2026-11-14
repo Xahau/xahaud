@@ -44,6 +44,61 @@ ammPoolHolds(
 }
 
 TER
+checkWithdrawFreeze(
+    ReadView const& view,
+    AccountID const& srcAcct,
+    AccountID const& submitterAcct,
+    AccountID const& dstAcct,
+    Issue const& issue)
+{
+    // Funds can always be sent to the issuer
+    if (dstAcct == issue.account)
+        return tesSUCCESS;
+
+    // If the asset is globally frozen, other checks are redundant
+    if (isGlobalFrozen(view, issue.account))
+        return tecFROZEN;
+
+    // The transfer is from Submitter to Destination via Source (pseudo-account)
+    // Both Source and Submitter must not be frozen to allow sending funds
+    if (isIndividualFrozen(view, srcAcct, issue))
+        return tecFROZEN;
+
+    // Check submitter's individual freeze only when Submitter != Destination (a
+    // regular freeze should not block self-withdrawal).
+    if (submitterAcct != dstAcct &&
+        isIndividualFrozen(view, submitterAcct, issue))
+        return tecFROZEN;
+
+    // The destination account must not be deep frozen to receive the funds
+    if (isDeepFrozen(view, dstAcct, issue.currency, issue.account))
+        return tecFROZEN;
+
+    return tesSUCCESS;
+}
+
+TER
+checkDepositFreeze(
+    ReadView const& view,
+    AccountID const& srcAcct,
+    AccountID const& dstAcct,
+    Issue const& issue)
+{
+    if (isGlobalFrozen(view, issue.account))
+        return tecFROZEN;
+
+    if (srcAcct != issue.account && isIndividualFrozen(view, srcAcct, issue))
+        return tecFROZEN;
+
+    // Unlike regular accounts, pseudo-accounts cannot receive deposits under a
+    // regular freeze because those funds cannot be later withdrawn
+    if (isIndividualFrozen(view, dstAcct, issue))
+        return tecFROZEN;
+
+    return tesSUCCESS;
+}
+
+TER
 checkAMMPrecisionLoss(
     Number const& poolProductMean,
     STAmount const& newLPTokenBalance)
