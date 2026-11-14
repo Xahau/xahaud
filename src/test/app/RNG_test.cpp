@@ -765,7 +765,9 @@ class RNG_test : public beast::unit_test::suite
             BEAST_EXPECT(
                 sle->getFieldU32(sfLedgerSequence) == env.closed()->seq());
             BEAST_EXPECT(sle->getFieldU16(sfEntropyCount) == 1);
-            BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == 0);
+            // a standalone validator lists itself on the UNLReport
+            // (RCLConsensus onClose)
+            BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == 1);
         }
 
         // Two Hooks on alice, each drawing once. bob pays alice twice in one

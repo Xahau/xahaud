@@ -410,6 +410,64 @@ RCLConsensus::Adaptor::onClose(
                 initialSet);
         }
 
+        // Standalone: register our own export key at once. Normally the UNL
+        // reports it a flag interval after we nominate it (NegativeUNLVote),
+        // which a standalone node reaches only after 512+ ledgers of paced
+        // closes (validation sign times advance 1s per ledger and stale-ahead
+        // validations are dropped), too slow for a hook developer. Change
+        // refuses pseudo-transactions against an open ledger, so this belongs
+        // in the initial set. The validator account is not created here: fund
+        // it (a Payment) and the key follows. Initial registration only;
+        // rotation takes the usual flag ledger path.
+        if (app_.config().standalone() && validatorKeys_.keys &&
+            prevLedger->rules().enabled(featureExport) &&
+            prevLedger->rules().enabled(featureXahauGenesis))
+        {
+            auto const& master = validatorKeys_.keys->masterPublicKey;
+            auto const seq = prevLedger->info().seq + 1;
+
+            auto addReport = [&](STTx const& tx) {
+                Serializer s;
+                tx.add(s);
+                initialSet->addItem(
+                    SHAMapNodeType::tnTRANSACTION_NM,
+                    make_shamapitem(tx.getTransactionID(), s.slice()));
+            };
+
+            bool active = false;
+            if (auto const unl = prevLedger->read(keylet::UNLReport());
+                unl && unl->isFieldPresent(sfActiveValidators))
+            {
+                for (auto const& av : unl->getFieldArray(sfActiveValidators))
+                    if (makeSlice(av.getFieldVL(sfPublicKey)) == master.slice())
+                        active = true;
+            }
+
+            if (!active)
+            {
+                addReport(STTx(ttUNL_REPORT, [&](auto& obj) {
+                    obj.peekFieldObject(sfActiveValidator)
+                        .setFieldVL(sfPublicKey, master);
+                    obj.setFieldU32(sfLedgerSequence, seq);
+                }));
+            }
+            else if (auto const acc = prevLedger->read(
+                         keylet::account(calcAccountID(master)));
+                     acc && !acc->isFieldPresent(sfExportKeys))
+            {
+                if (auto const n = app_.getExportKeys().nominate(*prevLedger))
+                {
+                    addReport(STTx(ttUNL_REPORT, [&](auto& obj) {
+                        auto& r = obj.peekFieldObject(sfExportKeyReport);
+                        r.setFieldVL(sfPublicKey, master);
+                        r.setFieldVL(sfExportKey, n->first.slice());
+                        r.setFieldVL(sfExportKeyProof, n->second);
+                        obj.setFieldU32(sfLedgerSequence, seq);
+                    }));
+                }
+            }
+        }
+
         // featureRNG: our entropy contribution goes into our own initial
         // position, never the open ledger, so it only becomes public once our
         // transaction set for this ledger is fixed.
