@@ -3247,20 +3247,46 @@ private:
             std::nullopt,
             {features});
 
+        // Zero-fee bid without an explicit price pays a floor.
+        testAMM(
+            [&](AMM& ammAlice, Env& env) {
+                auto const minBidPrice =
+                    IOUAmount{ammAuctionMinSlotPrice(ammAlice.tokens(), 1)};
+                auto const expectedTokens =
+                    IOUAmount{Number{ammAlice.tokens()} - Number{minBidPrice}};
+
+                env.close(seconds(TOTAL_TIME_SLOT_SECS + 1));
+                env.close();
+                env(ammAlice.bid({.account = alice}));
+                BEAST_EXPECT(ammAlice.expectAuctionSlot(0, 0, minBidPrice));
+                BEAST_EXPECT(ammAlice.expectBalances(
+                    XRP(10'000), USD(10'000), expectedTokens));
+
+                ammAlice.vote(alice, 1'000);
+                BEAST_EXPECT(ammAlice.expectAuctionSlot(100, 0, minBidPrice));
+            },
+            std::nullopt,
+            0,
+            std::nullopt,
+            {features});
+
         // Bid tiny amount
         testAMM(
             [&](AMM& ammAlice, Env& env) {
                 // Bid a tiny amount
                 auto const tiny =
                     Number{STAmount::cMinValue, STAmount::cMinOffset};
+                auto const minBidPrice =
+                    IOUAmount{ammAuctionMinSlotPrice(ammAlice.tokens(), 1)};
+                auto const firstPrice = minBidPrice;
                 env(ammAlice.bid(
                     {.account = alice, .bidMin = IOUAmount{tiny}}));
-                // Auction slot purchase price is equal to the tiny amount
-                // since the minSlotPrice is 0 with no trading fee.
-                BEAST_EXPECT(ammAlice.expectAuctionSlot(0, 0, IOUAmount{tiny}));
-                // The purchase price is too small to affect the total tokens
+                BEAST_EXPECT(ammAlice.expectAuctionSlot(0, 0, firstPrice));
                 BEAST_EXPECT(ammAlice.expectBalances(
-                    XRP(10'000), USD(10'000), ammAlice.tokens()));
+                    XRP(10'000),
+                    USD(10'000),
+                    IOUAmount{
+                        Number{ammAlice.tokens()} - Number{minBidPrice}}));
                 // Bid the tiny amount
                 env(ammAlice.bid({
                     .account = alice,
@@ -3269,11 +3295,13 @@ private:
                 }));
                 // Pay slightly higher price
                 BEAST_EXPECT(ammAlice.expectAuctionSlot(
-                    0, 0, IOUAmount{tiny * Number{105, -2}}));
-                // The purchase price is still too small to affect the total
-                // tokens
+                    0, 0, IOUAmount{Number{firstPrice} * Number{105, -2}}));
                 BEAST_EXPECT(ammAlice.expectBalances(
-                    XRP(10'000), USD(10'000), ammAlice.tokens()));
+                    XRP(10'000),
+                    USD(10'000),
+                    IOUAmount{
+                        Number{ammAlice.tokens()} -
+                        Number{minBidPrice} * Number{11, -1}}));
             },
             std::nullopt,
             0,
