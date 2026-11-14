@@ -2178,7 +2178,9 @@ private:
         // are rounded to all LP tokens.
         testAMM(
             [&](AMM& ammAlice, Env& env) {
-                auto const err = ter(tecINVARIANT_FAILED);
+                // Caught in the transaction layer before the invariant
+                // checker runs.
+                auto const err = ter(tecPRECISION_LOSS);
                 ammAlice.withdraw(
                     alice,
                     STAmount{USD, UINT64_C(9'999'999999999999), -12},

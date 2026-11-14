@@ -1849,15 +1849,9 @@ ValidAMM::generalInvariant(
     auto const poolProductMean = root2(amount * amount2);
     bool const nonNegativeBalances =
         validBalances(amount, amount2, *lptAMMBalanceAfter_, zeroAllowed);
-    bool const strongInvariantCheck = poolProductMean >= *lptAMMBalanceAfter_;
-    // Allow for a small relative error if strongInvariantCheck fails
-    auto weakInvariantCheck = [&]() {
-        return *lptAMMBalanceAfter_ != beast::zero &&
-            withinRelativeDistance(
-                poolProductMean, Number{*lptAMMBalanceAfter_}, Number{1, -11});
-    };
-    if (!nonNegativeBalances ||
-        (!strongInvariantCheck && !weakInvariantCheck()))
+    auto const precisionLoss =
+        checkAMMPrecisionLoss(poolProductMean, *lptAMMBalanceAfter_);
+    if (!nonNegativeBalances || !isTesSuccess(precisionLoss))
     {
         JLOG(j.error()) << "AMM " << tx.getTxnType() << " invariant failed: "
                         << tx.getHash(HashPrefix::transactionID) << " "

@@ -216,6 +216,13 @@ AMMClawback::applyGuts(Sandbox& sb)
     if (result != tesSUCCESS)
         return result;  // LCOV_EXCL_LINE
 
+    if (auto const ter = checkAMMPrecisionLoss(
+            sb, ammAccount, asset, asset2, newLPTokenBalance, j_);
+        !isTesSuccess(ter))
+    {
+        return ter;
+    }
+
     auto const res = AMMWithdraw::deleteAMMAccountIfEmpty(
         sb, ammSle, newLPTokenBalance, asset, asset2, j_);
     if (!res.second)

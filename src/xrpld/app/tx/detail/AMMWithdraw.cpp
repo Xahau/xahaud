@@ -401,6 +401,18 @@ AMMWithdraw::applyGuts(Sandbox& sb)
     if (result != tesSUCCESS)
         return {result, false};
 
+    if (auto const ter = checkAMMPrecisionLoss(
+            sb,
+            ammAccountID,
+            ctx_.tx[sfAsset].get<Issue>(),
+            ctx_.tx[sfAsset2].get<Issue>(),
+            newLPTokenBalance,
+            j_);
+        !isTesSuccess(ter))
+    {
+        return {ter, false};
+    }
+
     auto const res = deleteAMMAccountIfEmpty(
         sb,
         ammSle,
