@@ -29,6 +29,7 @@
 #include <xrpl/protocol/TxFlags.h>
 
 #include <bit>
+#include <stdexcept>
 
 namespace ripple {
 
@@ -378,11 +379,11 @@ AMMDeposit::applyGuts(Sandbox& sb)
 
     auto const subTxType = ctx_.tx.getFlags() & tfDepositSubTx;
 
-    auto const [result, newLPTokenBalance] =
-        [&,
-         &amountBalance = amountBalance,
-         &amount2Balance = amount2Balance,
-         &lptAMMBalance = lptAMMBalance]() -> std::pair<TER, STAmount> {
+    auto dispatchToDeposit = [&,
+                              &amountBalance = amountBalance,
+                              &amount2Balance = amount2Balance,
+                              &lptAMMBalance =
+                                  lptAMMBalance]() -> std::pair<TER, STAmount> {
         if (subTxType & tfTwoAsset)
             return equalDepositLimit(
                 sb,
@@ -445,6 +446,28 @@ AMMDeposit::applyGuts(Sandbox& sb)
         JLOG(j_.error()) << "AMM Deposit: invalid options.";
         return std::make_pair(tecINTERNAL, STAmount{});
         // LCOV_EXCL_STOP
+    };
+
+    auto const [result, newLPTokenBalance] = [&]() -> std::pair<TER, STAmount> {
+        try
+        {
+            return dispatchToDeposit();
+        }
+        catch (std::runtime_error const& e)
+        {
+            REACHABLE(
+                "ripple::AMMDeposit::applyGuts : deposit amount out of "
+                "range reached");
+            // A deposit whose solved amount exceeds the integral asset's range
+            // throws while converting to STAmount: past int64max
+            // Number::operator rep() throws std::overflow_error; above the
+            // asset maximum STAmount::canonicalize throws std::runtime_error.
+            // Fail cleanly with a tec rather than letting it escape doApply as
+            // tefEXCEPTION. Any other exception is left to propagate.
+            JLOG(j_.error())
+                << "AMMDeposit: deposit amount out of range " << e.what();
+            return std::make_pair(tecAMM_FAILED, STAmount{});
+        }
     }();
 
     if (result == tesSUCCESS)

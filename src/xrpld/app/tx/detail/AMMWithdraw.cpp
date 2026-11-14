@@ -28,6 +28,7 @@
 #include <xrpl/protocol/TxFlags.h>
 
 #include <bit>
+#include <stdexcept>
 
 namespace ripple {
 
@@ -347,7 +348,7 @@ AMMWithdraw::applyGuts(Sandbox& sb)
 
     auto const subTxType = ctx_.tx.getFlags() & tfWithdrawSubTx;
 
-    auto const [result, newLPTokenBalance] =
+    auto dispatchToWithdraw =
         [&,
          &amountBalance = amountBalance,
          &amount2Balance = amount2Balance,
@@ -410,6 +411,25 @@ AMMWithdraw::applyGuts(Sandbox& sb)
         JLOG(j_.error()) << "AMM Withdraw: invalid options.";
         return std::make_pair(tecINTERNAL, STAmount{});
         // LCOV_EXCL_STOP
+    };
+
+    auto const [result, newLPTokenBalance] = [&]() -> std::pair<TER, STAmount> {
+        try
+        {
+            return dispatchToWithdraw();
+        }
+        catch (std::runtime_error const& e)
+        {
+            // Defense in-depth for amount overflow/out-of-range: the withdrawal
+            // counterpart of the AMMDeposit guard. Unlike deposit, no known
+            // withdraw path can throw here - preclaim bounds the requested
+            // amounts by the pool balances, and the only historical throw
+            // (denom == 0 in singleWithdrawEPrice) is guarded.
+            // LCOV_EXCL_START
+            JLOG(j_.error()) << "AMMWithdraw: amount out of range " << e.what();
+            return std::make_pair(tecAMM_FAILED, STAmount{});
+            // LCOV_EXCL_STOP
+        }
     }();
 
     if (result != tesSUCCESS)

@@ -7215,6 +7215,171 @@ private:
     }
 
     void
+    testDepositIntegralOverflow()
+    {
+        testcase("Deposit integral overflow");
+
+        using namespace jtx;
+        FeatureBitset const all{
+            supported_amendments() | featureAMM | featureAMMClawback};
+
+        // Found by Antithesis: two-asset deposit with a huge Amount against a
+        // tiny pool leg makes frac = Amount/amountBalance enormous, so the
+        // computed XRP-side deposit exceeds the integral asset's range and the
+        // conversion to an STAmount throws out of doApply.
+        //
+        // applyGuts catches std::runtime_error around the deposit math, which
+        // covers both ways the conversion can throw:
+        //   - value beyond int64 range: Number::operator rep() throws
+        //     std::overflow_error (a std::runtime_error); and
+        //   - value within int64 but above the asset maximum (kMaxNativeN):
+        //     STAmount::canonicalize throws std::runtime_error.
+        // XRP(10) is 1e7 drops, so the computed XRP leg is 1e7 * frac:
+        //   asset1In 1e15 => frac ~1e15 => ~1e22 drops, past int64max; and
+        //   asset1In 1e11 => frac ~1e11 => ~1e18 drops, in [kMaxNativeN=1e17,
+        //   int64max) - the canonicalize band, which would otherwise escape.
+        //
+        // applyGuts guards it and fails cleanly with tecAMM_FAILED instead of
+        // tefEXCEPTION.
+        auto const test = [this](
+                              FeatureBitset features,
+                              STAmount const& asset1In,
+                              TER expected) {
+            // These deposits intentionally trigger the overflow, which logs
+            // at error. Disable the log threshold to keep the test output
+            // clean.
+            Env env(
+                *this,
+                envconfig(),
+                features,
+                nullptr,
+                beast::severities::kDisabled);
+            env.fund(XRP(30'000), gw, alice);
+            env(trust(alice, STAmount{USD, 1, 20}));
+            env(pay(gw, alice, STAmount{USD, 1, 18}));
+            env.close();
+
+            AMM amm(env, gw, XRP(10), USD(1));
+            amm.deposit(DepositArg{
+                .account = alice,
+                .asset1In = asset1In,
+                .asset2In = XRP(1),
+                .err = ter(expected)});
+        };
+
+        // int64-range band (overflow_error)
+        test(all, STAmount{USD, 1, 15}, tecAMM_FAILED);
+        // canonicalize band (runtime_error). Regression guard for the band a
+        // plain overflow_error catch would miss.
+        test(all, STAmount{USD, 1, 11}, tecAMM_FAILED);
+    }
+
+    void
+    testDepositEPriceIntegralOverflow()
+    {
+        testcase("Deposit EPrice integral overflow");
+
+        using namespace jtx;
+        FeatureBitset const all{
+            supported_amendments() | featureAMM | featureAMMClawback};
+
+        // Found by Antithesis: a one-sided tfLimitLPToken deposit (Amount and
+        // EPrice) with Amount = 0 and a large EPrice makes the solved pool-side
+        // deposit enormous, so it exceeds the integral asset's range and the
+        // conversion to an STAmount throws out of doApply. This is the
+        // singleDepositEPrice sibling of testDepositIntegralOverflow.
+        //
+        // applyGuts catches std::runtime_error around the deposit math, which
+        // covers both ways the conversion can throw:
+        //   - value beyond int64 range: Number::operator rep() throws
+        //     std::overflow_error (a std::runtime_error); and
+        //   - value within int64 but above the asset maximum (kMaxNativeN):
+        //     STAmount::canonicalize throws std::runtime_error.
+        //
+        // applyGuts guards it and fails cleanly with tecAMM_FAILED instead of
+        // tefEXCEPTION.
+        auto const test =
+            [this](
+                FeatureBitset features, STAmount const& ePrice, TER expected) {
+                // These deposits intentionally trigger the overflow, which logs
+                // at error. Disable the log threshold to keep the test output
+                // clean.
+                Env env(
+                    *this,
+                    envconfig(),
+                    features,
+                    nullptr,
+                    beast::severities::kDisabled);
+                env.fund(XRP(30'000), gw, alice);
+                env(trust(alice, STAmount{USD, 1, 20}));
+                env(pay(gw, alice, STAmount{USD, 1, 18}));
+                env.close();
+
+                AMM amm(env, gw, XRP(10), USD(1));
+                // Amount = 0 (XRP), EPrice large => tfLimitLPToken. The solved
+                // XRP leg blows past the integral range.
+                amm.deposit(DepositArg{
+                    .account = alice,
+                    .asset1In = XRP(0),
+                    .maxEP = ePrice,
+                    .err = ter(expected)});
+            };
+
+        // For this XRP(10)/USD(1) pool the LPToken balance is
+        // sqrt(1e7 drops * 1) = 3162, so T^2/B = 1e7/1e7 = 1 and the solved
+        // XRP-side deposit is ~EPrice^2 drops.
+        //
+        // int64-range band (overflow_error). EPrice ~1e17 drops => solved
+        // deposit ~1e34 drops, past int64max, so Number::operator rep()
+        // throws.
+        auto const bigEP = STAmount{XRPAmount{99'999'999'999'999'999}};
+        test(all, bigEP, tecAMM_FAILED);
+        // canonicalize band (runtime_error). Regression guard for the band a
+        // plain overflow_error catch would miss. EPrice 1e9 drops => solved
+        // deposit ~1e18 drops, in [kMaxNativeN=1e17, int64max), so
+        // STAmount::canonicalize throws.
+        auto const midEP = STAmount{XRPAmount{1'000'000'000}};
+        test(all, midEP, tecAMM_FAILED);
+    }
+
+    void
+    testWithdrawIntegralNoOverflow()
+    {
+        testcase("Withdraw integral no overflow");
+
+        using namespace jtx;
+        FeatureBitset const all{
+            supported_amendments() | featureAMM | featureAMMClawback};
+
+        // Regression guard for the sibling of testDepositIntegralOverflow.
+        // AMMWithdraw::equalWithdrawLimit has the same
+        // getRoundedAsset(integralBalance, frac) structure as the deposit
+        // path. It is safe only because withdraw preclaim (checkAmount)
+        // rejects a requested Amount greater than the pool balance with
+        // tecAMM_BALANCE *before* the math runs, so frac = Amount / balance
+        // stays <= 1 and the Number -> integral STAmount conversion cannot
+        // overflow. Deposit has no such bound (depositing more than the pool
+        // holds is legal), which is why only the deposit path was exposed.
+        Env env(*this, all);
+        env.fund(XRP(30'000), gw, alice);
+        env(trust(alice, STAmount{USD, 1, 20}));
+        env(pay(gw, alice, STAmount{USD, 1, 18}));
+        env.close();
+
+        // gw holds all LPTokens of a tiny XRP/USD pool.
+        AMM amm(env, gw, XRP(10), USD(1));
+
+        // Two-asset limit withdraw (tfTwoAsset) requesting far more of the
+        // tiny USD leg than the pool holds - the mirror of the deposit repro.
+        // Rejected upstream, so no overflow is possible.
+        amm.withdraw(WithdrawArg{
+            .account = gw,
+            .asset1Out = STAmount{USD, 1, 15},
+            .asset2Out = XRP(1),
+            .err = ter(tecAMM_BALANCE)});
+    }
+
+    void
     run() override
     {
         FeatureBitset const all{
@@ -7261,6 +7426,9 @@ private:
         testWithdrawRounding(all);
         // testFailedPseudoAccount();
         testStaleAuthAccountsAfterReinit(all);
+        testDepositIntegralOverflow();
+        testDepositEPriceIntegralOverflow();
+        testWithdrawIntegralNoOverflow();
     }
 };
 
