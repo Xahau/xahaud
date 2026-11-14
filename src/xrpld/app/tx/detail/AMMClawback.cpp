@@ -197,6 +197,7 @@ AMMClawback::applyGuts(Sandbox& sb)
                 holdLPtokens,
                 0,
                 FreezeHandling::fhIGNORE_FREEZE,
+                ReserveHandling::IgnoreReserve,
                 WithdrawAll::Yes,
                 mPriorBalance,
                 ctx_.journal);
@@ -214,7 +215,14 @@ AMMClawback::applyGuts(Sandbox& sb)
                 *clawAmount);
 
     if (result != tesSUCCESS)
-        return result;  // LCOV_EXCL_LINE
+        return result;
+
+    if (auto const ter = checkAMMPrecisionLoss(
+            sb, ammAccount, asset, asset2, newLPTokenBalance, j_);
+        !isTesSuccess(ter))
+    {
+        return ter;
+    }
 
     auto const res = AMMWithdraw::deleteAMMAccountIfEmpty(
         sb, ammSle, newLPTokenBalance, asset, asset2, j_);
@@ -261,7 +269,9 @@ AMMClawback::equalWithdrawMatchingOneAmount(
     auto const lpTokensWithdraw =
         toSTAmount(lptAMMBalance.issue(), lptAMMBalance * frac);
 
-    if (lpTokensWithdraw > holdLPtokens)
+    // Treat equality as withdraw-all: otherwise the last holder is left unable
+    // to be fully clawed back.
+    if (lpTokensWithdraw >= holdLPtokens)
         // if lptoken balance less than what the issuer intended to clawback,
         // clawback all the tokens. Because we are doing a two-asset withdrawal,
         // tfee is actually not used, so pass tfee as 0.
@@ -277,6 +287,7 @@ AMMClawback::equalWithdrawMatchingOneAmount(
             holdLPtokens,
             0,
             FreezeHandling::fhIGNORE_FREEZE,
+            ReserveHandling::IgnoreReserve,
             WithdrawAll::Yes,
             mPriorBalance,
             ctx_.journal);
@@ -298,6 +309,12 @@ AMMClawback::equalWithdrawMatchingOneAmount(
     auto amountRounded =
         getRoundedAsset(rules, amountBalance, frac, IsDeposit::No);
 
+    // The requested clawback amount is likely too small and results in
+    // one-sided pool withdrawal due to round off. Fail so the issuer can
+    // clawback a larger amount.
+    if (amountRounded == beast::zero || amount2Rounded == beast::zero)
+        return {tecAMM_FAILED, STAmount{}, STAmount{}, STAmount{}};
+
     return AMMWithdraw::withdraw(
         sb,
         ammSle,
@@ -310,6 +327,7 @@ AMMClawback::equalWithdrawMatchingOneAmount(
         tokensAdj,
         0,
         FreezeHandling::fhIGNORE_FREEZE,
+        ReserveHandling::IgnoreReserve,
         WithdrawAll::No,
         mPriorBalance,
         ctx_.journal);

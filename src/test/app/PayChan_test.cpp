@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <test/jtx/AMM.h>
 #include <xrpld/ledger/Dir.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpl/basics/chrono.h>
@@ -5904,8 +5905,46 @@ struct PayChan_test : public beast::unit_test::suite
     }
 
     void
+    testIOUAMMLPToken(FeatureBitset features)
+    {
+        testcase("iou amm lp token");
+        using namespace jtx;
+        using namespace std::literals::chrono_literals;
+        Env env{*this, features | featureAMM};
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account{"gateway"};
+        auto const USD = gw["USD"];
+        env.fund(XRP(10000), alice, bob, gw);
+        env.close();
+        env.trust(USD(100000), alice);
+        env.close();
+        env(pay(gw, alice, USD(10000)));
+        env.close();
+
+        AMM amm(env, alice, XRP(1000), USD(1000));
+        BEAST_EXPECT(amm.ammExists());
+        STAmount const lpAmount{amm.getLPTokensBalance(alice), amm.lptIssue()};
+
+        // LP tokens cannot be locked in a payment channel. PayChanFund can
+        // only be reached after a successful PayChanCreate, so it needs no
+        // separate coverage.
+        env(paychan::create(alice, bob, lpAmount, 100s, alice.pk()),
+            ter(tecNO_PERMISSION));
+        env.close();
+
+        auto const lpLine = env.le(keylet::line(
+            alice, amm.lptIssue().account, amm.lptIssue().currency));
+        BEAST_EXPECT(lpLine && !lpLine->isFieldPresent(sfLockedBalance));
+
+        amm.withdrawAll(alice);
+        BEAST_EXPECT(!amm.ammExists());
+    }
+
+    void
     testIOUWithFeats(FeatureBitset features)
     {
+        testIOUAMMLPToken(features);
         testIOUSimple(features);
         testIOUCancelAfter(features);
         testIOUSettleDelay(features);

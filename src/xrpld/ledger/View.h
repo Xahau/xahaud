@@ -790,6 +790,11 @@ trustTransferAllowed(
         issuerFlags & lsfAllowTrustLineClawback)
         return tecNO_PERMISSION;
 
+    // LP tokens (issued by an AMM pseudo-account) must never be locked: AMM
+    // code assumes the full line balance is spendable.
+    if (lockHandling == lhLOCKING && sleIssuerAcc->isFieldPresent(sfAMMID))
+        return tecNO_PERMISSION;
+
     bool requireAuth = issuerFlags & lsfRequireAuth;
 
     for (AccountID const& p : parties)

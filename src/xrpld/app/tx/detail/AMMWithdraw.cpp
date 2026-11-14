@@ -28,6 +28,7 @@
 #include <xrpl/protocol/TxFlags.h>
 
 #include <bit>
+#include <stdexcept>
 
 namespace ripple {
 
@@ -225,21 +226,17 @@ AMMWithdraw::preclaim(PreclaimContext const& ctx)
                     << amount->issue();
                 return ter;
             }
-            // AMM account or currency frozen
-            if (isFrozen(ctx.view, ammAccountID, amount->issue()))
+            if (auto const ret = checkWithdrawFreeze(
+                    ctx.view,
+                    ammAccountID,
+                    accountID,
+                    accountID,
+                    amount->issue()))
             {
                 JLOG(ctx.j.debug())
-                    << "AMM Withdraw: AMM account or currency is frozen, "
-                    << to_string(accountID);
-                return tecFROZEN;
-            }
-            // Account frozen
-            if (isIndividualFrozen(ctx.view, accountID, amount->issue()))
-            {
-                JLOG(ctx.j.debug()) << "AMM Withdraw: account is frozen, "
-                                    << to_string(accountID) << " "
-                                    << to_string(amount->issue().currency);
-                return tecFROZEN;
+                    << "AMM Withdraw: frozen, " << to_string(accountID) << " "
+                    << to_string(amount->issue().currency);
+                return ret;
             }
         }
         return tesSUCCESS;
@@ -292,6 +289,22 @@ AMMWithdraw::preclaim(PreclaimContext const& ctx)
     return tesSUCCESS;
 }
 
+FreezeHandling
+AMMWithdraw::issuerFreezeHandling() const
+{
+    // When the withdrawer is the issuer of a pool asset, the issuer can
+    // always receive their own token - even when the pool is frozen.
+    // Use IgnoreFreeze so ammHolds returns real balances instead of zero.
+    auto const asset1 = ctx_.tx[sfAsset].get<Issue>();
+    auto const asset2 = ctx_.tx[sfAsset2].get<Issue>();
+    if (!isXRP(asset1) && account_ == asset1.account)
+        return FreezeHandling::fhIGNORE_FREEZE;
+    if (!isXRP(asset2) && account_ == asset2.account)
+        return FreezeHandling::fhIGNORE_FREEZE;
+
+    return FreezeHandling::fhZERO_IF_FROZEN;
+}
+
 std::pair<TER, bool>
 AMMWithdraw::applyGuts(Sandbox& sb)
 {
@@ -320,12 +333,14 @@ AMMWithdraw::applyGuts(Sandbox& sb)
 
     auto const tfee = getTradingFee(ctx_.view(), *ammSle, account_);
 
+    auto const freezeHandling = issuerFreezeHandling();
+
     auto const expected = ammHolds(
         sb,
         *ammSle,
         amount ? amount->issue() : std::optional<Issue>{},
         amount2 ? amount2->issue() : std::optional<Issue>{},
-        FreezeHandling::fhZERO_IF_FROZEN,
+        freezeHandling,
         ctx_.journal);
     if (!expected)
         return {expected.error(), false};
@@ -333,7 +348,7 @@ AMMWithdraw::applyGuts(Sandbox& sb)
 
     auto const subTxType = ctx_.tx.getFlags() & tfWithdrawSubTx;
 
-    auto const [result, newLPTokenBalance] =
+    auto dispatchToWithdraw =
         [&,
          &amountBalance = amountBalance,
          &amount2Balance = amount2Balance,
@@ -396,10 +411,41 @@ AMMWithdraw::applyGuts(Sandbox& sb)
         JLOG(j_.error()) << "AMM Withdraw: invalid options.";
         return std::make_pair(tecINTERNAL, STAmount{});
         // LCOV_EXCL_STOP
+    };
+
+    auto const [result, newLPTokenBalance] = [&]() -> std::pair<TER, STAmount> {
+        try
+        {
+            return dispatchToWithdraw();
+        }
+        catch (std::runtime_error const& e)
+        {
+            // Defense in-depth for amount overflow/out-of-range: the withdrawal
+            // counterpart of the AMMDeposit guard. Unlike deposit, no known
+            // withdraw path can throw here - preclaim bounds the requested
+            // amounts by the pool balances, and the only historical throw
+            // (denom == 0 in singleWithdrawEPrice) is guarded.
+            // LCOV_EXCL_START
+            JLOG(j_.error()) << "AMMWithdraw: amount out of range " << e.what();
+            return std::make_pair(tecAMM_FAILED, STAmount{});
+            // LCOV_EXCL_STOP
+        }
     }();
 
     if (result != tesSUCCESS)
         return {result, false};
+
+    if (auto const ter = checkAMMPrecisionLoss(
+            sb,
+            ammAccountID,
+            ctx_.tx[sfAsset].get<Issue>(),
+            ctx_.tx[sfAsset2].get<Issue>(),
+            newLPTokenBalance,
+            j_);
+        !isTesSuccess(ter))
+    {
+        return {ter, false};
+    }
 
     auto const res = deleteAMMAccountIfEmpty(
         sb,
@@ -459,7 +505,8 @@ AMMWithdraw::withdraw(
         lpTokensAMMBalance,
         lpTokensWithdraw,
         tfee,
-        FreezeHandling::fhZERO_IF_FROZEN,
+        issuerFreezeHandling(),
+        ReserveHandling::EnforceReserve,
         isWithdrawAll(ctx_.tx),
         mPriorBalance,
         j_);
@@ -479,6 +526,7 @@ AMMWithdraw::withdraw(
     STAmount const& lpTokensWithdraw,
     std::uint16_t tfee,
     FreezeHandling freezeHandling,
+    ReserveHandling reserveHandling,
     WithdrawAll withdrawAll,
     XRPAmount const& priorBalance,
     beast::Journal const& journal)
@@ -585,6 +633,13 @@ AMMWithdraw::withdraw(
             return tesSUCCESS;
         if (!view.exists(keylet::line(account, issue)))
         {
+            // Intentionally ignore the reserve check for AMMClawback, so the
+            // holder can not avoid clawback by deleting the trustline and
+            // keeping a low spendable balance. AMMClawback has a higher
+            // priority than the reserve check.
+            if (reserveHandling == ReserveHandling::IgnoreReserve)
+                return tesSUCCESS;
+
             auto const sleAccount = view.read(keylet::account(account));
             if (!sleAccount)
                 return tecINTERNAL;  // LCOV_EXCL_LINE
@@ -708,7 +763,8 @@ AMMWithdraw::equalWithdrawTokens(
             lpTokens,
             lpTokensWithdraw,
             tfee,
-            FreezeHandling::fhZERO_IF_FROZEN,
+            issuerFreezeHandling(),
+            ReserveHandling::EnforceReserve,
             isWithdrawAll(ctx_.tx),
             mPriorBalance,
             ctx_.journal);
@@ -759,6 +815,7 @@ AMMWithdraw::equalWithdrawTokens(
     STAmount const& lpTokensWithdraw,
     std::uint16_t tfee,
     FreezeHandling freezeHanding,
+    ReserveHandling reserveHandling,
     WithdrawAll withdrawAll,
     XRPAmount const& priorBalance,
     beast::Journal const& journal)
@@ -780,6 +837,7 @@ AMMWithdraw::equalWithdrawTokens(
                 lpTokensWithdraw,
                 tfee,
                 freezeHanding,
+                reserveHandling,
                 WithdrawAll::Yes,
                 priorBalance,
                 journal);
@@ -815,6 +873,7 @@ AMMWithdraw::equalWithdrawTokens(
             tokensAdj,
             tfee,
             freezeHanding,
+            reserveHandling,
             withdrawAll,
             priorBalance,
             journal);
@@ -1044,13 +1103,15 @@ AMMWithdraw::singleWithdrawEPrice(
     // t = T*(T + A*E*(f - 2))/(T*f - A*E)
     Number const ae = amountBalance * ePrice;
     auto const f = getFee(tfee);
+    auto const denom = lptAMMBalance * f - ae;
+    // Guard against division by zero (upstream gates this on fixCleanup3_3_0)
+    // when ePrice == lptAMMBalance*f/amountBalance
+    if (denom == beast::zero)
+        return {tecAMM_FAILED, STAmount{}};
     auto tokNoRoundCb = [&] {
-        return lptAMMBalance * (lptAMMBalance + ae * (f - 2)) /
-            (lptAMMBalance * f - ae);
+        return lptAMMBalance * (lptAMMBalance + ae * (f - 2)) / denom;
     };
-    auto tokProdCb = [&] {
-        return (lptAMMBalance + ae * (f - 2)) / (lptAMMBalance * f - ae);
-    };
+    auto tokProdCb = [&] { return (lptAMMBalance + ae * (f - 2)) / denom; };
     auto const tokensAdj = getRoundedLPTokens(
         view.rules(), tokNoRoundCb, lptAMMBalance, tokProdCb, IsDeposit::No);
     if (tokensAdj <= beast::zero)

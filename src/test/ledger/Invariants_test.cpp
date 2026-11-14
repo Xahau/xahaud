@@ -22,6 +22,7 @@
 #include <test/jtx/Env.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
+#include <xrpld/app/tx/detail/InvariantCheck.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/InnerObjectFormats.h>
@@ -1365,6 +1366,125 @@ class Invariants_test : public beast::unit_test::suite
 
 public:
     void
+    testAMMDeleteInvariants()
+    {
+        using namespace test::jtx;
+        testcase("AMM delete invariants");
+
+        Env env(*this, supported_amendments() | featureAMM);
+        Account const issuer{"issuer"};
+        Issue const lptIssue{Currency(0x4c50540000000000), issuer.id()};
+        STAmount const zeroLP{lptIssue, 0};
+        STAmount const nonZeroLP{lptIssue, 1};
+
+        auto const makeAMM = [](STAmount const& lptBalance) {
+            auto sleAMM = std::make_shared<SLE>(keylet::amm(uint256(1)));
+            sleAMM->setFieldAmount(sfLPTokenBalance, lptBalance);
+            return sleAMM;
+        };
+
+        auto const checkInvariant =
+            [&](TxType txType,
+                TER result,
+                std::optional<STAmount> const& deletedLPBalance,
+                bool expected,
+                std::string const& expectedLog) {
+                test::StreamSink sink{beast::severities::kWarning};
+                beast::Journal const jlog{sink};
+                ValidAMM invariant;
+
+                if (deletedLPBalance)
+                    invariant.visitEntry(
+                        true, makeAMM(*deletedLPBalance), nullptr);
+
+                bool const actual = invariant.finalize(
+                    STTx{txType, [](STObject&) {}},
+                    result,
+                    XRPAmount{},
+                    *env.current(),
+                    jlog);
+
+                BEAST_EXPECTS(
+                    actual == expected,
+                    "unexpected AMM delete invariant result");
+                auto const messages = sink.messages().str();
+                if (!expectedLog.empty())
+                {
+                    BEAST_EXPECTS(
+                        messages.find(expectedLog) != std::string::npos,
+                        expectedLog);
+                }
+                else
+                {
+                    BEAST_EXPECTS(messages.empty(), messages);
+                }
+            };
+
+        checkInvariant(
+            ttPAYMENT,
+            tesSUCCESS,
+            nonZeroLP,
+            false,
+            "AMM invariant failed: unexpected AMM deletion by");
+        checkInvariant(
+            ttAMM_DELETE,
+            tesSUCCESS,
+            std::nullopt,
+            false,
+            "AMMDelete invariant failed: AMM object remained on tesSUCCESS");
+        checkInvariant(
+            ttAMM_DELETE,
+            tesSUCCESS,
+            nonZeroLP,
+            false,
+            "AMMDelete invariant failed: AMM object deleted with non-zero LP "
+            "balance");
+        checkInvariant(
+            ttAMM_DELETE,
+            tecINCOMPLETE,
+            zeroLP,
+            false,
+            "AMMDelete invariant failed: AMM object deleted when result is "
+            "not tesSUCCESS");
+
+        checkInvariant(ttAMM_WITHDRAW, tesSUCCESS, nonZeroLP, true, "");
+        checkInvariant(ttAMM_CLAWBACK, tesSUCCESS, nonZeroLP, true, "");
+
+        checkInvariant(ttAMM_DELETE, tesSUCCESS, zeroLP, true, "");
+        checkInvariant(ttAMM_WITHDRAW, tesSUCCESS, zeroLP, true, "");
+        checkInvariant(ttAMM_CLAWBACK, tesSUCCESS, zeroLP, true, "");
+    }
+
+    void
+    testObjectHasPseudoAccount()
+    {
+        testcase("object has pseudo-account");
+        using namespace test::jtx;
+
+        // AMM: object deleted without its pseudo-account
+        uint256 ammID{};
+        Account const gw{"gw"};
+        doInvariantCheck(
+            {{"deleted AMM without deleting its pseudo-account"}},
+            [&ammID](Account const&, Account const&, ApplyContext& ac) {
+                auto sle = ac.view().peek(keylet::amm(ammID));
+                if (!sle)
+                    return false;
+                ac.view().erase(sle);
+                return true;
+            },
+            XRPAmount{},
+            STTx{ttAMM_DELETE, [](STObject&) {}},
+            {tecINVARIANT_FAILED, tefINVARIANT_FAILED},
+            [&ammID, &gw](Account const&, Account const&, Env& env) {
+                env.fund(XRP(1'000), gw);
+                AMM const amm(env, gw, XRP(100), gw["USD"](100));
+                ammID = amm.ammID();
+                return true;
+            });
+    }
+
+    void
     run() override
     {
         testXRPNotCreated();
@@ -1380,6 +1500,8 @@ public:
         testNoZeroEscrow();
         testValidNewAccountRoot();
         testNFTokenPageInvariants();
+        testAMMDeleteInvariants();
+        testObjectHasPseudoAccount();
         testPermissionedDomainInvariants();
         testLockedBalance();
         testAppLoader();
