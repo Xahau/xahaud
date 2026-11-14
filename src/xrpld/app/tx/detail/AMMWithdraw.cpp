@@ -1044,13 +1044,15 @@ AMMWithdraw::singleWithdrawEPrice(
     // t = T*(T + A*E*(f - 2))/(T*f - A*E)
     Number const ae = amountBalance * ePrice;
     auto const f = getFee(tfee);
+    auto const denom = lptAMMBalance * f - ae;
+    // Guard against division by zero (upstream gates this on fixCleanup3_3_0)
+    // when ePrice == lptAMMBalance*f/amountBalance
+    if (denom == beast::zero)
+        return {tecAMM_FAILED, STAmount{}};
     auto tokNoRoundCb = [&] {
-        return lptAMMBalance * (lptAMMBalance + ae * (f - 2)) /
-            (lptAMMBalance * f - ae);
+        return lptAMMBalance * (lptAMMBalance + ae * (f - 2)) / denom;
     };
-    auto tokProdCb = [&] {
-        return (lptAMMBalance + ae * (f - 2)) / (lptAMMBalance * f - ae);
-    };
+    auto tokProdCb = [&] { return (lptAMMBalance + ae * (f - 2)) / denom; };
     auto const tokensAdj = getRoundedLPTokens(
         view.rules(), tokNoRoundCb, lptAMMBalance, tokProdCb, IsDeposit::No);
     if (tokensAdj <= beast::zero)

@@ -2539,6 +2539,26 @@ private:
             BEAST_EXPECT(ammAlice.expectBalances(
                 XRPAmount{1}, USD(10'000), IOUAmount{100}));
         });
+
+        // singleWithdrawEPrice: crafted ePrice = lptAMMBalance*f/amountBalance
+        // makes the denominator (T*f - A*E) exactly zero.
+        // The denominator check returns tecAMM_FAILED.
+        //
+        // Pool: USD(100)/EUR(100), baseFee=1000 (1%).
+        // Alice is the creator so her discounted fee is 100 (0.1%), f=0.001.
+        // ePrice = lptAMMBalance(100) * f(0.001) / amountBalance(100) = 0.001
+        testAMM(
+            [&](AMM& ammAlice, Env& env) {
+                ammAlice.withdraw(WithdrawArg{
+                    .account = alice,
+                    .asset1Out = USD(0),
+                    .maxEP = IOUAmount{1, -3},  // ePrice=0.001 -> denom=0
+                    .err = ter(tecAMM_FAILED)});
+            },
+            {{USD(100), EUR(100)}},
+            1000,
+            std::nullopt,
+            {all});
     }
 
     void
