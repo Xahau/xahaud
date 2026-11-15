@@ -292,10 +292,16 @@ expired(ReadView const& view, SLE const& st)
         std::uint64_t{*last} + Export::expiryGrace;
 }
 
-// The export `txid` on `ticket` will not run: its shadow ticket goes and the
-// ticket returns to the pool of `ex` (if it has a record), unless it is above
-// the watermark of recorded TicketCreates, a ticket the ledger never saw
-// made. False if the shadow ticket does not name that export (any more).
+// The export `txid` on `ticket` will not run: its shadow ticket goes.
+// When `rePool` is set, a ticket below the watermark of recorded
+// TicketCreates returns to the pool of `ex`. That watermark means the
+// ledger saw the ticket made, not that the other network still holds it
+// unused. A below-quorum close was never submitted, so it returns the
+// ticket. An expiry does not: the export was signed and sent, and a
+// missing Import does not prove the ticket is still unused. Putting a
+// spent one back makes every later export draw it, and a rejection before
+// consensus never produces the Import that would remove it. False if the
+// shadow ticket does not name that export (any more).
 static bool
 releaseTicket(
     ApplyView& view,
@@ -303,14 +309,16 @@ releaseTicket(
     AccountID const& owner,
     std::uint32_t dest,
     std::uint32_t ticket,
-    uint256 const& txid)
+    uint256 const& txid,
+    bool rePool)
 {
     if (!eraseShadowTicket(view, owner, dest, ticket, txid))
         return false;
     if (ex)
     {
         untrackExpiry(*ex, keylet::shadowTicket(owner, dest, ticket).key);
-        if (ticket < (*ex)[~sfExportTicketNext].value_or(
+        if (rePool &&
+            ticket < (*ex)[~sfExportTicketNext].value_or(
                          std::numeric_limits<std::uint32_t>::max()))
         {
             auto tickets = ExportTickets::load(*ex);
@@ -1218,8 +1226,9 @@ Export::doApply()
     if (tx.getTxnType() == ttEXPORT_FINAL && tx.isFieldPresent(sfLedgerIndex))
     {
         // An expiry (see preclaim): signed and sent, no longer includable
-        // there, and not back. As after a close below quorum, the ticket is
-        // released and the hook told it failed.
+        // there, and not back. The shadow goes and the hook is told it
+        // failed. The ticket stays out of the pool. A missing Import is
+        // not proof the other network still holds it.
         auto const st = view.peek(Keylet{ltSHADOW_TICKET, tx[sfLedgerIndex]});
         if (!st)
             return tefINTERNAL;
@@ -1234,7 +1243,8 @@ Export::doApply()
                 owner,
                 dest,
                 (*st)[sfTicketSequence],
-                tx[sfTransactionHash]))
+                tx[sfTransactionHash],
+                false))
             return tefINTERNAL;
         if (ex)
             view.update(ex);
@@ -1270,7 +1280,8 @@ Export::doApply()
                         owner,
                         dest,
                         *ticket,
-                        (*sle)[sfTransactionHash]);
+                        (*sle)[sfTransactionHash],
+                        true);
                 // its refill, by ticket or (the backstop) by Sequence, is
                 // not out any more: the ledger may try again
                 if ((*acc)[~sfExportTicketPending] == seqProxyOf(inner))

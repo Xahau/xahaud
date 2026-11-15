@@ -2102,15 +2102,19 @@ class Export_test : public beast::unit_test::suite
         proven(last + Export::expiryGrace - 1);
         BEAST_EXPECT(expire(11) == tefFAILURE);
 
-        // Then it is: the shadow ticket goes, the ticket returns to the
-        // pool, and it is looked for no longer. (Its hook is called back
-        // with what == 1; none is installed here.)
+        // Then it is: the shadow ticket goes and it is looked for no
+        // longer. The ticket stays out of the pool. An expiry was signed
+        // and sent, so a missing Import does not prove the ticket is still
+        // unused, and returning a spent one makes every later export draw
+        // it. (Its hook is called back with what == 1; none is installed
+        // here.)
         proven(last + Export::expiryGrace);
         auto const owners =
             (*view.read(keylet::account(alice.id())))[sfOwnerCount];
         BEAST_EXPECT(expire(11) == tesSUCCESS);
         BEAST_EXPECT(!shadow(11));
-        BEAST_EXPECT(pool() == 2);
+        BEAST_EXPECT(pool() == 1);
+        BEAST_EXPECT(!ExportTickets::load(*ex()).contains(11));
         BEAST_EXPECT(
             (*view.read(keylet::account(alice.id())))[sfOwnerCount] ==
             owners - 1);
