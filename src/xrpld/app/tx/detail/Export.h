@@ -57,9 +57,12 @@ class ValidatorKeys;
     listed (keylet::exporterDir(), isExporter) once an Import it signs
     records a signer list there that is one of ours (listsExportKey); from a
     network other than the XRPL that Import records the list and nothing
-    else. A list that is not ours, recorded later or found when an export
-    closes below quorum, unlists it. asfExporter unlists it everywhere, or
-    lists it again wherever its list is ours. For a listed exporter the
+    else. Any other transaction of its own there that an account imports
+    from such a network is a proof only, replay-protected by sfImportSequence
+    in its ltEXPORTER; such a record is not listed. A list that is not ours,
+    recorded later or found when an export closes below quorum, unlists it.
+    asfExporter unlists it everywhere, or lists it again wherever its list is
+    ours. For a listed exporter the
     ledger keeps these in step, so a hook tracks none of them:
       - sfExportSignerList: as last proven by an Import of its SignerListSet.
       - sfExportTickets: its unused tickets there (ExportTickets). Below

@@ -1038,9 +1038,9 @@ Import::preclaim(PreclaimContext const& ctx)
 
     // featureExport: the network this comes from, by the list that proves it
     // (an unknown list is refused below, as before); the account's standing
-    // there; and whether the ledger acts for it there. Only an exporter's
-    // activity returns from a network other than XRPL: first imports and
-    // the imports an account signs to bring its keys over are XRPL's.
+    // there; and whether the ledger acts for it there. First imports and
+    // imports that bring keys over are the XRPL's; from another network an
+    // account may bring its SignerListSet (setup) or a proof.
     bool const loopback = sle && isLoopback(ctx.view.rules(), ctx.tx);
     auto const net =
         vlNetwork(
@@ -1058,7 +1058,19 @@ Import::preclaim(PreclaimContext const& ctx)
     bool const setup = net != 0 && !loopback && sle &&
         ctx.view.rules().enabled(featureExport) && tt == ttSIGNER_LIST_SET &&
         !stpTrans->isFieldPresent(sfTicketSequence);
-    if (net != 0 && !loopback && !setup)
+    // Any other transaction of its own there that an account signs the
+    // Import of is a proof and nothing more (an Issuer's hook reads it with
+    // xpop_slot()): nothing is minted, no keys are installed and
+    // sfImportSequence on the account (the XRPL's) is neither consulted nor
+    // moved. What keeps it from being imported twice is its Sequence there,
+    // kept per network in the account's ltEXPORTER (sfImportSequence), which
+    // only an Import the account signs moves: sfExportSequence also moves
+    // with every sync import a relay brings, and would shut out the
+    // account's own earlier transactions.
+    bool const proof = net != 0 && !loopback && !setup && sle &&
+        ctx.view.rules().enabled(featureExport) &&
+        !stpTrans->isFieldPresent(sfTicketSequence);
+    if (net != 0 && !loopback && !setup && !proof)
         return telIMPORT_VL_KEY_NOT_RECOGNISED;
     auto const ex = ctx.view.rules().enabled(featureExport)
         ? ctx.view.read(keylet::exporter(ctx.tx[sfAccount], net))
@@ -1162,6 +1174,19 @@ Import::preclaim(PreclaimContext const& ctx)
         }
         if (!records)
             return tefALREADY;
+    }
+    else if (proof)
+    {
+        // replay attempt (see above)
+        if (ex &&
+            (*ex)[~sfImportSequence].value_or(0) >=
+                stpTrans->getFieldU32(sfSequence))
+            return tefPAST_IMPORT_SEQ;
+        // one that burned nothing there is refused here: in doApply it ends
+        // in a tec, which claims a fee and runs an Issuer's hook as a weak
+        // TSH while recording nothing, so it could be imported without end
+        if (stpTrans->getFieldAmount(sfFee) <= beast::zero)
+            return temBAD_FEE;
     }
     else if (!setup && sle && sle->isFieldPresent(sfImportSequence))
     {
@@ -1520,9 +1545,12 @@ Import::doApply()
     auto ex = view().rules().enabled(featureExport)
         ? view().peek(keylet::exporter(id, net))
         : nullptr;
-    // an account's setup import from another network than the XRPL (see
-    // preclaim): it records the account's signer list there, and that is all
+    // an account's own import from another network than the XRPL (see
+    // preclaim): its setup records the account's signer list there,
+    // anything else is a proof
     bool const foreign = net != 0 && !loopback;
+    // ... and of those, every one but the setup import is a proof (preclaim)
+    bool const proof = foreign && stpTrans->getTxnType() != ttSIGNER_LIST_SET;
 
     // A loopback never touches sfImportSequence: preclaim replay-protects it
     // by the ledger's own records (shadow ticket, sfExportTicketNext,
@@ -1627,6 +1655,24 @@ Import::doApply()
     if (!loopback && !foreign)
         sle->setFieldU32(sfImportSequence, importSequence);
     sle->setFieldAmount(sfBalance, finalBal);
+
+    // a proof from another network than the XRPL: all it records is that it
+    // was imported, as the account's import sequence on that network
+    if (proof)
+    {
+        bool const had = ex != nullptr;
+        if (!ex)
+            ex = exporterOf(view(), sle, net, ctx_.journal);
+        // (never a tec: an Issuer's hook runs as a weak TSH on any result
+        // that claims a fee, and nothing would have recorded this proof)
+        if (!ex || (*ex)[~sfImportSequence].value_or(0) >= importSequence)
+            return tefINTERNAL;
+        ex->setFieldU32(sfImportSequence, importSequence);
+        if (had)
+            view().update(ex);
+        else
+            view().insert(ex);
+    }
 
     // featureExport: remember the signer list the account now holds there,
     // unless a later SignerListSet (by ledger, then index) was already seen

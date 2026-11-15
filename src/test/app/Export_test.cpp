@@ -17,7 +17,9 @@
 */
 //==============================================================================
 
+#include <test/app/SetHook_wasm.h>
 #include <test/jtx.h>
+#include <test/jtx/hook.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
@@ -27,6 +29,7 @@
 #include <xrpld/ledger/OpenView.h>
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpl/basics/base64.h>
+#include <xrpl/hook/Enum.h>
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
@@ -1956,6 +1959,334 @@ class Export_test : public beast::unit_test::suite
     }
 
     void
+    testProofOtherNetwork()
+    {
+        testcase("proof on another network");
+        using namespace jtx;
+
+        OtherNetwork other;
+        auto const makeCfg = [&]() {
+            auto cfg = network::makeNetworkVLConfig(21337, {other.vlKeyHex()});
+            cfg->IMPORT_VL_NETWORKS[other.vlKeyHex()] = 1;
+            return cfg;
+        };
+        Env env{*this, makeCfg(), supported_amendments() | featureExport};
+        Account const bob{"bob"};
+        Account const carol{"carol"};
+        Account const issuer{"issuer"};
+        env.fund(XRP(10000), bob, carol, issuer);
+        env.close();
+
+        auto const nid = env.app().config().NETWORK_ID;
+
+        // an Issuer whose hook (SetHook_test's xpop_slot one) accepts, with
+        // code 2, only after xpop_slot() and slot_subfield() on the XPOP
+        // went through; it runs as a weak TSH on the Import, so as a
+        // collect call (hsfCOLLECT)
+        env(fset(issuer, asfTshCollect));
+        env.close();
+        std::vector<std::uint8_t> const& issuerHook = wasm[
+            R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            #define GUARD(maxiter) _g((1ULL << 31U) + __LINE__, (maxiter)+1)
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t otxn_type(void);
+            extern int64_t otxn_field(uint32_t, uint32_t, uint32_t);
+            extern int64_t otxn_slot(uint32_t);
+            extern int64_t slot(uint32_t, uint32_t, uint32_t);
+            extern int64_t trace(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t xpop_slot(uint32_t, uint32_t);
+            extern int64_t slot_subfield (
+                uint32_t parent_slot,
+                uint32_t field_id,
+                uint32_t new_slot
+            );
+            #define ttIMPORT 97
+            #define DOESNT_EXIST -5
+            #define NO_FREE_SLOTS -6
+            #define INVALID_ARGUMENT -7
+            #define ALREADY_SET -8
+            #define PREREQUISITE_NOT_MET -9
+            #define INVALID_TXN -37
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), __LINE__);
+            #define sfBlob ((7U << 16U) + 26U)
+            #define sfAccount ((8U << 16U) + 1U)
+            #define sfTransactionType ((1U << 16U) + 2U)
+            #define sfHookExecutions ((15U << 16U) + 18U)
+            #define sfTransactionResult ((16U << 16U) + 3U)
+            #define sfAffectedNodes ((15U << 16U) + 8U)
+            #define sfTransactionIndex ((2U << 16U) + 28U)
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                // invalid tt
+                if (otxn_type() != ttIMPORT)
+                {
+                    ASSERT(xpop_slot(1, 2) == PREREQUISITE_NOT_MET);
+                    return accept(0,0,1);
+                }
+
+                // invalid slotno
+                ASSERT(xpop_slot(256, 1) == INVALID_ARGUMENT);
+                ASSERT(xpop_slot(1, 256) == INVALID_ARGUMENT);
+                ASSERT(xpop_slot(1, 1) == INVALID_ARGUMENT);
+
+                for (int i = 1; GUARD(255), i <= 255; ++i) {
+                    otxn_slot(i);
+                }
+                ASSERT(xpop_slot(0, 0) == NO_FREE_SLOTS);
+
+                ASSERT(xpop_slot(1, 11) == ((1 << 16) + 11));
+                
+                ASSERT(slot_subfield(1, sfTransactionType, 2) == 2);
+                ASSERT(slot_subfield(1, sfAccount, 3) == 3);
+
+                ASSERT(slot_subfield(11, sfTransactionIndex, 12) == 12);
+                ASSERT(slot_subfield(11, sfAffectedNodes, 13) == 13);
+                ASSERT(slot_subfield(11, sfTransactionResult, 14) == 14);
+
+                return accept(0,0,2);
+            }
+        )[test.hook]"];
+        env(hook(
+                issuer,
+                {{hso(
+                    issuerHook,
+                    [](Json::Value& jv) {
+                        jv[jss::Flags] = hsfOVERRIDE | hsfCOLLECT;
+                    })}},
+                0),
+            fee(100'000'000),
+            ter(tesSUCCESS));
+        env.close();
+        BEAST_EXPECT(env.le(keylet::hook(issuer.id())));
+
+        // bob's transaction there, signed by bob
+        auto const inner =
+            [&](TxType type, std::uint32_t sequence, auto&& fill) {
+                STTx tx(type, [&](STObject& o) {
+                    o[sfAccount] = bob.id();
+                    o.setFieldAmount(sfFee, XRPAmount{1000});
+                    o[sfSequence] = sequence;
+                    o[sfOperationLimit] = nid;
+                    o[sfSigningPubKey] = bob.pk().slice();
+                    fill(o);
+                });
+                tx.sign(bob.pk(), bob.sk());
+                return tx;
+            };
+        auto const payment = [&](std::uint32_t sequence) {
+            return inner(ttPAYMENT, sequence, [](STObject& o) {
+                o[sfDestination] = noAccount();
+                o.setFieldAmount(sfAmount, XRPAmount{1});
+            });
+        };
+        auto const closeTime = static_cast<std::uint32_t>(
+            env.closed()->info().closeTime.time_since_epoch().count());
+        auto const importFee = env.current()->fees().base * 10;
+        auto const ex = [&]() { return exporter(env, bob, 1); };
+        auto const owners = [&]() { return (*env.le(bob))[sfOwnerCount]; };
+        auto const recorded = [&]() {
+            auto const e = ex();
+            return e ? (*e)[~sfImportSequence].value_or(0) : 0u;
+        };
+
+        // (a) a Payment, imported by bob: a proof and nothing more
+        {
+            auto const before = env.balance(bob).value().xrp();
+            auto const coins = env.closed()->info().drops;
+            auto const ownersBefore = owners();
+            env(import::import(bob, other.xpop(payment(5), 105, closeTime)),
+                fee(importFee),
+                ter(tesSUCCESS));
+            BEAST_EXPECT(env.balance(bob).value().xrp() == before - importFee);
+            env.close();
+            BEAST_EXPECT(
+                env.closed()->info().drops == coins - importFee.drops());
+            if (auto const sle = env.le(bob); BEAST_EXPECT(sle))
+                BEAST_EXPECT(!sle->isFieldPresent(sfImportSequence));
+            if (auto const e = ex(); BEAST_EXPECT(e))
+            {
+                BEAST_EXPECT(!isExporter(*e));
+                BEAST_EXPECT((*e)[~sfImportSequence] == 5u);
+                BEAST_EXPECT(!e->isFieldPresent(sfExportSignerList));
+            }
+            BEAST_EXPECT(!exporter(env, bob, 0));
+            BEAST_EXPECT(owners() == ownersBefore + 1);
+        }
+
+        // (b) replays, and a later one
+        auto const ownersAfterFirst = owners();
+        env(import::import(bob, other.xpop(payment(5), 105, closeTime)),
+            fee(importFee),
+            ter(tefPAST_IMPORT_SEQ));
+        env(import::import(bob, other.xpop(payment(4), 105, closeTime)),
+            fee(importFee),
+            ter(tefPAST_IMPORT_SEQ));
+        env(import::import(bob, other.xpop(payment(6), 105, closeTime)),
+            fee(importFee),
+            ter(tesSUCCESS));
+        BEAST_EXPECT(recorded() == 6u);
+        BEAST_EXPECT(owners() == ownersAfterFirst);
+
+        // (c) a SetRegularKey there does not set one here
+        {
+            auto const key = inner(ttREGULAR_KEY_SET, 7, [&](STObject& o) {
+                o[sfRegularKey] = carol.id();
+            });
+            env(import::import(bob, other.xpop(key, 105, closeTime)),
+                fee(importFee),
+                ter(tesSUCCESS));
+            if (auto const sle = env.le(bob); BEAST_EXPECT(sle))
+                BEAST_EXPECT(!sle->isFieldPresent(sfRegularKey));
+            BEAST_EXPECT(recorded() == 7u);
+        }
+
+        // (d) an Issuer's hook reads the proof: it accepts only after
+        // xpop_slot() succeeded (a weak hook cannot roll back, so
+        // tesSUCCESS alone proves nothing)
+        {
+            env(import::import(
+                    bob,
+                    other.xpop(
+                        payment(8),
+                        105,
+                        closeTime,
+                        tesSUCCESS,
+                        [&](TxMeta& meta) {
+                            meta.setAffectedNode(
+                                keylet::account(bob).key,
+                                sfModifiedNode,
+                                ltACCOUNT_ROOT);
+                        })),
+                import::issuer(issuer),
+                fee(importFee),
+                ter(tesSUCCESS));
+            auto const meta = env.meta();
+            if (BEAST_EXPECT(meta) &&
+                BEAST_EXPECT(meta->isFieldPresent(sfHookExecutions)))
+            {
+                bool seen = false;
+                for (auto const& e : meta->getFieldArray(sfHookExecutions))
+                    if (e.getAccountID(sfHookAccount) == issuer.id())
+                    {
+                        seen = true;
+                        BEAST_EXPECT(
+                            e.getFieldU8(sfHookResult) ==
+                            static_cast<std::uint8_t>(
+                                hook_api::ExitType::ACCEPT));
+                        BEAST_EXPECT(e.getFieldU64(sfHookReturnCode) == 2);
+                    }
+                BEAST_EXPECT(seen);
+            }
+            BEAST_EXPECT(recorded() == 8u);
+            // and only once: a replay is not applied, so no hook runs on it
+            env(import::import(bob, other.xpop(payment(8), 105, closeTime)),
+                import::issuer(issuer),
+                fee(importFee),
+                ter(tefPAST_IMPORT_SEQ));
+        }
+
+        // (e) setup after a proof: ordered by its position there, not by
+        // sfImportSequence, so a lower Sequence still passes
+        auto const kb = randomKeyPair(KeyType::ed25519).first;
+        env.app().openLedger().modify([&](OpenView& view, beast::Journal) {
+            registerExportKeys(view, {kb});
+            return true;
+        });
+        {
+            auto const list = inner(ttSIGNER_LIST_SET, 2, [&](STObject& o) {
+                o[sfSignerQuorum] = 1;
+                o.setFieldArray(
+                    sfSignerEntries, signerEntries({calcAccountID(kb)}));
+            });
+            auto const ownersBefore = owners();
+            env(import::import(bob, other.xpop(list, 106, closeTime)),
+                fee(importFee),
+                ter(tesSUCCESS));
+            if (auto const e = ex(); BEAST_EXPECT(e))
+                BEAST_EXPECT(isExporter(*e));
+            BEAST_EXPECT(recorded() == 8u);
+            BEAST_EXPECT(owners() == ownersBefore);
+        }
+        {
+            auto const pool = ExportTickets::load(*ex()).count();
+            env(import::import(bob, other.xpop(payment(9), 107, closeTime)),
+                fee(importFee),
+                ter(tesSUCCESS));
+            if (auto const e = ex(); BEAST_EXPECT(e))
+            {
+                BEAST_EXPECT(isExporter(*e));
+                BEAST_EXPECT(ExportTickets::load(*e).count() == pool);
+            }
+            BEAST_EXPECT(recorded() == 9u);
+        }
+
+        // (f) still refused: a first Import there, and a proof without
+        // featureExport
+        {
+            Account const dave{"dave"};
+            env.memoize(dave);
+            STTx first(ttPAYMENT, [&](STObject& o) {
+                o[sfAccount] = dave.id();
+                o.setFieldAmount(sfFee, XRPAmount{0});
+                o[sfSequence] = 0;
+                o[sfOperationLimit] = nid;
+                o[sfSigningPubKey] = dave.pk().slice();
+                o[sfDestination] = noAccount();
+                o.setFieldAmount(sfAmount, XRPAmount{1});
+            });
+            first.sign(dave.pk(), dave.sk());
+            env(import::import(dave, other.xpop(first, 105, closeTime)),
+                seq(0u),
+                fee(drops(0)),
+                ter(telIMPORT_VL_KEY_NOT_RECOGNISED));
+        }
+        {
+            Env plain{*this, makeCfg(), supported_amendments() - featureExport};
+            plain.fund(XRP(10000), bob);
+            plain.close();
+            plain(
+                import::import(bob, other.xpop(payment(5), 105, closeTime)),
+                fee(importFee),
+                ter(telIMPORT_VL_KEY_NOT_RECOGNISED));
+        }
+
+        // a proof that burned nothing there would end in a tec, recording
+        // nothing: refused before it can claim a fee
+        auto const noBurn = inner(ttPAYMENT, 19, [](STObject& o) {
+            o[sfDestination] = noAccount();
+            o.setFieldAmount(sfAmount, XRPAmount{1});
+            o.setFieldAmount(sfFee, XRPAmount{0});
+        });
+        env(import::import(bob, other.xpop(noBurn, 105, closeTime)),
+            fee(importFee),
+            ter(temBAD_FEE));
+
+        // (g) what preflight already asks of any Import
+        auto const noLimit = inner(ttPAYMENT, 20, [](STObject& o) {
+            o[sfDestination] = noAccount();
+            o.setFieldAmount(sfAmount, XRPAmount{1});
+            o.makeFieldAbsent(sfOperationLimit);
+        });
+        env(import::import(bob, other.xpop(noLimit, 105, closeTime)),
+            fee(importFee),
+            ter(temMALFORMED));
+        auto const wrongNet = inner(ttPAYMENT, 21, [&](STObject& o) {
+            o[sfDestination] = noAccount();
+            o.setFieldAmount(sfAmount, XRPAmount{1});
+            o[sfOperationLimit] = nid + 1;
+        });
+        env(import::import(bob, other.xpop(wrongNet, 105, closeTime)),
+            fee(importFee),
+            ter(telWRONG_NETWORK));
+    }
+
+    void
     testExpiry()
     {
         testcase("expiry");
@@ -2331,6 +2662,7 @@ public:
         testLoopbackImport();
         testNetworks();
         testSetupOtherNetwork();
+        testProofOtherNetwork();
         testExpiry();
         testPrepare();
     }
