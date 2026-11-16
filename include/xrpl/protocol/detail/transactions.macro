@@ -22,7 +22,11 @@
 #endif
 
 /**
- * TRANSACTION(tag, value, name, fields)
+ * TRANSACTION(tag, value, name, amendment, fields)
+ *
+ * `amendment` is the amendment that must be enabled for the transaction to
+ * be valid, or uint256{} if none. It is checked by
+ * Transactor::invokePreflight before any other check.
  *
  * To ease maintenance, you may replace any unneeded values with "..."
  * e.g. #define TRANSACTION(tag, value, name, ...)
@@ -39,7 +43,9 @@
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Payment.h>
 #endif
-TRANSACTION(ttPAYMENT, 0, Payment, ({
+TRANSACTION(ttPAYMENT, 0, Payment,
+    uint256{},
+    ({
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED, soeMPTSupported},
     {sfSendMax, soeOPTIONAL, soeMPTSupported},
@@ -54,7 +60,9 @@ TRANSACTION(ttPAYMENT, 0, Payment, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Escrow.h>
 #endif
-TRANSACTION(ttESCROW_CREATE, 1, EscrowCreate, ({
+TRANSACTION(ttESCROW_CREATE, 1, EscrowCreate,
+    uint256{},
+    ({
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED},
     {sfCondition, soeOPTIONAL},
@@ -64,7 +72,9 @@ TRANSACTION(ttESCROW_CREATE, 1, EscrowCreate, ({
 }))
 
 /** This transaction type completes an existing escrow. */
-TRANSACTION(ttESCROW_FINISH, 2, EscrowFinish, ({
+TRANSACTION(ttESCROW_FINISH, 2, EscrowFinish,
+    uint256{},
+    ({
     {sfOwner, soeREQUIRED},
     {sfOfferSequence, soeOPTIONAL},
     {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
@@ -78,7 +88,9 @@ TRANSACTION(ttESCROW_FINISH, 2, EscrowFinish, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/SetAccount.h>
 #endif
-TRANSACTION(ttACCOUNT_SET, 3, AccountSet, ({
+TRANSACTION(ttACCOUNT_SET, 3, AccountSet,
+    uint256{},
+    ({
     {sfEmailHash, soeOPTIONAL},
     {sfWalletLocator, soeOPTIONAL},
     {sfWalletSize, soeOPTIONAL},
@@ -94,7 +106,9 @@ TRANSACTION(ttACCOUNT_SET, 3, AccountSet, ({
 }))
 
 /** This transaction type cancels an existing escrow. */
-TRANSACTION(ttESCROW_CANCEL, 4, EscrowCancel, ({
+TRANSACTION(ttESCROW_CANCEL, 4, EscrowCancel,
+    uint256{},
+    ({
     {sfOwner, soeREQUIRED},
     {sfOfferSequence, soeOPTIONAL},
     {sfEscrowID, soeOPTIONAL},  // keylet as alternative to offerseq
@@ -104,7 +118,9 @@ TRANSACTION(ttESCROW_CANCEL, 4, EscrowCancel, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/SetRegularKey.h>
 #endif
-TRANSACTION(ttREGULAR_KEY_SET, 5, SetRegularKey, ({
+TRANSACTION(ttREGULAR_KEY_SET, 5, SetRegularKey,
+    uint256{},
+    ({
     {sfRegularKey, soeOPTIONAL},
 }))
 
@@ -114,7 +130,9 @@ TRANSACTION(ttREGULAR_KEY_SET, 5, SetRegularKey, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/CreateOffer.h>
 #endif
-TRANSACTION(ttOFFER_CREATE, 7, OfferCreate, ({
+TRANSACTION(ttOFFER_CREATE, 7, OfferCreate,
+    uint256{},
+    ({
     {sfTakerPays, soeREQUIRED},
     {sfTakerGets, soeREQUIRED},
     {sfExpiration, soeOPTIONAL},
@@ -126,7 +144,9 @@ TRANSACTION(ttOFFER_CREATE, 7, OfferCreate, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/CancelOffer.h>
 #endif
-TRANSACTION(ttOFFER_CANCEL, 8, OfferCancel, ({
+TRANSACTION(ttOFFER_CANCEL, 8, OfferCancel,
+    uint256{},
+    ({
     {sfOfferSequence, soeOPTIONAL},
     {sfOfferID, soeOPTIONAL},  // keylet as alternative to offerseq
 }))
@@ -137,7 +157,9 @@ TRANSACTION(ttOFFER_CANCEL, 8, OfferCancel, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/CreateTicket.h>
 #endif
-TRANSACTION(ttTICKET_CREATE, 10, TicketCreate, ({
+TRANSACTION(ttTICKET_CREATE, 10, TicketCreate,
+    featureTicketBatch,
+    ({
     {sfTicketCount, soeREQUIRED},
 }))
 
@@ -149,7 +171,9 @@ TRANSACTION(ttTICKET_CREATE, 10, TicketCreate, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/SetSignerList.h>
 #endif
-TRANSACTION(ttSIGNER_LIST_SET, 12, SignerListSet, ({
+TRANSACTION(ttSIGNER_LIST_SET, 12, SignerListSet,
+    uint256{},
+    ({
     {sfSignerQuorum, soeREQUIRED},
     {sfSignerEntries, soeOPTIONAL},
 }))
@@ -158,7 +182,9 @@ TRANSACTION(ttSIGNER_LIST_SET, 12, SignerListSet, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/PayChan.h>
 #endif
-TRANSACTION(ttPAYCHAN_CREATE, 13, PaymentChannelCreate, ({
+TRANSACTION(ttPAYCHAN_CREATE, 13, PaymentChannelCreate,
+    uint256{},
+    ({
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED},
     {sfSettleDelay, soeREQUIRED},
@@ -168,14 +194,18 @@ TRANSACTION(ttPAYCHAN_CREATE, 13, PaymentChannelCreate, ({
 }))
 
 /** This transaction type funds an existing unidirectional XRP payment channel. */
-TRANSACTION(ttPAYCHAN_FUND, 14, PaymentChannelFund, ({
+TRANSACTION(ttPAYCHAN_FUND, 14, PaymentChannelFund,
+    uint256{},
+    ({
     {sfChannel, soeREQUIRED},
     {sfAmount, soeREQUIRED},
     {sfExpiration, soeOPTIONAL},
 }))
 
 /** This transaction type submits a claim against an existing unidirectional payment channel. */
-TRANSACTION(ttPAYCHAN_CLAIM, 15, PaymentChannelClaim, ({
+TRANSACTION(ttPAYCHAN_CLAIM, 15, PaymentChannelClaim,
+    uint256{},
+    ({
     {sfChannel, soeREQUIRED},
     {sfAmount, soeOPTIONAL},
     {sfBalance, soeOPTIONAL},
@@ -188,7 +218,9 @@ TRANSACTION(ttPAYCHAN_CLAIM, 15, PaymentChannelClaim, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/CreateCheck.h>
 #endif
-TRANSACTION(ttCHECK_CREATE, 16, CheckCreate, ({
+TRANSACTION(ttCHECK_CREATE, 16, CheckCreate,
+    featureChecks,
+    ({
     {sfDestination, soeREQUIRED},
     {sfSendMax, soeREQUIRED},
     {sfExpiration, soeOPTIONAL},
@@ -200,7 +232,9 @@ TRANSACTION(ttCHECK_CREATE, 16, CheckCreate, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/CashCheck.h>
 #endif
-TRANSACTION(ttCHECK_CASH, 17, CheckCash, ({
+TRANSACTION(ttCHECK_CASH, 17, CheckCash,
+    featureChecks,
+    ({
     {sfCheckID, soeREQUIRED},
     {sfAmount, soeOPTIONAL},
     {sfDeliverMin, soeOPTIONAL},
@@ -210,7 +244,9 @@ TRANSACTION(ttCHECK_CASH, 17, CheckCash, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/CancelCheck.h>
 #endif
-TRANSACTION(ttCHECK_CANCEL, 18, CheckCancel, ({
+TRANSACTION(ttCHECK_CANCEL, 18, CheckCancel,
+    featureChecks,
+    ({
     {sfCheckID, soeREQUIRED},
 }))
 
@@ -218,7 +254,9 @@ TRANSACTION(ttCHECK_CANCEL, 18, CheckCancel, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/DepositPreauth.h>
 #endif
-TRANSACTION(ttDEPOSIT_PREAUTH, 19, DepositPreauth, ({
+TRANSACTION(ttDEPOSIT_PREAUTH, 19, DepositPreauth,
+    featureDepositPreauth,
+    ({
     {sfAuthorize, soeOPTIONAL},
     {sfUnauthorize, soeOPTIONAL},
     {sfAuthorizeCredentials, soeOPTIONAL},
@@ -229,7 +267,9 @@ TRANSACTION(ttDEPOSIT_PREAUTH, 19, DepositPreauth, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/SetTrust.h>
 #endif
-TRANSACTION(ttTRUST_SET, 20, TrustSet, ({
+TRANSACTION(ttTRUST_SET, 20, TrustSet,
+    uint256{},
+    ({
     {sfLimitAmount, soeOPTIONAL},
     {sfQualityIn, soeOPTIONAL},
     {sfQualityOut, soeOPTIONAL},
@@ -239,7 +279,9 @@ TRANSACTION(ttTRUST_SET, 20, TrustSet, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/DeleteAccount.h>
 #endif
-TRANSACTION(ttACCOUNT_DELETE, 21, AccountDelete, ({
+TRANSACTION(ttACCOUNT_DELETE, 21, AccountDelete,
+    uint256{},
+    ({
     {sfDestination, soeREQUIRED},
     {sfDestinationTag, soeOPTIONAL},
     {sfCredentialIDs, soeOPTIONAL},
@@ -249,7 +291,9 @@ TRANSACTION(ttACCOUNT_DELETE, 21, AccountDelete, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/SetHook.h>
 #endif
-TRANSACTION(ttHOOK_SET, 22, SetHook, ({
+TRANSACTION(ttHOOK_SET, 22, SetHook,
+    featureHooks,
+    ({
     {sfHooks, soeREQUIRED},
 }))
 
@@ -257,7 +301,9 @@ TRANSACTION(ttHOOK_SET, 22, SetHook, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/NFTokenMint.h>
 #endif
-TRANSACTION(ttNFTOKEN_MINT, 25, NFTokenMint, ({
+TRANSACTION(ttNFTOKEN_MINT, 25, NFTokenMint,
+    featureNonFungibleTokensV1,
+    ({
     {sfNFTokenTaxon, soeREQUIRED},
     {sfTransferFee, soeOPTIONAL},
     {sfIssuer, soeOPTIONAL},
@@ -271,7 +317,9 @@ TRANSACTION(ttNFTOKEN_MINT, 25, NFTokenMint, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/NFTokenBurn.h>
 #endif
-TRANSACTION(ttNFTOKEN_BURN, 26, NFTokenBurn, ({
+TRANSACTION(ttNFTOKEN_BURN, 26, NFTokenBurn,
+    featureNonFungibleTokensV1,
+    ({
     {sfNFTokenID, soeREQUIRED},
     {sfOwner, soeOPTIONAL},
 }))
@@ -280,7 +328,9 @@ TRANSACTION(ttNFTOKEN_BURN, 26, NFTokenBurn, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/NFTokenCreateOffer.h>
 #endif
-TRANSACTION(ttNFTOKEN_CREATE_OFFER, 27, NFTokenCreateOffer, ({
+TRANSACTION(ttNFTOKEN_CREATE_OFFER, 27, NFTokenCreateOffer,
+    featureNonFungibleTokensV1,
+    ({
     {sfNFTokenID, soeREQUIRED},
     {sfAmount, soeREQUIRED},
     {sfDestination, soeOPTIONAL},
@@ -292,7 +342,9 @@ TRANSACTION(ttNFTOKEN_CREATE_OFFER, 27, NFTokenCreateOffer, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/NFTokenCancelOffer.h>
 #endif
-TRANSACTION(ttNFTOKEN_CANCEL_OFFER, 28, NFTokenCancelOffer, ({
+TRANSACTION(ttNFTOKEN_CANCEL_OFFER, 28, NFTokenCancelOffer,
+    featureNonFungibleTokensV1,
+    ({
     {sfNFTokenOffers, soeREQUIRED},
 }))
 
@@ -300,7 +352,9 @@ TRANSACTION(ttNFTOKEN_CANCEL_OFFER, 28, NFTokenCancelOffer, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/NFTokenAcceptOffer.h>
 #endif
-TRANSACTION(ttNFTOKEN_ACCEPT_OFFER, 29, NFTokenAcceptOffer, ({
+TRANSACTION(ttNFTOKEN_ACCEPT_OFFER, 29, NFTokenAcceptOffer,
+    featureNonFungibleTokensV1,
+    ({
     {sfNFTokenBuyOffer, soeOPTIONAL},
     {sfNFTokenSellOffer, soeOPTIONAL},
     {sfNFTokenBrokerFee, soeOPTIONAL},
@@ -310,7 +364,9 @@ TRANSACTION(ttNFTOKEN_ACCEPT_OFFER, 29, NFTokenAcceptOffer, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Clawback.h>
 #endif
-TRANSACTION(ttCLAWBACK, 30, Clawback, ({
+TRANSACTION(ttCLAWBACK, 30, Clawback,
+    featureClawback,
+    ({
     {sfAmount, soeREQUIRED, soeMPTSupported},
     {sfHolder, soeOPTIONAL},
 }))
@@ -319,7 +375,9 @@ TRANSACTION(ttCLAWBACK, 30, Clawback, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/AMMClawback.h>
 #endif
-TRANSACTION(ttAMM_CLAWBACK, 31, AMMClawback, ({
+TRANSACTION(ttAMM_CLAWBACK, 31, AMMClawback,
+    featureAMMClawback,
+    ({
     {sfHolder, soeREQUIRED},
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
@@ -330,7 +388,9 @@ TRANSACTION(ttAMM_CLAWBACK, 31, AMMClawback, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/AMMCreate.h>
 #endif
-TRANSACTION(ttAMM_CREATE, 35, AMMCreate, ({
+TRANSACTION(ttAMM_CREATE, 35, AMMCreate,
+    featureAMM,
+    ({
     {sfAmount, soeREQUIRED},
     {sfAmount2, soeREQUIRED},
     {sfTradingFee, soeREQUIRED},
@@ -340,7 +400,9 @@ TRANSACTION(ttAMM_CREATE, 35, AMMCreate, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/AMMDeposit.h>
 #endif
-TRANSACTION(ttAMM_DEPOSIT, 36, AMMDeposit, ({
+TRANSACTION(ttAMM_DEPOSIT, 36, AMMDeposit,
+    featureAMM,
+    ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
     {sfAmount, soeOPTIONAL},
@@ -354,7 +416,9 @@ TRANSACTION(ttAMM_DEPOSIT, 36, AMMDeposit, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/AMMWithdraw.h>
 #endif
-TRANSACTION(ttAMM_WITHDRAW, 37, AMMWithdraw, ({
+TRANSACTION(ttAMM_WITHDRAW, 37, AMMWithdraw,
+    featureAMM,
+    ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
     {sfAmount, soeOPTIONAL},
@@ -367,7 +431,9 @@ TRANSACTION(ttAMM_WITHDRAW, 37, AMMWithdraw, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/AMMVote.h>
 #endif
-TRANSACTION(ttAMM_VOTE, 38, AMMVote, ({
+TRANSACTION(ttAMM_VOTE, 38, AMMVote,
+    featureAMM,
+    ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
     {sfTradingFee, soeREQUIRED},
@@ -377,7 +443,9 @@ TRANSACTION(ttAMM_VOTE, 38, AMMVote, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/AMMBid.h>
 #endif
-TRANSACTION(ttAMM_BID, 39, AMMBid, ({
+TRANSACTION(ttAMM_BID, 39, AMMBid,
+    featureAMM,
+    ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
     {sfBidMin, soeOPTIONAL},
@@ -389,7 +457,9 @@ TRANSACTION(ttAMM_BID, 39, AMMBid, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/AMMDelete.h>
 #endif
-TRANSACTION(ttAMM_DELETE, 40, AMMDelete, ({
+TRANSACTION(ttAMM_DELETE, 40, AMMDelete,
+    featureAMM,
+    ({
     {sfAsset, soeREQUIRED},
     {sfAsset2, soeREQUIRED},
 }))
@@ -398,29 +468,39 @@ TRANSACTION(ttAMM_DELETE, 40, AMMDelete, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/URIToken.h>
 #endif
-TRANSACTION(ttURITOKEN_MINT, 45, URITokenMint, ({
+TRANSACTION(ttURITOKEN_MINT, 45, URITokenMint,
+    featureURIToken,
+    ({
     {sfURI, soeREQUIRED},
     {sfDigest, soeOPTIONAL},
     {sfAmount, soeOPTIONAL},
     {sfDestination, soeOPTIONAL},
 }))
 
-TRANSACTION(ttURITOKEN_BURN, 46, URITokenBurn, ({
+TRANSACTION(ttURITOKEN_BURN, 46, URITokenBurn,
+    featureURIToken,
+    ({
     {sfURITokenID, soeREQUIRED},
 }))
 
-TRANSACTION(ttURITOKEN_BUY, 47, URITokenBuy, ({
+TRANSACTION(ttURITOKEN_BUY, 47, URITokenBuy,
+    featureURIToken,
+    ({
     {sfURITokenID, soeREQUIRED},
     {sfAmount, soeREQUIRED},
 }))
 
-TRANSACTION(ttURITOKEN_CREATE_SELL_OFFER, 48, URITokenCreateSellOffer, ({
+TRANSACTION(ttURITOKEN_CREATE_SELL_OFFER, 48, URITokenCreateSellOffer,
+    featureURIToken,
+    ({
     {sfURITokenID, soeREQUIRED},
     {sfAmount, soeREQUIRED},
     {sfDestination, soeOPTIONAL},
 }))
 
-TRANSACTION(ttURITOKEN_CANCEL_SELL_OFFER, 49, URITokenCancelSellOffer, ({
+TRANSACTION(ttURITOKEN_CANCEL_SELL_OFFER, 49, URITokenCancelSellOffer,
+    featureURIToken,
+    ({
     {sfURITokenID, soeREQUIRED},
 }))
 
@@ -428,14 +508,18 @@ TRANSACTION(ttURITOKEN_CANCEL_SELL_OFFER, 49, URITokenCancelSellOffer, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/XChainBridge.h>
 #endif
-TRANSACTION(ttXCHAIN_CREATE_CLAIM_ID, 50, XChainCreateClaimID, ({
+TRANSACTION(ttXCHAIN_CREATE_CLAIM_ID, 50, XChainCreateClaimID,
+    featureXChainBridge,
+    ({
     {sfXChainBridge, soeREQUIRED},
     {sfSignatureReward, soeREQUIRED},
     {sfOtherChainSource, soeREQUIRED},
 }))
 
 /** This transactions initiates a crosschain transaction */
-TRANSACTION(ttXCHAIN_COMMIT, 51, XChainCommit, ({
+TRANSACTION(ttXCHAIN_COMMIT, 51, XChainCommit,
+    featureXChainBridge,
+    ({
     {sfXChainBridge, soeREQUIRED},
     {sfXChainClaimID, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -443,7 +527,9 @@ TRANSACTION(ttXCHAIN_COMMIT, 51, XChainCommit, ({
 }))
 
 /** This transaction completes a crosschain transaction */
-TRANSACTION(ttXCHAIN_CLAIM, 52, XChainClaim, ({
+TRANSACTION(ttXCHAIN_CLAIM, 52, XChainClaim,
+    featureXChainBridge,
+    ({
     {sfXChainBridge, soeREQUIRED},
     {sfXChainClaimID, soeREQUIRED},
     {sfDestination, soeREQUIRED},
@@ -452,7 +538,9 @@ TRANSACTION(ttXCHAIN_CLAIM, 52, XChainClaim, ({
 }))
 
 /** This transaction initiates a crosschain account create transaction */
-TRANSACTION(ttXCHAIN_ACCOUNT_CREATE_COMMIT, 53, XChainAccountCreateCommit, ({
+TRANSACTION(ttXCHAIN_ACCOUNT_CREATE_COMMIT, 53, XChainAccountCreateCommit,
+    featureXChainBridge,
+    ({
     {sfXChainBridge, soeREQUIRED},
     {sfDestination, soeREQUIRED},
     {sfAmount, soeREQUIRED},
@@ -460,7 +548,9 @@ TRANSACTION(ttXCHAIN_ACCOUNT_CREATE_COMMIT, 53, XChainAccountCreateCommit, ({
 }))
 
 /** This transaction adds an attestation to a claim */
-TRANSACTION(ttXCHAIN_ADD_CLAIM_ATTESTATION, 54, XChainAddClaimAttestation, ({
+TRANSACTION(ttXCHAIN_ADD_CLAIM_ATTESTATION, 54, XChainAddClaimAttestation,
+    featureXChainBridge,
+    ({
     {sfXChainBridge, soeREQUIRED},
 
     {sfAttestationSignerAccount, soeREQUIRED},
@@ -476,7 +566,9 @@ TRANSACTION(ttXCHAIN_ADD_CLAIM_ATTESTATION, 54, XChainAddClaimAttestation, ({
 }))
 
 /** This transaction adds an attestation to an account */
-TRANSACTION(ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION, 55, XChainAddAccountCreateAttestation, ({
+TRANSACTION(ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION, 55, XChainAddAccountCreateAttestation,
+    featureXChainBridge,
+    ({
     {sfXChainBridge, soeREQUIRED},
 
     {sfAttestationSignerAccount, soeREQUIRED},
@@ -493,14 +585,18 @@ TRANSACTION(ttXCHAIN_ADD_ACCOUNT_CREATE_ATTESTATION, 55, XChainAddAccountCreateA
 }))
 
 /** This transaction modifies a sidechain */
-TRANSACTION(ttXCHAIN_MODIFY_BRIDGE, 56, XChainModifyBridge, ({
+TRANSACTION(ttXCHAIN_MODIFY_BRIDGE, 56, XChainModifyBridge,
+    featureXChainBridge,
+    ({
     {sfXChainBridge, soeREQUIRED},
     {sfSignatureReward, soeOPTIONAL},
     {sfMinAccountCreateAmount, soeOPTIONAL},
 }))
 
 /** This transactions creates a sidechain */
-TRANSACTION(ttXCHAIN_CREATE_BRIDGE, 57, XChainCreateBridge, ({
+TRANSACTION(ttXCHAIN_CREATE_BRIDGE, 57, XChainCreateBridge,
+    featureXChainBridge,
+    ({
     {sfXChainBridge, soeREQUIRED},
     {sfSignatureReward, soeREQUIRED},
     {sfMinAccountCreateAmount, soeOPTIONAL},
@@ -510,20 +606,26 @@ TRANSACTION(ttXCHAIN_CREATE_BRIDGE, 57, XChainCreateBridge, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/DID.h>
 #endif
-TRANSACTION(ttDID_SET, 58, DIDSet, ({
+TRANSACTION(ttDID_SET, 58, DIDSet,
+    featureDID,
+    ({
     {sfDIDDocument, soeOPTIONAL},
     {sfURI, soeOPTIONAL},
     {sfData, soeOPTIONAL},
 }))
 
 /** This transaction type deletes a DID */
-TRANSACTION(ttDID_DELETE, 59, DIDDelete, ({}))
+TRANSACTION(ttDID_DELETE, 59, DIDDelete,
+    featureDID,
+    ({}))
 
 /** This transaction type creates an Oracle instance */
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/SetOracle.h>
 #endif
-TRANSACTION(ttORACLE_SET, 60, OracleSet, ({
+TRANSACTION(ttORACLE_SET, 60, OracleSet,
+    featurePriceOracle,
+    ({
     {sfOracleDocumentID, soeREQUIRED},
     {sfProvider, soeOPTIONAL},
     {sfURI, soeOPTIONAL},
@@ -536,7 +638,9 @@ TRANSACTION(ttORACLE_SET, 60, OracleSet, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/DeleteOracle.h>
 #endif
-TRANSACTION(ttORACLE_DELETE, 61, OracleDelete, ({
+TRANSACTION(ttORACLE_DELETE, 61, OracleDelete,
+    featurePriceOracle,
+    ({
     {sfOracleDocumentID, soeREQUIRED},
 }))
 
@@ -544,7 +648,9 @@ TRANSACTION(ttORACLE_DELETE, 61, OracleDelete, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/LedgerStateFix.h>
 #endif
-TRANSACTION(ttLEDGER_STATE_FIX, 62, LedgerStateFix, ({
+TRANSACTION(ttLEDGER_STATE_FIX, 62, LedgerStateFix,
+    fixNFTokenPageLinks,
+    ({
     {sfLedgerFixType, soeREQUIRED},
     {sfOwner, soeOPTIONAL},
 }))
@@ -553,7 +659,9 @@ TRANSACTION(ttLEDGER_STATE_FIX, 62, LedgerStateFix, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/MPTokenIssuanceCreate.h>
 #endif
-TRANSACTION(ttMPTOKEN_ISSUANCE_CREATE, 63, MPTokenIssuanceCreate, ({
+TRANSACTION(ttMPTOKEN_ISSUANCE_CREATE, 63, MPTokenIssuanceCreate,
+    featureMPTokensV1,
+    ({
     {sfAssetScale, soeOPTIONAL},
     {sfTransferFee, soeOPTIONAL},
     {sfMaximumAmount, soeOPTIONAL},
@@ -564,7 +672,9 @@ TRANSACTION(ttMPTOKEN_ISSUANCE_CREATE, 63, MPTokenIssuanceCreate, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/MPTokenIssuanceDestroy.h>
 #endif
-TRANSACTION(ttMPTOKEN_ISSUANCE_DESTROY, 64, MPTokenIssuanceDestroy, ({
+TRANSACTION(ttMPTOKEN_ISSUANCE_DESTROY, 64, MPTokenIssuanceDestroy,
+    featureMPTokensV1,
+    ({
     {sfMPTokenIssuanceID, soeREQUIRED},
 }))
 
@@ -572,7 +682,9 @@ TRANSACTION(ttMPTOKEN_ISSUANCE_DESTROY, 64, MPTokenIssuanceDestroy, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/MPTokenIssuanceSet.h>
 #endif
-TRANSACTION(ttMPTOKEN_ISSUANCE_SET, 65, MPTokenIssuanceSet, ({
+TRANSACTION(ttMPTOKEN_ISSUANCE_SET, 65, MPTokenIssuanceSet,
+    featureMPTokensV1,
+    ({
     {sfMPTokenIssuanceID, soeREQUIRED},
     {sfHolder, soeOPTIONAL},
 }))
@@ -581,7 +693,9 @@ TRANSACTION(ttMPTOKEN_ISSUANCE_SET, 65, MPTokenIssuanceSet, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/MPTokenAuthorize.h>
 #endif
-TRANSACTION(ttMPTOKEN_AUTHORIZE, 66, MPTokenAuthorize, ({
+TRANSACTION(ttMPTOKEN_AUTHORIZE, 66, MPTokenAuthorize,
+    featureMPTokensV1,
+    ({
     {sfMPTokenIssuanceID, soeREQUIRED},
     {sfHolder, soeOPTIONAL},
 }))
@@ -590,7 +704,9 @@ TRANSACTION(ttMPTOKEN_AUTHORIZE, 66, MPTokenAuthorize, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Credentials.h>
 #endif
-TRANSACTION(ttCREDENTIAL_CREATE, 67, CredentialCreate, ({
+TRANSACTION(ttCREDENTIAL_CREATE, 67, CredentialCreate,
+    featureCredentials,
+    ({
     {sfSubject, soeREQUIRED},
     {sfCredentialType, soeREQUIRED},
     {sfExpiration, soeOPTIONAL},
@@ -598,13 +714,17 @@ TRANSACTION(ttCREDENTIAL_CREATE, 67, CredentialCreate, ({
 }))
 
 /** This transaction type accept an Credential object */
-TRANSACTION(ttCREDENTIAL_ACCEPT, 68, CredentialAccept, ({
+TRANSACTION(ttCREDENTIAL_ACCEPT, 68, CredentialAccept,
+    featureCredentials,
+    ({
     {sfIssuer, soeREQUIRED},
     {sfCredentialType, soeREQUIRED},
 }))
 
 /** This transaction type delete an Credential object */
-TRANSACTION(ttCREDENTIAL_DELETE, 69, CredentialDelete, ({
+TRANSACTION(ttCREDENTIAL_DELETE, 69, CredentialDelete,
+    featureCredentials,
+    ({
     {sfSubject, soeOPTIONAL},
     {sfIssuer, soeOPTIONAL},
     {sfCredentialType, soeREQUIRED},
@@ -614,7 +734,9 @@ TRANSACTION(ttCREDENTIAL_DELETE, 69, CredentialDelete, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/NFTokenModify.h>
 #endif
-TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify, ({
+TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify,
+    featureDynamicNFT,
+    ({
     {sfNFTokenID, soeREQUIRED},
     {sfOwner, soeOPTIONAL},
     {sfURI, soeOPTIONAL},
@@ -624,7 +746,9 @@ TRANSACTION(ttNFTOKEN_MODIFY, 70, NFTokenModify, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/PermissionedDomainSet.h>
 #endif
-TRANSACTION(ttPERMISSIONED_DOMAIN_SET, 71, PermissionedDomainSet, ({
+TRANSACTION(ttPERMISSIONED_DOMAIN_SET, 71, PermissionedDomainSet,
+    featurePermissionedDomains,
+    ({
     {sfDomainID, soeOPTIONAL},
     {sfAcceptedCredentials, soeREQUIRED},
 }))
@@ -633,7 +757,9 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_SET, 71, PermissionedDomainSet, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/PermissionedDomainDelete.h>
 #endif
-TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
+TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete,
+    featurePermissionedDomains,
+    ({
     {sfDomainID, soeREQUIRED},
 }))
 
@@ -649,7 +775,9 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Change.h>
 #endif
-TRANSACTION(ttENTROPY, 89, Entropy, ({
+TRANSACTION(ttENTROPY, 89, Entropy,
+    featureRNG,
+    ({
     {sfLedgerSequence, soeREQUIRED},
     {sfPublicKey, soeREQUIRED},
     {sfNextRandomDigest, soeREQUIRED},
@@ -661,7 +789,9 @@ TRANSACTION(ttENTROPY, 89, Entropy, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/SetManifest.h>
 #endif
-TRANSACTION(ttMANIFEST_SET, 91, SetManifest, ({
+TRANSACTION(ttMANIFEST_SET, 91, SetManifest,
+    featureOnChainManifests,
+    ({
     {sfManifest, soeREQUIRED},
 }))
 
@@ -669,7 +799,9 @@ TRANSACTION(ttMANIFEST_SET, 91, SetManifest, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Cron.h>
 #endif
-TRANSACTION(ttCRON, 92, Cron, ({
+TRANSACTION(ttCRON, 92, Cron,
+    featureCron,
+    ({
     {sfOwner, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
 }))
@@ -678,7 +810,9 @@ TRANSACTION(ttCRON, 92, Cron, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/CronSet.h>
 #endif
-TRANSACTION(ttCRON_SET, 93, CronSet, ({
+TRANSACTION(ttCRON_SET, 93, CronSet,
+    featureCron,
+    ({
     {sfDelaySeconds, soeOPTIONAL},
     {sfRepeatCount, soeOPTIONAL},
     {sfStartTime, soeOPTIONAL},
@@ -688,7 +822,9 @@ TRANSACTION(ttCRON_SET, 93, CronSet, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/SetRemarks.h>
 #endif
-TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({
+TRANSACTION(ttREMARKS_SET, 94, SetRemarks,
+    featureRemarks,
+    ({
     {sfObjectID, soeREQUIRED},
     {sfRemarks, soeREQUIRED},
 }))
@@ -698,7 +834,9 @@ TRANSACTION(ttREMARKS_SET, 94, SetRemarks, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Remit.h>
 #endif
-TRANSACTION(ttREMIT, 95, Remit, ({
+TRANSACTION(ttREMIT, 95, Remit,
+    featureRemit,
+    ({
     {sfDestination, soeREQUIRED},
     {sfAmounts, soeOPTIONAL},
     {sfURITokenIDs, soeOPTIONAL},
@@ -715,7 +853,9 @@ TRANSACTION(ttREMIT, 95, Remit, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/GenesisMint.h>
 #endif
-TRANSACTION(ttGENESIS_MINT, 96, GenesisMint, ({
+TRANSACTION(ttGENESIS_MINT, 96, GenesisMint,
+    featureXahauGenesis,
+    ({
     {sfGenesisMints, soeREQUIRED},
 }))
 
@@ -724,7 +864,9 @@ TRANSACTION(ttGENESIS_MINT, 96, GenesisMint, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Import.h>
 #endif
-TRANSACTION(ttIMPORT, 97, Import, ({
+TRANSACTION(ttIMPORT, 97, Import,
+    featureImport,
+    ({
     {sfBlob, soeREQUIRED},
     {sfIssuer, soeOPTIONAL},
 }))
@@ -734,7 +876,9 @@ TRANSACTION(ttIMPORT, 97, Import, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/ClaimReward.h>
 #endif
-TRANSACTION(ttCLAIM_REWARD, 98, ClaimReward, ({
+TRANSACTION(ttCLAIM_REWARD, 98, ClaimReward,
+    featureBalanceRewards,
+    ({
     {sfIssuer, soeOPTIONAL},
     {sfClaimCurrency, soeOPTIONAL},
 }))
@@ -743,7 +887,9 @@ TRANSACTION(ttCLAIM_REWARD, 98, ClaimReward, ({
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/Invoke.h>
 #endif
-TRANSACTION(ttINVOKE, 99, Invoke, ({
+TRANSACTION(ttINVOKE, 99, Invoke,
+    featureHooks,
+    ({
     {sfBlob, soeOPTIONAL},
     {sfDestination, soeOPTIONAL},
     {sfInvoiceID, soeOPTIONAL},
@@ -754,7 +900,9 @@ TRANSACTION(ttINVOKE, 99, Invoke, ({
 
     For details, see: https://xrpl.org/amendments.html
  */
-TRANSACTION(ttAMENDMENT, 100, EnableAmendment, ({
+TRANSACTION(ttAMENDMENT, 100, EnableAmendment,
+    uint256{},
+    ({
     {sfLedgerSequence, soeREQUIRED},
     {sfAmendment, soeREQUIRED},
 }))
@@ -762,7 +910,9 @@ TRANSACTION(ttAMENDMENT, 100, EnableAmendment, ({
 /** This system-generated transaction type is used to update the network's fee settings.
     For details, see: https://xrpl.org/fee-voting.html
  */
-TRANSACTION(ttFEE, 101, SetFee, ({
+TRANSACTION(ttFEE, 101, SetFee,
+    uint256{},
+    ({
     {sfLedgerSequence, soeOPTIONAL},
     // Old version uses raw numbers
     {sfBaseFee, soeOPTIONAL},
@@ -779,18 +929,24 @@ TRANSACTION(ttFEE, 101, SetFee, ({
 
     For details, see: https://xrpl.org/negative-unl.html
  */
-TRANSACTION(ttUNL_MODIFY, 102, UNLModify, ({
+TRANSACTION(ttUNL_MODIFY, 102, UNLModify,
+    uint256{},
+    ({
     {sfUNLModifyDisabling, soeREQUIRED},
     {sfLedgerSequence, soeREQUIRED},
     {sfUNLModifyValidator, soeREQUIRED},
 }))
 
-TRANSACTION(ttEMIT_FAILURE, 103, EmitFailure, ({
+TRANSACTION(ttEMIT_FAILURE, 103, EmitFailure,
+    featureHooks,
+    ({
     {sfLedgerSequence, soeREQUIRED},
     {sfTransactionHash, soeREQUIRED},
 }))
 
-TRANSACTION(ttUNL_REPORT, 104, UNLReport, ({
+TRANSACTION(ttUNL_REPORT, 104, UNLReport,
+    featureXahauGenesis,
+    ({
     {sfLedgerSequence, soeREQUIRED},
     {sfActiveValidator, soeOPTIONAL},
     {sfImportVLKey, soeOPTIONAL},
