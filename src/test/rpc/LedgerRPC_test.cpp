@@ -20,6 +20,7 @@
 #include <test/jtx.h>
 #include <test/jtx/Oracle.h>
 #include <test/jtx/attester.h>
+#include <test/jtx/delegate.h>
 #include <test/jtx/multisign.h>
 #include <test/jtx/xchain_bridge.h>
 
@@ -271,9 +272,12 @@ public:
     {
         testcase("Lookup ledger");
         using namespace test::jtx;
-        Env env{*this, FeatureBitset{}};  // hashes requested below assume
-                                          // no amendments
 
+        auto cfg = envconfig();
+        cfg->FEES.reference_fee = 10;
+        Env env{
+            *this, std::move(cfg), FeatureBitset{}};  // hashes requested below
+                                                      // assume no amendments
         env.fund(XRP(10000), "alice");
         env.close();
         env.fund(XRP(10000), "bob");
@@ -485,16 +489,19 @@ public:
     {
         testcase("Ledger with Queued Transactions");
         using namespace test::jtx;
-        Env env{
+        auto cfg = envconfig([](std::unique_ptr<Config> cfg) {
+            auto& section = cfg->section("transaction_queue");
+            section.set("minimum_txn_in_ledger_standalone", "3");
+            section.set("normal_consensus_increase_percent", "0");
+            return cfg;
+        });
+
+        cfg->FEES.reference_fee = 10;
+        Env env(
             *this,
-            envconfig([](std::unique_ptr<Config> cfg) {
-                auto& section = cfg->section("transaction_queue");
-                section.set("minimum_txn_in_ledger_standalone", "3");
-                section.set("normal_consensus_increase_percent", "0");
-                return cfg;
-            }),
+            std::move(cfg),
             supported_amendments() - featureXahauGenesis -
-                fixProvisionalDoubleThreading - fixHookAPI20251128};
+                fixProvisionalDoubleThreading - fixHookAPI20251128);
 
         Json::Value jv;
         jv[jss::ledger_index] = "current";
@@ -565,11 +572,11 @@ public:
         env.close();
 
         jrr = env.rpc("json", "ledger", to_string(jv))[jss::result];
-        const std::string txid0 = [&]() {
+        std::string const txid0 = [&]() {
             auto const& parentHash = env.current()->info().parentHash;
             if (BEAST_EXPECT(jrr[jss::queue_data].size() == 2))
             {
-                const std::string txid1 = [&]() {
+                std::string const txid1 = [&]() {
                     auto const& txj = jrr[jss::queue_data][1u];
                     BEAST_EXPECT(txj[jss::account] == alice.human());
                     BEAST_EXPECT(txj[jss::fee_level] == "256");
@@ -591,7 +598,7 @@ public:
                 auto const& tx = txj[jss::tx];
                 BEAST_EXPECT(tx[jss::Account] == alice.human());
                 BEAST_EXPECT(tx[jss::TransactionType] == jss::OfferCreate);
-                const auto txid0 = tx[jss::hash].asString();
+                auto const txid0 = tx[jss::hash].asString();
                 uint256 tx0, tx1;
                 BEAST_EXPECT(tx0.parseHex(txid0));
                 BEAST_EXPECT(tx1.parseHex(txid1));
@@ -667,7 +674,7 @@ public:
         jv[jss::binary] = false;
 
         jrr = env.rpc("json", "ledger", to_string(jv))[jss::result];
-        const std::string txid2 = [&]() {
+        std::string const txid2 = [&]() {
             if (BEAST_EXPECT(jrr[jss::queue_data].size() == 1))
             {
                 auto const& txj = jrr[jss::queue_data][0u];

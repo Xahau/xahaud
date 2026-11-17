@@ -21,6 +21,7 @@
 #define RIPPLE_APP_MISC_DETAIL_WORKBASE_H_INCLUDED
 
 #include <xrpld/app/misc/detail/Work.h>
+
 #include <xrpl/basics/random.h>
 #include <xrpl/protocol/BuildInfo.h>
 
@@ -30,8 +31,6 @@
 #include <boost/beast/http/empty_body.hpp>
 #include <boost/beast/http/read.hpp>
 #include <boost/beast/http/write.hpp>
-
-#include <vector>
 
 namespace ripple {
 
@@ -97,6 +96,9 @@ public:
 
     void
     onResolve(error_code const& ec, results_type results);
+
+    void
+    onConnect(error_code const& ec, endpoint_type const& endpoint);
 
     void
     onStart();
@@ -247,6 +249,18 @@ WorkBase<Impl>::onResolve(error_code const& ec, results_type results)
                 &Impl::onConnect,
                 impl().shared_from_this(),
                 std::placeholders::_1)));
+}
+
+template <class Impl>
+void
+WorkBase<Impl>::onConnect(error_code const& ec, endpoint_type const& endpoint)
+{
+    lastEndpoint_ = endpoint;
+
+    if (ec)
+        return fail(ec);
+
+    impl().onConnect(ec);
 }
 
 template <class Impl>

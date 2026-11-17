@@ -320,6 +320,10 @@ amm(Asset const& issue1, Asset const& issue2) noexcept;
 Keylet
 amm(uint256 const& amm) noexcept;
 
+/** A keylet for Delegate object */
+Keylet
+delegate(AccountID const& account, AccountID const& authorizedAccount) noexcept;
+
 Keylet
 bridge(STXChainBridge const& bridge, STXChainBridge::ChainType chainType);
 
@@ -383,6 +387,9 @@ Keylet
 permissionedDomain(AccountID const& account, UInt32or256 const& seq) noexcept;
 
 Keylet
+permissionedDomain(AccountID const& account, uint32_t seq) noexcept;
+
+Keylet
 permissionedDomain(uint256 const& domainID) noexcept;
 
 Keylet
@@ -397,6 +404,15 @@ manifest(PublicKey const& pk) noexcept;
 */
 Keylet const&
 manifestDir() noexcept;
+
+Keylet
+vault(AccountID const& owner, UInt32or256 const& seq) noexcept;
+
+inline Keylet
+vault(uint256 const& vaultKey)
+{
+    return {ltVAULT, vaultKey};
+}
 
 }  // namespace keylet
 

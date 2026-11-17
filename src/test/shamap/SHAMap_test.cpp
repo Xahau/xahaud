@@ -19,10 +19,12 @@
 
 #include <test/shamap/common.h>
 #include <test/unit_test/SuiteJournal.h>
+
 #include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/shamap/SHAMap.h>
 #include <xrpld/shamap/SHAMapInnerNode.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
+
 #include <xrpl/basics/Blob.h>
 #include <xrpl/basics/Buffer.h>
 #include <xrpl/beast/unit_test.h>
@@ -233,7 +235,7 @@ public:
                 shell && shell->isInner() && shell->getHash() == rootHash))
             return;
 
-        auto innerShell = std::static_pointer_cast<SHAMapInnerNode>(shell);
+        auto innerShell = intr_ptr::static_pointer_cast<SHAMapInnerNode>(shell);
         int linkedBefore = 0;
         for (int b = 0; b < SHAMapInnerNode::branchFactor; ++b)
         {

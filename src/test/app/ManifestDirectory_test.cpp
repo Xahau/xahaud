@@ -19,6 +19,7 @@
 
 #include <test/shamap/common.h>
 #include <test/unit_test/SuiteJournal.h>
+
 #include <xrpld/app/ledger/ManifestSync.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/misc/ManifestLedger.h>
@@ -26,6 +27,7 @@
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/ledger/Sandbox.h>
 #include <xrpld/shamap/SHAMap.h>
+
 #include <xrpl/basics/chrono.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/beast/unit_test.h>

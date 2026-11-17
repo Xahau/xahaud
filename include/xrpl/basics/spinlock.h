@@ -19,6 +19,7 @@
 #define RIPPLE_BASICS_SPINLOCK_H_INCLUDED
 
 #include <xrpl/beast/utility/instrumentation.h>
+
 #include <atomic>
 #include <concepts>
 #include <limits>

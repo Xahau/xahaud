@@ -22,8 +22,10 @@
 
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpld/core/Config.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Indexes.h>
+
 #include <memory>
 
 namespace ripple {
@@ -65,7 +67,7 @@ public:
 
         uint64_t x = b + i * 5U;
         if (x > i && x > b)
-            return XRPAmount{static_cast<ripple::XRPAmount::value_type>(x)};
+            return XRPAmount{static_cast<XRPAmount::value_type>(x)};
 
         // fallback in case of overflow
         return XRPAmount{2 * DROPS_PER_XRP};

@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpl/protocol/Feature.h>
 
 #include <algorithm>
@@ -96,6 +97,7 @@ struct DepositAuth_test : public beast::unit_test::suite
         Env env(*this, features);
 
         env.fund(XRP(10000), alice, bob, carol, gw);
+        env.close();
         env.trust(USD(1000), alice, bob);
         env.close();
 
@@ -186,18 +188,20 @@ struct DepositAuth_test : public beast::unit_test::suite
         Account const bob{"bob"};
 
         Env env(*this, features);
+        auto const baseFee = env.current()->fees().base;
 
         env.fund(XRP(10000), alice, bob);
+        env.close();
 
         // bob sets the lsfDepositAuth flag.
-        env(fset(bob, asfDepositAuth), fee(drops(10)));
+        env(fset(bob, asfDepositAuth), fee(drops(baseFee)));
         env.close();
-        BEAST_EXPECT(env.balance(bob, XRP) == XRP(10000) - drops(10));
+        BEAST_EXPECT(env.balance(bob, XRP) == XRP(10000) - drops(baseFee));
 
         // bob has more XRP than the base reserve.  Any XRP payment should fail.
         env(pay(alice, bob, drops(1)), ter(tecNO_PERMISSION));
         env.close();
-        BEAST_EXPECT(env.balance(bob, XRP) == XRP(10000) - drops(10));
+        BEAST_EXPECT(env.balance(bob, XRP) == XRP(10000) - drops(baseFee));
 
         // Change bob's XRP balance to exactly the base reserve.
         {
@@ -259,7 +263,7 @@ struct DepositAuth_test : public beast::unit_test::suite
         BEAST_EXPECT(env.balance(bob, XRP) == drops(1));
 
         // Pay bob enough so he can afford the fee to clear lsfDepositAuth.
-        env(pay(alice, bob, drops(9)));
+        env(pay(alice, bob, drops(baseFee - 1)));
         env.close();
 
         // Interestingly, at this point the terINSUF_FEE_B retry grabs the
@@ -301,6 +305,7 @@ struct DepositAuth_test : public beast::unit_test::suite
             Env env(*this, features);
 
             env.fund(XRP(10000), gw1, alice, bob);
+            env.close();
             env(trust(
                 gw1,
                 alice["USD"](10),
@@ -330,6 +335,7 @@ struct DepositAuth_test : public beast::unit_test::suite
             Env env(*this, features);
 
             env.fund(XRP(10000), gw1, gw2, alice);
+            env.close();
             env(trust(
                 alice,
                 USD1(10),
@@ -584,7 +590,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
         env.require(owners(becky, 0));
 
         // carol gets enough XRP to (barely) meet the reserve.
-        env(pay(alice, carol, drops(11)));
+        env(pay(alice, carol, drops(env.current()->fees().base + 1)));
         env.close();
         env(deposit::auth(carol, becky));
         env.close();
@@ -671,9 +677,10 @@ struct DepositPreauth_test : public beast::unit_test::suite
 
             {
                 // becky setup depositpreauth with credentials
-                const char credType[] = "abcde";
+                char const credType[] = "abcde";
                 Account const carol{"carol"};
                 env.fund(XRP(5000), carol);
+                env.close();
 
                 bool const supportsCredentials = features[featureCredentials];
 
@@ -826,7 +833,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
     {
         using namespace jtx;
 
-        const char credType[] = "abcde";
+        char const credType[] = "abcde";
         Account const issuer{"issuer"};
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -999,7 +1006,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
 
             {
                 // create another valid credential
-                const char credType2[] = "fghij";
+                char const credType2[] = "fghij";
                 env(credentials::create(alice, issuer, credType2));
                 env.close();
                 env(credentials::accept(alice, issuer, credType2));
@@ -1031,7 +1038,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
     {
         using namespace jtx;
 
-        const char credType[] = "abcde";
+        char const credType[] = "abcde";
         Account const issuer{"issuer"};
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -1138,6 +1145,7 @@ struct DepositPreauth_test : public beast::unit_test::suite
                 // not enough reserve
                 Account const john{"john"};
                 env.fund(env.current()->fees().accountReserve(0), john);
+                env.close();
                 auto jv = deposit::authCredentials(john, {{issuer, credType}});
                 env(jv, ter(tecINSUFFICIENT_RESERVE));
             }
@@ -1201,8 +1209,8 @@ struct DepositPreauth_test : public beast::unit_test::suite
     testExpiredCreds(FeatureBitset features)
     {
         using namespace jtx;
-        const char credType[] = "abcde";
-        const char credType2[] = "fghijkl";
+        char const credType[] = "abcde";
+        char const credType2[] = "fghijkl";
         Account const issuer{"issuer"};
         Account const alice{"alice"};
         Account const bob{"bob"};

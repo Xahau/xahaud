@@ -25,6 +25,7 @@ enum ltACCOUNT_ROOT {
 enum ltOFFER {
     lsfPassive = 0x00010000,
     lsfSell = 0x00020000,
+    lsfHybrid = 0x00040000,
 };
 enum ltRIPPLE_STATE {
     lsfLowReserve = 0x00010000,
@@ -70,6 +71,9 @@ enum ltMPTOKEN {
 };
 enum ltCREDENTIAL {
     lsfAccepted = 0x00010000,
+};
+enum ltVAULT {
+    lsfVaultPrivate = 0x00010000,
 };
 
 #endif // HOOKLSFLAGS_INCLUDED

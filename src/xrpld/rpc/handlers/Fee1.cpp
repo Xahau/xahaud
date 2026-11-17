@@ -24,9 +24,9 @@
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpld/rpc/Context.h>
 #include <xrpld/rpc/GRPCHandlers.h>
+
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/protocol/ErrorCodes.h>
-#include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/FeeUnits.h>
 namespace ripple {
 
@@ -49,7 +49,7 @@ getHookFees(RPC::JsonContext const& context)
         if (!stpTrans->isFieldPresent(sfAccount))
             throw std::invalid_argument("No sfAccount specified");
 
-        return invoke_calculateBaseFee(
+        return calculateBaseFee(
             *(context.app.openLedger().current()), *stpTrans);
     }
 

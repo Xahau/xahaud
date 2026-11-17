@@ -21,6 +21,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/rpc/Context.h>
+
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
@@ -29,6 +30,7 @@
 #include <xrpl/protocol/Rules.h>
 #include <xrpl/protocol/jss.h>
 #include <xrpl/resource/Fees.h>
+
 #include <sstream>
 #include <string>
 

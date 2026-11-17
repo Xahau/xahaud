@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <test/jtx/envconfig.h>
+
 #include <xrpl/basics/make_SSLContext.h>
 #include <xrpl/beast/core/CurrentThreadName.h>
 #include <xrpl/beast/unit_test.h>
@@ -33,7 +34,6 @@
 
 #include <condition_variable>
 #include <functional>
-#include <memory>
 #include <optional>
 #include <thread>
 #include <utility>

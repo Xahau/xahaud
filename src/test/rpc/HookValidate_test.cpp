@@ -18,10 +18,13 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpld/core/Config.h>
+
 #include <xrpl/hook/Enum.h>
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/jss.h>
+
 #include <cctype>
 #include <string>
 

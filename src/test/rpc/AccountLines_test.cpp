@@ -18,13 +18,13 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
 
 namespace ripple {
-
 namespace RPC {
 
 class AccountLines_test : public beast::unit_test::suite
@@ -252,6 +252,10 @@ public:
                     gw1.human() + R"("})");
             BEAST_EXPECT(lines[jss::result][jss::lines].isArray());
             BEAST_EXPECT(lines[jss::result][jss::lines].size() == 26);
+
+            // Check no ripple is not set for trustlines between alice and gw1
+            auto const& line = lines[jss::result][jss::lines][0u];
+            BEAST_EXPECT(!line[jss::no_ripple].isMember(jss::no_ripple));
         }
         {
             // Use a malformed peer.
@@ -578,7 +582,6 @@ public:
                           STAmount const& amount) {
             Json::Value jv;
             jv[jss::TransactionType] = jss::EscrowCreate;
-            jv[jss::Flags] = tfUniversal;
             jv[jss::Account] = account.human();
             jv[jss::Destination] = to.human();
             jv[jss::Amount] = amount.getJson(JsonOptions::none);
@@ -594,7 +597,6 @@ public:
                           PublicKey const& pk) {
             Json::Value jv;
             jv[jss::TransactionType] = jss::PaymentChannelCreate;
-            jv[jss::Flags] = tfUniversal;
             jv[jss::Account] = account.human();
             jv[jss::Destination] = to.human();
             jv[jss::Amount] = amount.getJson(JsonOptions::none);

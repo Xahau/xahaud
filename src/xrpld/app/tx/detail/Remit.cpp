@@ -19,6 +19,7 @@
 
 #include <xrpld/app/tx/detail/Remit.h>
 #include <xrpld/ledger/View.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/UTF8.h>
 #include <xrpl/protocol/Feature.h>
@@ -250,9 +251,9 @@ Remit::doApply()
             return tecNO_TARGET;
         }
 
-        if (sleInformAcc->isFieldPresent(sfAMMID))
+        if (isPseudoAccount(sleInformAcc))
         {
-            JLOG(j.warn()) << "Remit: sfInform account is an AMM.";
+            JLOG(j.warn()) << "Remit: sfInform account is an pseudo-account.";
             return tecNO_PERMISSION;
         }
     }
@@ -282,9 +283,12 @@ Remit::doApply()
         (flags & lsfDisallowIncomingRemit))
         return tecNO_PERMISSION;
 
-    // AMMs can never receive an XAH payment.
-    // Must use AMMDeposit transaction instead.
-    if (sleDstAcc && sleDstAcc->isFieldPresent(sfAMMID))
+    // Pseudo-accounts cannot receive payments, other than these native to
+    // their underlying ledger object - implemented in their respective
+    // transaction types. Note, this is not amendment-gated because all writes
+    // to pseudo-account discriminator fields **are** amendment gated, hence the
+    // behaviour of this check will always match the active amendments.
+    if (isPseudoAccount(sleDstAcc))
         return tecNO_PERMISSION;
 
     // Check if the destination account requires deposit authorization.

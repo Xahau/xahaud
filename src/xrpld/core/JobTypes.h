@@ -21,9 +21,9 @@
 #define RIPPLE_CORE_JOBTYPES_H_INCLUDED
 
 #include <xrpld/core/Job.h>
+
 #include <array>
 #include <chrono>
-#include <string>
 
 namespace ripple {
 

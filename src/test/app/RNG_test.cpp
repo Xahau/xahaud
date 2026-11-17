@@ -19,10 +19,12 @@
 
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+
 #include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpld/ledger/OpenView.h>
+
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -643,13 +645,13 @@ class RNG_test : public beast::unit_test::suite
                 return node.getFieldU16(sfLedgerEntryType) == ltRANDOM;
             };
 
-            auto const provisional =
-                avi.generateProvisionalMeta(view, tx, env.journal);
+            auto const provisional = avi.generateProvisionalMeta(
+                view, tx, std::nullopt, env.journal);
             for (auto const& node : provisional.getNodes())
                 BEAST_EXPECT(!isRandom(node));
 
-            auto const finalMeta =
-                avi.apply(view, tx, tesSUCCESS, false, env.journal);
+            auto const finalMeta = avi.apply(
+                view, tx, tesSUCCESS, std::nullopt, false, env.journal);
             if (BEAST_EXPECT(finalMeta))
             {
                 bool found = false;

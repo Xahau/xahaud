@@ -119,6 +119,8 @@ inline constexpr Currency badCurrencyCodeMask =
     isoMaskBits | Currency{0xDFDFDF0000000000};
 
 }  // namespace detail
+/** Domain is a 256-bit hash representing a specific domain. */
+using Domain = base_uint<256>;
 
 /** XRP currency. */
 [[nodiscard]] constexpr Currency const&
@@ -245,25 +247,25 @@ namespace std {
 template <>
 struct hash<ripple::Currency> : ripple::Currency::hasher
 {
-    explicit hash() = default;
+    hash() = default;
 };
 
 template <>
 struct hash<ripple::NodeID> : ripple::NodeID::hasher
 {
-    explicit hash() = default;
+    hash() = default;
 };
 
 template <>
 struct hash<ripple::Directory> : ripple::Directory::hasher
 {
-    explicit hash() = default;
+    hash() = default;
 };
 
 template <>
 struct hash<ripple::uint256> : ripple::uint256::hasher
 {
-    explicit hash() = default;
+    hash() = default;
 };
 
 }  // namespace std

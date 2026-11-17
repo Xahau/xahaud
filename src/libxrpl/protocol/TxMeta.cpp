@@ -17,11 +17,24 @@
 */
 //==============================================================================
 
-#include <xrpl/basics/Log.h>
+#include <xrpl/basics/Blob.h>
+#include <xrpl/basics/base_uint.h>
 #include <xrpl/basics/contract.h>
-#include <xrpl/json/to_string.h>
+#include <xrpl/beast/utility/instrumentation.h>
+#include <xrpl/protocol/AccountID.h>
+#include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/STAccount.h>
+#include <xrpl/protocol/STAmount.h>
+#include <xrpl/protocol/STLedgerEntry.h>
+#include <xrpl/protocol/STObject.h>
+#include <xrpl/protocol/Serializer.h>
+#include <xrpl/protocol/TER.h>
 #include <xrpl/protocol/TxMeta.h>
+
+#include <boost/container/flat_set.hpp>
+
+#include <cstdint>
+#include <stdexcept>
 #include <string>
 
 namespace ripple {
@@ -52,6 +65,9 @@ TxMeta::TxMeta(
 
     if (obj.isFieldPresent(sfRandomData))
         setRandomData(obj.getFieldH256(sfRandomData));
+
+    if (obj.isFieldPresent(sfParentBatchID))
+        setParentBatchId(obj.getFieldH256(sfParentBatchID));
 }
 
 TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, STObject const& obj)
@@ -81,6 +97,9 @@ TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, STObject const& obj)
 
     if (obj.isFieldPresent(sfRandomData))
         setRandomData(obj.getFieldH256(sfRandomData));
+
+    if (obj.isFieldPresent(sfParentBatchID))
+        setParentBatchId(obj.getFieldH256(sfParentBatchID));
 }
 
 TxMeta::TxMeta(uint256 const& txid, std::uint32_t ledger, Blob const& vec)
@@ -96,11 +115,15 @@ TxMeta::TxMeta(
 {
 }
 
-TxMeta::TxMeta(uint256 const& transactionID, std::uint32_t ledger)
+TxMeta::TxMeta(
+    uint256 const& transactionID,
+    std::uint32_t ledger,
+    std::optional<uint256> parentBatchId)
     : mTransactionID(transactionID)
     , mLedger(ledger)
     , mIndex(static_cast<std::uint32_t>(-1))
     , mResult(255)
+    , mParentBatchId(parentBatchId)
     , mNodes(sfAffectedNodes)
 {
     mNodes.reserve(32);
@@ -253,6 +276,9 @@ TxMeta::getAsObject() const
 
     if (hasRandomData())
         metaData.setFieldH256(sfRandomData, getRandomData());
+
+    if (hasParentBatchId())
+        metaData.setFieldH256(sfParentBatchID, getParentBatchId());
 
     return metaData;
 }

@@ -22,6 +22,7 @@
 
 #include <xrpld/ledger/RawView.h>
 #include <xrpld/ledger/ReadView.h>
+
 #include <xrpl/basics/safe_cast.h>
 #include <xrpl/beast/utility/instrumentation.h>
 
@@ -46,7 +47,10 @@ enum ApplyFlags : std::uint32_t {
 
     // Transaction shouldn't be applied
     // Signatures shouldn't be checked
-    tapDRY_RUN = 0x1000
+    tapDRY_RUN = 0x1000,
+
+    // Transaction is executing as part of a batch
+    tapBATCH = 0x2000,
 };
 
 constexpr ApplyFlags

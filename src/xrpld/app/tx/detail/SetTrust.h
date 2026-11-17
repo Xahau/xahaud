@@ -21,9 +21,7 @@
 #define RIPPLE_TX_SETTRUST_H_INCLUDED
 
 #include <xrpld/app/tx/detail/Transactor.h>
-#include <xrpl/basics/Log.h>
-#include <xrpl/protocol/Indexes.h>
-#include <xrpl/protocol/Quality.h>
+
 #include <xrpl/protocol/TxFlags.h>
 
 namespace ripple {
@@ -42,6 +40,9 @@ public:
 
     static NotTEC
     preflight(PreflightContext const& ctx);
+
+    static TER
+    checkPermission(ReadView const& view, STTx const& tx);
 
     static TER
     preclaim(PreclaimContext const& ctx);

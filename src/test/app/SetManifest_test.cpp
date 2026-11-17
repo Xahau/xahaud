@@ -19,6 +19,7 @@
 
 #include <test/jtx.h>
 #include <test/jtx/network.h>
+
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/Manifest.h>
@@ -28,6 +29,7 @@
 #include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/OpenView.h>
+
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/strHex.h>
 #include <xrpl/json/to_string.h>

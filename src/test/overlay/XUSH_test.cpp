@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/overlay/detail/XUSH.h>
+
 #include <xrpl/beast/unit_test.h>
 
 #include <algorithm>

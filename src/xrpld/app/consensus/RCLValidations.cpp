@@ -28,20 +28,17 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/ValidatorList.h>
 #include <xrpld/app/rdb/Wallet.h>
-#include <xrpld/consensus/LedgerTiming.h>
-#include <xrpld/core/JobQueue.h>
 #include <xrpld/core/TimeKeeper.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/overlay/predicates.h>
 #include <xrpld/perflog/PerfLog.h>
+
 #include <xrpl/basics/Log.h>
-#include <xrpl/basics/StringUtilities.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/messages.h>
+
 #include <memory>
-#include <mutex>
-#include <thread>
 
 namespace ripple {
 
@@ -147,7 +144,7 @@ RCLValidationsAdaptor::acquire(LedgerHash const& hash)
 
     if (!ledger)
     {
-        JLOG(j_.debug())
+        JLOG(j_.warn())
             << "Need validated ledger for preferred ledger analysis " << hash;
 
         Application* pApp = &app_;

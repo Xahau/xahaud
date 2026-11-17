@@ -23,10 +23,12 @@
 #include <test/jtx/AMM.h>
 #include <test/jtx/Oracle.h>
 #include <test/jtx/TestHelpers.h>
+
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
+
 #include <xrpl/basics/StringUtilities.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/protocol/Feature.h>
@@ -35,6 +37,7 @@
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/Sign.h>
 #include <xrpl/protocol/jss.h>
+
 #include <vector>
 
 namespace ripple {
@@ -50,9 +53,9 @@ namespace test {
 struct SetHookTSH0_test : public beast::unit_test::suite
 {
 private:
-    const uint64_t tshSTRONG = 0;
-    const uint64_t tshWEAK = 1;
-    const uint64_t tshNONE = 2;
+    uint64_t const tshSTRONG = 0;
+    uint64_t const tshWEAK = 1;
+    uint64_t const tshNONE = 2;
 
     // helper
     void static overrideFlag(Json::Value& jv)
@@ -64,7 +67,7 @@ private:
         jv[jss::Flags] = hsfOVERRIDE | hsfCOLLECT;
     }
 
-    const std::vector<uint8_t> CallbackHook = {
+    std::vector<uint8_t> const CallbackHook = {
         0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x35U,
         0x08U, 0x60U, 0x03U, 0x7FU, 0x7FU, 0x7EU, 0x01U, 0x7EU, 0x60U, 0x05U,
         0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x01U, 0x7EU, 0x60U, 0x02U, 0x7FU,
@@ -308,7 +311,7 @@ private:
         0x00U, 0x73U, 0x21U, 0x00U, 0x41U, 0x9BU, 0x0AU, 0x0BU, 0x02U, 0x81U,
         0x14U, 0x00U, 0x41U, 0xB1U, 0x0AU, 0x0BU, 0x02U, 0x83U, 0x14U};
 
-    const std::vector<uint8_t> EmitTenHook = {
+    std::vector<uint8_t> const EmitTenHook = {
         0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x35U,
         0x08U, 0x60U, 0x05U, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x01U, 0x7EU,
         0x60U, 0x02U, 0x7FU, 0x7FU, 0x01U, 0x7EU, 0x60U, 0x01U, 0x7FU, 0x01U,
@@ -517,7 +520,7 @@ private:
         0x02U, 0x81U, 0x14U, 0x00U, 0x41U, 0xC1U, 0x0CU, 0x0BU, 0x02U, 0x83U,
         0x14U};
 
-    const std::vector<uint8_t> TshHook = {
+    std::vector<uint8_t> const TshHook = {
         0x00U, 0x61U, 0x73U, 0x6DU, 0x01U, 0x00U, 0x00U, 0x00U, 0x01U, 0x28U,
         0x06U, 0x60U, 0x05U, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x01U, 0x7EU,
         0x60U, 0x04U, 0x7FU, 0x7FU, 0x7FU, 0x7FU, 0x01U, 0x7EU, 0x60U, 0x00U,
@@ -7619,6 +7622,69 @@ private:
     }
 
     void
+    testDelegateSetTSH(FeatureBitset features)
+    {
+        testcase("delegate set tsh");
+
+        BEAST_EXPECT(!features[featurePermissionDelegation]);
+    }
+
+    void
+    testVaultCreateTSH(FeatureBitset features)
+    {
+        testcase("vault create tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
+    testVaultSetTSH(FeatureBitset features)
+    {
+        testcase("vault set tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+    void
+    testVaultDeleteTSH(FeatureBitset features)
+    {
+        testcase("vault delete tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
+    testVaultDepositTSH(FeatureBitset features)
+    {
+        testcase("vault deposit tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
+    testVaultWithdrawTSH(FeatureBitset features)
+    {
+        testcase("vault withdraw tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
+    testVaultClawbackTSH(FeatureBitset features)
+    {
+        testcase("vault clawback tsh");
+
+        BEAST_EXPECT(!features[featureSingleAssetVault]);
+    }
+
+    void
+    testBatchTSH(FeatureBitset features)
+    {
+        testcase("batch tsh");
+
+        BEAST_EXPECT(!features[featureBatch]);
+    }
+
+    void
     testEmittedTxnReliability(FeatureBitset features)
     {
         testcase("emitted txn reliability");
@@ -8518,8 +8584,7 @@ private:
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, amendment, fields) \
-    test##name##TSH(features);
+#define TRANSACTION(tag, value, name, ...) test##name##TSH(features);
 
 #include <xrpl/protocol/detail/transactions.macro>
 

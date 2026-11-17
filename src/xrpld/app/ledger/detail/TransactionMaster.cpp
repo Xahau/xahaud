@@ -20,6 +20,8 @@
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/Transaction.h>
+
+#include <xrpl/basics/TaggedCache.ipp>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/protocol/STTx.h>
 
@@ -41,7 +43,7 @@ TransactionMaster::inLedger(
     uint256 const& hash,
     std::uint32_t ledger,
     std::optional<uint32_t> tseq,
-    std::optional<uint16_t> netID)
+    std::optional<uint32_t> netID)
 {
     auto txn = mCache.fetch(hash);
 

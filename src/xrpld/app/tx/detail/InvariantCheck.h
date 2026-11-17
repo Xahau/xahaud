@@ -30,6 +30,7 @@
 
 #include <cstdint>
 #include <tuple>
+#include <unordered_set>
 
 namespace ripple {
 
@@ -443,6 +444,8 @@ class ValidNewAccountRoot
 {
     std::uint32_t accountsCreated_ = 0;
     std::uint32_t accountSeq_ = 0;
+    bool pseudoAccount_ = false;
+    std::uint32_t flags_ = 0;
 
 public:
     void
@@ -621,6 +624,28 @@ public:
         beast::Journal const&);
 };
 
+class ValidPermissionedDEX
+{
+    bool regularOffers_ = false;
+    bool badHybrids_ = false;
+    hash_set<uint256> domains_;
+
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&);
+};
+
 class ValidAMM
 {
     std::optional<AccountID> ammAccount_;
@@ -759,7 +784,8 @@ using InvariantChecks = std::tuple<
     ValidPermissionedDomain,
     ValidAMM,
     ValidLockedBalance,
-    ValidAppLoader>;
+    ValidAppLoader,
+    ValidPermissionedDEX>;
 
 /**
  * @brief get a tuple of all invariant checks

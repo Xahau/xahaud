@@ -22,6 +22,7 @@
 #include <xrpld/app/tx/detail/ClaimReward.h>
 #include <xrpld/core/Config.h>
 #include <xrpld/ledger/View.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -141,7 +142,7 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
         if (!sleIssuer)
             return tecNO_ISSUER;
 
-        if (sleIssuer->isFieldPresent(sfAMMID))
+        if (isPseudoAccount(sleIssuer))
             return tecNO_PERMISSION;
 
         if (ctx.view.rules().enabled(featureIOURewardClaim))

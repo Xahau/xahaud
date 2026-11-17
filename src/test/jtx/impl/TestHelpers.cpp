@@ -18,9 +18,9 @@
 //==============================================================================
 
 #include <test/jtx/TestHelpers.h>
-
 #include <test/jtx/offer.h>
 #include <test/jtx/owners.h>
+
 #include <xrpl/protocol/TxFlags.h>
 
 namespace ripple {
@@ -219,7 +219,6 @@ escrow(AccountID const& account, AccountID const& to, STAmount const& amount)
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::EscrowCreate;
-    jv[jss::Flags] = tfUniversal;
     jv[jss::Account] = to_string(account);
     jv[jss::Destination] = to_string(to);
     jv[jss::Amount] = amount.getJson(JsonOptions::none);
@@ -231,7 +230,6 @@ finish(AccountID const& account, AccountID const& from, std::uint32_t seq)
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::EscrowFinish;
-    jv[jss::Flags] = tfUniversal;
     jv[jss::Account] = to_string(account);
     jv[sfOwner.jsonName] = to_string(from);
     jv[sfOfferSequence.jsonName] = seq;
@@ -243,7 +241,7 @@ finish(jtx::Account const& account, jtx::Account const& from)
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::EscrowFinish;
-    jv[jss::Flags] = tfUniversal;
+    jv[jss::Flags] = tfUniversal - tfInnerBatchTxn;
     jv[jss::Account] = account.human();
     jv[sfOwner.jsonName] = from.human();
     return jv;
@@ -254,7 +252,6 @@ cancel(AccountID const& account, Account const& from, std::uint32_t seq)
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::EscrowCancel;
-    jv[jss::Flags] = tfUniversal;
     jv[jss::Account] = to_string(account);
     jv[sfOwner.jsonName] = from.human();
     jv[sfOfferSequence.jsonName] = seq;
@@ -266,7 +263,7 @@ cancel(jtx::Account const& account, jtx::Account const& from)
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::EscrowCancel;
-    jv[jss::Flags] = tfUniversal;
+    jv[jss::Flags] = tfUniversal - tfInnerBatchTxn;
     jv[jss::Account] = account.human();
     jv[sfOwner.jsonName] = from.human();
     return jv;
@@ -292,7 +289,6 @@ create(
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::PaymentChannelCreate;
-    jv[jss::Flags] = tfUniversal;
     jv[jss::Account] = to_string(account);
     jv[jss::Destination] = to_string(to);
     jv[jss::Amount] = amount.getJson(JsonOptions::none);
@@ -314,7 +310,6 @@ fund(
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::PaymentChannelFund;
-    jv[jss::Flags] = tfUniversal;
     jv[jss::Account] = to_string(account);
     jv[sfChannel.fieldName] = to_string(channel);
     jv[jss::Amount] = amount.getJson(JsonOptions::none);
@@ -334,7 +329,6 @@ claim(
 {
     Json::Value jv;
     jv[jss::TransactionType] = jss::PaymentChannelClaim;
-    jv[jss::Flags] = tfUniversal;
     jv[jss::Account] = to_string(account);
     jv["Channel"] = to_string(channel);
     if (amount)

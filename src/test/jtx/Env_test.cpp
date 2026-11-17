@@ -19,11 +19,12 @@
 
 #include <test/jtx.h>
 #include <test/jtx/JSONRPCClient.h>
+
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/misc/TxQ.h>
+
 #include <xrpl/beast/hash/uhash.h>
 #include <xrpl/beast/unit_test.h>
-#include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
@@ -35,6 +36,7 @@
 #include <boost/beast/http/string_body.hpp>
 #include <boost/beast/http/write.hpp>
 #include <boost/lexical_cast.hpp>
+
 #include <chrono>
 #include <optional>
 #include <thread>
@@ -197,6 +199,7 @@ public:
         {
             Env env(*this, features);
             env.fund(n, "alice", "bob", gw);
+            env.close();
             env(trust("alice", USD(100)), require(lines("alice", 1)));
         }
 
@@ -207,6 +210,7 @@ public:
             BEAST_EXPECT(env.balance(alice, USD) != 0);
             BEAST_EXPECT(env.balance(alice, USD) == USD(0));
             env.fund(n, alice, gw);
+            env.close();
             BEAST_EXPECT(env.balance(alice) == n);
             BEAST_EXPECT(env.balance(gw) == n);
             env.trust(USD(1000), alice);
@@ -251,6 +255,7 @@ public:
         env.require(balance("alice", none));
         env.require(balance("alice", XRP(none)));
         env.fund(XRP(10000), "alice", gw);
+        env.close();
         env.require(balance("alice", USD(none)));
         env.trust(USD(100), "alice");
         env.require(balance("alice", XRP(10000)));  // fee refunded
@@ -689,6 +694,7 @@ public:
         auto const gw = Account("gw");
         auto const USD = gw["USD"];
         env.fund(XRP(10000), "alice", "bob");
+        env.close();
         env.json(
             pay("alice", "bob", USD(10)),
             path(Account("alice")),
@@ -725,6 +731,8 @@ public:
         Env env(*this, features);
         Env_ss envs(env);
 
+        auto const baseFee = env.current()->fees().base;
+
         auto const alice = Account("alice");
         env.fund(XRP(10000), alice);
 
@@ -758,12 +766,16 @@ public:
             // Force the factor low enough to fail
             params[jss::fee_mult_max] = 1;
             params[jss::fee_div_max] = 2;
+
+            auto const expectedErrorString = "Fee of " +
+                std::to_string(baseFee.drops()) +
+                " exceeds the requested tx limit of " +
+                std::to_string(baseFee.drops() / 2);
             envs(
                 noop(alice),
                 fee(none),
                 seq(none),
-                rpc(rpcHIGH_FEE,
-                    "Fee of 10 exceeds the requested tx limit of 5"))(params);
+                rpc(rpcHIGH_FEE, expectedErrorString))(params);
 
             auto tx = env.tx();
             BEAST_EXPECT(!tx);

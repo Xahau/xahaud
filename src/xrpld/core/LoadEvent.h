@@ -21,6 +21,7 @@
 #define RIPPLE_CORE_LOADEVENT_H_INCLUDED
 
 #include <xrpld/core/LoadMonitor.h>
+
 #include <chrono>
 #include <string>
 

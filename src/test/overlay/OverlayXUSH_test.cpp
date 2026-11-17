@@ -18,10 +18,12 @@
 //==============================================================================
 
 #include <test/jtx.h>
+
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/overlay/detail/OverlayImpl.h>
 #include <xrpld/overlay/detail/XUSH.h>
+
 #include <xrpl/beast/net/IPAddressConversion.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STTx.h>

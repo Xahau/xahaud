@@ -20,7 +20,9 @@
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
+#include <xrpld/core/TimeKeeper.h>
 #include <xrpld/ledger/View.h>
+
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/base64.h>
 #include <xrpl/json/json_reader.h>
@@ -33,8 +35,8 @@
 #include <xrpl/protocol/STTx.h>
 #include <xrpl/protocol/STValidation.h>
 #include <xrpl/protocol/st.h>
+
 #include <algorithm>
-#include <charconv>
 #include <iostream>
 #include <vector>
 
@@ -344,7 +346,7 @@ Import::preflight(PreflightContext const& ctx)
     // check inner txns signature
     // we do this with a custom ruleset which should be kept up to date with
     // network 0's signing rules
-    const std::unordered_set<uint256, beast::uhash<>> rulesFeatures{
+    std::unordered_set<uint256, beast::uhash<>> const rulesFeatures{
         featureExpandedSignerList};
     if (!stpTrans->checkSign(
             STTx::RequireFullyCanonicalSig::yes, Rules(rulesFeatures)))
@@ -553,7 +555,7 @@ Import::preflight(PreflightContext const& ctx)
                             int depth = 0,
                             auto const& hashProof =
                                 nullptr) -> std::optional<uint256> {
-            const uint256 nullhash;
+            uint256 const nullhash;
 
             if (depth > 64)
                 return std::nullopt;
@@ -567,7 +569,7 @@ Import::preflight(PreflightContext const& ctx)
 
             if (proof.isArray())
             {
-                for (const auto& entry : proof)
+                for (auto const& entry : proof)
                 {
                     if (entry.isString())
                     {
@@ -756,7 +758,7 @@ Import::preflight(PreflightContext const& ctx)
     {
         auto const& data = (*xpop)[jss::validation][jss::data];
         std::set<std::string> used_key;
-        for (const auto& key : data.getMemberNames())
+        for (auto const& key : data.getMemberNames())
         {
             auto nodepub = key;
             auto const datakey = nodepub;
@@ -942,7 +944,7 @@ Import::preclaim(PreclaimContext const& ctx)
         if (!sleIssuer)
             return tecNO_ISSUER;
 
-        if (sleIssuer->isFieldPresent(sfAMMID))
+        if (isPseudoAccount(sleIssuer))
             return tecNO_PERMISSION;
     }
 
@@ -973,9 +975,9 @@ Import::preclaim(PreclaimContext const& ctx)
             if (sle->isFieldPresent(sfRegularKey))
             {
                 AccountID rk = sle->getAccountID(sfRegularKey);
-                static const AccountID ACCOUNT_ZERO(0);
-                static const AccountID ACCOUNT_ONE(1);
-                static const AccountID ACCOUNT_TWO(2);
+                static AccountID const ACCOUNT_ZERO(0);
+                static AccountID const ACCOUNT_ONE(1);
+                static AccountID const ACCOUNT_TWO(2);
 
                 if (rk != ACCOUNT_ZERO && rk != ACCOUNT_ONE &&
                     rk != ACCOUNT_TWO)

@@ -20,6 +20,7 @@
 #include <test/jtx/ledgerStateFix.h>
 
 #include <xrpld/app/tx/detail/LedgerStateFix.h>
+
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
 
@@ -38,7 +39,6 @@ nftPageLinks(jtx::Account const& acct, jtx::Account const& owner)
     jv[sfLedgerFixType.jsonName] = LedgerStateFix::nfTokenPageLink;
     jv[sfOwner.jsonName] = owner.human();
     jv[sfTransactionType.jsonName] = jss::LedgerStateFix;
-    jv[sfFlags.jsonName] = tfUniversal;
     return jv;
 }
 

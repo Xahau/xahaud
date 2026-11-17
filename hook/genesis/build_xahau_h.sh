@@ -100,14 +100,14 @@ update_hook_array() {
     echo -e "${BLUE}==> Updating ${hook_name}...${NC}"
 
     # Check if hook already exists
-    if grep -q "static const std::vector<uint8_t> ${hook_name} = {" "${XAHAU_H}"; then
+    if grep -q "static std::vector<uint8_t> const ${hook_name} = {" "${XAHAU_H}"; then
         echo -e "${YELLOW}    Replacing existing ${hook_name}${NC}"
 
         # Use awk to replace the array content
         awk -v hook="${hook_name}" -v hex="${hex_array}" '
         BEGIN { in_array=0 }
         {
-            if ($0 ~ "static const std::vector<uint8_t> " hook " = {") {
+            if ($0 ~ "static std::vector<uint8_t> const " hook " = {") {
                 print $0
                 print hex
                 in_array=1
@@ -133,7 +133,7 @@ update_hook_array() {
         {
             if ($0 ~ /#endif.*XAHAU_GENESIS_HOOKS/) {
                 print ""
-                print "static const std::vector<uint8_t> " hook " = {"
+                print "static std::vector<uint8_t> const " hook " = {"
                 print hex
                 print "};"
                 print ""
@@ -178,7 +178,7 @@ echo -e "${GREEN}    Formatting completed${NC}"
 echo -e "${BLUE}==> Verifying changes...${NC}"
 for hook_entry in "${HOOK_FILES[@]}"; do
     hook_name="${hook_entry%%:*}"
-    if grep -q "static const std::vector<uint8_t> ${hook_name} = {" "${XAHAU_H}"; then
+    if grep -q "static std::vector<uint8_t> const ${hook_name} = {" "${XAHAU_H}"; then
         echo -e "${GREEN}    ✓ ${hook_name} found in xahau.h${NC}"
     else
         echo -e "${RED}    ✗ ${hook_name} NOT found in xahau.h${NC}" >&2

@@ -16,10 +16,10 @@
     OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 */
 //==============================================================================
-#include <xrpl/beast/asio/io_latency_probe.h>
-#include <xrpl/beast/unit_test.h>
 
+#include <xrpl/beast/asio/io_latency_probe.h>
 #include <xrpl/beast/test/yield_to.h>
+#include <xrpl/beast/unit_test.h>
 
 #include <boost/asio/basic_waitable_timer.hpp>
 #include <boost/asio/deadline_timer.hpp>
@@ -27,11 +27,9 @@
 #include <boost/asio/io_context.hpp>
 
 #include <algorithm>
-#include <chrono>
 #include <mutex>
 #include <numeric>
 #include <optional>
-#include <thread>
 #include <vector>
 
 using namespace std::chrono_literals;

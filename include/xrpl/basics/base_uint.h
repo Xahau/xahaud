@@ -36,14 +36,13 @@
 
 #include <boost/endian/conversion.hpp>
 #include <boost/functional/hash.hpp>
-#include <algorithm>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <compare>
 #include <cstddef>
 #include <cstring>
-#include <functional>
 #include <optional>
 #include <span>
 #include <type_traits>

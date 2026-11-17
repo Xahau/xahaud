@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/rpc/Context.h>
@@ -31,6 +30,7 @@
 #include <xrpl/json/json_errors.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Indexes.h>
+#include <xrpl/protocol/LedgerFormats.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/RPCErr.h>
 #include <xrpl/protocol/STXChainBridge.h>
@@ -251,6 +251,27 @@ parseAuthorizeCredentials(Json::Value const& jv)
     }
 
     return arr;
+}
+
+static Expected<uint256, Json::Value>
+parseDelegate(Json::Value const& params, Json::StaticString const fieldName)
+{
+    if (!params.isObject())
+    {
+        return parseObjectID(params, fieldName);
+    }
+
+    auto const account = LedgerEntryHelpers::requiredAccountID(
+        params, jss::account, "malformedAddress");
+    if (!account)
+        return Unexpected(account.error());
+
+    auto const authorize = LedgerEntryHelpers::requiredAccountID(
+        params, jss::authorize, "malformedAddress");
+    if (!authorize)
+        return Unexpected(authorize.error());
+
+    return keylet::delegate(*account, *authorize).key;
 }
 
 static Expected<uint256, Json::Value>
@@ -752,6 +773,27 @@ static Expected<uint256, Json::Value>
 parseUNLReport(Json::Value const& params, Json::StaticString const fieldName)
 {
     return parseObjectID(params, fieldName, "hex string");
+}
+
+static Expected<uint256, Json::Value>
+parseVault(Json::Value const& params, Json::StaticString const fieldName)
+{
+    if (!params.isObject())
+    {
+        return parseObjectID(params, fieldName);
+    }
+
+    auto const id = LedgerEntryHelpers::requiredAccountID(
+        params, jss::owner, "malformedOwner");
+    if (!id)
+        return Unexpected(id.error());
+
+    auto const seq = LedgerEntryHelpers::requiredUInt32(
+        params, jss::seq, "malformedRequest");
+    if (!seq)
+        return Unexpected(seq.error());
+
+    return keylet::vault(*id, *seq).key;
 }
 
 static Expected<uint256, Json::Value>

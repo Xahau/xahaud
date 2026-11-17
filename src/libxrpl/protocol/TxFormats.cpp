@@ -17,19 +17,20 @@
 */
 //==============================================================================
 
-#include <xrpl/protocol/TxFormats.h>
-
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/SField.h>
 #include <xrpl/protocol/SOTemplate.h>
+#include <xrpl/protocol/TxFormats.h>
 #include <xrpl/protocol/jss.h>
+
+#include <initializer_list>
 
 namespace ripple {
 
 TxFormats::TxFormats()
 {
     // Fields shared by all txFormats:
-    static const std::initializer_list<SOElement> commonFields{
+    static std::initializer_list<SOElement> const commonFields{
         {sfTransactionType, soeREQUIRED},
         {sfFlags, soeOPTIONAL},
         {sfSourceTag, soeOPTIONAL},
@@ -52,6 +53,7 @@ TxFormats::TxFormats()
         {sfHookName, soeOPTIONAL},
         {sfTime, soeOPTIONAL},
         {sfJsonTxDelta, soeOPTIONAL},
+        {sfDelegate, soeOPTIONAL},
     };
 
 #pragma push_macro("UNWRAP")
@@ -60,7 +62,7 @@ TxFormats::TxFormats()
 #undef TRANSACTION
 
 #define UNWRAP(...) __VA_ARGS__
-#define TRANSACTION(tag, value, name, amendment, fields) \
+#define TRANSACTION(tag, value, name, delegatable, amendment, fields) \
     add(jss::name, tag, UNWRAP fields, commonFields);
 
 #include <xrpl/protocol/detail/transactions.macro>
@@ -77,10 +79,10 @@ txRequiredFeature(TxType txType)
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, amendment, fields) \
-    case tag:                                            \
-        if (amendment == uint256{})                      \
-            return std::nullopt;                         \
+#define TRANSACTION(tag, value, name, delegatable, amendment, fields) \
+    case tag:                                                         \
+        if (amendment == uint256{})                                   \
+            return std::nullopt;                                      \
         return amendment;
 
     switch (txType)

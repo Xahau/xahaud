@@ -19,6 +19,7 @@
 
 #include <test/jtx.h>
 #include <test/jtx/WSClient.h>
+
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/jss.h>
@@ -30,13 +31,9 @@
 #include <boost/beast/core/multi_buffer.hpp>
 #include <boost/beast/websocket.hpp>
 
-#include <condition_variable>
+#include <iostream>
 #include <string>
 #include <unordered_map>
-
-#include <iostream>
-
-#include <xrpl/beast/unit_test.h>
 
 namespace ripple {
 namespace test {

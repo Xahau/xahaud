@@ -17,20 +17,17 @@
 */
 //==============================================================================
 
-#include <xrpld/rpc/ServerHandler.h>
-
 #include <xrpld/app/ledger/LedgerMaster.h>
-#include <xrpld/app/main/Application.h>
-#include <xrpld/app/misc/NetworkOPs.h>
-#include <xrpld/core/ConfigSections.h>
 #include <xrpld/core/JobQueue.h>
 #include <xrpld/ledger/ReadView.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/Role.h>
+#include <xrpld/rpc/ServerHandler.h>
 #include <xrpld/rpc/detail/RPCHelpers.h>
 #include <xrpld/rpc/detail/Tuning.h>
 #include <xrpld/rpc/json_body.h>
+
 #include <xrpl/basics/FileUtilities.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>
@@ -61,10 +58,11 @@
 
 #include <arpa/inet.h>
 #include <arpa/nameser.h>
-#include <fcntl.h>
 #include <netinet/in.h>
-#include <resolv.h>
 #include <sys/stat.h>
+
+#include <fcntl.h>
+#include <resolv.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -2297,7 +2295,7 @@ ServerHandler::processRequest(
 
     if (auto stream = m_journal.debug())
     {
-        static const int maxSize = 10000;
+        static int const maxSize = 10000;
         if (response.size() <= maxSize)
             stream << "Reply: " << response;
         else

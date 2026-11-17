@@ -19,11 +19,14 @@
 
 #include <test/jtx.h>
 #include <test/jtx/Oracle.h>
+
 #include <xrpld/core/ConfigSections.h>
+
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/jss.h>
+
 #include <chrono>
 #include <sstream>
 
@@ -296,7 +299,7 @@ struct SetRemarks_test : public beast::unit_test::suite
             auto tx =
                 remarks::setRemarks(carol, keylet::account(carol).key, marks);
             tx[jss::Sequence] = 0;
-            env(tx, carol, fee(XRP(1)), ter(terNO_ACCOUNT));
+            env(tx, fee(XRP(1)), ter(terNO_ACCOUNT));
             env.close();
         }
 

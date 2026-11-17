@@ -21,8 +21,11 @@
 #define RIPPLE_TEST_JTX_HOOK_H_INCLUDED
 
 #include <test/jtx/Account.h>
+
 #include <xrpld/app/hook/applyHook.h>
+
 #include <xrpl/json/json_value.h>
+
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -97,7 +100,7 @@ struct StubHookContext
     std::map<uint32_t, uint32_t> guard_map{};
     StubHookResult result = {};
     std::optional<ripple::STObject> emitFailure = std::nullopt;
-    const hook::HookExecutor* module = 0;
+    hook::HookExecutor const* module = 0;
 };
 
 // Overload that takes external stateMap to avoid dangling reference

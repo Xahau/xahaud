@@ -21,6 +21,7 @@
 #include <test/jtx.h>
 #include <test/jtx/Oracle.h>
 #include <test/jtx/attester.h>
+#include <test/jtx/delegate.h>
 #include <test/jtx/multisign.h>
 #include <test/jtx/xchain_bridge.h>
 
@@ -60,6 +61,7 @@ enum class FieldType {
 std::vector<std::pair<Json::StaticString, FieldType>> mappings{
     {jss::account, FieldType::AccountField},
     {jss::accounts, FieldType::TwoAccountArrayField},
+    {jss::authorize, FieldType::AccountField},
     {jss::authorized, FieldType::AccountField},
     {jss::credential_type, FieldType::BlobField},
     {jss::currency, FieldType::CurrencyField},
@@ -555,8 +557,12 @@ class LedgerEntry_test : public beast::unit_test::suite
     {
         testcase("AccountRoot");
         using namespace test::jtx;
+
+        auto cfg = envconfig();
+        cfg->FEES.reference_fee = 10;
         Env env{
             *this,
+            std::move(cfg),
             supported_amendments() - featureXahauGenesis - fixHookAPI20251128};
 
         Account const alice{"alice"};
@@ -718,7 +724,7 @@ class LedgerEntry_test : public beast::unit_test::suite
         Account const issuer{"issuer"};
         Account const alice{"alice"};
         Account const bob{"bob"};
-        const char credType[] = "abcde";
+        char const credType[] = "abcde";
 
         env.fund(XRP(5000), issuer, alice, bob);
         env.close();
@@ -847,6 +853,61 @@ class LedgerEntry_test : public beast::unit_test::suite
     }
 
     void
+    testLedgerEntryDelegate()
+    {
+        testcase("Delegate");
+
+        using namespace test::jtx;
+
+        Env env{*this, supported_amendments() | featurePermissionDelegation};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+        env(delegate::set(alice, bob, {"Payment", "CheckCreate"}));
+        env.close();
+        std::string const ledgerHash{to_string(env.closed()->info().hash)};
+        std::string delegateIndex;
+        {
+            // Request by account and authorize
+            Json::Value jvParams;
+            jvParams[jss::delegate][jss::account] = alice.human();
+            jvParams[jss::delegate][jss::authorize] = bob.human();
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(
+                jrr[jss::node][sfLedgerEntryType.jsonName] == jss::Delegate);
+            BEAST_EXPECT(jrr[jss::node][sfAccount.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfAuthorize.jsonName] == bob.human());
+            delegateIndex = jrr[jss::node][jss::index].asString();
+        }
+        {
+            // Request by index.
+            Json::Value jvParams;
+            jvParams[jss::delegate] = delegateIndex;
+            jvParams[jss::ledger_hash] = ledgerHash;
+            Json::Value const jrr = env.rpc(
+                "json", "ledger_entry", to_string(jvParams))[jss::result];
+            BEAST_EXPECT(
+                jrr[jss::node][sfLedgerEntryType.jsonName] == jss::Delegate);
+            BEAST_EXPECT(jrr[jss::node][sfAccount.jsonName] == alice.human());
+            BEAST_EXPECT(jrr[jss::node][sfAuthorize.jsonName] == bob.human());
+        }
+
+        {
+            // Check all malformed cases
+            runLedgerEntryTest(
+                env,
+                jss::delegate,
+                {
+                    {jss::account, "malformedAddress"},
+                    {jss::authorize, "malformedAddress"},
+                });
+        }
+    }
+
+    void
     testLedgerEntryDepositPreauth()
     {
         testcase("Deposit Preauth");
@@ -918,14 +979,14 @@ class LedgerEntry_test : public beast::unit_test::suite
         Account const issuer{"issuer"};
         Account const alice{"alice"};
         Account const bob{"bob"};
-        const char credType[] = "abcde";
+        char const credType[] = "abcde";
 
         env.fund(XRP(5000), issuer, alice, bob);
         env.close();
 
         {
             // Setup Bob with DepositAuth
-            env(fset(bob, asfDepositAuth), fee(drops(10)));
+            env(fset(bob, asfDepositAuth));
             env.close();
             env(deposit::authCredentials(bob, {{issuer, credType}}));
             env.close();
@@ -1531,7 +1592,6 @@ class LedgerEntry_test : public beast::unit_test::suite
                                NetClock::time_point const& cancelAfter) {
             Json::Value jv;
             jv[jss::TransactionType] = jss::EscrowCreate;
-            jv[jss::Flags] = tfUniversal;
             jv[jss::Account] = account.human();
             jv[jss::Destination] = to.human();
             jv[jss::Amount] = amount.getJson(JsonOptions::none);
@@ -2327,7 +2387,10 @@ class LedgerEntry_test : public beast::unit_test::suite
         Env env(*this);
         Account const owner("owner");
         env.fund(XRP(1'000), owner);
-        Oracle oracle(env, {.owner = owner});
+        Oracle oracle(
+            env,
+            {.owner = owner,
+             .fee = static_cast<int>(env.current()->fees().base.drops())});
 
         {
             // test basic malformed scenarios
@@ -2349,6 +2412,8 @@ class LedgerEntry_test : public beast::unit_test::suite
         using namespace ripple::test::jtx::oracle;
 
         Env env(*this);
+        auto const baseFee =
+            static_cast<int>(env.current()->fees().base.drops());
         std::vector<AccountID> accounts;
         std::vector<std::uint32_t> oracles;
         for (int i = 0; i < 10; ++i)
@@ -2356,11 +2421,13 @@ class LedgerEntry_test : public beast::unit_test::suite
             Account const owner(std::string("owner") + std::to_string(i));
             env.fund(XRP(1'000), owner);
             // different accounts can have the same asset pair
-            Oracle oracle(env, {.owner = owner, .documentID = i});
+            Oracle oracle(
+                env, {.owner = owner, .documentID = i, .fee = baseFee});
             accounts.push_back(owner.id());
             oracles.push_back(oracle.documentID());
             // same account can have different asset pair
-            Oracle oracle1(env, {.owner = owner, .documentID = i + 10});
+            Oracle oracle1(
+                env, {.owner = owner, .documentID = i + 10, .fee = baseFee});
             accounts.push_back(owner.id());
             oracles.push_back(oracle1.documentID());
         }
@@ -2878,6 +2945,7 @@ public:
         testLedgerEntryCheck();
         testLedgerEntryCredentials();
         testLedgerEntryCron();
+        testLedgerEntryDelegate();
         testLedgerEntryDepositPreauth();
         testLedgerEntryDepositPreauthCred();
         testLedgerEntryDirectory();

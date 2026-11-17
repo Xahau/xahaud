@@ -23,7 +23,9 @@
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpld/shamap/SHAMapItem.h>
 #include <xrpld/shamap/SHAMapTreeNode.h>
+
 #include <xrpl/basics/RangeSet.h>
+#include <xrpl/basics/TaggedCache.h>
 #include <xrpl/protocol/ErrorCodes.h>
 
 namespace ripple {
@@ -78,7 +80,7 @@ public:
         uint256 const& hash,
         std::uint32_t ledger,
         std::optional<uint32_t> tseq,
-        std::optional<uint16_t> netID);
+        std::optional<uint32_t> netID);
 
     void
     canonicalize(std::shared_ptr<Transaction>* pTransaction);

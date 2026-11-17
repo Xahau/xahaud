@@ -18,6 +18,7 @@
 //==============================================================================
 
 #include <xrpld/app/misc/RotatingBloomFilter.h>
+
 #include <xrpl/beast/unit_test.h>
 
 #include <chrono>

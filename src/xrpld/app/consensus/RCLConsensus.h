@@ -28,14 +28,12 @@
 #include <xrpld/app/misc/NegativeUNLVote.h>
 #include <xrpld/consensus/Consensus.h>
 #include <xrpld/core/JobQueue.h>
-#include <xrpld/overlay/Message.h>
 #include <xrpld/shamap/SHAMap.h>
-#include <xrpl/basics/CountedObject.h>
-#include <xrpl/basics/Log.h>
+
 #include <xrpl/beast/utility/Journal.h>
 #include <xrpl/protocol/RippleLedgerHash.h>
 #include <xrpl/protocol/STTx.h>
-#include <xrpl/protocol/STValidation.h>
+
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -353,7 +351,7 @@ class RCLConsensus
             ConsensusCloseTimes const& rawCloseTimes,
             ConsensusMode const& mode,
             Json::Value&& consensusJson,
-            const bool validating);
+            bool const validating);
 
         /** Process the accepted ledger that was a result of simulation/force
             accept.
@@ -581,7 +579,7 @@ class RclConsensusLogger
 
 public:
     explicit RclConsensusLogger(
-        const char* label,
+        char const* label,
         bool validating,
         beast::Journal j);
     ~RclConsensusLogger();
