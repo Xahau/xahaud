@@ -1,6 +1,36 @@
 # .pre-commit-config.yaml
+# Mirrors the fast CI checks in .github/workflows. Install with:
+#   pip3 install pre-commit && pre-commit install
 repos:
 - repo: https://github.com/pre-commit/mirrors-clang-format
-  rev: v18.1.3
+  rev: v18.1.8
   hooks:
   - id: clang-format
+    # Same scope as .github/workflows/clang-format.yml
+    files: ^(include|src)/.*\.(cpp|hpp|h|ipp)$
+    # the mirror's default type filter does not know .ipp
+    types_or: [file]
+- repo: local
+  hooks:
+  # .github/workflows/levelization.yml
+  - id: levelization
+    name: levelization
+    language: system
+    # fails when it rewrites Builds/levelization/results; see `git diff`
+    entry: bash -c 'python3 Builds/levelization/levelization.py >/dev/null'
+    files: ^(include|src|Builds/levelization)/
+    pass_filenames: false
+  # .github/workflows/verify-generated-headers.yml
+  - id: generated-hook-headers
+    name: verify generated hook headers
+    language: python
+    # generate_extern.sh needs clang-format on PATH
+    additional_dependencies: [clang-format==18.1.8]
+    entry: >-
+      bash -c 'set -euo pipefail; rc=0;
+      for p in error:error extern:extern sfcodes:sfcodes tts:tts
+      lsflags:ls_flags txflags:tx_flags; do
+      bash "./hook/generate_${p%:*}.sh" | diff -u "hook/${p#*:}.h" - || rc=1;
+      done; exit $rc'
+    files: ^(hook|include|src)/
+    pass_filenames: false
