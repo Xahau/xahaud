@@ -904,7 +904,6 @@ public:
         using namespace jtx;
         Env env{*this, features};
 
-        bool const fixNS = env.current()->rules().enabled(fixNSDelete);
         bool const hasHookCanEmit =
             env.current()->rules().enabled(featureHookCanEmit);
         bool const hasNamedHooks =
@@ -1042,7 +1041,7 @@ public:
 
             // ensure the state object is gone
             BEAST_EXPECT(!env.le(stateKeylet));
-            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == (fixNS ? 1 : 2));
+            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 1);
             BEAST_EXPECT(!(env.le("alice")->isFieldPresent(sfHookStateCount)));
         }
 
@@ -1145,9 +1144,7 @@ public:
             env.close();
 
             // Verify state cleanup
-            BEAST_EXPECT(
-                (*env.le(carol))[sfOwnerCount] == features[fixNSDelete] ? 1
-                                                                        : 26);
+            BEAST_EXPECT((*env.le(carol))[sfOwnerCount] == 1);
             BEAST_EXPECT(!env.le(carol)->isFieldPresent(sfHookStateCount));
         }
     }
@@ -1200,7 +1197,6 @@ public:
             0x6aU, 0x24U, 0x00U, 0x0bU};
 
         Env env{*this, features};
-        bool const fixNS = env.current()->rules().enabled(fixNSDelete);
 
         auto const bob = Account{"bob"};
         auto const alice = Account{"alice"};
@@ -1233,47 +1229,36 @@ public:
             iv[jss::Flags] = hsfNSDELETE;
             iv[jss::HookNamespace] = to_string(uint256{beast::zero});
             jv[jss::Hooks][0U][jss::Hook] = iv;
-            env(jv, HSFEE, ter(fixNS ? tesPARTIAL : tesSUCCESS));
+            env(jv, HSFEE, ter(tesPARTIAL));
             env.close();
 
             // ensure the directory is still there
             auto const dirKeylet = keylet::hookStateDir(
                 Account("alice").id(), uint256{beast::zero});
-            if (fixNS)
-            {
-                BEAST_EXPECT(env.le(dirKeylet));
-                BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 2);
-            }
-            else
-            {
-                BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 258);
-                BEAST_EXPECT(!env.le(dirKeylet));
-            }
+            BEAST_EXPECT(env.le(dirKeylet));
+            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 2);
         }
 
         // delete the namespace pass 2
-        if (fixNS)
-        {
-            Json::Value jv;
-            jv[jss::Account] = alice.human();
-            jv[jss::TransactionType] = jss::SetHook;
-            jv[jss::Flags] = 0;
-            jv[jss::Hooks] = Json::Value{Json::arrayValue};
-            Json::Value iv;
-            iv[jss::Flags] = hsfNSDELETE;
-            iv[jss::HookNamespace] = to_string(uint256{beast::zero});
-            jv[jss::Hooks][0U][jss::Hook] = iv;
-            env(jv, HSFEE, ter(tesSUCCESS));
-            env.close();
+        Json::Value jv;
+        jv[jss::Account] = alice.human();
+        jv[jss::TransactionType] = jss::SetHook;
+        jv[jss::Flags] = 0;
+        jv[jss::Hooks] = Json::Value{Json::arrayValue};
+        Json::Value iv;
+        iv[jss::Flags] = hsfNSDELETE;
+        iv[jss::HookNamespace] = to_string(uint256{beast::zero});
+        jv[jss::Hooks][0U][jss::Hook] = iv;
+        env(jv, HSFEE, ter(tesSUCCESS));
+        env.close();
 
-            // ensure the directory is gone
-            auto const dirKeylet = keylet::hookStateDir(
-                Account("alice").id(), uint256{beast::zero});
-            BEAST_EXPECT(!env.le(dirKeylet));
+        // ensure the directory is gone
+        auto const dirKeylet =
+            keylet::hookStateDir(Account("alice").id(), uint256{beast::zero});
+        BEAST_EXPECT(!env.le(dirKeylet));
 
-            // ensure the owner count is 1
-            BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 1);
-        }
+        // ensure the owner count is 1
+        BEAST_EXPECT((*env.le(alice))[sfOwnerCount] == 1);
     }
 
     void
@@ -16611,12 +16596,11 @@ public:
         using namespace test::jtx;
         static FeatureBitset const all{supported_amendments()};
 
-        static std::array<FeatureBitset, 6> const feats{
+        static std::array<FeatureBitset, 5> const feats{
             all,
-            all - fixNSDelete,
-            all - fixNSDelete - fixPageCap,
-            all - fixNSDelete - fixPageCap - featureHookCanEmit,
-            all - fixNSDelete - fixPageCap - featureExtendedHookState,
+            all - fixPageCap,
+            all - fixPageCap - featureHookCanEmit,
+            all - fixPageCap - featureExtendedHookState,
             all - featureNamedHooks,
         };
 
@@ -16984,15 +16968,13 @@ protected:
 SETHOOK_TEST(1, false)
 SETHOOK_TEST(2, false)
 SETHOOK_TEST(3, false)
-SETHOOK_TEST(4, false)
-SETHOOK_TEST(5, true)
+SETHOOK_TEST(4, true)
 
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook0, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook1, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook2, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook3, app, ripple, 2);
 BEAST_DEFINE_TESTSUITE_PRIO(SetHook4, app, ripple, 2);
-BEAST_DEFINE_TESTSUITE_PRIO(SetHook5, app, ripple, 2);
 }  // namespace test
 }  // namespace ripple
 #undef M

@@ -951,7 +951,6 @@ SetHook::destroyNamespace(
         return tefINTERNAL;
     }
 
-    bool const fixEnabled = ctx.rules.enabled(fixNSDelete);
     bool partialDelete = false;
     uint32_t oldStateCount = sleAccount->getFieldU32(sfHookStateCount);
     uint16_t scale = sleAccount->isFieldPresent(sfHookStateScale)
@@ -962,7 +961,7 @@ SetHook::destroyNamespace(
     toDelete.reserve(sleDir->getFieldV256(sfIndexes).size());
     do
     {
-        if (fixEnabled && toDelete.size() >= hook::maxNamespaceDelete())
+        if (toDelete.size() >= hook::maxNamespaceDelete())
         {
             partialDelete = true;
             break;
@@ -1052,19 +1051,16 @@ SetHook::destroyNamespace(
     else
         sleAccount->setFieldU32(sfHookStateCount, stateCount);
 
-    if (ctx.rules.enabled(fixNSDelete))
+    auto const ownerCount = sleAccount->getFieldU32(sfOwnerCount);
+    if (view.rules().enabled(featureExtendedHookState) &&
+        ownerCount < toDelete.size() * scale)
     {
-        auto const ownerCount = sleAccount->getFieldU32(sfOwnerCount);
-        if (view.rules().enabled(featureExtendedHookState) &&
-            ownerCount < toDelete.size() * scale)
-        {
-            JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT
-                                << ")[" << HS_ACC() << "]: DeleteState "
-                                << "OwnerCount less than zero (overflow)";
-            return tefBAD_LEDGER;
-        }
-        adjustOwnerCount(view, sleAccount, -toDelete.size() * scale, ctx.j);
+        JLOG(ctx.j.fatal()) << "HookSet(" << hook::log::NSDELETE_COUNT << ")["
+                            << HS_ACC() << "]: DeleteState "
+                            << "OwnerCount less than zero (overflow)";
+        return tefBAD_LEDGER;
     }
+    adjustOwnerCount(view, sleAccount, -toDelete.size() * scale, ctx.j);
 
     if (!partialDelete && sleAccount->isFieldPresent(sfHookNamespaces))
         hook::removeHookNamespaceEntry(*sleAccount, ns);
