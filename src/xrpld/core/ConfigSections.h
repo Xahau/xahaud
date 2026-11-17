@@ -79,6 +79,8 @@ struct ConfigSection
 #define SECTION_PORT_GRPC "port_grpc"
 #define SECTION_PWA_ALLOWLIST "pwa_allowlist"
 #define SECTION_PWA_BLOCKLIST "pwa_blocklist"
+#define SECTION_PWA_LIST_PROVIDERS "pwa_list_providers"
+#define SECTION_PWA_LIST_FILE "pwa_list_file"
 #define SECTION_PREFETCH_WORKERS "prefetch_workers"
 #define SECTION_REDUCE_RELAY "reduce_relay"
 #define SECTION_RELATIONAL_DB "relational_db"

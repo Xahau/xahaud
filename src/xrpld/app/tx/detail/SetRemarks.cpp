@@ -105,26 +105,14 @@ SetRemarks::validateRemarks(STArray const& remarks, beast::Journal const& j)
 NotTEC
 SetRemarks::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureRemarks))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto& tx = ctx.tx;
     auto& j = ctx.j;
-
-    if (tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(j.warn()) << "SetRemarks: Invalid flags set.";
-        return temINVALID_FLAG;
-    }
 
     auto const& remarks = tx.getFieldArray(sfRemarks);
     if (NotTEC result = validateRemarks(remarks, j); !isTesSuccess(result))
         return result;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 template <typename T>
@@ -211,9 +199,6 @@ getRemarksIssuer(T const& sleO)
 TER
 SetRemarks::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureRemarks))
-        return temDISABLED;
-
     auto const id = ctx.tx[sfAccount];
 
     auto const sle = ctx.view.read(keylet::account(id));
