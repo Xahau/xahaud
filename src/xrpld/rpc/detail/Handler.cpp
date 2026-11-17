@@ -145,6 +145,7 @@ Handler const handlerArray[]{
     {"ping", byRef(&doPing), Role::USER, NO_CONDITION},
     {"print", byRef(&doPrint), Role::ADMIN, NO_CONDITION},
     {"pwa_info", byRef(&doPWAInfo), Role::ADMIN, NO_CONDITION},
+    {"pwa_list", byRef(&doPWAList), Role::ADMIN, NO_CONDITION},
     {"pwa_validate", byRef(&doPWAValidate), Role::USER, NO_CONDITION},
     //      {   "profile",              byRef (&doProfile), Role::USER,
     //      NEEDS_CURRENT_LEDGER  },

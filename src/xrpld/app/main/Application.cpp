@@ -1451,6 +1451,8 @@ ApplicationImp::setup(boost::program_options::variables_map const& cmdline)
         {
             auto setup = setup_ServerHandler(
                 *config_, beast::logstream{m_journal.error()});
+            setup_PWAPolicy(
+                *config_, setup, beast::logstream{m_journal.error()});
             setup.makeContexts();
             serverHandler_->setup(setup, m_journal);
             fixConfigPorts(*config_, serverHandler_->endpoints());
