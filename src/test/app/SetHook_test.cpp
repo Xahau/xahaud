@@ -1335,11 +1335,11 @@ public:
         env.close();
 
         BEAST_EXPECT(
-            (*env.le(alice))[sfHookStateCount] == hasFix ? preHookCount + 200
-                                                         : preHookCount + 64);
+            (*env.le(alice))[sfHookStateCount] ==
+            (hasFix ? preHookCount + 201 : preHookCount + 65));
         BEAST_EXPECT(
-            (*env.le(alice))[sfOwnerCount] == hasFix ? preHookCount + 202
-                                                     : preHookCount + 66);
+            (*env.le(alice))[sfOwnerCount] ==
+            (hasFix ? preHookCount + 203 : preHookCount + 67));
     }
 
     void
