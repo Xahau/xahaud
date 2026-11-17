@@ -770,7 +770,17 @@ BookStep<TIn, TOut, TDerived>::forEachOffer(
                 auto const line = afView.read(
                     keylet::line(ownerID, issuerID, offer.issueIn().currency));
 
-                if (!line || (((*line)[sfFlags] & authFlag) == 0))
+                // A pseudo-account (AMM) cannot submit transactions and only
+                // stores assets for the object that owns it, so it is
+                // implicitly authorized when its line exists.
+                // (XRPLF/rippled#8013; upstream gates this on fixCleanup3_4_0)
+                auto const isPseudoOwner = [&] {
+                    auto const sleOwner = afView.read(keylet::account(ownerID));
+                    return sleOwner && sleOwner->isFieldPresent(sfAMMID);
+                };
+
+                if (!line ||
+                    (((*line)[sfFlags] & authFlag) == 0 && !isPseudoOwner()))
                 {
                     // Offer owner not authorized to hold IOU from issuer.
                     // Remove this offer even if no crossing occurs.

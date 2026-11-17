@@ -626,12 +626,14 @@ class ValidAMM
     std::optional<AccountID> ammAccount_;
     std::optional<STAmount> lptAMMBalanceAfter_;
     std::optional<STAmount> lptAMMBalanceBefore_;
+    std::optional<STAmount> lptAMMBalanceBeforeDeletion_;
     bool ammPoolChanged_;
+    bool ammDeleted_;
 
 public:
     enum class ZeroAllowed : bool { No = false, Yes = true };
 
-    ValidAMM() : ammPoolChanged_{false}
+    ValidAMM() : ammPoolChanged_{false}, ammDeleted_{false}
     {
     }
     void
@@ -660,7 +662,11 @@ private:
         bool enforce,
         beast::Journal const&) const;
     bool
-    finalizeDelete(bool enforce, TER res, beast::Journal const&) const;
+    finalizeDelete(
+        bool enforce,
+        bool enforceAMMDelete,
+        TER res,
+        beast::Journal const&) const;
     bool
     finalizeDeposit(
         STTx const&,
@@ -673,6 +679,7 @@ private:
         STTx const&,
         ReadView const&,
         bool enforce,
+        bool enforceAMMDelete,
         beast::Journal const&) const;
     bool
     finalizeDEX(bool enforce, beast::Journal const&) const;
@@ -739,6 +746,34 @@ public:
         beast::Journal const&);
 };
 
+/*
+ * Verify that when an object with an associated pseudo-account is deleted,
+ * its pseudo-account is also deleted.
+ *
+ * The reverse (pseudo-account deleted -> object deleted) is enforced by
+ * AccountRootsDeletedClean.
+ */
+class ObjectHasPseudoAccount
+{
+public:
+    void
+    visitEntry(
+        bool,
+        std::shared_ptr<SLE const> const&,
+        std::shared_ptr<SLE const> const&);
+
+    [[nodiscard]] bool
+    finalize(
+        STTx const&,
+        TER const,
+        XRPAmount const,
+        ReadView const&,
+        beast::Journal const&) const;
+
+private:
+    std::vector<std::shared_ptr<SLE const>> deletedObjSles_;
+};
+
 using InvariantChecks = std::tuple<
     TransactionFeeCheck,
     AccountRootsNotDeleted,
@@ -759,7 +794,8 @@ using InvariantChecks = std::tuple<
     ValidPermissionedDomain,
     ValidAMM,
     ValidLockedBalance,
-    ValidAppLoader>;
+    ValidAppLoader,
+    ObjectHasPseudoAccount>;
 
 /**
  * @brief get a tuple of all invariant checks

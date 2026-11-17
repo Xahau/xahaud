@@ -4371,37 +4371,25 @@ struct Escrow_test : public beast::unit_test::suite
             ter(tecUNFUNDED_AMM));
 
         auto const lptoken = ammAlice.getLPTokensBalance(alice);
-        // lock all LP tokens
-        env(escrow(alice, bob, STAmount{lptoken, ammAlice.lptIssue()}),
-            finish_time(env.now() + 1s));
+        STAmount const lpAmount{lptoken, ammAlice.lptIssue()};
+
+        // LP tokens cannot be escrowed, to another account or to self
+        env(escrow(alice, bob, lpAmount),
+            finish_time(env.now() + 1s),
+            ter(tecNO_PERMISSION));
+        env.close();
+        env(escrow(alice, alice, lpAmount),
+            finish_time(env.now() + 1s),
+            ter(tecNO_PERMISSION));
         env.close();
 
-        // Withdraw
-        ammAlice.withdraw(
-            alice, USD(1000), std::nullopt, std::nullopt, ter(tecAMM_BALANCE));
-        ammAlice.withdrawAll(alice, USD(1000), ter(tecAMM_BALANCE));
+        auto const lpLine = env.le(keylet::line(
+            alice, ammAlice.lptIssue().account, ammAlice.lptIssue().currency));
+        BEAST_EXPECT(lpLine && !lpLine->isFieldPresent(sfLockedBalance));
 
-        env(ammAlice.bid(BidArg{
-                .account = alice,
-                .bidMax = 100,
-                .assets = {{USD, XRP}},
-            }),
-            ter(tecAMM_INVALID_TOKENS));
-
-        ammAlice.vote(
-            alice,
-            1'000,
-            std::nullopt,
-            std::nullopt,
-            {{USD, XRP}},
-            ter(tecAMM_INVALID_TOKENS));
-
-        // Cannot escrow clawbackable tokens, so we cannot ammClawback escrowed
-        // tokens
-        // env(amm::ammClawback(gw, alice, USD, XRP, USD(100)),
-        //     ter(tecAMM_BALANCE));
-        // env(amm::ammClawback(gw, alice, USD, XRP, std::nullopt),
-        //     ter(tecAMM_BALANCE));
+        // Withdraw still works
+        ammAlice.withdrawAll(alice);
+        BEAST_EXPECT(!ammAlice.ammExists());
     }
 
     static uint256

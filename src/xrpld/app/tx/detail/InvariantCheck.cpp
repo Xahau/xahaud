@@ -39,6 +39,25 @@
 
 namespace ripple {
 
+// Returns the human-readable name of a ledger entry's type, falling back to
+// the numeric type if the format is somehow unknown.
+static std::string
+ledgerEntryTypeName(SLE const& sle)
+{
+    auto const item = LedgerFormats::getInstance().findByType(sle.getType());
+
+    if (item == nullptr)
+    {
+        // LCOV_EXCL_START
+        UNREACHABLE(
+            "ripple::ledgerEntryTypeName : ledger entry has no known ledger "
+            "format");
+        return std::to_string(sle.getType());
+        // LCOV_EXCL_STOP
+    }
+    return item->getName();
+}
+
 void
 TransactionFeeCheck::visitEntry(
     bool,
@@ -940,15 +959,14 @@ TransfersNotFrozen::validateFrozenState(
         change.line->isFlag(high ? lsfLowDeepFreeze : lsfHighDeepFreeze);
     bool const frozen = globalFreeze || deepFreeze || freeze;
 
-    bool const isAMMLine = change.line->isFlag(lsfAMMNode);
-
     if (!frozen)
     {
         return true;
     }
 
-    // AMMClawbacks are allowed to override some freeze rules
-    if ((!isAMMLine || globalFreeze) && tx.getTxnType() == ttAMM_CLAWBACK)
+    // AMMClawbacks are allowed to override all freeze types, including on AMM
+    // trust lines.
+    if (tx.getTxnType() == ttAMM_CLAWBACK)
     {
         JLOG(j.debug()) << "Invariant check allowing funds to be moved "
                         << (change.balanceChangeSign > 0 ? "to" : "from")
@@ -1658,7 +1676,15 @@ ValidAMM::visitEntry(
     std::shared_ptr<SLE const> const& after)
 {
     if (isDelete)
+    {
+        if (before && before->getType() == ltAMM)
+        {
+            ammDeleted_ = true;
+            lptAMMBalanceBeforeDeletion_ =
+                before->getFieldAmount(sfLPTokenBalance);
+        }
         return;
+    }
 
     if (after)
     {
@@ -1796,7 +1822,11 @@ ValidAMM::finalizeCreate(
 }
 
 bool
-ValidAMM::finalizeDelete(bool enforce, TER res, beast::Journal const& j) const
+ValidAMM::finalizeDelete(
+    bool enforce,
+    bool enforceAMMDelete,
+    TER res,
+    beast::Journal const& j) const
 {
     if (ammAccount_)
     {
@@ -1808,6 +1838,47 @@ ValidAMM::finalizeDelete(bool enforce, TER res, beast::Journal const& j) const
         if (enforce)
             return false;
         // LCOV_EXCL_STOP
+    }
+    if (enforceAMMDelete)
+    {
+        if (res == tesSUCCESS)
+        {
+            if (!ammDeleted_)
+            {
+                // LCOV_EXCL_START
+                JLOG(j.error()) << "AMMDelete invariant failed: AMM object "
+                                   "remained on tesSUCCESS";
+                return false;
+                // LCOV_EXCL_STOP
+            }
+            if (!lptAMMBalanceBeforeDeletion_)
+            {
+                // LCOV_EXCL_START
+                JLOG(j.error()) << "AMMDelete invariant failed: AMM object "
+                                   "deleted without LP balance";
+                return false;
+                // LCOV_EXCL_STOP
+            }
+            if (*lptAMMBalanceBeforeDeletion_ != beast::zero)
+            {
+                // LCOV_EXCL_START
+                JLOG(j.error()) << "AMMDelete invariant failed: AMM object "
+                                   "deleted with non-zero LP balance: "
+                                << *lptAMMBalanceBeforeDeletion_;
+                return false;
+                // LCOV_EXCL_STOP
+            }
+        }
+        else if (ammDeleted_)
+        {
+            // AMM should only be fully deleted when AMMDelete returns
+            // tesSUCCESS.
+            // LCOV_EXCL_START
+            JLOG(j.error()) << "AMMDelete invariant failed: AMM object "
+                               "deleted when result is not tesSUCCESS";
+            return false;
+            // LCOV_EXCL_STOP
+        }
     }
 
     return true;
@@ -1849,15 +1920,9 @@ ValidAMM::generalInvariant(
     auto const poolProductMean = root2(amount * amount2);
     bool const nonNegativeBalances =
         validBalances(amount, amount2, *lptAMMBalanceAfter_, zeroAllowed);
-    bool const strongInvariantCheck = poolProductMean >= *lptAMMBalanceAfter_;
-    // Allow for a small relative error if strongInvariantCheck fails
-    auto weakInvariantCheck = [&]() {
-        return *lptAMMBalanceAfter_ != beast::zero &&
-            withinRelativeDistance(
-                poolProductMean, Number{*lptAMMBalanceAfter_}, Number{1, -11});
-    };
-    if (!nonNegativeBalances ||
-        (!strongInvariantCheck && !weakInvariantCheck()))
+    auto const precisionLoss =
+        checkAMMPrecisionLoss(poolProductMean, *lptAMMBalanceAfter_);
+    if (!nonNegativeBalances || !isTesSuccess(precisionLoss))
     {
         JLOG(j.error()) << "AMM " << tx.getTxnType() << " invariant failed: "
                         << tx.getHash(HashPrefix::transactionID) << " "
@@ -1900,16 +1965,21 @@ ValidAMM::finalizeWithdraw(
     ripple::STTx const& tx,
     ripple::ReadView const& view,
     bool enforce,
+    bool enforceAMMDelete,
     beast::Journal const& j) const
 {
-    if (!ammAccount_)
+    if (enforceAMMDelete && ammDeleted_)
     {
-        // Last Withdraw or Clawback deleted AMM
+        // Last Withdraw or Clawback can delete the AMM. We don't have to check
+        // the LPToken balance because a final AMMWithdraw or AMMClawback can
+        // redeem the remaining LP tokens and delete the AMM entry in the same
+        // transaction.
+        return true;
     }
-    else if (!generalInvariant(tx, view, ZeroAllowed::Yes, j))
+    if (ammAccount_ && !generalInvariant(tx, view, ZeroAllowed::Yes, j) &&
+        enforce)
     {
-        if (enforce)
-            return false;
+        return false;
     }
 
     return true;
@@ -1929,6 +1999,26 @@ ValidAMM::finalize(
         return true;
 
     bool const enforce = true;  // view.rules().enabled(fixAMMv1_3);
+    bool const enforceAMMDelete = true;
+
+    // AMM can only be deleted by AMMWithdraw, AMMClawback, and AMMDelete
+    if (enforceAMMDelete && ammDeleted_)
+    {
+        switch (tx.getTxnType())
+        {
+            case ttAMM_WITHDRAW:
+            case ttAMM_CLAWBACK:
+            case ttAMM_DELETE:
+                break;
+            default:
+                // LCOV_EXCL_START
+                JLOG(j.error()) << "AMM invariant failed: unexpected AMM "
+                                   "deletion by "
+                                << tx.getTxnType();
+                return false;
+                // LCOV_EXCL_STOP
+        }
+    }
 
     switch (tx.getTxnType())
     {
@@ -1938,13 +2028,13 @@ ValidAMM::finalize(
             return finalizeDeposit(tx, view, enforce, j);
         case ttAMM_CLAWBACK:
         case ttAMM_WITHDRAW:
-            return finalizeWithdraw(tx, view, enforce, j);
+            return finalizeWithdraw(tx, view, enforce, enforceAMMDelete, j);
         case ttAMM_BID:
             return finalizeBid(enforce, j);
         case ttAMM_VOTE:
             return finalizeVote(enforce, j);
         case ttAMM_DELETE:
-            return finalizeDelete(enforce, result, j);
+            return finalizeDelete(enforce, enforceAMMDelete, result, j);
         case ttCHECK_CASH:
         case ttOFFER_CREATE:
         case ttPAYMENT:
@@ -2051,6 +2141,73 @@ ValidAppLoader::finalize(
             return fail("sequence does not match its owner's");
     }
     return true;
+}
+
+void
+ObjectHasPseudoAccount::visitEntry(
+    bool isDelete,
+    std::shared_ptr<SLE const> const& before,
+    std::shared_ptr<SLE const> const& after)
+{
+    if (!isDelete)
+        return;
+
+    // Before should never be null when isDelete = true
+    if (!before)
+    {
+        // LCOV_EXCL_START
+        UNREACHABLE(
+            "ripple::ObjectHasPseudoAccount::visitEntry : deleted ledger "
+            "entry missing before state");
+        return;
+        // LCOV_EXCL_STOP
+    }
+
+    switch (before->getType())
+    {
+        case ltAMM:
+            deletedObjSles_.push_back(before);
+            break;
+        default:
+            return;
+    }
+}
+
+[[nodiscard]] bool
+ObjectHasPseudoAccount::finalize(
+    STTx const&,
+    TER const,
+    XRPAmount const,
+    ReadView const& view,
+    beast::Journal const& j) const
+{
+    if (deletedObjSles_.empty())
+        return true;
+
+    bool failed = false;
+    for (auto const& sle : deletedObjSles_)
+    {
+        if (!sle->isFieldPresent(sfAccount))
+        {
+            JLOG(j.fatal())
+                << "Invariant failed: deleted " << ledgerEntryTypeName(*sle)
+                << " is missing pseudo-account field";
+            failed = true;
+            continue;
+        }
+
+        // The pseudo-account must NOT exist on the ledger after the object is
+        // deleted.
+        if (view.exists(keylet::account(sle->getAccountID(sfAccount))))
+        {
+            JLOG(j.fatal())
+                << "Invariant failed: deleted " << ledgerEntryTypeName(*sle)
+                << " without deleting its pseudo-account";
+            failed = true;
+        }
+    }
+
+    return !failed;
 }
 
 }  // namespace ripple

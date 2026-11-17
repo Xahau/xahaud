@@ -43,6 +43,96 @@ ammPoolHolds(
     return std::make_pair(assetInBalance, assetOutBalance);
 }
 
+TER
+checkWithdrawFreeze(
+    ReadView const& view,
+    AccountID const& srcAcct,
+    AccountID const& submitterAcct,
+    AccountID const& dstAcct,
+    Issue const& issue)
+{
+    // Funds can always be sent to the issuer
+    if (dstAcct == issue.account)
+        return tesSUCCESS;
+
+    // If the asset is globally frozen, other checks are redundant
+    if (isGlobalFrozen(view, issue.account))
+        return tecFROZEN;
+
+    // The transfer is from Submitter to Destination via Source (pseudo-account)
+    // Both Source and Submitter must not be frozen to allow sending funds
+    if (isIndividualFrozen(view, srcAcct, issue))
+        return tecFROZEN;
+
+    // Check submitter's individual freeze only when Submitter != Destination (a
+    // regular freeze should not block self-withdrawal).
+    if (submitterAcct != dstAcct &&
+        isIndividualFrozen(view, submitterAcct, issue))
+        return tecFROZEN;
+
+    // The destination account must not be deep frozen to receive the funds
+    if (isDeepFrozen(view, dstAcct, issue.currency, issue.account))
+        return tecFROZEN;
+
+    return tesSUCCESS;
+}
+
+TER
+checkDepositFreeze(
+    ReadView const& view,
+    AccountID const& srcAcct,
+    AccountID const& dstAcct,
+    Issue const& issue)
+{
+    if (isGlobalFrozen(view, issue.account))
+        return tecFROZEN;
+
+    if (srcAcct != issue.account && isIndividualFrozen(view, srcAcct, issue))
+        return tecFROZEN;
+
+    // Unlike regular accounts, pseudo-accounts cannot receive deposits under a
+    // regular freeze because those funds cannot be later withdrawn
+    if (isIndividualFrozen(view, dstAcct, issue))
+        return tecFROZEN;
+
+    return tesSUCCESS;
+}
+
+TER
+checkAMMPrecisionLoss(
+    Number const& poolProductMean,
+    STAmount const& newLPTokenBalance)
+{
+    if (newLPTokenBalance <= beast::zero)
+        return tesSUCCESS;
+    if (poolProductMean >= newLPTokenBalance)
+        return tesSUCCESS;
+    // Strong check failed. Allow the same relative tolerance as the invariant
+    // checker's weak check. Only return tecPRECISION_LOSS when both fail.
+    if (withinRelativeDistance(
+            poolProductMean,
+            Number{newLPTokenBalance},
+            kAMMInvariantRelativeTolerance))
+        return tesSUCCESS;
+    return tecPRECISION_LOSS;
+}
+
+TER
+checkAMMPrecisionLoss(
+    ReadView const& view,
+    AccountID const& ammAccountID,
+    Issue const& issue1,
+    Issue const& issue2,
+    STAmount const& newLPTokenBalance,
+    beast::Journal const j)
+{
+    if (newLPTokenBalance <= beast::zero)
+        return tesSUCCESS;
+    auto const [amount, amount2] = ammPoolHolds(
+        view, ammAccountID, issue1, issue2, FreezeHandling::fhIGNORE_FREEZE, j);
+    return checkAMMPrecisionLoss(root2(amount * amount2), newLPTokenBalance);
+}
+
 Expected<std::tuple<STAmount, STAmount, STAmount>, TER>
 ammHolds(
     ReadView const& view,
@@ -147,30 +237,6 @@ ammLPHolds(
         {
             // Put balance in account terms.
             amount.negate();
-        }
-
-        // If tokens can be escrowed then they can be locked in the trustline
-        // which means we must never spend them until the escrow is released.
-        if (view.rules().enabled(featurePaychanAndEscrowForTokens) &&
-            sle->isFieldPresent(sfLockedBalance))
-        {
-            STAmount const lockedBalance = sle->getFieldAmount(sfLockedBalance);
-            STAmount const spendableBalance = amount -
-                (lpAccount > ammAccount ? -lockedBalance : lockedBalance);
-
-            // RH NOTE: this is defensively programmed, it should never fire
-            // if something bad does happen the trustline acts as a frozen line.
-            if (spendableBalance < beast::zero || spendableBalance > amount)
-            {
-                // LCOV_EXCL_START
-                JLOG(j.error())
-                    << "SpendableBalance has illegal value in accountHolds "
-                    << spendableBalance;
-                amount.clear(Issue{currency, ammAccount});
-                // LCOV_EXCL_STOP
-            }
-            else
-                amount = spendableBalance;
         }
 
         amount.setIssuer(ammAccount);
@@ -405,6 +471,9 @@ initializeFeeAuctionVote(
         auctionSlot.setFieldU16(sfDiscountedFee, dfee);
     else if (auctionSlot.isFieldPresent(sfDiscountedFee))
         auctionSlot.makeFieldAbsent(sfDiscountedFee);  // LCOV_EXCL_LINE
+    // Clear stale auth accounts from any previous auction slot holder.
+    if (auctionSlot.isFieldPresent(sfAuthAccounts))
+        auctionSlot.makeFieldAbsent(sfAuthAccounts);
 }
 
 Expected<bool, TER>

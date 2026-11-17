@@ -1334,6 +1334,69 @@ private:
         BEAST_EXPECT(expectLine(env, bob, USD(0)));
     }
 
+    // Same shape as testRequireAuth, except the issuer never authorizes the
+    // AMM's own trust line. An AMM holds the asset for its liquidity providers
+    // and cannot sign a TrustSet for itself, so pseudo-accounts are implicitly
+    // authorized and the pool keeps trading.
+    void
+    testPseudoAccountRequireAuth(FeatureBitset features)
+    {
+        testcase("lsfRequireAuth, unauthorized AMM pseudo-account");
+
+        using namespace jtx;
+
+        Env env{*this, features};
+
+        auto const aliceUSD = alice["USD"];
+        auto const bobUSD = bob["USD"];
+
+        env.fund(XRP(400'000), gw, alice, bob);
+        env.close();
+
+        env(fset(gw, asfRequireAuth));
+        env.close();
+
+        env(trust(gw, bobUSD(100)), txflags(tfSetfAuth));
+        env(trust(bob, USD(100)));
+        env(trust(gw, aliceUSD(100)), txflags(tfSetfAuth));
+        env(trust(alice, USD(2'000)));
+        env(pay(gw, alice, USD(1'000)));
+        env.close();
+
+        AMM ammAlice(env, alice, USD(1'000), XRP(1'050));
+
+        // The pool's own line stays unauthorized: AMMCreate opens it without
+        // the flag, and the pseudo-account has no key to ask for one.
+        auto const ammLineAuthorized = [&]() -> bool {
+            auto const line = env.le(keylet::line(
+                ammAlice.ammAccount(), USD.issue().account, USD.currency));
+            if (!BEAST_EXPECT(line))
+                return false;
+            return ((*line)[sfFlags] &
+                    (ammAlice.ammAccount() > USD.issue().account
+                         ? lsfLowAuth
+                         : lsfHighAuth)) != 0;
+        };
+        BEAST_EXPECT(!ammLineAuthorized());
+
+        env(pay(gw, bob, USD(50)));
+        env.close();
+        BEAST_EXPECT(expectLine(env, bob, USD(50)));
+
+        // Bob sells USD into the pool, so the pool is the side that has to be
+        // authorized to hold the asset.
+        env(offer(bob, XRP(50), USD(50)));
+        env.close();
+
+        BEAST_EXPECT(
+            ammAlice.expectBalances(USD(1'050), XRP(1'000), ammAlice.tokens()));
+        BEAST_EXPECT(expectOffers(env, bob, 0));
+        BEAST_EXPECT(expectLine(env, bob, USD(0)));
+
+        // The exemption skips the check rather than setting the flag.
+        BEAST_EXPECT(!ammLineAuthorized());
+    }
+
     void
     testMissingAuth(FeatureBitset features)
     {
@@ -1430,6 +1493,7 @@ private:
         testSellFlagBasic(all);
         testDirectToDirectPath(all);
         testRequireAuth(all);
+        testPseudoAccountRequireAuth(all);
         testMissingAuth(all);
     }
 
