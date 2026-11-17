@@ -132,7 +132,7 @@ class PWALoader_test : public beast::unit_test::suite
     {
         testcase("amendment gate");
         using namespace jtx;
-        Env env{*this, supported_amendments() - featurePWALoader};
+        Env env{*this, testable_amendments() - featurePWALoader};
         Account const alice{"alice"};
         env.fund(XRP(1000), alice);
         env.close();

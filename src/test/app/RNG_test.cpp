@@ -997,7 +997,7 @@ public:
     run() override
     {
         using namespace jtx;
-        auto const all = supported_amendments();
+        auto const all = testable_amendments();
         testDisabled(all);
         testTransactor(all);
         testUNLReport(all);

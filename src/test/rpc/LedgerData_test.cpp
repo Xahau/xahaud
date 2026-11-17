@@ -308,8 +308,8 @@ public:
 
         // Make sure fixInnerObjTemplate doesn't break amendments.
         for (FeatureBitset const& features :
-             {supported_amendments() - fixInnerObjTemplate,
-              supported_amendments() | fixInnerObjTemplate})
+             {testable_amendments() - fixInnerObjTemplate,
+              testable_amendments() | fixInnerObjTemplate})
         {
             using namespace std::chrono;
 
@@ -487,7 +487,8 @@ public:
                         uint256 txID = tx.getTransactionID();
                         auto s = std::make_shared<ripple::Serializer>();
                         tx.add(*s);
-                        env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                        env.app().getHashRouter().setFlags(
+                            txID, HashRouterFlags::PRIVATE2);
                         view.rawTxInsert(txID, std::move(s), nullptr);
                         return true;
                     });
@@ -666,6 +667,6 @@ public:
     }
 };  // namespace ripple
 
-BEAST_DEFINE_TESTSUITE_PRIO(LedgerData, app, ripple, 1);
+BEAST_DEFINE_TESTSUITE_PRIO(LedgerData, rpc, ripple, 1);
 
 }  // namespace ripple

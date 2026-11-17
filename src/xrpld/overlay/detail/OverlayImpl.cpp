@@ -30,6 +30,7 @@
 #include <xrpld/overlay/Cluster.h>
 #include <xrpld/overlay/detail/ConnectAttempt.h>
 #include <xrpld/overlay/detail/PeerImp.h>
+#include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpld/overlay/detail/Tuning.h>
 #include <xrpld/overlay/predicates.h>
 #include <xrpld/peerfinder/make_Manager.h>
@@ -48,8 +49,6 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 #include <boost/asio/executor_work_guard.hpp>
-
-#include "xrpld/overlay/detail/TrafficCount.h"
 
 namespace ripple {
 
@@ -286,8 +285,8 @@ OverlayImpl::onHandoff(
             if (result != PeerFinder::Result::success)
             {
                 m_peerFinder->on_closed(slot);
-                JLOG(journal.debug())
-                    << "Peer " << remote_endpoint << " redirected, slots full";
+                JLOG(journal.debug()) << "Peer " << remote_endpoint
+                                      << " redirected, " << to_string(result);
                 handoff.moved = false;
                 handoff.response = makeRedirectResponse(
                     slot, request, remote_endpoint.address());
@@ -1475,7 +1474,12 @@ OverlayImpl::updateSlotAndSquelch(
     if (!strand_.running_in_this_thread())
         return post(
             strand_,
-            [this, key, validator, peers = std::move(peers), type]() mutable {
+            // Must capture copies of reference parameters (i.e. key, validator)
+            [this,
+             key = key,
+             validator = validator,
+             peers = std::move(peers),
+             type]() mutable {
                 updateSlotAndSquelch(key, validator, std::move(peers), type);
             });
 
@@ -1496,9 +1500,12 @@ OverlayImpl::updateSlotAndSquelch(
         return;
 
     if (!strand_.running_in_this_thread())
-        return post(strand_, [this, key, validator, peer, type]() {
-            updateSlotAndSquelch(key, validator, peer, type);
-        });
+        return post(
+            strand_,
+            // Must capture copies of reference parameters (i.e. key, validator)
+            [this, key = key, validator = validator, peer, type]() {
+                updateSlotAndSquelch(key, validator, peer, type);
+            });
 
     slots_.updateSlotAndSquelch(key, validator, peer, type, [&]() {
         reportInboundTraffic(TrafficCount::squelch_ignored, 0);
@@ -1549,7 +1556,7 @@ checkXUSHTransaction(
             (stx->getFieldU32(sfLastLedgerSequence) <
              app.getLedgerMaster().getValidLedgerIndex()))
         {
-            app.getHashRouter().setFlags(txID, SF_BAD);
+            app.getHashRouter().setFlags(txID, HashRouterFlags::BAD);
             usage.charge(Resource::feeUselessData, "XUSH expired tx");
             return;
         }
@@ -1578,7 +1585,7 @@ checkXUSHTransaction(
                 << "XUSH: transaction " << txID << " failed checks: " << reason;
             if (validity == Validity::Refused)
                 return;
-            app.getHashRouter().setFlags(txID, SF_BAD);
+            app.getHashRouter().setFlags(txID, HashRouterFlags::BAD);
             usage.charge(Resource::feeInvalidSignature, "XUSH tx signature");
             return;
         }
@@ -1589,7 +1596,7 @@ checkXUSHTransaction(
         {
             JLOG(j.trace())
                 << "XUSH: transaction " << txID << " is invalid: " << why;
-            app.getHashRouter().setFlags(txID, SF_BAD);
+            app.getHashRouter().setFlags(txID, HashRouterFlags::BAD);
             usage.charge(Resource::feeInvalidSignature, "XUSH tx (impossible)");
             return;
         }
@@ -1601,7 +1608,7 @@ checkXUSHTransaction(
     {
         JLOG(j.warn()) << "XUSH: exception checking transaction " << txID
                        << ": " << ex.what();
-        app.getHashRouter().setFlags(txID, SF_BAD);
+        app.getHashRouter().setFlags(txID, HashRouterFlags::BAD);
         usage.charge(Resource::feeInvalidData, "XUSH tx exception");
     }
 }
@@ -1744,12 +1751,12 @@ OverlayImpl::onXUSHTransaction(
         return;
     }
 
-    int flags;
+    HashRouterFlags flags;
     if (!app_.getHashRouter().shouldProcess(
             txID, 0, flags, std::chrono::seconds(10)))
     {
         // We have seen this transaction recently
-        if (flags & SF_BAD)
+        if ((flags & HashRouterFlags::BAD) == HashRouterFlags::BAD)
             usage.charge(Resource::feeUselessData, "XUSH known bad tx");
         return;
     }

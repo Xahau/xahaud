@@ -31,7 +31,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test featurePermissionDelegation not enabled");
         using namespace jtx;
 
-        Env env{*this, supported_amendments() - featurePermissionDelegation};
+        Env env{*this, testable_amendments() - featurePermissionDelegation};
         Account gw{"gateway"};
         Account alice{"alice"};
         Account bob{"bob"};
@@ -51,7 +51,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test valid request creating, updating, deleting permissions");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account gw{"gateway"};
         Account alice{"alice"};
         env.fund(XRP(100000), gw, alice);
@@ -144,7 +144,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test invalid DelegateSet");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account gw{"gateway"};
         Account alice{"alice"};
         Account bob{"bob"};
@@ -253,8 +253,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // test reserve for DelegateSet
         {
-            Env env(
-                *this, supported_amendments() | featurePermissionDelegation);
+            Env env(*this);
             Account alice{"alice"};
             Account bob{"bob"};
             Account carol{"carol"};
@@ -280,10 +279,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // test reserve when sending transaction on behalf of other account
         {
-            Env env(
-                *this,
-                supported_amendments() | featurePermissionDelegation |
-                    featureDID);
+            Env env(*this);
             Account alice{"alice"};
             Account bob{"bob"};
 
@@ -314,7 +310,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test fee");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account alice{"alice"};
         Account bob{"bob"};
         Account carol{"carol"};
@@ -400,7 +396,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test sequence");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account alice{"alice"};
         Account bob{"bob"};
         Account carol{"carol"};
@@ -453,7 +449,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test deleting account");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account alice{"alice"};
         Account bob{"bob"};
         env.fund(XRP(100000), alice, bob);
@@ -489,7 +485,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test delegate transaction");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account alice{"alice"};
         Account bob{"bob"};
         Account carol{"carol"};
@@ -557,8 +553,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // test PaymentMint and PaymentBurn
         {
-            Env env(
-                *this, supported_amendments() | featurePermissionDelegation);
+            Env env(*this);
             Account alice{"alice"};
             Account bob{"bob"};
             Account gw{"gateway"};
@@ -672,8 +667,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // test PaymentMint won't affect Payment transaction level delegation.
         {
-            Env env(
-                *this, supported_amendments() | featurePermissionDelegation);
+            Env env(*this);
             Account alice{"alice"};
             Account bob{"bob"};
             Account gw{"gateway"};
@@ -732,8 +726,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // test TrustlineUnfreeze, TrustlineFreeze and TrustlineAuthorize
         {
-            Env env(
-                *this, supported_amendments() | featurePermissionDelegation);
+            Env env(*this);
             Account gw{"gw"};
             Account alice{"alice"};
             Account bob{"bob"};
@@ -854,8 +847,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // test mix of transaction level delegation and granular delegation
         {
-            Env env(
-                *this, supported_amendments() | featurePermissionDelegation);
+            Env env(*this);
             Account gw{"gw"};
             Account alice{"alice"};
             Account bob{"bob"};
@@ -915,8 +907,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // tfFullyCanonicalSig won't block delegated transaction
         {
-            Env env(
-                *this, supported_amendments() | featurePermissionDelegation);
+            Env env(*this);
             Account gw{"gw"};
             Account alice{"alice"};
             Account bob{"bob"};
@@ -944,8 +935,7 @@ class Delegate_test : public beast::unit_test::suite
         // AccountMessageKeySet,AccountTransferRateSet, and AccountTickSizeSet
         // granular permissions
         {
-            Env env(
-                *this, supported_amendments() | featurePermissionDelegation);
+            Env env(*this);
             auto const alice = Account{"alice"};
             auto const bob = Account{"bob"};
             env.fund(XRP(10000), alice, bob);
@@ -1108,8 +1098,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // can not set AccountSet flags on behalf of other account
         {
-            Env env(
-                *this, supported_amendments() | featurePermissionDelegation);
+            Env env(*this);
             auto const alice = Account{"alice"};
             auto const bob = Account{"bob"};
             env.fund(XRP(10000), alice, bob);
@@ -1205,8 +1194,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // tfFullyCanonicalSig won't block delegated transaction
         {
-            Env env(
-                *this, supported_amendments() | featurePermissionDelegation);
+            Env env(*this);
             Account alice{"alice"};
             Account bob{"bob"};
             env.fund(XRP(10000), alice, bob);
@@ -1235,10 +1223,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // test MPTokenIssuanceUnlock and MPTokenIssuanceLock permissions
         {
-            Env env(
-                *this,
-                supported_amendments() | featureMPTokensV1 |
-                    featurePermissionDelegation);
+            Env env(*this);
             Account alice{"alice"};
             Account bob{"bob"};
             env.fund(XRP(100000), alice, bob);
@@ -1286,10 +1271,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // test mix of granular and transaction level permission
         {
-            Env env(
-                *this,
-                supported_amendments() | featureMPTokensV1 |
-                    featurePermissionDelegation);
+            Env env(*this);
             Account alice{"alice"};
             Account bob{"bob"};
             env.fund(XRP(100000), alice, bob);
@@ -1342,10 +1324,7 @@ class Delegate_test : public beast::unit_test::suite
 
         // tfFullyCanonicalSig won't block delegated transaction
         {
-            Env env(
-                *this,
-                supported_amendments() | featureMPTokensV1 |
-                    featurePermissionDelegation);
+            Env env(*this);
             Account alice{"alice"};
             Account bob{"bob"};
             env.fund(XRP(100000), alice, bob);
@@ -1372,7 +1351,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test single sign");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account alice{"alice"};
         Account bob{"bob"};
         Account carol{"carol"};
@@ -1402,7 +1381,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test single sign with bad secret");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account alice{"alice"};
         Account bob{"bob"};
         Account carol{"carol"};
@@ -1433,7 +1412,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test multi sign");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account alice{"alice"};
         Account bob{"bob"};
         Account carol{"carol"};
@@ -1472,7 +1451,7 @@ class Delegate_test : public beast::unit_test::suite
         testcase("test multi sign which does not meet quorum");
         using namespace jtx;
 
-        Env env(*this, supported_amendments() | featurePermissionDelegation);
+        Env env(*this);
         Account alice{"alice"};
         Account bob{"bob"};
         Account carol{"carol"};

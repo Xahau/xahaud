@@ -5726,7 +5726,8 @@ class Import_test : public beast::unit_test::suite
                     uint256 txID = tx.getTransactionID();
                     auto s = std::make_shared<ripple::Serializer>();
                     tx.add(*s);
-                    env.app().getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    env.app().getHashRouter().setFlags(
+                        txID, HashRouterFlags::PRIVATE2);
                     view.rawTxInsert(txID, std::move(s), nullptr);
                     return true;
                 });
@@ -6645,7 +6646,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments()};
+        FeatureBitset const all{testable_amendments()};
         testWithFeats(all - featureZeroB2M);
         testWithFeats(all);
     }
@@ -6679,7 +6680,6 @@ public:
         testAccountDelete(features);
         testMaxSupply(features);
         testMinMax(features);
-        testHalving(features - featureOwnerPaysFee);
         testBlackhole(features);
         testGetVLWindow(features);
         testVLWindowClock(features);

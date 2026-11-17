@@ -1736,9 +1736,7 @@ public:
         testcase("TrackDomainOffer");
         using namespace jtx;
 
-        FeatureBitset const all{
-            features | featurePermissionedDomains | featureCredentials |
-            featurePermissionedDEX};
+        FeatureBitset const all{features};
 
         Env env(*this, all);
         PermissionedDEX permDex(env);
@@ -1867,9 +1865,7 @@ public:
         testcase("TrackHybridOffer");
         using namespace jtx;
 
-        FeatureBitset const all{
-            features | featurePermissionedDomains | featureCredentials |
-            featurePermissionedDEX};
+        FeatureBitset const all{features};
 
         Env env(*this, all);
         PermissionedDEX permDex(env);
@@ -2001,7 +1997,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        FeatureBitset const all{supported_amendments() - featureXahauGenesis};
+        FeatureBitset const all{testable_amendments() - featureXahauGenesis};
         testOneSideEmptyBook(all);
         testOneSideOffersInBook(all);
         testBothSidesEmptyBook(all);
@@ -2021,7 +2017,7 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE_PRIO(Book, app, ripple, 1);
+BEAST_DEFINE_TESTSUITE_PRIO(Book, rpc, ripple, 1);
 
 }  // namespace test
 }  // namespace ripple

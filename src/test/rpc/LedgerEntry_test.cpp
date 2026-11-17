@@ -563,7 +563,7 @@ class LedgerEntry_test : public beast::unit_test::suite
         Env env{
             *this,
             std::move(cfg),
-            supported_amendments() - featureXahauGenesis - fixHookAPI20251128};
+            testable_amendments() - featureXahauGenesis - fixHookAPI20251128};
 
         Account const alice{"alice"};
         env.fund(XRP(10000), alice);
@@ -720,7 +720,7 @@ class LedgerEntry_test : public beast::unit_test::suite
 
         using namespace test::jtx;
 
-        Env env(*this, supported_amendments() | featureCredentials);
+        Env env(*this, testable_amendments());
         Account const issuer{"issuer"};
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -859,7 +859,7 @@ class LedgerEntry_test : public beast::unit_test::suite
 
         using namespace test::jtx;
 
-        Env env{*this, supported_amendments() | featurePermissionDelegation};
+        Env env{*this, testable_amendments()};
         Account const alice{"alice"};
         Account const bob{"bob"};
         env.fund(XRP(10000), alice, bob);
@@ -975,7 +975,7 @@ class LedgerEntry_test : public beast::unit_test::suite
 
         using namespace test::jtx;
 
-        Env env(*this, supported_amendments() | featureCredentials);
+        Env env(*this);
         Account const issuer{"issuer"};
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -2322,7 +2322,7 @@ class LedgerEntry_test : public beast::unit_test::suite
         testcase("DID");
         using namespace test::jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, supported_amendments() | featureDID};
+        Env env{*this, testable_amendments() | featureDID};
         Account const alice{"alice"};
 
         env.fund(XRP(10000), alice);
@@ -2459,7 +2459,7 @@ class LedgerEntry_test : public beast::unit_test::suite
         testcase("MPT");
         using namespace test::jtx;
         using namespace std::literals::chrono_literals;
-        Env env{*this, supported_amendments() | featureMPTokensV1};
+        Env env{*this, testable_amendments()};
         Account const alice{"alice"};
         Account const bob("bob");
 
@@ -2543,10 +2543,7 @@ class LedgerEntry_test : public beast::unit_test::suite
 
         using namespace test::jtx;
 
-        Env env(
-            *this,
-            supported_amendments() | featureCredentials |
-                featurePermissionedDomains);
+        Env env(*this);
         Account const issuer{"issuer"};
         Account const alice{"alice"};
         Account const bob{"bob"};
@@ -3276,8 +3273,8 @@ public:
     }
 };
 
-BEAST_DEFINE_TESTSUITE(LedgerEntry, app, ripple);
-BEAST_DEFINE_TESTSUITE(LedgerEntry_XChain, app, ripple);
+BEAST_DEFINE_TESTSUITE(LedgerEntry, rpc, ripple);
+BEAST_DEFINE_TESTSUITE(LedgerEntry_XChain, rpc, ripple);
 
 }  // namespace test
 }  // namespace ripple

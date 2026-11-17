@@ -188,8 +188,8 @@ struct WasmBlkInf
     {                                                                          \
         if (DEBUG_GUARD)                                                       \
             printf(                                                            \
-                "%llx:: [%u]%.*swce=%ld | start=%x instcount=%u guard=%u, "    \
-                "parent_guard=%d, multiplier=%g parentptr=%llx\n",             \
+                "%p:: [%u]%.*swce=%llu | start=%x instcount=%u guard=%u, "     \
+                "parent_guard=%d, multiplier=%g parentptr=%p\n",               \
                 &blk,                                                          \
                 x,                                                             \
                 level,                                                         \

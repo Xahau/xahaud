@@ -1038,7 +1038,8 @@ pendSaveValidated(
     bool isCurrent,
     std::function<void(bool)> callback)
 {
-    if (!app.getHashRouter().setFlags(ledger->info().hash, SF_SAVED))
+    if (!app.getHashRouter().setFlags(
+            ledger->info().hash, HashRouterFlags::SAVED))
     {
         // We have tried to save this ledger recently
         auto stream = app.journal("Ledger").debug();

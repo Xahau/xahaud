@@ -172,7 +172,7 @@ class OverlayXUSH_test : public beast::unit_test::suite
         Fixture(
             beast::unit_test::suite& suite,
             bool enabled,
-            FeatureBitset features = jtx::supported_amendments())
+            FeatureBitset features = jtx::testable_amendments())
             : env(suite,
                   enabled ? jtx::envconfig(highway) : jtx::envconfig(),
                   features)
@@ -226,7 +226,8 @@ class OverlayXUSH_test : public beast::unit_test::suite
         isBad(uint256 const& txid)
         {
             env.app().getJobQueue().rendezvous();
-            return env.app().getHashRouter().getFlags(txid) & SF_BAD;
+            return (env.app().getHashRouter().getFlags(txid) &
+                    HashRouterFlags::BAD) == HashRouterFlags::BAD;
         }
     };
 
@@ -405,7 +406,7 @@ class OverlayXUSH_test : public beast::unit_test::suite
     {
         testcase("XUSHTXNF JsonTx before activation");
         using namespace jtx;
-        Fixture f(*this, true, supported_amendments() - featureJsonTx);
+        Fixture f(*this, true, testable_amendments() - featureJsonTx);
         auto& env = f.env;
         auto const remote = ep("203.0.113.8:51235");
         auto probe = f.probe(remote);

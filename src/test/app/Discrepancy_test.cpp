@@ -154,8 +154,7 @@ public:
     run() override
     {
         using namespace test::jtx;
-        auto const sa = supported_amendments();
-        testXRPDiscrepancy(sa - featureFlowCross - featurePermissionedDEX);
+        auto const sa = testable_amendments();
         testXRPDiscrepancy(sa - featureTouch - featurePermissionedDEX);
         testXRPDiscrepancy(sa - featurePermissionedDEX);
         testXRPDiscrepancy(sa);
