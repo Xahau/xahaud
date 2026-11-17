@@ -3,8 +3,10 @@
 #include <xrpld/app/hook/HookAPI.h>
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/ledger/TransactionMaster.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
+#include <xrpl/protocol/ExportSchema.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <algorithm>
 #include <limits>
@@ -701,8 +703,7 @@ HookAPI::emit(Slice const& txBlob) const
     {
         JLOG(s) << "HookEmit[" << HC_ACC()
                 << "]: sfEmitGeneration provided in EmitDetails "
-                << "not correct (" << gen << ") "
-                << "should be " << gen_proper;
+                << "not correct (" << gen << ") " << "should be " << gen_proper;
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -711,8 +712,8 @@ HookAPI::emit(Slice const& txBlob) const
     {
         JLOG(s) << "HookEmit[" << HC_ACC()
                 << "]: sfEmitBurden provided in EmitDetails "
-                << "was not correct (" << bur << ") "
-                << "should be " << bur_proper;
+                << "was not correct (" << bur << ") " << "should be "
+                << bur_proper;
         return Unexpected(EMISSION_FAILURE);
     }
 
@@ -838,6 +839,174 @@ HookAPI::emit(Slice const& txBlob) const
     }
 
     return tpTrans;
+}
+
+Expected<std::shared_ptr<Transaction>, HookReturnCode>
+HookAPI::xport(Slice const& txBlob) const
+{
+    Serializer s;
+    std::optional<std::uint32_t> ticket;
+    std::uint32_t dest = 0;
+    try
+    {
+        SerialIter sit{txBlob};
+        STObject inner{sit, sfExportedTxn};
+        // Nothing is filled in: what the hook passes is what is exported,
+        // as with emit(). xport_prepare() is there to complete it first.
+        // The destination is the NetworkID it carries, none meaning the
+        // XRPL (0). That stays on the transaction until the export applies,
+        // which records it (RemoteNetworkID) and takes it off again for
+        // networks of 1024 and below, where the field is not allowed.
+        dest = Export::destination(inner);
+        ticket = inner[~sfTicketSequence];
+        {
+            // it must be a transaction of the other network: its type known
+            // and its required fields all there (STTx applies the template;
+            // one missing throws, as INVALID_ARGUMENT), one both networks
+            // read the same way, and complete as an export
+            Serializer probe;
+            inner.add(probe);
+            STTx const t{SerialIter{probe.slice()}};
+            if (ExportSchema::reject(t, hookCtx.applyCtx.view().rules()))
+                return Unexpected(NOT_EXPORTABLE);
+            if (!Export::complete(
+                    t,
+                    hookCtx.result.account,
+                    hookCtx.applyCtx.app.config().NETWORK_ID))
+                return Unexpected(INVALID_ARGUMENT);
+        }
+        STObject outer{sfGeneric};
+        outer[sfTransactionType] = static_cast<std::uint16_t>(ttEXPORT);
+        outer.emplace_back(std::move(inner));
+        outer.add(s);
+    }
+    catch (std::exception const&)
+    {
+        return Unexpected(INVALID_ARGUMENT);
+    }
+
+    // prepare() fills in what emit() requires, including the export's fee
+    auto const blob = prepare(s.slice());
+    if (!blob)
+        return Unexpected(blob.error());
+
+    // The ticket is the one field still assigned when the export applies,
+    // from the pool on the destination network (see Export.h for why it
+    // cannot be earlier): tell the hook now if there is none it may have
+    // (the pool's last ticket is the ledger's, see Export::hookMayUse).
+    {
+        auto const ex = hookCtx.applyCtx.view().read(
+            keylet::exporter(hookCtx.result.account, dest));
+        // A ticket the hook names must be one the ledger knows of there:
+        // pooled, or held by an export of its own in flight, which this
+        // one then replaces (Export::ticketUsable). With no record on that
+        // network at all there is nothing to check it against, and the
+        // export is refused when it applies for want of a signer list.
+        if (ticket ? (ex &&
+                      !Export::ticketUsable(
+                          hookCtx.applyCtx.view(),
+                          hookCtx.result.account,
+                          dest,
+                          *ticket))
+                   : !Export::hookMayUse(
+                         ex ? ExportTickets::load(*ex) : ExportTickets{},
+                         std::nullopt))
+            return Unexpected(NO_TICKET);
+    }
+    return emit(makeSlice(*blob));
+}
+
+Expected<Bytes, HookReturnCode>
+HookAPI::xport_prepare(Slice const& txBlob) const
+{
+    auto& view = hookCtx.applyCtx.view();
+    try
+    {
+        SerialIter sit{txBlob};
+        STObject inner{sit, sfExportedTxn};
+        // no signer list on the destination: nothing to price it by, and
+        // nothing that could sign it
+        if (!Export::prepare(
+                view,
+                hookCtx.applyCtx.app.config(),
+                hookCtx.result.account,
+                inner))
+            return Unexpected(DOESNT_EXIST);
+
+        // what xport() will ask of it, so that the hook hears here: its
+        // type known and its required fields there (STTx applies the
+        // template), and one both networks read the same way. Whether it is
+        // complete as an export is left to xport(): the hook may yet change
+        // what it set itself.
+        Serializer s;
+        inner.add(s);
+        STTx const t{SerialIter{s.slice()}};
+        if (ExportSchema::reject(t, view.rules()))
+            return Unexpected(NOT_EXPORTABLE);
+        return s.getData();
+    }
+    catch (std::exception const&)
+    {
+        return Unexpected(INVALID_ARGUMENT);
+    }
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_fee(std::uint32_t nid, std::uint32_t what) const
+{
+    using namespace hook_api::xport_fee_code;
+    if (what > LAST)
+        return Unexpected(INVALID_ARGUMENT);
+
+    auto const& view = hookCtx.applyCtx.view();
+    // the unit always has a value, the reference fee until one is proven:
+    // it is what xport_prepare() would price an export by right now
+    if (what == UNIT)
+        return static_cast<uint64_t>(Export::feeUnit(view, nid).drops());
+
+    // the rest is what a proof said of one ledger: nothing until there is one
+    auto const record = view.read(keylet::exportFee(nid));
+    if (!record)
+        return Unexpected(DOESNT_EXIST);
+    switch (what)
+    {
+        case MEDIAN:
+            return std::uint64_t{(*record)[sfSampleFee]};
+        case LEDGER:
+            return std::uint64_t{(*record)[sfLedgerSequence]};
+        default:
+            // (a hook API returns an int64, and negative is an error)
+            return std::min<std::uint64_t>(
+                (*record)[sfBurnedDrops],
+                std::numeric_limits<std::int64_t>::max());
+    }
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_tickets(std::uint32_t nid) const
+{
+    auto const ex = hookCtx.applyCtx.view().read(
+        keylet::exporter(hookCtx.result.account, nid));
+    if (!ex)
+        return Unexpected(DOESNT_EXIST);
+    return ExportTickets::load(*ex).count();
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::xport_ticket(std::uint32_t nid, std::uint32_t index) const
+{
+    auto const ex = hookCtx.applyCtx.view().read(
+        keylet::exporter(hookCtx.result.account, nid));
+    if (!ex)
+        return Unexpected(DOESNT_EXIST);
+    // ranges are sorted and disjoint, so this is the pool in ascending order
+    for (auto const& r : ExportTickets::load(*ex).ranges())
+    {
+        if (index < r.count)
+            return std::uint64_t{r.first} + index;
+        index -= r.count;
+    }
+    return Unexpected(DOESNT_EXIST);
 }
 
 Expected<uint64_t, HookReturnCode>
@@ -1601,6 +1770,13 @@ HookAPI::otxn_field(uint32_t field_id) const
 Expected<uint256, HookReturnCode>
 HookAPI::otxn_id(uint32_t flags) const
 {
+    // featureExport: a callback about an export is about the ttEXPORT the
+    // hook emitted, whichever transaction brought the news (an Import, a
+    // ttEXPORT_FINAL), as an emit failure's is about the emitted txn. With
+    // flags, as there, the transaction that brought it.
+    if (!flags && hookCtx.otxnID != beast::zero)
+        return hookCtx.otxnID;
+
     auto const& txID =
         (hookCtx.emitFailure && !flags
              ? hookCtx.applyCtx.tx.getFieldH256(sfTransactionHash)

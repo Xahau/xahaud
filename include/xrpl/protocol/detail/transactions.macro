@@ -763,6 +763,79 @@ TRANSACTION(ttPERMISSIONED_DOMAIN_DELETE, 72, PermissionedDomainDelete,
     {sfDomainID, soeREQUIRED},
 }))
 
+/** Emitted by a hook (see xport()): have the export keys in the account's
+    sfExportSignerList multisign sfExportedTxn, a transaction for another
+    network from the hook's account. See Export.h. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Export.h>
+#endif
+TRANSACTION(ttEXPORT, 88, Export,
+    featureExport,
+    ({
+    {sfExportedTxn, soeREQUIRED},
+}))
+
+/** A UNL validator's multisignature over a pending export. Deliberately not a
+    pseudo-txn: disputed pseudo-txns are discarded, these are retried. */
+TRANSACTION(ttEXPORT_SIGN, 87, ExportSign,
+    featureExport,
+    ({
+    {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionHash, soeREQUIRED},
+    {sfSigner, soeREQUIRED},
+}))
+
+/** A pseudo-txn closing an export. Without sfLedgerIndex it closes the
+    signing window of the export created in ledger sfLedgerSequence with
+    unsigned id sfTransactionHash. With it, it expires an export that was
+    signed and sent but never came back: sfLedgerIndex is its shadow
+    ticket, sfLedgerSequence its LastLedgerSequence on the other network,
+    which the ledger proven for that network has passed (see Export.h). */
+TRANSACTION(ttEXPORT_FINAL, 90, ExportFinal,
+    featureExport,
+    ({
+    {sfOwner, soeREQUIRED},
+    {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionHash, soeREQUIRED},
+    {sfLedgerIndex, soeOPTIONAL},
+}))
+
+/** A pseudo-txn exporting sfExportedTxn on behalf of sfOwner, an exporter
+    on the network the inner's NetworkID names (ltEXPORTER): the ledger's own
+    TicketCreates and SignerListSets, which keep an exporter's tickets and
+    signer list there in step. Paid by the owner, like a ttEXPORT (see
+    Export.h). */
+TRANSACTION(ttEXPORT_AUTO, 86, ExportAuto,
+    featureExport,
+    ({
+    {sfOwner, soeREQUIRED},
+    {sfLedgerSequence, soeREQUIRED},
+    {sfExportedTxn, soeREQUIRED},
+}))
+
+/** featureExport: an XPOF, proving what transactions on the other network
+    pay: an XRPL ledger's header and its parent's, the UNL and validations
+    behind it, its transaction tree down to the leaf hashes, and
+    Ingest::samples of its transactions in full. sfRemoteNetworkID is that
+    network, sfLedgerSequence the ledger's index, which must be newer than
+    the one recorded for the network, and sfTransactionCount the leaves the
+    proof counts in its tree: both are what the proof itself says, repeated
+    where they can be read without parsing it. Nobody's transaction:
+    Account zero, unsigned, unsequenced and free, and nothing but these
+    fields (Ingest::make), so anyone may submit it. Not a pseudo-txn: it is
+    relayed. */
+#if TRANSACTION_INCLUDE
+#   include <xrpld/app/tx/detail/Ingest.h>
+#endif
+TRANSACTION(ttINGEST, 85, Ingest,
+    featureExport,
+    ({
+    {sfRemoteNetworkID, soeREQUIRED},
+    {sfLedgerSequence, soeREQUIRED},
+    {sfTransactionCount, soeREQUIRED},
+    {sfBlob, soeREQUIRED},
+}))
+
 /** featureRNG: a validator's entropy contribution for one ledger.
 
     Each proposing UNLReport validator places exactly one of these in its own
@@ -950,4 +1023,5 @@ TRANSACTION(ttUNL_REPORT, 104, UNLReport,
     {sfLedgerSequence, soeREQUIRED},
     {sfActiveValidator, soeOPTIONAL},
     {sfImportVLKey, soeOPTIONAL},
+    {sfExportKeyReport, soeOPTIONAL},
 }))

@@ -33,6 +33,7 @@ enum AccountFlags : uint32_t {
     asfDisallowIncomingTrustline = 15,
     asfDisallowIncomingRemit = 16,
     asfAllowTrustLineClawback = 17,
+    asfExporter = 18,  // featureExport, see Export.h
 };
 
 enum OfferCreateFlags : uint32_t {

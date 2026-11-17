@@ -475,6 +475,28 @@ private:
         return rpcError(rpcNO_EVENTS);
     }
 
+    // export_info [<account>]
+    Json::Value
+    parseExportInfo(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+        if (jvParams.size() > 0)
+            jvRequest[jss::account] = jvParams[0u].asString();
+        return jvRequest;
+    }
+
+    // export_setup [<account> [<quorum>]]
+    Json::Value
+    parseExportSetup(Json::Value const& jvParams)
+    {
+        Json::Value jvRequest(Json::objectValue);
+        if (jvParams.size() > 0)
+            jvRequest[jss::account] = jvParams[0u].asString();
+        if (jvParams.size() > 1)
+            jvRequest["quorum"] = jvParams[1u].asUInt();
+        return jvRequest;
+    }
+
     // feature [<feature>] [accept|reject]
     Json::Value
     parseFeature(Json::Value const& jvParams)
@@ -1492,6 +1514,8 @@ public:
             {"connect", &RPCParser::parseConnect, 1, 2},
             {"consensus_info", &RPCParser::parseAsIs, 0, 0},
             {"deposit_authorized", &RPCParser::parseDepositAuthorized, 2, 11},
+            {"export_info", &RPCParser::parseExportInfo, 0, 1},
+            {"export_setup", &RPCParser::parseExportSetup, 0, 2},
             {"feature", &RPCParser::parseFeature, 0, 2},
             {"fee", &RPCParser::parseFee, 0, 1},
             {"fetch_info", &RPCParser::parseFetchInfo, 0, 1},

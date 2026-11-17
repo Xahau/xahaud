@@ -128,8 +128,10 @@ OpenLedger::accept(
         auto const& tx = txpair.first;
         auto const txId = tx->getTransactionID();
 
-        // skip emitted txns
-        if (tx->isFieldPresent(sfEmitDetails))
+        // skip emitted txns, and export signatures, which peers can't
+        // validate and which reach every open ledger as disputes anyway
+        if (tx->isFieldPresent(sfEmitDetails) ||
+            tx->getTxnType() == ttEXPORT_SIGN)
             continue;
 
         if (auto const toSkip = app.getHashRouter().shouldRelay(txId))

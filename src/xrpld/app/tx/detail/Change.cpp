@@ -23,6 +23,7 @@
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/detail/Change.h>
+#include <xrpld/app/tx/detail/Export.h>
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
@@ -102,11 +103,71 @@ Transactor::invokePreflight<Change>(PreflightContext const& ctx)
             return temDISABLED;
         }
 
-        if (!ctx.tx.isFieldPresent(sfActiveValidator) &&
-            !ctx.tx.isFieldPresent(sfImportVLKey))
+        bool const hasAV = ctx.tx.isFieldPresent(sfActiveValidator);
+        bool const hasVL = ctx.tx.isFieldPresent(sfImportVLKey);
+
+        // featureExport: an import VL key is voted for the network whose
+        // lists it signs. Absent means the XRPL (0), which is how every
+        // vote before the amendment reads, so 0 is never spelled out.
+        if (hasVL)
+        {
+            auto const nid = ctx.tx.peekAtField(sfImportVLKey)
+                                 .downcast<STObject>()[~sfRemoteNetworkID];
+            if (nid && !ctx.rules.enabled(featureExport))
+            {
+                JLOG(ctx.j.warn()) << "Change: Export is not enabled.";
+                return temDISABLED;
+            }
+            if (nid == 0u)
+            {
+                JLOG(ctx.j.warn()) << "Change: sfImportVLKey for the XRPL "
+                                      "carries no RemoteNetworkID";
+                return temMALFORMED;
+            }
+        }
+
+        if (ctx.tx.isFieldPresent(sfExportKeyReport))
+        {
+            if (!ctx.rules.enabled(featureExport))
+            {
+                JLOG(ctx.j.warn()) << "Change: Export is not enabled.";
+                return temDISABLED;
+            }
+
+            // reported on their own, see NegativeUNLVote::addExportKeyTx
+            if (hasAV || hasVL)
+            {
+                JLOG(ctx.j.warn()) << "Change: sfExportKeyReport must be the "
+                                      "only report in a UNLReport";
+                return temMALFORMED;
+            }
+
+            auto const& r =
+                ctx.tx.peekAtField(sfExportKeyReport).downcast<STObject>();
+            auto const master = r.getFieldVL(sfPublicKey);
+            auto const key = r.getFieldVL(sfExportKey);
+            if (!publicKeyType(makeSlice(master)) ||
+                !publicKeyType(makeSlice(key)) || master == key)
+                return temMALFORMED;
+
+            // the nominating validator holds the key
+            PublicKey const m(makeSlice(master)), k(makeSlice(key));
+            if (!verify(
+                    k,
+                    exportKeyProofData(m, k, ctx.app.config().NETWORK_ID)
+                        .slice(),
+                    makeSlice(r.getFieldVL(sfExportKeyProof)),
+                    true))
+            {
+                JLOG(ctx.j.warn()) << "Change: bad export key proof";
+                return temBAD_SIGNATURE;
+            }
+        }
+        else if (!hasAV && !hasVL)
         {
             JLOG(ctx.j.warn()) << "Change: UNLReport must specify at least one "
-                                  "of sfImportVLKey, sfActiveValidator";
+                                  "of sfImportVLKey, sfActiveValidator, "
+                                  "sfExportKeyReport";
             return temMALFORMED;
         }
     }
@@ -220,9 +281,20 @@ Change::preclaim(PreclaimContext const& ctx)
                                     .downcast<STObject>();
             auto const pkBlob = inner.getFieldVL(sfPublicKey);
             std::string const strPk = strHex(makeSlice(pkBlob));
+            // featureExport: the vote is for a key and the network its
+            // lists govern, so both must be the ones we know: a key we
+            // trust for one network is not approved for another
+            bool const exportOn = ctx.view.rules().enabled(featureExport);
+            std::uint32_t const nid = inner[~sfRemoteNetworkID].value_or(0);
             if (ctx.app.config().IMPORT_VL_KEYS.find(strPk) !=
                 ctx.app.config().IMPORT_VL_KEYS.end())
-                return tesSUCCESS;
+            {
+                if (!exportOn)
+                    return tesSUCCESS;
+                return ctx.app.config().importVLNetwork(strPk) == nid
+                    ? TER{tesSUCCESS}
+                    : TER{telIMPORT_VL_KEY_NOT_RECOGNISED};
+            }
 
             auto const pkType = publicKeyType(makeSlice(pkBlob));
             if (!pkType)
@@ -236,7 +308,8 @@ Change::preclaim(PreclaimContext const& ctx)
             {
                 auto const& vlKeys = unlRep->getFieldArray(sfImportVLKeys);
                 for (auto const& k : vlKeys)
-                    if (PublicKey(k[sfPublicKey]) == pk)
+                    if (PublicKey(k[sfPublicKey]) == pk &&
+                        (!exportOn || k[~sfRemoteNetworkID].value_or(0) == nid))
                         return tesSUCCESS;
             }
 
@@ -399,8 +472,94 @@ Change::applyEntropy()
 }
 
 TER
+Change::applyExportKeyReport()
+{
+    auto const& r = ctx_.tx.peekAtField(sfExportKeyReport).downcast<STObject>();
+    PublicKey const master(makeSlice(r.getFieldVL(sfPublicKey)));
+    auto const key = r.getFieldVL(sfExportKey);
+
+    // Recorded on the validator's master account, which must exist: the
+    // first ttGENESIS_MINT after a flag ledger funds missing ones. Until
+    // then the report is simply repeated each flag ledger.
+    auto acc = view().peek(keylet::account(calcAccountID(master)));
+    if (!acc)
+    {
+        JLOG(j_.debug()) << "Change: no account yet for export key of "
+                         << toBase58(TokenType::NodePublic, master)
+                         << ", awaiting GenesisMint funding";
+        return tesSUCCESS;
+    }
+
+    STArray keys = acc->isFieldPresent(sfExportKeys)
+        ? acc->getFieldArray(sfExportKeys)
+        : STArray(sfExportKeys);
+
+    // already the current key, or an older one, and keys never come back
+    for (auto const& e : keys)
+        if (e.getFieldVL(sfExportKey) == key)
+            return tesSUCCESS;
+
+    auto const now = static_cast<std::uint32_t>(
+        view().parentCloseTime().time_since_epoch().count());
+
+    STObject entry = STObject::makeInnerObject(sfExportKeyEntry);
+    entry.setFieldVL(sfExportKey, key);
+    entry.setFieldU32(sfCloseTime, now);
+
+    // At most Export::maxKeysPerEpoch keys per rotation epoch: the epoch's
+    // own, and one replacement (a lost key file, an emergency rotation). A
+    // key is always added in front of the others, never in place of one, so
+    // the validator can go on signing with the one before for exporters
+    // that still list it, and nothing has to follow at once. A further
+    // nomination in the same epoch is not recorded, and nothing changes:
+    // that is what keeps one validator re-keying (or two servers sharing
+    // its token, each with its own keys) from changing the UNL's keys, and
+    // so every exporter's signer list, at every flag ledger.
+    auto const epoch = Export::rotationEpoch(now);
+    if (std::count_if(keys.begin(), keys.end(), [&](STObject const& e) {
+            return Export::rotationEpoch(e.getFieldU32(sfCloseTime)) >= epoch;
+        }) >= static_cast<std::ptrdiff_t>(Export::maxKeysPerEpoch))
+    {
+        JLOG(j_.debug()) << "Change: export key of "
+                         << toBase58(TokenType::NodePublic, master)
+                         << " not recorded, it has had its keys this epoch";
+        return tesSUCCESS;
+    }
+    {
+        STArray next(sfExportKeys);
+        next.push_back(std::move(entry));
+        for (auto const& e : keys)
+        {
+            if (next.size() >= Export::maxExportKeys)
+                break;
+            next.push_back(e);
+        }
+        keys = std::move(next);
+    }
+
+    acc->setFieldArray(sfExportKeys, keys);
+    view().update(acc);
+
+    // tell exporters their signer lists may need updating
+    auto unl = view().peek(keylet::UNLReport());
+    bool const created = !unl;
+    if (created)
+        unl = std::make_shared<SLE>(keylet::UNLReport());
+    unl->setFieldU32(sfExportKeysSeq, (*unl)[~sfExportKeysSeq].value_or(0) + 1);
+    if (created)
+        view().insert(unl);
+    else
+        view().update(unl);
+
+    return tesSUCCESS;
+}
+
+TER
 Change::applyUNLReport()
 {
+    if (ctx_.tx.isFieldPresent(sfExportKeyReport))
+        return applyExportKeyReport();
+
     auto sle = view().peek(keylet::UNLReport());
 
     auto const seq = view().info().seq;
@@ -410,8 +569,17 @@ Change::applyUNLReport()
     if (created)
         sle = std::make_shared<SLE>(keylet::UNLReport());
 
-    bool const reset = sle->isFieldPresent(sfPreviousTxnLgrSeq) &&
-        sle->getFieldU32(sfPreviousTxnLgrSeq) < seq;
+    // The first report of a ledger resets the array it carries. That was
+    // judged by PreviousTxnLgrSeq, but export key reports modify this object
+    // too, so under featureExport only these reports move a marker. Without
+    // one, the arrays predate the amendment and so this ledger.
+    bool const exportOn = view().rules().enabled(featureExport);
+    bool const reset = exportOn
+        ? (*sle)[~sfLedgerSequence].value_or(0) < seq
+        : (*sle)[~sfPreviousTxnLgrSeq].value_or(seq) < seq;
+
+    if (exportOn)
+        sle->setFieldU32(sfLedgerSequence, seq);
 
     auto canonicalize = [&](SField const& arrayType,
                             SField const& objType) -> std::vector<STObject> {
@@ -420,7 +588,12 @@ Change::applyUNLReport()
             : sle->getFieldArray(arrayType);
 
         // canonically order using std::set
-        std::map<PublicKey, AccountID> ordered;
+        // (featureExport: an import VL key also carries the network whose
+        // lists it signs, absent for the XRPL. A key has one network: were
+        // it reported for two, a proof under it could be taken for either,
+        // so the first report of a key in a ledger stands and a later one
+        // naming another network changes nothing.)
+        std::map<PublicKey, std::pair<AccountID, std::uint32_t>> ordered;
         for (auto const& obj : existing)
         {
             auto pk = obj.getFieldVL(sfPublicKey);
@@ -430,31 +603,40 @@ Change::applyUNLReport()
             PublicKey p(makeSlice(pk));
             ordered.emplace(
                 p,
-                obj.isFieldPresent(sfAccount) ? obj.getAccountID(sfAccount)
-                                              : calcAccountID(p));
+                std::make_pair(
+                    obj.isFieldPresent(sfAccount) ? obj.getAccountID(sfAccount)
+                                                  : calcAccountID(p),
+                    exportOn ? obj[~sfRemoteNetworkID].value_or(0) : 0u));
         };
 
         if (ctx_.tx.isFieldPresent(objType))
         {
-            auto pk = const_cast<ripple::STTx&>(ctx_.tx)
-                          .getField(objType)
-                          .downcast<STObject>()
-                          .getFieldVL(sfPublicKey);
+            auto const& reported = const_cast<ripple::STTx&>(ctx_.tx)
+                                       .getField(objType)
+                                       .downcast<STObject>();
+            auto pk = reported.getFieldVL(sfPublicKey);
 
             if (publicKeyType(makeSlice(pk)))
             {
                 PublicKey p(makeSlice(pk));
-                ordered.emplace(p, calcAccountID(p));
+                ordered.emplace(
+                    p,
+                    std::make_pair(
+                        calcAccountID(p),
+                        exportOn ? reported[~sfRemoteNetworkID].value_or(0)
+                                 : 0u));
             }
         }
 
         std::vector<STObject> out;
         out.reserve(ordered.size());
-        for (auto const& [k, a] : ordered)
+        for (auto const& [k, v] : ordered)
         {
             out.emplace_back(objType);
             out.back().setFieldVL(sfPublicKey, k);
-            out.back().setAccountID(sfAccount, a);
+            out.back().setAccountID(sfAccount, v.first);
+            if (v.second != 0)
+                out.back().setFieldU32(sfRemoteNetworkID, v.second);
         }
 
         return out;
@@ -584,9 +766,8 @@ normalizeXahauGenesis(
             }
 
             amounts.emplace_back(idStr, x);
-            JLOG(j.warn()) << "featureXahauGenesis: "
-                           << "initial validator: " << rn
-                           << " =>accid: " << idStr;
+            JLOG(j.warn()) << "featureXahauGenesis: " << "initial validator: "
+                           << rn << " =>accid: " << idStr;
 
             // initial member enumeration
             params.emplace_back(

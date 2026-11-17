@@ -131,7 +131,8 @@ public:
     static std::vector<STTx>
     generateImportVLVoteTx(
         std::map<std::string, PublicKey> const& importVLKeys,
-        LedgerIndex seq);
+        LedgerIndex seq,
+        std::map<std::string, std::uint32_t> const* networks = nullptr);
 
 private:
     NodeID const myId_;
@@ -178,7 +179,25 @@ private:
      * As above, but make a vl import report object instead of an n-unl
      */
     void
-    addImportVLTx(LedgerIndex seq, std::shared_ptr<SHAMap> const& initalSet);
+    addImportVLTx(
+        LedgerIndex seq,
+        std::shared_ptr<SHAMap> const& initalSet,
+        bool withNetworks = false);
+
+    /** Export key and proof of possession, per validator, as nominated in
+        its flag ledger validation (featureExport). */
+    using ExportKeyMap = hash_map<NodeID, std::pair<Blob, Blob>>;
+
+    /**
+     * As above, but report each active validator's nominated export key.
+     */
+    void
+    addExportKeyTx(
+        LedgerIndex seq,
+        hash_map<NodeID, std::uint32_t> const& scoreTable,
+        hash_map<NodeID, PublicKey> const& nidToKeyMap,
+        ExportKeyMap const& exportKeys,
+        std::shared_ptr<SHAMap> const& initalSet);
 
     /**
      * Pick one candidate from a vector of candidates.
@@ -201,7 +220,8 @@ private:
     buildRawScoreTable(
         std::shared_ptr<Ledger const> const& prevLedger,
         hash_set<NodeID> const& unl,
-        RCLValidations& validations);
+        RCLValidations& validations,
+        ExportKeyMap* exportKeys = nullptr);
 
     /**
      * True if the local node issued enough validations in the score table
