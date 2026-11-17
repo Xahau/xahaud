@@ -163,8 +163,10 @@ LEDGER_ENTRY(ltSHADOW_TICKET, 'Y', ShadowTicket, shadow_ticket, ({
     ledger and index there it was proven at), all as last proven by Import;
     the ticket or Sequence of an automatic TicketCreate still out; the
     ExportKeysSeq its list was built for; the shadow tickets of its exports
-    in flight (sfIndexes, at most Export::maxExpiring); and, while the ledger
-    acts for it there, its page in keylet::exporterDir().
+    in flight (sfIndexes, at most Export::maxExpiring); the Sequence of the
+    last transaction of its own there that the account imported as a proof
+    (sfImportSequence; such a record alone does not make it an exporter); and,
+    while the ledger acts for it there, its page in keylet::exporterDir().
 
     \sa keylet::exporter
 */
@@ -175,6 +177,7 @@ LEDGER_ENTRY(ltEXPORTER, 'V', Exporter, exporter, ({
     {sfExportTickets,        soeOPTIONAL},
     {sfExportTicketNext,     soeOPTIONAL},
     {sfExportSequence,       soeOPTIONAL},
+    {sfImportSequence,       soeOPTIONAL},
     {sfExportTicketPending,  soeOPTIONAL},
     {sfExportKeysSeq,        soeOPTIONAL},
     {sfIndexes,              soeOPTIONAL},
