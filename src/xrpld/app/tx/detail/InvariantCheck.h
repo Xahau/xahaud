@@ -745,8 +745,10 @@ public:
  *
  * sfExportTickets grows only under ttIMPORT, and only on a TicketCreate. It
  * loses tickets only under ttEXPORT, ttEXPORT_AUTO (one each) or ttIMPORT
- * (the ticket that came back). A ttEXPORT_FINAL may put one back. No ticket
- * is ever both pooled and shadowed after a transaction.
+ * (the ticket that came back). A below-quorum ttEXPORT_FINAL may put one
+ * back. An expiry does not: the export was signed and sent, and a missing
+ * Import does not prove the ticket is still unused. No ticket is ever both
+ * pooled and shadowed after a transaction.
  */
 class ValidExportTickets
 {

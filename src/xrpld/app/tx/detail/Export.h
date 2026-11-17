@@ -124,8 +124,9 @@ class ValidatorKeys;
        which consumes the shadow ticket.
     5. If nothing has come back once a ledger `expiryGrace` past the
        export's LastLedgerSequence is proven there (ttINGEST), an expiry
-       ttEXPORT_FINAL erases the shadow ticket and returns the ticket. (The
-       ledger's own exports carry no LastLedgerSequence: they are resent.)
+       ttEXPORT_FINAL erases the shadow ticket and leaves the ticket out
+       of the pool. (The ledger's own exports carry no LastLedgerSequence:
+       they are resent.)
 
     Callbacks: cbak, once per export, with otxn_id() the id of the ttEXPORT
     (sfExportTxnID; otxn_id(1) is the transaction that brought the news).
@@ -133,12 +134,15 @@ class ValidatorKeys;
     meta). what == 1: it failed to apply, closed below quorum, expired, or
     something else used its ticket. What came back is told from anything
     else by its id without signatures (sfTransactionHash), since every
-    quorum of signatures gives a different signed id. Two limits: after a
-    close below quorum the signatures are still public, so until the
-    LastLedgerSequence passes somebody else could submit it; and an expiry
-    cannot rule out a transaction that landed in time but whose XPOP no
-    relay imported within the grace (it can be imported later, without a
-    second callback).
+    quorum of signatures gives a different signed id. After a close below
+    quorum the signatures are still public, so until the LastLedgerSequence
+    passes somebody else could submit it. An expiry does not return the
+    ticket. It was signed and sent, and a missing Import does not prove the
+    other network still holds it. Returning it draws a spent ticket again,
+    and a rejection before consensus never produces the Import that would
+    remove it. A ticket that was never spent stays unused there; the refill
+    replaces it. A proof that arrives after the shadow is gone finds the
+    ticket neither shadowed nor pooled, so it is refused.
 
     The account there is not only the ledger's: its master and regular keys
     are untouched, and whoever holds them can transact for it, spend its
