@@ -180,7 +180,7 @@ struct Remit_test : public beast::unit_test::suite
         // temINVALID_FLAG - Invalid flags set.
         {
             env(remit::remit(alice, bob),
-                txflags(tfBurnable),
+                txflags(0x00000002),
                 ter(temINVALID_FLAG));
             env.close();
         }
@@ -2925,6 +2925,557 @@ struct Remit_test : public beast::unit_test::suite
     }
 
     void
+    testRequireTrustline(FeatureBitset features)
+    {
+        testcase("require trustline");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const gw = Account("gw");
+        auto const USD = gw["USD"];
+        auto const EUR = gw["EUR"];
+
+        // 1. amendment disabled
+        {
+            Env env{*this, features - featureRemitNoAutoTrustline};
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100'000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env.close();
+
+            env(remit::remit(alice, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(temINVALID_FLAG));
+            env(remit::remit(alice, bob),
+                remit::amts({USD(1)}),
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // 2. bad flag combination
+        {
+            Env env{*this, features};
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100'000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env.close();
+
+            env(remit::remit(alice, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline | 0x00000002),
+                ter(temINVALID_FLAG));
+        }
+
+        // 3. dest has no line (third party sender)
+        {
+            Env env{*this, features};
+            auto const feeDrops = env.current()->fees().base;
+            auto const feeReserve = env.current()->fees().increment;
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice);
+            auto const preBob = env.balance(bob);
+            auto const preAliceUSD = env.balance(alice, USD.issue());
+            auto const preBobOwners = env.ownerCount(bob);
+
+            env(remit::remit(alice, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecNO_LINE));
+            env.close();
+
+            BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops);
+            BEAST_EXPECT(env.balance(bob) == preBob);
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD);
+            BEAST_EXPECT(!env.le(keylet::line(bob, gw, USD.currency)));
+            BEAST_EXPECT(env.ownerCount(bob) == preBobOwners);
+
+            // contrast: without the flag the line is created
+            auto const preAlice2 = env.balance(alice);
+            auto const preBob2 = env.balance(bob);
+            env(remit::remit(alice, bob),
+                remit::amts({USD(1)}),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(
+                env.balance(alice) == preAlice2 - feeDrops - feeReserve);
+            BEAST_EXPECT(env.balance(bob) == preBob2 + feeReserve);
+            BEAST_EXPECT(env.le(keylet::line(bob, gw, USD.currency)));
+        }
+
+        // 4. dest has line
+        {
+            Env env{*this, features};
+            auto const feeDrops = env.current()->fees().base;
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100'000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice);
+            auto const preBob = env.balance(bob);
+            auto const preAliceUSD = env.balance(alice, USD.issue());
+            auto const preBobUSD = env.balance(bob, USD.issue());
+            auto const preBobOwners = env.ownerCount(bob);
+
+            env(remit::remit(alice, bob),
+                remit::amts({XRP(1), USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tesSUCCESS));
+            env.close();
+
+            BEAST_EXPECT(env.balance(alice) == preAlice - XRP(1) - feeDrops);
+            BEAST_EXPECT(env.balance(bob) == preBob + XRP(1));
+            BEAST_EXPECT(
+                env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
+            BEAST_EXPECT(env.ownerCount(bob) == preBobOwners);
+        }
+
+        // 5. multiple IOUs, one line missing
+        {
+            Env env{*this, features};
+            auto const feeDrops = env.current()->fees().base;
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100'000), alice, bob);
+            env.trust(EUR(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env(pay(gw, alice, EUR(10'000)));
+            env.close();
+
+            auto const preAlice = env.balance(alice);
+            auto const preBob = env.balance(bob);
+            auto const preAliceUSD = env.balance(alice, USD.issue());
+            auto const preAliceEUR = env.balance(alice, EUR.issue());
+            auto const preBobUSD = env.balance(bob, USD.issue());
+
+            env(remit::remit(alice, bob),
+                remit::amts({XRP(1), USD(1), EUR(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecNO_LINE));
+            env.close();
+            env(remit::remit(alice, bob),
+                remit::amts({EUR(1), USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecNO_LINE));
+            env.close();
+
+            BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops - feeDrops);
+            BEAST_EXPECT(env.balance(bob) == preBob);
+            BEAST_EXPECT(env.balance(alice, USD.issue()) == preAliceUSD);
+            BEAST_EXPECT(env.balance(alice, EUR.issue()) == preAliceEUR);
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD);
+            BEAST_EXPECT(!env.le(keylet::line(bob, gw, EUR.currency)));
+        }
+
+        // 6. destination account does not exist
+        {
+            Env env{*this, features};
+            auto const feeDrops = env.current()->fees().base;
+            auto const accountReserve = env.current()->fees().accountReserve(0);
+            env.memoize(bob);
+            env.fund(XRP(1000), alice, gw);
+            env.close();
+            env.trust(USD(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env.close();
+
+            env(remit::remit(alice, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecNO_LINE));
+            env.close();
+            BEAST_EXPECT(!env.le(keylet::account(bob)));
+
+            auto const preAlice = env.balance(alice);
+            env(remit::remit(alice, bob),
+                remit::amts({XRP(1)}),
+                txflags(tfRequireTrustline),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.le(keylet::account(bob)));
+            BEAST_EXPECT(
+                env.balance(alice) ==
+                preAlice - XRP(1) - feeDrops - accountReserve);
+            BEAST_EXPECT(env.balance(bob) == XRP(1) + accountReserve);
+        }
+
+        // 7. issuer is the sender
+        {
+            Env env{*this, features};
+            auto const feeDrops = env.current()->fees().base;
+            env.fund(XRP(1000), bob, gw);
+            env.close();
+
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecNO_LINE));
+            env.close();
+            BEAST_EXPECT(!env.le(keylet::line(bob, gw, USD.currency)));
+
+            env.trust(USD(100'000), bob);
+            env.close();
+            auto const preGw = env.balance(gw);
+            auto const preBob = env.balance(bob);
+            auto const preBobUSD = env.balance(bob, USD.issue());
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(env.balance(gw) == preGw - feeDrops);
+            BEAST_EXPECT(env.balance(bob) == preBob);
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
+        }
+
+        // 8. issuer is the destination
+        {
+            Env env{*this, features};
+            auto const feeDrops = env.current()->fees().base;
+            auto const feeReserve = env.current()->fees().increment;
+            env.fund(XRP(1000), alice, gw);
+            env.close();
+            env.trust(USD(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env.close();
+
+            // without flag (contrast)
+            {
+                auto const preAlice = env.balance(alice);
+                auto const preGw = env.balance(gw);
+                env(remit::remit(alice, gw),
+                    remit::amts({USD(1)}),
+                    ter(tesSUCCESS));
+                env.close();
+                BEAST_EXPECT(
+                    env.balance(alice) == preAlice - feeDrops - feeReserve);
+                BEAST_EXPECT(env.balance(gw) == preGw + feeReserve);
+            }
+            // with flag
+            {
+                auto const preAlice = env.balance(alice);
+                auto const preGw = env.balance(gw);
+                auto const preAliceUSD = env.balance(alice, USD.issue());
+                env(remit::remit(alice, gw),
+                    remit::amts({USD(1)}),
+                    txflags(tfRequireTrustline),
+                    ter(tesSUCCESS));
+                env.close();
+                BEAST_EXPECT(env.balance(alice) == preAlice - feeDrops);
+                BEAST_EXPECT(env.balance(gw) == preGw);
+                BEAST_EXPECT(
+                    env.balance(alice, USD.issue()) == preAliceUSD - USD(1));
+            }
+        }
+
+        // 9. freeze, third-party sender
+        {
+            Env env{*this, features};
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+            env.trust(USD(100'000), alice, bob);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env(pay(gw, bob, USD(10'000)));
+            env.close();
+
+            env(trust(gw, USD(100'000), bob, tfSetFreeze));
+            env.close();
+            env(remit::remit(alice, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecFROZEN));
+            env.close();
+            env(trust(gw, USD(100'000), bob, tfClearFreeze));
+            env.close();
+            env(remit::remit(alice, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // 10. freeze, issuer sender
+        {
+            Env env{*this, features};
+            env.fund(XRP(1000), bob, gw);
+            env.close();
+            env.trust(USD(100'000), bob);
+            env.close();
+
+            // a. individual freeze
+            env(trust(gw, USD(100'000), bob, tfSetFreeze));
+            env.close();
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecFROZEN));
+            env.close();
+            env(remit::remit(gw, bob), remit::amts({USD(1)}), ter(tesSUCCESS));
+            env.close();
+            env(trust(gw, USD(100'000), bob, tfClearFreeze));
+            env.close();
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tesSUCCESS));
+            env.close();
+
+            // b. deep freeze
+            env(trust(gw, USD(100'000), bob, tfSetFreeze | tfSetDeepFreeze));
+            env.close();
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecFROZEN));
+            env.close();
+            env(trust(
+                gw, USD(100'000), bob, tfClearFreeze | tfClearDeepFreeze));
+            env.close();
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tesSUCCESS));
+            env.close();
+
+            // c. global freeze
+            env(fset(gw, asfGlobalFreeze));
+            env.close();
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecFROZEN));
+            env.close();
+            env(fclear(gw, asfGlobalFreeze));
+            env.close();
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // 11. RequireAuth, issuer sender
+        {
+            Env env{*this, features};
+            env.fund(XRP(1000), bob, gw);
+            env.close();
+            env(fset(gw, asfRequireAuth));
+            env.close();
+            env(trust(bob, USD(10'000)));
+            env.close();
+
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecNO_AUTH));
+            env.close();
+            env(trust(gw, bob["USD"](10'000)), txflags(tfSetfAuth));
+            env.close();
+            env(remit::remit(gw, bob),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tesSUCCESS));
+            env.close();
+        }
+
+        // 12. URITokens are unaffected by the flag
+        {
+            // a. transfer existing token
+            Env env{*this, features};
+            auto const feeDrops = env.current()->fees().base;
+            auto const feeReserve = env.current()->fees().increment;
+            env.fund(XRP(1000), alice, bob, gw);
+            env.close();
+
+            {
+                std::string const uri = "ipfs://a";
+                auto const tid = uritoken::tokenid(alice, uri);
+                env(uritoken::mint(alice, uri), ter(tesSUCCESS));
+                env.close();
+
+                auto const preAlice = env.balance(alice);
+                auto const preBob = env.balance(bob);
+                env(remit::remit(alice, bob),
+                    remit::token_ids({strHex(tid)}),
+                    txflags(tfRequireTrustline),
+                    ter(tesSUCCESS));
+                env.close();
+                BEAST_EXPECT(
+                    env.balance(alice) == preAlice - feeDrops - feeReserve);
+                BEAST_EXPECT(env.balance(bob) == preBob + feeReserve);
+                BEAST_EXPECT(tokenOwner(*env.current(), tid) == bob.id());
+            }
+
+            // b. mint during remit
+            {
+                std::string const uri = "ipfs://something";
+                auto const tid = uritoken::tokenid(alice, uri);
+                auto const preAlice = env.balance(alice);
+                env(remit::remit(alice, bob),
+                    remit::uri(uri),
+                    txflags(tfRequireTrustline),
+                    ter(tesSUCCESS));
+                env.close();
+                BEAST_EXPECT(
+                    env.balance(alice) == preAlice - feeDrops - feeReserve);
+                BEAST_EXPECT(tokenOwner(*env.current(), tid) == bob.id());
+            }
+
+            // c/d. token + IOU
+            env.trust(USD(100'000), alice);
+            env.close();
+            env(pay(gw, alice, USD(10'000)));
+            env.close();
+
+            std::string const uri2 = "ipfs://c";
+            auto const tid2 = uritoken::tokenid(alice, uri2);
+            env(uritoken::mint(alice, uri2), ter(tesSUCCESS));
+            env.close();
+
+            env(remit::remit(alice, bob),
+                remit::token_ids({strHex(tid2)}),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tecNO_LINE));
+            env.close();
+            BEAST_EXPECT(tokenOwner(*env.current(), tid2) == alice.id());
+
+            env.trust(USD(100'000), bob);
+            env.close();
+            auto const preAlice = env.balance(alice);
+            auto const preBobUSD = env.balance(bob, USD.issue());
+            env(remit::remit(alice, bob),
+                remit::token_ids({strHex(tid2)}),
+                remit::amts({USD(1)}),
+                txflags(tfRequireTrustline),
+                ter(tesSUCCESS));
+            env.close();
+            BEAST_EXPECT(
+                env.balance(alice) == preAlice - feeDrops - feeReserve);
+            BEAST_EXPECT(tokenOwner(*env.current(), tid2) == bob.id());
+            BEAST_EXPECT(env.balance(bob, USD.issue()) == preBobUSD + USD(1));
+        }
+
+        // 13. destination must own its side of the line
+        {
+            auto const gw0 = Account("gw0");
+            auto const carol = Account("carol");
+            auto const g0USD = gw0["USD"];
+            auto const alice3 = Account("alice3");
+            auto const dan1 = Account("dan1");
+            BEAST_EXPECT(alice3.id() < gw0.id());  // dst is low
+            BEAST_EXPECT(dan1.id() > gw0.id());    // dst is high
+
+            for (auto const& dst : {alice3, dan1})
+            {
+                bool const dstIsLow = dst.id() < gw0.id();
+                auto const dstReserve =
+                    dstIsLow ? lsfLowReserve : lsfHighReserve;
+                auto const lineHasDstReserve = [&](Env& e) {
+                    auto const sle = e.le(keylet::line(dst, gw0, USD.currency));
+                    return sle && (sle->getFlags() & dstReserve);
+                };
+
+                {
+                    Env env{*this, features};
+                    auto const feeDrops = env.current()->fees().base;
+                    env.fund(XRP(1000), carol, gw0, dst);
+                    env.close();
+                    env.trust(g0USD(100'000), carol);
+                    env.close();
+                    env(pay(gw0, carol, g0USD(10'000)));
+                    env.close();
+
+                    // a. issuer-only line
+                    env(trust(gw0, dst["USD"](100)));
+                    env.close();
+                    BEAST_EXPECT(env.le(keylet::line(dst, gw0, USD.currency)));
+                    BEAST_EXPECT(!lineHasDstReserve(env));
+                    BEAST_EXPECT(env.ownerCount(dst) == 0);
+
+                    auto const preDst = env.balance(dst);
+                    env(remit::remit(carol, dst),
+                        remit::amts({g0USD(1)}),
+                        txflags(tfRequireTrustline),
+                        ter(tecNO_LINE));
+                    env(remit::remit(gw0, dst),
+                        remit::amts({g0USD(1)}),
+                        txflags(tfRequireTrustline),
+                        ter(tecNO_LINE));
+                    env.close();
+                    BEAST_EXPECT(env.balance(dst, g0USD.issue()) == g0USD(0));
+                    BEAST_EXPECT(env.balance(dst) == preDst);
+
+                    // b. dst opts in
+                    env.trust(g0USD(100'000), dst);
+                    env.close();
+                    BEAST_EXPECT(lineHasDstReserve(env));
+
+                    auto const preCarol = env.balance(carol);
+                    env(remit::remit(carol, dst),
+                        remit::amts({g0USD(1)}),
+                        txflags(tfRequireTrustline),
+                        ter(tesSUCCESS));
+                    env.close();
+                    BEAST_EXPECT(env.balance(carol) == preCarol - feeDrops);
+                    env(remit::remit(gw0, dst),
+                        remit::amts({g0USD(1)}),
+                        txflags(tfRequireTrustline),
+                        ter(tesSUCCESS));
+                    env.close();
+                }
+
+                // c. line auto-created by a flagless remit counts as held
+                {
+                    Env env{*this, features};
+                    auto const feeDrops = env.current()->fees().base;
+                    env.fund(XRP(1000), carol, gw0, dst);
+                    env.close();
+                    env.trust(g0USD(100'000), carol);
+                    env.close();
+                    env(pay(gw0, carol, g0USD(10'000)));
+                    env.close();
+
+                    env(remit::remit(carol, dst),
+                        remit::amts({g0USD(1)}),
+                        ter(tesSUCCESS));
+                    env.close();
+                    BEAST_EXPECT(env.ownerCount(dst) == 1);
+                    BEAST_EXPECT(lineHasDstReserve(env));
+
+                    auto const preCarol = env.balance(carol);
+                    env(remit::remit(carol, dst),
+                        remit::amts({g0USD(1)}),
+                        txflags(tfRequireTrustline),
+                        ter(tesSUCCESS));
+                    env.close();
+                    BEAST_EXPECT(env.balance(carol) == preCarol - feeDrops);
+                }
+            }
+        }
+    }
+
+    void
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
@@ -2946,6 +3497,7 @@ struct Remit_test : public beast::unit_test::suite
         testURIToken(features);
         testOptionals(features);
         testDestAMM(features);
+        testRequireTrustline(features);
     }
 
 public:

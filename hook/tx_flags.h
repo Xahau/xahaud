@@ -104,6 +104,10 @@ enum ClaimRewardFlags : uint32_t {
     tfOptOut = 0x00000001,
 };
 
+enum RemitFlags : uint32_t {
+    tfRequireTrustline = 0x00000001,
+};
+
 enum CronSetFlags : uint32_t {
     tfCronUnset = 0x00000001,
 };

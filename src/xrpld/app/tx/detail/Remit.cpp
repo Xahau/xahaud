@@ -50,6 +50,14 @@ Remit::makeTxConsequences(PreflightContext const& ctx)
     return TxConsequences{ctx.tx, native};
 }
 
+std::uint32_t
+Remit::getFlagsMask(PreflightContext const& ctx)
+{
+    return ctx.tx.getFlags() &
+        (ctx.rules.enabled(featureRemitNoAutoTrustline) ? tfRemitMask
+                                                        : tfUniversalMask);
+}
+
 NotTEC
 Remit::preflight(PreflightContext const& ctx)
 {
@@ -508,6 +516,38 @@ Remit::doApply()
 
             AccountID const issuerAccID = amount.getIssuer();
 
+            // tfRequireTrustline: never create a trustline at the
+            // destination. It must already hold the line (i.e. own the
+            // reserve on its side) and be able to receive on it. (No line is
+            // needed when the destination is the issuer.)
+            if (ctx_.tx.isFlag(tfRequireTrustline) && issuerAccID != dstAccID)
+            {
+                auto const sleLine = sb.read(
+                    keylet::line(dstAccID, issuerAccID, amount.getCurrency()));
+                if (!sleLine ||
+                    !(sleLine->getFlags() &
+                      (dstAccID > issuerAccID ? lsfHighReserve
+                                              : lsfLowReserve)))
+                {
+                    JLOG(j.warn()) << "Remit: tfRequireTrustline set but "
+                                      "destination lacks trustline.";
+                    return tecNO_LINE;
+                }
+
+                // an issuer sending its own token skips the permission check
+                // below, so check the destination's line here.
+                if (issuerAccID == srcAccID)
+                {
+                    if (TER canRecv = trustTransferAllowed(
+                            sb,
+                            std::vector<AccountID>{dstAccID},
+                            amount.issue(),
+                            j);
+                        !isTesSuccess(canRecv))
+                        return canRecv;
+                }
+            }
+
             // check permissions
             if (issuerAccID == srcAccID || issuerAccID == dstAccID)
             {
@@ -546,8 +586,11 @@ Remit::doApply()
                 return tecUNFUNDED_PAYMENT;
 
             // if the target trustline doesn't exist we need to create it and
-            // pay its reserve
-            if (!sb.exists(
+            // pay its reserve. with tfRequireTrustline no line is ever
+            // created, so no reserve is paid (this also covers remitting back
+            // to the issuer, where no line can exist).
+            if (!ctx_.tx.isFlag(tfRequireTrustline) &&
+                !sb.exists(
                     keylet::line(dstAccID, issuerAccID, amount.getCurrency())))
             {
                 if (nativeRemit + objectReserve < nativeRemit)
