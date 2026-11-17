@@ -18,10 +18,10 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/Remit.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/UTF8.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/TxFlags.h>
@@ -265,9 +265,11 @@ Remit::doApply()
     if (accountReserve < beast::zero || objectReserve < beast::zero ||
         objectReserve > sb.fees().accountReserve(1))
     {
+        // LCOV_EXCL_START
         JLOG(j.warn())
             << "Remit: account or object reserve calculation not sane.";
         return tecINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     // amount of native tokens we will transfer to cover reserves for the
@@ -314,7 +316,7 @@ Remit::doApply()
     {
         // sender will pay the reserve
         if (nativeRemit + accountReserve < nativeRemit)
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
 
         nativeRemit += accountReserve;
 
@@ -348,7 +350,7 @@ Remit::doApply()
     if (ctx_.tx.isFieldPresent(sfMintURIToken))
     {
         if (nativeRemit + objectReserve < nativeRemit)
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
 
         nativeRemit += objectReserve;
         STObject const& mint = const_cast<ripple::STTx&>(ctx_.tx)
@@ -393,7 +395,7 @@ Remit::doApply()
                          << (page ? "success" : "failure");
 
         if (!page)
-            return tecDIR_FULL;
+            return tecDIR_FULL;  // LCOV_EXCL_LINE
 
         sleMint->setFieldU64(sfOwnerNode, *page);
         sb.insert(sleMint);
@@ -446,7 +448,7 @@ Remit::doApply()
 
             // pay the reserve
             if (nativeRemit + objectReserve < nativeRemit)
-                return tecINTERNAL;
+                return tecINTERNAL;  // LCOV_EXCL_LINE
 
             nativeRemit += objectReserve;
 
@@ -456,9 +458,11 @@ Remit::doApply()
                 if (!sb.dirRemove(
                         keylet::ownerDir(srcAccID), page, kl.key, true))
                 {
+                    // LCOV_EXCL_START
                     JLOG(j.fatal())
                         << "Could not remove URIToken from owner directory";
                     return tefBAD_LEDGER;
+                    // LCOV_EXCL_STOP
                 }
 
                 adjustOwnerCount(sb, sleSrcAcc, -1, j);
@@ -474,7 +478,7 @@ Remit::doApply()
                                  << (page ? "success" : "failure");
 
                 if (!page)
-                    return tecDIR_FULL;
+                    return tecDIR_FULL;  // LCOV_EXCL_LINE
 
                 sleU->setFieldU64(sfOwnerNode, *page);
 
@@ -504,7 +508,7 @@ Remit::doApply()
 
                 // check for overflow
                 if (nativeRemit + amount.xrp() < nativeRemit)
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 nativeRemit += amount.xrp();
                 continue;
@@ -539,8 +543,10 @@ Remit::doApply()
             // sanity check this calculation
             if (srcAmt < amount || srcAmt > amount + amount)
             {
+                // LCOV_EXCL_START
                 JLOG(j.warn()) << "Remit: srcAmt calculation not sane.";
                 return tecINTERNAL;
+                // LCOV_EXCL_STOP
             }
 
             STAmount availableFunds{
@@ -555,7 +561,7 @@ Remit::doApply()
                     keylet::line(dstAccID, issuerAccID, amount.getCurrency())))
             {
                 if (nativeRemit + objectReserve < nativeRemit)
-                    return tecINTERNAL;
+                    return tecINTERNAL;  // LCOV_EXCL_LINE
 
                 nativeRemit += objectReserve;
             }
@@ -575,7 +581,7 @@ Remit::doApply()
     }
 
     if (nativeRemit < beast::zero)
-        return tecINTERNAL;
+        return tecINTERNAL;  // LCOV_EXCL_LINE
 
     if (nativeRemit > beast::zero)
     {
@@ -588,7 +594,7 @@ Remit::doApply()
             STAmount bal = mSourceBalance;
             bal -= nativeRemit;
             if (bal < beast::zero || bal > mSourceBalance)
-                return tecINTERNAL;
+                return tecINTERNAL;  // LCOV_EXCL_LINE
             sleSrcAcc->setFieldAmount(sfBalance, bal);
         }
 
@@ -598,7 +604,7 @@ Remit::doApply()
             STAmount prior = bal;
             bal += nativeRemit;
             if (bal < beast::zero || bal < prior)
-                return tecINTERNAL;
+                return tecINTERNAL;  // LCOV_EXCL_LINE
             sleDstAcc->setFieldAmount(sfBalance, bal);
         }
     }

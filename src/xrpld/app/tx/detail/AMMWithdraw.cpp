@@ -20,9 +20,9 @@
 #include <xrpld/app/misc/AMMHelpers.h>
 #include <xrpld/app/misc/AMMUtils.h>
 #include <xrpld/app/tx/detail/AMMWithdraw.h>
-#include <xrpld/ledger/Sandbox.h>
 
 #include <xrpl/basics/Number.h>
+#include <xrpl/ledger/Sandbox.h>
 #include <xrpl/protocol/AMMCore.h>
 #include <xrpl/protocol/TxFlags.h>
 
@@ -196,9 +196,11 @@ AMMWithdraw::preclaim(PreclaimContext const& ctx)
     if (amountBalance <= beast::zero || amount2Balance <= beast::zero ||
         lptAMMBalance < beast::zero)
     {
+        // LCOV_EXCL_START
         JLOG(ctx.j.debug())
             << "AMM Withdraw: reserves or tokens balance is zero.";
-        return tecINTERNAL;  // LCOV_EXCL_LINE
+        return tecINTERNAL;
+        // LCOV_EXCL_STOP
     }
 
     auto const ammAccountID = ammSle->getAccountID(sfAccount);

@@ -18,8 +18,8 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/MPTokenAuthorize.h>
-#include <xrpld/ledger/View.h>
 
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/st.h>
@@ -75,7 +75,7 @@ MPTokenAuthorize::preclaim(PreclaimContext const& ctx)
                 auto const sleMptIssuance = ctx.view.read(
                     keylet::mptIssuance(ctx.tx[sfMPTokenIssuanceID]));
                 if (!sleMptIssuance)
-                    return tefINTERNAL;
+                    return tefINTERNAL;  // LCOV_EXCL_LINE
 
                 return tecHAS_OBLIGATIONS;
             }

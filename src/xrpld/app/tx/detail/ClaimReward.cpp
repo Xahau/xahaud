@@ -21,9 +21,9 @@
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/tx/detail/ClaimReward.h>
 #include <xrpld/core/Config.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
@@ -187,7 +187,7 @@ ClaimReward::preclaim(PreclaimContext const& ctx)
         bool const isMPT = claimCurrency.holds<MPTIssue>();
 
         if (isMPT)
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
 
         auto const claimIssue = claimCurrency.get<Issue>();
 
@@ -226,14 +226,14 @@ ClaimReward::doApply()
         bool const isMPT = claimCurrency.holds<MPTIssue>();
 
         if (isMPT)
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
 
         auto const claimIssue = claimCurrency.get<Issue>();
 
         auto lineSle = view().peek(
             keylet::line(account_, claimIssue.account, claimIssue.currency));
         if (!lineSle)
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
 
         bool const isHigh = account_ > claimIssue.account;
         auto const& rewardField = isHigh ? sfHighReward : sfLowReward;

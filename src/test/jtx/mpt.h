@@ -106,6 +106,7 @@ struct MPTCreate
     std::optional<std::uint32_t> holderCount = std::nullopt;
     bool fund = true;
     std::optional<std::uint32_t> flags = {0};
+    std::optional<std::uint32_t> mutableFlags = std::nullopt;
     std::optional<uint256> domainID = std::nullopt;
     std::optional<TER> err = std::nullopt;
 };
@@ -139,6 +140,9 @@ struct MPTSet
     std::optional<std::uint32_t> ownerCount = std::nullopt;
     std::optional<std::uint32_t> holderCount = std::nullopt;
     std::optional<std::uint32_t> flags = std::nullopt;
+    std::optional<std::uint32_t> mutableFlags = std::nullopt;
+    std::optional<std::uint16_t> transferFee = std::nullopt;
+    std::optional<std::string> metadata = std::nullopt;
     std::optional<Account> delegate = std::nullopt;
     std::optional<uint256> domainID = std::nullopt;
     std::optional<TER> err = std::nullopt;
@@ -182,6 +186,18 @@ public:
         uint32_t const expectedFlags,
         std::optional<Account> const& holder = std::nullopt) const;
 
+    [[nodiscard]] bool
+    checkMetadata(std::string const& metadata) const;
+
+    [[nodiscard]] bool
+    isMetadataPresent() const;
+
+    [[nodiscard]] bool
+    checkTransferFee(std::uint16_t transferFee) const;
+
+    [[nodiscard]] bool
+    isTransferFeePresent() const;
+
     Account const&
     issuer() const
     {
@@ -219,7 +235,7 @@ public:
     getBalance(Account const& account) const;
 
     MPT
-    operator[](std::string const& name);
+    operator[](std::string const& name) const;
 
 private:
     using SLEP = std::shared_ptr<SLE const>;

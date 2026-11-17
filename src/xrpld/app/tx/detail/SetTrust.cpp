@@ -19,9 +19,9 @@
 
 #include <xrpld/app/misc/DelegateUtils.h>
 #include <xrpld/app/tx/detail/SetTrust.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/AMMCore.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -377,7 +377,7 @@ SetTrust::doApply()
 
     auto const sle = view().peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     std::uint32_t const uOwnerCount = sle->getFieldU32(sfOwnerCount);
 

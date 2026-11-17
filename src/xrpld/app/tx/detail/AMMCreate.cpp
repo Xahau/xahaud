@@ -21,9 +21,9 @@
 #include <xrpld/app/misc/AMMHelpers.h>
 #include <xrpld/app/misc/AMMUtils.h>
 #include <xrpld/app/tx/detail/AMMCreate.h>
-#include <xrpld/ledger/Sandbox.h>
-#include <xrpld/ledger/View.h>
 
+#include <xrpl/ledger/Sandbox.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/AMMCore.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STIssue.h>
@@ -198,7 +198,7 @@ AMMCreate::preclaim(PreclaimContext const& ctx)
             return tesSUCCESS;
         if (auto const sle = ctx.view.read(keylet::account(issue.account));
             !sle)
-            return tecINTERNAL;
+            return tecINTERNAL;  // LCOV_EXCL_LINE
         else if (sle->getFlags() & lsfAllowTrustLineClawback)
             return tecNO_PERMISSION;
         return tesSUCCESS;
@@ -292,7 +292,7 @@ applyCreate(
             if (SLE::pointer sleRippleState =
                     sb.peek(keylet::line(accountId, amount.issue()));
                 !sleRippleState)
-                return tecINTERNAL;
+                return tecINTERNAL;  // LCOV_EXCL_LINE
             else
             {
                 auto const flags = sleRippleState->getFlags();

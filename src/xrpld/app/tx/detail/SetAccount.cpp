@@ -20,9 +20,9 @@
 #include <xrpld/app/misc/DelegateUtils.h>
 #include <xrpld/app/tx/detail/SetAccount.h>
 #include <xrpld/core/Config.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/AppLoader.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -384,7 +384,7 @@ SetAccount::doApply()
 {
     auto const sle = view().peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     std::uint32_t const uFlagsIn = sle->getFieldU32(sfFlags);
     std::uint32_t uFlagsOut = uFlagsIn;

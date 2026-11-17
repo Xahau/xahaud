@@ -18,8 +18,8 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/Clawback.h>
-#include <xrpld/ledger/View.h>
 
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/MPTAmount.h>
@@ -235,7 +235,7 @@ applyHelper<Issue>(ApplyContext& ctx)
     // Replace the `issuer` field with issuer's account
     clawAmount.setIssuer(issuer);
     if (holder == issuer)
-        return tecINTERNAL;
+        return tecINTERNAL;  // LCOV_EXCL_LINE
 
     // Get the spendable balance. Must use `accountHolds`.
     STAmount const spendableAmount = accountHolds(

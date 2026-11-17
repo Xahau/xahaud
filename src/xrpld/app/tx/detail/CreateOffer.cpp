@@ -21,10 +21,10 @@
 #include <xrpld/app/misc/PermissionedDEXHelpers.h>
 #include <xrpld/app/paths/Flow.h>
 #include <xrpld/app/tx/detail/CreateOffer.h>
-#include <xrpld/ledger/PaymentSandbox.h>
 
 #include <xrpl/basics/base_uint.h>
 #include <xrpl/beast/utility/WrappedSink.h>
+#include <xrpl/ledger/PaymentSandbox.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STAmount.h>
 #include <xrpl/protocol/TER.h>
@@ -896,9 +896,11 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
 
     if (!ownerNode)
     {
+        // LCOV_EXCL_START
         JLOG(j_.debug())
             << "final result: failed to add offer to owner's directory";
         return {tecDIR_FULL, true};
+        // LCOV_EXCL_STOP
     }
 
     // Update owner count.
@@ -942,8 +944,10 @@ CreateOffer::applyGuts(Sandbox& sb, Sandbox& sbCancel)
 
     if (!bookNode)
     {
+        // LCOV_EXCL_START
         JLOG(j_.debug()) << "final result: failed to add offer to book";
         return {tecDIR_FULL, true};
+        // LCOV_EXCL_STOP
     }
 
     auto sleOffer = std::make_shared<SLE>(offer_index);

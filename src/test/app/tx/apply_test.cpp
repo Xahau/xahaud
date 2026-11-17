@@ -66,7 +66,7 @@ public:
                                  .first;
 
             if (valid != Validity::Valid)
-                fail("Non-Fully canoncial signature was not permitted");
+                fail("Non-Fully canonical signature was not permitted");
         }
 
         {
@@ -80,7 +80,7 @@ public:
                                  fully_canonical.app().config())
                                  .first;
             if (valid == Validity::Valid)
-                fail("Non-Fully canoncial signature was permitted");
+                fail("Non-Fully canonical signature was permitted");
         }
 
         pass();

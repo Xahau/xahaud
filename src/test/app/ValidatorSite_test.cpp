@@ -37,7 +37,6 @@
 #include <chrono>
 
 namespace ripple {
-namespace test {
 namespace detail {
 constexpr char const*
 realValidatorContents()
@@ -56,6 +55,7 @@ auto constexpr default_expires = std::chrono::seconds{3600};
 auto constexpr default_effective_overlap = std::chrono::seconds{30};
 }  // namespace detail
 
+namespace test {
 class ValidatorSite_test : public beast::unit_test::suite
 {
 private:
@@ -591,7 +591,7 @@ public:
                   false,
                   true,
                   1,
-                  std::chrono::seconds{Json::Value::maxInt + 1}}});
+                  std::chrono::seconds{Json::Value::minInt}}});
             // force an out-of-range validUntil value on the future list
             // The first list is accepted. The second fails. The parser
             // returns the "best" result, so this looks like a success.
@@ -627,7 +627,7 @@ public:
                   false,
                   true,
                   1,
-                  std::chrono::seconds{Json::Value::maxInt + 1},
+                  std::chrono::seconds{Json::Value::minInt},
                   std::chrono::seconds{Json::Value::maxInt - 6000}}});
             // verify refresh intervals are properly clamped
             testFetchList(

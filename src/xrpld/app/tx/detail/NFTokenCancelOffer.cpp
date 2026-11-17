@@ -19,8 +19,8 @@
 
 #include <xrpld/app/tx/detail/NFTokenCancelOffer.h>
 #include <xrpld/app/tx/detail/NFTokenUtils.h>
-#include <xrpld/ledger/View.h>
 
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/TxFlags.h>
 
@@ -101,9 +101,11 @@ NFTokenCancelOffer::doApply()
         if (auto offer = view().peek(keylet::nftoffer(id));
             offer && !nft::deleteTokenOffer(view(), offer))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Unable to delete token offer " << id
                              << " (ledger " << view().seq() << ")";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
     }
 

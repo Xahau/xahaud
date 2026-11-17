@@ -18,8 +18,8 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/MPTokenIssuanceDestroy.h>
-#include <xrpld/ledger/View.h>
 
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/TxFlags.h>
 
@@ -63,11 +63,11 @@ MPTokenIssuanceDestroy::doApply()
     auto const mpt =
         view().peek(keylet::mptIssuance(ctx_.tx[sfMPTokenIssuanceID]));
     if (account_ != mpt->getAccountID(sfIssuer))
-        return tecINTERNAL;
+        return tecINTERNAL;  // LCOV_EXCL_LINE
 
     if (!view().dirRemove(
             keylet::ownerDir(account_), (*mpt)[sfOwnerNode], mpt->key(), false))
-        return tefBAD_LEDGER;
+        return tefBAD_LEDGER;  // LCOV_EXCL_LINE
 
     view().erase(mpt);
 

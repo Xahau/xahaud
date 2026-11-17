@@ -17,10 +17,10 @@
 */
 //==============================================================================
 
-#include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/tx/detail/VaultWithdraw.h>
-#include <xrpld/ledger/View.h>
 
+#include <xrpl/ledger/CredentialHelpers.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/SField.h>
@@ -155,6 +155,8 @@ VaultWithdraw::preclaim(PreclaimContext const& ctx)
     if (auto const ret = checkFrozen(ctx.view, dstAcct, vaultAsset))
         return ret;
 
+    // Cannot return shares to the vault, if the underlying asset was frozen for
+    // the submitter
     if (auto const ret = checkFrozen(ctx.view, account, vaultShare))
         return ret;
 

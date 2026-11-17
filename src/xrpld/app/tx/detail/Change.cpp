@@ -26,11 +26,11 @@
 #include <xrpld/app/tx/detail/SetHook.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
 #include <xrpld/app/tx/detail/XahauGenesis.h>
-#include <xrpld/ledger/Sandbox.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/hook/Guard.h>
+#include <xrpl/ledger/Sandbox.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
@@ -228,7 +228,7 @@ Change::preclaim(PreclaimContext const& ctx)
 
             auto const pkType = publicKeyType(makeSlice(pkBlob));
             if (!pkType)
-                return tefINTERNAL;
+                return tefINTERNAL;  // LCOV_EXCL_LINE
 
             PublicKey const pk(makeSlice(pkBlob));
 
@@ -266,9 +266,11 @@ Change::doApply()
             return applyUNLReport();
         case ttENTROPY:
             return applyEntropy();
+        // LCOV_EXCL_START
         default:
             UNREACHABLE("ripple::Change::doApply : invalid transaction type");
             return tefFAILURE;
+            // LCOV_EXCL_STOP
     }
 }
 
@@ -1255,9 +1257,11 @@ Change::applyEmitFailure()
                 key,
                 false))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "HookError[" << txnID
                              << "]: ttEmitFailure (Change) tefBAD_LEDGER";
             return tefBAD_LEDGER;
+            // LCOV_EXCL_STOP
         }
 
         view().erase(sle);

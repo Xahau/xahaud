@@ -19,7 +19,6 @@
 
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/main/Application.h>
-#include <xrpld/app/misc/CredentialHelpers.h>
 #include <xrpld/app/misc/DelegateUtils.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/LoadFeeTrack.h>
@@ -29,14 +28,15 @@
 #include <xrpld/app/tx/detail/SignerEntries.h>
 #include <xrpld/app/tx/detail/Transactor.h>
 #include <xrpld/core/Config.h>
-#include <xrpld/ledger/PaymentSandbox.h>
-#include <xrpld/ledger/View.h>
-#include <xrpld/ledger/detail/ApplyViewBase.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/contract.h>
 #include <xrpl/hook/Enum.h>
 #include <xrpl/json/to_string.h>
+#include <xrpl/ledger/CredentialHelpers.h>
+#include <xrpl/ledger/PaymentSandbox.h>
+#include <xrpl/ledger/View.h>
+#include <xrpl/ledger/detail/ApplyViewBase.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/JSONTxSignatures.h>
@@ -266,7 +266,7 @@ Transactor::preflight1(PreflightContext const& ctx, std::uint32_t flagMask)
             // transaction because somehow it might end up being locally
             // produced. It's assumed this can only happen due to some strange
             // state in the local instance.
-            return telNON_LOCAL_EMITTED_TXN;
+            return telNON_LOCAL_EMITTED_TXN;  // LCOV_EXCL_LINE
         }
     }
 
@@ -337,7 +337,10 @@ Transactor::preflight2(PreflightContext const& ctx)
 //------------------------------------------------------------------------------
 
 Transactor::Transactor(ApplyContext& ctx)
-    : ctx_(ctx), j_(ctx.journal), account_(ctx.tx.getAccountID(sfAccount))
+    : ctx_(ctx)
+    , sink_(ctx.journal, to_short_string(ctx.tx.getTransactionID()) + " ")
+    , j_(sink_)
+    , account_(ctx.tx.getAccountID(sfAccount))
 {
 }
 
@@ -792,13 +795,13 @@ Transactor::checkSeqProxy(
         // this is more strictly enforced in the emit() hook api
         // here this is only acting as a sanity check in case of bugs
         if (!tx.isFieldPresent(sfFirstLedgerSequence))
-            return tefINTERNAL;
+            return tefINTERNAL;  // LCOV_EXCL_LINE
         return tesSUCCESS;
     }
 
     // reserved for emitted tx only at this time
     if (tx.isFieldPresent(sfFirstLedgerSequence))
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // Replay protection comes from sfTime against sfLastTxnTime, which
     // checkPriorTxAndLastLedger enforces; the account Sequence is neither
@@ -1029,15 +1032,19 @@ Transactor::ticketDelete(
     SLE::pointer const sleTicket = view.peek(keylet::ticket(ticketIndex));
     if (!sleTicket)
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "Ticket disappeared from ledger.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     std::uint64_t const page{(*sleTicket)[sfOwnerNode]};
     if (!view.dirRemove(keylet::ownerDir(account), page, ticketIndex, true))
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "Unable to delete Ticket from owner.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     // Update the account root's TicketCount.  If the ticket count drops to
@@ -1045,8 +1052,10 @@ Transactor::ticketDelete(
     auto sleAccount = view.peek(keylet::account(account));
     if (!sleAccount)
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "Could not find Ticket owner account root.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     if (auto ticketCount = (*sleAccount)[~sfTicketCount])
@@ -1058,8 +1067,10 @@ Transactor::ticketDelete(
     }
     else
     {
+        // LCOV_EXCL_START
         JLOG(j.fatal()) << "TicketCount field missing from account root.";
         return tefBAD_LEDGER;
+        // LCOV_EXCL_STOP
     }
 
     // Update the Ticket owner's reserve.
@@ -1120,6 +1131,63 @@ Transactor::apply()
 }
 
 NotTEC
+Transactor::checkSign(
+    ReadView const& view,
+    ApplyFlags flags,
+    AccountID const& idAccount,
+    STObject const& sigObject,
+    beast::Journal const j)
+{
+    auto const pkSigner = sigObject.getFieldVL(sfSigningPubKey);
+    // Ignore signature check on batch inner transactions
+    if (sigObject.isFlag(tfInnerBatchTxn) && view.rules().enabled(featureBatch))
+    {
+        // Defensive Check: These values are also checked in Batch::preflight
+        if (sigObject.isFieldPresent(sfTxnSignature) || !pkSigner.empty() ||
+            sigObject.isFieldPresent(sfSigners))
+        {
+            return temINVALID_FLAG;  // LCOV_EXCL_LINE
+        }
+        return tesSUCCESS;
+    }
+
+    if ((flags & tapDRY_RUN) && pkSigner.empty() &&
+        !sigObject.isFieldPresent(sfSigners))
+    {
+        // simulate: skip signature validation when neither SigningPubKey nor
+        // Signers are provided
+        return tesSUCCESS;
+    }
+
+    // If the pk is empty and not simulate or simulate and signers,
+    // then we must be multi-signing.
+    if (sigObject.isFieldPresent(sfSigners))
+    {
+        return checkMultiSign(view, flags, idAccount, sigObject, j);
+    }
+
+    // Check Single Sign
+    XRPL_ASSERT(
+        !pkSigner.empty(), "ripple::Transactor::checkSign : non-empty signer");
+
+    if (!publicKeyType(makeSlice(pkSigner)))
+    {
+        JLOG(j.trace()) << "checkSign: signing public key type is unknown";
+        return tefBAD_AUTH;  // FIXME: should be better error!
+    }
+
+    // Look up the account.
+    auto const idSigner = pkSigner.empty()
+        ? idAccount
+        : calcAccountID(PublicKey(makeSlice(pkSigner)));
+    auto const sleAccount = view.read(keylet::account(idAccount));
+    if (!sleAccount)
+        return terNO_ACCOUNT;
+
+    return checkSingleSign(view, idSigner, idAccount, sleAccount, j);
+}
+
+NotTEC
 Transactor::checkSign(PreclaimContext const& ctx)
 {
     // hook emitted transactions do not have signatures
@@ -1132,7 +1200,7 @@ Transactor::checkSign(PreclaimContext const& ctx)
             (ctx.flags & tapPREFLIGHT_EMIT))
             return tesSUCCESS;
 
-        return telNON_LOCAL_EMITTED_TXN;
+        return telNON_LOCAL_EMITTED_TXN;  // LCOV_EXCL_LINE
     }
 
     // wildcard network gets a free pass on all signatures
@@ -1152,59 +1220,10 @@ Transactor::checkSign(PreclaimContext const& ctx)
         ctx.tx.getTxnType() == ttMANIFEST_SET)
         return tesSUCCESS;
 
-    auto const pkSigner = ctx.tx.getSigningPubKey();
-    // Ignore signature check on batch inner transactions
-    if (ctx.tx.isFlag(tfInnerBatchTxn) &&
-        ctx.view.rules().enabled(featureBatch))
-    {
-        // Defensive Check: These values are also checked in Batch::preflight
-        if (ctx.tx.isFieldPresent(sfTxnSignature) || !pkSigner.empty() ||
-            ctx.tx.isFieldPresent(sfSigners))
-        {
-            return temINVALID_FLAG;  // LCOV_EXCL_LINE
-        }
-        return tesSUCCESS;
-    }
-
-    if ((ctx.flags & tapDRY_RUN) && pkSigner.empty() &&
-        !ctx.tx.isFieldPresent(sfSigners))
-    {
-        // simulate: skip signature validation when neither SigningPubKey nor
-        // Signers are provided
-        return tesSUCCESS;
-    }
-
-    auto const idAccount = ctx.tx[~sfDelegate].value_or(ctx.tx[sfAccount]);
-
-    // If the pk is empty and not simulate or simulate and signers,
-    // then we must be multi-signing.
-    if (ctx.tx.isFieldPresent(sfSigners))
-    {
-        STArray const& txSigners(ctx.tx.getFieldArray(sfSigners));
-        return checkMultiSign(ctx.view, idAccount, txSigners, ctx.flags, ctx.j);
-    }
-
-    // Check Single Sign
-    XRPL_ASSERT(
-        !pkSigner.empty(),
-        "ripple::Transactor::checkSingleSign : non-empty signer or simulation");
-
-    if (!publicKeyType(makeSlice(pkSigner)))
-    {
-        JLOG(ctx.j.trace())
-            << "checkSingleSign: signing public key type is unknown";
-        return tefBAD_AUTH;  // FIXME: should be better error!
-    }
-    auto const idSigner = pkSigner.empty()
-        ? idAccount
-        : calcAccountID(PublicKey(makeSlice(pkSigner)));
-    auto const sleAccount = ctx.view.read(keylet::account(idAccount));
-
-    if (!sleAccount)
-        return terNO_ACCOUNT;
-
-    return checkSingleSign(
-        idSigner, idAccount, sleAccount, ctx.view.rules(), ctx.j);
+    auto const idAccount = ctx.tx.isFieldPresent(sfDelegate)
+        ? ctx.tx.getAccountID(sfDelegate)
+        : ctx.tx.getAccountID(sfAccount);
+    return checkSign(ctx.view, ctx.flags, idAccount, ctx.tx, ctx.j);
 }
 
 NotTEC
@@ -1219,9 +1238,8 @@ Transactor::checkBatchSign(PreclaimContext const& ctx)
         Blob const& pkSigner = signer.getFieldVL(sfSigningPubKey);
         if (pkSigner.empty())
         {
-            STArray const& txSigners(signer.getFieldArray(sfSigners));
             if (ret = checkMultiSign(
-                    ctx.view, idAccount, txSigners, ctx.flags, ctx.j);
+                    ctx.view, ctx.flags, idAccount, signer, ctx.j);
                 !isTesSuccess(ret))
                 return ret;
         }
@@ -1246,7 +1264,7 @@ Transactor::checkBatchSign(PreclaimContext const& ctx)
             }
 
             if (ret = checkSingleSign(
-                    idSigner, idAccount, sleAccount, ctx.view.rules(), ctx.j);
+                    ctx.view, idSigner, idAccount, sleAccount, ctx.j);
                 !isTesSuccess(ret))
                 return ret;
         }
@@ -1256,15 +1274,15 @@ Transactor::checkBatchSign(PreclaimContext const& ctx)
 
 NotTEC
 Transactor::checkSingleSign(
+    ReadView const& view,
     AccountID const& idSigner,
     AccountID const& idAccount,
     std::shared_ptr<SLE const> sleAccount,
-    Rules const& rules,
-    beast::Journal j)
+    beast::Journal const j)
 {
     bool const isMasterDisabled = sleAccount->isFlag(lsfDisableMaster);
 
-    if (rules.enabled(fixMasterKeyAsRegularKey))
+    if (view.rules().enabled(fixMasterKeyAsRegularKey))
     {
         // Signed with regular key.
         if ((*sleAccount)[~sfRegularKey] == idSigner)
@@ -1318,12 +1336,12 @@ Transactor::checkSingleSign(
 NotTEC
 Transactor::checkMultiSign(
     ReadView const& view,
+    ApplyFlags flags,
     AccountID const& id,
-    STArray const& txSigners,
-    ApplyFlags const& flags,
-    beast::Journal j)
+    STObject const& sigObject,
+    beast::Journal const j)
 {
-    // Get mTxnAccountID's SignerList and Quorum.
+    // Get id's SignerList and Quorum.
     std::shared_ptr<STLedgerEntry const> sleAccountSigners =
         view.read(keylet::signers(id));
     // If the signer list doesn't exist the account is not multi-signing.
@@ -1349,6 +1367,7 @@ Transactor::checkMultiSign(
         return accountSigners.error();
 
     // Get the array of transaction signers.
+    STArray const& txSigners(sigObject.getFieldArray(sfSigners));
 
     // Walk the accountSigners performing a variety of checks and see if
     // the quorum is met.
@@ -1769,9 +1788,11 @@ Transactor::executeHookChain(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn())
                 << "HookError[]: Failure: gatherHookParameters failed)";
             return tecINTERNAL;
+            // LCOV_EXCL_STOP
         }
 
         bool hasCallback = hookDef->isFieldPresent(sfHookCallbackFee);
@@ -1890,28 +1911,36 @@ Transactor::doHookCallback(
     auto const& hookDef = view().peek(keylet::hookDefinition(callbackHookHash));
     if (!hookDef)
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hook def missing on callback";
         return;
+        // LCOV_EXCL_STOP
     }
 
     if (!hookDef->isFieldPresent(sfHookCallbackFee))
     {
+        // LCOV_EXCL_START
         JLOG(j_.trace()) << "HookInfo[" << callbackAccountID
                          << "]: Callback specified by emitted txn "
                          << "but hook lacks a cbak function, skipping.";
         return;
+        // LCOV_EXCL_STOP
     }
 
     if (!hooksCallback)
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hook missing on callback";
         return;
+        // LCOV_EXCL_STOP
     }
 
     if (!hooksCallback->isFieldPresent(sfHooks))
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hooks Array missing on callback";
         return;
+        // LCOV_EXCL_STOP
     }
 
     bool found = false;
@@ -1939,9 +1968,11 @@ Transactor::doHookCallback(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn())
                 << "HookError[]: Failure: gatherHookParameters failed)";
             return;
+            // LCOV_EXCL_STOP
         }
 
         found = true;
@@ -1994,16 +2025,20 @@ Transactor::doHookCallback(
         }
         catch (std::exception& e)
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "HookError[" << callbackAccountID << "-"
                              << ctx_.tx.getAccountID(sfAccount)
                              << "]: Callback failure " << e.what();
+            // LCOV_EXCL_STOP
         }
     }
 
     if (!found)
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[" << callbackAccountID << "]: Hookhash "
                         << callbackHookHash << " not found on callback account";
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -2213,15 +2248,19 @@ Transactor::doAgainAsWeak(
     auto const& hooksArray = view().peek(keylet::hook(hookAccountID));
     if (!hooksArray)
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hook missing on aaw account: "
                         << hookAccountID;
         return;
+        // LCOV_EXCL_STOP
     }
 
     if (!hooksArray->isFieldPresent(sfHooks))
     {
+        // LCOV_EXCL_START
         JLOG(j_.warn()) << "HookError[]: Hooks Array missing on aaw";
         return;
+        // LCOV_EXCL_STOP
     }
 
     auto const& hooks = hooksArray->getFieldArray(sfHooks);
@@ -2242,9 +2281,11 @@ Transactor::doAgainAsWeak(
         auto const& hookDef = view().peek(keylet::hookDefinition(hookHash));
         if (!hookDef)
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn())
                 << "HookError[]: Hook def missing on aaw, hash: " << hookHash;
             continue;
+            // LCOV_EXCL_STOP
         }
 
         uint256 hookCanEmit = hook::getHookCanEmit(hookObj, hookDef);
@@ -2259,9 +2300,11 @@ Transactor::doAgainAsWeak(
         std::map<std::vector<uint8_t>, std::vector<uint8_t>> parameters;
         if (hook::gatherHookParameters(hookDef, hookObj, parameters, j_))
         {
+            // LCOV_EXCL_START
             JLOG(j_.warn())
                 << "HookError[]: Failure: gatherHookParameters failed)";
             return;
+            // LCOV_EXCL_STOP
         }
 
         try
@@ -2294,9 +2337,11 @@ Transactor::doAgainAsWeak(
         }
         catch (std::exception& e)
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "HookError[" << hookAccountID << "-"
                              << ctx_.tx.getAccountID(sfAccount)
                              << "]: aaw failure " << e.what();
+            // LCOV_EXCL_STOP
         }
     }
 }
@@ -2330,11 +2375,13 @@ Transactor::operator()()
 
         if (!s2.isEquivalent(ctx_.tx))
         {
+            // LCOV_EXCL_START
             JLOG(j_.fatal()) << "Transaction serdes mismatch";
             JLOG(j_.info()) << to_string(ctx_.tx.getJson(JsonOptions::none));
             JLOG(j_.fatal()) << s2.getJson(JsonOptions::none);
             UNREACHABLE(
                 "ripple::Transactor::operator() : transaction serdes mismatch");
+            // LCOV_EXCL_STOP
         }
     }
 #endif
@@ -2348,7 +2395,7 @@ Transactor::operator()()
          !any(
              ctx_.app.getHashRouter().getFlags(ctx_.tx.getTransactionID()) &
              HashRouterFlags::EMITTED)))
-        return {tecINTERNAL, false};
+        return {tecINTERNAL, false};  // LCOV_EXCL_LINE
 
     if (auto const& trap = ctx_.app.trapTxID();
         trap && *trap == ctx_.tx.getTransactionID())
@@ -2636,7 +2683,7 @@ Transactor::finishApply(
         bool const hasIOURewardClaim =
             view().rules().enabled(featureIOURewardClaim);
         auto const& sfRewardFields =
-            *(ripple::SField::knownCodeToField.at(917511 - has240819));
+            *(ripple::SField::getKnownCodeToField().at(917511 - has240819));
 
         // iterate all affected balances
         for (auto const& node : meta.getFieldArray(sfAffectedNodes))
@@ -2662,17 +2709,17 @@ Transactor::finishApply(
                 auto sle = view().peek(
                     Keylet{ltRIPPLE_STATE, node.getFieldH256(sfLedgerIndex)});
                 if (!sle)
-                    continue;
+                    continue;  // LCOV_EXCL_LINE
                 STObject& previousFields = (const_cast<STObject&>(node))
                                                .getField(sfPreviousFields)
                                                .downcast<STObject>();
                 if (!previousFields.isFieldPresent(sfBalance))
-                    continue;
+                    continue;  // LCOV_EXCL_LINE
 
                 auto balance = previousFields.getFieldAmount(sfBalance);
 
                 if (balance.native())
-                    continue;
+                    continue;  // LCOV_EXCL_LINE
 
                 SField const* sfRewardFields[] = {&sfLowReward, &sfHighReward};
                 for (auto const* sfRewardFieldPtr : sfRewardFields)
@@ -2698,7 +2745,7 @@ Transactor::finishApply(
 
                     // overflow safety
                     if (lgrElapsed > lgrCur || lgrElapsed == 0)
-                        continue;
+                        continue;  // LCOV_EXCL_LINE
 
                     auto accum =
                         reward.getFieldAmount(sfTrustLineRewardAccumulator);
@@ -2738,7 +2785,7 @@ Transactor::finishApply(
                 Keylet{ltACCOUNT_ROOT, node.getFieldH256(sfLedgerIndex)});
 
             if (!sle)
-                continue;
+                continue;  // LCOV_EXCL_LINE
 
             if (!sle->isFieldPresent(sfRewardLgrFirst) ||
                 !sle->isFieldPresent(sfRewardLgrLast) ||
@@ -2750,7 +2797,7 @@ Transactor::finishApply(
                                         .downcast<STObject>();
 
             if (!finalFields.isFieldPresent(sfBalance))
-                continue;
+                continue;  // LCOV_EXCL_LINE
 
             bool const has20261005 = view().rules().enabled(fix20261005);
 
@@ -2785,12 +2832,14 @@ Transactor::finishApply(
             // check for overflow
             if (accumNew < accum)
             {
+                // LCOV_EXCL_START
                 if (has20261005)
                 {
                     sle->setFieldU32(sfRewardLgrLast, lgrCur);
                     view().update(sle);
                 }
                 continue;
+                // LCOV_EXCL_STOP
             }
 
             sle->setFieldU64(sfRewardAccumulator, accumNew);

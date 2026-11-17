@@ -60,8 +60,8 @@ with_txn_type(TxType txnType, F&& f)
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, delegatable, amendment, fields) \
-    case tag:                                                         \
+#define TRANSACTION(tag, value, name, ...) \
+    case tag:                              \
         return f.template operator()<name>();
 
 #include <xrpl/protocol/detail/transactions.macro>
@@ -129,10 +129,12 @@ invoke_preflight(PreflightContext const& ctx)
     catch (UnknownTxnType const& e)
     {
         // Should never happen
+        // LCOV_EXCL_START
         JLOG(ctx.j.fatal())
             << "Unknown transaction type in preflight: " << e.txnType;
         UNREACHABLE("ripple::invoke_preflight : unknown transaction type");
         return {temUNKNOWN, TxConsequences{temUNKNOWN}};
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -183,10 +185,12 @@ invoke_preclaim(PreclaimContext const& ctx)
     catch (UnknownTxnType const& e)
     {
         // Should never happen
+        // LCOV_EXCL_START
         JLOG(ctx.j.fatal())
             << "Unknown transaction type in preclaim: " << e.txnType;
         UNREACHABLE("ripple::invoke_preclaim : unknown transaction type");
         return temUNKNOWN;
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -217,9 +221,11 @@ invoke_calculateBaseFee(ReadView const& view, STTx const& tx)
     }
     catch (UnknownTxnType const& e)
     {
+        // LCOV_EXCL_START
         UNREACHABLE(
             "ripple::invoke_calculateBaseFee : unknown transaction type");
         return XRPAmount{0};
+        // LCOV_EXCL_STOP
     }
 }
 
@@ -278,10 +284,12 @@ invoke_apply(ApplyContext& ctx)
     catch (UnknownTxnType const& e)
     {
         // Should never happen
+        // LCOV_EXCL_START
         JLOG(ctx.journal.fatal())
             << "Unknown transaction type in apply: " << e.txnType;
         UNREACHABLE("ripple::invoke_apply : unknown transaction type");
         return {temUNKNOWN, false};
+        // LCOV_EXCL_STOP
     }
 }
 

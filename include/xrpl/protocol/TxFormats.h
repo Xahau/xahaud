@@ -62,7 +62,7 @@ enum TxType : std::uint16_t
 #pragma push_macro("TRANSACTION")
 #undef TRANSACTION
 
-#define TRANSACTION(tag, value, name, delegatable, amendment, fields) tag = value,
+#define TRANSACTION(tag, value, ...) tag = value,
 
 #include <xrpl/protocol/detail/transactions.macro>
 
@@ -94,12 +94,6 @@ public:
     static TxFormats const&
     getInstance();
 };
-
-/** Amendment that gates this transaction type, if any (from
-    transactions.macro).
-*/
-std::optional<uint256>
-txRequiredFeature(TxType txType);
 
 }  // namespace ripple
 

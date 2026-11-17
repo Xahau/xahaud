@@ -23,10 +23,11 @@
 #include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/tx/applySteps.h>
 #include <xrpld/app/tx/detail/ApplyContext.h>
-#include <xrpld/ledger/PaymentSandbox.h>
-#include <xrpld/ledger/detail/ApplyViewBase.h>
 
 #include <xrpl/beast/utility/Journal.h>
+#include <xrpl/beast/utility/WrappedSink.h>
+#include <xrpl/ledger/PaymentSandbox.h>
+#include <xrpl/ledger/detail/ApplyViewBase.h>
 #include <xrpl/protocol/Permissions.h>
 #include <xrpl/protocol/XRPAmount.h>
 
@@ -146,6 +147,7 @@ class Transactor
 {
 protected:
     ApplyContext& ctx_;
+    beast::WrappedSink sink_;
     beast::Journal const j_;
 
     AccountID const account_;
@@ -385,6 +387,14 @@ protected:
     static XRPAmount
     calculateOwnerReserveFee(ReadView const& view, STTx const& tx);
 
+    static NotTEC
+    checkSign(
+        ReadView const& view,
+        ApplyFlags flags,
+        AccountID const& idAccount,
+        STObject const& sigObject,
+        beast::Journal const j);
+
     // Base class always returns true
     static bool
     checkExtraFeatures(PreflightContext const& ctx);
@@ -404,6 +414,13 @@ protected:
     static bool
     validNumericRange(std::optional<T> value, T max, T min = {});
 
+    template <class T, class Unit>
+    static bool
+    validNumericRange(
+        std::optional<T> value,
+        unit::ValueUnit<Unit, T> max,
+        unit::ValueUnit<Unit, T> min = {});
+
 private:
     std::pair<TER, XRPAmount>
     reset(XRPAmount fee);
@@ -414,18 +431,18 @@ private:
     payFee();
     static NotTEC
     checkSingleSign(
+        ReadView const& view,
         AccountID const& idSigner,
         AccountID const& idAccount,
         std::shared_ptr<SLE const> sleAccount,
-        Rules const& rules,
-        beast::Journal j);
+        beast::Journal const j);
     static NotTEC
     checkMultiSign(
         ReadView const& view,
-        AccountID const& idAccount,
-        STArray const& txSigners,
-        ApplyFlags const& flags,
-        beast::Journal j);
+        ApplyFlags flags,
+        AccountID const& id,
+        STObject const& sigObject,
+        beast::Journal const j);
 
     void trapTransaction(uint256) const;
 
@@ -491,7 +508,10 @@ template <class T>
 NotTEC
 Transactor::invokePreflight(PreflightContext const& ctx)
 {
-    auto const feature = txRequiredFeature(ctx.tx.getTxnType());
+    // Using this lookup does NOT require checking the fixDelegateV1_1. The data
+    // exists regardless of whether it is enabled.
+    auto const feature =
+        Permission::getInstance().getTxFeature(ctx.tx.getTxnType());
 
     if (feature && !ctx.rules.enabled(*feature))
         return temDISABLED;
@@ -518,6 +538,16 @@ Transactor::validNumericRange(std::optional<T> value, T max, T min)
     if (!value)
         return true;
     return value >= min && value <= max;
+}
+
+template <class T, class Unit>
+bool
+Transactor::validNumericRange(
+    std::optional<T> value,
+    unit::ValueUnit<Unit, T> max,
+    unit::ValueUnit<Unit, T> min)
+{
+    return validNumericRange(value, max.value(), min.value());
 }
 
 inline static std::variant<uint32_t, uint256>

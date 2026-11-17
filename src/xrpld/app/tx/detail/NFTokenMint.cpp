@@ -18,9 +18,9 @@
 //==============================================================================
 
 #include <xrpld/app/tx/detail/NFTokenMint.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Expected.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/InnerObjectFormats.h>
 #include <xrpl/protocol/Rate.h>
@@ -309,7 +309,7 @@ NFTokenMint::doApply()
 
     if (nfTokenTemplate == nullptr)
         // Should never happen.
-        return tecINTERNAL;
+        return tecINTERNAL;  // LCOV_EXCL_LINE
 
     auto const nftokenID = createNFTokenID(
         extractNFTokenFlagsFromTxFlags(ctx_.tx.getFlags()),

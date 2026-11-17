@@ -20,9 +20,9 @@
 #include <xrpld/app/misc/AMMHelpers.h>
 #include <xrpld/app/misc/AMMUtils.h>
 #include <xrpld/app/tx/detail/AMMBid.h>
-#include <xrpld/ledger/Sandbox.h>
-#include <xrpld/ledger/View.h>
 
+#include <xrpl/ledger/Sandbox.h>
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/AMMCore.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/TER.h>
@@ -247,10 +247,12 @@ applyBid(
         if (saBurn >= lptAMMBalance)
         {
             // This error case should never occur.
+            // LCOV_EXCL_START
             JLOG(ctx_.journal.fatal())
                 << "AMM Bid: LP Token burn exceeds AMM balance " << burn << " "
                 << lptAMMBalance;
             return tecINTERNAL;
+            // LCOV_EXCL_STOP
         }
         auto res =
             redeemIOU(sb, account_, saBurn, lpTokens.issue(), ctx_.journal);

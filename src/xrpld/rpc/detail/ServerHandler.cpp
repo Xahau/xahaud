@@ -19,7 +19,6 @@
 
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/core/JobQueue.h>
-#include <xrpld/ledger/ReadView.h>
 #include <xrpld/overlay/Overlay.h>
 #include <xrpld/rpc/RPCHandler.h>
 #include <xrpld/rpc/Role.h>
@@ -39,6 +38,7 @@
 #include <xrpl/beast/rfc2616.h>
 #include <xrpl/json/json_reader.h>
 #include <xrpl/json/to_string.h>
+#include <xrpl/ledger/ReadView.h>
 #include <xrpl/protocol/AccountID.h>
 #include <xrpl/protocol/ErrorCodes.h>
 #include <xrpl/protocol/Indexes.h>
@@ -1776,10 +1776,12 @@ ServerHandler::processSession(
     }
     catch (std::exception const& ex)
     {
+        // LCOV_EXCL_START
         jr[jss::result] = RPC::make_error(rpcINTERNAL);
         JLOG(m_journal.error())
             << "Exception while processing WS: " << ex.what() << "\n"
             << "Input JSON: " << Json::Compact{Json::Value{jv}};
+        // LCOV_EXCL_STOP
     }
 
     is->getConsumer().charge(loadType);
@@ -2173,10 +2175,12 @@ ServerHandler::processRequest(
         }
         catch (std::exception const& ex)
         {
+            // LCOV_EXCL_START
             result = RPC::make_error(rpcINTERNAL);
             JLOG(m_journal.error()) << "Internal error : " << ex.what()
                                     << " when processing request: "
                                     << Json::Compact{Json::Value{params}};
+            // LCOV_EXCL_STOP
         }
 
         auto end = std::chrono::system_clock::now();

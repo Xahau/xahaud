@@ -199,13 +199,13 @@ admin = 127.0.0.1
 
             {
                 auto const firstField = result[jss::result][jss::FIELDS][0u];
-                BEAST_EXPECT(firstField[0u].asString() == "Generic");
+                BEAST_EXPECT(firstField[0u].asString() == "Invalid");
                 BEAST_EXPECT(
                     firstField[1][jss::isSerialized].asBool() == false);
                 BEAST_EXPECT(
                     firstField[1][jss::isSigningField].asBool() == false);
                 BEAST_EXPECT(firstField[1][jss::isVLEncoded].asBool() == false);
-                BEAST_EXPECT(firstField[1][jss::nth].asUInt() == 0);
+                BEAST_EXPECT(firstField[1][jss::nth].asInt() == -1);
                 BEAST_EXPECT(firstField[1][jss::type].asString() == "Unknown");
             }
 

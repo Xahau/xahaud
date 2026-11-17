@@ -21,10 +21,10 @@
 #include <xrpld/app/misc/ManifestLedger.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpld/core/Config.h>
-#include <xrpld/ledger/View.h>
 
 #include <xrpl/basics/Log.h>
 #include <xrpl/basics/StringUtilities.h>  // strUnHex
+#include <xrpl/ledger/View.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
@@ -229,7 +229,7 @@ SetManifest::preclaim(PreclaimContext const& ctx)
     // The account must exist: it pays the fee and anchors sfManifestID.
     auto const sle = ctx.view.read(keylet::account(id));
     if (!sle)
-        return terNO_ACCOUNT;
+        return terNO_ACCOUNT;  // LCOV_EXCL_LINE
 
     STObject const& newObj = const_cast<ripple::STTx&>(ctx.tx)
                                  .getField(sfManifest)
@@ -237,7 +237,8 @@ SetManifest::preclaim(PreclaimContext const& ctx)
 
     auto const newManifest = deserializeManifest(newObj, ctx.j);
     if (!newManifest)
-        return tefINTERNAL;  // preflight already parsed this successfully
+        // preflight already parsed this successfully
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // Replay protection. A byte-identical resubmission is rejected as
     // tefALREADY by checkPriorTxAndLastLedger, but the canonical Fee follows
@@ -333,7 +334,7 @@ SetManifest::doApply()
 {
     auto sle = view().peek(keylet::account(account_));
     if (!sle)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     STObject const& obj = const_cast<ripple::STTx&>(ctx_.tx)
                               .getField(sfManifest)
@@ -343,7 +344,7 @@ SetManifest::doApply()
 
     // Both of these were established in preflight.
     if (!manifest || calcAccountID(manifest->masterKey) != account_)
-        return tefINTERNAL;
+        return tefINTERNAL;  // LCOV_EXCL_LINE
 
     // The objects, and the manifest directory entry, are maintained in one
     // place; see writeManifestObjects.
