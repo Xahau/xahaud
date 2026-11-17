@@ -187,11 +187,7 @@ public:
             auto const currentLedger = env.current()->seq();
             auto const currentTime =
                 std::chrono::duration_cast<std::chrono::seconds>(
-                    env.app()
-                        .getLedgerMaster()
-                        .getValidatedLedger()
-                        ->info()
-                        .parentCloseTime.time_since_epoch())
+                    env.current()->info().parentCloseTime.time_since_epoch())
                     .count();
 
             // CLAIM
@@ -217,6 +213,61 @@ public:
                 BEAST_EXPECT(expectNoRewards(env, alice) == true);
             }
         }
+    }
+
+    void
+    testLegacyPath(FeatureBitset features)
+    {
+        testcase("legacy path (fixClaimRewardTime disabled)");
+        using namespace test::jtx;
+        using namespace std::literals;
+
+        test::jtx::Env env{
+            *this,
+            network::makeNetworkConfig(21337),
+            features - fixClaimRewardTime};
+
+        auto const alice = Account("alice");
+        env.fund(XRP(1000), alice);
+        env.close();
+
+        env(hook(Account::master, {{hso(jtx::genesis::AcceptHook)}}, 0),
+            fee(XRP(1)));
+        env.close();
+
+        for (int i = 0; i < 3; ++i)
+            env.close();
+
+        auto const validatedTime =
+            std::chrono::duration_cast<std::chrono::seconds>(
+                env.app()
+                    .getLedgerMaster()
+                    .getValidatedLedger()
+                    ->info()
+                    .parentCloseTime.time_since_epoch())
+                .count();
+        auto const currentTime =
+            std::chrono::duration_cast<std::chrono::seconds>(
+                env.current()->info().parentCloseTime.time_since_epoch())
+                .count();
+
+        BEAST_EXPECT(validatedTime != currentTime);
+
+        auto const currentLedger = env.current()->seq();
+        env(reward::claim(alice),
+            reward::issuer(Account::master),
+            fee(XRP(1)),
+            ter(tesSUCCESS));
+        env.close();
+
+        BEAST_EXPECT(
+            expectRewards(
+                env,
+                alice,
+                currentLedger,
+                currentLedger,
+                0,
+                static_cast<std::uint32_t>(validatedTime)) == true);
     }
 
     void
@@ -733,11 +784,7 @@ public:
         auto const currentLedger = env.current()->seq();
         auto const currentTime =
             std::chrono::duration_cast<std::chrono::seconds>(
-                env.app()
-                    .getLedgerMaster()
-                    .getValidatedLedger()
-                    ->info()
-                    .parentCloseTime.time_since_epoch())
+                env.current()->info().parentCloseTime.time_since_epoch())
                 .count();
 
         auto tx = reward::claim(alice);
@@ -765,11 +812,7 @@ public:
             auto const currentLedger = env.current()->seq();
             auto const currentTime =
                 std::chrono::duration_cast<std::chrono::seconds>(
-                    env.app()
-                        .getLedgerMaster()
-                        .getValidatedLedger()
-                        ->info()
-                        .parentCloseTime.time_since_epoch())
+                    env.current()->info().parentCloseTime.time_since_epoch())
                     .count();
 
             auto tx = reward::claim(bob);
@@ -839,11 +882,7 @@ public:
 
         auto const getCurrentTime = [&](Env& env) {
             return std::chrono::duration_cast<std::chrono::seconds>(
-                       env.app()
-                           .getLedgerMaster()
-                           .getValidatedLedger()
-                           ->info()
-                           .parentCloseTime.time_since_epoch())
+                       env.current()->info().parentCloseTime.time_since_epoch())
                 .count();
         };
 
@@ -1145,6 +1184,7 @@ public:
     testWithFeats(FeatureBitset features)
     {
         testEnabled(features);
+        testLegacyPath(features);
         testInvalidPreflight(features);
         testInvalidPreclaim(features);
         testValidNoHook(features);
