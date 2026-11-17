@@ -29,10 +29,12 @@
 #include <boost/utility/string_view.hpp>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace ripple {
 class UDPInfoSub : public InfoSub
 {
+    Source& source_;
     std::function<void(std::string const&)> send_;
     boost::asio::ip::tcp::endpoint endpoint_;
 
@@ -40,7 +42,10 @@ class UDPInfoSub : public InfoSub
         Source& source,
         std::function<void(std::string const&)>& sendResponse,
         boost::asio::ip::tcp::endpoint const& remoteEndpoint)
-        : InfoSub(source), send_(sendResponse), endpoint_(remoteEndpoint)
+        : InfoSub(source)
+        , source_(source)
+        , send_(sendResponse)
+        , endpoint_(remoteEndpoint)
     {
     }
 
@@ -121,6 +126,31 @@ public:
     destroy()
     {
         return destroy(endpoint_);
+    }
+
+    /** Drop every subscription made against `source`.
+
+        The map is static, so without this a subscription that was never
+        unsubscribed outlives the source, and ~InfoSub then unsubscribes
+        from a destroyed object when the process exits.
+    */
+    static void
+    clear(Source const& source)
+    {
+        // Destroyed outside the lock: ~InfoSub calls into the source.
+        std::vector<std::shared_ptr<UDPInfoSub>> dead;
+
+        std::lock_guard<std::mutex> lock(mtx_);
+        for (auto it = map_.begin(); it != map_.end();)
+        {
+            if (&it->second.sub->source_ == &source)
+            {
+                dead.push_back(std::move(it->second.sub));
+                it = map_.erase(it);
+            }
+            else
+                ++it;
+        }
     }
 
     void

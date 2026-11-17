@@ -153,6 +153,10 @@ ServerHandler::ServerHandler(
 ServerHandler::~ServerHandler()
 {
     m_server = nullptr;
+    // The doors are gone, and on a normal shutdown the job queue stopped
+    // before the server did, so nothing adds a subscription now.
+    // NetworkOPs, which ~InfoSub calls into, is still alive.
+    UDPInfoSub::clear(m_networkOPs);
 }
 
 void
@@ -1464,6 +1468,16 @@ ServerHandler::onUDPMessage(
     if (port.has_peer())
         return app_.overlay().processXUSH(message, remoteEndpoint);
 
+    // UDP-RPC runs every request as admin, so only configured admin
+    // addresses are answered. Unanswered: a reply would be a reflector.
+    if (!ipAllowed(
+            remoteEndpoint.address(), port.admin_nets_v4, port.admin_nets_v6))
+    {
+        JLOG(m_journal.trace())
+            << "UDP dropping datagram from non-admin " << remoteEndpoint;
+        return;
+    }
+
     Json::Value jv;
     if (message.size() > RPC::Tuning::maxRequestSize ||
         !Json::Reader{}.parse(message, jv) || !jv.isObject())
@@ -1483,16 +1497,26 @@ ServerHandler::onUDPMessage(
     JLOG(m_journal.trace())
         << "UDP received '" << jv << "' from " << remoteEndpoint;
 
+    // The address is an admin one. A port that sets admin_user or
+    // admin_password wants them in the request as well, as on every other
+    // transport; without them the request is answered rpcFORBIDDEN.
+    Role const role = requestRole(
+        Role::ADMIN,
+        port,
+        jv,
+        beast::IPAddressConversion::from_asio(remoteEndpoint),
+        {});
+
     auto const postResult = m_jobQueue.postCoro(
         jtCLIENT_RPC,  // Using RPC job type since this is admin RPC
         "UDP-RPC",
         [this,
+         role,
          remoteEndpoint,
          jv = std::move(jv),
          sendResponse = std::move(sendResponse)](
             std::shared_ptr<JobQueue::Coro> const& coro) {
             // Process the request similar to WebSocket but with UDP context
-            Role const role = Role::ADMIN;  // UDP-RPC is admin-only
             auto const jr =
                 this->processUDP(jv, role, coro, sendResponse, remoteEndpoint);
 
@@ -2467,6 +2491,11 @@ parse_Ports(Config const& config, std::ostream& log)
                 fail(
                     "domain, custom_domains and resolver apply to pwa "
                     "ports only");
+            // Every UDP-RPC request runs as admin and only admin addresses
+            // are answered, so a udp port without admin would be silent.
+            if (p.has_udp() && p.admin_nets_v4.empty() &&
+                p.admin_nets_v6.empty())
+                fail("udp port requires admin");
             continue;
         }
         if (p.protocol.size() != 1)
