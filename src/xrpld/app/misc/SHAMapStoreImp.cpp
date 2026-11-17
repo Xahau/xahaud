@@ -287,7 +287,9 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             // Create DatabasePinned with rotation backends + persistent
 
             auto dbp = std::make_unique<NodeStore::DatabasePinnedImp>(
-                app_,
+                [&app = app_] {
+                    return app.getLedgerMaster().getPinnedLedgersRangeSet();
+                },
                 scheduler_,
                 readThreads,
                 std::move(writableBackend),
@@ -306,7 +308,6 @@ SHAMapStoreImp::makeNodeStore(int readThreads)
             // Create NodeStore with two backends to allow online deletion of
             // data
             auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
-                app_,
                 scheduler_,
                 readThreads,
                 std::move(writableBackend),

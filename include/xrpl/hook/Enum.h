@@ -57,19 +57,6 @@ enum HookEmissionFlags : uint16_t {
 using namespace ripple;
 
 namespace hook {
-// RH TODO: put these somewhere better, and allow rules to be fed in
-inline uint32_t
-maxHookParameterKeySize(void)
-{
-    return 32;
-}
-
-inline uint32_t
-maxHookParameterValueSize(void)
-{
-    return 256;
-}
-
 inline uint16_t
 maxHookStateScale(void)
 {

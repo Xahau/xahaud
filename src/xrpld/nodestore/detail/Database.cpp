@@ -17,7 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpld/app/ledger/Ledger.h>
 #include <xrpld/nodestore/Database.h>
 #include <xrpl/basics/chrono.h>
 #include <xrpl/beast/core/CurrentThreadName.h>
@@ -261,105 +260,6 @@ Database::fetchNodeObject(
     fetchReport.elapsed = duration_cast<milliseconds>(dur);
     scheduler_.onFetch(fetchReport);
     return nodeObject;
-}
-
-bool
-Database::storeLedger(
-    Ledger const& srcLedger,
-    std::shared_ptr<Backend> dstBackend)
-{
-    auto fail = [&](std::string const& msg) {
-        JLOG(j_.error()) << "Source ledger sequence " << srcLedger.info().seq
-                         << ". " << msg;
-        return false;
-    };
-
-    if (srcLedger.info().hash.isZero())
-        return fail("Invalid hash");
-    if (srcLedger.info().accountHash.isZero())
-        return fail("Invalid account hash");
-
-    auto& srcDB = const_cast<Database&>(srcLedger.stateMap().family().db());
-    if (&srcDB == this)
-        return fail("Source and destination databases are the same");
-
-    Batch batch;
-    batch.reserve(batchWritePreallocationSize);
-    auto storeBatch = [&, fname = __func__]() {
-        std::uint64_t sz{0};
-        for (auto const& nodeObject : batch)
-            sz += nodeObject->getData().size();
-
-        try
-        {
-            dstBackend->storeBatch(batch);
-        }
-        catch (std::exception const& e)
-        {
-            fail(
-                std::string("Exception caught in function ") + fname +
-                ". Error: " + e.what());
-            return false;
-        }
-
-        storeStats(batch.size(), sz);
-        batch.clear();
-        return true;
-    };
-
-    // Store ledger header
-    {
-        Serializer s(sizeof(std::uint32_t) + sizeof(LedgerInfo));
-        s.add32(HashPrefix::ledgerMaster);
-        addRaw(srcLedger.info(), s);
-        auto nObj = NodeObject::createObject(
-            hotLEDGER, std::move(s.modData()), srcLedger.info().hash);
-        batch.emplace_back(std::move(nObj));
-    }
-
-    bool error = false;
-    auto visit = [&](SHAMapTreeNode& node) {
-        if (!isStopping())
-        {
-            if (auto nodeObject = srcDB.fetchNodeObject(
-                    node.getHash().as_uint256(), srcLedger.info().seq))
-            {
-                batch.emplace_back(std::move(nodeObject));
-                if (batch.size() < batchWritePreallocationSize || storeBatch())
-                    return true;
-            }
-        }
-
-        error = true;
-        return false;
-    };
-
-    // Store the state map
-    if (srcLedger.stateMap().getHash().isNonZero())
-    {
-        if (!srcLedger.stateMap().isValid())
-            return fail("Invalid state map");
-
-        srcLedger.stateMap().snapShot(false)->visitNodes(visit);
-        if (error)
-            return fail("Failed to store state map");
-    }
-
-    // Store the transaction map
-    if (srcLedger.info().txHash.isNonZero())
-    {
-        if (!srcLedger.txMap().isValid())
-            return fail("Invalid transaction map");
-
-        srcLedger.txMap().snapShot(false)->visitNodes(visit);
-        if (error)
-            return fail("Failed to store transaction map");
-    }
-
-    if (!batch.empty() && !storeBatch())
-        return fail("Failed to store");
-
-    return true;
 }
 
 void

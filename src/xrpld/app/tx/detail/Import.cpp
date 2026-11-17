@@ -17,6 +17,7 @@
 */
 //==============================================================================
 
+#include <xrpld/app/misc/ImportHelpers.h>
 #include <xrpld/app/misc/Manifest.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/app/tx/detail/SetSignerList.h>
@@ -27,7 +28,6 @@
 #include <xrpl/json/json_value.h>
 #include <xrpl/json/to_string.h>
 #include <xrpl/protocol/Feature.h>
-#include <xrpl/protocol/Import.h>
 #include <xrpl/protocol/Indexes.h>
 #include <xrpl/protocol/PublicKey.h>
 #include <xrpl/protocol/STTx.h>

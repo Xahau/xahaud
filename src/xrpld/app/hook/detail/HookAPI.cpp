@@ -5,6 +5,7 @@
 #include <xrpld/app/ledger/TransactionMaster.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
+#include <xrpl/protocol/Protocol.h>
 #include <xrpl/protocol/STParsedJSON.h>
 #include <algorithm>
 #include <limits>
@@ -1775,10 +1776,10 @@ HookAPI::hook_param_set(
     if (paramName.size() < 1)
         return Unexpected(TOO_SMALL);
 
-    if (paramName.size() > hook::maxHookParameterKeySize())
+    if (paramName.size() > maxHookParameterKeySize)
         return Unexpected(TOO_BIG);
 
-    if (paramValue.size() > hook::maxHookParameterValueSize())
+    if (paramValue.size() > maxHookParameterValueSize)
         return Unexpected(TOO_BIG);
 
     if (hookCtx.result.overrideCount >= hook_api::max_params)

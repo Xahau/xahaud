@@ -17,8 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpld/app/ledger/LedgerMaster.h>
-#include <xrpld/app/main/Application.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
 #include <xrpl/protocol/HashPrefix.h>
 
@@ -28,7 +26,6 @@ namespace ripple {
 namespace NodeStore {
 
 DatabaseRotatingImp::DatabaseRotatingImp(
-    Application& app,
     Scheduler& scheduler,
     int readThreads,
     std::shared_ptr<Backend> writableBackend,
@@ -36,7 +33,6 @@ DatabaseRotatingImp::DatabaseRotatingImp(
     Section const& config,
     beast::Journal j)
     : DatabaseRotating(scheduler, readThreads, config, j)
-    , app_(app)
     , writableBackend_(std::move(writableBackend))
     , archiveBackend_(std::move(archiveBackend))
 {
@@ -106,17 +102,6 @@ DatabaseRotatingImp::importDatabase(Database& source)
     }();
 
     importInternal(*backend, source);
-}
-
-bool
-DatabaseRotatingImp::storeLedger(std::shared_ptr<Ledger const> const& srcLedger)
-{
-    auto const backend = [&] {
-        std::shared_lock const lock(mutex_);
-        return writableBackend_;
-    }();
-
-    return Database::storeLedger(*srcLedger, backend);
 }
 
 void

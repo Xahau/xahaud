@@ -18,8 +18,8 @@
 */
 //==============================================================================
 
-#include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <test/jtx/Import_json.h>
 #include <test/jtx/TestHelpers.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>

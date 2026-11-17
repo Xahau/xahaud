@@ -17,13 +17,14 @@
 */
 //==============================================================================
 
-#include <test/app/Import_json.h>
 #include <test/jtx.h>
 #include <test/jtx/AMM.h>
 #include <test/jtx/CaptureLogs.h>
+#include <test/jtx/Import_json.h>
 #include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/app/misc/AmendmentTable.h>
 #include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/ImportHelpers.h>
 #include <xrpld/app/tx/detail/Import.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/ledger/Dir.h>
@@ -31,7 +32,6 @@
 #include <xrpl/json/json_writer.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/HashPrefix.h>
-#include <xrpl/protocol/Import.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
 

@@ -17,8 +17,6 @@
 */
 //==============================================================================
 
-#include <xrpld/app/ledger/Ledger.h>
-#include <xrpld/app/ledger/LedgerMaster.h>
 #include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <atomic>
 #include <iostream>
@@ -27,7 +25,7 @@ namespace ripple {
 namespace NodeStore {
 
 DatabasePinnedImp::DatabasePinnedImp(
-    Application& app,
+    std::function<RangeSet<std::uint32_t>()> pinnedRanges,
     Scheduler& scheduler,
     int readThreads,
     std::shared_ptr<Backend> writableBackend,
@@ -36,9 +34,8 @@ DatabasePinnedImp::DatabasePinnedImp(
     Section const& config,
     beast::Journal j)
     : DatabaseRotating(scheduler, readThreads, config, j)
-    , app_(app)
+    , pinnedRanges_(std::move(pinnedRanges))
     , rotating_(
-          app,
           scheduler,
           readThreads,
           std::move(writableBackend),
@@ -250,13 +247,6 @@ DatabasePinnedImp::sync()
     persistent_->sync();
 }
 
-bool
-DatabasePinnedImp::storeLedger(std::shared_ptr<Ledger const> const& srcLedger)
-{
-    // Store to persistent since ledger headers should be pinned
-    return Database::storeLedger(*srcLedger, persistent_);
-}
-
 void
 DatabasePinnedImp::sweep()
 {
@@ -286,8 +276,7 @@ DatabasePinnedImp::refreshPinnedRangesCache() const
         return;
 
     // Create new RangeSet snapshot from LedgerMaster
-    auto newRanges = std::make_shared<RangeSet<std::uint32_t>>(
-        app_.getLedgerMaster().getPinnedLedgersRangeSet());
+    auto newRanges = std::make_shared<RangeSet<std::uint32_t>>(pinnedRanges_());
 
     // Atomic swap - all concurrent readers see old or new, never torn state
     std::atomic_store(&cachedPinnedRanges_, newRanges);

@@ -661,7 +661,6 @@ public:
         nscfg.set("path", "rotating");
 
         auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
-            env.app(),
             scheduler,
             1,
             makeMemoryBackend(env, scheduler, "writable"),
@@ -696,7 +695,7 @@ public:
         BEAST_EXPECT(matches(db.fetchNodeObject(hash)));
     }
 
-    // getWriteLoad, sync, storeLedger, importDatabase and for_each changed
+    // getWriteLoad, sync, importDatabase and for_each changed
     // lock type. In null mode no Env builds a DatabaseRotatingImp, so
     // drive them directly.
     void
@@ -705,15 +704,12 @@ public:
         testcase("rotating database accessors");
 
         using namespace jtx;
-        // Source ledger must come from a node store that holds its nodes.
         Env env(*this, envconfig([](std::unique_ptr<Config> cfg) {
             auto& section = cfg->section(ConfigSection::nodeDatabase());
             section.set("type", "memory");
             section.set("path", "rotating-accessors-app");
             return cfg;
         }));
-        env.fund(XRP(10000), Account{"alice"});
-        env.close();
 
         NodeStoreScheduler scheduler(env.app().getJobQueue());
         Section nscfg;
@@ -721,7 +717,6 @@ public:
         nscfg.set("path", "rotating-accessors");
         auto makeDb = [&](std::string const& prefix) {
             return std::make_unique<NodeStore::DatabaseRotatingImp>(
-                env.app(),
                 scheduler,
                 1,
                 makeMemoryBackend(env, scheduler, prefix + "-writable"),
@@ -735,22 +730,21 @@ public:
         BEAST_EXPECT(src->getWriteLoad() >= 0);
         src->sync();
 
-        auto const ledger = env.app().getLedgerMaster().getClosedLedger();
-        if (!BEAST_EXPECT(ledger))
-            return;
-        BEAST_EXPECT(src->storeLedger(ledger));
+        Blob const expected(32, 0xab);
+        auto const hash = sha512Half(makeSlice(expected));
+        {
+            Blob data = expected;
+            src->store(hotTRANSACTION_NODE, std::move(data), hash, 1);
+        }
 
         NodeStore::Database& srcDb = *src;
-        auto const stateRoot = ledger->stateMap().getHash().as_uint256();
-        BEAST_EXPECT(srcDb.fetchNodeObject(ledger->info().hash));
-        BEAST_EXPECT(srcDb.fetchNodeObject(stateRoot));
+        BEAST_EXPECT(srcDb.fetchNodeObject(hash));
 
         // importDatabase walks the source with for_each.
         auto dst = makeDb("rotating-accessors-dst");
         dst->importDatabase(*src);
         NodeStore::Database& dstDb = *dst;
-        BEAST_EXPECT(dstDb.fetchNodeObject(ledger->info().hash));
-        BEAST_EXPECT(dstDb.fetchNodeObject(stateRoot));
+        BEAST_EXPECT(dstDb.fetchNodeObject(hash));
     }
 
     static auto
@@ -1069,7 +1063,6 @@ public:
         // data
         constexpr int readThreads = 4;
         auto dbr = std::make_unique<NodeStore::DatabaseRotatingImp>(
-            env.app(),
             scheduler,
             readThreads,
             std::move(writableBackend),

@@ -17,8 +17,8 @@
 */
 //==============================================================================
 
-#include <test/app/Import_json.h>
 #include <test/jtx.h>
+#include <test/jtx/Import_json.h>
 #include <test/jtx/Oracle.h>
 #include <test/jtx/attester.h>
 #include <test/jtx/multisign.h>
