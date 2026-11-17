@@ -104,15 +104,10 @@ public:
             return;
         }
 
-        // Set socket options
-        socket_.set_option(boost::asio::socket_base::reuse_address(true), ec);
-        if (ec)
-        {
-            JLOG(j_.error())
-                << "UDP set reuse_address failed: " << ec.message();
-            fail();
-            return;
-        }
+        // No reuse_address. UDP has no TIME_WAIT for it to work around, and
+        // on Linux two sockets that both set it may bind the same port, the
+        // later one taking every datagram: a second server started on this
+        // port would silence the first instead of failing to bind.
 
         // Some platforms (macOS: net.inet.udp.maxdgram = 9216) cap outgoing
         // datagrams at SO_SNDBUF, so a full-size fragment fails with

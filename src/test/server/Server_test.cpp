@@ -629,14 +629,12 @@ public:
             BEAST_EXPECT(reassembled == UDPEchoHandler::expectedBig());
         }
 
-        s = nullptr;
-
         // A udp port that cannot bind fails ports(), as a TCP port does,
-        // and not with bad_weak_ptr out of the door's constructor. A
-        // socket without reuse_address holds the port.
+        // and not with bad_weak_ptr out of the door's constructor. The
+        // server above still holds the port: a second one configured the
+        // same way must fail, not share the port and take its datagrams.
         {
-            udp::socket holder(io, udp::endpoint(addr, 0));
-            ports.back().port = holder.local_endpoint().port();
+            ports.back().port = port;
             auto s2 = make_Server(handler, thread.get_io_context(), journal);
             try
             {
@@ -652,6 +650,8 @@ public:
                 pass();
             }
         }
+
+        s = nullptr;
     }
 
     // UDP-RPC answers admin addresses only, and a udp port must name them.
@@ -663,14 +663,20 @@ public:
         using namespace test::jtx;
         using udp = boost::asio::ip::udp;
 
-        auto udpConfig = [](std::string const& admin) {
-            return envconfig([admin](std::unique_ptr<Config> cfg) {
+        auto udpConfig = [](std::string const& admin,
+                            bool credentials = false) {
+            return envconfig([=](std::unique_ptr<Config> cfg) {
                 (*cfg)["server"].append("port_udp");
                 auto& s = (*cfg)["port_udp"];
                 s.set("ip", getEnvLocalhostAddr());
                 s.set("port", "0");
                 s.set("protocol", "udp");
                 s.set("admin", admin);
+                if (credentials)
+                {
+                    s.set("admin_user", "udp_user");
+                    s.set("admin_password", "udp_password");
+                }
                 return cfg;
             });
         };
@@ -722,6 +728,20 @@ public:
             BEAST_EXPECT(ok(exchange(env, R"({"command":"ping"})", 5s)));
             BEAST_EXPECT(ok(exchange(
                 env, R"({"command":"subscribe","streams":["ledger"]})", 5s)));
+        }
+
+        // admin_user and admin_password, when the port sets them, are
+        // required as on every other transport: the address is not enough.
+        {
+            Env env{*this, udpConfig(getEnvLocalhostAddr(), true)};
+            auto const denied = exchange(env, R"({"command":"ping"})", 5s);
+            BEAST_EXPECT(
+                denied && denied->find("\"forbidden\"") != std::string::npos);
+            BEAST_EXPECT(ok(exchange(
+                env,
+                R"({"command":"ping","admin_user":"udp_user",)"
+                R"("admin_password":"udp_password"})",
+                5s)));
         }
 
         // Non-admin address: dropped without a reply.

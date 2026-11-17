@@ -1159,16 +1159,26 @@ ServerHandler::onUDPMessage(
     JLOG(m_journal.trace())
         << "UDP received '" << jv << "' from " << remoteEndpoint;
 
+    // The address is an admin one. A port that sets admin_user or
+    // admin_password wants them in the request as well, as on every other
+    // transport; without them the request is answered rpcFORBIDDEN.
+    Role const role = requestRole(
+        Role::ADMIN,
+        port,
+        jv,
+        beast::IPAddressConversion::from_asio(remoteEndpoint),
+        {});
+
     auto const postResult = m_jobQueue.postCoro(
         jtCLIENT_RPC,  // Using RPC job type since this is admin RPC
         "UDP-RPC",
         [this,
+         role,
          remoteEndpoint,
          jv = std::move(jv),
          sendResponse = std::move(sendResponse)](
             std::shared_ptr<JobQueue::Coro> const& coro) {
             // Process the request similar to WebSocket but with UDP context
-            Role const role = Role::ADMIN;  // UDP-RPC is admin-only
             auto const jr =
                 this->processUDP(jv, role, coro, sendResponse, remoteEndpoint);
 
