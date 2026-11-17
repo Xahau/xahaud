@@ -23,12 +23,16 @@
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/Database.h>
+#include <xrpld/nodestore/DummyScheduler.h>
+#include <xrpld/nodestore/Manager.h>
 #include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <xrpl/basics/Buffer.h>
+#include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/digest.h>
+#include <boost/filesystem.hpp>
 
 namespace ripple {
 namespace test {
@@ -204,11 +208,14 @@ class DatabasePinned_test : public beast::unit_test::suite
         auto* db = getPinnedDb(env);
         if (!db)
             return;
+        auto& nodeStore = env.app().getNodeStore();
 
         env.close();
         auto const ledger = env.app().getLedgerMaster().getValidatedLedger();
         if (!BEAST_EXPECT(ledger))
             return;
+        auto const seq = ledger->info().seq;
+        auto const hash = ledger->info().hash;
 
         auto* rdb =
             dynamic_cast<SQLiteDatabase*>(&env.app().getRelationalDatabase());
@@ -226,12 +233,42 @@ class DatabasePinned_test : public beast::unit_test::suite
         // pinned* types count there, and nothing else in this test
         // stores one, so the delta is exactly the header.
         env.app().getLedgerMaster().storeLedger(ledger, true);
-        BEAST_EXPECT(env.app().getLedgerMaster().isPinned(ledger->info().seq));
+        BEAST_EXPECT(env.app().getLedgerMaster().isPinned(seq));
         {
             auto const pinnedBefore = db->pinnedStoreCount();
             BEAST_EXPECT(rdb->saveValidatedLedger(ledger, false));
             BEAST_EXPECT(db->pinnedStoreCount() == pinnedBefore + 1);
         }
+
+        // What the routing buys: rotate the hot store twice, as
+        // online_delete does, so that everything it held is gone. The
+        // marker stored hot only is dropped, and so are the hot copies of
+        // the header saved above, yet the header the index still names
+        // is served, from the persistent backend.
+        auto const hotOnly = sha512Half(makeSlice(std::string{"hot-only"}));
+        db->store(hotACCOUNT_NODE, Blob(64, 0xEE), hotOnly, seq);
+        BEAST_EXPECT(nodeStore.fetchNodeObject(hotOnly, seq) != nullptr);
+
+        NodeStore::DummyScheduler scheduler;
+        for (auto const* name : {"rotated-1", "rotated-2"})
+        {
+            // Same recipe as SHAMapStoreImp::makeBackendRotating: the
+            // [node_db] section with a fresh path.
+            Section section{
+                env.app().config().section(ConfigSection::nodeDatabase())};
+            section.set(
+                "path", (boost::filesystem::path(td.path()) / name).string());
+            auto backend = NodeStore::Manager::instance().make_Backend(
+                section, megabytes(4), scheduler, env.journal);
+            backend->open();
+            db->rotate(
+                std::move(backend),
+                [](std::string const&, std::string const&) {});
+        }
+
+        BEAST_EXPECT(nodeStore.fetchNodeObject(hotOnly, seq) == nullptr);
+        BEAST_EXPECT(rdb->getHashByIndex(seq) == hash);
+        BEAST_EXPECT(nodeStore.fetchNodeObject(hash, seq) != nullptr);
     }
 
 public:

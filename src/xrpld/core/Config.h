@@ -395,6 +395,7 @@ public:
         With pinned_type set, type=rwdb keeps its older meaning: the
         in-memory RWDB backend is the rotating hot store under
         DatabasePinnedImp and the durable pinned store holds history.
+
         The result is read from this configuration, so two
         applications in one process do not share it.
     */

@@ -432,9 +432,10 @@ SHAMapStoreImp::loadPinnedRanges()
     // [relational_db] backend=rwdb keeps the SQL tables in memory, so the
     // seq -> hash index behind hasLedgerData() starts empty on every run
     // even when the pinned node store still holds every node. An interval
-    // the index cannot resolve is unreachable rather than evidence of a
-    // mismatched pinned store: drop it and have the operator re-run
-    // catalogue_load (node writes de-duplicate; only SQL is rebuilt).
+    // the index cannot resolve is then unreachable rather than evidence of
+    // a mismatched pinned store: skip it for this run and have the operator
+    // re-run catalogue_load (node writes de-duplicate; only the index is
+    // rebuilt).
     auto const& rdb = app_.config().section(SECTION_RELATIONAL_DB);
     bool const sqlPersistent =
         rdb.empty() || !boost::iequals(get(rdb, "backend"), "rwdb");
@@ -458,11 +459,11 @@ SHAMapStoreImp::loadPinnedRanges()
                 Throw<std::runtime_error>(notPresent());
 
             JLOG(journal_.warn())
-                << "Dropping pinned interval " << lower << "-"
+                << "Not serving pinned interval " << lower << "-"
                 << interval.upper()
-                << ": [relational_db] backend=rwdb does not persist the "
-                   "ledger index across restarts, so it cannot be served. "
-                   "Re-run catalogue_load to restore it.";
+                << " this run: [relational_db] backend=rwdb does not "
+                   "persist the ledger index across restarts. Re-run "
+                   "catalogue_load to restore it.";
             continue;
         }
 
@@ -507,7 +508,9 @@ SHAMapStoreImp::loadPinnedRanges()
             // record with whatever it loads).
             JLOG(journal_.warn()) << "Persisted pinned ranges " << rangesStr
                                   << " left unchanged in state.db; serving "
-                                  << to_string(verified) << " this run.";
+                                  << (verified.empty() ? std::string{"none"}
+                                                       : to_string(verified))
+                                  << " this run.";
         }
     }
 

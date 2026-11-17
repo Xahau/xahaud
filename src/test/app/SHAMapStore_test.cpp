@@ -27,6 +27,7 @@
 #include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/NodeObject.h>
+#include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <xrpld/nodestore/detail/DatabaseRotatingImp.h>
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/digest.h>
@@ -118,6 +119,22 @@ class SHAMapStore_test : public beast::unit_test::suite
         section.set("path", nodePath);
         section.set("pinned_type", "memory");
         section.set("pinned_path", pinnedPath);
+        return cfg;
+    }
+
+    // The smallest "rwdb + pinned_type" configuration: [node_db] holds
+    // nothing but the three keys below. In particular there is no path
+    // (envconfig sets one), since the in-memory hot store has no files.
+    // pinned_type=rwdb is allowed in standalone mode.
+    static auto
+    pinnedRwdbHotStore(std::unique_ptr<Config> cfg)
+    {
+        cfg->LEDGER_HISTORY = deleteInterval;
+        cfg->deprecatedClearSection(ConfigSection::nodeDatabase());
+        auto& section = cfg->section(ConfigSection::nodeDatabase());
+        section.set("type", "rwdb");
+        section.set("online_delete", std::to_string(deleteInterval));
+        section.set("pinned_type", "rwdb");
         return cfg;
     }
 
@@ -1042,6 +1059,45 @@ public:
         BEAST_EXPECT(!db.fetchNodeObject(hash, 1));
     }
 
+    // With pinned_type set, [node_db] type=rwdb is not the null node store
+    // but the in-memory rotating hot store under DatabasePinned: writes are
+    // kept, pinned types reach the pinned store, and no path is needed.
+    void
+    testRwdbHotStoreUnderPinned()
+    {
+        testcase("type=rwdb with pinned_type is the DatabasePinned hot store");
+
+        using namespace jtx;
+        Env env(*this, envconfig(pinnedRwdbHotStore));
+
+        BEAST_EXPECT(!env.app().config().nullBackend());
+
+        auto& db = env.app().getNodeStore();
+        auto* const pinned = dynamic_cast<NodeStore::DatabasePinnedImp*>(&db);
+        if (!BEAST_EXPECT(pinned))
+            return;
+
+        // The same write testNullFactoryDropsWrites sees dropped.
+        uint256 const hotHash{2};
+        db.store(hotACCOUNT_NODE, Blob(32, 7), hotHash, 1);
+        BEAST_EXPECT(db.fetchNodeObject(hotHash, 1));
+
+        // Nothing else stores a pinned type here, so the delta is exact.
+        uint256 const pinnedHash{3};
+        auto const pinnedBefore = pinned->pinnedStoreCount();
+        db.store(pinnedACCOUNT_NODE, Blob(32, 8), pinnedHash, 1);
+        BEAST_EXPECT(pinned->pinnedStoreCount() == pinnedBefore + 1);
+        BEAST_EXPECT(db.fetchNodeObject(pinnedHash, 1));
+
+        // Ledgers closed on it are written through to the node store.
+        env.close();
+        auto const ledger = env.app().getLedgerMaster().getValidatedLedger();
+        if (!BEAST_EXPECT(ledger))
+            return;
+        BEAST_EXPECT(
+            db.fetchNodeObject(ledger->info().accountHash, ledger->info().seq));
+    }
+
     void
     testRotate()
     {
@@ -1185,6 +1241,83 @@ public:
                         "Persisted pinned interval 100-200") !=
                     std::string::npos);
             }
+        }
+    }
+
+    // [relational_db] backend=rwdb keeps the seq -> hash index in memory, so
+    // after a restart no persisted interval can be resolved even though the
+    // pinned store still holds its nodes. Startup must skip such intervals
+    // for the run instead of refusing to start, and must leave the record in
+    // state.db alone: it is the only durable trace of what was loaded.
+    void
+    testPinnedRangeRestoreInMemoryIndex()
+    {
+        testcase("pinned range restore with an in-memory relational index");
+
+        using namespace jtx;
+
+        beast::temp_dir tempDir;
+        auto const tempPath = boost::filesystem::path(tempDir.path());
+        auto const dbPath = (tempPath / "db").string();
+        auto const nodePath = (tempPath / "node").string();
+        auto const pinnedPath = (tempPath / "pinned").string();
+
+        boost::filesystem::create_directories(dbPath);
+        boost::filesystem::create_directories(nodePath);
+        boost::filesystem::create_directories(pinnedPath);
+
+        // pinnedPersistent, but with the relational database in memory.
+        // state.db stays file-backed and is shared by every SHAMapStoreImp
+        // built below.
+        auto cfg = envconfig(pinnedPersistent, dbPath, nodePath, pinnedPath);
+        cfg->overwrite(SECTION_RELATIONAL_DB, "backend", "rwdb");
+        Env env(*this, std::move(cfg));
+
+        RangeSet<std::uint32_t> ranges;
+        ranges.insert(range(100u, 200u));
+        env.app().getSHAMapStore().setPinnedRanges(ranges);
+
+        NodeStoreScheduler scheduler(env.app().getJobQueue());
+        auto const journal = env.app().journal("SHAMapStoreTest");
+
+        try
+        {
+            SHAMapStoreImp restoreCheck(env.app(), scheduler, journal);
+            restoreCheck.start();
+            restoreCheck.stop();
+            pass();
+        }
+        catch (std::exception const& e)
+        {
+            fail(
+                std::string("restart with an in-memory index threw: ") +
+                e.what());
+            return;
+        }
+
+        // Nothing is advertised as pinned for this run.
+        BEAST_EXPECT(
+            env.app().getLedgerMaster().getPinnedLedgersRangeSet().empty());
+
+        // The record is still in state.db. Read it back the way a
+        // persistent (SQLite) index would: the interval is named again,
+        // and there an unresolvable interval is fatal. Only the setting
+        // loadPinnedRanges() consults changes; the relational database
+        // itself stays as it is.
+        env.app().config().overwrite(
+            SECTION_RELATIONAL_DB, "backend", "sqlite");
+        try
+        {
+            SHAMapStoreImp restoreCheck(env.app(), scheduler, journal);
+            restoreCheck.start();
+            restoreCheck.stop();
+            fail("Expected the persisted pinned interval to still be recorded");
+        }
+        catch (std::runtime_error const& e)
+        {
+            BEAST_EXPECT(
+                std::string(e.what()).find(
+                    "Persisted pinned interval 100-200") != std::string::npos);
         }
     }
 
@@ -1456,8 +1589,10 @@ public:
         testNullBackendIsPerConfig();
         testResidentLedgerLookup();
         testNullFactoryDropsWrites();
+        testRwdbHotStoreUnderPinned();
         testRotate();
         testPinnedRangeRestoreRequiresPinnedData();
+        testPinnedRangeRestoreInMemoryIndex();
         testPinnedRangeRestoreEmpty();
         testPinnedRangeRestoreTrimsMissingTail();
     }
