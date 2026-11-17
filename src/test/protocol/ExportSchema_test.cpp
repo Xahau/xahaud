@@ -95,6 +95,13 @@ class ExportSchema_test : public beast::unit_test::suite
         BEAST_EXPECT(has("Payment"));
         BEAST_EXPECT(has("TicketCreate"));
         BEAST_EXPECT(has("SignerListSet"));
+        BEAST_EXPECT(has("NFTokenMint"));
+        BEAST_EXPECT(has("NFTokenBurn"));
+        // offers, accepts and modifies stay on the account that holds them
+        BEAST_EXPECT(!has("NFTokenCreateOffer"));
+        BEAST_EXPECT(!has("NFTokenAcceptOffer"));
+        BEAST_EXPECT(!has("NFTokenCancelOffer"));
+        BEAST_EXPECT(!has("NFTokenModify"));
         BEAST_EXPECT(!has("AccountDelete"));
         BEAST_EXPECT(!has("SetRegularKey"));
 
@@ -263,6 +270,66 @@ class ExportSchema_test : public beast::unit_test::suite
         BEAST_EXPECT(!with(0x1));
     }
 
+    // What a hook exports for an NFT: a mint (taxon, the flags XRPL still
+    // accepts, a URI and its memos, and Amount "0" with Destination when
+    // the mint also creates the sell offer) and a burn (the id, and Owner
+    // when someone else holds it). Neither pays more than the ordinary fee.
+    void
+    testNFTs()
+    {
+        testcase("nfts");
+
+        auto const on = rules(true);
+        auto const alice = AccountID{1};
+        auto const bob = AccountID{2};
+
+        auto mint = base(ttNFTOKEN_MINT, alice);
+        BEAST_EXPECT(!ExportSchema::allowed(mint, on));
+        mint.setFieldU32(sfNFTokenTaxon, 0);
+        mint.setFieldU32(
+            sfFlags,
+            tfFullyCanonicalSig | tfBurnable | tfOnlyXRP | tfTransferable |
+                tfMutable);
+        mint.setFieldVL(sfURI, Slice{"ipfs://cid", 10});
+        {
+            STArray memos(sfMemos);
+            memos.push_back(STObject::makeInnerObject(sfMemo));
+            memos.back().setFieldVL(sfMemoType, Slice{"uri-hub/parent", 14});
+            memos.back().setFieldVL(sfMemoData, Slice{"token", 5});
+            mint.setFieldArray(sfMemos, memos);
+        }
+        BEAST_EXPECT(ExportSchema::allowed(mint, on));
+        BEAST_EXPECT(ExportSchema::extraFeeUnits(mint, on) == 0);
+        BEAST_EXPECT(ExportSchema::feeUnits(mint, 3, on) == 4);
+
+        mint.setFieldU16(sfTransferFee, 1000);
+        mint.setAccountID(sfIssuer, alice);
+        BEAST_EXPECT(ExportSchema::allowed(mint, on));
+
+        mint.setAccountID(sfDestination, bob);
+        mint.setFieldAmount(sfAmount, XRPAmount{0});
+        mint.setFieldU32(sfExpiration, 1);
+        BEAST_EXPECT(ExportSchema::allowed(mint, on));
+
+        // the flag XRPL disabled, and a field this type does not list
+        mint.setFieldU32(sfFlags, tfTrustLine);
+        BEAST_EXPECT(!ExportSchema::allowed(mint, on));
+        mint.setFieldU32(sfFlags, tfTransferable);
+        mint.setFieldH256(sfNFTokenID, uint256{1});
+        BEAST_EXPECT(!ExportSchema::allowed(mint, on));
+
+        auto burn = base(ttNFTOKEN_BURN, alice);
+        BEAST_EXPECT(!ExportSchema::allowed(burn, on));
+        burn.setFieldH256(sfNFTokenID, uint256{1});
+        burn.setFieldU32(sfFlags, tfFullyCanonicalSig);
+        BEAST_EXPECT(ExportSchema::allowed(burn, on));
+        BEAST_EXPECT(ExportSchema::extraFeeUnits(burn, on) == 0);
+        burn.setAccountID(sfOwner, bob);
+        BEAST_EXPECT(ExportSchema::allowed(burn, on));
+        burn.setFieldU32(sfFlags, tfBurnable);
+        BEAST_EXPECT(!ExportSchema::allowed(burn, on));
+    }
+
     void
     testFees()
     {
@@ -318,6 +385,7 @@ public:
         testTypes();
         testFields();
         testFlags();
+        testNFTs();
         testFees();
     }
 };
