@@ -91,11 +91,11 @@ ApplyView::dirAdd(
         return page;
     }
 
-    bool const capped = !rules().enabled(fixPageCap);
-
-    // Check whether we're out of pages.
-    if (++page >= dirNodeMaxPages && capped)
-        return std::nullopt;
+    // The current page is full, so move on to the next one. There is no
+    // cap on the number of pages (the dirNodeMaxPages limit was removed
+    // by the now-retired fixPageCap amendment), and the 64-bit page
+    // counter cannot realistically overflow.
+    ++page;
 
     // We are about to create a new node; we'll link it to
     // the chain first:
