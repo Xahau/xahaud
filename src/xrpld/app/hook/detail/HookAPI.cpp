@@ -2778,7 +2778,6 @@ HookAPI::mulratio_internal(
 inline Expected<uint64_t, HookReturnCode>
 HookAPI::float_divide_internal(uint64_t float1, uint64_t float2) const
 {
-    bool const hasFix = hookCtx.applyCtx.view().rules().enabled(fixFloatDivide);
     if (float2 == 0)
         return Unexpected(DIVISION_BY_ZERO);
     if (float1 == 0)
@@ -2828,16 +2827,9 @@ HookAPI::float_divide_internal(uint64_t float1, uint64_t float2) const
     while (man2 > 0)
     {
         int i = 0;
-        if (hasFix)
-        {
-            for (; man1 >= man2; man1 -= man2, ++i)
-                ;
-        }
-        else
-        {
-            for (; man1 > man2; man1 -= man2, ++i)
-                ;
-        }
+
+        for (; man1 >= man2; man1 -= man2, ++i)
+            ;
 
         man3 *= 10;
         man3 += i;
