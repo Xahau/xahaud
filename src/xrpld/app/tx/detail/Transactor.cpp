@@ -2489,11 +2489,8 @@ Transactor::finishApply(
 
         uint32_t lgrCur = view().seq();
 
-        bool const has240819 = view().rules().enabled(fix240819);
         bool const hasIOURewardClaim =
             view().rules().enabled(featureIOURewardClaim);
-        auto const& sfRewardFields =
-            *(ripple::SField::knownCodeToField.at(917511 - has240819));
 
         // iterate all affected balances
         for (auto const& node : meta.getFieldArray(sfAffectedNodes))
@@ -2587,7 +2584,7 @@ Transactor::finishApply(
             }
 
             // ltAccountRoot
-            if (!node.isFieldPresent(sfRewardFields) ||
+            if (!node.isFieldPresent(sfPreviousFields) ||
                 !node.isFieldPresent(sfLedgerIndex))
                 continue;
 
@@ -2603,7 +2600,7 @@ Transactor::finishApply(
                 continue;
 
             STObject& finalFields = (const_cast<STObject&>(node))
-                                        .getField(sfRewardFields)
+                                        .getField(sfPreviousFields)
                                         .downcast<STObject>();
 
             if (!finalFields.isFieldPresent(sfBalance))
