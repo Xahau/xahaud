@@ -119,14 +119,81 @@ Transactor::invokePreflight<Change>(PreflightContext const& ctx)
             return temDISABLED;
         }
 
-        if (!publicKeyType(makeSlice(ctx.tx.getFieldVL(sfPublicKey))))
+        auto const validKey = [](STObject const& obj) {
+            return obj.isFieldPresent(sfPublicKey) &&
+                publicKeyType(makeSlice(obj.getFieldVL(sfPublicKey)));
+        };
+
+        if (!ctx.rules.enabled(featureRNGV2))
         {
-            JLOG(ctx.j.warn()) << "Change: Entropy has an invalid PublicKey.";
-            return temMALFORMED;
+            // individual form: one validator's contribution
+            if (!ctx.tx.isFieldPresent(sfNextRandomDigest) ||
+                ctx.tx.isFieldPresent(sfRandomDigests))
+            {
+                JLOG(ctx.j.warn()) << "Change: Entropy is not individual form.";
+                return temMALFORMED;
+            }
+
+            if (!validKey(ctx.tx))
+            {
+                JLOG(ctx.j.warn())
+                    << "Change: Entropy has an invalid PublicKey.";
+                return temMALFORMED;
+            }
+        }
+        else
+        {
+            // aggregate form: one transaction per ledger
+            if (ctx.tx.isFieldPresent(sfPublicKey) ||
+                ctx.tx.isFieldPresent(sfNextRandomDigest) ||
+                ctx.tx.isFieldPresent(sfRandomData) ||
+                !ctx.tx.isFieldPresent(sfRandomDigests) ||
+                ctx.tx.getFieldArray(sfRandomDigests).empty())
+            {
+                JLOG(ctx.j.warn()) << "Change: Entropy is not aggregate form.";
+                return temMALFORMED;
+            }
+
+            Blob prev;
+            bool first = true;
+            for (auto const& entry : ctx.tx.getFieldArray(sfRandomDigests))
+            {
+                if (entry.isFieldPresent(sfLedgerSequence) ||
+                    !entry.isFieldPresent(sfNextRandomDigest) ||
+                    !validKey(entry))
+                {
+                    JLOG(ctx.j.warn()) << "Change: Entropy has a bad entry.";
+                    return temMALFORMED;
+                }
+
+                // strictly ascending: sorted and unique
+                auto pk = entry.getFieldVL(sfPublicKey);
+                if (!first && !(prev < pk))
+                {
+                    JLOG(ctx.j.warn())
+                        << "Change: Entropy entries not strictly ascending.";
+                    return temMALFORMED;
+                }
+                prev = std::move(pk);
+                first = false;
+            }
         }
     }
 
     return tesSUCCESS;
+}
+
+bool
+Change::entropyKeyAllowed(ReadView const& view, Slice const& pk)
+{
+    auto const unlRep = view.read(keylet::UNLReport());
+    if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
+        return true;
+
+    for (auto const& av : unlRep->getFieldArray(sfActiveValidators))
+        if (makeSlice(av.getFieldVL(sfPublicKey)) == pk)
+            return true;
+    return false;
 }
 
 TER
@@ -192,21 +259,27 @@ Change::preclaim(PreclaimContext const& ctx)
                 return tefFAILURE;
             }
 
-            // Only validators on the UNLReport may contribute, when there is
-            // one. Without a UNLReport (new networks, standalone, unit tests)
-            // inclusion by consensus is the only gate.
-            auto const unlRep = ctx.view.read(keylet::UNLReport());
-            if (!unlRep || !unlRep->isFieldPresent(sfActiveValidators))
-                return tesSUCCESS;
+            auto const allowed = [&](STObject const& obj) {
+                return entropyKeyAllowed(
+                    ctx.view, makeSlice(obj.getFieldVL(sfPublicKey)));
+            };
 
-            auto const pk = ctx.tx.getFieldVL(sfPublicKey);
-            for (auto const& av : unlRep->getFieldArray(sfActiveValidators))
-                if (av.getFieldVL(sfPublicKey) == pk)
-                    return tesSUCCESS;
+            bool ok = true;
+            if (ctx.tx.isFieldPresent(sfRandomDigests))
+            {
+                for (auto const& entry : ctx.tx.getFieldArray(sfRandomDigests))
+                    ok = ok && allowed(entry);
+            }
+            else
+                ok = allowed(ctx.tx);
 
-            JLOG(ctx.j.warn()) << "Change: Entropy from a validator that is "
-                                  "not on the UNLReport.";
-            return tefFAILURE;
+            if (!ok)
+            {
+                JLOG(ctx.j.warn()) << "Change: Entropy from a validator that "
+                                      "is not on the UNLReport.";
+                return tefFAILURE;
+            }
+            return tesSUCCESS;
         }
         case ttUNL_REPORT: {
             if (!ctx.tx.isFieldPresent(sfImportVLKey) ||
@@ -279,6 +352,10 @@ Change::doApply()
 // else (no commitment yet, a lost secret, a mismatch) just re-registers, which
 // is no different from the validator having withheld.
 //
+// Without featureRNGV2 each validator's ttENTROPY carries one contribution.
+// With it, the single aggregate ttENTROPY of the ledger carries all of them,
+// applied in transaction order exactly as the individual ones would have been.
+//
 // The first ttENTROPY of each ledger restarts sfRandomData. All of them are
 // applied before any other transaction (see BuildLedger), so by the time Hooks
 // run, sfRandomData is the seed for this ledger. The Hook API then iterates it
@@ -295,15 +372,62 @@ Change::applyEntropy()
 
     auto const seq = view().seq();
     auto const& tx = ctx_.tx;
-    auto const pk = tx.getFieldVL(sfPublicKey);
+    bool const aggregate = tx.isFieldPresent(sfRandomDigests);
+
+    struct Contribution
+    {
+        Blob pk;
+        uint256 nextDigest;
+        std::optional<uint256> reveal;
+    };
+
+    std::vector<Contribution> contributions;
+    if (aggregate)
+    {
+        for (auto const& e : tx.getFieldArray(sfRandomDigests))
+        {
+            Contribution c{
+                e.getFieldVL(sfPublicKey),
+                e.getFieldH256(sfNextRandomDigest),
+                std::nullopt};
+            if (e.isFieldPresent(sfRandomData))
+                c.reveal = e.getFieldH256(sfRandomData);
+            contributions.push_back(std::move(c));
+        }
+    }
+    else
+    {
+        Contribution c{
+            tx.getFieldVL(sfPublicKey),
+            tx.getFieldH256(sfNextRandomDigest),
+            std::nullopt};
+        if (tx.isFieldPresent(sfRandomData))
+            c.reveal = tx.getFieldH256(sfRandomData);
+        contributions.push_back(std::move(c));
+    }
 
     auto sle = view().peek(keylet::random());
     bool const created = !sle;
 
-    // find this validator's commitment, if it has one
-    std::optional<STObject> commitment;
-    if (!created)
+    // one aggregate per ledger
+    if (aggregate && !created && sle->getFieldU32(sfLedgerSequence) == seq)
     {
+        JLOG(j_.warn()) << "Change: second aggregate Entropy in ledger " << seq;
+        return tefFAILURE;
+    }
+
+    if (created)
+        sle = std::make_shared<SLE>(keylet::random());
+
+    // the first ttENTROPY applied in this ledger restarts the accumulator
+    bool restart = created || sle->getFieldU32(sfLedgerSequence) != seq;
+
+    for (auto const& c : contributions)
+    {
+        auto const& pk = c.pk;
+
+        // find this validator's commitment, if it has one
+        std::optional<STObject> commitment;
         for (auto const& entry : sle->getFieldArray(sfRandomDigests))
         {
             if (entry.getFieldVL(sfPublicKey) == pk)
@@ -312,83 +436,82 @@ Change::applyEntropy()
                 break;
             }
         }
-    }
 
-    // one contribution per validator per ledger
-    if (commitment && commitment->getFieldU32(sfLedgerSequence) == seq)
-    {
-        JLOG(j_.warn()) << "Change: second Entropy from one validator in "
-                        << "ledger " << seq;
-        return tefFAILURE;
-    }
-
-    if (created)
-        sle = std::make_shared<SLE>(keylet::random());
-
-    // the first ttENTROPY applied in this ledger restarts the accumulator
-    if (created || sle->getFieldU32(sfLedgerSequence) != seq)
-    {
-        std::size_t denominator = 0;
-        if (auto const unlRep = view().read(keylet::UNLReport());
-            unlRep && unlRep->isFieldPresent(sfActiveValidators))
-            denominator = unlRep->getFieldArray(sfActiveValidators).size();
-
-        sle->setFieldU32(sfLedgerSequence, seq);
-        sle->setFieldU16(sfEntropyCount, 0);
-        sle->setFieldU16(
-            sfEntropyDenominator,
-            static_cast<std::uint16_t>(
-                std::min<std::size_t>(denominator, 0xFFFFU)));
-        sle->setFieldH256(
-            sfRandomData,
-            sha512Half(rngSeedTag, seq, view().info().parentHash));
-    }
-
-    // mix in the reveal if it matches the validator's commitment
-    if (commitment && tx.isFieldPresent(sfRandomData))
-    {
-        auto const reveal = tx.getFieldH256(sfRandomData);
-        if (sha512Half(reveal) == commitment->getFieldH256(sfNextRandomDigest))
+        // one contribution per validator per ledger
+        if (!aggregate && commitment &&
+            commitment->getFieldU32(sfLedgerSequence) == seq)
         {
+            JLOG(j_.warn()) << "Change: second Entropy from one validator in "
+                            << "ledger " << seq;
+            return tefFAILURE;
+        }
+
+        if (restart)
+        {
+            restart = false;
+            std::size_t denominator = 0;
+            if (auto const unlRep = view().read(keylet::UNLReport());
+                unlRep && unlRep->isFieldPresent(sfActiveValidators))
+                denominator = unlRep->getFieldArray(sfActiveValidators).size();
+
+            sle->setFieldU32(sfLedgerSequence, seq);
+            sle->setFieldU16(sfEntropyCount, 0);
+            sle->setFieldU16(
+                sfEntropyDenominator,
+                static_cast<std::uint16_t>(
+                    std::min<std::size_t>(denominator, 0xFFFFU)));
             sle->setFieldH256(
                 sfRandomData,
-                sha512Half(
-                    rngAccumulateTag,
-                    sle->getFieldH256(sfRandomData),
-                    makeSlice(pk),
-                    reveal));
-            sle->setFieldU16(
-                sfEntropyCount, sle->getFieldU16(sfEntropyCount) + 1);
+                sha512Half(rngSeedTag, seq, view().info().parentHash));
         }
-        else
+
+        // mix in the reveal if it matches the validator's commitment
+        if (commitment && c.reveal)
         {
-            JLOG(j_.warn()) << "Change: Entropy reveal does not match the "
-                            << "validator's commitment, ignoring it.";
+            auto const& reveal = *c.reveal;
+            if (sha512Half(reveal) ==
+                commitment->getFieldH256(sfNextRandomDigest))
+            {
+                sle->setFieldH256(
+                    sfRandomData,
+                    sha512Half(
+                        rngAccumulateTag,
+                        sle->getFieldH256(sfRandomData),
+                        makeSlice(pk),
+                        reveal));
+                sle->setFieldU16(
+                    sfEntropyCount, sle->getFieldU16(sfEntropyCount) + 1);
+            }
+            else
+            {
+                JLOG(j_.warn()) << "Change: Entropy reveal does not match the "
+                                << "validator's commitment, ignoring it.";
+            }
         }
+
+        // store the new commitment, dropping stale ones
+        STArray digests(sfRandomDigests);
+        for (auto const& entry : sle->getFieldArray(sfRandomDigests))
+        {
+            if (entry.getFieldVL(sfPublicKey) == pk)
+                continue;
+            if (entry.getFieldU32(sfLedgerSequence) + maxCommitmentAge < seq)
+                continue;
+            digests.push_back(entry);
+        }
+
+        STObject entry(sfRandomDigestEntry);
+        entry.setFieldVL(sfPublicKey, pk);
+        entry.setFieldH256(sfNextRandomDigest, c.nextDigest);
+        entry.setFieldU32(sfLedgerSequence, seq);
+        digests.push_back(std::move(entry));
+
+        digests.sort([](STObject const& a, STObject const& b) {
+            return a.getFieldVL(sfPublicKey) < b.getFieldVL(sfPublicKey);
+        });
+
+        sle->setFieldArray(sfRandomDigests, digests);
     }
-
-    // store the new commitment, dropping stale ones
-    STArray digests(sfRandomDigests);
-    for (auto const& entry : sle->getFieldArray(sfRandomDigests))
-    {
-        if (entry.getFieldVL(sfPublicKey) == pk)
-            continue;
-        if (entry.getFieldU32(sfLedgerSequence) + maxCommitmentAge < seq)
-            continue;
-        digests.push_back(entry);
-    }
-
-    STObject entry(sfRandomDigestEntry);
-    entry.setFieldVL(sfPublicKey, pk);
-    entry.setFieldH256(sfNextRandomDigest, tx.getFieldH256(sfNextRandomDigest));
-    entry.setFieldU32(sfLedgerSequence, seq);
-    digests.push_back(std::move(entry));
-
-    digests.sort([](STObject const& a, STObject const& b) {
-        return a.getFieldVL(sfPublicKey) < b.getFieldVL(sfPublicKey);
-    });
-
-    sle->setFieldArray(sfRandomDigests, digests);
 
     if (created)
         view().insert(sle);

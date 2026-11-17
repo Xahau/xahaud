@@ -19,7 +19,11 @@
 
 #include <test/jtx.h>
 #include <test/jtx/hook.h>
+#include <xrpld/app/ledger/BuildLedger.h>
 #include <xrpld/app/ledger/Ledger.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/ledger/LedgerReplay.h>
+#include <xrpld/app/misc/CanonicalTXSet.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/ledger/ApplyViewImpl.h>
 #include <xrpld/ledger/OpenView.h>
@@ -29,6 +33,9 @@
 #include <xrpl/protocol/TxFlags.h>
 #include <xrpl/protocol/digest.h>
 #include <xrpl/protocol/jss.h>
+#include <algorithm>
+#include <functional>
+#include <set>
 
 namespace ripple {
 namespace test {
@@ -364,6 +371,53 @@ class RNG_test : public beast::unit_test::suite
             if (reveal)
                 obj.setFieldH256(sfRandomData, *reveal);
         });
+    }
+
+    // featureRNGV2: one validator's entry in an aggregate
+    struct Contribution
+    {
+        Blob pk;
+        uint256 nextCommitment;
+        std::optional<uint256> reveal;
+        std::optional<std::uint32_t> entrySeq;  // never set by a valid entry
+    };
+
+    static STTx
+    aggregateTx(
+        std::uint32_t seq,
+        std::vector<Contribution> const& cs,
+        std::function<void(STObject&)> const& extra = {})
+    {
+        return STTx(ttENTROPY, [&](auto& obj) {
+            obj.setFieldU32(sfLedgerSequence, seq);
+            STArray digests(sfRandomDigests);
+            for (auto const& c : cs)
+            {
+                STObject e(sfRandomDigestEntry);
+                e.setFieldVL(sfPublicKey, c.pk);
+                e.setFieldH256(sfNextRandomDigest, c.nextCommitment);
+                if (c.reveal)
+                    e.setFieldH256(sfRandomData, *c.reveal);
+                if (c.entrySeq)
+                    e.setFieldU32(sfLedgerSequence, *c.entrySeq);
+                digests.push_back(std::move(e));
+            }
+            obj.setFieldArray(sfRandomDigests, digests);
+            if (extra)
+                extra(obj);
+        });
+    }
+
+    static Blob
+    blobOf(PublicKey const& pk)
+    {
+        return Blob(pk.data(), pk.data() + pk.size());
+    }
+
+    static std::string
+    suffix(FeatureBitset const& features)
+    {
+        return features[featureRNGV2] ? " (V2)" : " (V1)";
     }
 
     static TER
@@ -726,7 +780,7 @@ class RNG_test : public beast::unit_test::suite
     void
     testNoEntropy(FeatureBitset features)
     {
-        testcase("No entropy");
+        testcase("No entropy" + suffix(features));
         using namespace jtx;
 
         // not a validator, so nothing ever contributes
@@ -746,7 +800,7 @@ class RNG_test : public beast::unit_test::suite
     void
     testHooks(FeatureBitset features)
     {
-        testcase("Hook API");
+        testcase("Hook API" + suffix(features));
         using namespace jtx;
         using enum hook_api::hook_return_code;
 
@@ -886,7 +940,7 @@ class RNG_test : public beast::unit_test::suite
     void
     testSlotBlocked(FeatureBitset features)
     {
-        testcase("Hooks cannot read the RNG");
+        testcase("Hooks cannot read the RNG" + suffix(features));
         using namespace jtx;
         using enum hook_api::hook_return_code;
 
@@ -919,7 +973,7 @@ class RNG_test : public beast::unit_test::suite
     void
     testLedgerEntry(FeatureBitset features)
     {
-        testcase("ledger_entry random");
+        testcase("ledger_entry random" + suffix(features));
         using namespace jtx;
 
         Env env{*this, envconfig(validator, ""), features};
@@ -990,19 +1044,788 @@ class RNG_test : public beast::unit_test::suite
         }
     }
 
+    // Individual form is for ledgers without featureRNGV2, aggregate form for
+    // ledgers with it, and nothing else is well-formed.
+    void
+    testPreflightV2()
+    {
+        testcase("Entropy preflight forms");
+        using namespace jtx;
+
+        auto const pk1 = randomKeyPair(KeyType::secp256k1).first;
+        auto const pk2 = randomKeyPair(KeyType::secp256k1).first;
+        auto const [lo, hi] = blobOf(pk1) < blobOf(pk2) ? std::pair{pk1, pk2}
+                                                        : std::pair{pk2, pk1};
+        auto const d = sha512Half(secret(1));
+
+        {
+            Env env{*this, supported_amendments()};
+            OpenView view(&*env.closed());
+            auto const seq = view.seq();
+            auto const ter = [&](STTx const& tx) {
+                return applyTx(env, view, tx);
+            };
+
+            // individual form is never applicable under V2
+            BEAST_EXPECT(ter(entropyTx(seq, lo, d)) == temMALFORMED);
+
+            // empty
+            BEAST_EXPECT(ter(aggregateTx(seq, {})) == temMALFORMED);
+
+            // unsorted
+            BEAST_EXPECT(
+                ter(aggregateTx(
+                    seq, {{blobOf(hi), d, {}, {}}, {blobOf(lo), d, {}, {}}})) ==
+                temMALFORMED);
+
+            // duplicate key
+            BEAST_EXPECT(
+                ter(aggregateTx(
+                    seq, {{blobOf(lo), d, {}, {}}, {blobOf(lo), d, {}, {}}})) ==
+                temMALFORMED);
+
+            // an entry with sfLedgerSequence
+            BEAST_EXPECT(
+                ter(aggregateTx(seq, {{blobOf(lo), d, {}, seq}})) ==
+                temMALFORMED);
+
+            // bad key
+            BEAST_EXPECT(
+                ter(aggregateTx(seq, {{Blob(33, 0x01), d, {}, {}}})) ==
+                temMALFORMED);
+
+            // top-level key, digest or reveal alongside the array
+            BEAST_EXPECT(
+                ter(aggregateTx(
+                    seq, {{blobOf(lo), d, {}, {}}}, [&](STObject& obj) {
+                        obj.setFieldVL(sfPublicKey, lo.slice());
+                    })) == temMALFORMED);
+            BEAST_EXPECT(
+                ter(aggregateTx(
+                    seq, {{blobOf(lo), d, {}, {}}}, [&](STObject& obj) {
+                        obj.setFieldH256(sfNextRandomDigest, d);
+                    })) == temMALFORMED);
+            BEAST_EXPECT(
+                ter(aggregateTx(
+                    seq, {{blobOf(lo), d, {}, {}}}, [&](STObject& obj) {
+                        obj.setFieldH256(sfRandomData, d);
+                    })) == temMALFORMED);
+        }
+
+        {
+            // and the aggregate form is malformed without V2
+            Env env{*this, supported_amendments() - featureRNGV2};
+            OpenView view(&*env.closed());
+            BEAST_EXPECT(
+                applyTx(
+                    env,
+                    view,
+                    aggregateTx(view.seq(), {{blobOf(lo), d, {}, {}}})) ==
+                temMALFORMED);
+
+            // individual form without the digest
+            BEAST_EXPECT(applyTx(env, view, STTx(ttENTROPY, [&](auto& obj) {
+                                     obj.setFieldU32(
+                                         sfLedgerSequence, view.seq());
+                                     obj.setFieldVL(sfPublicKey, lo.slice());
+                                 })) == temMALFORMED);
+        }
+    }
+
+    // featureRNGV2 must not weaken the randomness: the same contributions
+    // give the same Random object whether applied one transaction per
+    // validator or as one aggregate.
+    void
+    testEquivalence()
+    {
+        testcase("Aggregate equals individual contributions");
+        using namespace jtx;
+
+        // One Env and chain per rule set (Rules refer to the live config, so
+        // they cannot differ within one Env), each built from genesis.
+        // Neither ledger is made immutable, so the parent hashes are
+        // identical by construction (asserted below) and the seeds match; the
+        // expected value is also recomputed from the formula for both.
+        Env env1{*this, supported_amendments() - featureRNGV2};
+        Env env2{*this, supported_amendments()};
+        auto genesis = [&](Env& env) {
+            return std::make_shared<Ledger>(
+                create_genesis,
+                env.app().config(),
+                std::vector<uint256>{},
+                env.app().getNodeFamily());
+        };
+        auto v1 = genesis(env1);
+        auto v2 = genesis(env2);
+        BEAST_EXPECT(!v1->rules().enabled(featureRNGV2));
+        BEAST_EXPECT(v2->rules().enabled(featureRNGV2));
+
+        std::vector<PublicKey> keys;
+        for (int i = 0; i < 3; ++i)
+            keys.push_back(randomKeyPair(KeyType::secp256k1).first);
+
+        struct Step
+        {
+            int validator;
+            std::optional<std::uint32_t> reveal;  // secret() index
+            std::uint32_t next;                   // secret() index
+            bool valid;                           // the reveal is mixed in
+        };
+        // Ledger 1 commits; 2 has a correct reveal, a withheld reveal and a
+        // wrong one; 3 reveals for everything just committed; 4 has one
+        // validator absent.
+        std::vector<std::vector<Step>> const ledgers{
+            {{0, {}, 10, false}, {1, {}, 11, false}, {2, {}, 12, false}},
+            {{0, 10, 20, true}, {1, {}, 21, false}, {2, 999, 22, false}},
+            {{0, 20, 30, true}, {1, 21, 31, true}, {2, 22, 32, true}},
+            {{1, 31, 41, true}, {2, 32, 42, true}},
+        };
+        std::vector<std::uint16_t> const counts{0, 1, 3, 2};
+
+        auto next = [&](Env& env, std::shared_ptr<Ledger>& l) {
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
+        };
+
+        for (std::size_t n = 0; n < ledgers.size(); ++n)
+        {
+            next(env1, v1);
+            next(env2, v2);
+            BEAST_EXPECT(v1->info().parentHash == v2->info().parentHash);
+
+            // ascending public key order
+            auto steps = ledgers[n];
+            std::sort(steps.begin(), steps.end(), [&](auto& a, auto& b) {
+                return blobOf(keys[a.validator]) < blobOf(keys[b.validator]);
+            });
+
+            {
+                OpenView view(&*v1);
+                for (auto const& st : steps)
+                    BEAST_EXPECT(
+                        applyTx(
+                            env1,
+                            view,
+                            entropyTx(
+                                view.seq(),
+                                keys[st.validator],
+                                sha512Half(secret(st.next)),
+                                st.reveal ? std::optional{secret(*st.reveal)}
+                                          : std::nullopt)) == tesSUCCESS);
+                view.apply(*v1);
+            }
+            {
+                OpenView view(&*v2);
+                std::vector<Contribution> cs;
+                for (auto const& st : steps)
+                    cs.push_back(
+                        {blobOf(keys[st.validator]),
+                         sha512Half(secret(st.next)),
+                         st.reveal ? std::optional{secret(*st.reveal)}
+                                   : std::nullopt,
+                         {}});
+                BEAST_EXPECT(
+                    applyTx(env2, view, aggregateTx(view.seq(), cs)) ==
+                    tesSUCCESS);
+                view.apply(*v2);
+            }
+
+            // expected state from the formula
+            auto expected =
+                sha512Half(rngSeedTag, v1->seq(), v1->info().parentHash);
+            for (auto const& st : steps)
+                if (st.valid)
+                    expected = sha512Half(
+                        rngAccumulateTag,
+                        expected,
+                        keys[st.validator].slice(),
+                        secret(*st.reveal));
+
+            auto const a = v1->read(keylet::random());
+            auto const b = v2->read(keylet::random());
+            if (!BEAST_EXPECT(a && b))
+                return;
+            BEAST_EXPECT(a->getFieldH256(sfRandomData) == expected);
+            BEAST_EXPECT(b->getFieldH256(sfRandomData) == expected);
+            BEAST_EXPECT(a->getFieldU16(sfEntropyCount) == counts[n]);
+            BEAST_EXPECT(b->getFieldU16(sfEntropyCount) == counts[n]);
+            BEAST_EXPECT(
+                a->getFieldU16(sfEntropyDenominator) ==
+                b->getFieldU16(sfEntropyDenominator));
+            BEAST_EXPECT(
+                a->getFieldU32(sfLedgerSequence) ==
+                b->getFieldU32(sfLedgerSequence));
+
+            auto const& da = a->getFieldArray(sfRandomDigests);
+            auto const& db = b->getFieldArray(sfRandomDigests);
+            if (BEAST_EXPECT(da.size() == db.size()))
+                for (std::size_t i = 0; i < da.size(); ++i)
+                {
+                    BEAST_EXPECT(
+                        da[i].getFieldVL(sfPublicKey) ==
+                        db[i].getFieldVL(sfPublicKey));
+                    BEAST_EXPECT(
+                        da[i].getFieldH256(sfNextRandomDigest) ==
+                        db[i].getFieldH256(sfNextRandomDigest));
+                    BEAST_EXPECT(
+                        da[i].getFieldU32(sfLedgerSequence) ==
+                        db[i].getFieldU32(sfLedgerSequence));
+                }
+        }
+    }
+
+    // The ledger-build path collapses the consensus set's individual-form
+    // items into one aggregate (V2), or leaves them as they are (V1).
+    void
+    testBuildLedger(FeatureBitset features)
+    {
+        testcase("Build ledger" + suffix(features));
+        using namespace jtx;
+        bool const v2 = features[featureRNGV2];
+
+        Env env{*this, features};
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice, bob);
+        env.close();
+
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto const seq = parent->seq() + 1;
+
+        std::vector<PublicKey> keys;
+        for (int i = 0; i < 5; ++i)
+            keys.push_back(randomKeyPair(KeyType::secp256k1).first);
+        auto const& [kA, kB, kC, kD, kE] =
+            std::tie(keys[0], keys[1], keys[2], keys[3], keys[4]);
+
+        CanonicalTXSet txns(parent->info().hash);
+        auto add = [&](STTx const& tx) {
+            txns.insert(std::make_shared<STTx const>(tx));
+            return tx.getTransactionID();
+        };
+
+        auto const revealA = secret(500);
+        auto const a1 = entropyTx(seq, kA, sha512Half(secret(1)), revealA);
+        auto const a2 = entropyTx(seq, kA, sha512Half(secret(2)));
+        auto const idA1 = add(a1);
+        auto const idA2 = add(a2);  // duplicate key
+        auto const idB = add(entropyTx(seq, kB, sha512Half(secret(3))));
+        auto const idC = add(entropyTx(seq, kC, sha512Half(secret(4))));
+        auto const idWrongSeq =
+            add(entropyTx(seq + 1, kD, sha512Half(secret(5))));
+        auto const idBadKey = add(STTx(ttENTROPY, [&](auto& obj) {
+            obj.setFieldU32(sfLedgerSequence, seq);
+            obj.setFieldVL(sfPublicKey, Blob(33, 0x01));
+            obj.setFieldH256(sfNextRandomDigest, sha512Half(secret(6)));
+        }));
+        auto const idInjected = add(
+            aggregateTx(seq, {{blobOf(kE), sha512Half(secret(7)), {}, {}}}));
+
+        auto const payJt = env.jt(jtx::pay(alice, bob, XRP(1)));
+        auto const idPay = payJt.stx->getTransactionID();
+        txns.insert(std::make_shared<STTx const>(*payJt.stx));
+
+        // the first of the duplicates in canonical (txid) order wins
+        auto const winnerA = idA1 < idA2 ? a1 : a2;
+        auto const loserA = idA1 < idA2 ? idA2 : idA1;
+
+        std::set<TxID> failed;
+        auto const built = buildLedger(
+            parent,
+            env.app().timeKeeper().closeTime(),
+            true,
+            parent->info().closeTimeResolution,
+            env.app(),
+            txns,
+            failed,
+            env.journal);
+
+        BEAST_EXPECT(built->txExists(idPay));
+        BEAST_EXPECT(!failed.count(idPay));
+        for (auto const& [key, tx] : txns)
+            BEAST_EXPECT(tx->getTxnType() != ttENTROPY);
+
+        std::vector<std::shared_ptr<STTx const>> entropy;
+        for (auto const& [tx, meta] : built->txs)
+            if (tx->getTxnType() == ttENTROPY)
+                entropy.push_back(tx);
+
+        auto const rng = built->read(keylet::random());
+        if (!BEAST_EXPECT(rng))
+            return;
+        BEAST_EXPECT(rng->getFieldU32(sfLedgerSequence) == built->seq());
+        BEAST_EXPECT(rng->getFieldU16(sfEntropyCount) == 0);
+        BEAST_EXPECT(rng->getFieldArray(sfRandomDigests).size() == 3);
+
+        if (!v2)
+        {
+            // unchanged: every valid individual item is recorded
+            BEAST_EXPECT(entropy.size() == 3);
+            for (auto const& tx : entropy)
+                BEAST_EXPECT(!tx->isFieldPresent(sfRandomDigests));
+            BEAST_EXPECT(failed.count(loserA));
+            BEAST_EXPECT(failed.count(idWrongSeq));
+            BEAST_EXPECT(failed.count(idBadKey));
+            BEAST_EXPECT(failed.count(idInjected));
+            BEAST_EXPECT(!failed.count(idB) && !failed.count(idC));
+            return;
+        }
+
+        if (!BEAST_EXPECT(entropy.size() == 1))
+            return;
+        auto const& agg = *entropy[0];
+        BEAST_EXPECT(agg.isFieldPresent(sfRandomDigests));
+        BEAST_EXPECT(!agg.isFieldPresent(sfPublicKey));
+        BEAST_EXPECT(agg.getFieldU32(sfLedgerSequence) == built->seq());
+
+        std::vector<std::pair<Blob, uint256>> expected{
+            {blobOf(kA), winnerA.getFieldH256(sfNextRandomDigest)},
+            {blobOf(kB), sha512Half(secret(3))},
+            {blobOf(kC), sha512Half(secret(4))}};
+        std::sort(expected.begin(), expected.end());
+        auto const& entries = agg.getFieldArray(sfRandomDigests);
+        if (BEAST_EXPECT(entries.size() == expected.size()))
+            for (std::size_t i = 0; i < entries.size(); ++i)
+            {
+                BEAST_EXPECT(
+                    entries[i].getFieldVL(sfPublicKey) == expected[i].first);
+                BEAST_EXPECT(
+                    entries[i].getFieldH256(sfNextRandomDigest) ==
+                    expected[i].second);
+                BEAST_EXPECT(!entries[i].isFieldPresent(sfLedgerSequence));
+                // the reveal is carried through
+                BEAST_EXPECT(
+                    entries[i].isFieldPresent(sfRandomData) ==
+                    (entries[i].getFieldVL(sfPublicKey) == blobOf(kA) &&
+                     winnerA.isFieldPresent(sfRandomData)));
+            }
+
+        BEAST_EXPECT(failed.count(loserA));
+        BEAST_EXPECT(failed.count(idWrongSeq));
+        BEAST_EXPECT(failed.count(idBadKey));
+        BEAST_EXPECT(failed.count(idInjected));
+        BEAST_EXPECT(!failed.count(idA1 < idA2 ? idA1 : idA2));
+        BEAST_EXPECT(!failed.count(idB) && !failed.count(idC));
+        BEAST_EXPECT(failed.size() == 4);
+    }
+
+    // A validator Env closing ledgers through consensus records one
+    // ttENTROPY per ledger, in aggregate form under V2.
+    void
+    testValidatorClose(FeatureBitset features)
+    {
+        testcase("Validator close" + suffix(features));
+        using namespace jtx;
+        bool const v2 = features[featureRNGV2];
+
+        Env env{*this, envconfig(validator, ""), features};
+        env.close();
+        env.close();
+
+        std::vector<std::shared_ptr<STTx const>> entropy;
+        for (auto const& [tx, meta] : env.closed()->txs)
+            if (tx->getTxnType() == ttENTROPY)
+                entropy.push_back(tx);
+        if (!BEAST_EXPECT(entropy.size() == 1))
+            return;
+        BEAST_EXPECT(entropy[0]->isFieldPresent(sfRandomDigests) == v2);
+        BEAST_EXPECT(entropy[0]->isFieldPresent(sfPublicKey) == !v2);
+        if (v2)
+            BEAST_EXPECT(
+                entropy[0]->getFieldArray(sfRandomDigests).size() == 1);
+
+        auto const sle = env.closed()->read(keylet::random());
+        if (BEAST_EXPECT(sle))
+            BEAST_EXPECT(sle->getFieldU16(sfEntropyCount) == 1);
+    }
+
+    // Under V2: a second aggregate in one ledger, and a key that is not on
+    // the UNLReport, both fail.
+    void
+    testAggregateRejections()
+    {
+        testcase("Aggregate rejections");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments()};
+        auto const pk1 = randomKeyPair(KeyType::secp256k1).first;
+        auto const pk2 = randomKeyPair(KeyType::secp256k1).first;
+        auto const d = sha512Half(secret(1));
+
+        auto l = std::make_shared<Ledger>(
+            create_genesis,
+            env.app().config(),
+            std::vector<uint256>{},
+            env.app().getNodeFamily());
+        BEAST_EXPECT(l->rules().enabled(featureRNGV2));
+        auto nextLedger = [&]() {
+            l = std::make_shared<Ledger>(
+                *l, env.app().timeKeeper().closeTime());
+        };
+
+        nextLedger();
+        {
+            OpenView view(&*l);
+            auto const seq = view.seq();
+            BEAST_EXPECT(
+                applyTx(
+                    env, view, aggregateTx(seq, {{blobOf(pk1), d, {}, {}}})) ==
+                tesSUCCESS);
+
+            // a second aggregate in the same ledger, even for another key
+            BEAST_EXPECT(
+                applyTx(
+                    env, view, aggregateTx(seq, {{blobOf(pk2), d, {}, {}}})) ==
+                tefFAILURE);
+
+            // and one for the wrong ledger
+            BEAST_EXPECT(
+                applyTx(
+                    env,
+                    view,
+                    aggregateTx(seq + 1, {{blobOf(pk2), d, {}, {}}})) ==
+                tefFAILURE);
+            view.apply(*l);
+        }
+
+        // a UNLReport listing only pk1
+        nextLedger();
+        {
+            OpenView view(&*l);
+            STTx const report(ttUNL_REPORT, [&](auto& obj) {
+                auto inner = std::make_unique<STObject>(sfActiveValidator);
+                inner->setFieldVL(sfPublicKey, pk1.slice());
+                obj.set(std::move(inner));
+                obj.setFieldU32(sfLedgerSequence, view.seq());
+            });
+            BEAST_EXPECT(applyTx(env, view, report) == tesSUCCESS);
+            view.apply(*l);
+        }
+
+        nextLedger();
+        {
+            OpenView view(&*l);
+            auto const seq = view.seq();
+            auto const [lo, hi] = blobOf(pk1) < blobOf(pk2)
+                ? std::pair{pk1, pk2}
+                : std::pair{pk2, pk1};
+
+            // one key off the UNLReport fails the whole aggregate
+            BEAST_EXPECT(
+                applyTx(
+                    env,
+                    view,
+                    aggregateTx(
+                        seq,
+                        {{blobOf(lo), d, {}, {}}, {blobOf(hi), d, {}, {}}})) ==
+                tefFAILURE);
+            BEAST_EXPECT(
+                !view.read(keylet::random()) ||
+                view.read(keylet::random())->getFieldU32(sfLedgerSequence) !=
+                    seq);
+
+            BEAST_EXPECT(
+                applyTx(
+                    env, view, aggregateTx(seq, {{blobOf(pk1), d, {}, {}}})) ==
+                tesSUCCESS);
+            view.apply(*l);
+        }
+        auto const sle = l->read(keylet::random());
+        if (BEAST_EXPECT(sle))
+        {
+            BEAST_EXPECT(sle->getFieldU16(sfEntropyDenominator) == 1);
+            BEAST_EXPECT(sle->getFieldArray(sfRandomDigests).size() == 1);
+        }
+    }
+
+    // Build the next ledger on parent from a set of consensus items.
+    std::shared_ptr<Ledger>
+    buildOn(
+        jtx::Env& env,
+        std::shared_ptr<Ledger const> const& parent,
+        std::vector<STTx> const& items,
+        std::set<TxID>& failed)
+    {
+        CanonicalTXSet txns(parent->info().hash);
+        for (auto const& tx : items)
+            txns.insert(std::make_shared<STTx const>(tx));
+        auto const res = parent->info().closeTimeResolution;
+        auto built = buildLedger(
+            parent,
+            parent->info().closeTime + res,
+            true,
+            res,
+            env.app(),
+            txns,
+            failed,
+            env.journal);
+        for (auto const& [key, tx] : txns)
+            BEAST_EXPECT(tx->getTxnType() != ttENTROPY);
+        return built;
+    }
+
+    static std::vector<std::shared_ptr<STTx const>>
+    entropiesOf(std::shared_ptr<Ledger const> const& l)
+    {
+        std::vector<std::shared_ptr<STTx const>> out;
+        for (auto const& [tx, meta] : l->txs)
+            if (tx->getTxnType() == ttENTROPY)
+                out.push_back(tx);
+        return out;
+    }
+
+    static STTx
+    unlReportTx(PublicKey const& pk, std::uint32_t seq)
+    {
+        return STTx(ttUNL_REPORT, [&](auto& obj) {
+            auto inner = std::make_unique<STObject>(sfActiveValidator);
+            inner->setFieldVL(sfPublicKey, pk.slice());
+            obj.set(std::move(inner));
+            obj.setFieldU32(sfLedgerSequence, seq);
+        });
+    }
+
+    // Only the exact bytes a validator builds are accepted into the
+    // aggregate.
+    void
+    testNonCanonical()
+    {
+        testcase("Non-canonical entropy items");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments()};
+        env.close();
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+        auto const seq = parent->seq() + 1;
+        auto const kX = randomKeyPair(KeyType::secp256k1).first;
+        auto const kY = randomKeyPair(KeyType::secp256k1).first;
+        auto const kZ = randomKeyPair(KeyType::secp256k1).first;
+
+        // same four fields plus one more, so a different txid
+        auto extra = [&](PublicKey const& pk, uint256 const& d) {
+            return STTx(ttENTROPY, [&](auto& obj) {
+                obj.setFieldU32(sfLedgerSequence, seq);
+                obj.setFieldVL(sfPublicKey, pk.slice());
+                obj.setFieldH256(sfNextRandomDigest, d);
+                obj.setFieldU32(sfSourceTag, 7);
+            });
+        };
+
+        // vary the digests so the canonical order of the items varies
+        for (std::uint32_t i = 0; i < 8; ++i)
+        {
+            auto const dX = sha512Half(secret(100 + i));
+            auto const dY = sha512Half(secret(200 + i));
+            auto const dZ = sha512Half(secret(300 + i));
+            auto const xOnly = extra(kX, dX);
+            auto const yBad = extra(kY, dY);
+            auto const yGood = entropyTx(seq, kY, dY);
+            auto const zGood = entropyTx(seq, kZ, dZ);
+            BEAST_EXPECT(yBad.getTransactionID() != yGood.getTransactionID());
+
+            std::set<TxID> failed;
+            auto const built =
+                buildOn(env, parent, {xOnly, yBad, yGood, zGood}, failed);
+            auto const entropy = entropiesOf(built);
+            if (!BEAST_EXPECT(entropy.size() == 1))
+                return;
+            auto const& entries = entropy[0]->getFieldArray(sfRandomDigests);
+            BEAST_EXPECT(entries.size() == 2);
+            for (auto const& e : entries)
+            {
+                auto const pk = e.getFieldVL(sfPublicKey);
+                BEAST_EXPECT(pk != blobOf(kX));
+                if (pk == blobOf(kY))
+                    BEAST_EXPECT(e.getFieldH256(sfNextRandomDigest) == dY);
+            }
+            BEAST_EXPECT(failed.count(xOnly.getTransactionID()));
+            BEAST_EXPECT(failed.count(yBad.getTransactionID()));
+            BEAST_EXPECT(!failed.count(yGood.getTransactionID()));
+            BEAST_EXPECT(!failed.count(zGood.getTransactionID()));
+            BEAST_EXPECT(failed.size() == 2);
+        }
+    }
+
+    // Reveals survive the collapse, and a built aggregate replays to the same
+    // ledger.
+    void
+    testRevealAndReplay()
+    {
+        testcase("Reveal through collapse and replay");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments()};
+        env.close();
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+
+        std::vector<PublicKey> keys;
+        for (int i = 0; i < 4; ++i)
+            keys.push_back(randomKeyPair(KeyType::secp256k1).first);
+
+        // ledger N: everyone commits
+        std::set<TxID> failed1;
+        std::vector<STTx> items1;
+        for (std::uint32_t i = 0; i < keys.size(); ++i)
+            items1.push_back(entropyTx(
+                parent->seq() + 1, keys[i], sha512Half(secret(10 + i))));
+        auto const l1 = buildOn(env, parent, items1, failed1);
+        BEAST_EXPECT(failed1.empty());
+        BEAST_EXPECT(entropiesOf(l1).size() == 1);
+
+        // ledger N+1: 0 reveals, 1 withholds, 2 reveals wrong, 3 reveals
+        auto const seq2 = l1->seq() + 1;
+        std::vector<std::optional<uint256>> reveals{
+            secret(10), std::nullopt, secret(999), secret(13)};
+        std::vector<STTx> items2;
+        for (std::uint32_t i = 0; i < keys.size(); ++i)
+            items2.push_back(entropyTx(
+                seq2, keys[i], sha512Half(secret(20 + i)), reveals[i]));
+        std::set<TxID> failed2;
+        auto const l2 = buildOn(env, l1, items2, failed2);
+        BEAST_EXPECT(failed2.empty());
+
+        auto const entropy = entropiesOf(l2);
+        if (!BEAST_EXPECT(entropy.size() == 1))
+            return;
+
+        // entries carry the exact reveals, sorted by key
+        auto const& entries = entropy[0]->getFieldArray(sfRandomDigests);
+        if (!BEAST_EXPECT(entries.size() == keys.size()))
+            return;
+        std::vector<std::uint32_t> order{0, 1, 2, 3};
+        std::sort(order.begin(), order.end(), [&](auto a, auto b) {
+            return blobOf(keys[a]) < blobOf(keys[b]);
+        });
+        auto expected =
+            sha512Half(rngSeedTag, l2->seq(), l2->info().parentHash);
+        for (std::size_t n = 0; n < order.size(); ++n)
+        {
+            auto const i = order[n];
+            auto const& e = entries[n];
+            BEAST_EXPECT(e.getFieldVL(sfPublicKey) == blobOf(keys[i]));
+            BEAST_EXPECT(
+                e.getFieldH256(sfNextRandomDigest) ==
+                sha512Half(secret(20 + i)));
+            BEAST_EXPECT(
+                e.isFieldPresent(sfRandomData) == reveals[i].has_value());
+            if (reveals[i])
+            {
+                BEAST_EXPECT(e.getFieldH256(sfRandomData) == *reveals[i]);
+                if (sha512Half(*reveals[i]) == sha512Half(secret(10 + i)))
+                    expected = sha512Half(
+                        rngAccumulateTag,
+                        expected,
+                        keys[i].slice(),
+                        *reveals[i]);
+            }
+        }
+
+        auto const rng = l2->read(keylet::random());
+        if (!BEAST_EXPECT(rng))
+            return;
+        BEAST_EXPECT(rng->getFieldU16(sfEntropyCount) == 2);
+        BEAST_EXPECT(rng->getFieldH256(sfRandomData) == expected);
+
+        // replaying either ledger gives the same ledger
+        for (auto const& [par, orig] :
+             {std::pair<
+                  std::shared_ptr<Ledger const>,
+                  std::shared_ptr<Ledger const>>{parent, l1},
+              std::pair<
+                  std::shared_ptr<Ledger const>,
+                  std::shared_ptr<Ledger const>>{l1, l2}})
+        {
+            auto const replayed = buildLedger(
+                LedgerReplay(par, orig), tapNONE, env.app(), env.journal);
+            BEAST_EXPECT(replayed->info().hash == orig->info().hash);
+        }
+    }
+
+    // Keys off the UNLReport are dropped, and the denominator is its size.
+    void
+    testUNLReportCollapse()
+    {
+        testcase("UNLReport filter through collapse");
+        using namespace jtx;
+
+        Env env{*this, supported_amendments()};
+        env.close();
+        auto const parent = env.app().getLedgerMaster().getClosedLedger();
+
+        std::vector<PublicKey> listed;
+        for (int i = 0; i < 3; ++i)
+            listed.push_back(randomKeyPair(KeyType::secp256k1).first);
+        auto const off = randomKeyPair(KeyType::secp256k1).first;
+
+        std::vector<STTx> reports;
+        for (auto const& pk : listed)
+            reports.push_back(unlReportTx(pk, parent->seq() + 1));
+        std::set<TxID> failed1;
+        auto const l1 = buildOn(env, parent, reports, failed1);
+        BEAST_EXPECT(failed1.empty());
+        auto const rep = l1->read(keylet::UNLReport());
+        if (!BEAST_EXPECT(rep))
+            return;
+        BEAST_EXPECT(rep->getFieldArray(sfActiveValidators).size() == 3);
+
+        auto const seq = l1->seq() + 1;
+        std::vector<STTx> items;
+        for (std::uint32_t i = 0; i < 2; ++i)  // only two of the three
+            items.push_back(entropyTx(seq, listed[i], sha512Half(secret(i))));
+        auto const offTx = entropyTx(seq, off, sha512Half(secret(9)));
+        items.push_back(offTx);
+
+        std::set<TxID> failed;
+        auto const l2 = buildOn(env, l1, items, failed);
+        BEAST_EXPECT(failed.size() == 1);
+        BEAST_EXPECT(failed.count(offTx.getTransactionID()));
+
+        auto const entropy = entropiesOf(l2);
+        if (!BEAST_EXPECT(entropy.size() == 1))
+            return;
+        auto const& entries = entropy[0]->getFieldArray(sfRandomDigests);
+        BEAST_EXPECT(entries.size() == 2);
+        for (auto const& e : entries)
+            BEAST_EXPECT(e.getFieldVL(sfPublicKey) != blobOf(off));
+
+        auto const rng = l2->read(keylet::random());
+        if (BEAST_EXPECT(rng))
+        {
+            BEAST_EXPECT(rng->getFieldU16(sfEntropyDenominator) == 3);
+            BEAST_EXPECT(rng->getFieldArray(sfRandomDigests).size() == 2);
+        }
+    }
+
 public:
     void
     run() override
     {
         using namespace jtx;
         auto const all = supported_amendments();
-        testDisabled(all);
-        testTransactor(all);
-        testUNLReport(all);
-        testNoEntropy(all);
-        testHooks(all);
-        testSlotBlocked(all);
-        testLedgerEntry(all);
+        auto const v1 = all - featureRNGV2;
+
+        // individual-form transactions are applied directly: V1 rules only
+        testDisabled(v1);
+        testTransactor(v1);
+        testUNLReport(v1);
+
+        testPreflightV2();
+        testEquivalence();
+        testAggregateRejections();
+        testNonCanonical();
+        testRevealAndReplay();
+        testUNLReportCollapse();
+
+        // through a real ledger close, under both rule sets
+        for (auto const& features : {v1, all})
+        {
+            testNoEntropy(features);
+            testHooks(features);
+            testSlotBlocked(features);
+            testLedgerEntry(features);
+            testBuildLedger(features);
+            testValidatorClose(features);
+        }
     }
 };
 
