@@ -96,6 +96,9 @@ enum class HashPrefix : std::uint32_t {
 
     /** Credentials signature */
     credential = detail::make_hash_prefix('C', 'R', 'D'),
+
+    /** Entropy set (a position's ttENTROPY transactions) for signing */
+    entropySet = detail::make_hash_prefix('E', 'N', 'S'),
 };
 
 template <class Hasher>

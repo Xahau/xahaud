@@ -435,6 +435,19 @@ public:
         return phase_;
     }
 
+    /** The transaction set of our current position.
+
+        @return The set, or nullopt outside the establish phase, when we have
+                no position.
+    */
+    std::optional<TxSet_t>
+    ourTxSet() const
+    {
+        if (phase_ != ConsensusPhase::establish || !result_)
+            return std::nullopt;
+        return result_->txns;
+    }
+
     /** Get the Json state of the consensus process.
 
         Called by the consensus_info RPC.

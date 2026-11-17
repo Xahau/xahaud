@@ -19,6 +19,7 @@
 
 #include <xrpld/overlay/Message.h>
 #include <xrpld/overlay/detail/ProtocolMessage.h>
+#include <xrpld/overlay/detail/TrafficCount.h>
 #include <xrpl/beast/unit_test.h>
 #include <xrpl/protocol/messages.h>
 
@@ -297,6 +298,74 @@ class ProtocolMessage_test : public beast::unit_test::suite
         BEAST_EXPECT(h.received.empty());
     }
 
+    void
+    testEntropySet()
+    {
+        testcase("Entropy set frame");
+
+        // The shape of what RCLConsensus::Adaptor::shareEntropySet sends:
+        // two hashes, a few small transactions, a key and a signature.
+        protocol::TMEntropySet set;
+        set.set_previousledger(std::string(32, '\x01'));
+        set.set_sethash(std::string(32, '\x02'));
+        set.add_transactions(std::string(120, '\x03'));
+        set.add_transactions(std::string(90, '\x04'));
+        set.set_nodepubkey(std::string(33, '\x05'));
+        set.set_signature(std::string(70, '\x06'));
+
+        BEAST_EXPECT(
+            protocolMessageName(protocol::mtENTROPY_SET) == "entropy_set");
+
+        // It is counted under a traffic category of its own, in both
+        // directions, and not as an unknown message.
+        BEAST_EXPECT(
+            Message(set, protocol::mtENTROPY_SET).getCategory() ==
+            TrafficCount::category::entropy_set);
+        BEAST_EXPECT(
+            TrafficCount::categorize(set, protocol::mtENTROPY_SET, true) ==
+            TrafficCount::category::entropy_set);
+        BEAST_EXPECT(
+            TrafficCount::categorize(set, 0x7fff, true) ==
+            TrafficCount::category::unknown);
+
+        // It is sent as it is, even to a peer that negotiated compression.
+        auto const wire = frame(set, protocol::mtENTROPY_SET);
+        if (!BEAST_EXPECT(!wire.empty() && !(wire[0] & 0x80)))
+            return;
+        BEAST_EXPECT(
+            frame(set, protocol::mtENTROPY_SET, Compressed::On) == wire);
+
+        for (bool const compression : {false, true})
+        {
+            boost::beast::multi_buffer rb;
+            load(rb, wire);
+
+            Handler h;
+            h.compression = compression;
+            auto const ec = drain(rb, h);
+
+            BEAST_EXPECTS(!ec, ec.message());
+            BEAST_EXPECT(rb.size() == 0);
+            BEAST_EXPECT(
+                h.types == std::vector<std::uint16_t>{protocol::mtENTROPY_SET});
+            if (!BEAST_EXPECT(h.received.size() == 1))
+                continue;
+
+            auto const m = receivedAs<protocol::TMEntropySet>(h, 0);
+            if (!m)
+                continue;
+            BEAST_EXPECT(m->previousledger() == set.previousledger());
+            BEAST_EXPECT(m->sethash() == set.sethash());
+            if (BEAST_EXPECT(m->transactions_size() == 2))
+            {
+                BEAST_EXPECT(m->transactions(0) == set.transactions(0));
+                BEAST_EXPECT(m->transactions(1) == set.transactions(1));
+            }
+            BEAST_EXPECT(m->nodepubkey() == set.nodepubkey());
+            BEAST_EXPECT(m->signature() == set.signature());
+        }
+    }
+
 public:
     void
     run() override
@@ -304,6 +373,7 @@ public:
         testCoalescedUncompressed();
         testUncompressedThenCompressed();
         testDeclaredSizeIsAuthoritative();
+        testEntropySet();
     }
 };
 

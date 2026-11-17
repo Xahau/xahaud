@@ -570,6 +570,8 @@ public:
     void
     onMessage(std::shared_ptr<protocol::TMHaveTransactionSet> const& m);
     void
+    onMessage(std::shared_ptr<protocol::TMEntropySet> const& m);
+    void
     onMessage(std::shared_ptr<protocol::TMValidatorList> const& m);
     void
     onMessage(std::shared_ptr<protocol::TMValidatorListCollection> const& m);
@@ -630,6 +632,11 @@ private:
         bool isTrusted,
         std::shared_ptr<protocol::TMProposeSet> const& packet,
         RCLCxPeerPos peerPos);
+
+    void
+    checkEntropySet(
+        std::shared_ptr<protocol::TMEntropySet> const& packet,
+        uint256 const& digest);
 
     void
     checkValidation(

@@ -95,6 +95,8 @@ protocolMessageName(int type)
             return "have_transactions";
         case protocol::mtTRANSACTIONS:
             return "transactions";
+        case protocol::mtENTROPY_SET:
+            return "entropy_set";
         case protocol::mtSQUELCH:
             return "squelch";
         case protocol::mtPROOF_PATH_REQ:
@@ -440,6 +442,10 @@ invokeProtocolMessage(
             break;
         case protocol::mtHAVE_SET:
             success = detail::invoke<protocol::TMHaveTransactionSet>(
+                *header, buffers, handler);
+            break;
+        case protocol::mtENTROPY_SET:
+            success = detail::invoke<protocol::TMEntropySet>(
                 *header, buffers, handler);
             break;
         case protocol::mtVALIDATION:

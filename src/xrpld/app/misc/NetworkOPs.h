@@ -151,6 +151,20 @@ public:
     virtual void
     mapComplete(std::shared_ptr<SHAMap> const& map, bool fromAcquire) = 0;
 
+    /** featureRNG: a trusted validator pushed the ttENTROPY transactions of
+        one of its positions (see RCLEntropySet.h).
+
+        @param prevLedger The ledger the validator's position builds on
+        @param setHash The transaction set of that position
+        @param txns The ttENTROPY transactions of that set
+        @return Whether the entropy set should be relayed
+    */
+    virtual bool
+    processEntropySet(
+        uint256 const& prevLedger,
+        uint256 const& setHash,
+        std::vector<boost::intrusive_ptr<SHAMapItem const>> txns) = 0;
+
     // network state machine
     virtual bool
     beginConsensus(
