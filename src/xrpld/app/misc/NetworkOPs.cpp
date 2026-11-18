@@ -1125,11 +1125,14 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
 
     auto const view = m_ledgerMaster.getCurrentLedger();
 
-    // Enforce Network bar for emitted txn, and for ttENTROPY: with featureRNG
-    // every validator's unsigned ttENTROPY arrives here each ledger from the
-    // proposed tx sets and would only fail the signature check below.
+    // Enforce Network bar for emitted txn, and for the Xahau pseudo-txns that
+    // arrive here from peers' proposed tx sets: every validator's ttENTROPY
+    // each ledger (featureRNG), a ttCRON whenever a cron fires and the
+    // ttUNL_REPORTs on flag ledgers. None of them is ever accepted from the
+    // network, so each would only fail the checks below.
+    auto const txType = iTrans->getTxnType();
     if ((view->rules().enabled(featureHooks) && hook::isEmittedTxn(*iTrans)) ||
-        iTrans->getTxnType() == ttENTROPY)
+        txType == ttENTROPY || txType == ttCRON || txType == ttUNL_REPORT)
     {
         // RH NOTE: Warning removed here due to ConsesusSet using this function
         // which continually triggers this bar. Doesn't seem dangerous, just
