@@ -16,6 +16,8 @@
 //==============================================================================
 
 #include <test/jtx.h>
+#include <xrpld/app/misc/HashRouter.h>
+#include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpl/protocol/Feature.h>
 #include <xrpl/protocol/STAccount.h>
@@ -109,6 +111,57 @@ struct PseudoTx_test : public beast::unit_test::suite
         }
     }
 
+    // Xahau pseudo-transactions reach submitTransaction from peers' proposed
+    // tx sets: every validator's ttENTROPY each ledger, a ttCRON whenever a
+    // cron fires, the ttUNL_REPORTs on flag ledgers. They must be dropped
+    // before the validity check, which would log a warning for each and
+    // cache its verdict.
+    void
+    testSubmitIgnoresXahauPseudo()
+    {
+        testcase("submitTransaction ignores Xahau pseudo-transactions");
+        using namespace jtx;
+        Env env(*this);
+        auto const seq = env.closed()->seq() + 1;
+        auto& router = env.app().getHashRouter();
+
+        // The flags checkValidity caches: SF_SIGBAD and SF_LOCALBAD.
+        auto verdict = [&](STTx const& stx) {
+            env.app().getOPs().submitTransaction(
+                std::make_shared<STTx const>(stx));
+            return router.getFlags(stx.getTransactionID()) &
+                (SF_PRIVATE1 | SF_PRIVATE3);
+        };
+
+        BEAST_EXPECT(!verdict(STTx(ttENTROPY, [&](auto& obj) {
+            obj[sfLedgerSequence] = seq;
+            obj.setFieldVL(sfPublicKey, Blob(33, 0xED));
+            obj.setFieldH256(sfNextRandomDigest, uint256(1));
+        })));
+        BEAST_EXPECT(!verdict(STTx(
+            ttUNL_REPORT, [&](auto& obj) { obj[sfLedgerSequence] = seq; })));
+
+        auto const cron = [&](std::uint32_t owner) {
+            return STTx(ttCRON, [&](auto& obj) {
+                obj[sfLedgerSequence] = seq;
+                obj[sfOwner] = AccountID(owner);
+            });
+        };
+        BEAST_EXPECT(!verdict(cron(1)));
+
+        // A ttCRON this node generated itself is marked the way TxQ::accept
+        // marks it (SF_SIGGOOD), so it would get past the signature check and
+        // fail the local checks instead.
+        auto const mine = cron(2);
+        router.setFlags(mine.getTransactionID(), SF_PRIVATE2);
+        router.setFlags(mine.getTransactionID(), SF_EMITTED);
+        BEAST_EXPECT(!verdict(mine));
+
+        // Upstream pseudo-transactions keep their rippled behaviour.
+        for (auto const& stx : getPseudoTxs(env.closed()->rules(), seq))
+            BEAST_EXPECT(verdict(stx));
+    }
+
     void
     run() override
     {
@@ -119,6 +172,7 @@ struct PseudoTx_test : public beast::unit_test::suite
         testPrevented(all - featureXRPFees);
         testPrevented(all);
         testAllowed();
+        testSubmitIgnoresXahauPseudo();
     }
 };
 
