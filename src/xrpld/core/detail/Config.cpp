@@ -1087,15 +1087,10 @@ Config::loadFromString(std::string const& fileContents)
                 "type must be specified when using pinned_type");
         }
 
-        // type=rwdb is the tree-only null node store. SHAMapStore never
-        // builds DatabasePinned for it, so pinned (and catalogue) data
-        // would be accepted and then silently dropped.
-        if (nullBackend())
-        {
-            Throw<std::runtime_error>(
-                "pinned_type is not supported with [node_db] type=rwdb "
-                "(the rwdb node store does not persist nodes)");
-        }
+        // type=rwdb with pinned_type is not the null node store (see
+        // Config::nullBackend): SHAMapStore builds DatabasePinned with the
+        // in-memory RWDB backend as the rotating hot store, so pinned data
+        // lands in the durable pinned backend as with any other type.
 
         // Ensure pinned_path is specified for filesystem-backed types.
         // In-memory backends (rwdb) don't need a path.

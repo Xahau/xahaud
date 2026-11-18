@@ -87,6 +87,7 @@ test.nodestore > test.jtx
 test.nodestore > test.toplevel
 test.nodestore > test.unit_test
 test.nodestore > xrpl.basics
+test.nodestore > xrpld.app
 test.nodestore > xrpld.core
 test.nodestore > xrpld.nodestore
 test.nodestore > xrpld.unity

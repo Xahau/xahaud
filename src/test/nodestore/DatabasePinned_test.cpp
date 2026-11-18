@@ -19,14 +19,20 @@
 
 #include <test/jtx.h>
 #include <test/jtx/envconfig.h>
+#include <xrpld/app/ledger/LedgerMaster.h>
+#include <xrpld/app/rdb/backend/SQLiteDatabase.h>
 #include <xrpld/core/ConfigSections.h>
 #include <xrpld/nodestore/Database.h>
+#include <xrpld/nodestore/DummyScheduler.h>
+#include <xrpld/nodestore/Manager.h>
 #include <xrpld/nodestore/NodeObject.h>
 #include <xrpld/nodestore/detail/DatabasePinnedImp.h>
 #include <xrpl/basics/Buffer.h>
+#include <xrpl/basics/ByteUtilities.h>
 #include <xrpl/basics/Slice.h>
 #include <xrpl/beast/utility/temp_dir.h>
 #include <xrpl/protocol/digest.h>
+#include <boost/filesystem.hpp>
 
 namespace ripple {
 namespace test {
@@ -34,9 +40,9 @@ namespace test {
 class DatabasePinned_test : public beast::unit_test::suite
 {
     // Build an Env whose nodestore is wired up as DatabasePinnedImp.
-    // The rotating store must persist (type=memory). type=rwdb is
-    // NullFactory and never builds DatabasePinnedImp. pinned_type=rwdb
-    // is allowed in standalone mode.
+    // The rotating store is the process-shared "memory" backend so the
+    // hot side keeps nodes across the test. pinned_type=rwdb is allowed
+    // in standalone mode.
     static std::unique_ptr<Config>
     pinnedEnvconfig(std::string const& nodePath)
     {
@@ -186,12 +192,92 @@ class DatabasePinned_test : public beast::unit_test::suite
         }
     }
 
+    // The relational RWDB backend (envconfig's default) must route a
+    // pinned ledger's header to the persistent backend, as the SQLite
+    // backend does. As hotLEDGER it lands in the rotating hot store and is
+    // dropped by the second online_delete rotation while the SQL index
+    // still names it.
+    void
+    testRWDBRelationalPinsLedgerHeader()
+    {
+        testcase("RWDB relational backend pins ledger headers");
+
+        using namespace jtx;
+        beast::temp_dir td;
+        Env env{*this, pinnedEnvconfig(td.path())};
+        auto* db = getPinnedDb(env);
+        if (!db)
+            return;
+        auto& nodeStore = env.app().getNodeStore();
+
+        env.close();
+        auto const ledger = env.app().getLedgerMaster().getValidatedLedger();
+        if (!BEAST_EXPECT(ledger))
+            return;
+        auto const seq = ledger->info().seq;
+        auto const hash = ledger->info().hash;
+
+        auto* rdb =
+            dynamic_cast<SQLiteDatabase*>(&env.app().getRelationalDatabase());
+        if (!BEAST_EXPECT(rdb))
+            return;
+
+        // Not pinned: the header is stored as a hot object.
+        {
+            auto const pinnedBefore = db->pinnedStoreCount();
+            BEAST_EXPECT(rdb->saveValidatedLedger(ledger, false));
+            BEAST_EXPECT(db->pinnedStoreCount() == pinnedBefore);
+        }
+
+        // Pinned: the header goes to the persistent backend. Only the
+        // pinned* types count there, and nothing else in this test
+        // stores one, so the delta is exactly the header.
+        env.app().getLedgerMaster().storeLedger(ledger, true);
+        BEAST_EXPECT(env.app().getLedgerMaster().isPinned(seq));
+        {
+            auto const pinnedBefore = db->pinnedStoreCount();
+            BEAST_EXPECT(rdb->saveValidatedLedger(ledger, false));
+            BEAST_EXPECT(db->pinnedStoreCount() == pinnedBefore + 1);
+        }
+
+        // What the routing buys: rotate the hot store twice, as
+        // online_delete does, so that everything it held is gone. The
+        // marker stored hot only is dropped, and so are the hot copies of
+        // the header saved above, yet the header the index still names
+        // is served, from the persistent backend.
+        auto const hotOnly = sha512Half(makeSlice(std::string{"hot-only"}));
+        db->store(hotACCOUNT_NODE, Blob(64, 0xEE), hotOnly, seq);
+        BEAST_EXPECT(nodeStore.fetchNodeObject(hotOnly, seq) != nullptr);
+
+        NodeStore::DummyScheduler scheduler;
+        for (auto const* name : {"rotated-1", "rotated-2"})
+        {
+            // Same recipe as SHAMapStoreImp::makeBackendRotating: the
+            // [node_db] section with a fresh path.
+            Section section{
+                env.app().config().section(ConfigSection::nodeDatabase())};
+            section.set(
+                "path", (boost::filesystem::path(td.path()) / name).string());
+            auto backend = NodeStore::Manager::instance().make_Backend(
+                section, megabytes(4), scheduler, env.journal);
+            backend->open();
+            db->rotate(
+                std::move(backend),
+                [](std::string const&, std::string const&) {});
+        }
+
+        BEAST_EXPECT(nodeStore.fetchNodeObject(hotOnly, seq) == nullptr);
+        BEAST_EXPECT(rdb->getHashByIndex(seq) == hash);
+        BEAST_EXPECT(nodeStore.fetchNodeObject(hash, seq) != nullptr);
+    }
+
 public:
     void
     run() override
     {
         testStoreRoutingByType();
         testStoreFetchRoundTrip();
+        testRWDBRelationalPinsLedgerHeader();
     }
 };
 
