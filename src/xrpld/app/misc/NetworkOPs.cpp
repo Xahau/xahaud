@@ -1125,8 +1125,11 @@ NetworkOPsImp::submitTransaction(std::shared_ptr<STTx const> const& iTrans)
 
     auto const view = m_ledgerMaster.getCurrentLedger();
 
-    // Enforce Network bar for emitted txn
-    if (view->rules().enabled(featureHooks) && hook::isEmittedTxn(*iTrans))
+    // Enforce Network bar for emitted txn, and for ttENTROPY: with featureRNG
+    // every validator's unsigned ttENTROPY arrives here each ledger from the
+    // proposed tx sets and would only fail the signature check below.
+    if ((view->rules().enabled(featureHooks) && hook::isEmittedTxn(*iTrans)) ||
+        iTrans->getTxnType() == ttENTROPY)
     {
         // RH NOTE: Warning removed here due to ConsesusSet using this function
         // which continually triggers this bar. Doesn't seem dangerous, just
