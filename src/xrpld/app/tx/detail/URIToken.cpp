@@ -53,14 +53,14 @@ URIToken::preflight(PreflightContext const& ctx)
 
         if (!isLegalNet(amt) || amt.signum() < 0)
         {
-            JLOG(ctx.j.warn()) << "Malformed transaction. Negative or "
-                                  "invalid amount/currency specified.";
+            JLOG(ctx.j.trace()) << "Malformed transaction. Negative or "
+                                   "invalid amount/currency specified.";
             return temBAD_AMOUNT;
         }
 
         if (isBadCurrency(amt.getCurrency()))
         {
-            JLOG(ctx.j.warn()) << "Malformed transaction. Bad currency.";
+            JLOG(ctx.j.trace()) << "Malformed transaction. Bad currency.";
             return temBAD_CURRENCY;
         }
 
@@ -73,9 +73,9 @@ URIToken::preflight(PreflightContext const& ctx)
             }
             else
             {
-                JLOG(ctx.j.warn()) << "Malformed transaction. "
-                                   << "If no sell-to destination is specified "
-                                      "then a non-zero price must be set.";
+                JLOG(ctx.j.trace()) << "Malformed transaction. "
+                                    << "If no sell-to destination is specified "
+                                       "then a non-zero price must be set.";
                 return temMALFORMED;
             }
         }
@@ -95,7 +95,7 @@ URIToken::preflight(PreflightContext const& ctx)
 
         if (uri.size() < 1 || uri.size() > maxURITokenURILength)
         {
-            JLOG(ctx.j.warn())
+            JLOG(ctx.j.trace())
                 << "Malformed transaction. URI must be at least 1 "
                    "character and no more than 256 characters.";
             return temMALFORMED;
@@ -103,8 +103,8 @@ URIToken::preflight(PreflightContext const& ctx)
 
         if (!isValidUTF8(makeSlice(uri)))
         {
-            JLOG(ctx.j.warn()) << "Malformed transaction. URI must be a "
-                                  "valid utf-8 string.";
+            JLOG(ctx.j.trace()) << "Malformed transaction. URI must be a "
+                                   "valid utf-8 string.";
             return temMALFORMED;
         }
     }
@@ -147,8 +147,9 @@ URIToken::preclaim(PreclaimContext const& ctx)
         sleOwner = ctx.view.read(keylet::account(*owner));
         if (!sleOwner)
         {
-            JLOG(ctx.j.warn()) << "Malformed transaction: owner of URIToken is "
-                                  "not in the ledger.";
+            JLOG(ctx.j.trace())
+                << "Malformed transaction: owner of URIToken is "
+                   "not in the ledger.";
             return tecNO_ENTRY;
         }
     }
@@ -336,8 +337,9 @@ URIToken::doApply()
 
         if (!sleOwner)
         {
-            JLOG(j.warn()) << "Malformed transaction: owner of URIToken is not "
-                              "in the ledger.";
+            JLOG(j.trace())
+                << "Malformed transaction: owner of URIToken is not "
+                   "in the ledger.";
             return tecNO_ENTRY;
         }
     }
@@ -540,7 +542,7 @@ URIToken::doApply()
             // happens they should top up their account before selling!
             if (!hasSufficientReserve(sleOwner))
             {
-                JLOG(j.warn())
+                JLOG(j.trace())
                     << "URIToken: seller " << *owner
                     << " has insufficient reserve to allow purchase!";
                 return tecINSUF_RESERVE_SELLER;
