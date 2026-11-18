@@ -58,7 +58,7 @@ Remit::preflight(PreflightContext const& ctx)
 
     if (dstID == srcID)
     {
-        JLOG(ctx.j.warn()) << "Malformed transaction: Remit to self.";
+        JLOG(ctx.j.trace()) << "Malformed transaction: Remit to self.";
         return temREDUNDANT;
     }
 
@@ -66,7 +66,7 @@ Remit::preflight(PreflightContext const& ctx)
     {
         if (!dstID || dstID == noAccount())
         {
-            JLOG(ctx.j.warn())
+            JLOG(ctx.j.trace())
                 << "Malformed transaction: Remit to invalid account.";
             return temMALFORMED;
         }
@@ -77,8 +77,8 @@ Remit::preflight(PreflightContext const& ctx)
         AccountID const infID = ctx.tx.getAccountID(sfInform);
         if (infID == dstID || srcID == infID)
         {
-            JLOG(ctx.j.warn()) << "Malformed transaction: sfInform is same as "
-                                  "source or destination.";
+            JLOG(ctx.j.trace()) << "Malformed transaction: sfInform is same as "
+                                   "source or destination.";
             return temMALFORMED;
         }
     }
@@ -86,8 +86,8 @@ Remit::preflight(PreflightContext const& ctx)
     if (ctx.tx.isFieldPresent(sfBlob) &&
         ctx.tx.getFieldVL(sfBlob).size() > (128 * 1024))
     {
-        JLOG(ctx.j.warn()) << "Blob was more than 128kib "
-                           << ctx.tx.getTransactionID();
+        JLOG(ctx.j.trace())
+            << "Blob was more than 128kib " << ctx.tx.getTransactionID();
         return temMALFORMED;
     }
 
@@ -96,7 +96,7 @@ Remit::preflight(PreflightContext const& ctx)
     {
         if (ctx.tx.getFieldArray(sfAmounts).size() > 32)
         {
-            JLOG(ctx.j.warn()) << "Malformed: AmountEntry count exceeds `32`.";
+            JLOG(ctx.j.trace()) << "Malformed: AmountEntry count exceeds `32`.";
             return temMALFORMED;
         }
 
@@ -109,21 +109,21 @@ Remit::preflight(PreflightContext const& ctx)
             // Validate the AmountEntry.
             if (sEntry.getFName() != sfAmountEntry)
             {
-                JLOG(ctx.j.warn()) << "Malformed: Expected AmountEntry.";
+                JLOG(ctx.j.trace()) << "Malformed: Expected AmountEntry.";
                 return temMALFORMED;
             }
 
             STAmount const amount = sEntry.getFieldAmount(sfAmount);
             if (!isLegalNet(amount) || amount.signum() <= 0)
             {
-                JLOG(ctx.j.warn()) << "Malformed transaction: bad amount: "
-                                   << amount.getFullText();
+                JLOG(ctx.j.trace()) << "Malformed transaction: bad amount: "
+                                    << amount.getFullText();
                 return temBAD_AMOUNT;
             }
 
             if (isBadCurrency(amount.getCurrency()))
             {
-                JLOG(ctx.j.warn()) << "Malformed transaction: Bad currency.";
+                JLOG(ctx.j.trace()) << "Malformed transaction: Bad currency.";
                 return temBAD_CURRENCY;
             }
 
@@ -131,8 +131,8 @@ Remit::preflight(PreflightContext const& ctx)
             {
                 if (nativeAlready)
                 {
-                    JLOG(ctx.j.warn()) << "Malformed transaction: Native "
-                                          "Currency appears more than once.";
+                    JLOG(ctx.j.trace()) << "Malformed transaction: Native "
+                                           "Currency appears more than once.";
                     return temMALFORMED;
                 }
 
@@ -151,8 +151,8 @@ Remit::preflight(PreflightContext const& ctx)
 
             if (found->second.find(amount.getIssuer()) != found->second.end())
             {
-                JLOG(ctx.j.warn()) << "Malformed transaction: Issued Currency "
-                                      "appears more than once.";
+                JLOG(ctx.j.trace()) << "Malformed transaction: Issued Currency "
+                                       "appears more than once.";
                 return temMALFORMED;
             }
 
@@ -179,21 +179,21 @@ Remit::preflight(PreflightContext const& ctx)
         }
         if (!mint.isFieldPresent(sfURI))
         {
-            JLOG(ctx.j.warn())
+            JLOG(ctx.j.trace())
                 << "Malformed transaction: URI was not provided.";
             return temMALFORMED;
         }
         Blob const uri = mint.getFieldVL(sfURI);
         if (uri.size() < 1 || uri.size() > 256)
         {
-            JLOG(ctx.j.warn())
+            JLOG(ctx.j.trace())
                 << "Malformed transaction: URI was too short/long.";
             return temMALFORMED;
         }
 
         if (!isValidUTF8(makeSlice(uri)))
         {
-            JLOG(ctx.j.warn())
+            JLOG(ctx.j.trace())
                 << "Malformed transaction: Invalid UTF8 inside MintURIToken.";
             return temMALFORMED;
         }
@@ -211,14 +211,15 @@ Remit::preflight(PreflightContext const& ctx)
         STVector256 ids = ctx.tx.getFieldV256(sfURITokenIDs);
         if (ids.size() < 1 || ids.size() > 32)
         {
-            JLOG(ctx.j.warn()) << "Malformed transaction: URITokenIDs Invalid.";
+            JLOG(ctx.j.trace())
+                << "Malformed transaction: URITokenIDs Invalid.";
             return temMALFORMED;
         }
 
         std::sort(ids.begin(), ids.end());
         if (std::adjacent_find(ids.begin(), ids.end()) != ids.end())
         {
-            JLOG(ctx.j.warn())
+            JLOG(ctx.j.trace())
                 << "Malformed transaction: Duplicate URITokenID.";
             return temMALFORMED;
         }
@@ -246,13 +247,13 @@ Remit::doApply()
         auto const sleInformAcc = sb.read(keylet::account(informAcc));
         if (!sleInformAcc)
         {
-            JLOG(j.warn()) << "Remit: sfInform account does not exist.";
+            JLOG(j.trace()) << "Remit: sfInform account does not exist.";
             return tecNO_TARGET;
         }
 
         if (sleInformAcc->isFieldPresent(sfAMMID))
         {
-            JLOG(j.warn()) << "Remit: sfInform account is an AMM.";
+            JLOG(j.trace()) << "Remit: sfInform account is an AMM.";
             return tecNO_PERMISSION;
         }
     }
@@ -264,7 +265,7 @@ Remit::doApply()
     if (accountReserve < beast::zero || objectReserve < beast::zero ||
         objectReserve > sb.fees().accountReserve(1))
     {
-        JLOG(j.warn())
+        JLOG(j.trace())
             << "Remit: account or object reserve calculation not sane.";
         return tecINTERNAL;
     }
@@ -299,7 +300,7 @@ Remit::doApply()
     if ((flags & lsfRequireDestTag) &&
         !ctx_.tx.isFieldPresent(sfDestinationTag))
     {
-        JLOG(j.warn())
+        JLOG(j.trace())
             << "Remit: DestinationTag required for this destination.";
         return tecDST_TAG_NEEDED;
     }
@@ -413,24 +414,26 @@ Remit::doApply()
             // does it exist
             if (!sleU)
             {
-                JLOG(j.warn()) << "Remit: one or more uritokens did not exist "
-                                  "on the source account.";
+                JLOG(j.trace()) << "Remit: one or more uritokens did not exist "
+                                   "on the source account.";
                 return tecNO_ENTRY;
             }
 
             // is it a uritoken?
             if (sleU->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
             {
-                JLOG(j.warn()) << "Remit: one or more supplied URITokenIDs was "
-                                  "not actually a uritoken.";
+                JLOG(j.trace())
+                    << "Remit: one or more supplied URITokenIDs was "
+                       "not actually a uritoken.";
                 return tecNO_ENTRY;
             }
 
             // is it our uritoken?
             if (sleU->getAccountID(sfOwner) != srcAccID)
             {
-                JLOG(j.warn()) << "Remit: one or more supplied URITokenIDs was "
-                                  "not owned by sender.";
+                JLOG(j.trace())
+                    << "Remit: one or more supplied URITokenIDs was "
+                       "not owned by sender.";
                 return tecNO_PERMISSION;
             }
 
@@ -608,17 +611,17 @@ Remit::doApply()
     // sanity check reserves
     if (!hasSufficientReserve(sleSrcAcc))
     {
-        JLOG(j.warn()) << "Remit: sender " << srcAccID
-                       << " lacks reserves to cover send.";
+        JLOG(j.trace()) << "Remit: sender " << srcAccID
+                        << " lacks reserves to cover send.";
         return tecINSUFFICIENT_RESERVE;
     }
 
-    // this isn't actually an error but we will print a warning
+    // this isn't actually an error but we will print a log
     // this can occur if the destination was already below reserve level at the
     // time assets were sent
     if (!hasSufficientReserve(sleDstAcc))
     {
-        JLOG(j.warn()) << "Remit: destination has insufficient reserves.";
+        JLOG(j.trace()) << "Remit: destination has insufficient reserves.";
     }
 
     // apply
