@@ -1568,153 +1568,7 @@ TxQ::accept(Application& app, OpenView& view)
     }
 
     // Inject emitted transactions if any
-    if (view.rules().enabled(featureHooks))
-        do
-        {
-            Keylet const emittedDirKeylet{keylet::emittedDir()};
-            if (dirIsEmpty(view, emittedDirKeylet))
-                break;
-
-            std::shared_ptr<SLE const> sleDirNode{};
-            unsigned int uDirEntry{0};
-            uint256 dirEntry{beast::zero};
-
-            if (!cdirFirst(
-                    view,
-                    emittedDirKeylet.key,
-                    sleDirNode,
-                    uDirEntry,
-                    dirEntry))
-                break;
-
-            do
-            {
-                Keylet const itemKeylet{ltCHILD, dirEntry};
-                auto sleItem = view.read(itemKeylet);
-                if (!sleItem)
-                {
-                    // Directory node has an invalid index.  Bail out.
-                    JLOG(j_.warn())
-                        << "EmittedTxn processing: directory node in ledger "
-                        << view.seq()
-                        << " has index to object that is missing: "
-                        << to_string(dirEntry);
-
-                    // RH TODO: if this ever happens the entry should be
-                    // gracefully removed (somehow)
-                    continue;
-                }
-
-                LedgerEntryType const nodeType{
-                    safe_cast<LedgerEntryType>((*sleItem)[sfLedgerEntryType])};
-
-                if (nodeType != ltEMITTED_TXN)
-                {
-                    JLOG(j_.warn())
-                        << "EmittedTxn processing: emitted directory contained "
-                           "non ltEMITTED_TXN type";
-                    // RH TODO: if this ever happens the entry should be
-                    // gracefully removed (somehow)
-                    continue;
-                }
-
-                JLOG(j_.info()) << "Processing emitted txn: " << *sleItem;
-
-                auto const& emitted =
-                    const_cast<ripple::STLedgerEntry&>(*sleItem)
-                        .getField(sfEmittedTxn)
-                        .downcast<STObject>();
-
-                auto s = std::make_shared<ripple::Serializer>();
-                emitted.add(*s);
-                SerialIter sitTrans(s->slice());  // do we need slice?
-                try
-                {
-                    auto const& stpTrans =
-                        std::make_shared<STTx const>(std::ref(sitTrans));
-
-                    if (!stpTrans->isFieldPresent(sfEmitDetails) ||
-                        !stpTrans->isFieldPresent(sfFirstLedgerSequence) ||
-                        !stpTrans->isFieldPresent(sfLastLedgerSequence))
-                    {
-                        JLOG(j_.warn()) << "Hook: Emission failure: "
-                                        << "sfEmitDetails or "
-                                           "sfFirst/LastLedgerSeq missing.";
-                        // RH TODO: if this ever happens the entry should be
-                        // gracefully removed (somehow)
-                        continue;
-                    }
-
-                    auto seq = view.info().seq;
-                    auto txnHash = stpTrans->getTransactionID();
-
-                    app.getHashRouter().setFlags(txnHash, SF_EMITTED);
-
-                    if (stpTrans->getFieldU32(sfLastLedgerSequence) < seq)
-                    {
-                        JLOG(j_.trace()) << "Hook: Emission failure, adding "
-                                            "cleanup pseudotxn to ledger "
-                                         << seq;
-
-                        auto const& emitDetails =
-                            const_cast<ripple::STTx&>(*stpTrans)
-                                .getField(sfEmitDetails)
-                                .downcast<STObject>();
-
-                        STTx efTx(
-                            ttEMIT_FAILURE,
-                            [seq, txnHash, emitDetails](auto& obj) {
-                                obj[sfLedgerSequence] = seq;
-                                obj[sfTransactionHash] = txnHash;
-                                // replace the template slot rather than
-                                // appending a duplicate (bytes unchanged)
-                                obj.set(STObject(emitDetails));
-                            });
-
-                        uint256 txID = efTx.getTransactionID();
-
-                        auto s = std::make_shared<ripple::Serializer>();
-                        efTx.add(*s);
-                        app.getHashRouter().setFlags(txID, SF_PRIVATE2);
-                        app.getHashRouter().setFlags(txID, SF_EMITTED);
-                        view.rawTxInsert(txID, std::move(s), nullptr);
-                        ledgerChanged = true;
-
-                        continue;
-                    }
-
-                    auto fls = stpTrans->getFieldU32(sfFirstLedgerSequence);
-                    if (fls > view.info().seq)
-                    {
-                        JLOG(j_.info())
-                            << "Holding TX " << stpTrans->getTransactionID()
-                            << " for future ledger.";
-                        continue;
-                    }
-
-                    // execution to here means we are adding the tx to the local
-                    // set
-                    if (fls >= view.info().seq)
-                    {
-                        app.getHashRouter().setFlags(txnHash, SF_PRIVATE2);
-                        view.rawTxInsert(
-                            stpTrans->getTransactionID(),
-                            std::move(s),
-                            nullptr);
-                        ledgerChanged = true;
-                    }
-                }
-                catch (std::exception& e)
-                {
-                    JLOG(j_.warn())
-                        << "EmittedTxn Processing: Failure: " << e.what()
-                        << "\n";
-                }
-
-            } while (cdirNext(
-                view, emittedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
-
-        } while (0);
+    ledgerChanged |= processEmittedDir(app, view, &view, j_);
 
     for (auto candidateIter = byFee_.begin(); candidateIter != byFee_.end();)
     {
@@ -1870,6 +1724,166 @@ TxQ::accept(Application& app, OpenView& view)
         "ripple::TxQ::accept : byFee size match");
 
     return ledgerChanged;
+}
+
+bool
+TxQ::processEmittedDir(
+    Application& app,
+    ReadView const& view,
+    OpenView* insertInto,
+    beast::Journal j)
+{
+    bool inserted = false;
+
+    if (!view.rules().enabled(featureHooks))
+        return false;
+
+    do
+    {
+        Keylet const emittedDirKeylet{keylet::emittedDir()};
+        if (dirIsEmpty(view, emittedDirKeylet))
+            break;
+
+        std::shared_ptr<SLE const> sleDirNode{};
+        unsigned int uDirEntry{0};
+        uint256 dirEntry{beast::zero};
+
+        if (!cdirFirst(
+                view, emittedDirKeylet.key, sleDirNode, uDirEntry, dirEntry))
+            break;
+
+        do
+        {
+            Keylet const itemKeylet{ltCHILD, dirEntry};
+            auto sleItem = view.read(itemKeylet);
+            if (!sleItem)
+            {
+                // Directory node has an invalid index.  Bail out.
+                JLOG(j.warn())
+                    << "EmittedTxn processing: directory node in ledger "
+                    << view.seq() << " has index to object that is missing: "
+                    << to_string(dirEntry);
+
+                // RH TODO: if this ever happens the entry should be
+                // gracefully removed (somehow)
+                continue;
+            }
+
+            LedgerEntryType const nodeType{
+                safe_cast<LedgerEntryType>((*sleItem)[sfLedgerEntryType])};
+
+            if (nodeType != ltEMITTED_TXN)
+            {
+                JLOG(j.warn())
+                    << "EmittedTxn processing: emitted directory contained "
+                       "non ltEMITTED_TXN type";
+                // RH TODO: if this ever happens the entry should be
+                // gracefully removed (somehow)
+                continue;
+            }
+
+            JLOG(j.info()) << "Processing emitted txn: " << *sleItem;
+
+            auto const& emitted = const_cast<ripple::STLedgerEntry&>(*sleItem)
+                                      .getField(sfEmittedTxn)
+                                      .downcast<STObject>();
+
+            auto s = std::make_shared<ripple::Serializer>();
+            emitted.add(*s);
+            SerialIter sitTrans(s->slice());  // do we need slice?
+            try
+            {
+                auto const& stpTrans =
+                    std::make_shared<STTx const>(std::ref(sitTrans));
+
+                if (!stpTrans->isFieldPresent(sfEmitDetails) ||
+                    !stpTrans->isFieldPresent(sfFirstLedgerSequence) ||
+                    !stpTrans->isFieldPresent(sfLastLedgerSequence))
+                {
+                    JLOG(j.warn()) << "Hook: Emission failure: "
+                                   << "sfEmitDetails or "
+                                      "sfFirst/LastLedgerSeq missing.";
+                    // RH TODO: if this ever happens the entry should be
+                    // gracefully removed (somehow)
+                    continue;
+                }
+
+                auto seq = view.info().seq;
+                auto txnHash = stpTrans->getTransactionID();
+
+                app.getHashRouter().setFlags(txnHash, SF_EMITTED);
+
+                if (stpTrans->getFieldU32(sfLastLedgerSequence) < seq)
+                {
+                    JLOG(j.trace()) << "Hook: Emission failure, adding "
+                                       "cleanup pseudotxn to ledger "
+                                    << seq;
+
+                    auto const& emitDetails =
+                        const_cast<ripple::STTx&>(*stpTrans)
+                            .getField(sfEmitDetails)
+                            .downcast<STObject>();
+
+                    STTx efTx(
+                        ttEMIT_FAILURE, [seq, txnHash, emitDetails](auto& obj) {
+                            obj[sfLedgerSequence] = seq;
+                            obj[sfTransactionHash] = txnHash;
+                            // replace the template slot rather than
+                            // appending a duplicate (bytes unchanged)
+                            obj.set(STObject(emitDetails));
+                        });
+
+                    uint256 txID = efTx.getTransactionID();
+
+                    auto s = std::make_shared<ripple::Serializer>();
+                    efTx.add(*s);
+                    app.getHashRouter().setFlags(txID, SF_PRIVATE2);
+                    app.getHashRouter().setFlags(txID, SF_EMITTED);
+                    if (insertInto)
+                    {
+                        insertInto->rawTxInsert(txID, std::move(s), nullptr);
+                        inserted = true;
+                    }
+
+                    continue;
+                }
+
+                auto fls = stpTrans->getFieldU32(sfFirstLedgerSequence);
+                if (fls > view.info().seq)
+                {
+                    JLOG(j.info())
+                        << "Holding TX " << stpTrans->getTransactionID()
+                        << " for future ledger.";
+                    continue;
+                }
+
+                // execution to here means we are adding the tx to the local
+                // set
+                if (fls >= view.info().seq)
+                {
+                    app.getHashRouter().setFlags(txnHash, SF_PRIVATE2);
+                    if (insertInto)
+                    {
+                        insertInto->rawTxInsert(
+                            stpTrans->getTransactionID(),
+                            std::move(s),
+                            nullptr);
+                        inserted = true;
+                    }
+                }
+            }
+            catch (std::exception& e)
+            {
+                JLOG(j.warn())
+                    << "EmittedTxn Processing: Failure: " << e.what() << "\n";
+            }
+
+        } while (cdirNext(
+            view, emittedDirKeylet.key, sleDirNode, uDirEntry, dirEntry));
+
+    } while (0);
+
+    return inserted;
 }
 
 // Public entry point for nextQueuableSeq().
