@@ -246,7 +246,7 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto const seq1 = env.seq(account);
-        auto tx = cancel(account, account, seq1);
+        auto tx = escrow::cancel(account, account, seq1);
 
         // verify hooks fee
         testRPCCall(env, tx, "16");
@@ -268,7 +268,7 @@ class BaseFee_test : public beast::unit_test::suite
         env.close();
 
         // build tx
-        auto tx = escrow(account, dest, XRP(10));
+        auto tx = escrow::create(account, dest, XRP(10));
 
         // verify hooks fee
         std::string const feeResult = "16";
@@ -291,7 +291,7 @@ class BaseFee_test : public beast::unit_test::suite
 
         // build tx
         auto const seq1 = env.seq(account);
-        auto tx = finish(account, account, seq1);
+        auto tx = escrow::finish(account, account, seq1);
 
         // verify hooks fee
         testRPCCall(env, tx, "16");
