@@ -23,6 +23,7 @@
 #include <xrpld/app/ledger/OpenLedger.h>
 #include <xrpld/app/main/Application.h>
 #include <xrpld/app/misc/CanonicalTXSet.h>
+#include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpl/protocol/Feature.h>
 
@@ -59,6 +60,18 @@ buildLedgerImpl(
         OpenView accum(&*built);
         XRPL_ASSERT(
             !accum.open(), "ripple::buildLedgerImpl : valid ledger state");
+        // The parent may have been acquired from the network (or replayed),
+        // so neither the emitting hook nor TxQ::accept ran for it here and
+        // the HashRouter lacks SF_EMITTED for its emitted txns. Re-derive the
+        // flags from ledger state (flags only, null journal: accept already
+        // logs). An emitted txn must still be in the emitted directory of the
+        // ledger being built (Transactor preclaim). ttEMIT_FAILURE has no
+        // such check, so the flag is its gate: safe because the flagged id is
+        // the canonical pseudo-txn for this seq plus a real directory entry
+        // whose LastLedgerSequence has passed, the id every node that opened
+        // a ledger on this parent flags.
+        TxQ::processEmittedDir(
+            app, accum, nullptr, beast::Journal{beast::Journal::getNullSink()});
         applyTxs(accum, built);
         accum.apply(*built);
     }

@@ -300,6 +300,38 @@ public:
     accept(Application& app, OpenView& view);
 
     /**
+        Walk the emitted-transaction directory of `view` and mark the
+        HashRouter so the emitted transactions found there are accepted.
+
+        An emitted transaction (or the ttEMIT_FAILURE for an expired one) is
+        only applied if this node's HashRouter holds SF_EMITTED for its id.
+        That flag is node-local memory, set when this node runs the emitting
+        hook or when `accept` opens a ledger on a parent (whether it built that
+        parent or jumped to it); a parent acquired from the network and built
+        on directly never gets it.
+
+        Two modes:
+        - `insertInto != nullptr`: also insert the due emitted transactions
+          and the ttEMIT_FAILURE pseudo-transactions into `*insertInto`
+          (used by `accept`).
+        - `insertInto == nullptr`: flags only, nothing is inserted. Used when
+          building a ledger on a parent that was acquired from the network
+          (or replayed), so the flags that `accept` would have set are
+          re-derived from ledger state.
+
+        Does nothing and returns false if featureHooks is not enabled.
+
+        @return Whether anything was inserted into `*insertInto`; always false
+        when `insertInto` is null.
+    */
+    static bool
+    processEmittedDir(
+        Application& app,
+        ReadView const& view,
+        OpenView* insertInto,
+        beast::Journal j);
+
+    /**
         Update fee metrics and clean up the queue in preparation for
         the next ledger.
 
