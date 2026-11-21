@@ -151,7 +151,8 @@ fillJsonTx(
             txJson[jss::meta] = stMeta->getJson(JsonOptions::none);
 
             // If applicable, insert delivered amount
-            if (txnType == ttPAYMENT || txnType == ttCHECK_CASH)
+            if (txnType == ttPAYMENT || txnType == ttCHECK_CASH ||
+                txnType == ttNOTE_CLAIM)
                 RPC::insertDeliveredAmount(
                     txJson[jss::meta],
                     fill.ledger,
@@ -188,7 +189,8 @@ fillJsonTx(
             txJson[jss::metaData] = stMeta->getJson(JsonOptions::none);
 
             // If applicable, insert delivered amount
-            if (txnType == ttPAYMENT || txnType == ttCHECK_CASH)
+            if (txnType == ttPAYMENT || txnType == ttCHECK_CASH ||
+                txnType == ttNOTE_CLAIM)
                 RPC::insertDeliveredAmount(
                     txJson[jss::metaData],
                     fill.ledger,
