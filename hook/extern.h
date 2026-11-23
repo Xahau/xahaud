@@ -356,6 +356,13 @@ slot_emplace(
     uint32_t field_id);
 
 extern int64_t
+slot_emplace_sto(
+    uint32_t slot_no,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t field_id);
+
+extern int64_t
 slot_emplace_slot(uint32_t slot_no, uint32_t src_slot, uint32_t field_id);
 
 extern int64_t

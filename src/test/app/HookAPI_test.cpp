@@ -3714,42 +3714,47 @@ public:
         BEAST_EXPECT(!hookCtx.slot[w].storage->isFieldPresent(sfSequence));
 
         // out of canonical order: account, sequence, flags
-        BEAST_EXPECT(api.slot_emplace(w, acc, code(sfAccount)).value() == w);
-        BEAST_EXPECT(api.slot_emplace(w, seq7, code(sfSequence)).value() == w);
-        BEAST_EXPECT(api.slot_emplace(w, flags, code(sfFlags)).value() == w);
+        BEAST_EXPECT(
+            api.slot_emplace_sto(w, acc, code(sfAccount)).value() == w);
+        BEAST_EXPECT(
+            api.slot_emplace_sto(w, seq7, code(sfSequence)).value() == w);
+        BEAST_EXPECT(
+            api.slot_emplace_sto(w, flags, code(sfFlags)).value() == w);
         BEAST_EXPECT(slotBytes(api, w) == cat(cat(flags, seq7), acc));
         // replace
-        BEAST_EXPECT(api.slot_emplace(w, seq9, code(sfSequence)).value() == w);
+        BEAST_EXPECT(
+            api.slot_emplace_sto(w, seq9, code(sfSequence)).value() == w);
         BEAST_EXPECT(slotBytes(api, w) == cat(cat(flags, seq9), acc));
         BEAST_EXPECT(hookCtx.slot[w].storage->getCount() == 3);
 
         // PARSE_ERROR
         BEAST_EXPECT(
-            api.slot_emplace(w, seq7, code(sfFlags)).error() == PARSE_ERROR);
-        BEAST_EXPECT(
-            api.slot_emplace(w, cat(seq7, seq7), code(sfSequence)).error() ==
+            api.slot_emplace_sto(w, seq7, code(sfFlags)).error() ==
             PARSE_ERROR);
         BEAST_EXPECT(
-            api.slot_emplace(w, cat(flags, seq7), code(sfFlags)).error() ==
+            api.slot_emplace_sto(w, cat(seq7, seq7), code(sfSequence))
+                .error() == PARSE_ERROR);
+        BEAST_EXPECT(
+            api.slot_emplace_sto(w, cat(flags, seq7), code(sfFlags)).error() ==
             PARSE_ERROR);
         BEAST_EXPECT(
-            api.slot_emplace(w, Bytes{0x24, 0x00}, code(sfSequence)).error() ==
-            PARSE_ERROR);
+            api.slot_emplace_sto(w, Bytes{0x24, 0x00}, code(sfSequence))
+                .error() == PARSE_ERROR);
         BEAST_EXPECT(
-            api.slot_emplace(w, Bytes{0xE1, 0x00}, code(sfSequence)).error() ==
-            PARSE_ERROR);
+            api.slot_emplace_sto(w, Bytes{0xE1, 0x00}, code(sfSequence))
+                .error() == PARSE_ERROR);
         // size / field checks
         BEAST_EXPECT(
-            api.slot_emplace(w, Bytes(4097, 0), code(sfSequence)).error() ==
+            api.slot_emplace_sto(w, Bytes(4097, 0), code(sfSequence)).error() ==
             TOO_BIG);
         BEAST_EXPECT(
-            api.slot_emplace(w, Bytes(1, 0), code(sfSequence)).error() ==
+            api.slot_emplace_sto(w, Bytes(1, 0), code(sfSequence)).error() ==
             TOO_SMALL);
         BEAST_EXPECT(
-            api.slot_emplace(w, seq7, (99U << 16U) + 99U).error() ==
+            api.slot_emplace_sto(w, seq7, (99U << 16U) + 99U).error() ==
             INVALID_FIELD);
         BEAST_EXPECT(
-            api.slot_emplace(200, seq7, code(sfSequence)).error() ==
+            api.slot_emplace_sto(200, seq7, code(sfSequence)).error() ==
             DOESNT_EXIST);
         // nothing above changed the slot
         BEAST_EXPECT(slotBytes(api, w) == cat(cat(flags, seq9), acc));
@@ -3760,7 +3765,7 @@ public:
             inner.setFieldU32(sfSequence, 3);
             auto const innerBytes = fieldBytes(inner);
             BEAST_EXPECT(
-                api.slot_emplace(w, innerBytes, code(sfPreviousFields))
+                api.slot_emplace_sto(w, innerBytes, code(sfPreviousFields))
                     .value() == w);
             BEAST_EXPECT(
                 slotBytes(api, w) ==
@@ -3773,19 +3778,19 @@ public:
             auto const w2 = api.slot_new({}, 0).value();
             for (size_t i = 0; i < max_slot_fields; ++i)
                 BEAST_EXPECT(
-                    api.slot_emplace(
+                    api.slot_emplace_sto(
                            w2, many[i].second, many[i].first->getCode())
                         .has_value());
             BEAST_EXPECT(
-                api.slot_emplace(
+                api.slot_emplace_sto(
                        w2,
                        many[max_slot_fields].second,
                        many[max_slot_fields].first->getCode())
                     .error() == TOO_BIG);
             // replacing an existing field at the limit still works
-            BEAST_EXPECT(
-                api.slot_emplace(w2, many[0].second, many[0].first->getCode())
-                    .has_value());
+            BEAST_EXPECT(api.slot_emplace_sto(
+                                w2, many[0].second, many[0].first->getCode())
+                             .has_value());
             BEAST_EXPECT(
                 hookCtx.slot[w2].storage->getCount() == max_slot_fields);
         }
@@ -3799,6 +3804,156 @@ public:
             api.slot_erase(w, (99U << 16U) + 99U).error() == INVALID_FIELD);
         BEAST_EXPECT(
             api.slot_erase(200, code(sfSequence)).error() == DOESNT_EXIST);
+    }
+
+    void
+    test_slot_emplace_raw(FeatureBitset features)
+    {
+        testcase("Test slot_emplace (bare value)");
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        auto const USD = alice["USD"];
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        auto& api = hookCtx.api();
+        auto const code = [](SField const& f) { return f.getCode(); };
+
+        // raw value and header included encoding of the same value must give
+        // the same slot content
+        auto const same = [&](char const* what,
+                              SField const& f,
+                              Bytes const& raw,
+                              Bytes const& sto) {
+            auto const w1 = api.slot_new({}, 0).value();
+            auto const w2 = api.slot_new({}, 0).value();
+            auto const r1 = api.slot_emplace(w1, raw, code(f));
+            auto const r2 = api.slot_emplace_sto(w2, sto, code(f));
+            BEAST_EXPECTS(r1.has_value() && r1.value() == w1, what);
+            BEAST_EXPECTS(r2.has_value() && r2.value() == w2, what);
+            BEAST_EXPECTS(slotBytes(api, w1) == sto, what);
+            BEAST_EXPECTS(slotBytes(api, w1) == slotBytes(api, w2), what);
+        };
+        auto const rejects = [&](char const* what,
+                                 SField const& f,
+                                 Bytes const& raw,
+                                 hook_api::hook_return_code ec) {
+            auto const w = api.slot_new({}, 0).value();
+            auto const r = api.slot_emplace(w, raw, code(f));
+            BEAST_EXPECTS(!r.has_value() && r.error() == ec, what);
+            BEAST_EXPECTS(slotBytes(api, w).empty(), what);
+        };
+        auto const ser = [](STBase const& b) {
+            Serializer s;
+            b.add(s);
+            return s.getData();
+        };
+
+        same(
+            "uint16",
+            sfTransactionType,
+            Bytes{0, 0},
+            fieldBytes(STUInt16(sfTransactionType, 0)));
+        same(
+            "uint32",
+            sfSequence,
+            Bytes{0, 0, 0, 7},
+            fieldBytes(STUInt32(sfSequence, 7)));
+        STAmount const native(sfAmount, STAmount(XRPAmount{1000}));
+        same("native", sfAmount, ser(native), fieldBytes(native));
+        BEAST_EXPECT(ser(native).size() == 8);
+        STAmount const iou(sfAmount, USD(10).value());
+        same("iou", sfAmount, ser(iou), fieldBytes(iou));
+        BEAST_EXPECT(ser(iou).size() == 48);
+        auto const aliceID = alice.id();
+        Bytes const accBytes(aliceID.begin(), aliceID.end());
+        same(
+            "account",
+            sfAccount,
+            accBytes,
+            fieldBytes(STAccount(sfAccount, alice.id())));
+        same("empty blob", sfBlob, Bytes{}, fieldBytes(STBlob(sfBlob, "", 0)));
+        Bytes const blob{1, 2, 3, 4, 5};
+        same(
+            "blob",
+            sfBlob,
+            blob,
+            fieldBytes(STBlob(sfBlob, blob.data(), blob.size())));
+        uint256 const h1{1}, h2{2};
+        Bytes vec(h1.begin(), h1.end());
+        vec.insert(vec.end(), h2.begin(), h2.end());
+        same(
+            "vector256",
+            sfIndexes,
+            vec,
+            fieldBytes(STVector256(sfIndexes, std::vector<uint256>{h1, h2})));
+        // object: inner fields, no terminator
+        STObject inner(sfPreviousFields);
+        inner.setFieldU32(sfSequence, 3);
+        same(
+            "object",
+            sfPreviousFields,
+            fieldBytes(STUInt32(sfSequence, 3)),
+            fieldBytes(inner));
+        // array: elements, each with its own terminator, no array terminator
+        STArray memos(sfMemos);
+        STObject memo(sfMemo);
+        memo.setFieldVL(sfMemoData, Bytes{1, 2, 3});
+        memos.push_back(memo);
+        same("array", sfMemos, fieldBytes(memo), fieldBytes(memos));
+
+        // wrong lengths and values carrying a header
+        rejects(
+            "u16 with header",
+            sfTransactionType,
+            fieldBytes(STUInt16(sfTransactionType, 0)),
+            PARSE_ERROR);
+        rejects("u32 empty", sfSequence, Bytes{}, PARSE_ERROR);
+        rejects("amount 20", sfAmount, Bytes(20, 0), PARSE_ERROR);
+        rejects(
+            "account 19",
+            sfAccount,
+            Bytes(accBytes.begin(), accBytes.end() - 1),
+            PARSE_ERROR);
+        rejects(
+            "vector256 33",
+            sfIndexes,
+            Bytes(vec.begin(), vec.begin() + 33),
+            PARSE_ERROR);
+        rejects(
+            "object with terminator",
+            sfPreviousFields,
+            cat(fieldBytes(STUInt32(sfSequence, 3)), Bytes{0xE1}),
+            PARSE_ERROR);
+
+        // size cap is on the value
+        {
+            auto const w = api.slot_new({}, 0).value();
+            BEAST_EXPECT(
+                api.slot_emplace(w, Bytes(4097, 1), code(sfBlob)).error() ==
+                TOO_BIG);
+            BEAST_EXPECT(
+                api.slot_emplace(w, Bytes(4096, 1), code(sfBlob)).value() == w);
+            BEAST_EXPECT(slotBytes(api, w).size() == 2 + 2 + 4096);
+        }
+        // missing slot, invalid field
+        BEAST_EXPECT(
+            api.slot_emplace(200, Bytes{0, 0, 0, 7}, code(sfSequence))
+                .error() == DOESNT_EXIST);
+        {
+            auto const w = api.slot_new({}, 0).value();
+            BEAST_EXPECT(
+                api.slot_emplace(w, Bytes{0, 0, 0, 7}, (99U << 16U) + 99U)
+                    .error() == INVALID_FIELD);
+            BEAST_EXPECT(
+                api.slot_emplace(w, Bytes{0, 0, 0, 7}, 0).error() ==
+                INVALID_FIELD);
+        }
     }
 
     void
@@ -3837,8 +3992,11 @@ public:
             auto const entry = hookCtx.slot[n].entry;
             auto const bytes = slotBytes(api, n);
             BEAST_EXPECT(
-                api.slot_emplace(n, seq7, code(sfSequence)).error() ==
+                api.slot_emplace_sto(n, seq7, code(sfSequence)).error() ==
                 PREREQUISITE_NOT_MET);
+            BEAST_EXPECT(
+                api.slot_emplace(n, Bytes{0, 0, 0, 7}, code(sfSequence))
+                    .error() == PREREQUISITE_NOT_MET);
             BEAST_EXPECT(
                 api.slot_emplace_slot(n, src, code(sfSequence)).error() ==
                 PREREQUISITE_NOT_MET);
@@ -3933,7 +4091,10 @@ public:
                 api.slot_erase(c, code(sfMemo)).error() ==
                 PREREQUISITE_NOT_MET);
             BEAST_EXPECT(
-                api.slot_emplace(c, arrBytes, code(sfMemos)).error() ==
+                api.slot_emplace_sto(c, arrBytes, code(sfMemos)).error() ==
+                PREREQUISITE_NOT_MET);
+            BEAST_EXPECT(
+                api.slot_emplace(c, Bytes{}, code(sfMemos)).error() ==
                 PREREQUISITE_NOT_MET);
             // snapshot after mutating the parent
             BEAST_EXPECT(api.slot_erase(p, code(sfMemos)).value() == p);
@@ -3949,7 +4110,11 @@ public:
         // field_id 0 (sfGeneric) is not a usable field
         {
             auto const w = api.slot_new({}, 0).value();
-            BEAST_EXPECT(api.slot_emplace(w, seq7, 0).error() == INVALID_FIELD);
+            BEAST_EXPECT(
+                api.slot_emplace_sto(w, seq7, 0).error() == INVALID_FIELD);
+            BEAST_EXPECT(
+                api.slot_emplace(w, Bytes{0, 0, 0, 7}, 0).error() ==
+                INVALID_FIELD);
             BEAST_EXPECT(
                 api.slot_emplace_slot(w, src, 0).error() == INVALID_FIELD);
             BEAST_EXPECT(api.slot_erase(w, 0).error() == INVALID_FIELD);
@@ -3959,7 +4124,8 @@ public:
         {
             auto const p = api.slot_new(seq7, 0).value();
             auto const* storage = hookCtx.slot[p].storage.get();
-            BEAST_EXPECT(api.slot_emplace(p, flags, code(sfFlags)).has_value());
+            BEAST_EXPECT(
+                api.slot_emplace_sto(p, flags, code(sfFlags)).has_value());
             BEAST_EXPECT(hookCtx.slot[p].storage.get() == storage);
             BEAST_EXPECT(hookCtx.slot[p].entry == storage);
         }
@@ -3991,13 +4157,15 @@ public:
                 auto const c =
                     api.slot_subfield(p, code(sfSequence), 0).value();
                 BEAST_EXPECT(
-                    api.slot_emplace(p, seq9, code(sfSequence)).value() == p);
+                    api.slot_emplace_sto(p, seq9, code(sfSequence)).value() ==
+                    p);
                 check("replace", p, c, oldChild, seq9);
                 // child cleared: next mutation is in place again
                 BEAST_EXPECT(api.slot_clear(c).has_value());
                 auto const* storage = hookCtx.slot[p].storage.get();
                 BEAST_EXPECT(
-                    api.slot_emplace(p, seq7, code(sfSequence)).value() == p);
+                    api.slot_emplace_sto(p, seq7, code(sfSequence)).value() ==
+                    p);
                 BEAST_EXPECT(hookCtx.slot[p].storage.get() == storage);
                 BEAST_EXPECT(slotBytes(api, p) == seq7);
             }
@@ -4021,8 +4189,8 @@ public:
                     api.slot_subfield(p, code(sfSequence), 0).value();
                 for (auto const& [f, b] : distinctFields(60))
                     if (*f != sfSequence)
-                        BEAST_EXPECT(
-                            api.slot_emplace(p, b, f->getCode()).has_value());
+                        BEAST_EXPECT(api.slot_emplace_sto(p, b, f->getCode())
+                                         .has_value());
                 check("append", p, c, oldChild, slotBytes(api, p));
                 BEAST_EXPECT(hookCtx.slot[p].storage->getCount() > 50);
             }
@@ -5948,6 +6116,7 @@ public:
         test_slot_set(features);
         test_slot_new(features);
         test_slot_emplace(features);
+        test_slot_emplace_raw(features);
         test_slot_writable_safety(features);
         test_slot_emplace_slot(features);
         test_emit_slot(features);

@@ -4096,6 +4096,29 @@ DEFINE_HOOK_FUNCTION(
 
 DEFINE_HOOK_FUNCTION(
     int64_t,
+    slot_emplace_sto,
+    uint32_t slot_no,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t field_id)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes data{memory + read_ptr, memory + read_ptr + read_len};
+    auto const result = api.slot_emplace_sto(slot_no, data, field_id);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
     slot_emplace_slot,
     uint32_t slot_no,
     uint32_t src_slot,

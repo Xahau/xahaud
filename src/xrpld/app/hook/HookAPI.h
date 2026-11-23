@@ -570,7 +570,11 @@ public:
     slot_new(Bytes const& data, uint32_t slot_no) const;
 
     Expected<uint32_t, HookReturnCode>
-    slot_emplace(uint32_t slot_no, Bytes const& field, uint32_t field_id) const;
+    slot_emplace(uint32_t slot_no, Bytes const& value, uint32_t field_id) const;
+
+    Expected<uint32_t, HookReturnCode>
+    slot_emplace_sto(uint32_t slot_no, Bytes const& field, uint32_t field_id)
+        const;
 
     Expected<uint32_t, HookReturnCode>
     slot_emplace_slot(uint32_t slot_no, uint32_t src_slot, uint32_t field_id)

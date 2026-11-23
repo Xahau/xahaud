@@ -9088,6 +9088,7 @@ public:
             extern int64_t slot_subfield(uint32_t, uint32_t, uint32_t);
             extern int64_t slot_new(uint32_t, uint32_t, uint32_t);
             extern int64_t slot_emplace(uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t slot_emplace_sto(uint32_t, uint32_t, uint32_t, uint32_t);
             extern int64_t slot_emplace_slot(uint32_t, uint32_t, uint32_t);
             extern int64_t slot_erase(uint32_t, uint32_t);
             extern int64_t emit_slot(uint32_t, uint32_t, uint32_t);
@@ -9111,36 +9112,30 @@ public:
                 if (!(x))\
                     rollback((uint32_t)#x, sizeof(#x), __LINE__);
 
-            // 4 byte integer field of the given code, header included
+            // 4 byte integer value for the given field
             static int64_t put_u32(uint32_t s, uint32_t code, uint32_t v)
             {
-                uint8_t b[6];
-                uint32_t n = 1;
-                uint32_t idx = code & 0xFFFFU;
-                b[0] = 0x20U + (idx < 16 ? idx : 0);
-                if (idx >= 16)
-                    b[n++] = idx;
-                b[n++] = v >> 24;
-                b[n++] = v >> 16;
-                b[n++] = v >> 8;
-                b[n++] = v;
-                return slot_emplace(s, (uint32_t)b, n, code);
+                uint8_t b[4];
+                b[0] = v >> 24;
+                b[1] = v >> 16;
+                b[2] = v >> 8;
+                b[3] = v;
+                return slot_emplace(s, (uint32_t)b, 4, code);
             }
 
-            // XRP amount field of the given code, header included
+            // native amount value for the given field
             static int64_t put_drops(uint32_t s, uint32_t code, uint64_t d)
             {
-                uint8_t b[9];
-                b[0] = 0x60U + (code & 0xFU);
-                b[1] = 0x40U | ((d >> 56) & 0x3FU);
-                b[2] = d >> 48;
-                b[3] = d >> 40;
-                b[4] = d >> 32;
-                b[5] = d >> 24;
-                b[6] = d >> 16;
-                b[7] = d >> 8;
-                b[8] = d;
-                return slot_emplace(s, (uint32_t)b, 9, code);
+                uint8_t b[8];
+                b[0] = 0x40U | ((d >> 56) & 0x3FU);
+                b[1] = d >> 48;
+                b[2] = d >> 40;
+                b[3] = d >> 32;
+                b[4] = d >> 24;
+                b[5] = d >> 16;
+                b[6] = d >> 8;
+                b[7] = d;
+                return slot_emplace(s, (uint32_t)b, 8, code);
             }
 
             int64_t hook(uint32_t r)
@@ -9167,13 +9162,15 @@ public:
                 ASSERT(util_keylet(kl, 34, KEYLET_ACCOUNT, acc, 20, 0, 0, 0, 0) == 34);
                 ASSERT(slot_set(kl, 34, 20) == 20);
                 uint8_t src[6] = {0x20, 0x03, 0, 0, 0, 55};
-                ASSERT(slot_emplace(20, (uint32_t)src, 6, sfSourceTag) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_emplace_sto(20, (uint32_t)src, 6, sfSourceTag) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_emplace(20, (uint32_t)src + 2, 4, sfSourceTag) == PREREQUISITE_NOT_MET);
                 ASSERT(slot_emplace_slot(20, 41, sfSourceTag) == PREREQUISITE_NOT_MET);
                 ASSERT(slot_erase(20, sfAccount) == PREREQUISITE_NOT_MET);
 
                 // otxn slot is read only
                 ASSERT(otxn_slot(21) == 21);
                 ASSERT(put_u32(21, sfSourceTag, 55) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_emplace_sto(21, (uint32_t)src, 6, sfSourceTag) == PREREQUISITE_NOT_MET);
                 ASSERT(slot_erase(21, sfAccount) == PREREQUISITE_NOT_MET);
 
                 // child of a writable slot is read only
@@ -9181,6 +9178,7 @@ public:
                 ASSERT(put_u32(30, sfSequence, 7) == 30);
                 ASSERT(slot_subfield(30, sfSequence, 31) == 31);
                 ASSERT(put_u32(31, sfSequence, 9) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_emplace_sto(31, (uint32_t)src, 6, sfSequence) == PREREQUISITE_NOT_MET);
                 ASSERT(slot_erase(31, sfSequence) == PREREQUISITE_NOT_MET);
 
                 // build the payment in a slot, no transaction buffer
@@ -9188,25 +9186,22 @@ public:
                 uint32_t s = 10;
                 ASSERT(slot_new(0, 0, s) == s);
 
-                uint8_t tt[3] = {0x12, 0, 0};
+                uint8_t tt[2] = {0, 0};
                 uint32_t cls = (uint32_t)ledger_seq();
                 // out of canonical order on purpose
                 ASSERT(put_drops(s, sfAmount, 1000) == s);
                 ASSERT(put_u32(s, sfLastLedgerSequence, cls + 5) == s);
-                ASSERT(slot_emplace(s, (uint32_t)tt, 3, sfTransactionType) == s);
+                ASSERT(slot_emplace(s, (uint32_t)tt, 2, sfTransactionType) == s);
                 ASSERT(put_u32(s, sfFlags, 0x80000000U) == s);
                 ASSERT(put_u32(s, sfSequence, 0) == s);
                 ASSERT(put_u32(s, sfFirstLedgerSequence, cls + 1) == s);
                 ASSERT(put_drops(s, sfFee, 0) == s);
 
-                uint8_t pk[35] = {0x73, 0x21};
-                ASSERT(slot_emplace(s, (uint32_t)pk, 35, sfSigningPubKey) == s);
+                // empty SigningPubKey: zero length value, valid pointer
+                ASSERT(slot_emplace(s, (uint32_t)acc, 0, sfSigningPubKey) == s);
 
-                uint8_t from[22] = {0x81, 0x14};
-                *(uint64_t*)(from + 2) = *(uint64_t*)(acc + 0);
-                *(uint64_t*)(from + 10) = *(uint64_t*)(acc + 8);
-                *(uint32_t*)(from + 18) = *(uint32_t*)(acc + 16);
-                ASSERT(slot_emplace(s, (uint32_t)from, 22, sfAccount) == s);
+                // the hook_account output as is
+                ASSERT(slot_emplace(s, (uint32_t)acc, 20, sfAccount) == s);
 
                 // destination: the account that paid us, straight from otxn
                 ASSERT(slot_subfield(21, sfAccount, 22) == 22);
@@ -9215,7 +9210,7 @@ public:
                 uint8_t ed[160];
                 int64_t edlen = etxn_details((uint32_t)ed, 160);
                 ASSERT(edlen > 0);
-                ASSERT(slot_emplace(s, (uint32_t)ed, edlen, sfEmitDetails) == s);
+                ASSERT(slot_emplace_sto(s, (uint32_t)ed, edlen, sfEmitDetails) == s);
 
                 int64_t fee = etxn_fee_base_slot(s);
                 ASSERT(fee > 0);
@@ -9236,10 +9231,11 @@ public:
         )[test.hook]"];
         HASH_WASM(hook);
 
-        // before featureWritableSlotAPI: none of the six is importable
+        // before featureWritableSlotAPI: none of the seven is importable
         char const* const names[] = {
             "slot_new",
             "slot_emplace",
+            "slot_emplace_sto",
             "slot_emplace_slot",
             "slot_erase",
             "emit_slot",
@@ -9269,7 +9265,7 @@ public:
             M("set writable slot"),
             HSFEE);
         env.close();
-        EXPECT_HOOK_FEE(hook, 894);
+        EXPECT_HOOK_FEE(hook, 872);
 
         auto const bobBefore = env.balance(bob).value().xrp().drops();
 

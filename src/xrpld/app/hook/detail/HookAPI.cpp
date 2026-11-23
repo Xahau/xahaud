@@ -2805,9 +2805,45 @@ HookAPI::slot_emplace_bytes(
     return slot_no;
 }
 
+// field_id is the field, `value` its bare serialized value (no field header,
+// no object / array terminator, length prefix added here for VL types)
 Expected<uint32_t, HookReturnCode>
-HookAPI::slot_emplace(uint32_t slot_no, Bytes const& field, uint32_t field_id)
+HookAPI::slot_emplace(uint32_t slot_no, Bytes const& value, uint32_t field_id)
     const
+{
+    if (value.size() > 4096)
+        return Unexpected(TOO_BIG);
+
+    // sfGeneric and fields like sfLedgerEntry have no binary field header
+    SField const& fieldCode = SField::getField(field_id);
+    if (!fieldCode.isUseful() || !fieldCode.isBinary())
+        return Unexpected(INVALID_FIELD);
+
+    Serializer s;
+    s.addFieldID(fieldCode.fieldType, fieldCode.fieldValue);
+    switch (fieldCode.fieldType)
+    {
+        case STI_VL:
+        case STI_ACCOUNT:
+        case STI_VECTOR256:
+            s.addVL(value.data(), value.size());
+            break;
+        default:
+            s.addRaw(value.data(), value.size());
+    }
+    if (fieldCode.fieldType == STI_OBJECT || fieldCode.fieldType == STI_ARRAY)
+        s.addFieldID(fieldCode.fieldType, 1);
+
+    // wrong lengths, headers passed by mistake etc. fail the one-field parse
+    return slot_emplace_bytes(slot_no, s.slice(), fieldCode);
+}
+
+// field is one serialized field, header included
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_emplace_sto(
+    uint32_t slot_no,
+    Bytes const& field,
+    uint32_t field_id) const
 {
     if (field.size() > 4096)
         return Unexpected(TOO_BIG);
