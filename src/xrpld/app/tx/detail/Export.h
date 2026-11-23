@@ -52,6 +52,10 @@ class ValidatorKeys;
     one, so old keys keep signing. Each key recorded bumps
     UNLReport.ExportKeysSeq. A validator without an account is given one,
     with validatorFundingDrops, by the next ttGENESIS_MINT.
+    A standalone node has no flag ledger worth waiting for: it adds the
+    two reports for its own key to its initial position (RCLConsensus onClose)
+    as soon as its account exists, so a few ledgers after funding it, the
+    node is its own export signer.
 
     Exporters. An account's standing on one network is its ltEXPORTER. It is
     listed (keylet::exporterDir(), isExporter) once an Import it signs

@@ -690,6 +690,97 @@ class ExportKeys_test : public beast::unit_test::suite
         }
     }
 
+    void
+    testStandaloneSelfRegistration()
+    {
+        testcase("standalone self registration");
+        using namespace jtx;
+        namespace fs = boost::filesystem;
+
+        auto const dir = fs::temp_directory_path() /
+            fs::unique_path("xahaud-export-keys-%%%%%%%%");
+        fs::create_directories(dir);
+        struct Cleanup
+        {
+            fs::path dir;
+            ~Cleanup()
+            {
+                boost::system::error_code ec;
+                fs::remove_all(dir, ec);
+            }
+        } const cleanup{dir};
+
+        auto const run = [&](FeatureBitset features, bool on) {
+            auto cfg = envconfig(validator, "");
+            cfg->section(SECTION_EXPORT_KEY_FILE)
+                .append((dir / (on ? "on.txt" : "off.txt")).string());
+            Env env{*this, std::move(cfg), features};
+            ValidatorKeys const vk(env.app().config(), env.journal);
+            if (!BEAST_EXPECT(vk.keys))
+                return;
+            auto const master = vk.keys->masterPublicKey;
+            auto const id = calcAccountID(master);
+
+            auto const signers = [&] {
+                auto const r =
+                    env.rpc("json", "export_setup", "{}")[jss::result];
+                return r.isMember(jss::error)
+                    ? 0u
+                    : r[jss::tx_json][sfSignerEntries.jsonName].size();
+            };
+            auto const keyCount = [&]() -> std::size_t {
+                auto const sle = env.closed()->read(keylet::account(id));
+                return sle && sle->isFieldPresent(sfExportKeys)
+                    ? sle->getFieldArray(sfExportKeys).size()
+                    : 0;
+            };
+            auto const keysSeq = [&]() -> std::uint32_t {
+                auto const sle = env.closed()->read(keylet::UNLReport());
+                return sle ? (*sle)[~sfExportKeysSeq].value_or(0) : 0;
+            };
+
+            // no account yet: nothing to record the key on
+            env.close();
+            env.close();
+            BEAST_EXPECT(signers() == 0);
+            BEAST_EXPECT(keyCount() == 0);
+
+            Account const funder{"funder"};
+            env.fund(XRP(10000), funder);
+            env.close();
+            env(pay(funder, id, XRP(1000)));
+            for (int i = 0; i < 3; ++i)
+                env.close();
+
+            if (!on)
+            {
+                BEAST_EXPECT(signers() == 0);
+                BEAST_EXPECT(keyCount() == 0);
+                BEAST_EXPECT(keysSeq() == 0);
+                return;
+            }
+
+            BEAST_EXPECT(keyCount() == 1);
+            auto const seq = keysSeq();
+            BEAST_EXPECT(seq >= 1);
+            auto const r = env.rpc("json", "export_setup", "{}")[jss::result];
+            if (!BEAST_EXPECT(!r.isMember(jss::error)))
+                return;
+            auto const& se = r[jss::tx_json][sfSignerEntries.jsonName];
+            BEAST_EXPECT(se.size() == 1);
+
+            // no more entries, no more bumps
+            for (int i = 0; i < 5; ++i)
+                env.close();
+            BEAST_EXPECT(keyCount() == 1);
+            BEAST_EXPECT(keysSeq() == seq);
+            BEAST_EXPECT(signers() == 1);
+        };
+
+        run(supported_amendments() | featureExport, true);
+        run(supported_amendments() - featureExport, false);
+    }
+
 public:
     void
     run() override
@@ -700,6 +791,7 @@ public:
         testReportReset();
         testKeyFile();
         testSignerListRPC();
+        testStandaloneSelfRegistration();
     }
 };
 
