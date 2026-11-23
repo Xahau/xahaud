@@ -31,21 +31,22 @@
 
 namespace ripple {
 
+bool
+AMMWithdraw::checkExtraFeatures(PreflightContext const& ctx)
+{
+    return ammEnabled(ctx.rules);
+}
+
+std::uint32_t
+AMMWithdraw::getFlagsMask(PreflightContext const& ctx)
+{
+    return tfWithdrawMask;
+}
+
 NotTEC
 AMMWithdraw::preflight(PreflightContext const& ctx)
 {
-    if (!ammEnabled(ctx.rules))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto const flags = ctx.tx.getFlags();
-    if (flags & tfWithdrawMask)
-    {
-        JLOG(ctx.j.debug()) << "AMM Withdraw: invalid flags.";
-        return temINVALID_FLAG;
-    }
 
     auto const amount = ctx.tx[~sfAmount];
     auto const amount2 = ctx.tx[~sfAmount2];
@@ -153,7 +154,7 @@ AMMWithdraw::preflight(PreflightContext const& ctx)
         }
     }
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 static std::optional<STAmount>

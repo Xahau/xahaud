@@ -156,12 +156,6 @@ SetManifest::makeTxConsequences(PreflightContext const& ctx)
 NotTEC
 SetManifest::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureOnChainManifests))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto& tx = ctx.tx;
     auto& j = ctx.j;
 
@@ -171,12 +165,6 @@ SetManifest::preflight(PreflightContext const& ctx)
         // manifest is derived from the manifest alone, so an sfTime would
         // silently reinterpret them as time-sequenced.
         return temMALFORMED;
-    }
-
-    if (tx.getFlags() & tfUniversalMask)
-    {
-        JLOG(j.warn()) << "SetManifest: Invalid flags set.";
-        return temINVALID_FLAG;
     }
 
     // The envelope carries no account signature: authority comes solely from
@@ -229,15 +217,12 @@ SetManifest::preflight(PreflightContext const& ctx)
     // 3. not already revoked will be checked in preclaim because it depends on
     // lgr state
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
 SetManifest::preclaim(PreclaimContext const& ctx)
 {
-    if (!ctx.view.rules().enabled(featureOnChainManifests))
-        return temDISABLED;
-
     auto const id = ctx.tx[sfAccount];
 
     // The account must exist: it pays the fee and anchors sfManifestID.

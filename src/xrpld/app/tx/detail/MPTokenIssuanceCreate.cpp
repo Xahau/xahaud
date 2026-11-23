@@ -25,15 +25,16 @@
 
 namespace ripple {
 
+std::uint32_t
+MPTokenIssuanceCreate::getFlagsMask(PreflightContext const& ctx)
+{
+    // This mask is only compared against sfFlags
+    return tfMPTokenIssuanceCreateMask;
+}
+
 NotTEC
 MPTokenIssuanceCreate::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureMPTokensV1))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     // MPTokenIssuanceCreate keys the object it creates by the raw sequence
     // value, (sequence, account). Every other creator goes through seqID(),
     // which falls back to the transaction id when the SeqProxy is sequence(0)
@@ -44,9 +45,6 @@ MPTokenIssuanceCreate::preflight(PreflightContext const& ctx)
     // Sequence or a Ticket.
     if (ctx.tx.getSeqProxy() == SeqProxy::sequence(0))
         return temBAD_SEQUENCE;
-
-    if (ctx.tx.getFlags() & tfMPTokenIssuanceCreateMask)
-        return temINVALID_FLAG;
 
     if (auto const fee = ctx.tx[~sfTransferFee])
     {
@@ -75,7 +73,7 @@ MPTokenIssuanceCreate::preflight(PreflightContext const& ctx)
         if (maxAmt > maxMPTokenAmount)
             return temMALFORMED;
     }
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
