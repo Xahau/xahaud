@@ -2683,6 +2683,264 @@ HookAPI::xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const
     return std::make_pair(slot_into_tx, slot_into_meta);
 }
 
+/// writable slot APIs
+
+namespace {
+// Parse `field` (a single serialized field, header included) with the stock
+// parser. Succeeds only if it is exactly one field and that field is
+// `expected`.
+std::optional<STObject>
+parseOneField(Slice const& field, SField const& expected)
+{
+    try
+    {
+        SerialIter sit(field);
+        STObject tmp(sfGeneric);
+        if (tmp.set(sit) || !sit.empty() || tmp.getCount() != 1 ||
+            tmp.peekAtIndex(0).getFName() != expected)
+            return std::nullopt;
+        return tmp;
+    }
+    catch (std::exception const&)
+    {
+        return std::nullopt;
+    }
+}
+}  // namespace
+
+Expected<hook::SlotEntry*, HookReturnCode>
+HookAPI::writable_slot(uint32_t slot_no) const
+{
+    auto const it = hookCtx.slot.find(slot_no);
+    if (it == hookCtx.slot.end())
+        return Unexpected(DOESNT_EXIST);
+
+    auto& slot = it->second;
+    if (!slot.writable || slot.entry != slot.storage.get())
+        return Unexpected(PREREQUISITE_NOT_MET);
+
+    return &slot;
+}
+
+ripple::STObject&
+HookAPI::detach(hook::SlotEntry& slot) const
+{
+    // Child slots (and any other holder) keep the old object alive and keep
+    // seeing the old snapshot, so copy before mutating if it is shared.
+    if (slot.storage.use_count() > 1)
+    {
+        slot.storage = std::make_shared<STObject>(*slot.storage);
+        slot.entry = slot.storage.get();
+    }
+    // Only slot_new creates writable storage, and always from a non-const
+    // make_shared<STObject>, so this never writes a ledger / otxn / meta
+    // object.
+    return const_cast<STObject&>(*slot.storage);
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_new(Bytes const& data, uint32_t slot_no) const
+{
+    if (slot_no > hook_api::max_slots)
+        return Unexpected(INVALID_ARGUMENT);
+
+    if (data.size() > 16 * 1024)
+        return Unexpected(TOO_BIG);
+
+    if (slot_no == 0 && no_free_slots())
+        return Unexpected(NO_FREE_SLOTS);
+
+    auto obj = std::make_shared<STObject>(sfGeneric);
+    if (!data.empty())
+    {
+        try
+        {
+            SerialIter sit(Slice(data.data(), data.size()));
+            if (obj->set(sit) || !sit.empty())
+                return Unexpected(PARSE_ERROR);
+        }
+        catch (std::exception const&)
+        {
+            return Unexpected(PARSE_ERROR);
+        }
+    }
+
+    if (obj->getCount() > hook_api::max_slot_fields)
+        return Unexpected(TOO_BIG);
+
+    if (slot_no == 0)
+    {
+        if (auto found = get_free_slot(); found)
+            slot_no = *found;
+        else
+            return Unexpected(NO_FREE_SLOTS);
+    }
+
+    hookCtx.slot[slot_no] =
+        hook::SlotEntry{.storage = obj, .entry = obj.get(), .writable = true};
+
+    return slot_no;
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_emplace_bytes(
+    uint32_t slot_no,
+    Slice const& field,
+    SField const& expected) const
+{
+    auto const ws = writable_slot(slot_no);
+    if (!ws)
+        return Unexpected(ws.error());
+
+    auto parsed = parseOneField(field, expected);
+    if (!parsed)
+        return Unexpected(PARSE_ERROR);
+
+    auto& slot = **ws;
+    if (!slot.storage->isFieldPresent(expected) &&
+        slot.storage->getCount() >= hook_api::max_slot_fields)
+        return Unexpected(TOO_BIG);
+
+    detach(slot).set(std::move(parsed->getIndex(0)));
+    return slot_no;
+}
+
+// field_id is the field, `value` its bare serialized value (no field header,
+// no object / array terminator, length prefix added here for VL types)
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_emplace(uint32_t slot_no, Bytes const& value, uint32_t field_id)
+    const
+{
+    if (value.size() > 4096)
+        return Unexpected(TOO_BIG);
+
+    // sfGeneric and fields like sfLedgerEntry have no binary field header
+    SField const& fieldCode = SField::getField(field_id);
+    if (!fieldCode.isUseful() || !fieldCode.isBinary())
+        return Unexpected(INVALID_FIELD);
+
+    Serializer s;
+    s.addFieldID(fieldCode.fieldType, fieldCode.fieldValue);
+    switch (fieldCode.fieldType)
+    {
+        case STI_VL:
+        case STI_ACCOUNT:
+        case STI_VECTOR256:
+            s.addVL(value.data(), value.size());
+            break;
+        default:
+            s.addRaw(value.data(), value.size());
+    }
+    if (fieldCode.fieldType == STI_OBJECT || fieldCode.fieldType == STI_ARRAY)
+        s.addFieldID(fieldCode.fieldType, 1);
+
+    // wrong lengths, headers passed by mistake etc. fail the one-field parse
+    return slot_emplace_bytes(slot_no, s.slice(), fieldCode);
+}
+
+// field is one serialized field, header included
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_emplace_sto(
+    uint32_t slot_no,
+    Bytes const& field,
+    uint32_t field_id) const
+{
+    if (field.size() > 4096)
+        return Unexpected(TOO_BIG);
+
+    if (field.size() < 2)
+        return Unexpected(TOO_SMALL);
+
+    // sfGeneric and fields like sfLedgerEntry have no binary field header
+    SField const& fieldCode = SField::getField(field_id);
+    if (!fieldCode.isUseful() || !fieldCode.isBinary())
+        return Unexpected(INVALID_FIELD);
+
+    return slot_emplace_bytes(
+        slot_no, Slice(field.data(), field.size()), fieldCode);
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_emplace_slot(
+    uint32_t slot_no,
+    uint32_t src_slot,
+    uint32_t field_id) const
+{
+    // sfGeneric and fields like sfLedgerEntry have no binary field header
+    SField const& fieldCode = SField::getField(field_id);
+    if (!fieldCode.isUseful() || !fieldCode.isBinary())
+        return Unexpected(INVALID_FIELD);
+
+    auto const ws = writable_slot(slot_no);
+    if (!ws)
+        return Unexpected(ws.error());
+
+    auto const e = slot(src_slot);
+    if (!e)
+        return Unexpected(e.error());
+
+    auto const& entry = **e;
+    if (entry.getSType() != fieldCode.fieldType)
+        return Unexpected(INVALID_ARGUMENT);
+
+    // Serialize under the new field name before touching the destination, so
+    // src == dst (or src inside dst) sees the pre-call value.
+    Serializer s;
+    s.addFieldID(fieldCode.fieldType, fieldCode.fieldValue);
+    entry.add(s);
+    if (entry.getSType() == STI_OBJECT || entry.getSType() == STI_ARRAY)
+        s.addFieldID(entry.getSType(), 1);
+
+    if (s.getDataLength() > 4096)
+        return Unexpected(TOO_BIG);
+
+    return slot_emplace_bytes(slot_no, s.slice(), fieldCode);
+}
+
+Expected<uint32_t, HookReturnCode>
+HookAPI::slot_erase(uint32_t slot_no, uint32_t field_id) const
+{
+    // sfGeneric and fields like sfLedgerEntry have no binary field header
+    SField const& fieldCode = SField::getField(field_id);
+    if (!fieldCode.isUseful() || !fieldCode.isBinary())
+        return Unexpected(INVALID_FIELD);
+
+    auto const ws = writable_slot(slot_no);
+    if (!ws)
+        return Unexpected(ws.error());
+
+    auto& slot = **ws;
+    if (!slot.storage->isFieldPresent(fieldCode))
+        return Unexpected(DOESNT_EXIST);
+
+    detach(slot).delField(fieldCode);
+    return slot_no;
+}
+
+Expected<std::shared_ptr<Transaction>, HookReturnCode>
+HookAPI::emit_slot(uint32_t slot_no) const
+{
+    auto const e = slot(slot_no);
+    if (!e)
+        return Unexpected(e.error());
+
+    Serializer s;
+    (*e)->add(s);
+    return emit(s.slice());
+}
+
+Expected<uint64_t, HookReturnCode>
+HookAPI::etxn_fee_base_slot(uint32_t slot_no) const
+{
+    auto const e = slot(slot_no);
+    if (!e)
+        return Unexpected(e.error());
+
+    Serializer s;
+    (*e)->add(s);
+    return etxn_fee_base(s.slice());
+}
+
 /// private
 
 inline int32_t

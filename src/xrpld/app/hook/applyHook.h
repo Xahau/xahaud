@@ -194,6 +194,7 @@ struct SlotEntry
     std::shared_ptr<const ripple::STObject> storage;
     const ripple::STBase* entry;  // raw pointer into the storage, that can be
                                   // freely pointed around inside
+    bool writable = false;        // only slots created by slot_new are true
 };
 
 struct HookContext

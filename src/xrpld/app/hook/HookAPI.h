@@ -298,6 +298,7 @@ using namespace ripple;
 using Bytes = std::vector<std::uint8_t>;
 
 struct HookContext;  // defined in applyHook.h
+struct SlotEntry;    // defined in applyHook.h
 
 class HookAPI
 {
@@ -564,8 +565,47 @@ public:
     Expected<std::pair<uint32_t, uint32_t>, HookReturnCode>
     xpop_slot(uint32_t slot_into_tx, uint32_t slot_into_meta) const;
 
+    /// writable slot APIs (featureWritableSlotAPI)
+    Expected<uint32_t, HookReturnCode>
+    slot_new(Bytes const& data, uint32_t slot_no) const;
+
+    Expected<uint32_t, HookReturnCode>
+    slot_emplace(uint32_t slot_no, Bytes const& value, uint32_t field_id) const;
+
+    Expected<uint32_t, HookReturnCode>
+    slot_emplace_sto(uint32_t slot_no, Bytes const& field, uint32_t field_id)
+        const;
+
+    Expected<uint32_t, HookReturnCode>
+    slot_emplace_slot(uint32_t slot_no, uint32_t src_slot, uint32_t field_id)
+        const;
+
+    Expected<uint32_t, HookReturnCode>
+    slot_erase(uint32_t slot_no, uint32_t field_id) const;
+
+    Expected<std::shared_ptr<Transaction>, HookReturnCode>
+    emit_slot(uint32_t slot_no) const;
+
+    Expected<uint64_t, HookReturnCode>
+    etxn_fee_base_slot(uint32_t slot_no) const;
+
 private:
     HookContext& hookCtx;
+
+    // slot must exist, be writable and be the root of its storage
+    Expected<hook::SlotEntry*, HookReturnCode>
+    writable_slot(uint32_t slot_no) const;
+
+    // the only place that mutates slot storage; call after all validation
+    ripple::STObject&
+    detach(hook::SlotEntry& slot) const;
+
+    // emplace one serialized field (header included) into a writable slot
+    Expected<uint32_t, HookReturnCode>
+    slot_emplace_bytes(
+        uint32_t slot_no,
+        Slice const& field,
+        SField const& expected) const;
 
     inline int32_t
     no_free_slots() const;

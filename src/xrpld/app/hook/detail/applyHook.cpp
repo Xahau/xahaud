@@ -4048,6 +4048,173 @@ DEFINE_HOOK_FUNCTION(
 
     HOOK_TEARDOWN();
 }
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    slot_new,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t slot_no /* providing 0 allocates a slot to you */)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes data{memory + read_ptr, memory + read_ptr + read_len};
+    auto const result = api.slot_new(data, slot_no);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    slot_emplace,
+    uint32_t slot_no,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t field_id)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes data{memory + read_ptr, memory + read_ptr + read_len};
+    auto const result = api.slot_emplace(slot_no, data, field_id);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    slot_emplace_sto,
+    uint32_t slot_no,
+    uint32_t read_ptr,
+    uint32_t read_len,
+    uint32_t field_id)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(read_ptr, read_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    Bytes data{memory + read_ptr, memory + read_ptr + read_len};
+    auto const result = api.slot_emplace_sto(slot_no, data, field_id);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    slot_emplace_slot,
+    uint32_t slot_no,
+    uint32_t src_slot,
+    uint32_t field_id)
+{
+    HOOK_SETUP();
+
+    auto const result = api.slot_emplace_slot(slot_no, src_slot, field_id);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, slot_erase, uint32_t slot_no, uint32_t field_id)
+{
+    HOOK_SETUP();
+
+    auto const result = api.slot_erase(slot_no, field_id);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+DEFINE_HOOK_FUNCTION(int64_t, etxn_fee_base_slot, uint32_t slot_no)
+{
+    HOOK_SETUP();
+
+    auto const result = api.etxn_fee_base_slot(slot_no);
+    if (!result)
+        return result.error();
+
+    return result.value();
+
+    HOOK_TEARDOWN();
+}
+
+// Same as emit, but the transaction is the serialized content of a slot.
+DEFINE_HOOK_FUNCTION(
+    int64_t,
+    emit_slot,
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t slot_no)
+{
+    HOOK_SETUP();
+
+    if (NOT_IN_BOUNDS(write_ptr, write_len, memory_length))
+        return OUT_OF_BOUNDS;
+
+    if (write_len < 32)
+        return TOO_SMALL;
+
+    auto const res = api.emit_slot(slot_no);
+
+    if (!res)
+        return res.error();
+
+    auto const& tpTrans = *res;  // 32 bytes
+    auto const& txID = tpTrans->getID();
+
+    if (txID.size() > write_len)
+        return TOO_SMALL;
+
+    if (NOT_IN_BOUNDS(write_ptr, txID.size(), memory_length))
+        return OUT_OF_BOUNDS;
+
+    auto const write_txid =
+        [&]() -> std::variant<uint64_t, hook_api::hook_return_code> {
+        WRITE_WASM_MEMORY_AND_RETURN(
+            write_ptr,
+            txID.size(),
+            txID.data(),
+            txID.size(),
+            memory,
+            memory_length);
+    };
+
+    auto result = write_txid();
+    if (std::holds_alternative<hook_api::hook_return_code>(result))
+        return std::get<hook_api::hook_return_code>(result);
+
+    auto const value = std::get<uint64_t>(result);
+    if (value == 32)
+        hookCtx.result.emittedTxn.push(tpTrans);
+
+    return value;
+
+    HOOK_TEARDOWN();
+}
+
 /*
 
 DEFINE_HOOK_FUNCTION(

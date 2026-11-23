@@ -9058,6 +9058,257 @@ public:
     }
 
     void
+    test_writable_slot(FeatureBitset features)
+    {
+        testcase("Test writable slot");
+        using namespace jtx;
+        Env env{*this, features - featureWritableSlotAPI};
+
+        Account const alice{"alice"};
+        Account const bob{"bob"};
+        env.fund(XRP(10000), alice);
+        env.fund(XRP(10000), bob);
+
+        TestHook hook_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t otxn_type(void);
+            extern int64_t otxn_generation(void);
+            extern int64_t otxn_slot(uint32_t);
+            extern int64_t hook_account(uint32_t, uint32_t);
+            extern int64_t ledger_seq(void);
+            extern int64_t etxn_reserve(uint32_t);
+            extern int64_t etxn_details(uint32_t, uint32_t);
+            extern int64_t etxn_fee_base(uint32_t, uint32_t);
+            extern int64_t util_keylet(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t slot(uint32_t, uint32_t, uint32_t);
+            extern int64_t slot_set(uint32_t, uint32_t, uint32_t);
+            extern int64_t slot_subfield(uint32_t, uint32_t, uint32_t);
+            extern int64_t slot_new(uint32_t, uint32_t, uint32_t);
+            extern int64_t slot_emplace(uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t slot_emplace_sto(uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t slot_emplace_slot(uint32_t, uint32_t, uint32_t);
+            extern int64_t slot_erase(uint32_t, uint32_t);
+            extern int64_t emit_slot(uint32_t, uint32_t, uint32_t);
+            extern int64_t etxn_fee_base_slot(uint32_t);
+            #define OUT_OF_BOUNDS -1
+            #define PREREQUISITE_NOT_MET -9
+            #define KEYLET_ACCOUNT 3
+            #define sfTransactionType ((1U << 16U) + 2U)
+            #define sfFlags ((2U << 16U) + 2U)
+            #define sfSourceTag ((2U << 16U) + 3U)
+            #define sfSequence ((2U << 16U) + 4U)
+            #define sfFirstLedgerSequence ((2U << 16U) + 26U)
+            #define sfLastLedgerSequence ((2U << 16U) + 27U)
+            #define sfAmount ((6U << 16U) + 1U)
+            #define sfFee ((6U << 16U) + 8U)
+            #define sfSigningPubKey ((7U << 16U) + 3U)
+            #define sfAccount ((8U << 16U) + 1U)
+            #define sfDestination ((8U << 16U) + 3U)
+            #define sfEmitDetails ((14U << 16U) + 13U)
+            #define ASSERT(x)\
+                if (!(x))\
+                    rollback((uint32_t)#x, sizeof(#x), __LINE__);
+
+            // 4 byte integer value for the given field
+            static int64_t put_u32(uint32_t s, uint32_t code, uint32_t v)
+            {
+                uint8_t b[4];
+                b[0] = v >> 24;
+                b[1] = v >> 16;
+                b[2] = v >> 8;
+                b[3] = v;
+                return slot_emplace(s, (uint32_t)b, 4, code);
+            }
+
+            // native amount value for the given field
+            static int64_t put_drops(uint32_t s, uint32_t code, uint64_t d)
+            {
+                uint8_t b[8];
+                b[0] = 0x40U | ((d >> 56) & 0x3FU);
+                b[1] = d >> 48;
+                b[2] = d >> 40;
+                b[3] = d >> 32;
+                b[4] = d >> 24;
+                b[5] = d >> 16;
+                b[6] = d >> 8;
+                b[7] = d;
+                return slot_emplace(s, (uint32_t)b, 8, code);
+            }
+
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+
+                // only the payment bob sends, not the emitted one
+                if (otxn_type() != 0 || otxn_generation() != 0)
+                    return accept(0,0,0);
+
+                uint8_t acc[20];
+                ASSERT(hook_account(acc, 20) == 20);
+
+                // bounds
+                ASSERT(slot_new(0xFFFFF0U, 32, 0) == OUT_OF_BOUNDS);
+                ASSERT(slot_new(0, 0, 40) == 40);
+                ASSERT(slot_emplace(40, 0xFFFFF0U, 32, sfSequence) == OUT_OF_BOUNDS);
+                // a UINT32 source whose type matches sfSourceTag
+                ASSERT(put_u32(40, sfSequence, 7) == 40);
+                ASSERT(slot_subfield(40, sfSequence, 41) == 41);
+
+                // ledger object slot is read only
+                uint8_t kl[34];
+                ASSERT(util_keylet(kl, 34, KEYLET_ACCOUNT, acc, 20, 0, 0, 0, 0) == 34);
+                ASSERT(slot_set(kl, 34, 20) == 20);
+                uint8_t src[6] = {0x20, 0x03, 0, 0, 0, 55};
+                ASSERT(slot_emplace_sto(20, (uint32_t)src, 6, sfSourceTag) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_emplace(20, (uint32_t)src + 2, 4, sfSourceTag) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_emplace_slot(20, 41, sfSourceTag) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_erase(20, sfAccount) == PREREQUISITE_NOT_MET);
+
+                // otxn slot is read only
+                ASSERT(otxn_slot(21) == 21);
+                ASSERT(put_u32(21, sfSourceTag, 55) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_emplace_sto(21, (uint32_t)src, 6, sfSourceTag) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_erase(21, sfAccount) == PREREQUISITE_NOT_MET);
+
+                // child of a writable slot is read only
+                ASSERT(slot_new(0, 0, 30) == 30);
+                ASSERT(put_u32(30, sfSequence, 7) == 30);
+                ASSERT(slot_subfield(30, sfSequence, 31) == 31);
+                ASSERT(put_u32(31, sfSequence, 9) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_emplace_sto(31, (uint32_t)src, 6, sfSequence) == PREREQUISITE_NOT_MET);
+                ASSERT(slot_erase(31, sfSequence) == PREREQUISITE_NOT_MET);
+
+                // build the payment in a slot, no transaction buffer
+                ASSERT(etxn_reserve(1) == 1);
+                uint32_t s = 10;
+                ASSERT(slot_new(0, 0, s) == s);
+
+                uint8_t tt[2] = {0, 0};
+                uint32_t cls = (uint32_t)ledger_seq();
+                // out of canonical order on purpose
+                ASSERT(put_drops(s, sfAmount, 1000) == s);
+                ASSERT(put_u32(s, sfLastLedgerSequence, cls + 5) == s);
+                ASSERT(slot_emplace(s, (uint32_t)tt, 2, sfTransactionType) == s);
+                ASSERT(put_u32(s, sfFlags, 0x80000000U) == s);
+                ASSERT(put_u32(s, sfSequence, 0) == s);
+                ASSERT(put_u32(s, sfFirstLedgerSequence, cls + 1) == s);
+                ASSERT(put_drops(s, sfFee, 0) == s);
+
+                // empty SigningPubKey: zero length value, valid pointer
+                ASSERT(slot_emplace(s, (uint32_t)acc, 0, sfSigningPubKey) == s);
+
+                // the hook_account output as is
+                ASSERT(slot_emplace(s, (uint32_t)acc, 20, sfAccount) == s);
+
+                // destination: the account that paid us, straight from otxn
+                ASSERT(slot_subfield(21, sfAccount, 22) == 22);
+                ASSERT(slot_emplace_slot(s, 22, sfDestination) == s);
+
+                uint8_t ed[160];
+                int64_t edlen = etxn_details((uint32_t)ed, 160);
+                ASSERT(edlen > 0);
+                ASSERT(slot_emplace_sto(s, (uint32_t)ed, edlen, sfEmitDetails) == s);
+
+                int64_t fee = etxn_fee_base_slot(s);
+                ASSERT(fee > 0);
+                ASSERT(put_drops(s, sfFee, fee) == s);
+
+                // same answer as the buffer based API, on the same contents
+                ASSERT(etxn_fee_base_slot(s) == fee);
+                uint8_t buf[400];
+                int64_t len = slot((uint32_t)buf, 400, s);
+                ASSERT(len > 0);
+                ASSERT(etxn_fee_base((uint32_t)buf, len) == fee);
+
+                uint8_t txid[32];
+                ASSERT(emit_slot((uint32_t)txid, 32, s) == 32);
+
+                return accept(0,0,1);
+            }
+        )[test.hook]"];
+        HASH_WASM(hook);
+
+        // before featureWritableSlotAPI: none of the seven is importable
+        char const* const names[] = {
+            "slot_new",
+            "slot_emplace",
+            "slot_emplace_sto",
+            "slot_emplace_slot",
+            "slot_erase",
+            "emit_slot",
+            "etxn_fee_base_slot"};
+        {
+            auto const wl =
+                hook_api::getImportWhitelist(env.current()->rules());
+            for (auto const* n : names)
+                BEAST_EXPECTS(wl.count(n) == 0, n);
+        }
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+            M("set writable slot (disabled)"),
+            HSFEE,
+            ter(temMALFORMED));
+        env.close();
+
+        env.enableFeature(featureWritableSlotAPI);
+        env.close();
+        {
+            auto const wl =
+                hook_api::getImportWhitelist(env.current()->rules());
+            for (auto const* n : names)
+                BEAST_EXPECTS(wl.count(n) == 1, n);
+        }
+
+        env(ripple::test::jtx::hook(alice, {{hso(hook_wasm, overrideFlag)}}, 0),
+            M("set writable slot"),
+            HSFEE);
+        env.close();
+        EXPECT_HOOK_FEE(hook, 872);
+
+        auto const bobBefore = env.balance(bob).value().xrp().drops();
+
+        env(pay(bob, alice, XRP(1)), M("test writable slot"), fee(XRP(1)));
+        env.close();
+        {
+            auto const meta = env.meta();
+            BEAST_REQUIRE(meta);
+            BEAST_REQUIRE(meta->isFieldPresent(sfHookExecutions));
+            auto const hookExecutions = meta->getFieldArray(sfHookExecutions);
+            BEAST_REQUIRE(hookExecutions.size() == 1);
+            BEAST_EXPECT(hookExecutions[0].getFieldU64(sfHookReturnCode) == 1);
+            BEAST_EXPECT(hookExecutions[0].getFieldU16(sfHookEmitCount) == 1);
+        }
+
+        // the ledger object was never touched
+        {
+            auto const sle = env.le(alice);
+            BEAST_REQUIRE(sle);
+            BEAST_EXPECT(!sle->isFieldPresent(sfSourceTag));
+            BEAST_EXPECT(sle->isFieldPresent(sfAccount));
+        }
+
+        // the emitted payment is applied in the next ledger
+        env.close();
+        {
+            auto const ledger = env.closed();
+            int txcount = 0;
+            for (auto const& i : ledger->txs)
+            {
+                ++txcount;
+                BEAST_EXPECT(i.first->getTxnType() == ttPAYMENT);
+                BEAST_EXPECT(i.first->isFieldPresent(sfEmitDetails));
+                BEAST_EXPECT(i.first->getAccountID(sfDestination) == bob.id());
+                BEAST_EXPECT(i.second->getFieldU8(sfTransactionResult) == 0);
+            }
+            BEAST_EXPECT(txcount == 1);
+        }
+        auto const bobAfter = env.balance(bob).value().xrp().drops();
+        BEAST_EXPECT(bobAfter == bobBefore - 1'000'000 - 1'000'000 + 1000);
+    }
+
+    void
     test_otxn_field(FeatureBitset features)
     {
         testcase("Test otxn_field");
@@ -16562,8 +16813,9 @@ public:
         test_ledger_nonce(features);      //
         test_ledger_seq(features);        //
 
-        test_meta_slot(features);  //
-        test_xpop_slot(features);  //
+        test_meta_slot(features);      //
+        test_xpop_slot(features);      //
+        test_writable_slot(features);  //
 
         test_otxn_id(features);     //
         test_otxn_slot(features);   //
