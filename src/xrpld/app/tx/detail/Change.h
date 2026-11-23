@@ -76,6 +76,9 @@ private:
 
     TER
     applyEntropy();
+
+    TER
+    applyExportKeyReport();
 };
 
 using EnableAmendment = Change;

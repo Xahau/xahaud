@@ -116,10 +116,11 @@ private:
         uint256 account_;
         uint256 txId_;
         SeqProxy seqProxy_;
-        // sfTime of a time-sequenced transaction, and nothing for any other.
-        // Compared before seqProxy_: an empty optional is less than every
-        // Time, so time-sequenced transactions come after the rest of their
-        // account's, and among themselves oldest first.
+        // sfTime of a time-sequenced transaction, and nothing for any other
+        // but a ttINGEST, which has the complement of its leaf count here
+        // (makeKey). Compared before seqProxy_: an empty optional is less
+        // than every Time, so time-sequenced transactions come after the
+        // rest of their account's, and among themselves oldest first.
         std::optional<std::uint64_t> time_;
     };
 

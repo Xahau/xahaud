@@ -141,6 +141,7 @@ InnerObjectFormats::InnerObjectFormats()
         {
             {sfPublicKey, soeREQUIRED},
             {sfAccount, soeOPTIONAL},
+            {sfRemoteNetworkID, soeOPTIONAL},
         });
 
     add(sfRandomDigestEntry.jsonName,
@@ -149,6 +150,34 @@ InnerObjectFormats::InnerObjectFormats()
             {sfPublicKey, soeREQUIRED},
             {sfNextRandomDigest, soeREQUIRED},
             {sfLedgerSequence, soeREQUIRED},
+        });
+
+    // featureExport: one validator's export key, as reported by the UNL
+    add(sfExportKeyReport.jsonName,
+        sfExportKeyReport.getCode(),
+        {
+            {sfPublicKey, soeREQUIRED},
+            {sfExportKey, soeREQUIRED},
+            {sfExportKeyProof, soeREQUIRED},
+        });
+
+    // featureExport: an account's signer list on the network it exports to,
+    // and the (ledger, index) there of the SignerListSet that set it
+    add(sfExportSignerList.jsonName,
+        sfExportSignerList.getCode(),
+        {
+            {sfSignerQuorum, soeREQUIRED},
+            {sfSignerEntries, soeREQUIRED},
+            {sfLedgerSequence, soeREQUIRED},
+            {sfTransactionIndex, soeREQUIRED},
+        });
+
+    // featureExport: an entry in a validator account's sfExportKeys
+    add(sfExportKeyEntry.jsonName,
+        sfExportKeyEntry.getCode(),
+        {
+            {sfExportKey, soeREQUIRED},
+            {sfCloseTime, soeREQUIRED},
         });
 
     add(sfAmountEntry.jsonName,

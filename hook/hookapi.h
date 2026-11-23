@@ -38,6 +38,12 @@
 #define KEYLET_HOOK_DEFINITION 24
 #define KEYLET_HOOK_STATE_DIR 25
 #define KEYLET_CRON 26
+
+// xport_fee(network_id, what): see hook_api::xport_fee_code
+#define XPORT_FEE_UNIT 0
+#define XPORT_FEE_MEDIAN 1
+#define XPORT_FEE_LEDGER 2
+#define XPORT_FEE_BURNED 3
 #define KEYLET_MANIFEST 37
 
 #define COMPARE_EQUAL 1U

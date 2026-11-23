@@ -345,6 +345,29 @@ dice(uint32_t sides);
 extern int64_t
 util_random(uint32_t write_ptr, uint32_t write_len);
 
+extern int64_t
+xport(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+
+extern int64_t
+xport_tickets(uint32_t network_id);
+
+extern int64_t
+xport_ticket(uint32_t network_id, uint32_t index);
+
+extern int64_t
+xport_prepare(
+    uint32_t write_ptr,
+    uint32_t write_len,
+    uint32_t read_ptr,
+    uint32_t read_len);
+
+extern int64_t
+xport_fee(uint32_t network_id, uint32_t what);
+
 #ifdef __cplusplus
 }
 #endif

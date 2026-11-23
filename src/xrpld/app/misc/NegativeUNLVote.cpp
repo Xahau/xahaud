@@ -61,8 +61,12 @@ NegativeUNLVote::doVoting(
     // Build a reliability score table of validators. This only fails if
     // there isn't enough ledger history; it does NOT apply the local
     // reliability gate (that is N-UNL specific, see below).
-    auto const scoreTable =
-        buildRawScoreTable(prevLedger, unlNodeIDs, validations);
+    ExportKeyMap exportKeys;
+    auto const scoreTable = buildRawScoreTable(
+        prevLedger,
+        unlNodeIDs,
+        validations,
+        prevLedger->rules().enabled(featureExport) ? &exportKeys : nullptr);
     if (!scoreTable)
         return;
 
@@ -136,7 +140,12 @@ NegativeUNLVote::doVoting(
         if (myScore > (FLAG_LEDGER_INTERVAL >> 1))
         {
             addReportingTx(seq, *scoreTable, nidToKeyMap, initialSet);
-            addImportVLTx(seq, initialSet);
+            // featureExport: each key is voted for the network it governs
+            addImportVLTx(
+                seq, initialSet, prevLedger->rules().enabled(featureExport));
+            if (!exportKeys.empty())
+                addExportKeyTx(
+                    seq, *scoreTable, nidToKeyMap, exportKeys, initialSet);
         }
         else
         {
@@ -196,18 +205,65 @@ NegativeUNLVote::addReportingTx(
     }
 }
 
+void
+NegativeUNLVote::addExportKeyTx(
+    LedgerIndex seq,
+    hash_map<NodeID, std::uint32_t> const& scoreTable,
+    hash_map<NodeID, PublicKey> const& nidToKeyMap,
+    ExportKeyMap const& exportKeys,
+    std::shared_ptr<SHAMap> const& initalSet)
+{
+    // One report per active validator, kept apart from its ActiveValidator
+    // report so that disagreement over its export key (some proposers missing
+    // its validation) can never cost it that entry.
+    for (auto const& [nid, score] : scoreTable)
+    {
+        auto const ek = exportKeys.find(nid);
+        if (score <= (FLAG_LEDGER_INTERVAL >> 1) || ek == exportKeys.end())
+            continue;
+
+        STObject report(sfExportKeyReport);
+        report.setFieldVL(sfPublicKey, nidToKeyMap.at(nid));
+        report.setFieldVL(sfExportKey, ek->second.first);
+        report.setFieldVL(sfExportKeyProof, ek->second.second);
+        STTx const tx(ttUNL_REPORT, [&](auto& obj) {
+            obj.peekFieldObject(sfExportKeyReport) = std::move(report);
+            obj.setFieldU32(sfLedgerSequence, seq);
+        });
+
+        Serializer s;
+        tx.add(s);
+        bool const added = initalSet->addGiveItem(
+            SHAMapNodeType::tnTRANSACTION_NM,
+            make_shamapitem(tx.getTransactionID(), s.slice()));
+        JLOG((added ? j_.debug() : j_.warn()))
+            << "R-UNL: ledger seq=" << seq << ", add ttUNL_REPORT (export_key) "
+            << (added ? "tx " : "tx failed ") << tx.getTransactionID();
+    }
+}
+
 std::vector<STTx>
 NegativeUNLVote::generateImportVLVoteTx(
     std::map<std::string, PublicKey> const& importVLKeys,
-    LedgerIndex seq)
+    LedgerIndex seq,
+    std::map<std::string, std::uint32_t> const* networks)
 {
     std::vector<STTx> out;
-    for (auto const& [_, pk] : importVLKeys)
+    for (auto const& [hex, pk] : importVLKeys)
     {
-        STTx repUnlTx(ttUNL_REPORT, [pk = pk, seq](auto& obj) {
+        // featureExport: the network whose lists the key signs, as
+        // [import_vl_keys] gives it. The XRPL (0) is left out, so votes for
+        // XRPL keys are the transactions they always were.
+        std::uint32_t nid = 0;
+        if (networks)
+            if (auto const n = networks->find(hex); n != networks->end())
+                nid = n->second;
+        STTx repUnlTx(ttUNL_REPORT, [pk = pk, seq, nid](auto& obj) {
             obj.set(([&]() {
                 auto inner = std::make_unique<STObject>(sfImportVLKey);
                 inner->setFieldVL(sfPublicKey, pk);
+                if (nid != 0)
+                    inner->setFieldU32(sfRemoteNetworkID, nid);
                 return inner;
             })());
             obj.setFieldU32(sfLedgerSequence, seq);
@@ -222,11 +278,14 @@ NegativeUNLVote::generateImportVLVoteTx(
 void
 NegativeUNLVote::addImportVLTx(
     LedgerIndex seq,
-    std::shared_ptr<SHAMap> const& initalSet)
+    std::shared_ptr<SHAMap> const& initalSet,
+    bool withNetworks)
 {
     // do import VL key voting
-    std::vector<STTx> toInject =
-        generateImportVLVoteTx(app_.config().IMPORT_VL_KEYS, seq);
+    std::vector<STTx> toInject = generateImportVLVoteTx(
+        app_.config().IMPORT_VL_KEYS,
+        seq,
+        withNetworks ? &app_.config().IMPORT_VL_NETWORKS : nullptr);
 
     for (auto const& repUnlTx : toInject)
     {
@@ -308,7 +367,8 @@ std::optional<hash_map<NodeID, std::uint32_t>>
 NegativeUNLVote::buildRawScoreTable(
     std::shared_ptr<Ledger const> const& prevLedger,
     hash_set<NodeID> const& unl,
-    RCLValidations& validations)
+    RCLValidations& validations,
+    ExportKeyMap* exportKeys)
 {
     // Find agreed validation messages received for
     // the last FLAG_LEDGER_INTERVAL (i.e. 256) ledgers,
@@ -351,7 +411,17 @@ NegativeUNLVote::buildRawScoreTable(
                  ledgerAncestors[numAncestors - 1 - i], seq - 2 - i))
         {
             if (scoreTable.count(v->getNodeID()))
+            {
                 ++scoreTable[v->getNodeID()];
+
+                // newest first, so the first nomination seen is the latest
+                if (exportKeys && v->isFieldPresent(sfExportKey) &&
+                    v->isFieldPresent(sfExportKeyProof))
+                    exportKeys->try_emplace(
+                        v->getNodeID(),
+                        v->getFieldVL(sfExportKey),
+                        v->getFieldVL(sfExportKeyProof));
+            }
         }
     }
 

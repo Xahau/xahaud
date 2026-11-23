@@ -25,6 +25,7 @@
 #include <xrpld/app/misc/NetworkOPs.h>
 #include <xrpld/app/tx/apply.h>
 #include <xrpld/app/tx/applySteps.h>
+#include <xrpld/app/tx/detail/Ingest.h>
 #include <xrpld/app/tx/detail/SetManifest.h>
 #include <xrpl/basics/Log.h>
 #include <xrpl/protocol/Feature.h>
@@ -105,6 +106,56 @@ checkValidity(
         // passesLocalChecks does not run again on every relay of a
         // known-good transaction. Like the signature flags, these are a
         // function of the transaction alone.
+        if (flags & SF_LOCALBAD)
+            return {Validity::SigGoodOnly, "Local checks failed."};
+
+        if (flags & SF_LOCALGOOD)
+            return {Validity::Valid, ""};
+
+        std::string reason;
+        if (!passesLocalChecks(tx, reason))
+        {
+            router.setFlags(id, SF_LOCALBAD);
+            return {Validity::SigGoodOnly, reason};
+        }
+        router.setFlags(id, SF_LOCALGOOD);
+        return {Validity::Valid, ""};
+    }
+
+    // featureExport: a proof of fees (ttINGEST, see Ingest.h) has no account
+    // and so no signature. Its envelope is one exact transaction, and its
+    // authority is the proof inside: the other network's validations. That
+    // is checked here, where a signature would be, so that a bad proof is
+    // dropped and charged for at ingress like a bad signature. Anything else
+    // of the type is not canonical; it takes the ordinary path below and
+    // Ingest::preflight refuses it.
+    if (tx.getTxnType() == ttINGEST &&
+        Ingest::isCanonical(tx, config.NETWORK_ID))
+    {
+        // Not cached, and not a bad signature: the same bytes are good once
+        // the amendment is enabled.
+        if (!rules.enabled(featureExport))
+            return {Validity::Refused, "Export is not enabled."};
+
+        // A proof is checked from the transaction alone, so the result can
+        // be cached like a signature's. Nothing else sets these flags on a
+        // canonical ttINGEST: the binary path below is unreachable for one.
+        if (flags & SF_SIGBAD)
+            return {Validity::SigBad, "Proof of fees does not verify."};
+
+        if (!(flags & SF_SIGGOOD))
+        {
+            if (!Ingest::proof(
+                    tx,
+                    config.NETWORK_ID,
+                    beast::Journal{beast::Journal::getNullSink()}))
+            {
+                router.setFlags(id, SF_SIGBAD);
+                return {Validity::SigBad, "Proof of fees does not verify."};
+            }
+            router.setFlags(id, SF_SIGGOOD);
+        }
+
         if (flags & SF_LOCALBAD)
             return {Validity::SigGoodOnly, "Local checks failed."};
 
