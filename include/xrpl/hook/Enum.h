@@ -16,6 +16,7 @@
 #define featureHooksUpdate1 "1"
 #define featureHooksUpdate2 "1"
 #define featureRNG "1"
+#define featureWritableSlotAPI "1"
 #define fix20250131 "1"
 #define fixGuardDepth32 "1"
 namespace hook_api {
@@ -400,6 +401,7 @@ enum class ExitType : uint8_t {
 
 const uint16_t max_state_modifications = 256;
 const uint8_t max_slots = 255;
+const uint8_t max_slot_fields = 64;  // top-level fields per writable slot
 const uint8_t max_nonce = 255;
 const uint16_t max_rng_draws = 256;  // featureRNG, per Hook execution
 const uint8_t max_emit = 255;

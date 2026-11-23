@@ -3540,6 +3540,693 @@ public:
         }
     }
 
+    // ---- writable slot helpers ----
+#define V(...)                                                             \
+    [&](auto&& r) {                                                        \
+        if (!r)                                                            \
+            fail("unexpected error", __FILE__, __LINE__);                  \
+        return r ? r.value() : std::remove_cvref_t<decltype(r.value())>{}; \
+    }(__VA_ARGS__)
+    using Bytes = hook::Bytes;
+    static Bytes
+    fieldBytes(STBase const& f)
+    {
+        Serializer s;
+        f.addFieldID(s);
+        f.add(s);
+        if (f.getSType() == STI_OBJECT || f.getSType() == STI_ARRAY)
+            s.addFieldID(f.getSType(), 1);
+        return s.getData();
+    }
+
+    template <class A>
+    static Bytes
+    slotBytes(A const& api, uint32_t n)
+    {
+        auto const e = api.slot(n);
+        Serializer s;
+        (*e)->add(s);
+        return s.getData();
+    }
+
+    static Bytes
+    cat(Bytes a, Bytes const& b)
+    {
+        a.insert(a.end(), b.begin(), b.end());
+        return a;
+    }
+
+    // n distinct binary integer fields with a value of 1
+    static std::vector<std::pair<SField const*, Bytes>>
+    distinctFields(size_t n)
+    {
+        std::vector<std::pair<SField const*, Bytes>> out;
+        for (int type : {2, 3, 1, 16})
+            for (int idx = 1; idx < 256 && out.size() < n; ++idx)
+            {
+                SField const& f = SField::getField(type, idx);
+                if (f.isInvalid() || !f.isBinary())
+                    continue;
+                Bytes b;
+                if (type == 2)
+                    b = fieldBytes(STUInt32(f, 1));
+                else if (type == 3)
+                    b = fieldBytes(STUInt64(f, 1));
+                else if (type == 1)
+                    b = fieldBytes(STUInt16(f, 1));
+                else
+                    b = fieldBytes(STUInt8(f, 1));
+                out.emplace_back(&f, std::move(b));
+            }
+        return out;
+    }
+
+    void
+    test_slot_new(FeatureBitset features)
+    {
+        testcase("Test slot_new");
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        auto const seq = fieldBytes(STUInt32(sfSequence, 7));
+        auto const acc = fieldBytes(STAccount(sfAccount, alice.id()));
+        auto const valid = cat(seq, acc);
+
+        // empty object, auto allocated
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            auto const r = api.slot_new({}, 0);
+            BEAST_EXPECT(r.has_value() && r.value() == 1);
+            BEAST_EXPECT(hookCtx.slot[1].writable);
+            BEAST_EXPECT(
+                hookCtx.slot[1].entry == hookCtx.slot[1].storage.get());
+            BEAST_EXPECT(slotBytes(api, 1).empty());
+        }
+        // from bytes, explicit slot number, overwrites
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(api.slot_new(valid, 9).value() == 9);
+            BEAST_EXPECT(slotBytes(api, 9) == valid);
+            BEAST_EXPECT(api.slot_new({}, 9).value() == 9);
+            BEAST_EXPECT(slotBytes(api, 9).empty());
+            // fields in non canonical order are accepted and sorted
+            BEAST_EXPECT(api.slot_new(cat(acc, seq), 3).value() == 3);
+            BEAST_EXPECT(slotBytes(api, 3) == valid);
+        }
+        // PARSE_ERROR
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(
+                api.slot_new(Bytes{0x24, 0x00}, 0).error() == PARSE_ERROR);
+            BEAST_EXPECT(
+                api.slot_new(cat(valid, Bytes{0xFF}), 0).error() ==
+                PARSE_ERROR);
+            BEAST_EXPECT(
+                api.slot_new(cat(seq, Bytes{0xE1}), 0).error() == PARSE_ERROR);
+            BEAST_EXPECT(api.slot_new(cat(seq, seq), 0).error() == PARSE_ERROR);
+            // a failed call allocates nothing
+            BEAST_EXPECT(hookCtx.slot.empty());
+        }
+        // TOO_BIG
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(
+                api.slot_new(Bytes(16 * 1024 + 1, 0), 0).error() == TOO_BIG);
+            auto const many = distinctFields(max_slot_fields + 1);
+            BEAST_EXPECT(many.size() == max_slot_fields + 1);
+            Bytes b;
+            for (size_t i = 0; i < max_slot_fields; ++i)
+                b = cat(b, many[i].second);
+            BEAST_EXPECT(api.slot_new(b, 0).has_value());
+            b = cat(b, many[max_slot_fields].second);
+            BEAST_EXPECT(api.slot_new(b, 0).error() == TOO_BIG);
+        }
+        // slot_no > max_slots, no free slots
+        {
+            auto hookCtx =
+                makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(
+                api.slot_new({}, max_slots + 1).error() == INVALID_ARGUMENT);
+            for (uint32_t i = 1; i <= max_slots; ++i)
+                hookCtx.slot[i] = hook::SlotEntry{};
+            BEAST_EXPECT(api.slot_new({}, 0).error() == NO_FREE_SLOTS);
+        }
+    }
+
+    void
+    test_slot_emplace(FeatureBitset features)
+    {
+        testcase("Test slot_emplace / slot_erase");
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        auto& api = hookCtx.api();
+
+        auto const seq7 = fieldBytes(STUInt32(sfSequence, 7));
+        auto const seq9 = fieldBytes(STUInt32(sfSequence, 9));
+        auto const acc = fieldBytes(STAccount(sfAccount, alice.id()));
+        auto const flags = fieldBytes(STUInt32(sfFlags, 5));
+        auto const code = [](SField const& f) { return f.getCode(); };
+
+        auto const w = api.slot_new({}, 0).value();
+        BEAST_EXPECT(!hookCtx.slot[w].storage->isFieldPresent(sfSequence));
+
+        // out of canonical order: account, sequence, flags
+        BEAST_EXPECT(api.slot_emplace(w, acc, code(sfAccount)).value() == w);
+        BEAST_EXPECT(api.slot_emplace(w, seq7, code(sfSequence)).value() == w);
+        BEAST_EXPECT(api.slot_emplace(w, flags, code(sfFlags)).value() == w);
+        BEAST_EXPECT(slotBytes(api, w) == cat(cat(flags, seq7), acc));
+        // replace
+        BEAST_EXPECT(api.slot_emplace(w, seq9, code(sfSequence)).value() == w);
+        BEAST_EXPECT(slotBytes(api, w) == cat(cat(flags, seq9), acc));
+        BEAST_EXPECT(hookCtx.slot[w].storage->getCount() == 3);
+
+        // PARSE_ERROR
+        BEAST_EXPECT(
+            api.slot_emplace(w, seq7, code(sfFlags)).error() == PARSE_ERROR);
+        BEAST_EXPECT(
+            api.slot_emplace(w, cat(seq7, seq7), code(sfSequence)).error() ==
+            PARSE_ERROR);
+        BEAST_EXPECT(
+            api.slot_emplace(w, cat(flags, seq7), code(sfFlags)).error() ==
+            PARSE_ERROR);
+        BEAST_EXPECT(
+            api.slot_emplace(w, Bytes{0x24, 0x00}, code(sfSequence)).error() ==
+            PARSE_ERROR);
+        BEAST_EXPECT(
+            api.slot_emplace(w, Bytes{0xE1, 0x00}, code(sfSequence)).error() ==
+            PARSE_ERROR);
+        // size / field checks
+        BEAST_EXPECT(
+            api.slot_emplace(w, Bytes(4097, 0), code(sfSequence)).error() ==
+            TOO_BIG);
+        BEAST_EXPECT(
+            api.slot_emplace(w, Bytes(1, 0), code(sfSequence)).error() ==
+            TOO_SMALL);
+        BEAST_EXPECT(
+            api.slot_emplace(w, seq7, (99U << 16U) + 99U).error() ==
+            INVALID_FIELD);
+        BEAST_EXPECT(
+            api.slot_emplace(200, seq7, code(sfSequence)).error() ==
+            DOESNT_EXIST);
+        // nothing above changed the slot
+        BEAST_EXPECT(slotBytes(api, w) == cat(cat(flags, seq9), acc));
+
+        // nested object with its terminator
+        {
+            STObject inner(sfPreviousFields);
+            inner.setFieldU32(sfSequence, 3);
+            auto const innerBytes = fieldBytes(inner);
+            BEAST_EXPECT(
+                api.slot_emplace(w, innerBytes, code(sfPreviousFields))
+                    .value() == w);
+            BEAST_EXPECT(
+                slotBytes(api, w) ==
+                cat(cat(cat(flags, seq9), acc), innerBytes));
+        }
+
+        // field count limit
+        {
+            auto const many = distinctFields(max_slot_fields + 1);
+            auto const w2 = api.slot_new({}, 0).value();
+            for (size_t i = 0; i < max_slot_fields; ++i)
+                BEAST_EXPECT(
+                    api.slot_emplace(
+                           w2, many[i].second, many[i].first->getCode())
+                        .has_value());
+            BEAST_EXPECT(
+                api.slot_emplace(
+                       w2,
+                       many[max_slot_fields].second,
+                       many[max_slot_fields].first->getCode())
+                    .error() == TOO_BIG);
+            // replacing an existing field at the limit still works
+            BEAST_EXPECT(
+                api.slot_emplace(w2, many[0].second, many[0].first->getCode())
+                    .has_value());
+            BEAST_EXPECT(
+                hookCtx.slot[w2].storage->getCount() == max_slot_fields);
+        }
+
+        // slot_erase
+        BEAST_EXPECT(api.slot_erase(w, code(sfSequence)).value() == w);
+        BEAST_EXPECT(!hookCtx.slot[w].storage->isFieldPresent(sfSequence));
+        BEAST_EXPECT(
+            api.slot_erase(w, code(sfSequence)).error() == DOESNT_EXIST);
+        BEAST_EXPECT(
+            api.slot_erase(w, (99U << 16U) + 99U).error() == INVALID_FIELD);
+        BEAST_EXPECT(
+            api.slot_erase(200, code(sfSequence)).error() == DOESNT_EXIST);
+    }
+
+    void
+    test_slot_writable_safety(FeatureBitset features)
+    {
+        testcase("Test writable slot safety / snapshot");
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+        env.fund(XRP(1000), alice);
+        env.close();
+        env(noop(alice));
+        env.close();
+
+        STTx otxn =
+            STTx(ttINVOKE, [&](STObject& obj) { obj[sfAccount] = alice.id(); });
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, otxn);
+        auto hookCtx = makeStubHookContext(
+            applyCtx,
+            alice.id(),
+            alice.id(),
+            {.result = {.provisionalMeta = env.meta()}});
+        auto& api = hookCtx.api();
+
+        auto const seq7 = fieldBytes(STUInt32(sfSequence, 7));
+        auto const flags = fieldBytes(STUInt32(sfFlags, 5));
+        auto const code = [](SField const& f) { return f.getCode(); };
+
+        // Every mutating call on `n` must be refused and leave the storage
+        // (pointer and content) untouched.
+        auto const expectRejected = [&](uint32_t n, uint32_t src) {
+            auto const before = hookCtx.slot[n].storage;
+            auto const entry = hookCtx.slot[n].entry;
+            auto const bytes = slotBytes(api, n);
+            BEAST_EXPECT(
+                api.slot_emplace(n, seq7, code(sfSequence)).error() ==
+                PREREQUISITE_NOT_MET);
+            BEAST_EXPECT(
+                api.slot_emplace_slot(n, src, code(sfSequence)).error() ==
+                PREREQUISITE_NOT_MET);
+            BEAST_EXPECT(
+                api.slot_erase(n, code(sfAccount)).error() ==
+                PREREQUISITE_NOT_MET);
+            BEAST_EXPECT(hookCtx.slot[n].storage == before);
+            BEAST_EXPECT(hookCtx.slot[n].entry == entry);
+            BEAST_EXPECT(slotBytes(api, n) == bytes);
+        };
+
+        // a UINT32 source, so only the writability check can refuse the
+        // destination
+        auto const srcRoot = api.slot_new(seq7, 0).value();
+        auto const src =
+            api.slot_subfield(srcRoot, code(sfSequence), 0).value();
+
+        // ledger object
+        {
+            auto const kl = keylet::account(alice.id());
+            Bytes kb(34);
+            kb[0] = (kl.type >> 8) & 0xFF;
+            kb[1] = kl.type & 0xFF;
+            std::copy(kl.key.begin(), kl.key.end(), kb.begin() + 2);
+            auto const n = api.slot_set(kb, 0).value();
+            auto const before = slotBytes(api, n);
+            expectRejected(n, src);
+            auto const sle = applyCtx.view().read(kl);
+            Serializer s;
+            sle->add(s);
+            BEAST_EXPECT(s.getData() == before);
+            BEAST_EXPECT(!hookCtx.slot[n].writable);
+        }
+        // otxn
+        {
+            auto const n = api.otxn_slot(0).value();
+            expectRejected(n, src);
+        }
+        // meta
+        {
+            auto const n = api.meta_slot(0).value();
+            expectRejected(n, src);
+        }
+        // children of a writable slot
+        {
+            auto const p = api.slot_new(cat(flags, seq7), 0).value();
+            auto const c = api.slot_subfield(p, code(sfSequence), 0).value();
+            expectRejected(c, src);
+            // new_slot == parent_slot turns the parent into a child
+            auto const p2 = api.slot_new(cat(flags, seq7), 0).value();
+            BEAST_EXPECT(
+                api.slot_subfield(p2, code(sfSequence), p2).value() == p2);
+            expectRejected(p2, src);
+        }
+
+        // a slot number reused by a read-only source is no longer writable
+        {
+            auto const kl = keylet::account(alice.id());
+            Bytes kb(34);
+            kb[0] = (kl.type >> 8) & 0xFF;
+            kb[1] = kl.type & 0xFF;
+            std::copy(kl.key.begin(), kl.key.end(), kb.begin() + 2);
+            for (int which = 0; which < 3; ++which)
+            {
+                BEAST_EXPECT(api.slot_new(seq7, 5).value() == 5);
+                if (which == 0)
+                    BEAST_EXPECT(api.slot_set(kb, 5).value() == 5);
+                else if (which == 1)
+                    BEAST_EXPECT(api.otxn_slot(5).value() == 5);
+                else
+                    BEAST_EXPECT(api.meta_slot(5).value() == 5);
+                BEAST_EXPECT(!hookCtx.slot[5].writable);
+                expectRejected(5, src);
+            }
+        }
+
+        // slot_subarray children of a writable slot
+        {
+            STArray memos(sfMemos);
+            STObject memo(sfMemo);
+            memo.setFieldVL(sfMemoData, Bytes{1, 2, 3});
+            memos.push_back(memo);
+            auto const arrBytes = fieldBytes(memos);
+            auto const p = api.slot_new(arrBytes, 0).value();
+            auto const arr = api.slot_subfield(p, code(sfMemos), 0).value();
+            auto const c = api.slot_subarray(arr, 0, 0).value();
+            // arr is an array child: writes rejected
+            BEAST_EXPECT(
+                api.slot_erase(arr, code(sfMemos)).error() ==
+                PREREQUISITE_NOT_MET);
+            BEAST_EXPECT(
+                api.slot_erase(c, code(sfMemo)).error() ==
+                PREREQUISITE_NOT_MET);
+            BEAST_EXPECT(
+                api.slot_emplace(c, arrBytes, code(sfMemos)).error() ==
+                PREREQUISITE_NOT_MET);
+            // snapshot after mutating the parent
+            BEAST_EXPECT(api.slot_erase(p, code(sfMemos)).value() == p);
+            BEAST_EXPECT(slotBytes(api, p).empty());
+            BEAST_EXPECT(slotBytes(api, c) == [&] {
+                Serializer s;
+                memo.add(s);
+                return s.getData();
+            }());
+            BEAST_EXPECT(hookCtx.slot[c].storage != hookCtx.slot[p].storage);
+        }
+
+        // field_id 0 (sfGeneric) is not a usable field
+        {
+            auto const w = api.slot_new({}, 0).value();
+            BEAST_EXPECT(api.slot_emplace(w, seq7, 0).error() == INVALID_FIELD);
+            BEAST_EXPECT(
+                api.slot_emplace_slot(w, src, 0).error() == INVALID_FIELD);
+            BEAST_EXPECT(api.slot_erase(w, 0).error() == INVALID_FIELD);
+        }
+
+        // in place when nobody else holds the storage
+        {
+            auto const p = api.slot_new(seq7, 0).value();
+            auto const* storage = hookCtx.slot[p].storage.get();
+            BEAST_EXPECT(api.slot_emplace(p, flags, code(sfFlags)).has_value());
+            BEAST_EXPECT(hookCtx.slot[p].storage.get() == storage);
+            BEAST_EXPECT(hookCtx.slot[p].entry == storage);
+        }
+
+        // snapshot: a live child keeps seeing the old value
+        {
+            auto const seq9 = fieldBytes(STUInt32(sfSequence, 9));
+            auto const check = [&](char const* what,
+                                   uint32_t p,
+                                   uint32_t c,
+                                   Bytes const& oldChild,
+                                   Bytes const& newParent) {
+                auto const& cs = hookCtx.slot[c];
+                auto const& ps = hookCtx.slot[p];
+                BEAST_EXPECTS(cs.storage != ps.storage, what);
+                BEAST_EXPECTS(
+                    ps.entry == ps.storage.get() && ps.writable, what);
+                BEAST_EXPECTS(
+                    cs.entry == &cs.storage->peekAtField(sfSequence), what);
+                Serializer s;
+                cs.entry->add(s);
+                BEAST_EXPECTS(s.getData() == oldChild, what);
+                BEAST_EXPECTS(slotBytes(api, p) == newParent, what);
+            };
+            auto const oldChild = Bytes{0, 0, 0, 7};
+
+            {
+                auto const p = api.slot_new(seq7, 0).value();
+                auto const c =
+                    api.slot_subfield(p, code(sfSequence), 0).value();
+                BEAST_EXPECT(
+                    api.slot_emplace(p, seq9, code(sfSequence)).value() == p);
+                check("replace", p, c, oldChild, seq9);
+                // child cleared: next mutation is in place again
+                BEAST_EXPECT(api.slot_clear(c).has_value());
+                auto const* storage = hookCtx.slot[p].storage.get();
+                BEAST_EXPECT(
+                    api.slot_emplace(p, seq7, code(sfSequence)).value() == p);
+                BEAST_EXPECT(hookCtx.slot[p].storage.get() == storage);
+                BEAST_EXPECT(slotBytes(api, p) == seq7);
+            }
+            {
+                auto const p = api.slot_new(seq7, 0).value();
+                auto const c =
+                    api.slot_subfield(p, code(sfSequence), 0).value();
+                BEAST_EXPECT(api.slot_erase(p, code(sfSequence)).value() == p);
+                auto const& cs = hookCtx.slot[c];
+                BEAST_EXPECT(cs.storage != hookCtx.slot[p].storage);
+                BEAST_EXPECT(cs.entry == &cs.storage->peekAtField(sfSequence));
+                BEAST_EXPECT(slotBytes(api, p).empty());
+                Serializer s;
+                cs.entry->add(s);
+                BEAST_EXPECT(s.getData() == oldChild);
+            }
+            {
+                // vector reallocation in the parent
+                auto const p = api.slot_new(seq7, 0).value();
+                auto const c =
+                    api.slot_subfield(p, code(sfSequence), 0).value();
+                for (auto const& [f, b] : distinctFields(60))
+                    if (*f != sfSequence)
+                        BEAST_EXPECT(
+                            api.slot_emplace(p, b, f->getCode()).has_value());
+                check("append", p, c, oldChild, slotBytes(api, p));
+                BEAST_EXPECT(hookCtx.slot[p].storage->getCount() > 50);
+            }
+        }
+    }
+
+    void
+    test_slot_emplace_slot(FeatureBitset features)
+    {
+        testcase("Test slot_emplace_slot");
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        auto const bob = Account{"bob"};
+        Env env{*this, features};
+        env.fund(XRP(1000), alice);
+        env.close();
+        STTx otxn =
+            STTx(ttINVOKE, [&](STObject& obj) { obj[sfAccount] = alice.id(); });
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, otxn);
+        auto hookCtx =
+            makeStubHookContext(applyCtx, alice.id(), alice.id(), {});
+        auto& api = hookCtx.api();
+        auto const code = [](SField const& f) { return f.getCode(); };
+
+        // otxn sfAccount -> sfDestination
+        {
+            auto const o = V(api.otxn_slot(0));
+            auto const a = V(api.slot_subfield(o, code(sfAccount), 0));
+            auto const w = V(api.slot_new({}, 0));
+            BEAST_EXPECT(
+                api.slot_emplace_slot(w, a, code(sfDestination)).value() == w);
+            BEAST_EXPECT(
+                slotBytes(api, w) ==
+                fieldBytes(STAccount(sfDestination, alice.id())));
+            // type mismatch
+            BEAST_EXPECT(
+                api.slot_emplace_slot(w, a, code(sfSequence)).error() ==
+                INVALID_ARGUMENT);
+            // invalid field, missing src / dst
+            BEAST_EXPECT(
+                api.slot_emplace_slot(w, a, (99U << 16U) + 99U).error() ==
+                INVALID_FIELD);
+            BEAST_EXPECT(
+                api.slot_emplace_slot(w, 200, code(sfDestination)).error() ==
+                DOESNT_EXIST);
+            BEAST_EXPECT(
+                api.slot_emplace_slot(201, a, code(sfDestination)).error() ==
+                DOESNT_EXIST);
+            // an SLE root is STI_LEDGERENTRY, not an object
+            auto const kl = keylet::account(alice.id());
+            Bytes kb(34);
+            kb[0] = (kl.type >> 8) & 0xFF;
+            kb[1] = kl.type & 0xFF;
+            std::copy(kl.key.begin(), kl.key.end(), kb.begin() + 2);
+            auto const sle = V(api.slot_set(kb, 0));
+            BEAST_EXPECT(
+                api.slot_emplace_slot(w, sle, code(sfPreviousFields)).error() ==
+                INVALID_ARGUMENT);
+            // sfLedgerEntry matches that type but has no binary field header
+            BEAST_EXPECT(
+                api.slot_emplace_slot(w, sle, code(sfLedgerEntry)).error() ==
+                INVALID_FIELD);
+        }
+
+        // src == dst: the root is embedded as it was before the call
+        {
+            auto const seq7 = fieldBytes(STUInt32(sfSequence, 7));
+            auto const w = V(api.slot_new(seq7, 0));
+            BEAST_EXPECT(
+                api.slot_emplace_slot(w, w, code(sfPreviousFields)).value() ==
+                w);
+            STObject inner(sfPreviousFields);
+            inner.setFieldU32(sfSequence, 7);
+            BEAST_EXPECT(slotBytes(api, w) == cat(seq7, fieldBytes(inner)));
+        }
+
+        // src is a child of dst
+        {
+            STObject inner(sfPreviousFields);
+            inner.setFieldU32(sfSequence, 3);
+            auto const w = V(api.slot_new(fieldBytes(inner), 0));
+            auto const c = V(api.slot_subfield(w, code(sfPreviousFields), 0));
+            BEAST_EXPECT(
+                api.slot_emplace_slot(w, c, code(sfFinalFields)).value() == w);
+            STObject copy(sfFinalFields);
+            copy.setFieldU32(sfSequence, 3);
+            // canonical order: sfPreviousFields before sfFinalFields
+            BEAST_EXPECT(
+                slotBytes(api, w) == cat(fieldBytes(inner), fieldBytes(copy)));
+        }
+
+        // object and array sources round trip (terminators)
+        {
+            STArray memos(sfMemos);
+            STObject memo(sfMemo);
+            memo.setFieldVL(sfMemoData, Bytes{1, 2, 3});
+            memos.push_back(memo);
+            auto const arrBytes = fieldBytes(memos);
+            auto const src = V(api.slot_new(arrBytes, 0));
+            auto const arr = V(api.slot_subfield(src, code(sfMemos), 0));
+            auto const dst = V(api.slot_new({}, 0));
+            BEAST_EXPECT(
+                api.slot_emplace_slot(dst, arr, code(sfMemos)).value() == dst);
+            BEAST_EXPECT(slotBytes(api, dst) == arrBytes);
+
+            auto const obj = V(api.slot_subarray(arr, 0, 0));
+            auto const dst2 = V(api.slot_new({}, 0));
+            BEAST_EXPECT(
+                api.slot_emplace_slot(dst2, obj, code(sfMemo)).value() == dst2);
+            BEAST_EXPECT(slotBytes(api, dst2) == fieldBytes(memo));
+        }
+
+        // source larger than a single emplace
+        {
+            STObject big(sfGeneric);
+            big.setFieldVL(sfBlob, Bytes(5000, 1));
+            Serializer s;
+            big.add(s);
+            auto const src = V(api.slot_new(s.getData(), 0));
+            auto const c = V(api.slot_subfield(src, code(sfBlob), 0));
+            auto const dst = V(api.slot_new({}, 0));
+            BEAST_EXPECT(
+                api.slot_emplace_slot(dst, c, code(sfBlob)).error() == TOO_BIG);
+            BEAST_EXPECT(slotBytes(api, dst).empty());
+        }
+    }
+
+#undef V
+
+    void
+    test_emit_slot(FeatureBitset features)
+    {
+        testcase("Test emit_slot / etxn_fee_base_slot");
+        using namespace jtx;
+        using namespace hook_api;
+
+        auto const alice = Account{"alice"};
+        Env env{*this, features};
+
+        STTx invokeTx = STTx(ttINVOKE, [&](STObject& obj) {});
+        OpenView ov{*env.current()};
+        ApplyContext applyCtx = createApplyContext(env, ov, invokeTx);
+
+        STTx const emitInvokeTx = STTx(ttINVOKE, [&](STObject& obj) {
+            obj[sfAccount] = alice.id();
+            obj[sfSequence] = 0;
+            obj[sfSigningPubKey] = Slice{};
+            obj[sfFirstLedgerSequence] = env.closed()->seq() + 1;
+            obj[sfLastLedgerSequence] = env.closed()->seq() + 5;
+            obj[sfFee] = env.closed()->fees().base;
+
+            auto& emitDetails = obj.peekFieldObject(sfEmitDetails);
+            emitDetails[sfEmitGeneration] = 1;
+            emitDetails[sfEmitBurden] = 1;
+            emitDetails[sfEmitParentTxnID] = invokeTx.getTransactionID();
+            emitDetails[sfEmitNonce] = uint256();
+            emitDetails[sfEmitHookHash] = uint256();
+        });
+        auto const txBytes = emitInvokeTx.getSerializer().getData();
+
+        auto const makeCtx = [&]() {
+            return makeStubHookContext(
+                applyCtx,
+                alice.id(),
+                alice.id(),
+                {
+                    .expected_etxn_count = 1,
+                    .nonce_used = {{uint256(0), true}},
+                    .result = {.hookCanEmit = uint256()},
+                });
+        };
+
+        {
+            auto hookCtx = makeCtx();
+            auto& api = hookCtx.api();
+            BEAST_EXPECT(api.emit_slot(1).error() == DOESNT_EXIST);
+            BEAST_EXPECT(api.etxn_fee_base_slot(1).error() == DOESNT_EXIST);
+        }
+
+        auto hookCtx1 = makeCtx();
+        auto& api1 = hookCtx1.api();
+        auto const n = api1.slot_new(txBytes, 0).value();
+        BEAST_EXPECT(slotBytes(api1, n) == txBytes);
+
+        auto const feeBytes =
+            api1.etxn_fee_base(Slice(txBytes.data(), txBytes.size()));
+        auto const feeSlot = api1.etxn_fee_base_slot(n);
+        BEAST_EXPECT(feeBytes.has_value() && feeSlot.has_value());
+        BEAST_EXPECT(feeBytes.value() == feeSlot.value());
+
+        auto const viaSlot = api1.emit_slot(n);
+        BEAST_EXPECT(viaSlot.has_value());
+
+        auto hookCtx2 = makeCtx();
+        auto const viaBytes =
+            hookCtx2.api().emit(Slice(txBytes.data(), txBytes.size()));
+        BEAST_EXPECT(viaBytes.has_value());
+        if (viaSlot && viaBytes)
+            BEAST_EXPECT((*viaSlot)->getID() == (*viaBytes)->getID());
+    }
+
     void
     test_slot_size(FeatureBitset features)
     {
@@ -5259,6 +5946,11 @@ public:
         test_slot_count(features);
         test_slot_float(features);
         test_slot_set(features);
+        test_slot_new(features);
+        test_slot_emplace(features);
+        test_slot_writable_safety(features);
+        test_slot_emplace_slot(features);
+        test_emit_slot(features);
         test_slot_size(features);
         test_slot_subarray(features);
         test_slot_subfield(features);
