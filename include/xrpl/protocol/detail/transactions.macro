@@ -788,7 +788,9 @@ TRANSACTION(ttENTROPY, 89, Entropy,
 #if TRANSACTION_INCLUDE
 #   include <xrpld/app/tx/detail/HookDefinitionUpdate.h>
 #endif
-TRANSACTION(ttHOOK_DEFINITION_UPDATE, 90, HookDefinitionUpdate, ({
+TRANSACTION(ttHOOK_DEFINITION_UPDATE, 90, HookDefinitionUpdate,
+    featureHookFeeV2,
+    ({
     {sfHookHash, soeREQUIRED}, 
 }))
 

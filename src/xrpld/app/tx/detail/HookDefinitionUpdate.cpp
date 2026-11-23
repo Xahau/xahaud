@@ -22,26 +22,23 @@
 
 namespace ripple {
 
+std::uint32_t
+HookDefinitionUpdate::getFlagsMask(PreflightContext const& ctx)
+{
+    return tfHookDefinitionUpdateMask;
+}
+
 NotTEC
 HookDefinitionUpdate::preflight(PreflightContext const& ctx)
 {
-    if (!ctx.rules.enabled(featureHookFeeV2))
-        return temDISABLED;
-
-    if (auto const ret = preflight1(ctx); !isTesSuccess(ret))
-        return ret;
-
     auto const& tx = ctx.tx;
-
-    if (tx.getFlags() & tfHookDefinitionUpdateMask)
-        return temINVALID_FLAG;
 
     // the only operation so far is the guard re-validation, so a transaction
     // without that flag would do nothing but burn its fee
     if (!tx.isFlag(tfValidateGuards))
         return temINVALID_FLAG;
 
-    return preflight2(ctx);
+    return tesSUCCESS;
 }
 
 TER
