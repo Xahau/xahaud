@@ -154,6 +154,17 @@ private:
 
     AppBundle bundle_;
 
+    // Features must be in the config before the Application is built so
+    // that the genesis ledger's Rules (and its FeeSettings) reflect them.
+    static std::unique_ptr<Config>
+    withFeatures(std::unique_ptr<Config> config, FeatureBitset const& features)
+    {
+        foreachFeature(features, [&config](uint256 const& f) {
+            config->features.insert(f);
+        });
+        return config;
+    }
+
 public:
     beast::Journal const journal;
 
@@ -183,15 +194,15 @@ public:
         std::unique_ptr<Logs> logs = nullptr,
         beast::severities::Severity thresh = beast::severities::kError)
         : test(suite_)
-        , bundle_(suite_, std::move(config), std::move(logs), thresh)
+        , bundle_(
+              suite_,
+              withFeatures(std::move(config), features),
+              std::move(logs),
+              thresh)
         , journal{bundle_.app->journal("Env")}
     {
         memoize(Account::master);
         Pathfinder::initPathTable();
-        foreachFeature(
-            features, [&appFeats = app().config().features](uint256 const& f) {
-                appFeats.insert(f);
-            });
     }
 
     /**

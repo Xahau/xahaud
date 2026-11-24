@@ -188,14 +188,20 @@ class HookDefinitionUpdate_test : public beast::unit_test::suite
             BEAST_EXPECT(def->isFieldPresent(sfHookCost));
             BEAST_EXPECT(def->isFieldPresent(sfHookCallbackCost));
             BEAST_EXPECTS(
-                def->getFieldU64(sfHookCost) == 105,
+                def->getFieldU64(sfHookCost) ==
+                    (env.current()->rules().enabled(featureHookFeeV3) ? 85
+                                                                      : 105),
                 std::to_string(def->getFieldU64(sfHookCost)));
             BEAST_EXPECTS(
-                def->getFieldU64(sfHookCallbackCost) == 105,
+                def->getFieldU64(sfHookCallbackCost) ==
+                    (env.current()->rules().enabled(featureHookFeeV3) ? 85
+                                                                      : 105),
                 std::to_string(def->getFieldU64(sfHookCallbackCost)));
             BEAST_EXPECT(
                 invokeFee() ==
-                base + hook::hookCostToFee(def->getFieldU64(sfHookCost)));
+                base +
+                    hook::hookCostToFee(
+                        *env.current(), def->getFieldU64(sfHookCost)));
         }
 
         // second update is a no-op for the hook definition

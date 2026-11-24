@@ -153,7 +153,7 @@ class TransactionEntry_test : public beast::unit_test::suite
         Env env{
             *this,
             supported_amendments() - featureXahauGenesis - featureTouch -
-                fixHookAPI20251128,
+                fixHookAPI20251128 - featureHookFeeV3,
         };
 
         auto check_tx = [this, &env, apiVersion](
