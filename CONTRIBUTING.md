@@ -348,7 +348,7 @@ To download the patch file:
 4. Download the zip file and extract it to your local git repository. Run `git apply [patch-file-name]`.
 5. Commit and push.
 
-You can install a pre-commit hook to automatically run `clang-format` before every commit:
+You can install a pre-commit hook to automatically run `clang-format` and the other fast CI checks (levelization, generated hook headers) before every commit:
 ```
 pip3 install pre-commit
 pre-commit install
