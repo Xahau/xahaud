@@ -67,6 +67,7 @@ doPWAInfo(RPC::JsonContext& context)
         for (auto const& d : port.pwa_domains)
             domains.append(d);
         p["custom_domains"] = port.pwa_custom_domains;
+        p["coop"] = port.pwa_coop.empty() ? "same-origin" : port.pwa_coop;
     }
     return ret;
 }

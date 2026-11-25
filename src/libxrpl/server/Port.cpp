@@ -380,6 +380,21 @@ parse_Port(ParsedPort& port, Section const& section, std::ostream& log)
         port.pwa_resolver = ep->port() ? *ep : ep->at_port(53);
     }
 
+    // Cross-Origin-Opener-Policy of the documents a pwa port serves.
+    if (auto const v = section.get("coop"))
+    {
+        if (*v != "same-origin" && *v != "same-origin-allow-popups" &&
+            *v != "unsafe-none")
+        {
+            log << "Invalid value '" << *v << "' for key 'coop' in ["
+                << section.name()
+                << "]: expected same-origin, same-origin-allow-popups or "
+                   "unsafe-none";
+            Throw<std::exception>();
+        }
+        port.pwa_coop = *v;
+    }
+
     set(port.user, "user", section);
     set(port.password, "password", section);
     set(port.admin_user, "admin_user", section);

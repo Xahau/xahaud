@@ -62,6 +62,8 @@ struct Port
     std::set<std::string> pwa_domains;  // zones, lower case, no trailing dot
     bool pwa_custom_domains = false;    // serve hosts named by TXT records
     std::optional<beast::IP::Endpoint> pwa_resolver;  // for those; else system
+    // Cross-Origin-Opener-Policy of documents; empty is the default.
+    std::string pwa_coop;
     std::string user;
     std::string password;
     std::string admin_user;
@@ -144,6 +146,7 @@ struct ParsedPort
     std::set<std::string> pwa_domains;
     bool pwa_custom_domains = false;
     std::optional<beast::IP::Endpoint> pwa_resolver;
+    std::string pwa_coop;
 };
 
 void
