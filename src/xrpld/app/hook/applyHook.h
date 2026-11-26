@@ -199,6 +199,10 @@ struct SlotEntry
 struct HookContext
 {
     ripple::ApplyContext& applyCtx;
+    // log sink for this execution; resolved once instead of per host call
+    // (Logs::get takes a global mutex). Sinks are never removed from Logs,
+    // and thresholds live in the sink, so this stays valid and current.
+    beast::Journal j{applyCtx.app.journal("View")};
     // slots are used up by requesting objects from inside the hook
     // the map stores pairs consisting of a memory view and whatever shared or
     // unique ptr is required to keep the underlying object alive for the

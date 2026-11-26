@@ -421,7 +421,7 @@ Expected<Bytes, HookReturnCode>
 HookAPI::prepare(Slice const& txBlob) const
 {
     auto const& applyCtx = hookCtx.applyCtx;
-    auto const& j = applyCtx.app.journal("View");
+    auto const& j = hookCtx.j;
 
     if (hookCtx.expected_etxn_count < 0)
         return Unexpected(PREREQUISITE_NOT_MET);
@@ -537,7 +537,7 @@ Expected<std::shared_ptr<Transaction>, HookReturnCode>
 HookAPI::emit(Slice const& txBlob) const
 {
     auto const& applyCtx = hookCtx.applyCtx;
-    auto const& j = applyCtx.app.journal("View");
+    auto const& j = hookCtx.j;
     auto const& view = applyCtx.view();
 
     if (hookCtx.expected_etxn_count < 0)
@@ -858,7 +858,7 @@ Expected<uint64_t, HookReturnCode>
 HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
 {
     auto const& applyCtx = hookCtx.applyCtx;
-    auto const& j = applyCtx.app.journal("View");
+    auto const& j = hookCtx.j;
 
     if (hookCtx.expected_etxn_count <= -1)
         return Unexpected(PREREQUISITE_NOT_MET);
@@ -1512,7 +1512,7 @@ uint64_t
 HookAPI::otxn_burden() const
 {
     auto const& applyCtx = hookCtx.applyCtx;
-    auto const& j = applyCtx.app.journal("View");
+    auto const& j = hookCtx.j;
 
     if (hookCtx.burden)
         return hookCtx.burden;
@@ -1543,7 +1543,7 @@ uint32_t
 HookAPI::otxn_generation() const
 {
     auto const& applyCtx = hookCtx.applyCtx;
-    auto const& j = applyCtx.app.journal("View");
+    auto const& j = hookCtx.j;
 
     if (hookCtx.generation)
         return hookCtx.generation;
