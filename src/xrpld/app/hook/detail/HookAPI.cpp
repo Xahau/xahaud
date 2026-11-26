@@ -2959,7 +2959,11 @@ HookAPI::set_state_cache(
     if (modified && stateMap.modified_entry_count >= max_state_modifications)
         return Unexpected(TOO_MANY_STATE_MODIFICATIONS);
 
-    bool const createNamespace = !view.exists(keylet::hookStateDir(acc, ns));
+    // only the two branches that may create a namespace need this, and the
+    // view is not modified between here and those points
+    auto const createNamespace = [&] {
+        return !view.exists(keylet::hookStateDir(acc, ns));
+    };
 
     if (stateMap.find(acc) == stateMap.end())
     {
@@ -3003,7 +3007,7 @@ HookAPI::set_state_cache(
             ? accSLE->getFieldV256(sfHookNamespaces).size()
             : 0;
 
-        if (createNamespace && chargeWrite)
+        if (chargeWrite && createNamespace())
         {
             // overflow should never ever happen but check anyway
             if (namespaceCount + 1 < namespaceCount)
@@ -3046,7 +3050,7 @@ HookAPI::set_state_cache(
             if (!canReserveNew)
                 return Unexpected(RESERVE_INSUFFICIENT);
 
-            if (createNamespace)
+            if (createNamespace())
             {
                 // overflow should never ever happen but check anyway
                 if (namespaceCount + 1 < namespaceCount)
