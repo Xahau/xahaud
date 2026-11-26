@@ -961,10 +961,19 @@ LedgerMaster::setFullLedger(
     // "full" ledger_history for type=rwdb.
     if (nullBackend_ && isCurrent)
     {
-        std::lock_guard rl(mRetainedLock);
-        mRetainedLedgers.push_back(ledger);
-        while (mRetainedLedgers.size() > ledger_history_)
-            mRetainedLedgers.pop_front();
+        // Ledgers pushed out of the window are released after the lock is
+        // dropped: freeing a ledger's tree can take a while and peer
+        // requests are waiting on mRetainedLock.
+        std::vector<std::shared_ptr<Ledger const>> evicted;
+        {
+            std::lock_guard rl(mRetainedLock);
+            mRetainedLedgers.push_back(ledger);
+            while (mRetainedLedgers.size() > ledger_history_)
+            {
+                evicted.push_back(std::move(mRetainedLedgers.front()));
+                mRetainedLedgers.pop_front();
+            }
+        }
     }
 
     {
