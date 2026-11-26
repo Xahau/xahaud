@@ -193,7 +193,7 @@ static CatalogueRunStatus catalogueRunStatus;  // Always in memory
         catalogueRunStatus.field = value;                                    \
     }
 
-class ByteCounterFilter : public boost::iostreams::output_filter
+class ByteCounterFilter : public boost::iostreams::multichar_output_filter
 {
 private:
     uint64_t bytesWritten_;
@@ -201,16 +201,6 @@ private:
 public:
     ByteCounterFilter() : bytesWritten_(0)
     {
-    }
-
-    template <typename Sink>
-    bool
-    put(Sink& sink, char c)
-    {
-        bool result = boost::iostreams::put(sink, c);
-        if (result)
-            bytesWritten_++;
-        return result;
     }
 
     template <typename Sink>
