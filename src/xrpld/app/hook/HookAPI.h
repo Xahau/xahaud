@@ -3,6 +3,9 @@
 
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpl/hook/Enum.h>
+#include <xrpl/protocol/IOUAmount.h>
+#include <xrpl/protocol/Keylet.h>
+#include <xrpl/protocol/STTx.h>
 #include <cfenv>
 
 namespace hook {
