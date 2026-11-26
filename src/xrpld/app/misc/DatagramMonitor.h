@@ -975,7 +975,6 @@ private:
                 {
                     sendPacket(ep.second, ep.first, info);
                 }
-                std::this_thread::sleep_for(std::chrono::seconds(1));
             }
             catch (const std::exception& e)
             {
@@ -983,6 +982,10 @@ private:
                 JLOG(app_.journal("DatagramMonitor").error())
                     << "Server info monitor error: " << e.what();
             }
+
+            // Also wait after an error, so that a persistent failure does
+            // not spin.
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
 
         for (auto const& ep : endpoints)
