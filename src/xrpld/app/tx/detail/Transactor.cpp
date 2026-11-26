@@ -1582,7 +1582,7 @@ Transactor::executeHookChain(
         }
 
         auto const& hookDef =
-            ctx_.view().peek(keylet::hookDefinition(hookHash));
+            ctx_.view().read(keylet::hookDefinition(hookHash));
         if (!hookDef)
         {
             // LCOV_EXCL_START
@@ -1744,8 +1744,8 @@ Transactor::doHookCallback(
         emitDetails.getAccountID(sfEmitCallback);
     uint256 const& callbackHookHash = emitDetails.getFieldH256(sfEmitHookHash);
 
-    auto const& hooksCallback = view().peek(keylet::hook(callbackAccountID));
-    auto const& hookDef = view().peek(keylet::hookDefinition(callbackHookHash));
+    auto const& hooksCallback = view().read(keylet::hook(callbackAccountID));
+    auto const& hookDef = view().read(keylet::hookDefinition(callbackHookHash));
     if (!hookDef)
     {
         JLOG(j_.warn()) << "HookError[]: Hook def missing on callback";
@@ -2068,7 +2068,7 @@ Transactor::doAgainAsWeak(
     std::vector<hook::HookResult>& results,
     std::shared_ptr<STObject const> const& provisionalMeta)
 {
-    auto const& hooksArray = view().peek(keylet::hook(hookAccountID));
+    auto const& hooksArray = view().read(keylet::hook(hookAccountID));
     if (!hooksArray)
     {
         JLOG(j_.warn()) << "HookError[]: Hook missing on aaw account: "
@@ -2097,7 +2097,7 @@ Transactor::doAgainAsWeak(
             hookHashes.end())
             continue;
 
-        auto const& hookDef = view().peek(keylet::hookDefinition(hookHash));
+        auto const& hookDef = view().read(keylet::hookDefinition(hookHash));
         if (!hookDef)
         {
             JLOG(j_.warn())

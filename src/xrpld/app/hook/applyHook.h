@@ -92,7 +92,9 @@ bool
 canEmit(ripple::TxType txType, ripple::uint256 hookCanEmit);
 
 ripple::uint256
-getHookCanEmit(ripple::STObject const& hookObj, SLE::pointer const& hookDef);
+getHookCanEmit(
+    ripple::STObject const& hookObj,
+    std::shared_ptr<SLE const> const& hookDef);
 
 ripple::uint256
 getHookOn(
@@ -280,7 +282,7 @@ removeEmissionEntry(ripple::ApplyContext& applyCtx);
 
 bool /* retval of true means an error */
 gatherHookParameters(
-    std::shared_ptr<ripple::STLedgerEntry> const& hookDef,
+    std::shared_ptr<ripple::STLedgerEntry const> const& hookDef,
     ripple::STObject const& hookObj,
     std::map<std::vector<uint8_t>, std::vector<uint8_t>>& parameters,
     beast::Journal const& j_);
