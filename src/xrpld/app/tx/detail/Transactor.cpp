@@ -2483,139 +2483,90 @@ Transactor::finishApply(
 
     if (applied && view().rules().enabled(featureBalanceRewards))
     {
-        TxMeta metaRaw = ctx_.generateProvisionalMeta();
-        metaRaw.setResult(result, 0);
-        STObject const meta = metaRaw.getAsObject();
-
         uint32_t lgrCur = view().seq();
 
         bool const has240819 = view().rules().enabled(fix240819);
         bool const hasIOURewardClaim =
             view().rules().enabled(featureIOURewardClaim);
-        auto const& sfRewardFields =
-            *(ripple::SField::knownCodeToField.at(917511 - has240819));
+        bool const has20261005 = view().rules().enabled(fix20261005);
 
-        // iterate all affected balances
-        for (auto const& node : meta.getFieldArray(sfAffectedNodes))
-        {
-            SField const& metaType = node.getFName();
-            uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
+        // ltRippleState: `balance` is the pre-transaction Balance
+        auto const rewardTrustLine = [&](uint256 const& key,
+                                         STAmount const& balance) {
+            auto sle = view().peek(Keylet{ltRIPPLE_STATE, key});
+            if (!sle)
+                return;
 
-            // we only care about ltACCOUNT_ROOT and ltRIPPLE_STATE objects
-            // being modified or created
-            if ((nodeType != ltACCOUNT_ROOT && nodeType != ltRIPPLE_STATE) ||
-                metaType == sfDeletedNode)
-                continue;
-
-            // ltRippleState
-            if (nodeType == ltRIPPLE_STATE)
+            SField const* sfRewardFields[] = {&sfLowReward, &sfHighReward};
+            for (auto const* sfRewardFieldPtr : sfRewardFields)
             {
-                if (!hasIOURewardClaim)
+                auto const& sfRewardField = *sfRewardFieldPtr;
+
+                if (!sle->isFieldPresent(sfRewardField))
                     continue;
 
-                if (!node.isFieldPresent(sfPreviousFields) ||
-                    !node.isFieldPresent(sfLedgerIndex))
-                    continue;
-                auto sle = view().peek(
-                    Keylet{ltRIPPLE_STATE, node.getFieldH256(sfLedgerIndex)});
-                if (!sle)
-                    continue;
-                STObject& previousFields = (const_cast<STObject&>(node))
-                                               .getField(sfPreviousFields)
-                                               .downcast<STObject>();
-                if (!previousFields.isFieldPresent(sfBalance))
+                auto balance_ = balance;
+                if (sfRewardField == sfHighReward)
+                    balance_.negate();
+
+                if (balance_.negative())
+                    balance_.clear();
+
+                auto& reward = sle->peekFieldObject(sfRewardField);
+                uint32_t lgrLast = reward.getFieldU32(sfRewardLgrLast);
+                uint32_t lgrElapsed = lgrCur - lgrLast;
+
+                // update even in cases such as overflow or underflow.
+                reward.setFieldU32(sfRewardLgrLast, lgrCur);
+
+                // overflow safety
+                if (lgrElapsed > lgrCur || lgrElapsed == 0)
                     continue;
 
-                auto balance = previousFields.getFieldAmount(sfBalance);
+                auto accum =
+                    reward.getFieldAmount(sfTrustLineRewardAccumulator);
 
-                if (balance.native())
-                    continue;
-
-                SField const* sfRewardFields[] = {&sfLowReward, &sfHighReward};
-                for (auto const* sfRewardFieldPtr : sfRewardFields)
+                STAmount accumNew;
+                try
                 {
-                    auto const& sfRewardField = *sfRewardFieldPtr;
-
-                    if (!sle->isFieldPresent(sfRewardField))
-                        continue;
-
-                    auto balance_ = balance;
-                    if (sfRewardField == sfHighReward)
-                        balance_.negate();
-
-                    if (balance_.negative())
-                        balance_.clear();
-
-                    auto& reward = sle->peekFieldObject(sfRewardField);
-                    uint32_t lgrLast = reward.getFieldU32(sfRewardLgrLast);
-                    uint32_t lgrElapsed = lgrCur - lgrLast;
-
-                    // update even in cases such as overflow or underflow.
-                    reward.setFieldU32(sfRewardLgrLast, lgrCur);
-
-                    // overflow safety
-                    if (lgrElapsed > lgrCur || lgrElapsed == 0)
-                        continue;
-
-                    auto accum =
-                        reward.getFieldAmount(sfTrustLineRewardAccumulator);
-
-                    STAmount accumNew;
-                    try
-                    {
-                        accumNew = accum +
-                            multiply(balance_,
-                                     STAmount(((uint64_t)lgrElapsed)),
-                                     balance_.issue());
-                    }
-                    catch (std::exception const&)
-                    {
-                        // Overflow detected, skip this reward calculation
-                        continue;
-                    }
-
-                    // check for overflow(<) and underflow(=)
-                    if (accumNew <= accum)
-                        continue;
-
-                    reward.setFieldAmount(
-                        sfTrustLineRewardAccumulator, accumNew);
+                    accumNew = accum +
+                        multiply(balance_,
+                                 STAmount(((uint64_t)lgrElapsed)),
+                                 balance_.issue());
+                }
+                catch (std::exception const&)
+                {
+                    // Overflow detected, skip this reward calculation
+                    continue;
                 }
 
-                view().update(sle);
-                continue;
+                // check for overflow(<) and underflow(=)
+                if (accumNew <= accum)
+                    continue;
+
+                reward.setFieldAmount(sfTrustLineRewardAccumulator, accumNew);
             }
 
-            // ltAccountRoot
-            if (!node.isFieldPresent(sfRewardFields) ||
-                !node.isFieldPresent(sfLedgerIndex))
-                continue;
+            view().update(sle);
+        };
 
-            auto sle = view().peek(
-                Keylet{ltACCOUNT_ROOT, node.getFieldH256(sfLedgerIndex)});
+        // ltAccountRoot: `prevBalance` is the pre-transaction Balance
+        auto const rewardAccountRoot = [&](uint256 const& key,
+                                           STAmount const& prevBalance) {
+            auto sle = view().peek(Keylet{ltACCOUNT_ROOT, key});
 
             if (!sle)
-                continue;
+                return;
 
             if (!sle->isFieldPresent(sfRewardLgrFirst) ||
                 !sle->isFieldPresent(sfRewardLgrLast) ||
                 !sle->isFieldPresent(sfRewardAccumulator))
-                continue;
+                return;
 
-            STObject& finalFields = (const_cast<STObject&>(node))
-                                        .getField(sfRewardFields)
-                                        .downcast<STObject>();
-
-            if (!finalFields.isFieldPresent(sfBalance))
-                continue;
-
-            bool const has20261005 = view().rules().enabled(fix20261005);
-
-            uint64_t bal =
-                finalFields.getFieldAmount(sfBalance).xrp().drops() / 1'000'000;
+            uint64_t bal = prevBalance.xrp().drops() / 1'000'000;
 
             if (!has20261005 && bal == 0)
-                continue;
+                return;
 
             uint32_t lgrLast = sle->getFieldU32(sfRewardLgrLast);
 
@@ -2629,7 +2580,7 @@ Transactor::finishApply(
                     sle->setFieldU32(sfRewardLgrLast, lgrCur);
                     view().update(sle);
                 }
-                continue;
+                return;
             }
 
             uint64_t accum = sle->getFieldU64(sfRewardAccumulator);
@@ -2647,13 +2598,110 @@ Transactor::finishApply(
                     sle->setFieldU32(sfRewardLgrLast, lgrCur);
                     view().update(sle);
                 }
-                continue;
+                return;
             }
 
             sle->setFieldU64(sfRewardAccumulator, accumNew);
             sle->setFieldU32(sfRewardLgrLast, lgrCur);
 
             view().update(sle);
+        };
+
+        if (view().rules().enabled(fixProvisionalDoubleThreading) && has240819)
+        {
+            // the entries whose Balance changed, as the metadata would list
+            // them; collected first because the updates below modify the view
+            std::vector<std::tuple<uint256, LedgerEntryType, STAmount>> changed;
+            ctx_.visit([&](uint256 const& key,
+                           bool isDelete,
+                           std::shared_ptr<SLE const> const& before,
+                           std::shared_ptr<SLE const> const& after) {
+                if (isDelete || !before || !after)
+                    return;  // modified entries only
+                auto const t = after->getType();
+                if (t != ltACCOUNT_ROOT && t != ltRIPPLE_STATE)
+                    return;
+                if (before->peekAtField(sfBalance) ==
+                    after->peekAtField(sfBalance))
+                    return;
+                changed.emplace_back(key, t, before->getFieldAmount(sfBalance));
+            });
+            for (auto const& [key, type, prevBalance] : changed)
+            {
+                if (type == ltRIPPLE_STATE)
+                {
+                    if (!hasIOURewardClaim || prevBalance.native())
+                        continue;
+                    rewardTrustLine(key, prevBalance);
+                }
+                else
+                {
+                    rewardAccountRoot(key, prevBalance);
+                }
+            }
+        }
+        else
+        {
+            TxMeta metaRaw = ctx_.generateProvisionalMeta();
+            metaRaw.setResult(result, 0);
+            STObject const meta = metaRaw.getAsObject();
+
+            auto const& sfRewardFields =
+                *(ripple::SField::knownCodeToField.at(917511 - has240819));
+
+            // iterate all affected balances
+            for (auto const& node : meta.getFieldArray(sfAffectedNodes))
+            {
+                SField const& metaType = node.getFName();
+                uint16_t nodeType = node.getFieldU16(sfLedgerEntryType);
+
+                // we only care about ltACCOUNT_ROOT and ltRIPPLE_STATE objects
+                // being modified or created
+                if ((nodeType != ltACCOUNT_ROOT &&
+                     nodeType != ltRIPPLE_STATE) ||
+                    metaType == sfDeletedNode)
+                    continue;
+
+                // ltRippleState
+                if (nodeType == ltRIPPLE_STATE)
+                {
+                    if (!hasIOURewardClaim)
+                        continue;
+
+                    if (!node.isFieldPresent(sfPreviousFields) ||
+                        !node.isFieldPresent(sfLedgerIndex))
+                        continue;
+                    STObject& previousFields = (const_cast<STObject&>(node))
+                                                   .getField(sfPreviousFields)
+                                                   .downcast<STObject>();
+                    if (!previousFields.isFieldPresent(sfBalance))
+                        continue;
+
+                    auto balance = previousFields.getFieldAmount(sfBalance);
+
+                    if (balance.native())
+                        continue;
+
+                    rewardTrustLine(node.getFieldH256(sfLedgerIndex), balance);
+                    continue;
+                }
+
+                // ltAccountRoot
+                if (!node.isFieldPresent(sfRewardFields) ||
+                    !node.isFieldPresent(sfLedgerIndex))
+                    continue;
+
+                STObject& finalFields = (const_cast<STObject&>(node))
+                                            .getField(sfRewardFields)
+                                            .downcast<STObject>();
+
+                if (!finalFields.isFieldPresent(sfBalance))
+                    continue;
+
+                rewardAccountRoot(
+                    node.getFieldH256(sfLedgerIndex),
+                    finalFields.getFieldAmount(sfBalance));
+            }
         }
     }
 

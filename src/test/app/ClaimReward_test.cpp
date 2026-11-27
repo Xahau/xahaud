@@ -1141,6 +1141,154 @@ public:
         }
     }
 
+    // finishApply updates reward fields by walking the changed balances
+    // directly when fixProvisionalDoubleThreading and fix240819 are enabled,
+    // and by way of provisional metadata otherwise. Both must leave the
+    // same reward fields in the ledger.
+    std::string
+    rewardTrace(FeatureBitset features)
+    {
+        using namespace jtx;
+        std::string trace;
+        Env env{*this, features};
+        auto const alice = Account("alice");
+        auto const bob = Account("bob");
+        auto const carol = Account("carol");
+        auto const gw = Account("gw");
+        auto const issuer = Account::master;
+
+        env.fund(XRP(10001), alice, bob, carol, gw);
+        env(fset(gw, asfDefaultRipple));
+        env.close();
+
+        env(hook(issuer, {{hso(jtx::genesis::AcceptHook)}}, 0), fee(XRP(1)));
+        auto hookObj = hso(jtx::genesis::AcceptHook);
+        hookObj[jss::HookOn] = to_string(~UINT256_BIT[ttCLAIM_REWARD]);
+        env(hook(gw, {{hookObj}}, 0), fee(XRP(1)));
+        env.close();
+
+        env(trust(alice, gw["USD"](1000000)), fee(XRP(1)));
+        env(trust(bob, gw["USD"](1000000)), fee(XRP(1)));
+        env.close();
+        env(pay(gw, alice, gw["USD"](10000)));
+        env(pay(gw, bob, gw["USD"](3000)));
+        env.close();
+
+        // native claim for alice and bob, IOU claim for alice
+        env(reward::claim(alice), reward::issuer(issuer), fee(XRP(1)));
+        env(reward::claim(bob), reward::issuer(issuer), fee(XRP(1)));
+        env.close();
+        if (features[featureIOURewardClaim])
+        {
+            env(reward::claim(alice),
+                reward::issuer(gw),
+                reward::claimCurrency(gw["USD"]),
+                fee(XRP(1)));
+            env(reward::claim(bob),
+                reward::issuer(gw),
+                reward::claimCurrency(gw["USD"]),
+                fee(XRP(1)));
+            env.close();
+        }
+
+        // balances move in both directions over several ledgers, including
+        // a balance that crosses zero and an account left with no balance
+        for (int i = 0; i < 3; ++i)
+        {
+            env(pay(alice, bob, XRP(500)), fee(XRP(1)));
+            env(pay(alice, gw, gw["USD"](4000)));
+            env.close();
+            env(pay(bob, carol, XRP(250)), fee(XRP(1)));
+            env(pay(bob, gw, gw["USD"](700)));
+            env(pay(gw, alice, gw["USD"](1500)));
+            env.close();
+            env.close();
+            env(pay(gw, alice, gw["USD"](1)));
+            env(pay(gw, bob, gw["USD"](600)));
+            env(pay(carol, alice, XRP(100)), fee(XRP(1)));
+            env.close();
+        }
+        env(pay(alice, gw, gw["USD"](2000)));
+        env.close();
+
+        // a tec result: only the fee changes, after the view was reset
+        env(pay(alice, Account("nobody"), XRP(1)),
+            fee(XRP(1)),
+            ter(tecNO_DST_INSUF_NATIVE));
+        env.close();
+        env(pay(bob, Account("nobody"), XRP(1)),
+            fee(XRP(1)),
+            ter(tecNO_DST_INSUF_NATIVE));
+        env.close();
+
+        // a trust line that is modified without its balance changing
+        env(trust(alice, gw["USD"](2000000)), fee(XRP(1)));
+        env.close();
+
+        env(pay(alice, bob, XRP(1)), fee(XRP(1)));
+        env.close();
+
+        for (auto const* a : {&alice, &bob, &carol, &gw})
+        {
+            auto const sle = env.le(keylet::account(*a));
+            for (SField const* f :
+                 {static_cast<SField const*>(&sfRewardLgrFirst),
+                  static_cast<SField const*>(&sfRewardLgrLast),
+                  static_cast<SField const*>(&sfRewardAccumulator),
+                  static_cast<SField const*>(&sfRewardTime)})
+                trace +=
+                    (sle->isFieldPresent(*f) ? sle->peekAtField(*f)
+                                                   .getJson(JsonOptions::none)
+                                                   .asString()
+                                             : std::string("-")) +
+                    ',';
+            trace += ' ';
+        }
+        for (auto const* a : {&alice, &bob})
+        {
+            auto const sle = env.le(keylet::line(*a, gw["USD"]));
+            for (SField const* f :
+                 {static_cast<SField const*>(&sfLowReward),
+                  static_cast<SField const*>(&sfHighReward)})
+                trace += (sle && sle->isFieldPresent(*f)
+                              ? to_string(sle->peekAtField(*f).getJson(
+                                    JsonOptions::none))
+                              : std::string("-")) +
+                    ',';
+            trace += ' ';
+        }
+        return trace;
+    }
+
+    void
+    testRewardPaths(FeatureBitset features)
+    {
+        testcase("reward paths agree");
+        // fix240819 changes which entries earn rewards (an unchanged account
+        // that is only threaded is rewarded without it), so compare the two
+        // paths within each fix240819 setting.
+        auto const direct = rewardTrace(features);
+        BEAST_EXPECT(
+            direct.find("TrustLineRewardAccumulator") != std::string::npos);
+        BEAST_EXPECT(
+            direct == rewardTrace(features - fixProvisionalDoubleThreading));
+        BEAST_EXPECT(
+            rewardTrace(features - fix240819) ==
+            rewardTrace(features - fix240819 - fixProvisionalDoubleThreading));
+
+        // without IOU reward claims, and with the pre-fix20261005 touching
+        for (auto const& f :
+             {features - featureIOURewardClaim, features - fix20261005})
+        {
+            BEAST_EXPECT(
+                rewardTrace(f) ==
+                rewardTrace(f - fixProvisionalDoubleThreading));
+            BEAST_EXPECT(
+                rewardTrace(f - fix240819) ==
+                rewardTrace(f - fix240819 - fixProvisionalDoubleThreading));
+        }
+    }
+
     void
     testWithFeats(FeatureBitset features)
     {
@@ -1150,6 +1298,7 @@ public:
         testValidNoHook(features);
         testUsingTickets(features);
         testBalanceChanges(features);
+        testRewardPaths(features);
     }
 
 public:
