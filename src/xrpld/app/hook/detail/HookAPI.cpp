@@ -2747,12 +2747,13 @@ HookAPI::float_multiply_internal_parts(
     int32_t exp2,
     bool neg2) const
 {
-    using namespace boost::multiprecision;
-    cpp_int mult = cpp_int(man1) * cpp_int(man2);
+    // man1 * man2 < 2^128, so the product and its truncating division are
+    // exact; the result is oversized iff it does not fit in uint64_t.
+    unsigned __int128 mult = static_cast<unsigned __int128>(man1) * man2;
     mult /= power_of_ten[15];
-    uint64_t man_out = static_cast<uint64_t>(mult);
-    if (mult > man_out)
+    if (mult > std::numeric_limits<uint64_t>::max())
         return Unexpected(XFL_OVERFLOW);
+    uint64_t man_out = static_cast<uint64_t>(mult);
 
     int32_t exp_out = exp1 + exp2 + 15;
     bool neg_out = (neg1 && !neg2) || (!neg1 && neg2);
