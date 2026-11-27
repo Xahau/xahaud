@@ -8924,6 +8924,204 @@ public:
         BEAST_EXPECT(hookExecutions[1].getFieldU64(sfHookReturnCode) == 1);
     }
 
+    // Golden values for test_provisional_meta, taken before the
+    // provisional-metadata optimisations.
+    inline static std::vector<std::string> const PM_ALL =
+        std::vector<std::string>{
+            "793AA560AF5685D27E72E8BD7B861BD43005A80A077F1611EEC70700D279AEBC",
+            "3DD653F56027BF7CC9741E17355F865CC3324BE08F38D0E5FB64552882EE5EF1",
+            "10146A2399DD882DA05BF017EB192E2625EBEAF2819821B5C906ABA2463574EB",
+            "",
+            "",
+            "",
+            "99A00A738905028527C0AF6CF8B164793327BBDF0A963FFF60B5C076C0322991",
+            "D223421720475225D0F67F9A37C75A7D8FF721E492A83187A881414662EBBC72",
+            "",
+            "61E5C4DC36492B4EB5FA64E9233C93EDD3F0E1F20E17BE3959C2E5B860EECA34",
+            "AD4EFAD0BA1ACACFC57E1C68C38D09B0DB965DBA4588D2A34BA6EE94C86FF992"};
+    inline static std::vector<std::string> const PM_NOPDT =
+        std::vector<std::string>{
+            "A0A67EDA005C1B9BCA034A9F823F484440F00C962E6A59B32293735DE5512250",
+            "565A0F71486E63E35E8A1EF4A0A9ECA1A342FACAF24AE41B44D8B02656844913",
+            "144278FFA84607743E90AB67375BDC5A497C12013DC28496346F79F49D7561D9",
+            "",
+            "",
+            "",
+            "1A47422C8DA55730B3D81631F5FAF67833A6E72281F2BC9114B5FC136F783D29",
+            "3576EE8239711956CE4EBF60E67D0F4EF96EF48E44B07770352BF00CC7D9B03D",
+            "",
+            "7055D9E742B4019583626B3CD2AC944CA2739980895A769F14843398CE81C9BD",
+            "FA2C68D233033D6FFD99376F8DC4C830A0E008FB6B24E903A2BDCDED09588BE8"};
+    inline static std::vector<std::string> const PM_NOIOUWEAK =
+        std::vector<std::string>{
+            "793AA560AF5685D27E72E8BD7B861BD43005A80A077F1611EEC70700D279AEBC",
+            "3DD653F56027BF7CC9741E17355F865CC3324BE08F38D0E5FB64552882EE5EF1",
+            "",
+            "",
+            "",
+            "",
+            "99A00A738905028527C0AF6CF8B164793327BBDF0A963FFF60B5C076C0322991",
+            "D223421720475225D0F67F9A37C75A7D8FF721E492A83187A881414662EBBC72",
+            "",
+            "61E5C4DC36492B4EB5FA64E9233C93EDD3F0E1F20E17BE3959C2E5B860EECA34",
+            "AD4EFAD0BA1ACACFC57E1C68C38D09B0DB965DBA4588D2A34BA6EE94C86FF992"};
+    inline static std::vector<std::string> const PM_NOHOOKAPI =
+        std::vector<std::string>{
+            "B698CFC7A8128E06EEB9F60F7EAB263E28A4CC3E6919B5168009668D2B19A62C",
+            "EAE0DBCF222450A50E5B079D199F38F393D111C3EF2C528A212FADB009B3A509",
+            "C7DB5CBE90DE7AD8C4E4AEC5A2629B6E85F1FC323DAE3958B499D34DC68CAF0E",
+            "",
+            "",
+            "",
+            "59C44930CDA39AC474945119A28E5EE793BB75A4C7A27ED0FD9F269776766F34",
+            "A46C3DDD86BB51A60E5E1C7C5E6B6DAB3489DE3C276DCB3BC81501F62FB98C1C",
+            "",
+            "CAF251211CF0FBA27FD95A414DF20414AB7B9B58CF7D89E79F76F184684BF67D",
+            "2E345B6A9186B79256FC2C6D3FE3E1F51F158DD98AF118A0EC712139EB3B67B4"};
+
+    // Weak hooks read the provisional metadata through meta_slot. Several
+    // optimisations skip generating it when nobody can read it, so pin the
+    // exact bytes a hook sees (as a sha512Half stored under the otxn id).
+    // Golden values were taken before those optimisations.
+    void
+    test_provisional_meta(
+        FeatureBitset features,
+        std::string const& label,
+        std::vector<std::string> const& expected)
+    {
+        testcase("Test provisional meta bytes (" + label + ")");
+        using namespace jtx;
+        Env env{*this, features};
+
+        Account const alice{"alice"};  // hook + lsfTshCollect
+        Account const bob{"bob"};      // plain
+        Account const carol{"carol"};  // issuer without a hook
+        Account const dave{"dave"};    // hook, no lsfTshCollect
+        env.fund(XRP(10000), alice, bob, carol, dave);
+        env.close();
+
+        TestHook hook_wasm = wasm[R"[test.hook](
+            #include <stdint.h>
+            extern int32_t _g       (uint32_t id, uint32_t maxiter);
+            extern int64_t accept   (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t rollback (uint32_t read_ptr, uint32_t read_len, int64_t error_code);
+            extern int64_t hook_again (void);
+            extern int64_t otxn_id (uint32_t, uint32_t, uint32_t);
+            extern int64_t otxn_type (void);
+            extern int64_t otxn_field (uint32_t, uint32_t, uint32_t);
+            extern int64_t meta_slot (uint32_t);
+            extern int64_t slot (uint32_t, uint32_t, uint32_t);
+            extern int64_t util_sha512h (uint32_t, uint32_t, uint32_t, uint32_t);
+            extern int64_t state_set (uint32_t, uint32_t, uint32_t, uint32_t);
+            int64_t hook(uint32_t r)
+            {
+                _g(1,1);
+                uint8_t meta[4096];
+                uint8_t hash[32];
+                uint8_t id[64];
+                if (r == 0)
+                {
+                    hook_again();
+                    // roll back XRP payments only
+                    if (otxn_type() == 0 &&
+                        otxn_field(id, 64, (6U << 16U) + 1U) == 8)
+                        return rollback(0, 0, 1);
+                    return accept(0, 0, 0);
+                }
+                if (meta_slot(1) != 1)
+                    return rollback(0, 0, 2);
+                int64_t n = slot(meta, sizeof(meta), 1);
+                if (n < 0)
+                    return rollback(0, 0, 3);
+                if (util_sha512h(hash, 32, meta, n) != 32)
+                    return rollback(0, 0, 4);
+                if (otxn_id(id, 32, 0) != 32)
+                    return rollback(0, 0, 5);
+                return accept(0, 0, state_set(hash, 32, id, 32));
+            }
+        )[test.hook]"];
+
+        env(fset(alice, asfTshCollect), fee(XRP(1)));
+        env.close();
+        for (auto const& a : {alice, dave})
+        {
+            env(ripple::test::jtx::hook(
+                    a,
+                    {{hso(
+                        hook_wasm,
+                        [](Json::Value& jv) {
+                            jv[jss::Flags] = hsfOVERRIDE | hsfCOLLECT;
+                        })}},
+                    0),
+                HSFEE);
+            env.close();
+        }
+
+        // hex of what the hook stored under this txid, "" when nothing
+        std::vector<std::string> seen;
+        auto const record = [&](Account const& a) {
+            auto const sle = env.le(keylet::hookState(
+                a.id(), env.tx()->getTransactionID(), uint256{beast::zero}));
+            seen.push_back(sle ? strHex(sle->getFieldVL(sfHookStateData)) : "");
+        };
+
+        // issuer mints for bob; bob buys (issuer is a strong TSH, hook_again
+        // -> again-as-weak) and burns (issuer is a weak TSH)
+        auto const lifecycle = [&](Account const& issuer,
+                                   std::string const& uri) {
+            std::string const hexid{strHex(uritoken::tokenid(issuer, uri))};
+            env(uritoken::mint(issuer, uri),
+                uritoken::dest(bob),
+                uritoken::amt(XRP(1)),
+                fee(XRP(1)));
+            env.close();
+            record(issuer);
+            env(uritoken::buy(bob, hexid), uritoken::amt(XRP(1)), fee(XRP(1)));
+            env.close();
+            record(issuer);
+            env(uritoken::burn(bob, hexid), fee(XRP(1)));
+            env.close();
+            record(issuer);
+        };
+        lifecycle(alice, "alice");
+        lifecycle(carol, "carol");
+        lifecycle(dave, "dave");
+
+        // rippling through alice: her trust line with gw changes while she is
+        // neither the sender nor the destination, so she only becomes a weak
+        // TSH through IOUIssuerWeakTSH (addWeakTSHFromBalanceChanges)
+        {
+            Account const gw{"gw"};
+            Account const erin{"erin"};
+            env.fund(XRP(10000), gw, erin);
+            env.close();
+            env(trust(alice, gw["USD"](1000)), fee(XRP(1)));
+            env(trust(bob, gw["USD"](1000)));
+            env(trust(erin, alice["USD"](1000)));
+            env.close();
+            env(pay(gw, alice, gw["USD"](100)), fee(XRP(1)));
+            env(pay(gw, bob, gw["USD"](100)));
+            env.close();
+            env(pay(bob, erin, alice["USD"](10)),
+                sendmax(gw["USD"](10)),
+                path(alice),
+                fee(XRP(1)));
+            env.close();
+            record(alice);
+        }
+
+        // strong hook rolls back after hook_again: tec, again-as-weak runs
+        env(pay(bob, alice, XRP(1)), fee(XRP(1)), ter(tecHOOK_REJECTED));
+        env.close();
+        record(alice);
+
+        BEAST_EXPECT(seen.size() == expected.size());
+        for (std::size_t i = 0; i < seen.size() && i < expected.size(); ++i)
+            BEAST_EXPECTS(
+                seen[i] == expected[i],
+                std::to_string(i) + ": \"" + seen[i] + "\"");
+    }
+
     void
     test_xpop_slot(FeatureBitset features)
     {
@@ -16623,6 +16821,20 @@ public:
         if (BEAST_EXPECT(instance < feats.size()))
         {
             testWithFeatures(feats[instance]);
+        }
+        if (instance == 0)
+        {
+            test_provisional_meta(all, "all", PM_ALL);
+            test_provisional_meta(
+                all - fixProvisionalDoubleThreading, "fixPDT off", PM_NOPDT);
+            test_provisional_meta(
+                all - featureIOUIssuerWeakTSH,
+                "IOUIssuerWeakTSH off",
+                PM_NOIOUWEAK);
+            test_provisional_meta(
+                all - fixHookAPI20251128,
+                "fixHookAPI20251128 off",
+                PM_NOHOOKAPI);
         }
         BEAST_EXPECT(!last || instance == feats.size() - 1);
     }

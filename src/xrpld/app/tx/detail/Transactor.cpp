@@ -2000,7 +2000,10 @@ Transactor::doTSH(
             }
             else
             {
-                // this is a collect call so first check if the tsh can accept
+                // this is a collect call so first check if the tsh can accept.
+                // weakHookMayRun (which decides whether the provisional
+                // metadata is skipped) relies on this check; if it is ever
+                // relaxed, update that predicate too.
                 uint32_t tshFlags = tshAcc->getFieldU32(sfFlags);
                 if (!(tshFlags & lsfTshCollect))
                 {
@@ -2044,6 +2047,9 @@ Transactor::doTSH(
         }
 
         // execution to here means we can run the TSH's hook chain
+        XRPL_ASSERT(
+            strong || provisionalMeta,
+            "Transactor::doTSH : weak hooks need provisional metadata");
         TER tshResult = executeHookChain(
             tshHook,
             stateMap,
@@ -2060,6 +2066,33 @@ Transactor::doTSH(
     return tesSUCCESS;
 }
 
+bool
+Transactor::weakHookMayRun(
+    std::vector<std::pair<AccountID, bool>> const& tsh) const
+{
+    // Superset of the accounts whose hooks doTSH(false, ...) can execute:
+    // weak (non-rollbackable) candidates other than account_. Such a hook
+    // needs an ltHOOK with hooks and, being a collect call, an AccountRoot
+    // with lsfTshCollect. Reads only.
+    auto const mayRun = [&](AccountID const& id) {
+        if (id == account_)
+            return false;
+        auto const hook = view().read(keylet::hook(id));
+        if (!hook || !hook->isFieldPresent(sfHooks))
+            return false;
+        auto const acc = view().read(keylet::account(id));
+        return acc && (acc->getFieldU32(sfFlags) & lsfTshCollect);
+    };
+
+    for (auto const& [id, canRollback] : tsh)
+        if (!canRollback && mayRun(id))
+            return true;
+    for (auto const& id : additionalWeakTSH_)
+        if (mayRun(id))
+            return true;
+    return false;
+}
+
 void
 Transactor::doAgainAsWeak(
     AccountID const& hookAccountID,
@@ -2068,6 +2101,9 @@ Transactor::doAgainAsWeak(
     std::vector<hook::HookResult>& results,
     std::shared_ptr<STObject const> const& provisionalMeta)
 {
+    XRPL_ASSERT(
+        provisionalMeta,
+        "Transactor::doAgainAsWeak : provisional metadata is required");
     auto const& hooksArray = view().peek(keylet::hook(hookAccountID));
     if (!hooksArray)
     {
@@ -2712,15 +2748,30 @@ Transactor::finishApply(
     {
         // weakly executed hooks have access to a provisional TxMeta
         // for this tx application.
-        TxMeta meta = ctx_.generateProvisionalMeta();
-        meta.setResult(result, 0);
+        auto const makeProMeta = [&]() {
+            TxMeta meta = ctx_.generateProvisionalMeta();
+            meta.setResult(result, 0);
+            return std::make_shared<STObject const>(meta.getAsObject());
+        };
 
-        std::shared_ptr<STObject const> proMeta =
-            std::make_shared<STObject const>(meta.getAsObject());
+        // With fixProvisionalDoubleThreading generating the provisional
+        // metadata leaves the view unchanged, so for an ordinary (non
+        // emitted) tx it can be deferred until we know a weak hook or an
+        // again-as-weak hook will read it. Emitted txs always take the
+        // original path (callback).
+        bool const lazyMeta =
+            view().rules().enabled(fixProvisionalDoubleThreading) &&
+            !ctx_.tx.isFieldPresent(sfEmitDetails);
 
-        // perform callback logic if applicable
-        if (ctx_.tx.isFieldPresent(sfEmitDetails))
-            doHookCallback(proMeta);
+        std::shared_ptr<STObject const> proMeta;
+        if (!lazyMeta)
+        {
+            proMeta = makeProMeta();
+
+            // perform callback logic if applicable
+            if (ctx_.tx.isFieldPresent(sfEmitDetails))
+                doHookCallback(proMeta);
+        }
 
         // remove emission entry if this is an emitted transaction
         hook::removeEmissionEntry(ctx_);
@@ -2744,6 +2795,11 @@ Transactor::finishApply(
             // be possible to obtain the appropriate TSH.
             tsh = hook::getTransactionalStakeHolders(ctx_.tx, ctx_.view());
         }
+
+        // Must be decided here: after the weak TSH set is final and before
+        // anything below touches the view (touchOnce, collect fees).
+        if (lazyMeta && (!aawMap.empty() || weakHookMayRun(tsh)))
+            proMeta = makeProMeta();
 
         doTSH(false, tsh, stateMap, weakResults, proMeta);
 
