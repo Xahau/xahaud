@@ -43,19 +43,25 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
     TxType const& tt = tx.getTxnType();
 
-    std::map<AccountID, std::pair<int, bool>> tshEntries;
+    // In first-added order (the order their hooks execute in); the rollback
+    // flag is OR-ed across additions.
+    std::vector<std::pair<AccountID, bool>> tshEntries;
 
-    int upto = 0;
-
-    auto const ADD_TSH = [&otxnAcc, &tshEntries, &upto](
+    auto const ADD_TSH = [&otxnAcc, &tshEntries](
                              const AccountID& acc_r, bool rb) {
-        if (acc_r != *otxnAcc)
+        if (acc_r == *otxnAcc)
+            return;
+
+        for (auto& entry : tshEntries)
         {
-            if (tshEntries.find(acc_r) != tshEntries.end())
-                tshEntries[acc_r].second |= rb;
-            else
-                tshEntries.emplace(acc_r, std::make_pair(upto++, rb));
+            if (entry.first == acc_r)
+            {
+                entry.second |= rb;
+                return;
+            }
         }
+
+        tshEntries.emplace_back(acc_r, rb);
     };
 
     bool const tshSTRONG = true;  // tshROLLBACK
@@ -90,13 +96,10 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
             if (tx.isFieldPresent(sfURITokenIDs))
             {
-                STVector256 tokenIds = tx.getFieldV256(sfURITokenIDs);
-                for (uint256 const klRaw : tokenIds)
+                STVector256 const& tokenIds = tx.getFieldV256(sfURITokenIDs);
+                for (uint256 const& klRaw : tokenIds)
                 {
                     Keylet const id{ltURI_TOKEN, klRaw};
-                    if (!rv.exists(id))
-                        continue;
-
                     auto const ut = rv.read(id);
                     if (!ut ||
                         ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
@@ -124,8 +127,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttURITOKEN_BURN: {
             Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
-            if (!rv.exists(id))
-                return {};
 
             auto const ut = rv.read(id);
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
@@ -156,8 +157,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttURITOKEN_BUY: {
             Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
-            if (!rv.exists(id))
-                return {};
 
             auto const ut = rv.read(id);
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
@@ -190,8 +189,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttURITOKEN_CANCEL_SELL_OFFER: {
             Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
-            if (!rv.exists(id))
-                return {};
 
             auto const ut = rv.read(id);
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
@@ -207,8 +204,6 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
 
         case ttURITOKEN_CREATE_SELL_OFFER: {
             Keylet const id{ltURI_TOKEN, tx.getFieldH256(sfURITokenID)};
-            if (!rv.exists(id))
-                return {};
 
             auto const ut = rv.read(id);
             if (!ut || ut->getFieldU16(sfLedgerEntryType) != ltURI_TOKEN)
@@ -567,11 +562,7 @@ getTransactionalStakeHolders(STTx const& tx, ReadView const& rv)
         }
     }
 
-    std::vector<std::pair<AccountID, bool>> ret{tshEntries.size()};
-    for (auto& [a, e] : tshEntries)
-        ret[e.first] = std::pair<AccountID, bool>{a, e.second};
-
-    return ret;
+    return tshEntries;
 }
 
 }  // namespace hook

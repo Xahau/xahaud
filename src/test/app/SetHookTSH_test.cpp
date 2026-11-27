@@ -23,6 +23,7 @@
 #include <test/jtx/AMM.h>
 #include <test/jtx/Oracle.h>
 #include <test/jtx/TestHelpers.h>
+#include <xrpld/app/hook/applyHook.h>
 #include <xrpld/app/misc/HashRouter.h>
 #include <xrpld/app/misc/TxQ.h>
 #include <xrpld/app/tx/apply.h>
@@ -8512,6 +8513,37 @@ private:
         }
     }
 
+    // Stakeholders come back in first-added order
+    void
+    testStakeHolderOrder(FeatureBitset features)
+    {
+        using namespace test::jtx;
+        testcase("stakeholder order");
+
+        Env env{*this, features};
+        Account const alice{"alice"}, bob{"bob"}, carol{"carol"};
+        env.fund(XRP(1000), alice, bob, carol);
+        env.close();
+
+        auto const tsh = [&](Account const& dest, Account const& inform) {
+            STTx const tx{ttREMIT, [&](STObject& obj) {
+                              obj.setAccountID(sfAccount, alice.id());
+                              obj.setAccountID(sfDestination, dest.id());
+                              obj.setAccountID(sfInform, inform.id());
+                          }};
+            return hook::getTransactionalStakeHolders(tx, *env.current());
+        };
+
+        // destination (strong) is added before inform (weak)
+        auto r = tsh(bob, carol);
+        BEAST_EXPECT(r.size() == 2);
+        if (r.size() == 2)
+        {
+            BEAST_EXPECT(r[0].first == bob.id() && r[0].second);
+            BEAST_EXPECT(r[1].first == carol.id() && !r[1].second);
+        }
+    }
+
     void
     testTSH(FeatureBitset features)
     {
@@ -8533,6 +8565,7 @@ private:
         testEmittedTxnReliability(features);
         testEmittedFlags(features);
         testEmissionOrdering(features);
+        testStakeHolderOrder(features);
     }
 
 public:
