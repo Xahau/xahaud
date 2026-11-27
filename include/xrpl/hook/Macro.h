@@ -156,7 +156,7 @@
     {                                                                \
         [[maybe_unused]] ApplyContext& applyCtx = hookCtx.applyCtx;  \
         [[maybe_unused]] auto& view = applyCtx.view();               \
-        [[maybe_unused]] auto j = applyCtx.app.journal("View");      \
+        [[maybe_unused]] auto const& j = hookCtx.j;                  \
         [[maybe_unused]] WasmEdge_MemoryInstanceContext* memoryCtx = \
             WasmEdge_CallingFrameGetMemoryInstance(&frameCtx, 0);    \
         [[maybe_unused]] unsigned char* memory =                     \
@@ -172,7 +172,7 @@
     }                                                          \
     catch (const std::exception& e)                            \
     {                                                          \
-        JLOG(hookCtx.applyCtx.app.journal("View").error())     \
+        JLOG(hookCtx.j.error())                                \
             << "HookError[" << HC_ACC() << "]: " << __func__   \
             << " threw uncaught exception, what=" << e.what(); \
         return INTERNAL_ERROR;                                 \

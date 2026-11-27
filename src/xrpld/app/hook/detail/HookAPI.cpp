@@ -420,8 +420,8 @@ HookAPI::sto_emplace(
 Expected<Bytes, HookReturnCode>
 HookAPI::prepare(Slice const& txBlob) const
 {
-    auto& applyCtx = hookCtx.applyCtx;
-    auto j = applyCtx.app.journal("View");
+    auto const& applyCtx = hookCtx.applyCtx;
+    auto const& j = hookCtx.j;
 
     if (hookCtx.expected_etxn_count < 0)
         return Unexpected(PREREQUISITE_NOT_MET);
@@ -467,7 +467,7 @@ HookAPI::prepare(Slice const& txBlob) const
     uint8_t details[512];
     if (!json.isMember(jss::EmitDetails))
     {
-        auto ret = etxn_details(details);
+        auto const ret = etxn_details(details);
         if (!ret || ret.value() < 2)
             return Unexpected(INTERNAL_ERROR);
 
@@ -480,7 +480,7 @@ HookAPI::prepare(Slice const& txBlob) const
         try
         {
             SerialIter sit{s};
-            STObject st{sit, sfEmitDetails};
+            STObject const st{sit, sfEmitDetails};
             json[jss::EmitDetails] = st.getJson(JsonOptions::none);
         }
         catch (std::exception const& ex)
@@ -511,7 +511,7 @@ HookAPI::prepare(Slice const& txBlob) const
     }
 
     // run it through the fee estimate, this doubles as a txn sanity check
-    auto fee = etxn_fee_base(Slice(tx_blob.data(), tx_blob.size()));
+    auto const fee = etxn_fee_base(Slice(tx_blob.data(), tx_blob.size()));
     if (!fee)
         return Unexpected(INVALID_ARGUMENT);
 
@@ -536,9 +536,9 @@ HookAPI::prepare(Slice const& txBlob) const
 Expected<std::shared_ptr<Transaction>, HookReturnCode>
 HookAPI::emit(Slice const& txBlob) const
 {
-    auto& applyCtx = hookCtx.applyCtx;
-    auto j = applyCtx.app.journal("View");
-    auto& view = applyCtx.view();
+    auto const& applyCtx = hookCtx.applyCtx;
+    auto const& j = hookCtx.j;
+    auto const& view = applyCtx.view();
 
     if (hookCtx.expected_etxn_count < 0)
         return Unexpected(PREREQUISITE_NOT_MET);
@@ -567,7 +567,7 @@ HookAPI::emit(Slice const& txBlob) const
         return Unexpected(EMISSION_FAILURE);
     }
 
-    ripple::TxType txType = stpTrans->getTxnType();
+    ripple::TxType const& txType = stpTrans->getTxnType();
 
     ripple::uint256 const& hookCanEmit = hookCtx.result.hookCanEmit;
     if (!hook::canEmit(txType, hookCanEmit))
@@ -790,7 +790,7 @@ HookAPI::emit(Slice const& txBlob) const
     }
 
     // rule 7 check the emitted txn pays the appropriate fee
-    int64_t minfee = etxn_fee_base(txBlob).value();
+    int64_t minfee = etxn_fee_base_impl(*stpTrans).value();
 
     if (minfee < 0)
     {
@@ -813,7 +813,7 @@ HookAPI::emit(Slice const& txBlob) const
     }
 
     std::string reason;
-    auto tpTrans =
+    auto const tpTrans =
         std::make_shared<Transaction>(stpTrans, reason, applyCtx.app);
     if (tpTrans->getStatus() != NEW)
     {
@@ -822,7 +822,7 @@ HookAPI::emit(Slice const& txBlob) const
     }
 
     // preflight the transaction
-    auto preflightResult = ripple::preflight(
+    auto const preflightResult = ripple::preflight(
         applyCtx.app,
         view.rules(),
         *stpTrans,
@@ -857,8 +857,7 @@ HookAPI::etxn_burden() const
 Expected<uint64_t, HookReturnCode>
 HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
 {
-    auto& applyCtx = hookCtx.applyCtx;
-    auto j = applyCtx.app.journal("View");
+    auto const& j = hookCtx.j;
 
     if (hookCtx.expected_etxn_count <= -1)
         return Unexpected(PREREQUISITE_NOT_MET);
@@ -866,9 +865,27 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
     try
     {
         SerialIter sitTrans(txBlob);
-        std::unique_ptr<STTx const> stpTrans =
-            std::make_unique<STTx const>(std::ref(sitTrans));
+        STTx const stpTrans(sitTrans);
+        return etxn_fee_base_impl(stpTrans);
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.trace()) << "HookInfo[" << HC_ACC()
+                        << "]: etxn_fee_base exception: " << e.what();
+        return Unexpected(INVALID_TXN);
+    }
+}
 
+// etxn_fee_base() for an already parsed txn; the caller has checked that
+// emission was reserved.
+Expected<uint64_t, HookReturnCode>
+HookAPI::etxn_fee_base_impl(STTx const& stpTrans) const
+{
+    auto const& applyCtx = hookCtx.applyCtx;
+    auto const& j = hookCtx.j;
+
+    try
+    {
         // fix20260929: the minimum fee decides whether emit() accepts the
         // txn, which is consensus-visible. Compute it against the view being
         // applied, not the node-local open ledger (whose hook definitions can
@@ -882,9 +899,9 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         }
 
         if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
-            return Transactor::calculateBaseFee(*feeView, *stpTrans).drops();
+            return Transactor::calculateBaseFee(*feeView, stpTrans).drops();
 
-        return invoke_calculateBaseFee(*feeView, *stpTrans).drops();
+        return invoke_calculateBaseFee(*feeView, stpTrans).drops();
     }
     catch (std::exception const& e)
     {
@@ -900,7 +917,7 @@ HookAPI::etxn_details(uint8_t* out_ptr) const
     if (hookCtx.expected_etxn_count <= -1)
         return Unexpected(PREREQUISITE_NOT_MET);
 
-    uint32_t generation = etxn_generation();
+    uint32_t const generation = etxn_generation();
 
     auto const burden_result = etxn_burden();
 
@@ -938,7 +955,7 @@ HookAPI::etxn_details(uint8_t* out_ptr) const
     *out++ = 0x5CU;  // sfEmitNonce                                     /* upto
                      // =  49 | size = 33 */
 
-    auto hash = etxn_nonce();
+    auto const hash = etxn_nonce();
     if (!hash.has_value())
         return Unexpected(INTERNAL_ERROR);
 
@@ -1004,7 +1021,7 @@ HookAPI::etxn_nonce() const
     flags |= hookCtx.result.isCallback ? 0b01U : 0;
     flags |= (hookCtx.result.hookChainPosition << 2U);
 
-    auto hash = ripple::sha512Half(
+    auto const hash = ripple::sha512Half(
         ripple::HashPrefix::emitTxnNonce,
         hookCtx.applyCtx.tx.getTransactionID(),
         hookCtx.emit_nonce_counter++,
@@ -1511,8 +1528,8 @@ HookAPI::float_root(uint64_t float1, uint32_t n) const
 uint64_t
 HookAPI::otxn_burden() const
 {
-    auto& applyCtx = hookCtx.applyCtx;
-    auto j = applyCtx.app.journal("View");
+    auto const& applyCtx = hookCtx.applyCtx;
+    auto const& j = hookCtx.j;
 
     if (hookCtx.burden)
         return hookCtx.burden;
@@ -1542,8 +1559,8 @@ HookAPI::otxn_burden() const
 uint32_t
 HookAPI::otxn_generation() const
 {
-    auto& applyCtx = hookCtx.applyCtx;
-    auto j = applyCtx.app.journal("View");
+    auto const& applyCtx = hookCtx.applyCtx;
+    auto const& j = hookCtx.j;
 
     if (hookCtx.generation)
         return hookCtx.generation;
@@ -1696,8 +1713,8 @@ HookAPI::hook_hash(int32_t hook_no) const
     if (hook_no == -1)
         return hookCtx.result.hookHash;
 
-    std::shared_ptr<SLE> hookSLE =
-        hookCtx.applyCtx.view().peek(hookCtx.result.hookKeylet);
+    auto const& hookSLE =
+        hookCtx.applyCtx.view().read(hookCtx.result.hookKeylet);
     if (!hookSLE || !hookSLE->isFieldPresent(sfHooks))
         return Unexpected(INTERNAL_ERROR);
 
@@ -1886,7 +1903,7 @@ HookAPI::ledger_last_time() const
 Expected<uint256, HookReturnCode>
 HookAPI::ledger_nonce() const
 {
-    auto& view = hookCtx.applyCtx.view();
+    auto const& view = hookCtx.applyCtx.view();
     if (hookCtx.ledger_nonce_counter > hook_api::max_nonce)
         return Unexpected(TOO_MANY_NONCES);
 
@@ -1989,7 +2006,7 @@ HookAPI::dice(uint32_t sides) const
     if (sides == 0)
         return Unexpected(INVALID_ARGUMENT);
 
-    auto block = rng_next();
+    auto const block = rng_next();
     if (!block)
         return Unexpected(block.error());
 
@@ -2076,7 +2093,7 @@ HookAPI::state_foreign(
     AccountID const& account) const
 {
     // first check if the requested state was previously cached this session
-    auto cacheEntryLookup = lookup_state_cache(account, ns, key);
+    auto const cacheEntryLookup = lookup_state_cache(account, ns, key);
     if (cacheEntryLookup)
     {
         auto const& cacheEntry = cacheEntryLookup->get();
@@ -2084,8 +2101,8 @@ HookAPI::state_foreign(
         return cacheEntry.second;
     }
 
-    auto hsSLE =
-        hookCtx.applyCtx.view().peek(keylet::hookState(account, key, ns));
+    auto const& hsSLE =
+        hookCtx.applyCtx.view().read(keylet::hookState(account, key, ns));
 
     if (!hsSLE)
         return Unexpected(DOESNT_EXIST);
@@ -2127,7 +2144,7 @@ HookAPI::state_foreign_set(
     if (!hasFix)
     {
         // first check if we've already modified this state
-        auto cacheEntry = lookup_state_cache(account, ns, key);
+        auto const cacheEntry = lookup_state_cache(account, ns, key);
         if (cacheEntry && cacheEntry->get().first)
         {
             // if a cache entry already exists and it has already been modified
@@ -2395,7 +2412,7 @@ HookAPI::slot_subarray(
     bool copied = false;
     try
     {
-        ripple::STArray& parent_obj =
+        ripple::STArray const& parent_obj =
             const_cast<ripple::STBase&>(*hookCtx.slot[parent_slot].entry)
                 .downcast<ripple::STArray>();
 
@@ -2505,7 +2522,7 @@ HookAPI::slot_type(uint32_t slot_no, uint32_t flags) const
         return Unexpected(INTERNAL_ERROR);
     try
     {
-        ripple::STBase& obj = const_cast<ripple::STBase&>(
+        ripple::STBase const& obj = const_cast<ripple::STBase&>(
             *hookCtx.slot[slot_no].entry);  //.downcast<ripple::STBase>();
         if (flags == 0)
             return obj;
@@ -2539,7 +2556,7 @@ HookAPI::slot_float(uint32_t slot_no) const
 
     try
     {
-        ripple::STAmount& st_amt =
+        ripple::STAmount const& st_amt =
             const_cast<ripple::STBase&>(*hookCtx.slot[slot_no].entry)
                 .downcast<ripple::STAmount>();
 
@@ -2730,12 +2747,13 @@ HookAPI::float_multiply_internal_parts(
     int32_t exp2,
     bool neg2) const
 {
-    using namespace boost::multiprecision;
-    cpp_int mult = cpp_int(man1) * cpp_int(man2);
+    // man1 * man2 < 2^128, so the product and its truncating division are
+    // exact; the result is oversized iff it does not fit in uint64_t.
+    unsigned __int128 mult = static_cast<unsigned __int128>(man1) * man2;
     mult /= power_of_ten[15];
-    uint64_t man_out = static_cast<uint64_t>(mult);
-    if (mult > man_out)
+    if (mult > std::numeric_limits<uint64_t>::max())
         return Unexpected(XFL_OVERFLOW);
+    uint64_t man_out = static_cast<uint64_t>(mult);
 
     int32_t exp_out = exp1 + exp2 + 15;
     bool neg_out = (neg1 && !neg2) || (!neg1 && neg2);
@@ -2926,15 +2944,15 @@ HookAPI::lookup_state_cache(
     uint256 const& ns,
     uint256 const& key) const
 {
-    auto& stateMap = hookCtx.result.stateMap;
+    auto const& stateMap = hookCtx.result.stateMap;
     if (stateMap.find(acc) == stateMap.end())
         return std::nullopt;
 
-    auto& stateMapAcc = std::get<3>(stateMap[acc]);
+    auto const& stateMapAcc = std::get<3>(stateMap.at(acc));
     if (stateMapAcc.find(ns) == stateMapAcc.end())
         return std::nullopt;
 
-    auto& stateMapNs = stateMapAcc[ns];
+    auto const& stateMapNs = stateMapAcc.at(ns);
 
     auto const& ret = stateMapNs.find(key);
 
@@ -3035,7 +3053,7 @@ HookAPI::set_state_cache(
 
     auto& availableForReserves = std::get<0>(stateMap[acc]);
     auto& namespaceCount = std::get<1>(stateMap[acc]);
-    auto& hookStateScale = std::get<2>(stateMap[acc]);
+    auto const& hookStateScale = std::get<2>(stateMap[acc]);
     auto& stateMapAcc = std::get<3>(stateMap[acc]);
     bool const canReserveNew = availableForReserves >= hookStateScale;
 

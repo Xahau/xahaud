@@ -3447,12 +3447,10 @@ DEFINE_HOOK_FUNCTION(int32_t, _g, uint32_t id, uint32_t maxitr)
     HOOK_SETUP();  // populates memory_ctx, memory, memory_length, applyCtx,
                    // hookCtx on current stack
 
-    if (hookCtx.guard_map.find(id) == hookCtx.guard_map.end())
-        hookCtx.guard_map[id] = 1;
-    else
-        hookCtx.guard_map[id]++;
+    // operator[] inserts 0 on first sight, so the first call counts 1
+    auto const cnt = ++hookCtx.guard_map[id];
 
-    if (hookCtx.guard_map[id] > maxitr)
+    if (cnt > maxitr)
     {
         if (id > 0xFFFFU)
         {
@@ -3460,13 +3458,13 @@ DEFINE_HOOK_FUNCTION(int32_t, _g, uint32_t id, uint32_t maxitr)
                 << "HookInfo[" << HC_ACC() << "]: Macro guard violation. "
                 << "Src line: " << (id & 0xFFFFU) << " "
                 << "Macro line: " << (id >> 16) << " "
-                << "Iterations: " << hookCtx.guard_map[id];
+                << "Iterations: " << cnt;
         }
         else
         {
             JLOG(j.trace()) << "HookInfo[" << HC_ACC() << "]: Guard violation. "
                             << "Src line: " << id << " "
-                            << "Iterations: " << hookCtx.guard_map[id];
+                            << "Iterations: " << cnt;
         }
         hookCtx.result.exitType = hook_api::ExitType::ROLLBACK;
         hookCtx.result.exitCode = (int64_t)GUARD_VIOLATION;

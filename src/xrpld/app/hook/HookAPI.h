@@ -3,6 +3,9 @@
 
 #include <xrpld/app/misc/Transaction.h>
 #include <xrpl/hook/Enum.h>
+#include <xrpl/protocol/IOUAmount.h>
+#include <xrpl/protocol/Keylet.h>
+#include <xrpl/protocol/STTx.h>
 #include <cfenv>
 
 namespace hook {
@@ -356,6 +359,10 @@ public:
 
     Expected<uint64_t, HookReturnCode>
     etxn_fee_base(Slice const& txBlob) const;
+
+    // etxn_fee_base() for a txn that is already parsed
+    Expected<uint64_t, HookReturnCode>
+    etxn_fee_base_impl(STTx const& stpTrans) const;
 
     Expected<uint64_t, HookReturnCode>
     etxn_details(uint8_t* out_ptr) const;
