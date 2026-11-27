@@ -509,12 +509,11 @@ Transactor::calculateBaseFee(ReadView const& view, STTx const& tx)
         auto const& params = tx.getFieldArray(sfHookParameters);
         for (auto const& param : params)
         {
-            paramBytes += (param.isFieldPresent(sfHookParameterName)
-                               ? param.getFieldVL(sfHookParameterName).size()
-                               : 0) +
-                (param.isFieldPresent(sfHookParameterValue)
-                     ? param.getFieldVL(sfHookParameterValue).size()
-                     : 0);
+            // sizes only: read the fields in place instead of copying them
+            auto const name = param[~sfHookParameterName];
+            auto const value = param[~sfHookParameterValue];
+            paramBytes +=
+                (name ? name->size() : 0) + (value ? value->size() : 0);
         }
         accumulator += XRPAmount{static_cast<XRPAmount>(paramBytes)};
     }

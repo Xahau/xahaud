@@ -82,9 +82,8 @@ Invoke::calculateBaseFee(ReadView const& view, STTx const& tx)
 {
     XRPAmount extraFee{0};
 
-    if (tx.isFieldPresent(sfBlob))
-        extraFee +=
-            XRPAmount{static_cast<XRPAmount>(tx.getFieldVL(sfBlob).size())};
+    if (auto const blob = tx[~sfBlob])
+        extraFee += XRPAmount{static_cast<XRPAmount>(blob->size())};
 
     return Transactor::calculateBaseFee(view, tx) + extraFee;
 }
