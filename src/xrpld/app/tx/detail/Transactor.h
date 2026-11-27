@@ -218,6 +218,10 @@ protected:
     void
     doHookCallback(std::shared_ptr<STObject const> const& provisionalMeta);
 
+    // true if a weak hook (doTSH(false, ...)) could execute
+    bool
+    weakHookMayRun(std::vector<std::pair<AccountID, bool>> const& tsh) const;
+
     TER
     doTSH(
         bool strong,  // only do strong TSH iff true, otheriwse only weak
