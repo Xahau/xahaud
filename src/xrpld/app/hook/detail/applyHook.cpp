@@ -834,7 +834,7 @@ hook::canHook(
 ripple::uint256
 hook::getHookCanEmit(
     ripple::STObject const& hookObj,
-    SLE::pointer const& hookDef)
+    std::shared_ptr<SLE const> const& hookDef)
 {
     // default allows all transaction types
     uint256 defaultHookCanEmit = UINT256_BIT[ttHOOK_SET];
@@ -1447,7 +1447,7 @@ hook::finalizeHookState(
 
 bool /* retval of true means an error */
 hook::gatherHookParameters(
-    std::shared_ptr<ripple::STLedgerEntry> const& hookDef,
+    std::shared_ptr<ripple::STLedgerEntry const> const& hookDef,
     ripple::STObject const& hookObj,
     std::map<std::vector<uint8_t>, std::vector<uint8_t>>& parameters,
     beast::Journal const& j_)
