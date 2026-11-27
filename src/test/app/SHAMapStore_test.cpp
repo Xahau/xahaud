@@ -33,11 +33,13 @@
 #include <xrpl/protocol/jss.h>
 #include <boost/filesystem.hpp>
 
+#include <array>
 #include <chrono>
 #include <exception>
 #include <limits>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace ripple {
 namespace test {
@@ -1030,6 +1032,60 @@ public:
         BEAST_EXPECT(!db.fetchNodeObject(hash, 1));
     }
 
+    // The same transactions close to the same ledgers whether or not the
+    // node store keeps nodes; a null node store just skips serializing them.
+    void
+    testNullModeLedgerHashes()
+    {
+        testcase("null node store builds the same ledgers");
+
+        using namespace jtx;
+
+        auto const run = [&](std::unique_ptr<Config> cfg) {
+            std::vector<std::array<uint256, 3>> hashes;
+            Env env(*this, std::move(cfg));
+            Account const alice{"alice"};
+            Account const bob{"bob"};
+            Account const gw{"gw"};
+            auto const USD = gw["USD"];
+
+            auto const close = [&] {
+                env.close();
+                auto const info = env.closed()->info();
+                hashes.push_back({info.hash, info.accountHash, info.txHash});
+            };
+
+            env.fund(XRP(10000), alice, bob, gw);
+            close();
+            env(trust(alice, USD(1000)));
+            env(trust(bob, USD(1000)));
+            close();
+            env(pay(gw, alice, USD(100)));
+            env(pay(alice, bob, XRP(25)));
+            env(offer(bob, USD(10), XRP(10)));
+            close();
+            for (int i = 0; i < 4; ++i)
+            {
+                env(pay(alice, bob, XRP(1 + i)));
+                env(noop(gw));
+                close();
+            }
+            return hashes;
+        };
+
+        auto const nullRes = run(envconfig(nullBackend));
+        auto const storing = run(envconfig([](std::unique_ptr<Config> cfg) {
+            cfg->LEDGER_HISTORY = 8;
+            auto& section = cfg->section(ConfigSection::nodeDatabase());
+            section.set("type", "memory");
+            section.set("path", "nullModeLedgerHashes");
+            return cfg;
+        }));
+
+        BEAST_EXPECT(nullRes.size() == 7);
+        BEAST_EXPECT(nullRes == storing);
+    }
+
     void
     testRotate()
     {
@@ -1444,6 +1500,7 @@ public:
         testNullBackendIsPerConfig();
         testResidentLedgerLookup();
         testNullFactoryDropsWrites();
+        testNullModeLedgerHashes();
         testRotate();
         testPinnedRangeRestoreRequiresPinnedData();
         testPinnedRangeRestoreEmpty();
