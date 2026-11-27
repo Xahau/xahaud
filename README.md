@@ -57,10 +57,11 @@ git-subtree. See those directories' README files for more details.
 ## Resources
 
 - **Documentation**: Documentation for XRPL, Xahau and Hooks.
-  - [Xrpl Documentation](https://xrpl.org)
   - [Xahau Documentation](https://xahau.network/)
+  - [XRPL Documentation](https://xrpl.org)
   - [Hooks Technical Documentation](https://xrpl-hooks.readme.io/)
 - **Explorers**: Explore the Xahau Network using various explorers:
+  - [xahauwin.com](https://xahauwin.com)
   - [xahauexplorer.com](https://xahauexplorer.com)
   - [xahscan.com](https://xahscan.com)
   - [xahau.xrpl.org](https://xahau.xrpl.org)
