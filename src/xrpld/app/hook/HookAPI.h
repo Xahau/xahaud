@@ -360,6 +360,10 @@ public:
     Expected<uint64_t, HookReturnCode>
     etxn_fee_base(Slice const& txBlob) const;
 
+    // etxn_fee_base() for a txn that is already parsed
+    Expected<uint64_t, HookReturnCode>
+    etxn_fee_base_impl(STTx const& stpTrans) const;
+
     Expected<uint64_t, HookReturnCode>
     etxn_details(uint8_t* out_ptr) const;
 

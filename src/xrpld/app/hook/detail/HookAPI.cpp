@@ -790,7 +790,7 @@ HookAPI::emit(Slice const& txBlob) const
     }
 
     // rule 7 check the emitted txn pays the appropriate fee
-    int64_t minfee = etxn_fee_base(txBlob).value();
+    int64_t minfee = etxn_fee_base_impl(*stpTrans).value();
 
     if (minfee < 0)
     {
@@ -857,7 +857,6 @@ HookAPI::etxn_burden() const
 Expected<uint64_t, HookReturnCode>
 HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
 {
-    auto const& applyCtx = hookCtx.applyCtx;
     auto const& j = hookCtx.j;
 
     if (hookCtx.expected_etxn_count <= -1)
@@ -866,9 +865,27 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
     try
     {
         SerialIter sitTrans(txBlob);
-        std::unique_ptr<STTx const> stpTrans =
-            std::make_unique<STTx const>(std::ref(sitTrans));
+        STTx const stpTrans(sitTrans);
+        return etxn_fee_base_impl(stpTrans);
+    }
+    catch (std::exception const& e)
+    {
+        JLOG(j.trace()) << "HookInfo[" << HC_ACC()
+                        << "]: etxn_fee_base exception: " << e.what();
+        return Unexpected(INVALID_TXN);
+    }
+}
 
+// etxn_fee_base() for an already parsed txn; the caller has checked that
+// emission was reserved.
+Expected<uint64_t, HookReturnCode>
+HookAPI::etxn_fee_base_impl(STTx const& stpTrans) const
+{
+    auto const& applyCtx = hookCtx.applyCtx;
+    auto const& j = hookCtx.j;
+
+    try
+    {
         // fix20260929: the minimum fee decides whether emit() accepts the
         // txn, which is consensus-visible. Compute it against the view being
         // applied, not the node-local open ledger (whose hook definitions can
@@ -882,9 +899,9 @@ HookAPI::etxn_fee_base(ripple::Slice const& txBlob) const
         }
 
         if (!hookCtx.applyCtx.view().rules().enabled(fixHookAPI20251128))
-            return Transactor::calculateBaseFee(*feeView, *stpTrans).drops();
+            return Transactor::calculateBaseFee(*feeView, stpTrans).drops();
 
-        return invoke_calculateBaseFee(*feeView, *stpTrans).drops();
+        return invoke_calculateBaseFee(*feeView, stpTrans).drops();
     }
     catch (std::exception const& e)
     {
