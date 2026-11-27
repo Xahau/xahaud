@@ -1166,6 +1166,11 @@ SHAMap::writeNode(
 
     canonicalize(node->getHash(), node);
 
+    // A null node store keeps nothing, so serializing would be wasted; the
+    // tree stays resident through the cache canonicalized above.
+    if (f_.isNullBackend())
+        return node;
+
     Serializer s;
     node->serializeWithPrefix(s);
     f_.db().store(
